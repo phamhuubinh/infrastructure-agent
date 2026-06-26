@@ -1,16 +1,21 @@
-# Kiến trúc Trình Khám Phá
+# Discovery Engine Architecture
 
-## 1. Khái niệm Khám Phá
-Khám phá là quá trình thu thập thông tin từ môi trường để xây dựng một mô hình nội bộ về trạng thái hiện tại. Nó không chỉ dừng lại ở việc ghi lại dữ liệu mà còn phân tích mối liên hệ giữa các yếu tố để hình thành hiểu biết toàn diện.
+## 1. Discovery Concept
 
-## 2. Quan sát (Observation)
-Quan sát là bước đầu tiên, thu thập dữ liệu thô từ môi trường thông qua các nguồn như tệp tin, logs, hoặc tín hiệu hệ thống. Quá trình này không có giả định trước, đảm bảo thu thập tất cả tín hiệu có thể, dù có vẻ bất thường hay không.
+Discovery is the process of gathering information from the environment to build an internal representation of its current state. Its purpose is not only to collect raw data, but also to identify relationships, patterns, and context that improve the agent's understanding of the environment.
 
-## 3. Quá trình Biến Đổi Quan sát thành Kiến Thức
-Dữ liệu thô từ quan sát được xử lý để tạo thành kiến thức có cấu trúc. Các mẫu, mối liên hệ, và bất thường được phân tích để cập nhật mô hình nội bộ. Quá trình này không cố định, mà linh hoạt dựa trên các phát hiện mới.
+## 2. Observation
 
-## 4. Cập nhật Mô Hình Nội Bộ
-Mỗi phát hiện mới được tích hợp vào mô hình nội bộ, làm thay đổi cách hiểu về môi trường. Mô hình này không phải là một danh sách cứng nhắc, mà là một hệ thống động, phản ánh trạng thái hiện tại dựa trên dữ liệu mới.
+Observation is the first stage of the discovery process. It collects raw information from the environment without making assumptions or drawing conclusions. Every observation is treated as evidence that may contribute to a more accurate understanding of the system.
 
-## 5. Tại sao Khám Phá Là Quá Trình Lặp
-Khám phá không dựa trên danh sách kiểm tra cố định vì môi trường luôn thay đổi. Mỗi phát hiện mới có thể kích hoạt các hành động khác, dẫn đến việc khám phá sâu hơn. Quá trình lặp này cho phép hệ thống thích nghi với sự phức tạp và không chắc chắn của môi trường.
+## 3. From Observation to Knowledge
+
+Raw observations are transformed into structured knowledge by identifying entities, relationships, patterns, and anomalies. The resulting knowledge continuously extends or refines the agent's internal representation of the environment.
+
+## 4. Updating the Internal Model
+
+Every new discovery updates the internal model. Existing knowledge may be confirmed, refined, or replaced when new evidence becomes available. The internal model is therefore dynamic rather than static, reflecting the agent's current understanding instead of a fixed snapshot.
+
+## 5. Why Discovery Is an Iterative Process
+
+Discovery is an iterative process because every new piece of knowledge influences future observations. Instead of following a predefined checklist, the agent continuously adapts its exploration strategy based on its current understanding. This allows the discovery process to become increasingly accurate and context-aware over time.
