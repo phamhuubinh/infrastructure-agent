@@ -1,6 +1,0 @@
-
-## Mô tả chi tiết
-- Discovery Engine sử dụng SNMP và SSH để khám phá thiết bị
-- Data Processing Module phân tích thông tin từ các nguồn khác nhau
-- Communication Layer hỗ trợ giao thức REST và giao tiếp nội bộ
-- Storage Backend sử dụng cơ sở dữ liệu NoSQL để lưu trữ dữ liệu
