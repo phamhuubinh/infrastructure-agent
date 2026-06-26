@@ -21,7 +21,7 @@ The Knowledge Model is composed of:
 ## 4. Integration with the Discovery Process  
 The Knowledge Model is continuously updated through the Discovery Engine's iterative process:  
 1. **Observation**: Raw data is collected from the environment.  
-2. **Transformation**: Observations are analyzed to extract entities, relationships, and patterns.  
+2. **Transformation**: Observations are analyzed to extract entities, relationships, attributes, and patterns.  
 3. **Model Update**: The Knowledge Model is refined or expanded based on new insights, ensuring it reflects the most current understanding of the environment.  
 
 ## 5. Dependency of Planner and Executor  
