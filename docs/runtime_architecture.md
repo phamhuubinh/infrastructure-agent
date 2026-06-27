@@ -4,9 +4,20 @@
 
 The Runtime is the execution management layer of the autonomous agent.
 
-It provides a controlled and isolated execution environment in which Tools are executed after the Executor has selected the appropriate Capability and Tool.
+It provides a controlled, isolated, and deterministic execution environment in which Tools are executed after the Executor has decided what should run.
 
-The Runtime is responsible only for execution management. It never performs planning, reasoning, knowledge processing, or business logic.
+The Runtime is responsible only for execution management. It never performs planning, reasoning, business logic, knowledge processing, or capability selection.
+
+---
+
+## Purpose
+
+The Runtime separates **execution orchestration** from **execution management**.
+
+- The **Executor** decides what should be executed.
+- The **Runtime** manages how execution is performed safely, consistently, and predictably.
+
+This separation allows execution behavior to evolve independently without changing the Planner, Capability, Tool, or Knowledge Model.
 
 ---
 
@@ -14,72 +25,96 @@ The Runtime is responsible only for execution management. It never performs plan
 
 The Runtime is responsible for:
 
-- Preparing an execution environment.
-- Creating an Execution Context.
-- Creating an Execution Session.
-- Managing the execution lifecycle.
+- Preparing execution environments.
+- Creating Execution Contexts.
+- Creating Execution Sessions.
+- Managing execution lifecycle.
 - Isolating Tool execution.
-- Managing execution timeout.
-- Managing execution cancellation.
+- Enforcing execution constraints.
+- Managing timeouts.
+- Managing cancellations.
 - Collecting execution results.
-- Returning execution results to the Executor.
+- Returning structured results to the Executor.
 
 ---
 
-## Separation from the Executor
+## Responsibilities Outside the Runtime
 
-The Executor decides **what** should be executed.
+The Runtime must never:
 
-The Runtime manages **how execution is performed**.
-
-This separation ensures that execution behavior can evolve independently without affecting planning, capability resolution, or tool abstraction.
+- create Goals;
+- create Plans;
+- prioritize execution;
+- select Capabilities;
+- select Tools;
+- perform reasoning;
+- execute business logic;
+- update the Knowledge Model;
+- interpret execution results;
+- modify Tool behavior.
 
 ---
 
 ## Inputs
 
-- Tool execution request
-- Execution Context
-- Execution Session metadata
-- Execution constraints
+The Runtime receives:
+
+- Execution request.
+- Execution Context.
+- Execution Session metadata.
+- Execution constraints.
+- Tool invocation request.
+
+---
 
 ## Outputs
 
-- Structured execution results
-- Execution status
-- Error information
-- Runtime metadata
+The Runtime returns:
+
+- Structured execution result.
+- Execution state.
+- Runtime metadata.
+- Error information.
 
 ---
 
 ## Internal Architecture
 
 ### Execution Environment
-Provides an isolated environment for Tool execution.
+
+Provides the isolated environment required for Tool execution.
 
 ### Execution Context
-Stores temporary execution-specific information for one execution.
+
+Stores temporary execution information such as execution identifiers, runtime parameters and transient metadata. It exists only for one execution.
 
 ### Execution Session
-Groups related executions into one lifecycle.
+
+Groups one or more executions into a single execution lifecycle.
 
 ### Lifecycle Manager
-Controls execution state transitions.
+
+Controls execution state transitions from creation to completion.
 
 ### Isolation Manager
-Ensures Tool executions remain isolated.
+
+Ensures one execution cannot interfere with another execution.
 
 ### Timeout Manager
-Terminates executions that exceed configured limits.
+
+Detects and terminates executions that exceed configured limits.
 
 ### Cancellation Manager
-Safely stops active executions.
+
+Terminates active executions safely when cancellation is requested.
 
 ### Result Collector
-Collects execution outputs without interpreting them.
+
+Collects outputs produced during execution without interpreting them.
 
 ### Result Dispatcher
-Returns structured results to the Executor.
+
+Returns structured execution results to the Executor.
 
 ---
 
@@ -91,6 +126,8 @@ Returns structured results to the Executor.
 - Executing
 - Completing
 - Error
+
+---
 
 ## Execution States
 
@@ -106,14 +143,14 @@ Returns structured results to the Executor.
 
 ## Execution Lifecycle
 
-1. Receive execution request.
-2. Create Execution Context.
-3. Create Execution Session.
-4. Prepare Execution Environment.
-5. Execute Tool.
+1. Receive execution request from the Executor.
+2. Create an Execution Context.
+3. Create an Execution Session.
+4. Prepare the Execution Environment.
+5. Execute the Tool.
 6. Monitor timeout and cancellation.
-7. Collect execution results.
-8. Dispatch results to the Executor.
+7. Collect execution outputs.
+8. Dispatch structured results.
 9. Release execution resources.
 
 ---
@@ -126,23 +163,46 @@ The Runtime has no direct interaction with the Planner or the Knowledge Model.
 
 ---
 
-## Constraints
+## Execution Boundary
+
+The Runtime boundary begins when the Executor requests execution and ends when structured execution results are returned to the Executor.
+
+Everything outside this boundary belongs to other architectural components.
+
+---
+
+## Architectural Constraints
 
 The Runtime must:
 
 - manage execution only;
 - remain stateless between executions;
-- never perform planning;
-- never perform reasoning;
-- never execute business logic;
+- isolate every execution;
+- provide deterministic behavior;
 - remain replaceable;
-- provide deterministic execution.
+- avoid planning;
+- avoid reasoning;
+- avoid business logic.
+
+---
+
+## Design Principles
+
+- Separation of Concerns
+- Single Responsibility
+- Stateless Execution
+- Isolation
+- Deterministic Execution
+- Replaceability
+- Clear Execution Lifecycle
 
 ---
 
 ## Relationship with Planner
 
-No direct interaction.
+The Runtime has no direct relationship with the Planner.
+
+---
 
 ## Relationship with Executor
 
@@ -150,12 +210,28 @@ The Executor orchestrates execution.
 
 The Runtime manages execution.
 
+---
+
+## Relationship with Capability
+
+The Capability defines what operation should be executed.
+
+The Runtime does not select or modify Capabilities.
+
+---
+
 ## Relationship with Tool
 
 The Tool performs work.
 
-The Runtime manages the execution environment.
+The Runtime manages the environment in which the Tool executes.
+
+The Runtime never owns Tool logic.
+
+---
 
 ## Relationship with Knowledge Model
 
-The Runtime never updates the Knowledge Model directly.
+The Runtime never reads or updates the Knowledge Model directly.
+
+Execution results are returned to the Executor for subsequent processing.
