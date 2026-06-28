@@ -1,249 +1,240 @@
 # Capability Architecture
 
-## Definition of a Capability
+---
 
-A **Capability** is a high-level, abstract representation of a function or action that an agent can perform. It defines what the agent is *capable of doing* without specifying the underlying implementation (e.g., "send an email" or "analyze data"). A Capability is an abstraction layer above one or more **Tool** implementations, ensuring decoupling between the agent's logic and specific implementations.
+# Purpose
+
+Capability Architecture defines how the agent represents, discovers, resolves, and executes reusable capabilities.
+
+A Capability represents **what** the agent can do.
+
+A Tool represents **how** the capability is implemented.
+
+This separation decouples agent reasoning from implementation details while allowing Tool implementations to evolve independently.
 
 ---
 
-## Why a Capability is Different from a Tool
+# Architectural Principles
 
-A **Tool** is a concrete implementation (e.g., a specific API, library, or function) that performs a task. A **Capability** is an abstraction that encapsulates the *purpose* of the action, not the *implementation*. This separation allows for:
+The Capability Architecture is built on the following principles:
 
-- **Interchangeability**: Tools can be replaced without changing the agent's behavior.
-- **Consistency**: Capabilities provide a standardized interface for the Executor to interact with.
-- **Abstraction**: The Executor does not need to know the details of the Tool, only the Capability's purpose.
+* Capabilities are implementation-independent.
+* Planner selects Capabilities, never Tools.
+* Executor executes Capabilities, never Tools directly.
+* Tool implementations are replaceable.
+* Runtime remains independent of specific Tool implementations.
 
 ---
 
-## Why the Executor Executes Capabilities Instead of Directly Calling Tools
+# Core Concepts
 
-By executing **Capabilities**, the Executor decouples the agent's logic from specific implementations. This ensures:
+## Capability
 
-- **Interchangeability**: Tools can be replaced without altering the agent's behavior.
-- **Consistency**: Capabilities provide a standardized interface for the Executor to interact with.
-- **Abstraction**: The Executor does not need to know the details of the Tool, only the Capability's purpose.
+A Capability is a high-level abstraction representing an action the agent can perform.
+
+It defines the behavior of an operation without specifying its implementation.
+
+A Capability may be implemented by one or more Tool implementations.
 
 ---
 
 ## Capability Identity
 
-A **Capability Identity** is a unique identifier (e.g., `capability_id`) that distinguishes the Capability from others. It is used by the **Executor** to request the Capability and is essential for mapping to the appropriate **Tool Binding**.
+Each Capability owns a unique identity.
+
+The identity is used by the Runtime to resolve the appropriate executable implementation.
 
 ---
 
 ## Capability Contract
 
-The **Capability Contract** defines the expected behavior of the Capability independently of any Tool. It specifies:
+The Capability Contract defines the expected behavior of a Capability independently of any Tool implementation.
 
-- **Inputs**: The parameters required to execute the Capability.
-- **Outputs**: The structured result expected from the Capability.
-- **Behavior**: The logical steps or conditions the Capability must fulfill.
+The contract specifies:
 
-The Contract ensures consistency across different implementations and serves as a reference for validation and execution.
+* required inputs;
+* expected outputs;
+* behavioral guarantees.
 
 ---
 
 ## Capability Interface
 
-The **Capability Interface** is the **public-facing API** exposed by the Capability. It defines how the **Executor** interacts with the Capability, including:
+The Capability Interface defines the public interaction exposed by a Capability.
 
-- Method names and parameter types.
-- Expected return formats (structured, not implementation-specific).
-
-The Interface ensures that the Executor can request and use the Capability without knowing the underlying Tool.
+It specifies how Runtime components invoke the Capability without depending on Tool-specific implementations.
 
 ---
 
 ## Capability Metadata
 
-**Capability Metadata** provides descriptive information about the Capability, including:
+Capability Metadata provides descriptive information used for discovery and management.
 
-- **Name**: A human-readable identifier.
-- **Description**: A clear explanation of what the Capability does.
-- **Category**: A classification (e.g., "communication", "data processing").
-- **Tags**: Keywords for discovery and filtering.
-- **Version**: The current version of the Capability.
-- **Dependencies**: Other Capabilities or resources required.
-- **Required Permissions**: Authorization requirements for execution.
+Typical metadata includes:
 
-Metadata is used for **discovery**, **documentation**, and **versioning**, but does not include implementation details.
+* name;
+* description;
+* category;
+* tags;
+* version;
+* dependencies;
+* required permissions.
+
+Metadata never contains implementation logic.
 
 ---
 
 ## Capability Parameters
 
-**Capability Parameters** define the **input requirements** needed to execute the Capability. These include:
+Capability Parameters define the input requirements for executing a Capability.
 
-- **Data types**: The format and structure of input data.
-- **Constraints**: Rules or conditions that inputs must satisfy.
-- **Optional/Required fields**: Which parameters are mandatory or optional.
+Parameters include:
 
-Parameters are defined in the **Contract** and validated before execution.
+* data types;
+* validation constraints;
+* required fields;
+* optional fields.
 
 ---
 
 ## Capability Policy
 
-**Capability Policy** defines the rules and conditions under which the Capability can be executed. This includes:
+Capability Policy defines the conditions under which a Capability may be executed.
 
-- **Authorization rules**: Who is allowed to invoke the Capability.
-- **Usage limits**: Rate limits or quotas.
-- **Runtime conditions**: Conditions under which the Capability is available or restricted.
+Typical policies include:
 
-Policies are enforced by the **Resolver** and **Validation** components.
+* authorization;
+* usage limits;
+* runtime restrictions.
 
 ---
 
 ## Capability Validation
 
-**Capability Validation** ensures that **inputs** meet the **Contract** requirements. It prevents invalid or malformed requests from being processed. Validation checks include:
+Capability Validation verifies that execution requests satisfy the Capability Contract before execution.
 
-- **Type checking**: Ensuring inputs match expected data types.
-- **Constraint checking**: Verifying that inputs satisfy defined rules.
-- **Policy checking**: Enforcing authorization and usage limits.
+Validation includes:
 
-Validation is performed before execution to ensure correctness and compliance.
+* parameter validation;
+* constraint validation;
+* policy validation.
 
 ---
 
 ## Capability Resolver
 
-The **Capability Resolver** is a component that maps the **Capability Identity** to the appropriate **Tool Binding**. It selects the correct Tool based on:
+Capability Resolver maps a Capability to the appropriate executable Tool Binding.
 
-- **Identity**: The unique identifier of the Capability.
-- **Version**: The requested version of the Capability.
-- **Health**: The current status of the Capability (e.g., available, degraded).
-- **Policy**: Authorization and usage rules.
-- **Runtime conditions**: Dynamic factors affecting Tool selection.
+Resolution may consider:
 
-The Resolver ensures **discoverability**, **replacement**, and **versioning** of Tools.
+* capability identity;
+* version;
+* health;
+* policy;
+* runtime conditions.
 
 ---
 
 ## Tool Binding
 
-A **Tool Binding** is a link between the **Capability** and the **Tool** implementation. It defines how the **Resolver** selects and invokes the appropriate Tool for execution. Tool Bindings are managed by the **Resolver** and are used to:
+Tool Binding associates a Capability with one or more Tool implementations.
 
-- Map Capability requests to specific Tool implementations.
-- Handle versioning and replacement of Tools.
+Tool Bindings enable implementation replacement without changing Capability behavior.
 
 ---
 
 ## Capability Execution
 
-**Capability Execution** is the process of invoking the **Tool** using the validated **Parameters**. It is managed by the **Resolver** and **Tool Binding**. The execution process includes:
+Capability Execution invokes the Tool selected by the Resolver using validated parameters.
 
-- **Parameter passing**: Validated inputs are passed to the Tool.
-- **Tool invocation**: The Tool is executed according to the Capability Contract.
-- **Result generation**: The Tool returns a structured result.
-
-Execution is transparent to the Executor, which interacts only with the Capability Interface.
+Execution remains transparent to the Planner and Executor.
 
 ---
 
 ## Capability Result
 
-The **Capability Result** is the **output** generated by the **Tool** after execution. It is returned to the **Executor** as a structured response, independent of the Tool's implementation. The result includes:
-
-- **Status**: Success, failure, or partial success.
-- **Data**: The actual output of the Tool.
-- **Metadata**: Additional information (e.g., execution time, error details).
-
-The result is standardized and does not depend on the Tool's format (e.g., JSON, XML).
-
+Capability Result represents the standardized output returned after execution.
+Typical result information includes:
+* execution status;
+* output data;
+* execution metadata.
+Result structure remains independent of the underlying Tool implementation.
 ---
-
 ## Capability Health
-
-**Capability Health** is a status indicator that reflects the **availability** and **performance** of the Capability. Possible states include:
-
-- **Available**: The Capability is fully functional.
-- **Unavailable**: The Capability is not accessible or not functioning.
-- **Degraded**: The Capability is partially functional or performing below expected levels.
-- **Disabled**: The Capability is intentionally turned off.
-
-Health status is monitored by the **Resolver** and **Tool Binding**.
-
+Capability Health represents the operational status of a Capability.
+Typical states include:
+* Available
+* Degraded
+* Unavailable
+* Disabled
+Health information may influence Resolver decisions.
 ---
-
 ## Capability Versioning
-
-**Capability Versioning** is a mechanism to manage **changes** to the Capability over time. It ensures backward compatibility and allows for **replacement** of outdated implementations. Versioning includes:
-
-- **Version numbers**: (e.g., `v1.0`, `v2.0`).
-- **Deprecation policies**: Rules for retiring old versions.
-- **Compatibility guarantees**: Ensuring new versions can be used without breaking existing systems.
-
+Capability Versioning enables evolution of Capabilities while preserving compatibility.
+Versioning supports:
+* implementation replacement;
+* backward compatibility;
+* controlled deprecation.
 ---
-
 ## Capability Lifecycle
-
-The **Capability Lifecycle** defines the **stages** a Capability goes through, including:
-
-- **Created**: The Capability is defined and registered.
-- **Active**: The Capability is available for execution.
-- **Deprecated**: The Capability is no longer recommended for use.
-- **Retired**: The Capability is removed from the system.
-
-Lifecycle management is handled by the **Resolver** and **Tool Binding**.
-
+A Capability progresses through the following lifecycle:
+* Created
+* Active
+* Deprecated
+* Retired
+Lifecycle state determines operational availability.
 ---
-
 ## Capability Discovery
-
-**Capability Discovery** is the process of locating and identifying available Capabilities. It allows the **Executor** to dynamically find and use the appropriate Capability for a given task. Discovery is supported by:
-
-- **Metadata**: Used to search and filter Capabilities.
-- **Resolver**: Provides access to registered Capabilities.
-
+Capability Discovery enables Runtime components to locate available Capabilities using Capability Metadata.
+Discovery never performs execution.
 ---
-
 ## Capability Replacement
-
-**Capability Replacement** allows for the **substitution** of one Capability implementation with another without affecting the agent's behavior. Replacement is supported by:
-
-- **Resolver**: Selects the appropriate Tool Binding based on version, health, and policy.
-- **Versioning**: Ensures backward compatibility during transitions.
-
+Capability Replacement allows Tool implementations to change without affecting Planner or Executor behavior.
+Replacement is coordinated by the Capability Resolver.
 ---
-
-## Information Flow
-
-The **information flow** from the **Executor** requesting a Capability to the execution result being returned includes the following steps:
-
-1. **Executor Request**: The **Executor** sends a request to the **Capability** using its **Identity** and **Parameters**.
-2. **Contract Validation**: The **Capability Contract** checks if the **Parameters** meet the required **input specifications**.
-3. **Interface Resolution**: The **Capability Interface** determines how the **Executor** should interact with the Capability.
-4. **Metadata Retrieval**: The **Capability Metadata** provides **descriptive information** (e.g., version, author) to the **Executor**.
-5. **Parameter Validation**: The **Capability Validation** component ensures the **Parameters** are valid and conform to the **Contract**.
-6. **Resolver Mapping**: The **Capability Resolver** maps the **Identity** to the appropriate **Tool Binding** based on **versioning**, **health**, and **policy**.
-7. **Tool Execution**: The **Tool Binding** invokes the **Tool** with the validated **Parameters**.
-8. **Result Generation**: The **Tool** returns a **Result**, which is structured and returned to the **Executor**.
-9. **Health Monitoring**: The **Capability Health** component updates the **Resolver** on the **status** of the Capability.
-10. **Lifecycle Management**: The **Capability Lifecycle** component ensures the Capability is **active**, **deprecated**, or **retired** as needed.
-
+# Information Flow
+```text
+Planner
+      ↓
+Capability
+      ↓
+Capability Contract
+      ↓
+Capability Validation
+      ↓
+Capability Resolver
+      ↓
+Tool Binding
+      ↓
+Tool
+      ↓
+Capability Result
+      ↓
+Runtime
+```
 ---
-
-## Relationship with Executor
-
-The **Executor** interacts with the **Capability Interface** to request and execute actions. It does not need to know the underlying **Tool** implementation, only the **Capability's** behavior and parameters.
-
+# Relationships
+## Planner
+Planner selects Capabilities required to achieve execution goals.
+Planner never selects Tool implementations.
 ---
-
-## Relationship with Tool
-
-The **Tool** is bound to a **Capability** through the **Tool Binding**. The **Resolver** selects the appropriate **Tool** based on **versioning**, **health**, and **policy**. The **Tool** executes the action defined by the **Capability Contract**.
-
+## Executor
+Executor requests Capability execution through the Runtime.
+Executor never depends on Tool implementations.
 ---
-
-## Relationship with Planner
-
-The **Planner** uses **Capabilities** to define the **Plan** for the agent. It selects the appropriate **Capability** based on the **Plan's** requirements and **metadata**.
-
+## Runtime
+Runtime coordinates Capability execution and returns standardized execution results.
 ---
-
-## Relationship with Plan
-
-The **Plan** is a sequence of **Capabilities** that the agent must execute to achieve a goal. Each **Capability** in the **Plan** is selected based on its **metadata**, **contract**, and **availability**.
-
+## Tool
+Tools provide concrete implementations of Capabilities.
+Multiple Tools may implement the same Capability.
+---
+# Architectural Constraints
+The following constraints shall always hold:
+* Capability defines behavior, not implementation.
+* Tool defines implementation, not behavior.
+* Planner depends only on Capabilities.
+* Executor never invokes Tools directly.
+* Runtime performs execution through Capability resolution.
+* Tool implementations remain replaceable.
+* Components communicate only through defined architectural contracts.

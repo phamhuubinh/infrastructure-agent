@@ -1,52 +1,33 @@
-# Shared Model Specification
-
+# Model Specification
 # Model: LifecycleTransition
-
 ---
-
 # Purpose
-
 LifecycleTransition represents one immutable lifecycle transition between two execution states.
-
-Each transition records how the lifecycle changed during execution.
-
+It records how the execution lifecycle changes over time.
 ---
-
-# Fields
-
-| Field      | Type                     | Description                  |
-| ---------- | ------------------------ | ---------------------------- |
-| from_state | ExecutionState           | Previous lifecycle state     |
-| to_state   | ExecutionState           | New lifecycle state          |
-| timestamp  | float                    | Transition timestamp         |
-| metadata   | dict[str, object] | None | Optional transition metadata |
-
----
-
-# Constraints
-
-* Immutable.
-* Frozen dataclass.
-* Slots enabled.
-* No business logic.
-* No validation logic.
-* No helper methods.
-
----
-
 # Ownership
-
-LifecycleTransition belongs to the Runtime layer but is shared across Runtime components.
-
-It may be referenced by:
-
-* LifecycleManager
-* Runtime diagnostics
-
+LifecycleTransition is owned by the Shared layer.
 ---
-
-# Notes
-
-LifecycleTransition records historical lifecycle changes.
-
-It never represents the current lifecycle state.
+# Fields
+| Field      | Type               |
+|------------|--------------------|
+| from_state | ExecutionState     |
+| to_state   | ExecutionState     |
+| timestamp  | float              |
+| metadata   | dict[str, object] \| None |
+---
+# Constraints
+LifecycleTransition:
+- is immutable;
+- is implemented as a frozen dataclass;
+- uses slots;
+- contains no business logic;
+- contains no validation logic;
+- contains no helper methods.
+---
+# Relationships
+LifecycleTransition references:
+- ExecutionState
+LifecycleTransition is consumed by:
+- LifecycleManager
+- Runtime diagnostics

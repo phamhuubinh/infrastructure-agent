@@ -1,21 +1,83 @@
 # Discovery Engine Architecture
-
-## 1. Discovery Concept
-
-Discovery is the process of gathering information from the environment to build an internal representation of its current state. Its purpose is not only to collect raw data, but also to identify relationships, patterns, and context that improve the agent's understanding of the environment.
-
-## 2. Observation
-
-Observation is the first stage of the discovery process. It collects raw information from the environment without making assumptions or drawing conclusions. Every observation is treated as evidence that may contribute to a more accurate understanding of the system.
-
-## 3. From Observation to Knowledge
-
-Raw observations are transformed into structured knowledge by identifying entities, relationships, patterns, and anomalies. The resulting knowledge continuously extends or refines the agent's internal representation of the environment.
-
-## 4. Updating the Internal Model
-
-Every new discovery updates the internal model. Existing knowledge may be confirmed, refined, or replaced when new evidence becomes available. The internal model is therefore dynamic rather than static, reflecting the agent's current understanding instead of a fixed snapshot.
-
-## 5. Why Discovery Is an Iterative Process
-
-Discovery is an iterative process because every new piece of knowledge influences future observations. Instead of following a predefined checklist, the agent continuously adapts its exploration strategy based on its current understanding. This allows the discovery process to become increasingly accurate and context-aware over time.
+---
+# Purpose
+Discovery Architecture defines how the agent observes the environment, transforms observations into knowledge, and continuously refines its internal understanding.
+Discovery is responsible for building and maintaining an accurate representation of the environment.
+Implementation details belong to individual component specifications.
+---
+# Responsibilities
+Discovery Architecture is responsible for:
+* collecting observations from the environment;
+* transforming observations into structured knowledge;
+* identifying entities, relationships, and patterns;
+* updating the internal knowledge model;
+* supporting continuous environment exploration.
+Discovery Architecture must not:
+* perform planning;
+* execute actions;
+* modify Runtime state;
+* make implementation decisions.
+---
+# Core Concepts
+## Discovery
+Discovery is the continuous process of gathering information and improving the agent's understanding of the environment.
+Its objective is to produce structured knowledge rather than simply collecting raw data.
+---
+## Observation
+Observation is the entry point of the Discovery process.
+Observations collect raw evidence without interpretation or decision making.
+Every observation may contribute to future knowledge refinement.
+---
+## Knowledge Construction
+Observed information is transformed into structured knowledge by identifying:
+* entities;
+* relationships;
+* patterns;
+* anomalies.
+The resulting knowledge extends or refines the internal Knowledge Model.
+---
+## Knowledge Evolution
+The Knowledge Model is continuously updated as new evidence becomes available.
+Existing knowledge may be:
+* confirmed;
+* refined;
+* replaced.
+The model always represents the current understanding of the environment rather than a static snapshot.
+---
+## Iterative Discovery
+Discovery is inherently iterative.
+Each update to the Knowledge Model influences future observations and exploration priorities.
+The agent continuously adapts its discovery strategy as its understanding evolves.
+---
+# Information Flow
+```text
+Environment
+        ↓
+Observation
+        ↓
+Discovery
+        ↓
+Knowledge Construction
+        ↓
+Knowledge Model
+        ↓
+Future Discovery
+```
+The updated Knowledge Model guides subsequent discovery cycles.
+---
+# Relationships
+Discovery Architecture collaborates with:
+* knowledge_model.md
+* planner.md
+* runtime_architecture.md
+* shared_architecture.md
+Discovery provides knowledge to downstream components but does not perform planning or execution.
+---
+# Architectural Constraints
+The following constraints shall always hold:
+* Observations remain unbiased.
+* Discovery does not perform planning.
+* Discovery does not execute actions.
+* Knowledge evolves through evidence.
+* The Knowledge Model remains the single source of internal knowledge.
+* Discovery is continuous and iterative.

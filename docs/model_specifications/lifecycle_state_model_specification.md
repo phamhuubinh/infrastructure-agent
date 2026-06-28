@@ -1,52 +1,34 @@
-# Shared Model Specification
-
+# Model Specification
 # Model: LifecycleState
-
 ---
-
 # Purpose
-
-LifecycleState represents the current lifecycle status of a single execution.
-
-It is an immutable snapshot describing the execution lifecycle at a specific point in time.
-
+LifecycleState represents the current lifecycle state of a single execution.
+It provides an immutable snapshot of the execution lifecycle at a specific point in time.
 ---
-
-# Fields
-
-| Field     | Type                     | Description                             |
-| --------- | ------------------------ | --------------------------------------- |
-| state     | ExecutionState           | Current execution state                 |
-| timestamp | float                    | Timestamp when this state became active |
-| metadata  | dict[str, object] | None | Optional state metadata                 |
-
----
-
-# Constraints
-
-* Immutable.
-* Frozen dataclass.
-* Slots enabled.
-* No business logic.
-* No validation logic.
-* No helper methods.
-
----
-
 # Ownership
-
-LifecycleState belongs to the Runtime layer but is shared across Runtime components.
-
-It may be referenced by:
-
-* LifecycleManager
-* ResultCollector
-* Runtime diagnostics
-
+LifecycleState is owned by the Shared layer.
 ---
-
-# Notes
-
-LifecycleState represents only the current lifecycle snapshot.
-
-Lifecycle transition history is represented separately by LifecycleTransition.
+# Fields
+| Field     | Type               |
+|-----------|--------------------|
+| state     | ExecutionState     |
+| timestamp | float              |
+| metadata  | dict[str, object] \| None |
+---
+# Constraints
+LifecycleState:
+- is immutable;
+- is implemented as a frozen dataclass;
+- uses slots;
+- contains no business logic;
+- contains no validation logic;
+- contains no helper methods.
+---
+# Relationships
+LifecycleState references:
+- ExecutionState
+LifecycleState is consumed by:
+- LifecycleManager
+- LifecycleTransition
+- ResultCollector
+- Runtime diagnostics

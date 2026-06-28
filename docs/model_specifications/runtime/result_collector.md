@@ -1,31 +1,19 @@
 # Runtime Component Specification
-
 # Component: ResultCollector
-
 ---
-
 # Purpose
-
-ResultCollector is the Runtime component responsible for collecting the outcome of a single execution.
-
-It gathers execution outputs, execution errors, and runtime metadata, then assembles them into a consistent execution result.
-
-ResultCollector does not execute work and does not modify execution lifecycle state.
-
+ResultCollector collects the outcome of a single execution.
+It gathers execution output, execution errors, and runtime metadata, then assembles them into a consistent `ExecutionResult`.
+ResultCollector never executes work or modifies execution lifecycle state.
 ---
-
 # Responsibilities
-
 ResultCollector is responsible for:
-
-* Collecting execution output.
-* Collecting execution errors.
-* Collecting runtime metadata.
-* Producing a complete execution result.
-* Ensuring execution results are internally consistent.
-
+* collecting execution output;
+* collecting execution errors;
+* collecting runtime metadata;
+* assembling `ExecutionResult`;
+* ensuring execution result consistency.
 ResultCollector must not:
-
 * execute Tools;
 * manage lifecycle transitions;
 * schedule work;
@@ -33,106 +21,66 @@ ResultCollector must not:
 * perform retries;
 * perform planning;
 * perform reasoning.
-
 ---
-
 # Ownership
-
 ResultCollector owns:
-
 * execution output aggregation;
 * execution error aggregation;
 * execution result assembly.
-
 ResultCollector does not own:
-
 * execution lifecycle;
 * execution environment;
 * execution context;
 * execution session;
 * execution scheduling.
-
 ---
-
 # Dependencies
-
-ResultCollector depends on the following shared models:
-
+ResultCollector depends only on the shared models required for result assembly.
+Required models include:
 * ExecutionResult
 * RuntimeMetadata
-
 ResultCollector must never depend on:
-
 * Planner
 * Knowledge Model
 * Capability
 * Tool
 * Verification
-
 ---
-
 # Inputs
-
 ResultCollector receives:
-
 * execution reference;
 * execution output;
 * execution error;
 * runtime metadata.
-
 ---
-
 # Outputs
-
-ResultCollector produces:
-
-* immutable ExecutionResult.
-
+ResultCollector provides:
+* immutable `ExecutionResult`.
 ---
-
 # State
-
-ResultCollector manages only temporary aggregation state required to assemble a single execution result.
-
-After producing an ExecutionResult, no mutable state should remain.
-
+ResultCollector maintains only temporary aggregation state required to assemble one execution result.
+All mutable aggregation state shall be released after result assembly.
 ---
-
 # Constraints
-
-ResultCollector shall satisfy the following constraints:
-
-* Single result per execution.
-* Immutable execution result.
-* Deterministic result assembly.
-* No lifecycle management.
-* No business logic.
-* No planning logic.
-
+ResultCollector shall:
+* produce exactly one execution result per execution;
+* preserve `ExecutionResult` immutability;
+* perform deterministic result assembly;
+* perform no lifecycle management;
+* perform no business logic;
+* perform no planning.
 ---
-
-# Interaction with Other Components
-
+# Relationships
+## LifecycleManager
 LifecycleManager determines when an execution reaches a terminal state.
-
+---
+## ExecutionEnvironment
 ExecutionEnvironment provides runtime metadata.
-
-ResultCollector assembles the final ExecutionResult.
-
-ResultDispatcher is responsible for delivering the ExecutionResult to downstream consumers.
-
 ---
-
+## ResultDispatcher
+ResultDispatcher delivers the assembled `ExecutionResult`.
+ResultCollector never performs result dispatch.
+---
 # Failure Handling
-
-If result assembly fails, ResultCollector reports the failure to the Runtime.
-
-ResultCollector must never silently discard execution output or execution errors.
-
----
-
-# Notes
-
-This specification defines the architectural contract of ResultCollector.
-
-Implementation details, buffering strategy, synchronization mechanisms, and programming language constructs are intentionally left unspecified and belong to the implementation phase.
+ResultCollector is responsible only for failures occurring during result assembly.
+Execution output and execution errors shall never be silently discarded.

@@ -1,227 +1,144 @@
 # Verification Architecture
-
 ## Definition
-
-The Verification layer is responsible for determining whether execution results satisfy the expected outcomes defined by the system.
-
-It provides an isolated and deterministic validation process that evaluates execution outputs against predefined rules, contracts, expectations, and constraints.
-
-The Verification layer never performs planning, execution, capability selection, or knowledge reasoning.
-
+The Verification layer determines whether execution results satisfy the expected outcomes defined by the system.
+Verification provides an isolated, deterministic validation process that evaluates execution outputs against predefined rules, contracts, expectations, and constraints.
+Verification never performs planning, execution, capability selection, or knowledge reasoning.
 ---
-
 ## Purpose
-
-The Verification layer separates **execution** from **validation**.
-
-- The Runtime executes Tools.
-- The Verification layer determines whether the execution outcome is valid.
-
+The Verification layer separates execution from validation.
+* Runtime executes Tools.
+* Verification evaluates execution outcomes.
 This separation allows validation logic to evolve independently from execution logic.
-
 ---
-
 ## Responsibilities
-
 The Verification layer is responsible for:
-
-- Validating execution results.
-- Evaluating expected outcomes.
-- Applying verification rules.
-- Checking output schemas.
-- Checking constraints.
-- Measuring confidence.
-- Detecting inconsistencies.
-- Producing structured verification reports.
-- Returning verification results to the Executor.
-
----
-
-## Responsibilities Outside the Verification Layer
-
+* validating execution results;
+* evaluating expected outcomes;
+* applying verification rules;
+* validating schemas;
+* validating constraints;
+* measuring confidence;
+* detecting inconsistencies;
+* producing structured verification reports;
+* returning verification results.
 The Verification layer must never:
-
-- create Goals;
-- create Plans;
-- execute Tools;
-- select Capabilities;
-- select Tools;
-- perform planning;
-- perform reasoning;
-- modify execution results;
-- update the Knowledge Model;
-- retry execution;
-- repair execution failures.
-
+* create Goals;
+* create Plans;
+* execute Tools;
+* perform planning;
+* perform reasoning;
+* select Capabilities;
+* select Tools;
+* modify execution results;
+* retry execution;
+* repair execution failures;
+* update the Knowledge Model.
 ---
-
-## Inputs
-
-The Verification layer receives:
-
-- Structured execution result.
-- Expected result specification.
-- Verification rules.
-- Validation constraints.
-- Runtime metadata.
-
+## Architectural Principles
+The following principles shall always hold:
+* Verification validates only.
+* Runtime executes only.
+* Verification is deterministic.
+* Verification is replaceable.
+* Verification never modifies execution results.
 ---
-
-## Outputs
-
-The Verification layer returns:
-
-- Verification result.
-- Verification status.
-- Confidence score.
-- Verification metadata.
-- Validation errors.
-
----
-
-## Internal Architecture
-
+## Core Components
 ### Rule Engine
-
 Evaluates verification rules against execution results.
-
+---
 ### Schema Validator
-
-Checks output structure and required fields.
-
+Validates execution output structure and required fields.
+---
 ### Constraint Validator
-
-Verifies business and execution constraints.
-
+Evaluates execution and business constraints.
+---
 ### Consistency Checker
-
-Detects contradictions and inconsistent outputs.
-
+Detects contradictory or inconsistent execution results.
+---
 ### Confidence Evaluator
-
-Calculates confidence based on verification evidence.
-
+Calculates confidence from available verification evidence.
+---
 ### Evidence Collector
-
 Collects evidence supporting verification decisions.
-
+---
 ### Verification Report Generator
-
 Produces structured verification reports.
-
+---
 ### Result Dispatcher
-
-Returns verification results to the Executor.
-
+Returns structured verification results to the Executor.
 ---
-
-## Verification States
-
-- Pending
-- Validating
-- Verified
-- Rejected
-- Partial
-- Error
-
----
-
 ## Verification Lifecycle
-
 1. Receive execution result.
 2. Load verification rules.
-3. Validate schemas.
+3. Validate schema.
 4. Evaluate constraints.
 5. Check consistency.
 6. Calculate confidence.
 7. Generate verification report.
-8. Return structured verification result.
-
+8. Return verification result.
 ---
-
+## Verification States
+* Pending
+* Validating
+* Verified
+* Rejected
+* Partial
+* Error
+---
 ## Information Flow
-
-Planner → Plan → Executor → Runtime → Execution Result → Verification → Verification Report → Executor
-
-The Verification layer has no direct interaction with the Planner or the Knowledge Model.
-
+```text
+Planner
+      ↓
+Plan
+      ↓
+Executor
+      ↓
+Runtime
+      ↓
+Execution Result
+      ↓
+Verification
+      ↓
+Verification Report
+      ↓
+Executor
+```
+Verification has no direct interaction with the Planner or the Knowledge Model.
 ---
-
 ## Verification Boundary
-
-The Verification boundary begins when execution results become available and ends when a structured verification report is returned to the Executor.
-
+Verification begins when execution results become available.
+Verification ends when a structured verification result is returned to the Executor.
 Everything outside this boundary belongs to other architectural components.
-
 ---
-
-## Architectural Constraints
-
-The Verification layer must:
-
-- validate only;
-- remain deterministic;
-- remain replaceable;
-- avoid execution;
-- avoid planning;
-- avoid reasoning;
-- avoid modifying execution outputs.
-
+## Relationships
+### Runtime
+Runtime executes Tools.
+Verification validates Runtime outputs.
+Verification never controls Runtime behavior.
 ---
-
-## Design Principles
-
-- Separation of Concerns
-- Single Responsibility
-- Deterministic Validation
-- Replaceability
-- Immutable Verification
-- Structured Reporting
-
+### Executor
+Executor requests verification.
+Verification returns structured verification results.
 ---
-
-## Relationship with Planner
-
-The Verification layer has no direct relationship with the Planner.
-
----
-
-## Relationship with Executor
-
-The Executor requests verification.
-
-The Verification layer validates execution results.
-
----
-
-## Relationship with Runtime
-
-The Runtime executes Tools.
-
-The Verification layer validates Runtime outputs.
-
-The Verification layer never controls Runtime behavior.
-
----
-
-## Relationship with Capability
-
+### Capability
 Capabilities define expected behavior.
-
-The Verification layer evaluates whether observed behavior satisfies those expectations.
-
+Verification determines whether observed behavior satisfies those expectations.
 ---
-
-## Relationship with Tool
-
+### Tool
 Tools produce execution outputs.
-
-The Verification layer never executes or modifies Tools.
-
+Verification never executes or modifies Tools.
 ---
-
-## Relationship with Knowledge Model
-
-The Verification layer never updates the Knowledge Model directly.
-
-Verified results are returned to the Executor for subsequent processing.
+### Knowledge Model
+Verification never reads or updates the Knowledge Model directly.
+Verified execution results are returned to the Executor for subsequent processing.
+---
+## Architectural Constraints
+The following constraints shall always hold:
+* Verification validates only.
+* Verification never executes Tools.
+* Verification never performs planning.
+* Verification never performs reasoning.
+* Verification never modifies execution results.
+* Verification remains deterministic.
+* Verification remains replaceable.
+* Components communicate only through defined architectural contracts.

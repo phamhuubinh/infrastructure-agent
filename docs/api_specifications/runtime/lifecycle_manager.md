@@ -1,180 +1,69 @@
 # Runtime API Specification
-
 # Component: LifecycleManager
-
 ---
-
 # Purpose
-
-This document defines the public API contract for the Runtime LifecycleManager.
-
-It specifies the externally visible interface required by the Runtime Architecture while leaving implementation details unspecified.
-
+This document defines the public API contract for `LifecycleManager`.
+LifecycleManager manages the lifecycle of a single execution.
 ---
-
-# Managed State
-
-LifecycleManager manages exactly one execution lifecycle.
-
-The managed state consists of:
-
-* current execution state;
-* lifecycle transition history.
-
-LifecycleManager does not own execution results or runtime resources.
-
----
-
 # Public Operations
-
-LifecycleManager exposes the following operations:
-
-* initialize
-* transition
-* get_state
-* get_history
-* is_terminal
-
-The exact programming language syntax is implementation-specific.
-
----
-
-# Operation Semantics
-
-## initialize
-
-Creates the initial lifecycle for an execution.
-
-May only be called once.
-
----
-
-## transition
-
-Attempts to move the execution to another valid lifecycle state.
-
-Invalid transitions must be rejected without modifying the current state.
-
----
-
-## get_state
-
-Returns the current execution lifecycle state.
-
-The returned value must not expose mutable internal state.
-
----
-
-## get_history
-
-Returns the ordered lifecycle transition history.
-
-The returned history must be immutable.
-
----
-
-## is_terminal
-
-Returns whether the execution has reached a terminal lifecycle state.
-
----
-
-# Invariants
-
-The following conditions must always hold:
-
-* only one current execution state exists;
-* transition history is append-only;
-* terminal states cannot transition further;
-* lifecycle state is always valid.
-
----
-
-# Error Handling
-
-LifecycleManager must explicitly report invalid lifecycle transitions.
-
-Errors must never silently modify lifecycle state.
-
----
-
-# Return Values
-
-Query operations return immutable snapshots.
-
-Mutation operations either:
-
-* complete successfully; or
-* fail without observable partial updates.
-
----
-
-# Thread Safety
-
-Thread-safety requirements are implementation-specific.
-
-The public API must remain deterministic regardless of the underlying synchronization strategy.
-
----
-
-# Notes
-
-This document defines only the public API contract.
-
-Class structure, method signatures, exceptions, synchronization primitives, and internal storage remain implementation decisions.
-
-# Public Method Signatures
-
-The LifecycleManager shall expose the following public operations.
-
-```
+```text
 initialize(execution_reference: str) -> None
-
 transition(
     requested_state: ExecutionState,
-    metadata: dict[str, object] | None = None
+    metadata: dict[str, object] | None = None,
 ) -> ExecutionState
-
 get_state() -> ExecutionState
-
 get_history() -> tuple[LifecycleTransition, ...]
 
 is_terminal() -> bool
 ```
-
-The exact implementation language syntax may differ, but the semantic contract shall remain identical.
-
+No other public operations are defined.
 ---
-
-# Internal State
-
-LifecycleManager maintains the following internal state:
-
-* current execution state;
-* ordered transition history.
-
-No additional mutable state shall be introduced unless required by the Runtime Architecture.
-
+# Inputs
+Operations may receive:
+* execution reference;
+* requested execution state;
+* transition metadata.
+Inputs shall not be modified.
 ---
-
+# Return Value
+Operations return:
+* `ExecutionState`;
+* `tuple[LifecycleTransition, ...]`;
+* `bool`;
+* `None`;
+depending on the invoked operation.
+Returned objects shall not expose mutable internal state.
+---
+# Operation Semantics
+## initialize
+Creates the initial execution lifecycle.
+May only be called once.
+---
+## transition
+Attempts to transition to the requested execution state.
+Invalid transitions shall raise `ValueError`.
+The current lifecycle state shall remain unchanged if the transition fails.
+---
+## get_state
+Returns the current execution state.
+The returned value shall not expose mutable internal state.
+---
+## get_history
+Returns an immutable lifecycle transition history.
+---
+## is_terminal
+Returns whether the current execution state is terminal.
+---
 # Error Contract
-
-Invalid lifecycle transitions shall raise a ValueError.
-
-The current lifecycle state must remain unchanged after a failed transition.
-
-No partial updates are permitted.
-
+Invalid lifecycle transitions shall raise `ValueError`.
+Failed operations shall not partially modify lifecycle state.
 ---
-
 # Implementation Constraints
-
 The implementation shall:
-
-* use only Python standard library and shared execution models;
+* use only the Python standard library and shared execution models;
+* preserve the public API;
 * avoid placeholder implementations;
 * avoid TODO/FIXME markers;
 * avoid unused imports;
-* avoid introducing additional Runtime abstractions that are not specified.
-
-Additional Runtime data structures require their own specification before implementation.
+* avoid introducing unspecified Runtime abstractions.

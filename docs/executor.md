@@ -1,142 +1,133 @@
 # Executor Architecture
-
-## Definition
-The Executor is a system component responsible for executing tasks defined in a plan. It operates as a distinct layer from the Planner, ensuring separation of concerns between planning and execution. The Executor receives a sequence of tasks from the Planner and executes them, returning results, logs, and status updates.
-
 ---
-
-## Responsibilities
-The Executor is responsible for:
-- Executing tasks defined in a plan.
-- Managing execution context, session, and resource allocation.
-- Tracking task states and collecting results.
-- Handling errors, retries, timeouts, and cancellations.
-- Providing feedback to the Knowledge Model for learning and improvement.
-
+# Purpose
+Executor Architecture defines how execution requests are transformed into completed task results.
+The Executor is responsible for executing plans produced by the Planner while remaining completely independent from planning decisions.
+Implementation details belong to component specifications.
 ---
-
-## Separation from Planner
-The Executor must be separated from the Planner to:
-- Maintain a clear division of responsibilities: the Planner focuses on decision-making and plan creation, while the Executor focuses on execution.
-- Improve modularity, scalability, and maintainability.
-- Avoid overlap in functionality, ensuring the Planner does not execute tasks and the Executor does not make planning decisions.
-
+# Responsibilities
+Executor Architecture is responsible for:
+* executing planned tasks;
+* managing execution sessions and execution context;
+* coordinating capability execution;
+* tracking execution state;
+* collecting execution results;
+* handling failures;
+* providing execution feedback.
+Executor Architecture must not:
+* create plans;
+* modify plans;
+* perform reasoning;
+* update the Knowledge Model directly.
 ---
-
-## Inputs
-The Executor receives the following from the Planner:
-- A **plan**, which is a sequence of tasks or steps to be executed.
-- Metadata such as task dependencies, execution order, and constraints.
-
+# Architectural Principles
+The following principles shall always hold:
+* Planner creates plans.
+* Executor executes plans.
+* Planning and execution remain independent.
+* Execution components own execution only.
+* Feedback is produced after execution completes.
 ---
-
-## Outputs
-The Executor returns the following to the Planner or other systems:
-- **Execution results** (e.g., success/failure status, output data, logs).
-- **Error details** (e.g., exception messages, stack traces).
-- **Feedback** for the Knowledge Model (e.g., performance metrics, execution logs).
-
+# Core Components
+## Capability Registry
+Maintains the set of executable Capabilities available to the Executor.
 ---
-
-## Internal Architecture
-
-### Capability Registry
-A central repository that maintains a list of all available capabilities (e.g., actions, tools, or functions) that the Executor can execute. It maps capability names to their corresponding implementation classes or modules.
-
-### Capability Resolution
-Resolves dynamic capability requirements (e.g., selecting the correct API endpoint or tool based on runtime conditions). It interacts with the Capability Registry to find the most appropriate implementation for a task.
-
-### Action Dispatcher
-Receives a plan from the Planner and routes each task to the appropriate capability in the Capability Registry. It initializes the Execution Context for each task before dispatching it to the Execution Engine.
-
-### Execution Context
-Stores runtime-specific information (e.g., environment variables, user credentials, session tokens) required for executing tasks. It provides this context to the Execution Engine during task execution.
-
-### Execution Session
-Manages a group of related tasks as a single unit (e.g., a multi-step workflow). It tracks session metadata (e.g., start time, session ID) and ensures tasks within the session are executed in a coordinated manner.
-
-### Execution Engine
-Executes the actual work defined by a task. It interacts with external systems, APIs, or processes to perform the required action.
-
-### State Tracking
-Monitors and records the current state of each task (e.g., "pending," "in progress," "completed," "failed"). It provides real-time visibility into the execution process.
-
-### Result Collection
-Aggregates the outputs or results of executed tasks (e.g., return values, logs, or error messages). It ensures all results are captured and made available for further processing or feedback.
-
-### Result Validation
-Validates the output of executed tasks against predefined rules (e.g., data format, success criteria). It ensures results are trustworthy before they are passed to Result Collection or the Knowledge Model.
-
-### Error Handling
-Detects and processes errors or exceptions during execution. It may log the error, notify stakeholders, or trigger recovery mechanisms.
-
-### Retry Engine
-Automatically retries failed tasks based on predefined rules (e.g., number of retries, delay between retries). It increases reliability by handling transient failures without manual intervention.
-
-### Timeout Handling
-Enforces time limits on tasks to prevent indefinite execution. If a task exceeds its timeout, it is terminated or marked as failed.
-
-### Cancellation
-Allows external systems (e.g., the Planner or user interface) to interrupt ongoing tasks. It provides flexibility to abort tasks that are no longer needed or have become invalid.
-
-### Resource Management
-Allocates and monitors system resources (e.g., memory, CPU, network bandwidth) required for task execution. It ensures resources are available before a task starts and released after completion.
-
-### Event Bus
-A centralized communication channel that allows components to publish and subscribe to events (e.g., "task started," "task failed," "session completed"). It enables real-time coordination between components.
-
-### Rollback
-Reverts changes made by failed tasks to restore the system to a previous state. It uses execution logs and state tracking to undo operations.
-
+## Capability Resolution
+Maps Capabilities to executable implementations according to Runtime conditions.
 ---
-
-## Execution Lifecycle
-1. **Initialization**: The Action Dispatcher creates an Execution Session and initializes the Execution Context for the plan.
-2. **Dispatching**: The Action Dispatcher routes tasks to the Execution Engine via Capability Resolution.
-3. **Execution**: The Execution Engine performs the task, using the Execution Context and resources managed by Resource Management.
-4. **State Tracking**: The Execution Engine updates the task's state in State Tracking.
-5. **Result Collection**: The Execution Engine sends results to Result Collection.
-6. **Validation**: Result Validation checks the output against predefined rules.
-7. **Feedback**: Validated results are sent to the Knowledge Model for learning and improvement.
-8. **Error Handling**: If errors occur, Error Handling may trigger Retry Engine, Timeout Handling, or Rollback.
-9. **Completion**: The Execution Session is closed, and final results are returned to the Planner.
-
+## Action Dispatcher
+Dispatches execution requests to the appropriate execution pipeline.
 ---
-
-## Information Flow
-- **Planner → Executor**: The Planner sends a plan (sequence of tasks) to the Executor.
-- **Executor → Capability Registry**: The Action Dispatcher queries the Capability Registry to verify available capabilities.
-- **Action Dispatcher → Execution Engine**: The Action Dispatcher routes tasks to the Execution Engine.
-- **Execution Engine → State Tracking**: The Execution Engine updates the task's state.
-- **Execution Engine → Result Collection**: The Execution Engine sends task results to Result Collection.
-- **Result Collection → Feedback to Knowledge Model**: Aggregated results are sent to the Knowledge Model.
-- **Error Handling → Retry Engine / Timeout Handling**: Error Handling may trigger retries or timeout mechanisms.
-- **Cancellation → Execution Engine**: A cancellation request is forwarded to the Execution Engine.
-- **Timeout Handling → Execution Engine**: Timeout Handling signals the Execution Engine to terminate a task.
-- **Event Bus → All components**: Events are published and subscribed to by components for real-time coordination.
-
+## Execution Context
+Maintains runtime-specific execution information.
 ---
-
-## Feedback to the Knowledge Model
-The Executor sends execution results, errors, and performance metrics back to the Knowledge Model. This feedback enables the system to improve over time by incorporating real-world execution data into its learning process.
-
+## Execution Session
+Coordinates a group of related execution requests.
 ---
-
-## Relationship with Planner
-- The Planner provides the Executor with a plan (sequence of tasks).
-- The Executor returns execution results, logs, and status updates to the Planner.
-- The Planner does not execute tasks; it only creates and sends plans to the Executor.
-
+## Execution Engine
+Performs the actual execution of a Capability.
 ---
-
-## Relationship with Plan
-- The Executor executes the tasks defined in a plan.
-- The plan defines the order, dependencies, and constraints for task execution.
-- The Executor does not modify the plan; it only executes it as provided.
-
+## State Tracking
+Maintains execution state throughout the execution lifecycle.
 ---
+## Result Collection
+Collects execution outputs produced by the Execution Engine.
+---
+## Result Validation
+Validates execution results before they are consumed by downstream components.
+---
+## Error Handling
+Processes execution failures.
+---
+## Retry Engine
+Retries failed executions according to Runtime policy.
+---
+## Timeout Handling
+Enforces execution time limits.
+---
+## Cancellation
+Terminates active executions when requested.
+---
+## Resource Management
+Allocates and releases execution resources.
+---
+## Event Bus
+Coordinates execution events between Runtime components.
+---
+## Rollback
+Restores system consistency after execution failures when supported.
+---
+# Execution Flow
+```text
+Planner
+      ↓
+Action Dispatcher
+      ↓
+Capability Resolution
+      ↓
+Execution Engine
+      ↓
+State Tracking
+      ↓
+Result Collection
+      ↓
+Result Validation
+      ↓
+Knowledge Model
+```
+Failure path:
 
-## Relationship with Knowledge Model
-- The Executor sends execution results, errors, and performance metrics to the Knowledge Model.
-- The Knowledge Model uses this feedback to update its understanding of the system and improve future planning and execution.
-- The Executor does not make decisions based on the Knowledge Model; it only provides data for learning.
+```text
+Execution Engine
+        ↓
+Error Handling
+        ↓
+Retry / Timeout / Rollback
+```
+---
+# Relationships
+## Planner
+Planner produces execution plans.
+Executor executes those plans without modification.
+---
+## Capability Architecture
+Executor executes Capabilities through the Runtime.
+Executor never depends on Tool implementations directly.
+---
+## Runtime
+Runtime provides the execution infrastructure required by the Executor.
+---
+## Knowledge Model
+Executor provides execution feedback to the Knowledge Model after execution completes.
+Executor never performs learning.
+---
+# Architectural Constraints
+The following constraints shall always hold:
+* Planner never performs execution.
+* Executor never performs planning.
+* Execution Context belongs to Runtime.
+* Execution Session coordinates execution only.
+* Result Collection never validates execution policy.
+* Validation occurs before results are consumed.
+* Runtime owns execution lifecycle management.
+* Components communicate only through defined architectural contracts.

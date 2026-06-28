@@ -1,98 +1,61 @@
 # Runtime Component Specification
-
 # Component: TransitionPolicy
-
 ---
-
 # Purpose
-
-TransitionPolicy is responsible for determining whether a lifecycle
-transition is allowed.
-
-It centralizes lifecycle transition rules and prevents Runtime
-components from embedding transition logic directly.
-
-TransitionPolicy contains validation rules only.
-
-It never mutates execution state.
-
+TransitionPolicy validates lifecycle state transitions.
+It centralizes lifecycle transition rules and performs no Runtime state mutation.
 ---
-
 # Responsibilities
-
-- Validate lifecycle transitions.
-- Define legal execution state changes.
-- Reject illegal transitions.
-- Provide deterministic validation.
-
+TransitionPolicy is responsible for:
+* validating lifecycle transitions;
+* defining allowed execution state changes;
+* rejecting invalid transitions;
+* providing deterministic validation.
 TransitionPolicy must not:
-
-- modify lifecycle state;
-- update timestamps;
-- record transition history;
-- execute runtime operations.
-
+* modify lifecycle state;
+* record transition history;
+* manage timestamps;
+* perform Runtime operations.
 ---
-
 # Ownership
-
 TransitionPolicy owns:
-
-- lifecycle transition rules.
-
-It does not own:
-
-- execution state;
-- lifecycle history;
-- runtime metadata.
-
+* lifecycle transition rules.
+TransitionPolicy does not own:
+* execution state;
+* lifecycle history;
+* runtime metadata.
 ---
-
 # Dependencies
-
-Depends only on:
-
-- ExecutionState
-
+TransitionPolicy depends only on the shared models required for lifecycle validation.
+Required models include:
+* ExecutionState
 ---
-
 # Inputs
-
-- current execution state;
-- requested execution state.
-
+TransitionPolicy receives:
+* current execution state;
+* requested execution state.
 ---
-
 # Outputs
-
-- boolean transition result.
-
+TransitionPolicy provides:
+* validation result (`bool`).
 ---
-
-# Public Interface
-
-TransitionPolicy exposes:
-
-can_transition()
-
-No other public operations are defined.
-
+# State
+TransitionPolicy maintains no Runtime state.
 ---
-
 # Constraints
-
-- Stateless.
-- Deterministic.
-- No side effects.
-- No Runtime state.
-- No timestamps.
-- Transition rules shall remain centralized in TransitionPolicy.
-- Runtime components must not duplicate transition validation logic.
-
+TransitionPolicy shall:
+* remain stateless;
+* perform deterministic validation;
+* contain no side effects;
+* perform no lifecycle mutation;
+* perform no timestamp handling;
+* ensure Runtime components do not duplicate lifecycle validation logic.
 ---
-
-# Notes
-
+# Relationships
+## LifecycleManager
 LifecycleManager delegates lifecycle validation to TransitionPolicy.
-
-TransitionPolicy contains only policy logic.
+TransitionPolicy never modifies lifecycle state.
+---
+# Failure Handling
+Invalid lifecycle transitions are represented by a validation failure.
+TransitionPolicy never raises exceptions or modifies Runtime state.
