@@ -118,6 +118,27 @@ Returns structured execution results to the Executor.
 
 ---
 
+## Shared Runtime Models
+
+The Runtime uses the shared execution models defined in:
+
+- `docs/models/execution_models.md`
+
+This document is the authoritative specification for:
+
+- ExecutionState
+- ExecutionContext
+- ExecutionSession
+- ExecutionConstraints
+- RuntimeMetadata
+- ExecutionResult
+
+The Runtime Architecture describes responsibilities and execution flow.
+
+The complete model definitions are maintained separately in the shared model specification.
+
+---
+
 ## Runtime States
 
 - Idle

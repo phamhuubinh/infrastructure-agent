@@ -97,3 +97,18 @@ One commit = one logical change.
 
 These standards ensure a consistent, maintainable, and
 architecture-driven codebase.
+
+## Architecture Compliance
+
+Architecture documents and model specification documents are the only Source of Truth.
+
+AI implementations must never invent:
+
+- fields
+- enums
+- model relationships
+- helper structures
+
+If required information is missing, implementation must stop and request an architecture update.
+
+Implementation always follows the model specification exactly.

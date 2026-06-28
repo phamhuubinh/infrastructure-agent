@@ -193,3 +193,19 @@ Autonomous Agent. By centralizing reusable models and contracts, it
 reduces coupling, prevents duplicated definitions, and allows each
 architectural component to focus solely on its own responsibilities
 while communicating through shared, stable abstractions.
+
+------------------------------------------------------------------------
+
+## Shared Model Specifications
+
+Shared owns the reusable model definitions used across architectural modules.
+
+Model specifications are maintained separately under:
+
+- `docs/models/`
+
+Each architecture document references the model specification that it uses.
+
+Implementations must follow the model specification exactly.
+
+If a model is missing from the specification, implementation must stop until the specification is updated.
