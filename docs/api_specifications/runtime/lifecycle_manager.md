@@ -36,6 +36,7 @@ depending on the invoked operation.
 Returned objects shall not expose mutable internal state.
 ---
 # Operation Semantics
+The runtime behavior of all operations is defined by the Runtime Behavior Specification.
 ## initialize
 Creates the initial execution lifecycle in the CREATED state.
 May only be called once.
