@@ -5,8 +5,7 @@ class TransitionPolicy:
     """
     TransitionPolicy determines whether a lifecycle transition is allowed.
 
-    This class contains no state and performs no mutation. It only validates
-    transitions between ExecutionState values.
+    This class implements the policy defined in the Runtime Behavior Specification.
     """
 
     @staticmethod
@@ -17,6 +16,8 @@ class TransitionPolicy:
         """
         Validate whether a transition from current_state to requested_state is allowed.
 
+        This method performs pure policy evaluation and has no side effects.
+
         Args:
             current_state: The current execution state.
             requested_state: The state being requested.
@@ -25,7 +26,8 @@ class TransitionPolicy:
             True if the transition is allowed, False otherwise.
         """
 
-        # Define allowed transitions
+        # The allowed transitions are defined in the Runtime Behavior Specification:
+        # docs/runtime_behavior/execution_state_transition_table.md
         allowed_transitions = {
             ExecutionState.CREATED: {ExecutionState.READY},
             ExecutionState.READY: {ExecutionState.RUNNING},
