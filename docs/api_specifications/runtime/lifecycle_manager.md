@@ -37,12 +37,12 @@ Returned objects shall not expose mutable internal state.
 ---
 # Operation Semantics
 ## initialize
-Creates a lifecycle in the CREATED execution state.
-Creates the initial execution lifecycle.
+Creates the initial execution lifecycle in the CREATED state.
 May only be called once.
 ---
 ## transition
 Attempts to transition to the requested execution state.
+A successful transition shall be recorded in the lifecycle history.
 Returns the resulting execution state after a successful transition.
 Invalid transitions shall raise `ValueError`.
 The current lifecycle state shall remain unchanged if the transition fails.
@@ -53,6 +53,7 @@ The returned value shall not expose mutable internal state.
 ---
 ## get_history
 Returns an immutable lifecycle transition history.
+The returned history contains every successful lifecycle transition.
 History is ordered chronologically from oldest to newest.
 ---
 ## is_terminal

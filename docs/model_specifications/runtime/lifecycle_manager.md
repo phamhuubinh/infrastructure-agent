@@ -64,12 +64,14 @@ LifecycleManager never produces execution results.
 ---
 # State
 LifecycleManager manages only execution states defined by the shared execution models.
+LifecycleManager maintains the current execution state and the lifecycle transition history.
 It shall never introduce additional lifecycle states.
 ---
 # State Transitions
 Each requested transition is either:
 * accepted and fully applied; or
 * rejected without modifying the current lifecycle.
+Each successful transition shall append exactly one LifecycleTransition to the lifecycle history.
 Terminal states shall not transition further.
 ---
 # Constraints
@@ -99,3 +101,4 @@ LifecycleManager never produces or modifies execution results.
 LifecycleManager is responsible only for lifecycle state changes caused by failures.
 Failure detection belongs to other Runtime components.
 LifecycleManager records the resulting lifecycle state but never determines failure causes.
+Rejected transitions shall not modify the lifecycle history.
