@@ -38,6 +38,22 @@ Production code belongs in `src/`.
 
 Use type hints for all public APIs. Avoid `Any` whenever possible.
 
+Use Python 3.12 built-in generic types.
+
+Prefer:
+
+- dict
+- list
+- tuple
+- set
+
+Avoid importing:
+
+- Dict
+- List
+- Tuple
+- Set
+
 ## 6. Data Models
 
 Prefer `@dataclass`. Use immutable models (`frozen=True`) where
@@ -112,3 +128,20 @@ AI implementations must never invent:
 If required information is missing, implementation must stop and request an architecture update.
 
 Implementation always follows the model specification exactly.
+
+## Imports
+
+Always remove unused imports.
+
+Always import every referenced symbol.
+
+Never leave unresolved names.
+
+Project imports must never use:
+
+src.*
+
+Imports must satisfy:
+
+- No unused imports.
+- No unresolved imported names.
