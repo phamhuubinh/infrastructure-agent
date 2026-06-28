@@ -122,3 +122,59 @@ The public API must remain deterministic regardless of the underlying synchroniz
 This document defines only the public API contract.
 
 Class structure, method signatures, exceptions, synchronization primitives, and internal storage remain implementation decisions.
+
+# Public Method Signatures
+
+The LifecycleManager shall expose the following public operations.
+
+```
+initialize(execution_reference: str) -> None
+
+transition(
+    requested_state: ExecutionState,
+    metadata: dict[str, object] | None = None
+) -> ExecutionState
+
+get_state() -> ExecutionState
+
+get_history() -> tuple[LifecycleTransition, ...]
+
+is_terminal() -> bool
+```
+
+The exact implementation language syntax may differ, but the semantic contract shall remain identical.
+
+---
+
+# Internal State
+
+LifecycleManager maintains the following internal state:
+
+* current execution state;
+* ordered transition history.
+
+No additional mutable state shall be introduced unless required by the Runtime Architecture.
+
+---
+
+# Error Contract
+
+Invalid lifecycle transitions shall raise a ValueError.
+
+The current lifecycle state must remain unchanged after a failed transition.
+
+No partial updates are permitted.
+
+---
+
+# Implementation Constraints
+
+The implementation shall:
+
+* use only Python standard library and shared execution models;
+* avoid placeholder implementations;
+* avoid TODO/FIXME markers;
+* avoid unused imports;
+* avoid introducing additional Runtime abstractions that are not specified.
+
+Additional Runtime data structures require their own specification before implementation.
