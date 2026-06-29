@@ -1,5 +1,5 @@
-from enum import Enum
 from src.shared.execution.execution_state import ExecutionState
+
 
 class TransitionPolicy:
     """

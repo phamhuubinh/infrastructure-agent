@@ -68,12 +68,7 @@ def test_history_is_immutable(manager: LifecycleManager) -> None:
     history = manager.get_history()
 
     assert isinstance(history, tuple)
-
-    history = manager.get_history()
-
-
-assert isinstance(history, tuple)
-assert len(history) == 0
+    assert len(history) == 0
 
 
 def test_transition_records_metadata(
@@ -105,3 +100,7 @@ def test_non_terminal_state_returns_false(
     manager: LifecycleManager,
 ) -> None:
     assert manager.is_terminal() is False
+
+
+def abc(a, b, c):
+    return a + b + c
