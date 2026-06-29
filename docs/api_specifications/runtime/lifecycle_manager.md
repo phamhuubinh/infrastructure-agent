@@ -5,6 +5,9 @@
 This document defines the public API contract for `LifecycleManager`.
 LifecycleManager manages the lifecycle of a single execution.
 ---
+# Construction
+LifecycleManager instances are created before initialize() is invoked.
+---
 # Public Operations
 ```text
 initialize(execution_reference: str) -> None
