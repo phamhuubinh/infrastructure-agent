@@ -1,5 +1,5 @@
 .aider*
-__pycache__
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -9,4 +9,10 @@ __pycache__
 *.bak
 *.swp
 *.tmp
+
+.pytest_cache/
+.ruff_cache/
+
+.venv/
+
 .vscode/
