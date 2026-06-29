@@ -6,12 +6,13 @@ This document defines how Runtime components report and propagate errors.
 The Runtime shall use consistent error handling across all components.
 ---
 # Error Handling Rules
-| Component        | Invalid Condition       | Behavior                  |
-| ---------------- | ----------------------- | ------------------------- |
-| TransitionPolicy | Invalid transition      | Return `False`            |
-| LifecycleManager | Invalid transition      | Raise `ValueError`        |
-| ResultCollector  | Result assembly failure | Report failure to Runtime |
-| ResultDispatcher | Dispatch failure        | Return `False`            |
+| Component        | Invalid Condition              | Behavior                  |
+| ---------------- | -------------------------------| ------------------------- |
+| TransitionPolicy | Invalid transition             | Return `False`            |
+| LifecycleManager | Invalid transition             | Raise `ValueError`        |
+| ResultCollector  | Result assembly failure        | Report failure to Runtime |
+| ResultDispatcher | Dispatch failure               | Return `False`            |
+| LifecycleManager | Transition from terminal state | Return `False`            |
 ---
 # Principles
 Runtime components shall:

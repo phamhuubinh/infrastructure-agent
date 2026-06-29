@@ -9,12 +9,14 @@ Implementation details remain implementation-specific.
 # Execution Sequence
 1. Executor submits an execution request.
 2. LifecycleManager initializes the execution lifecycle.
-3. ExecutionEnvironment prepares the execution environment.
-4. Tool execution begins.
-5. LifecycleManager updates the execution state.
-6. ResultCollector assembles the execution result.
-7. ResultDispatcher delivers the execution result.
-8. Runtime releases execution resources.
+3. LifecycleManager transitions the execution to READY.
+4. ExecutionEnvironment prepares the execution environment.
+5. LifecycleManager transitions the execution to RUNNING.
+6. Tool execution begins.
+7. LifecycleManager transitions the execution to a terminal state.
+8. ResultCollector assembles the execution result.
+9. ResultDispatcher delivers the execution result.
+10. Runtime releases execution resources.
 ---
 # Component Responsibilities
 | Component            | Responsibility                |
