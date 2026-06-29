@@ -7,4 +7,4 @@ class LifecycleTransition:
     from_state: "ExecutionState"
     to_state: "ExecutionState"
     timestamp: float
-    metadata: Optional[dict[str, object]] = None
+    metadata: dict[str, object] | None = None
