@@ -6,7 +6,8 @@ LifecycleTransition represents one immutable lifecycle transition between two ex
 It records how the execution lifecycle changes over time.
 ---
 # Ownership
-LifecycleTransition is owned by the Shared layer.
+LifecycleTransition is defined in the Shared layer.
+LifecycleTransition instances belong exclusively to a single LifecycleManager lifecycle history.
 ---
 # Fields
 | Field      | Type               |
@@ -32,3 +33,5 @@ LifecycleTransition references:
 LifecycleTransition is consumed by:
 - LifecycleManager
 - Runtime diagnostics
+LifecycleTransition does not contain execution identity.
+Execution identity is managed by LifecycleManager and shall not be duplicated in LifecycleTransition.

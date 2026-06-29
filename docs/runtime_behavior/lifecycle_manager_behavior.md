@@ -48,3 +48,8 @@ LifecycleManager shall not modify the lifecycle after a terminal state has been 
 # Validation Ownership
 LifecycleManager delegates lifecycle transition validation exclusively to TransitionPolicy.
 LifecycleManager shall not duplicate transition rules defined by TransitionPolicy.
+---
+# Lifecycle History Ownership
+Lifecycle transition history belongs exclusively to a single LifecycleManager instance.
+Each LifecycleTransition records only one lifecycle transition.
+Execution identity shall not be duplicated inside LifecycleTransition.
