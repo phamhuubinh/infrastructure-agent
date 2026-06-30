@@ -11,21 +11,25 @@ This ADR establishes the permanent architectural boundary between the Agent and 
 ---
 # Decision
 The Agent is an execution engine.
-The Agent executes model-generated execution plans.
+The Agent executes model-generated actions.
+The Agent returns raw observations.
+The Agent never decides what the next action should be.
+The reasoning model decides whether to continue execution or produce the final answer.
 The Agent never performs reasoning.
-The Agent never generates execution plans.
-The Agent never modifies execution plans.
+The Agent never generates actions.
+The Agent never modifies actions.
 The Agent never analyzes execution results.
 The reasoning model owns all intelligence.
 The Model is the only reasoning component.
 ---
 # Responsibilities
 The Agent is responsible for:
-* receiving execution plans;
+* receiving actions;
 * executing commands;
 * collecting execution results;
 * preserving execution outputs;
 * enforcing execution safety;
+* returning raw observations;
 * reporting execution failures.
 ---
 # Non-Responsibilities
@@ -37,6 +41,7 @@ The Agent is never responsible for:
 * optimization;
 * interpretation;
 * knowledge creation;
+* deciding the next action;
 * business decisions.
 ---
 # Consequences
@@ -45,3 +50,4 @@ New reasoning models can replace existing models without modifying the Agent.
 The Agent remains deterministic and predictable.
 The reasoning model owns all domain knowledge.
 The Agent focuses exclusively on execution.
+Execution becomes an iterative Action → Observation loop rather than a single static execution plan.
