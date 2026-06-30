@@ -18,4 +18,6 @@ def test_execute_echo_hello() -> None:
     results = execute(plan)
 
     assert len(results) == 1
-    assert results[0].result == "hello\n"
+    assert results[0].stdout == "hello\n"
+    assert results[0].stderr == ""
+    assert results[0].exit_code == 0

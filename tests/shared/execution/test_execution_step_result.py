@@ -9,18 +9,24 @@ from src.shared.execution.execution_step_result import (
 )
 
 
-def test_execution_step_result_stores_result() -> None:
+def test_execution_step_result_stores_values() -> None:
     result = ExecutionStepResult(
-        result="stdout",
+        stdout="stdout",
+        stderr="stderr",
+        exit_code=0,
     )
 
-    assert result.result == "stdout"
+    assert result.stdout == "stdout"
+    assert result.stderr == "stderr"
+    assert result.exit_code == 0
 
 
 def test_execution_step_result_is_immutable() -> None:
     result = ExecutionStepResult(
-        result="stdout",
+        stdout="stdout",
+        stderr="stderr",
+        exit_code=0,
     )
 
     with pytest.raises(FrozenInstanceError):
-        result.result = "changed"  # type: ignore[misc]
+        result.stdout = "changed"  # type: ignore[misc]

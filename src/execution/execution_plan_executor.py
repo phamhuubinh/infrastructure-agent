@@ -32,7 +32,9 @@ def execute(
 
         results.append(
             ExecutionStepResult(
-                result=completed.stdout,
+                stdout=completed.stdout,
+                stderr=completed.stderr,
+                exit_code=completed.returncode,
             )
         )
 

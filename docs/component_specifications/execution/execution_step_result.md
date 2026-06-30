@@ -18,7 +18,7 @@ Execution Step Result must never:
 * modify execution outputs.
 ---
 # Ownership
-Execution Step Result belongs to the Agent.
+Execution Step Result is produced by the Agent.
 Execution Step Result is consumed by the reasoning model.
 Execution Step Result is never modified after creation.
 ---
@@ -26,7 +26,7 @@ Execution Step Result is never modified after creation.
 Execution Step Result is produced by the Agent after executing an Execution Step.
 ---
 # Outputs
-Execution Step Result provides execution outputs to the reasoning model.
+Execution Step Result provides raw execution outputs to the reasoning model.
 ---
 # Lifecycle
 The Execution Step Result lifecycle consists of:
@@ -44,3 +44,4 @@ Execution Step Result shall remain:
 Execution Step Result shall preserve execution outputs exactly as produced.
 Execution Step Result shall not contain recommendations.
 Execution Step Result shall not contain conclusions.
+Execution Step Result shall preserve all execution outputs exactly as produced by the execution environment, including standard output, standard error, and the execution exit status.
