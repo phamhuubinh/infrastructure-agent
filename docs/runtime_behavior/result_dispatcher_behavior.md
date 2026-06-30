@@ -7,16 +7,16 @@ It supplements the Runtime API Specification and the Runtime Component Specifica
 If a conflict exists, the Runtime Architecture remains the source of truth.
 ---
 # Purpose
-ResultDispatcher delivers immutable execution results.
+ResultDispatcher dispatches immutable ExecutionResult objects.
 ResultDispatcher performs no result assembly.
 ResultDispatcher performs no lifecycle management.
 ---
 # Dispatch
 Dispatch shall:
 1. receive one immutable ExecutionResult;
-2. deliver the execution result to the specified dispatch target;
+2. dispatch the immutable ExecutionResult to the specified dispatch target;
 3. report whether dispatch succeeded.
-Each execution result shall be dispatched at most once.
+Each ExecutionResult shall be dispatched at most once.
 Dispatch shall be deterministic.
 ---
 # State Ownership

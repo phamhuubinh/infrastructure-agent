@@ -3,7 +3,7 @@
 ---
 # Purpose
 ResultCollector collects the outcome of a single execution.
-It gathers execution output, execution errors, and runtime metadata, then assembles them into a consistent `ExecutionResult`.
+It gathers execution output, execution errors, and runtime metadata, then assembles one immutable ExecutionResult.
 ResultCollector never executes work or modifies execution lifecycle state.
 ---
 # Responsibilities
@@ -12,7 +12,7 @@ ResultCollector is responsible for:
 * collecting execution errors;
 * collecting runtime metadata;
 * assembling `ExecutionResult`;
-* ensuring execution result consistency.
+* ensuring ExecutionResult consistency.
 ResultCollector must not:
 * execute Tools;
 * manage lifecycle transitions;
@@ -55,7 +55,7 @@ ResultCollector receives:
 ---
 # Outputs
 ResultCollector provides:
-* immutable `ExecutionResult`.
+* one immutable ExecutionResult.
 ---
 # State
 ResultCollector maintains only temporary aggregation state required to assemble one execution result.

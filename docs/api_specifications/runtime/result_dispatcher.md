@@ -3,7 +3,7 @@
 ---
 # Purpose
 This document defines the public API contract for `ResultDispatcher`.
-ResultDispatcher delivers immutable execution results to downstream consumers.
+ResultDispatcher dispatches immutable ExecutionResult objects to downstream consumers.
 ---
 # Public Operations
 ```text
@@ -27,14 +27,14 @@ Returns:
 ---
 # Operation Semantics
 ## dispatch
-Dispatches an immutable execution result.
+Dispatches one immutable ExecutionResult.
 `ExecutionResult` shall never be modified during dispatch.
-Each execution result shall be dispatched at most once.
+Each ExecutionResult shall be dispatched at most once.
 ---
 # Error Contract
 Normal dispatch failures are represented by `False`.
 The implementation shall not raise exceptions for normal dispatch failures.
-The supplied `ExecutionResult` shall remain unchanged regardless of the dispatch outcome.
+The supplied ExecutionResult shall remain immutable regardless of the dispatch outcome.
 ---
 # Implementation Constraints
 The implementation shall:

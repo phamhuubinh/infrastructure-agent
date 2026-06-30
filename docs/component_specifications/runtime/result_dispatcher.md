@@ -2,14 +2,14 @@
 # Component: ResultDispatcher
 ---
 # Purpose
-ResultDispatcher delivers immutable `ExecutionResult` objects to their designated consumers.
+ResultDispatcher dispatches immutable ExecutionResult objects to their designated consumers.
 It is the only Runtime component responsible for result dispatch.
 ResultDispatcher never modifies execution results.
 ---
 # Responsibilities
 ResultDispatcher is responsible for:
-* dispatching completed execution results;
-* delivering execution results to registered consumers;
+* dispatching completed ExecutionResult objects;
+* delivering ExecutionResult objects to registered consumers;
 * reporting dispatch failures.
 ResultDispatcher must not:
 * execute Tools;
@@ -63,8 +63,8 @@ ResultDispatcher shall:
 ResultCollector assembles `ExecutionResult`.
 ResultDispatcher delivers the completed result.
 ---
-## Executor
-Executor receives dispatched execution results.
+## Agent
+Agent receives dispatched ExecutionResult objects.
 ---
 # Failure Handling
 Dispatch failures shall be reported to the Runtime.

@@ -7,7 +7,7 @@ It supplements the Runtime API Specification and the Runtime Component Specifica
 If a conflict exists, the Runtime Architecture remains the source of truth.
 ---
 # Purpose
-ResultCollector assembles the immutable execution result for one execution.
+ResultCollector assembles one immutable ExecutionResult for a single execution.
 ResultCollector performs no execution.
 ResultCollector performs no lifecycle management.
 ---
@@ -17,7 +17,7 @@ Result collection shall:
 2. collect execution errors;
 3. collect runtime metadata;
 4. assemble one immutable ExecutionResult;
-5. return the assembled execution result.
+5. return the assembled ExecutionResult.
 Result collection shall be deterministic.
 ---
 # Result Assembly

@@ -2,7 +2,7 @@
 # Component: ResultCollector
 ---
 # Purpose
-ResultCollector provides the public interface for assembling one immutable ExecutionResult.
+ResultCollector provides the public interface for assembling one immutable ExecutionResult for a single execution.
 It exposes only result collection operations.
 ---
 # Public Operations

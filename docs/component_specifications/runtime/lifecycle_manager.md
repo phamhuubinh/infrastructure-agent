@@ -60,7 +60,7 @@ LifecycleManager receives:
 LifecycleManager provides:
 * updated execution lifecycle state;
 * lifecycle transition history.
-LifecycleManager never produces execution results.
+LifecycleManager never produces ExecutionResult objects.
 ---
 # State
 LifecycleManager manages only execution states defined by the shared execution models.
@@ -88,8 +88,8 @@ LifecycleManager shall:
 * perform no knowledge processing.
 ---
 # Relationships
-## Executor
-Execution requests originate from the Executor.
+## Agent
+Execution requests originate from the Agent.
 ---
 ## Runtime Components
 Runtime components may query lifecycle information.

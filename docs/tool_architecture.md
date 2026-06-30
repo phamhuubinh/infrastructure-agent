@@ -1,51 +1,78 @@
 # Tool Architecture
-## Definition
-A Tool is the lowest execution unit of the Autonomous Agent.
-A Tool performs one atomic operation and contains no planning, reasoning, or business decision logic.
-Tools are stateless, replaceable, and return only structured execution results.
 ---
-## Purpose
-Tool Architecture defines how executable Tools are represented, discovered, validated, executed, and managed.
-The Runtime executes Tools after they have been selected by the Capability layer.
-Implementation details belong to component specifications.
+# Purpose
+Tool Architecture defines the lowest execution layer of the Model-Driven Execution Runtime.
+A Tool performs exactly one atomic operation requested by the Runtime.
+A Tool performs execution only.
+A Tool never performs reasoning, planning, information acquisition, or business decisions.
+Implementation details belong to Tool component specifications.
 ---
-## Responsibilities
+# Scope
+Tool Architecture defines:
+* Tool responsibilities;
+* Tool boundaries;
+* Tool ownership;
+* Tool execution principles;
+* Tool interaction with the Runtime;
+* Tool interaction with shared execution models.
+Tool Architecture does not define:
+* Tool implementation;
+* Runtime behavior;
+* Reasoning behavior;
+* Agent behavior;
+* execution orchestration.
+---
+# Responsibilities
 Tool Architecture is responsible for:
 * defining executable Tools;
 * defining Tool interfaces;
-* validating Tool inputs;
-* executing atomic operations;
-* returning structured execution results;
-* supporting Tool discovery and replacement.
+* defining Tool inputs;
+* defining Tool outputs;
+* defining Tool execution boundaries;
+* defining Tool ownership;
+* defining Tool replacement boundaries.
 Tool Architecture must never:
-* perform planning;
 * perform reasoning;
-* manage Runtime execution;
-* update the Knowledge Model;
-* make business decisions.
+* perform planning;
+* generate Actions;
+* determine execution order;
+* collect additional information;
+* perform business logic;
+* manage Runtime execution.
 ---
-## Architectural Principles
+# Architectural Principles
 The following principles shall always hold:
-* Tools perform execution only.
-* Tools remain stateless.
-* Tools are interchangeable.
-* Runtime owns execution management.
-* Capability owns execution intent.
+* A Tool performs one atomic operation.
+* A Tool is deterministic.
+* A Tool is stateless.
+* A Tool executes only the requested operation.
+* A Tool never generates additional work.
+* A Tool never decides what should execute next.
+* A Tool is replaceable.
+* A Tool communicates only through defined architectural contracts.
 ---
-## Core Concepts
-### Tool
-A Tool performs one atomic operation.
-Tools never contain planning or reasoning logic.
+# Core Concepts
+## Tool
+A Tool performs exactly one requested operation.
+A Tool never performs reasoning.
+A Tool never performs planning.
 ---
-### Tool Identity
-Every Tool owns a unique identity for registration and discovery.
+## Tool Identity
+Every Tool owns one unique identity.
+The identity is stable across implementations.
 ---
-### Tool Interface
-The Tool Interface defines the public contract used during execution.
-It specifies supported inputs and outputs while remaining implementation independent.
+## Tool Interface
+The Tool Interface defines the public execution contract.
+The interface specifies supported inputs and outputs.
+Implementation details remain private.
 ---
-### Tool Metadata
+## Tool Parameters
+Tool Parameters define the required execution inputs.
+Input validation belongs to the Tool implementation.
+---
+## Tool Metadata
 Tool Metadata describes:
+* identity;
 * purpose;
 * supported parameters;
 * dependencies;
@@ -53,106 +80,97 @@ Tool Metadata describes:
 * permissions.
 Metadata never contains execution behavior.
 ---
-### Tool Parameters
-Tool Parameters define the required execution inputs.
-Parameters are validated before execution.
+## Tool Execution
+Tool execution performs exactly one deterministic operation.
+Execution begins only after the Runtime invokes the Tool.
+A Tool never invokes another Tool unless explicitly defined by its own specification.
 ---
-### Tool Validation
-Tool Validation verifies that execution requests satisfy the Tool Interface.
-Invalid requests must never reach execution.
+## Tool Result
+Every Tool produces one structured execution result.
+Tool results are immutable after execution completes.
 ---
-### Tool Execution
-Tool Execution performs one deterministic operation using validated inputs.
-Execution is stateless.
----
-### Tool Result
-Every Tool returns a structured execution result.
-Typical result states include:
-* Success
-* Failure
-* Timeout
-* Cancelled
-* Partial Success
----
-### Tool Health
-Tool Health represents the operational availability of a Tool.
-Logical health belongs to the Tool.
-Runtime metrics belong to the Runtime.
----
-### Tool Lifecycle
+## Tool Lifecycle
 A Tool progresses through:
 * Registration
-* Activation
+* Availability
 * Execution
 * Completion
 * Failure
 * Retirement
 ---
-### Tool Permissions
-Permissions define which architectural components may invoke the Tool.
+## Tool Versioning
+Versioning allows Tool implementations to evolve while preserving compatibility.
 ---
-### Tool Sandbox
-Tools execute inside an isolated Runtime environment.
-The Tool never manages the Runtime itself.
+## Tool Sandbox
+Tools execute inside Runtime-controlled execution environments.
+A Tool never manages Runtime resources.
 ---
-### Tool Registration
-Registration makes a Tool available for discovery and execution.
----
-### Tool Discovery
-Tool Discovery locates executable Tools using Tool Metadata.
----
-### Tool Versioning
-Versioning supports implementation evolution while preserving compatibility.
----
-## Information Flow
+# Information Flow
 ```text
-Planner
-      ↓
-Plan
-      ↓
-Executor
-      ↓
-Capability
-      ↓
-Capability Resolver
-      ↓
-Tool Binding
-      ↓
-Tool
-      ↓
+Reasoning Model
+        │
+        ▼
+Action
+        │
+        ▼
+Agent
+        │
+        ▼
 Runtime
-      ↓
-Tool Result
-      ↓
-Capability
-      ↓
-Executor
+        │
+        ▼
+Tool
+        │
+        ▼
+ExecutionResult
+        │
+        ▼
+Runtime
+        │
+        ▼
+Agent
+        │
+        ▼
+Reasoning Model
 ```
+The Tool performs execution only.
+The Tool never determines the next Action.
 ---
-## Relationships
-### Capability
-Capability defines what operation should be executed.
-Tools implement that operation.
+# Relationships
+## Reasoning Model
+The Reasoning Model owns reasoning.
+A Tool never communicates directly with the Reasoning Model.
 ---
-### Runtime
-Runtime owns execution management.
-Tools execute inside the Runtime.
-Tools never manage Runtime resources.
+## Agent
+The Agent coordinates execution.
+A Tool never communicates directly with the Agent.
 ---
-### Executor
-Executor requests Tool execution through the Capability layer.
-Executor never invokes Tool implementations directly.
+## Runtime
+The Runtime invokes Tools.
+The Runtime manages Tool execution.
+A Tool never manages Runtime resources.
 ---
-### Knowledge Model
-Tools never access or modify the Knowledge Model directly.
-Execution feedback is processed by higher architectural layers.
+## Shared
+A Tool consumes shared execution models.
+The Shared layer owns reusable model definitions.
 ---
-## Architectural Constraints
+# Architectural Constraints
 The following constraints shall always hold:
-* Tools execute one atomic operation.
-* Tools contain no planning.
-* Tools contain no reasoning.
-* Tools remain stateless.
-* Runtime owns execution management.
-* Tool implementations remain replaceable.
+* A Tool executes one atomic operation.
+* A Tool performs no reasoning.
+* A Tool performs no planning.
+* A Tool performs no execution orchestration.
+* A Tool performs no business logic.
+* A Tool performs no information acquisition beyond the requested operation.
+* A Tool remains stateless.
+* A Tool implementation remains replaceable.
 * Components communicate only through defined architectural contracts.
+---
+# Related Architecture Documents
+Tool Architecture is supported by:
+* runtime_architecture.md
+* shared_architecture.md
+* protocol/action_protocol.md
+Detailed Tool specifications are defined separately under:
+* docs/api_specifications/
+* docs/component_specifications/

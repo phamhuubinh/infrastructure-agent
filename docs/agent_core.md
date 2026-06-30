@@ -1,61 +1,145 @@
 # Agent Core Architecture
 ---
 # Purpose
-Agent Core defines the high-level architecture of the autonomous agent.
-It specifies how the major architectural components collaborate to observe the environment, build knowledge, generate hypotheses, plan actions, execute work, and continuously improve the internal understanding of the system.
-Agent Core defines responsibilities and interactions only.
+Agent Core defines the high-level architecture of the Model-Driven Execution Runtime.
+The architecture separates reasoning from execution.
+The Reasoning Model owns all intelligence.
+The Agent owns execution only.
+Agent Core defines architectural responsibilities, ownership boundaries, and information flow.
 Implementation details belong to individual component specifications.
+---
+# Scope
+Agent Core defines:
+* architectural responsibilities;
+* component ownership;
+* information flow;
+* execution boundaries;
+* reasoning boundaries.
+Agent Core does not define:
+* implementation details;
+* runtime behavior;
+* public APIs;
+* data models;
+* tool implementations.
 ---
 # Core Components
 The Agent Core consists of:
-* Observation
-* Knowledge Model
-* Planner
-* Executor
-Hypothesis generation is part of the reasoning process built on top of the Knowledge Model.
+* Reasoning Model
+* Agent
+* Runtime
+* Tool
+Each component owns a single architectural responsibility.
 ---
-# Responsibilities
-Agent Core is responsible for:
-* defining the overall reasoning cycle;
-* defining component responsibilities;
-* defining information flow between components;
-* defining architectural boundaries.
-Agent Core must not define:
-* implementation details;
-* public APIs;
-* runtime behavior;
-* data structures.
+# Component Responsibilities
+## Reasoning Model
+The Reasoning Model is the only intelligent component.
+It is responsible for:
+* reasoning;
+* planning;
+* decision making;
+* information acquisition;
+* observation interpretation;
+* determining the next Action;
+* producing the Final Response.
+The Reasoning Model never performs execution.
+---
+## Agent
+The Agent is an execution engine.
+It is responsible for:
+* receiving Actions;
+* invoking Runtime execution;
+* enforcing execution safety;
+* collecting Observations;
+* preserving execution outputs;
+* returning raw Observations.
+The Agent never:
+* performs reasoning;
+* performs planning;
+* generates Actions;
+* modifies Actions;
+* interprets Observations;
+* decides whether execution should continue.
+---
+## Runtime
+The Runtime manages execution.
+It is responsible for:
+* execution lifecycle;
+* execution environment;
+* execution isolation;
+* timeout management;
+* cancellation;
+* execution coordination.
+The Runtime never performs reasoning or business logic.
+---
+## Tool
+A Tool performs one atomic operation.
+A Tool is responsible for:
+* validating execution input;
+* executing one deterministic operation;
+* returning a structured execution result.
+Tools never:
+* perform reasoning;
+* perform planning;
+* collect additional information;
+* invoke other Tools implicitly.
 ---
 # Information Flow
-The autonomous agent operates as a continuous reasoning loop.
+The system follows an iterative Action → Observation loop.
 ```text
+User
+        │
+            ▼
+Reasoning Model
+        │
+            ▼
+Action
+        │
+            ▼
+Agent
+        │
+            ▼
+Runtime
+        │
+            ▼
+Tool
+        │
+            ▼
 Observation
-        ↓
-Knowledge Model
-        ↓
-Hypothesis
-        ↓
-Planner
-        ↓
-Executor
-        ↓
-Observation
+        │
+            ▼
+Reasoning Model
+        │
+   ┌────┴────┐
+    ▼             ▼
+Action   Final Response
 ```
-Each iteration updates the Knowledge Model, enabling continuous refinement of future decisions.
+Execution continues until the Reasoning Model produces a Final Response.
+The Agent never determines when execution terminates.
+---
+# Architectural Boundaries
+The following ownership boundaries shall always hold.
+Reasoning belongs exclusively to the Reasoning Model.
+Execution belongs to the Agent and Runtime.
+Atomic operations belong to Tools.
+Observations remain raw throughout execution.
+Interpretation belongs exclusively to the Reasoning Model.
 ---
 # Architectural Constraints
 The following constraints shall always hold:
-* Observation collects information without making decisions.
-* Knowledge Model is the single source of internal knowledge.
-* Planner makes planning decisions only.
-* Executor performs execution only.
-* Components communicate only through their defined architectural contracts.
-* No component may assume responsibilities owned by another component.
+* The Reasoning Model is the only reasoning component.
+* The Agent performs execution only.
+* The Runtime manages execution only.
+* Every Tool performs exactly one atomic operation.
+* The Agent never modifies model-generated Actions.
+* The Agent never modifies Observations.
+* The Agent never performs implicit execution.
+* Components communicate only through defined architectural contracts.
 ---
 # Related Architecture Documents
-The detailed behavior of each component is defined separately:
-* knowledge_model.md
-* planner.md
-* executor.md
+Detailed architectural behavior is defined by:
+* project_principles.md
+* protocol/action_protocol.md
 * runtime_architecture.md
+* tool_architecture.md
 * shared_architecture.md
+Implementation details belong to the corresponding component specifications.
