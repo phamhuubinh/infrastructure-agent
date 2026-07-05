@@ -13,7 +13,6 @@ ExecutionConstraints is owned by the Shared layer.
 | --------------- | ---- |
 | timeout_seconds | int  |
 | cancellable     | bool |
-| retry_limit     | int  |
 ---
 # Constraints
 ExecutionConstraints:

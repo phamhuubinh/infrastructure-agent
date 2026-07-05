@@ -29,5 +29,4 @@ ExecutionContext:
 ExecutionContext references no other shared models.
 ExecutionContext is consumed by:
 * Runtime
-* Executor
 * Tool

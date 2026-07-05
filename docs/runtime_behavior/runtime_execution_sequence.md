@@ -7,16 +7,27 @@ The sequence describes Runtime component interactions only.
 Implementation details remain implementation-specific.
 ---
 # Execution Sequence
-1. Agent submits an Action for execution.
-2. LifecycleManager initializes the execution lifecycle.
-3. LifecycleManager transitions the execution to READY.
-4. ExecutionEnvironment prepares the execution environment.
-5. LifecycleManager transitions the execution to RUNNING.
-6. The requested Tool performs the atomic operation.
-7. LifecycleManager transitions the execution to a terminal state.
-8. ResultCollector assembles the immutable ExecutionResult.
-9. ResultDispatcher dispatches the ExecutionResult to the Agent.
-10. Runtime releases execution resources.
+1. The Agent receives one Action from the Reasoning Model.
+2. The Agent validates the Action.
+3. The Agent submits the Action to the Runtime.
+4. LifecycleManager initializes the execution.
+5. ExecutionEnvironment prepares the execution environment.
+6. Runtime invokes the target Tool.
+7. The Tool performs exactly one atomic operation.
+8. The Tool returns one Observation.
+9. ResultCollector assembles the execution result.
+10. ResultDispatcher returns the Observation to the Agent.
+11. The Agent returns the Observation to the Reasoning Model.
+12. The Reasoning Model either:
+- generates the next Action; or
+- returns the Final Response.
+---
+# Design Rules
+- One Runtime execution handles one Action.
+- Runtime never performs reasoning.
+- Runtime never decides the next Action.
+- Runtime never modifies the Observation.
+- Runtime remains stateless.
 ---
 # Component Responsibilities
 | Component 		| Responsibility 		|

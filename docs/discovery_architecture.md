@@ -1,83 +1,100 @@
-# Discovery Engine Architecture
----
-# Purpose
-Discovery Architecture defines how the agent observes the environment, transforms observations into knowledge, and continuously refines its internal understanding.
-Discovery is responsible for building and maintaining an accurate representation of the environment.
-Implementation details belong to individual component specifications.
+# Discovery Architecture
+## Mục tiêu
+Discovery chịu trách nhiệm thu thập dữ liệu từ môi trường và chuyển thành Knowledge.
+Discovery không reasoning.
+Discovery không quyết định cần thu thập dữ liệu gì.
 ---
 # Responsibilities
-Discovery Architecture is responsible for:
-* collecting observations from the environment;
-* transforming observations into structured knowledge;
-* identifying entities, relationships, and patterns;
-* updating the internal knowledge model;
-* supporting continuous environment exploration.
-Discovery Architecture must not:
-* perform planning;
-* execute actions;
-* modify Runtime state;
-* make implementation decisions.
+Discovery chịu trách nhiệm:
+- Thu thập dữ liệu.
+- Chuẩn hóa dữ liệu.
+- Tạo hoặc cập nhật Stable Information.
+- Thu thập dữ liệu.
+- Chuẩn hóa dữ liệu.
+- Tạo hoặc cập nhật Stable Information.
 ---
-# Core Concepts
-## Discovery
-Discovery is the continuous process of gathering information and improving the agent's understanding of the environment.
-Its objective is to produce structured knowledge rather than simply collecting raw data.
+# Non-Responsibilities
+Discovery không:
+- Reasoning.
+- Quyết định workflow.
+- Phân tích dữ liệu.
+- Trả lời người dùng.
+- Quản lý Reasoning Session.
 ---
-## Observation
-Observation is the entry point of the Discovery process.
-Observations collect raw evidence without interpretation or decision making.
-Every observation may contribute to future knowledge refinement.
----
-## Knowledge Construction
-Observed information is transformed into structured knowledge by identifying:
-* entities;
-* relationships;
-* patterns;
-* anomalies.
-The resulting knowledge extends or refines the internal Knowledge Model.
----
-## Knowledge Evolution
-The Knowledge Model is continuously updated as new evidence becomes available.
-Existing knowledge may be:
-* confirmed;
-* refined;
-* replaced.
-The model always represents the current understanding of the environment rather than a static snapshot.
----
-## Iterative Discovery
-Discovery is inherently iterative.
-Each update to the Knowledge Model influences future observations and exploration priorities.
-The agent continuously adapts its discovery strategy as its understanding evolves.
----
-# Information Flow
-```text
-Environment
-        ↓
-Observation
-        ↓
-Discovery
-        ↓
-Knowledge Construction
-        ↓
-Knowledge Model
-        ↓
-Future Discovery
+# Discovery Flow
 ```
-The updated Knowledge Model guides subsequent discovery cycles.
+Environment
+      │
+         ▼
+Collector
+         ↓
+Raw Data
+         ↓
+Normalizer
+         ↓
+Stable Information
+      │
+         ▼
+Stable Store
+```
 ---
-# Relationships
-Discovery Architecture collaborates with:
-* knowledge_model.md
-* planner.md
-* runtime_architecture.md
-* shared_architecture.md
-Discovery provides knowledge to downstream components but does not perform planning or execution.
+# Components
+## Collector
+Thu thập dữ liệu từ:
+- Linux
+- Docker
+- VMware
+- Git
+- Repository
+- Operating System
+Collector chỉ lấy dữ liệu.
 ---
-# Architectural Constraints
-The following constraints shall always hold:
-* Observations remain unbiased.
-* Discovery does not perform planning.
-* Discovery does not execute actions.
-* Knowledge evolves through evidence.
-* The Knowledge Model remains the single source of internal knowledge.
-* Discovery is continuous and iterative.
+## Normalizer
+Chuẩn hóa dữ liệu thành cùng một định dạng.
+Không thêm dữ liệu mới.
+Không suy luận.
+---
+## Stable Store
+Lưu dữ liệu ổn định.
+Ví dụ:
+- Hardware
+- Operating System
+- Installed Software
+- Docker Inventory
+- Repository Information
+---
+# Communication
+```
+Knowledge Tool
+        │
+            ▼
+Collector
+        │
+            ▼
+Environment
+```
+Collector không giao tiếp trực tiếp với:
+- Reasoning Model
+- Agent
+---
+# Design Rules
+- Discovery chỉ thu thập dữ liệu.
+- Không reasoning.
+- Không cache Working Context.
+- Không chứa Business Logic.
+- Không phụ thuộc Reasoning Model.
+---
+# Constraints
+- Stateless.
+- Có thể chạy độc lập.
+- Có thể chạy theo lịch.
+- Có thể chạy theo yêu cầu.
+- Có thể mở rộng bằng Collector mới.
+---
+# Design Goal
+Discovery là lớp Data Collection duy nhất của hệ thống.
+Việc thay đổi nguồn dữ liệu hoặc cách thu thập không được ảnh hưởng đến:
+- Reasoning Model
+- Agent
+- Runtime
+- Tool Contract

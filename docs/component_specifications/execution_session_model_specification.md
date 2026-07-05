@@ -32,4 +32,3 @@ ExecutionSession references:
 * ExecutionState
 ExecutionSession is consumed by:
 * Runtime
-* Executor

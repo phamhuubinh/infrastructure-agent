@@ -1,67 +1,104 @@
 # Action Protocol
+## Purpose
+The Action Protocol defines how the Reasoning Model communicates with the Agent.
+The protocol follows a single Action → Observation loop.
+The Reasoning Model generates exactly one Action at a time and decides whether another Action is required after receiving an Observation.
 ---
-# Purpose
-The Action Protocol defines the communication contract between the reasoning model and the Agent.
-The protocol is independent of any reasoning model.
-The protocol is independent of any execution environment.
----
-# Core Principle
-The reasoning model owns all reasoning.
-The Agent owns all execution.
-The Agent never performs reasoning.
-The reasoning model never performs execution.
----
-# Interaction Model
-The protocol follows an iterative Action → Observation loop.
+# Communication Flow
+```
 User
-↓
-Agent
-↓
+    │
+      ▼
 Reasoning Model
-↓
+    │
+      ▼
 Action
-↓
+    │
+      ▼
 Agent
-↓
+    │
+      ▼
+Runtime
+    │
+      ▼
+Tool
+    │
+      ▼
 Observation
-↓
-Reasoning Model
-↓
-...
-↓
-Final
-↓
+    │
+      ▼
 Agent
-↓
-User
----
-# Message Types
-The reasoning model may produce one of the following messages:
-* Action
-* Final
-The Agent always produces:
-* Observation
----
-# Termination
-The interaction terminates only when the reasoning model produces a Final message.
-The Agent never decides when execution should terminate.
+    │
+      ▼
+Reasoning Model
+    │
+    ├── Next Action
+    └── Final Response
+```
 ---
 # Responsibilities
-Reasoning Model
-* determine the next action;
-* evaluate observations;
-* decide when enough information has been collected;
-* produce the final answer.
-Agent
-* execute actions;
-* collect observations;
-* enforce execution safety;
-* preserve execution outputs exactly.
+## Reasoning Model
+Responsible for:
+- Understanding the user's request.
+- Generating one Action.
+- Analyzing Observations.
+- Deciding whether to continue or finish.
+Never:
+- Execute Actions.
+- Access external systems directly.
+- Collect data.
 ---
-# Architectural Constraints
-Actions shall never contain observations.
-Observations shall never contain reasoning.
-Final messages shall never contain executable actions.
-The Agent shall never modify Action messages.
-The Agent shall never modify Observation messages.
-The reasoning model shall remain responsible for all reasoning.
+## Agent
+Responsible for:
+- Receiving an Action.
+- Validating the Action.
+- Dispatching the Action to Runtime.
+- Returning the Observation.
+Never:
+- Perform reasoning.
+- Modify the Action.
+- Modify the Observation.
+- Decide the next Action.
+---
+## Runtime
+Responsible for:
+- Executing the Action.
+- Invoking the appropriate Tool.
+- Collecting the Observation.
+- Returning execution results.
+Never:
+- Perform reasoning.
+- Decide workflow.
+- Modify business logic.
+---
+## Tool
+Responsible for:
+- Performing one atomic operation.
+- Accessing external systems.
+- Returning one Observation.
+Never:
+- Perform reasoning.
+- Call other Tools.
+- Decide the next Action.
+---
+# Rules
+- One response from the Reasoning Model contains exactly one Action.
+- One Action targets exactly one Tool.
+- One Tool execution returns exactly one Observation.
+- Every Observation is returned to the Reasoning Model before another Action is generated.
+- The session ends only when the Reasoning Model returns a Final Response.
+---
+# Constraints
+- Stateless.
+- No pre-generated execution plan.
+- No workflow engine.
+- No business logic in Agent, Runtime or Tool.
+- No component may infer missing information.
+---
+# Design Principles
+- One Action at a time.
+- One responsibility per component.
+- Explicit communication.
+- Low coupling.
+- Model-driven reasoning.
+- Simple before complex.

@@ -29,7 +29,7 @@ A Tool shall:
 1. receive the execution request;
 2. validate required inputs;
 3. perform one atomic operation;
-4. produce one ExecutionResult.
+4. produce one ToolResult.
 Input validation shall complete before execution begins.
 ---
 # Execution Boundaries
@@ -40,13 +40,13 @@ A Tool shall:
 * perform no information acquisition beyond the requested operation.
 ---
 # Execution Result
-Each execution shall produce exactly one ExecutionResult.
-ExecutionResult shall represent the complete outcome of the requested operation.
-ExecutionResult shall remain immutable after execution completes.
+Each execution shall produce exactly one ToolResult.
+ToolResult shall represent the complete outcome of the requested operation.
+ToolResult shall remain immutable after execution completes.
 ---
 # Failure Behavior
 If execution fails:
-* ExecutionResult shall indicate failure;
+* ToolResult shall indicate failure;
 * partial execution state shall not be retained;
 * Tool state shall remain consistent.
 Failure handling shall be deterministic.

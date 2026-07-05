@@ -27,6 +27,5 @@ RuntimeMetadata:
 RuntimeMetadata references no other shared models.
 RuntimeMetadata is consumed by:
 - Runtime
-- Executor
 - Verification
 - ExecutionResult

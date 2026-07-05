@@ -33,3 +33,5 @@ ExecutionState is referenced by:
 * ExecutionSession
 * LifecycleState
 * LifecycleTransition
+* LifecycleManager
+* TransitionPolicy

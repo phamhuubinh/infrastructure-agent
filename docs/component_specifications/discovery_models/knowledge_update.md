@@ -16,8 +16,8 @@ KnowledgeUpdate must never:
 * perform reasoning.
 ---
 # Ownership
-KnowledgeUpdate belongs to the Discovery subsystem.
-KnowledgeUpdate may be submitted to the Knowledge Model.
+KnowledgeUpdate is produced by the Discovery Engine.
+KnowledgeUpdate is consumed by the Knowledge Model.
 ---
 # Lifecycle
 1. Created by the Discovery Engine.

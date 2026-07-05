@@ -1,0 +1,25 @@
+# Read first
+
+Always understand the project before making changes.
+
+Read in this order:
+
+1. README.md
+2. docs/**
+3. src/**
+
+Ignore:
+
+- .git/
+- .venv/
+- __pycache__/
+- .pytest_cache/
+- .ruff_cache/
+- node_modules/
+
+Rules:
+
+- Never modify architecture without approval.
+- Never create duplicate implementations.
+- Reuse existing abstractions.
+- Explain why before changing code.

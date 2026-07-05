@@ -12,7 +12,7 @@ The Runtime shall use consistent error handling across all components.
 | LifecycleManager | Invalid transition             | Raise `ValueError`        |
 | ResultCollector  | Result assembly failure        | Report failure to Runtime |
 | ResultDispatcher | Dispatch failure               | Return `False`            |
-| LifecycleManager | Transition from terminal state | Return `False`            |
+| LifecycleManager | Transition from terminal state | Raise `ValueError`        |
 ---
 # Principles
 Runtime components shall:

@@ -1,32 +1,88 @@
 # Project Principles
-## Purpose
-## Core Philosophy
-## Principle 0
-The Agent exists to replace repetitive human operations, not human reasoning.
-## Principle 1
-Model is the only reasoning component.
-## Principle 2
-The Model decides the next action.
-The Agent executes the action safely and reliably.
-The Agent never changes or interprets the requested action.
-The Model decides whether another action is required or whether a final response should be produced.
-## Principle 3
-The Agent never creates, modifies, or interprets knowledge.
-## Principle 4
-The Agent preserves execution results exactly as produced by the execution environment.
-## Principle 5
-The Agent enforces execution safety.
-The Agent may reject actions that violate execution policies.
-## Principle 6
-Execution must remain deterministic.
-## Principle 7
-Everything that requires thinking belongs to the Model.
-## Principle 8
-ChatGPT (or another reasoning model) remains responsible for explanations.
-## Principle 9
-The Agent is model-agnostic.
-Any reasoning model capable of generating actions can drive the Agent.
-## Principle 10
-The Agent maintains execution history only within the current session.
-Execution history is never considered the source of truth.
-The current execution environment is always the source of truth.
+## Mục tiêu
+Xây dựng một AI Agent tối giản, stateless, dễ hiểu, dễ bảo trì và dễ mở rộng.
+Mọi quyết định phải phục vụ mục tiêu hoàn thành MVP trước khi tối ưu.
+---
+# Core Principles
+## 1. Simplicity First
+Luôn ưu tiên giải pháp đơn giản nhất.
+Không thêm abstraction nếu chưa thực sự cần.
+---
+## 2. Single Responsibility
+Mỗi component chỉ có một trách nhiệm duy nhất.
+Không trộn nhiều vai trò vào cùng một component.
+---
+## 3. Model-Driven
+Reasoning chỉ thuộc về Reasoning Model.
+Model quyết định:
+- cần thông tin gì
+- sử dụng tool nào
+- khi nào kết thúc reasoning
+---
+## 4. Stateless
+Reasoning Session không lưu trạng thái.
+Working Context chỉ tồn tại trong một session.
+Chỉ Stable Information mới được lưu lâu dài.
+---
+## 5. Separation of Concerns
+Reasoning và Data Collection là hai bài toán khác nhau.
+Model không thu thập dữ liệu.
+Collector không reasoning.
+Tool không reasoning.
+Agent không reasoning.
+---
+## 6. Stable Before Dynamic
+Ưu tiên sử dụng Stable Information trước.
+Chỉ thu thập dữ liệu mới khi thực sự cần.
+---
+## 7. MVP First
+Làm cho hệ thống chạy trước.
+Sau đó mới:
+- Refactor
+- Optimize
+- Extend
+Không thiết kế cho nhu cầu chưa tồn tại.
+---
+## 8. Explicit Over Implicit
+Mọi component phải có:
+- Responsibility rõ ràng
+- Boundary rõ ràng
+- Dependency rõ ràng
+Không suy diễn.
+---
+## 9. Low Coupling
+Component chỉ giao tiếp thông qua contract.
+Không truy cập trực tiếp implementation của component khác.
+---
+## 10. Documentation First
+Kiến trúc được thống nhất trong tài liệu trước.
+Code phải phản ánh tài liệu.
+Không để code trở thành nguồn sự thật duy nhất.
+---
+# Design Rules
+- Đơn giản hơn phức tạp.
+- Rõ ràng hơn thông minh.
+- Ít abstraction hơn nhiều abstraction.
+- Ít dependency hơn nhiều dependency.
+- Có thể chạy quan trọng hơn thiết kế đẹp.
+- Không tối ưu sớm.
+- Không over-engineering.
+---
+# Out of Scope
+Không triển khai nếu chưa có nhu cầu thực tế:
+- Plugin System
+- Search Engine
+- Embedding
+- Cache
+- Scheduler
+- Distributed Runtime
+- Workflow Engine
+---
+# Success Criteria
+Một thay đổi được coi là tốt khi:
+- Kiến trúc đơn giản hơn.
+- Trách nhiệm rõ ràng hơn.
+- Ít coupling hơn.
+- Dễ đọc hơn.
+- Dễ kiểm thử hơn.
+- Không làm tăng độ phức tạp không cần thiết.

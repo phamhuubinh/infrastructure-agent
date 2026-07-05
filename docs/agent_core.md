@@ -1,145 +1,73 @@
-# Agent Core Architecture
+# Agent
+## Mục tiêu
+Agent là Dispatcher giữa Reasoning Model và Tool.
+Agent không chứa business logic.
 ---
-# Purpose
-Agent Core defines the high-level architecture of the Model-Driven Execution Runtime.
-The architecture separates reasoning from execution.
-The Reasoning Model owns all intelligence.
-The Agent owns execution only.
-Agent Core defines architectural responsibilities, ownership boundaries, and information flow.
-Implementation details belong to individual component specifications.
+# Responsibilities
+Agent chịu trách nhiệm:
+- Nhận Action từ Reasoning Model.
+- Kiểm tra Action hợp lệ.
+- Chuyển Action tới Tool phù hợp.
+- Nhận Observation từ Tool.
+- Trả Observation về Reasoning Model.
 ---
-# Scope
-Agent Core defines:
-* architectural responsibilities;
-* component ownership;
-* information flow;
-* execution boundaries;
-* reasoning boundaries.
-Agent Core does not define:
-* implementation details;
-* runtime behavior;
-* public APIs;
-* data models;
-* tool implementations.
+# Non-Responsibilities
+Agent không:
+- Reasoning.
+- Phân tích dữ liệu.
+- Quyết định bước tiếp theo.
+- Thu thập dữ liệu.
+- Truy cập trực tiếp Stable Store.
+- Truy cập trực tiếp Environment.
 ---
-# Core Components
-The Agent Core consists of:
-* Reasoning Model
-* Agent
-* Runtime
-* Tool
-Each component owns a single architectural responsibility.
+# Communication
+Agent chỉ giao tiếp với:
+- Reasoning Model
+- Tool
+Agent không giao tiếp trực tiếp với:
+- Collector
+- Stable Store
+- Operating System
 ---
-# Component Responsibilities
-## Reasoning Model
-The Reasoning Model is the only intelligent component.
-It is responsible for:
-* reasoning;
-* planning;
-* decision making;
-* information acquisition;
-* observation interpretation;
-* determining the next Action;
-* producing the Final Response.
-The Reasoning Model never performs execution.
----
-## Agent
-The Agent is an execution engine.
-It is responsible for:
-* receiving Actions;
-* invoking Runtime execution;
-* enforcing execution safety;
-* collecting Observations;
-* preserving execution outputs;
-* returning raw Observations.
-The Agent never:
-* performs reasoning;
-* performs planning;
-* generates Actions;
-* modifies Actions;
-* interprets Observations;
-* decides whether execution should continue.
----
-## Runtime
-The Runtime manages execution.
-It is responsible for:
-* execution lifecycle;
-* execution environment;
-* execution isolation;
-* timeout management;
-* cancellation;
-* execution coordination.
-The Runtime never performs reasoning or business logic.
----
-## Tool
-A Tool performs one atomic operation.
-A Tool is responsible for:
-* validating execution input;
-* executing one deterministic operation;
-* returning a structured execution result.
-Tools never:
-* perform reasoning;
-* perform planning;
-* collect additional information;
-* invoke other Tools implicitly.
----
-# Information Flow
-The system follows an iterative Action → Observation loop.
-```text
-User
-        │
-            ▼
-Reasoning Model
-        │
-            ▼
-Action
-        │
-            ▼
-Agent
-        │
-            ▼
-Runtime
-        │
-            ▼
-Tool
-        │
-            ▼
-Observation
-        │
-            ▼
-Reasoning Model
-        │
-   ┌────┴────┐
-    ▼             ▼
-Action   Final Response
+# Lifecycle
 ```
-Execution continues until the Reasoning Model produces a Final Response.
-The Agent never determines when execution terminates.
+Receive Action
+        │
+            ▼
+Validate Action
+        │
+            ▼
+Dispatch To Tool
+        │
+            ▼
+Receive Observation
+        │
+            ▼
+Return Observation
+```
 ---
-# Architectural Boundaries
-The following ownership boundaries shall always hold.
-Reasoning belongs exclusively to the Reasoning Model.
-Execution belongs to the Agent and Runtime.
-Atomic operations belong to Tools.
-Observations remain raw throughout execution.
-Interpretation belongs exclusively to the Reasoning Model.
+# Constraints
+- Stateless.
+- Không lưu Working Context.
+- Không cache dữ liệu.
+- Không retry theo business logic.
+- Không thay đổi Observation.
 ---
-# Architectural Constraints
-The following constraints shall always hold:
-* The Reasoning Model is the only reasoning component.
-* The Agent performs execution only.
-* The Runtime manages execution only.
-* Every Tool performs exactly one atomic operation.
-* The Agent never modifies model-generated Actions.
-* The Agent never modifies Observations.
-* The Agent never performs implicit execution.
-* Components communicate only through defined architectural contracts.
+# Dependency
+```
+Reasoning Model
+        │
+            ▼
+      Agent
+        │
+            ▼
+      Tool
+```
+Dependency chỉ theo một chiều.
 ---
-# Related Architecture Documents
-Detailed architectural behavior is defined by:
-* project_principles.md
-* protocol/action_protocol.md
-* runtime_architecture.md
-* tool_architecture.md
-* shared_architecture.md
-Implementation details belong to the corresponding component specifications.
+# Design Goal
+Agent phải càng nhỏ càng tốt.
+Nếu một logic có thể chuyển sang:
+- Model
+- Tool
+thì không được đặt trong Agent.

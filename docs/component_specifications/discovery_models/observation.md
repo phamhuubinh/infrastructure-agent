@@ -16,12 +16,12 @@ Observation must never:
 * modify itself after creation.
 ---
 # Ownership
-Observation belongs to the Discovery subsystem.
-Observation may be consumed by the Discovery Engine.
+Observation is a shared model.
+Observation may be produced by Runtime and consumed by Discovery Engine or other architectural components through defined contracts.
 ---
 # Lifecycle
-1. Created from environment observations.
-2. Passed to the Discovery Engine.
+1. Created by an observation producer.
+2. Passed to the Discovery Engine when used for discovery.
 3. Used during one discovery cycle.
 4. The Observation lifecycle ends after the discovery cycle unless retained by higher-level architectural policies.
 ---

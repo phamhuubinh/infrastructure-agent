@@ -1,153 +1,75 @@
 # Coding Standards
+## Mục tiêu
+Viết code đơn giản, dễ đọc, dễ kiểm thử và phù hợp với kiến trúc của project.
+Code phải phản ánh tài liệu kiến trúc.
 ---
-# Purpose
-This document defines the coding standards for the Autonomous Agent project.
-All implementations shall follow these standards unless an Architecture document explicitly specifies otherwise.
-Architecture documents remain the single source of truth.
+# General Rules
+- Ưu tiên thư viện chuẩn của Python.
+- Không tối ưu sớm.
+- Không over-engineering.
+- Không thêm abstraction khi chưa cần.
+- Không viết code "đón đầu" nhu cầu tương lai.
 ---
-# Documentation Rules
-The documentation hierarchy is:
-```text
-Architecture
-        ↓
-Component Specification
-        ↓
-API Specification
-        ↓
-Model Specification
-        ↓
-Implementation
-```
-Implementation must always follow the documentation hierarchy.
-Architecture changes shall never be introduced during implementation.
----
-# Architecture Compliance
-Architecture documents and Model Specifications are the only source of truth.
-Implementations must never invent:
-* models;
-* fields;
-* enums;
-* relationships;
-* helper abstractions;
-* public APIs.
-If required information is missing:
-* stop implementation;
-* update the specification;
-* implement only after the specification is complete.
----
-# Python Standards
-## Python Version
-* Python 3.12+
-## Project Structure
-```text
-src/
-tests/
-docs/
-```
-Production code belongs only in `src/`.
+# Architecture Rules
+Mọi component chỉ có một trách nhiệm.
+Không thay đổi ownership giữa các component.
+Không bypass architecture.
+Dependency chỉ đi theo một chiều.
 ---
 # Naming
-* Classes: PascalCase
-* Functions: snake_case
-* Variables: snake_case
-* Constants: UPPER_CASE
+Tên phải rõ nghĩa.
+Không viết tắt.
+Ưu tiên tên mô tả trách nhiệm.
 ---
-# Type Hints
-All public APIs shall use type hints.
-Prefer Python 3.12 built-in generics:
-* dict
-* list
-* tuple
-* set
-Avoid:
-* Dict
-* List
-* Tuple
-* Set
-* Any (unless unavoidable)
+# Functions
+Function chỉ làm một việc.
+Ưu tiên hàm ngắn.
+Nếu function quá dài, tách nhỏ.
+Không lồng logic quá sâu.
 ---
-# Data Models
-Prefer immutable dataclasses.
-Use:
-```python
-@dataclass(frozen=True, slots=True)
-```
-where appropriate.
+# Classes
+Class chỉ đại diện cho một abstraction.
+Không tạo Interface hoặc Abstract Class nếu chưa thực sự cần.
+Không thêm Design Pattern chỉ để "đẹp".
 ---
-# Enumerations
-Use `Enum` unless another enumeration type is explicitly required by the architecture.
+# Dependencies
+Không thêm package mới nếu Python Standard Library giải quyết được.
+Mọi dependency mới phải có lý do rõ ràng.
 ---
-# Imports
-Import order:
-1. Standard Library
-2. Third-party Packages
-3. Project Modules
-Project imports must never use:
-```text
-src.*
-```
-Imports must satisfy:
-* no unused imports;
-* no unresolved names.
----
-# Documentation
-Use concise docstrings only where they improve readability.
-Avoid redundant comments.
+# Error Handling
+Không bỏ qua exception.
+Thông báo lỗi phải rõ ràng.
+Không che giấu lỗi.
 ---
 # Logging
-Use the `logging` module.
-Never use `print()` for application logging.
----
-# Exceptions
-Catch only specific exceptions.
-Never use:
-```python
-except:
-```
----
-# Formatting
-Recommended tools:
-* Ruff
-* Black
+Chỉ log thông tin hữu ích.
+Không log dữ liệu dư thừa.
+Không dùng log thay cho exception.
 ---
 # Testing
-Use `pytest`.
-Mirror the source structure inside `tests/`.
+Code mới phải có test tương ứng.
+Không làm hỏng test hiện có.
+Ưu tiên unit test.
 ---
-# Git Rules
-One logical unit equals one commit.
-Never mix unrelated architectural changes in the same commit.
-Review before committing.
+# Documentation
+Mọi thay đổi kiến trúc phải cập nhật tài liệu trước hoặc cùng lúc với code.
+Không để tài liệu và code lệch nhau.
 ---
-# AI Development Rules
-AI implementations shall:
-* read only the required documents;
-* modify only the requested files;
-* preserve public APIs;
-* preserve architecture;
-* avoid placeholder implementations;
-* avoid TODO/FIXME markers;
-* stop after completing the requested task.
-Runtime components must never invent shared models.
+# Pull Request Checklist
+Trước khi hoàn thành một thay đổi:
+- Kiến trúc vẫn đúng.
+- Không tăng coupling.
+- Không thêm abstraction không cần thiết.
+- Không thay đổi public contract ngoài phạm vi.
+- Test liên quan đã chạy.
+- Tài liệu đã được cập nhật.
 ---
-# Development Workflow
-Every implementation follows:
-```text
-Architecture
-        ↓
-Component Specification
-        ↓
-API Specification
-        ↓
-Model Specification (if required)
-        ↓
-Implementation
-        ↓
-Review
-        ↓
-Test
-        ↓
-Commit
-```
-Implementation always follows the specification.
-Never modify the specification to match incorrect code.
+# Prohibited
+Không:
+- Over-engineering.
+- Refactor ngoài phạm vi.
+- Đổi tên không cần thiết.
+- Format toàn bộ project.
+- Thêm TODO không có kế hoạch thực hiện.
+- Thêm feature ngoài yêu cầu.
+- Thêm dependency không cần thiết.

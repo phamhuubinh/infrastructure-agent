@@ -31,5 +31,4 @@ ExecutionResult references:
 - RuntimeMetadata
 ExecutionResult is consumed by:
 - Runtime
-- Executor
 - Verification

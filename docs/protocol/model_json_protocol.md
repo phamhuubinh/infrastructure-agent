@@ -1,20 +1,15 @@
 # Model JSON Protocol
----
-# Purpose
-The Model JSON Protocol defines the data exchange format between the reasoning model and the Agent.
-The Agent communicates with the reasoning model exclusively through JSON messages.
----
-# General Rules
-The reasoning model shall return exactly one valid JSON object.
-The reasoning model shall never return markdown.
-The reasoning model shall never return explanations outside the JSON object.
+## Purpose
+Defines the communication protocol between the Reasoning Model and the Agent.
+The protocol is independent of the underlying model implementation.
 ---
 # Response Types
-The reasoning model may produce one of the following response types.
-* action
-* final
+The Reasoning Model shall return exactly one JSON object.
+Supported message types:
+- action
+- final
 ---
-# Action JSON Schema
+# Action
 ```json
 {
     "type": "action",
@@ -23,14 +18,16 @@ The reasoning model may produce one of the following response types.
 }
 ```
 Required fields:
-* type
-* tool
-* arguments
-The "type" field shall be "action".
-The "tool" field shall identify exactly one supported Agent tool.
-The "arguments" field shall contain all tool arguments.
+- type
+- tool
+- arguments
+Rules:
+- One Action per response.
+- One Tool per Action.
+- Arguments must be complete.
+- Agent never infers missing arguments.
 ---
-# Final JSON Schema
+# Final
 ```json
 {
     "type": "final",
@@ -38,15 +35,22 @@ The "arguments" field shall contain all tool arguments.
 }
 ```
 Required fields:
-* type
-* content
-The "type" field shall be "final".
-The "content" field shall contain the final response for the user.
+- type
+- content
+Rules:
+- Final terminates the reasoning session.
+- Final never contains executable actions.
 ---
-# Validation Rules
-The reasoning model shall return exactly one JSON object.
-Unknown response types shall be rejected.
-Unknown tools shall be rejected.
-Missing required fields shall be rejected.
-Additional fields may be ignored by the Agent.
-The Agent shall never infer missing information.
+# Validation
+The Agent shall reject:
+- Invalid JSON.
+- Unknown message types.
+- Unknown tools.
+- Missing required fields.
+The Agent shall never modify Model output.
+---
+# Design Rules
+- One response → One JSON object.
+- One Action → One Tool.
+- One Tool → One Observation.
+- The protocol is stateless.

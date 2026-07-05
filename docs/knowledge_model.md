@@ -1,127 +1,73 @@
-# Knowledge Model Architecture
+# Knowledge
+## Mục tiêu
+Knowledge cung cấp thông tin cho Reasoning Model thông qua Knowledge Tool.
+Knowledge được chia thành:
+- Stable Information
+- Runtime Information
 ---
-# Purpose
-Knowledge Model Architecture defines how the agent represents, organizes, and evolves its understanding of the environment.
-The Knowledge Model is the single source of internal knowledge used by reasoning, planning, and execution.
-Implementation details belong to component specifications.
+# Stable Information
+Stable Information là dữ liệu thay đổi ít.
+Ví dụ:
+- Operating System
+- Hardware
+- Network Inventory
+- Installed Software
+- Repository Information
+- Docker Inventory
+- VMware Inventory
+Stable Information được lưu trong Stable Store.
+Collector chịu trách nhiệm tạo và cập nhật.
+---
+# Runtime Information
+Runtime Information là dữ liệu chỉ tồn tại trong một Reasoning Session.
+Ví dụ:
+- Tool Result
+- Command Output
+- API Response
+- Observation
+Runtime Information không được lưu lâu dài.
+---
+# Knowledge Tool
+Knowledge Tool là giao diện duy nhất để truy cập Knowledge.
+Reasoning Model không truy cập trực tiếp:
+- Stable Store
+- Collector
+- Operating System
+Reasoning Model chỉ giao tiếp với Knowledge Tool.
 ---
 # Responsibilities
-Knowledge Model Architecture is responsible for:
-* representing structured knowledge;
-* maintaining entities and relationships;
-* integrating new observations;
-* supporting reasoning and planning;
-* preserving historical context;
-* evolving the internal understanding of the environment.
-Knowledge Model Architecture must not:
-* perform planning;
-* execute actions;
-* perform Runtime operations.
+Knowledge Tool chịu trách nhiệm:
+- Đọc Stable Information.
+- Trả dữ liệu theo yêu cầu.
+- Yêu cầu Collector cập nhật dữ liệu khi cần.
+- Trả Knowledge Result.
 ---
-# Architectural Principles
-The following principles shall always hold:
-* Knowledge is derived from evidence.
-* Knowledge evolves continuously.
-* The Knowledge Model is the single source of internal knowledge.
-* Planner and Executor consume knowledge but do not own it.
-* Discovery updates knowledge through observations.
+# Non-Responsibilities
+Knowledge Tool không:
+- Reasoning.
+- Phân tích dữ liệu.
+- Quyết định cần dữ liệu gì.
+- Thu thập dữ liệu trực tiếp.
 ---
-# Core Concepts
-## Knowledge Model
-The Knowledge Model represents the agent's current understanding of the environment.
-It contains validated knowledge rather than raw observations.
----
-## Entity
-Entities represent identifiable objects or concepts within the environment.
-Examples include:
-* systems;
-* users;
-* files;
-* services.
-Entities are persistent.
----
-## Relationship
-Relationships describe how entities are connected.
-Examples include:
-* ownership;
-* dependency;
-* communication;
-* temporal relationships.
-Relationships are persistent.
----
-## Attribute
-Attributes describe properties of entities.
-Attributes provide structured metadata required for reasoning and execution.
----
-## Pattern
-Patterns represent recurring structures or behaviors discovered within the environment.
-Patterns support reasoning and hypothesis generation.
----
-## Anomaly
-Anomalies represent observations that deviate from expected patterns.
-They become candidates for further investigation.
----
-## Historical Context
-Historical Context preserves previous observations, hypotheses, and validated knowledge.
-Historical information improves future reasoning and planning.
----
-## Knowledge Evolution
-The Knowledge Model evolves continuously through:
-* incremental updates;
-* refinement;
-* restructuring when required.
-Knowledge always reflects the current understanding of the environment.
----
-# Information Flow
-```text
-Environment
-        ↓
-Observation
-        ↓
-Discovery
-        ↓
-Knowledge Construction
-        ↓
-Knowledge Model
-        ↓
-Planner
-        ↓
-Executor
-        ↓
-Execution Feedback
-        ↓
-Knowledge Model
+# Data Flow
 ```
-The Knowledge Model is continuously refined through execution feedback.
+Reasoning Model
+        │
+            ▼
+Knowledge Tool
+        │
+ ┌──────┴──────┐
+ ▼                   ▼
+Stable Store  Collector
+```
+- Knowledge Tool mặc định đọc từ Stable Store. Collector chỉ được gọi khi cần cập nhật (refresh) dữ liệu.
 ---
-# Relationships
-## Discovery
-Discovery transforms observations into structured knowledge.
+# Constraints
+- Stateless.
+- Không cache Working Context.
+- Không chứa Business Logic.
+- Không quyết định khi nào refresh dữ liệu.
 ---
-## Planner
-Planner consumes knowledge to generate hypotheses and execution plans.
-Planner never modifies the Knowledge Model directly.
----
-## Executor
-Executor consumes knowledge during execution.
-Execution feedback contributes to future knowledge refinement.
----
-# Knowledge Lifetime
-| Concept      | Lifetime   |
-| ------------ | ---------- |
-| Observation  | Temporary  |
-| Hypothesis   | Temporary  |
-| Entity       | Persistent |
-| Relationship | Persistent |
-| Attribute    | Persistent |
-| Knowledge    | Persistent |
----
-# Architectural Constraints
-The following constraints shall always hold:
-* Knowledge is evidence-based.
-* Raw observations are not persistent knowledge.
-* Discovery is the only component that updates the Knowledge Model.
-* Planner never owns knowledge.
-* Executor never owns knowledge.
-* Knowledge evolves continuously.
-* Components communicate only through defined architectural contracts.
+# Design Goal
+Knowledge là lớp truy cập dữ liệu duy nhất của hệ thống.
+Mọi thay đổi về nơi lưu trữ hoặc cách thu thập dữ liệu không được ảnh hưởng đến Reasoning Model.
