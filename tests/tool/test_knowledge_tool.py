@@ -6,9 +6,14 @@ from src.tool.knowledge_tool import KnowledgeTool
 
 
 def test_get_returns_resource(tmp_path) -> None:
-    store = tmp_path / "knowledge_store.json"
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
 
-    store.write_text(
+    linux.mkdir(parents=True)
+
+    inventory = linux / "inventory.json"
+
+    inventory.write_text(
         json.dumps(
             {
                 "system_info": [
@@ -26,9 +31,12 @@ def test_get_returns_resource(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    tool = KnowledgeTool(str(store))
+    tool = KnowledgeTool(str(store_root))
 
-    assert tool.get("system_info") == [
+    assert tool.get(
+        source="linux",
+        resource="system_info",
+    ) == [
         {
             "hostname": "test-host",
         }
@@ -36,9 +44,14 @@ def test_get_returns_resource(tmp_path) -> None:
 
 
 def test_get_returns_none_for_unknown_resource(tmp_path) -> None:
-    store = tmp_path / "knowledge_store.json"
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
 
-    store.write_text(
+    linux.mkdir(parents=True)
+
+    inventory = linux / "inventory.json"
+
+    inventory.write_text(
         json.dumps(
             {
                 "system_info": [],
@@ -47,15 +60,26 @@ def test_get_returns_none_for_unknown_resource(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    tool = KnowledgeTool(str(store))
+    tool = KnowledgeTool(str(store_root))
 
-    assert tool.get("missing") is None
+    assert (
+        tool.get(
+            source="linux",
+            resource="missing",
+        )
+        is None
+    )
 
 
 def test_keys_returns_sorted_resource_names(tmp_path) -> None:
-    store = tmp_path / "knowledge_store.json"
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
 
-    store.write_text(
+    linux.mkdir(parents=True)
+
+    inventory = linux / "inventory.json"
+
+    inventory.write_text(
         json.dumps(
             {
                 "z": [],
@@ -66,9 +90,11 @@ def test_keys_returns_sorted_resource_names(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    tool = KnowledgeTool(str(store))
+    tool = KnowledgeTool(str(store_root))
 
-    assert tool.keys() == [
+    assert tool.keys(
+        source="linux",
+    ) == [
         "a",
         "m",
         "z",

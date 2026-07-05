@@ -6,20 +6,25 @@ from pathlib import Path
 
 class KnowledgeTool:
     """
-    Tool for reading the Stable Knowledge Store.
+    Tool for reading data from the Stable Store.
 
-    This MVP implementation provides simple read access to
-    knowledge_store.json.
+    The Stable Store contains long-lived information collected by
+    Discovery Collectors.
     """
 
     def __init__(
         self,
-        store: str = "knowledge_store.json",
+        store_root: str = "stable_store",
     ) -> None:
-        self.store = Path(store)
+        self.store_root = Path(store_root)
 
-    def _load(self) -> dict[str, object]:
-        with self.store.open(
+    def _load(
+        self,
+        source: str,
+    ) -> dict[str, object]:
+        inventory = self.store_root / source / "inventory.json"
+
+        with inventory.open(
             "r",
             encoding="utf-8",
         ) as file:
@@ -27,11 +32,15 @@ class KnowledgeTool:
 
     def get(
         self,
-        key: str,
+        source: str,
+        resource: str,
     ) -> object | None:
-        data = self._load()
-        return data.get(key)
+        data = self._load(source)
+        return data.get(resource)
 
-    def keys(self) -> list[str]:
-        data = self._load()
+    def keys(
+        self,
+        source: str,
+    ) -> list[str]:
+        data = self._load(source)
         return sorted(data.keys())
