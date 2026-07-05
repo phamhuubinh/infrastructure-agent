@@ -1,24 +1,26 @@
 # 04 - Architecture Decisions
 Tài liệu này lưu các quyết định kiến trúc của project.
-Mỗi quyết định phải ghi rõ:
+Mỗi quyết định phải gồm:
 - Decision
 - Context
 - Reason
 - Consequence
-Không ghi TODO.
-Không ghi roadmap.
-Không ghi implementation.
+Không ghi:
+- TODO
+- Roadmap
+- Implementation Detail
 ---
 # AD-001
 ## Decision
 Reasoning chỉ thuộc về Reasoning Model.
 ## Context
-Hệ thống được thiết kế theo hướng Model-Driven.
+Project được thiết kế theo kiến trúc Model-Driven.
 ## Reason
-Tránh trùng trách nhiệm.
-Giảm độ phức tạp.
+Tách biệt hoàn toàn Reasoning và Execution.
 ## Consequence
-Agent và Tool không được reasoning.
+- Agent không reasoning.
+- Tool không reasoning.
+- Collector không reasoning.
 ---
 # AD-002
 ## Decision
@@ -26,25 +28,32 @@ Agent chỉ là Dispatcher.
 ## Context
 Agent nằm giữa Model và Tool.
 ## Reason
-Agent chỉ điều phối giao tiếp.
-Không chứa business logic.
+Giảm Business Logic.
+Giữ Agent đơn giản.
 ## Consequence
-Agent:
+Agent chỉ:
 - nhận request
 - gọi Tool
-- trả kết quả
-Không phân tích dữ liệu.
+- trả Tool Result
+Không:
+- phân tích dữ liệu
+- quyết định workflow
+- lưu trạng thái
 ---
 # AD-003
 ## Decision
-Knowledge Tool là giao diện duy nhất truy cập Stable Store.
+Tool chỉ thực hiện một nhiệm vụ.
 ## Context
-Model không được truy cập trực tiếp dữ liệu.
+Project sử dụng Tool-Based Architecture.
 ## Reason
-Ẩn implementation.
 Giảm coupling.
+Dễ mở rộng.
 ## Consequence
-Model chỉ giao tiếp với Knowledge Tool.
+Một Tool chỉ:
+- đọc dữ liệu
+- chạy command
+- gọi API
+Không tạo Tool đa năng.
 ---
 # AD-004
 ## Decision
@@ -54,47 +63,184 @@ Collector chạy độc lập với Model.
 ## Reason
 Tách biệt Data Collection và Reasoning.
 ## Consequence
-Collector không được phân tích dữ liệu.
+Collector:
+- không reasoning
+- không biết Model
+- không biết workflow
+Collector chỉ sinh Stable Information.
 ---
 # AD-005
 ## Decision
-Stable Store chỉ lưu dữ liệu ổn định.
+Stable Store chỉ lưu Stable Information.
 ## Context
 Một số dữ liệu thay đổi rất ít.
 ## Reason
 Giảm token.
 Giảm số lần thu thập.
 ## Consequence
-Thông tin như:
+Stable Store chỉ lưu:
 - Hardware
-- OS
+- Operating System
 - SSH
 - Docker Inventory
-được lưu trong Stable Store.
+- Installed Software
+- Repository Information
+Không lưu Runtime Information.
 ---
 # AD-006
 ## Decision
 Working Context không được lưu.
 ## Context
-Reasoning Session là stateless.
+Reasoning Session phải Stateless.
 ## Reason
 Giảm coupling.
-Giảm dữ liệu cũ.
+Tránh dữ liệu cũ ảnh hưởng phiên mới.
 ## Consequence
-Tool Result chỉ tồn tại trong phiên làm việc hiện tại.
+Không lưu:
+- Tool Result
+- Observation
+- API Response
+- Command Output
+Working Context bị hủy sau Final Response.
 ---
 # AD-007
 ## Decision
-Ưu tiên MVP trước.
+Workflow luôn do Model quyết định.
+## Context
+Model là thành phần duy nhất reasoning.
+## Reason
+Giữ Agent và Tool không chứa Business Logic.
+## Consequence
+Agent không quyết định:
+- gọi Tool nào
+- gọi khi nào
+- dừng khi nào
+Toàn bộ workflow thuộc về Model.
+---
+# AD-008
+## Decision
+Model không truy cập trực tiếp Environment.
+## Context
+Environment có thể thay đổi.
+## Reason
+Giảm coupling.
+Ẩn implementation.
+## Consequence
+Model chỉ giao tiếp với Agent.
+Agent chỉ giao tiếp với Tool.
+Tool mới được thao tác Environment.
+---
+# AD-009
+## Decision
+Model không truy cập trực tiếp Stable Store.
+## Context
+Stable Store là implementation detail.
+## Reason
+Cho phép thay đổi Storage mà không ảnh hưởng Model.
+## Consequence
+Mọi truy cập Stable Information đều thông qua Tool.
+---
+# AD-010
+## Decision
+Dependency chỉ đi theo một chiều.
+## Context
+Kiến trúc phân tầng.
+## Reason
+Giảm phụ thuộc ngược.
+Dễ thay thế từng thành phần.
+## Consequence
+```text
+Reasoning Model
+        │
+        ▼
+Agent
+        │
+        ▼
+Tool
+        │
+        ├────────► Stable Store
+        │
+        └────────► Environment
+```
+Không được phụ thuộc ngược.
+---
+# AD-011
+## Decision
+Ưu tiên MVP.
 ## Context
 Project đang trong giai đoạn đầu.
 ## Reason
-Giảm over-engineering.
+Tránh over-engineering.
 ## Consequence
 Không triển khai:
-- SQLite
+- Plugin
+- Scheduler
 - Search Engine
 - Embedding
-- Plugin
-- Runtime Store
+- Vector Database
+- Cache
+- Multi Agent
 cho đến khi MVP hoàn thành.
+---
+# AD-012
+## Decision
+Một Component chỉ có một Responsibility.
+## Context
+Toàn bộ project áp dụng nguyên tắc Single Responsibility.
+## Reason
+Dễ đọc.
+Dễ debug.
+Dễ thay thế.
+## Consequence
+| Component    | Responsibility 	  |
+|--------------|--------------------------|
+| Model        | Reasoning 		  |
+| Agent        | Dispatch  		  |
+| Tool 	       | Execute 		  |
+| Collector    | Collect 		  |
+| Stable Store | Store Stable Information |
+Không chuyển Responsibility giữa các Component.
+---
+# AD-013
+## Decision
+Không lưu Business Workflow trong hệ thống.
+## Context
+Workflow được sinh động bởi Model.
+## Reason
+Giữ hệ thống Stateless.
+## Consequence
+Agent và Tool không biết:
+- bước trước
+- bước sau
+- mục tiêu cuối cùng
+Chúng chỉ xử lý request hiện tại.
+---
+# AD-014
+## Decision
+Mọi thay đổi kiến trúc phải ưu tiên sự đơn giản.
+## Context
+Project hướng tới khả năng bảo trì lâu dài.
+## Reason
+Độ phức tạp tăng nhanh hơn số lượng tính năng.
+## Consequence
+Nếu có nhiều phương án:
+1. Chọn phương án đơn giản hơn.
+2. Chọn ít abstraction hơn.
+3. Chọn ít dependency hơn.
+4. Chỉ mở rộng khi có nhu cầu thực tế.
+---
+# AD-015
+## Decision
+Repository là nguồn sự thật duy nhất.
+## Context
+AI có thể có trí nhớ hoặc suy luận sai.
+## Reason
+Đảm bảo mọi thay đổi đều dựa trên trạng thái thực tế của project.
+## Consequence
+Trước khi:
+- thiết kế
+- sửa code
+- review
+- refactor
+AI phải đọc repository liên quan.
+Nếu repository khác với trí nhớ hoặc suy luận, luôn ưu tiên repository.

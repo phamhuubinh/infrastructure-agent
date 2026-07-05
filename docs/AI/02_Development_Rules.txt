@@ -1,20 +1,35 @@
 # 02 - Development Rules
-Trước khi viết hoặc sửa bất kỳ đoạn code nào, luôn tuân thủ các quy tắc dưới đây.
+Các quy tắc dưới đây bắt buộc phải được tuân thủ khi làm việc với repository này.
 ---
 # 1. Mục tiêu
-Mục tiêu của project là xây dựng một AI Agent đơn giản, dễ bảo trì và dễ mở rộng.
-Không ưu tiên viết code "đẹp" nếu làm tăng độ phức tạp.
+Project hướng đến một AI Agent:
+- Đơn giản.
+- Stateless.
+- Model-Driven.
+- Tool-Based.
+- Dễ bảo trì.
+- Dễ mở rộng.
+Không ưu tiên code "đẹp" nếu làm tăng độ phức tạp.
 Luôn ưu tiên:
+- MVP.
 - Đơn giản.
 - Dễ đọc.
 - Dễ debug.
-- Ít phụ thuộc.
+- Ít dependency.
 ---
-# 2. Giữ nguyên kiến trúc
-Không tự ý thay đổi kiến trúc.
-Không thêm component mới nếu chưa thực sự cần.
-Không đổi trách nhiệm giữa các component.
-Nếu thấy cần thay đổi kiến trúc, phải giải thích lý do và trade-off trước.
+# 2. Kiến trúc là nguồn sự thật
+Không tự ý thay đổi:
+- Responsibility.
+- Dependency.
+- Ownership.
+- Boundary.
+Nếu cần thay đổi kiến trúc:
+Phải giải thích:
+- Context.
+- Lý do.
+- Trade-off.
+- Ảnh hưởng.
+Sau khi được chấp thuận mới thực hiện.
 ---
 # 3. Không Over-Engineering
 Không thêm:
@@ -22,89 +37,171 @@ Không thêm:
 - Abstract Class.
 - Factory.
 - Strategy.
-- Repository.
-- Design Pattern.
-nếu project hiện tại chưa cần.
-Ưu tiên code trực tiếp và rõ ràng.
+- Repository Pattern.
+- Event Bus.
+- Plugin System.
+- Middleware.
+- Service Locator.
+nếu project chưa cần.
+Ưu tiên code trực tiếp.
 ---
 # 4. Một Component - Một Trách Nhiệm
-Reasoning Model
-- Chỉ reasoning.
-Agent
-- Chỉ điều phối.
-Knowledge Tool
-- Chỉ truy cập dữ liệu.
-Collector
-- Chỉ thu thập dữ liệu.
+## Reasoning Model
+Chỉ reasoning.
+## Agent
+Chỉ dispatch.
+## Tool
+Chỉ execute.
+## Collector
+Chỉ collect.
+## Stable Store
+Chỉ lưu Stable Information.
 Không được trộn trách nhiệm.
 ---
-# 5. Viết Code
+# 5. Model là trung tâm
+Workflow luôn do Model quyết định.
+Không được để:
+- Agent quyết định workflow.
+- Tool quyết định workflow.
+- Collector quyết định workflow.
+Model là nơi duy nhất được reasoning.
+---
+# 6. Stateless
+Không lưu:
+- Tool Result
+- Observation
+- Runtime Response
+- Working Context
+Working Context chỉ tồn tại trong một phiên reasoning.
+Stable Store chỉ lưu dữ liệu ổn định.
+---
+# 7. Viết Code
 Ưu tiên:
 - Hàm nhỏ.
 - Tên rõ ràng.
 - Logic đơn giản.
-Không viết một hàm làm nhiều việc.
-Nếu một hàm bắt đầu quá dài, đề xuất tách nhỏ.
+- Dễ đọc.
+Nếu hàm quá dài:
+Đề xuất tách.
+Không tách nếu chưa cần.
 ---
-# 6. Không Refactor Khi Không Cần
-Không đổi tên.
-Không format lại toàn bộ project.
-Không tối ưu code.
-Không thay đổi cấu trúc thư mục.
+# 8. Không Refactor Khi Không Cần
+Không:
+- đổi tên file
+- đổi tên class
+- đổi tên hàm
+- format toàn bộ project
+- di chuyển thư mục
 trừ khi được yêu cầu.
 ---
-# 7. Không Thêm Dependency
+# 9. Không Thêm Dependency
+Ưu tiên thư viện chuẩn của Python.
 Không thêm:
-- Framework.
-- Library.
-- SDK.
-nếu project đã có thể giải quyết bằng thư viện chuẩn của Python.
-Nếu bắt buộc phải thêm dependency, phải giải thích lý do.
+- Framework
+- SDK
+- Library
+nếu có thể giải quyết bằng standard library.
+Nếu bắt buộc phải thêm dependency:
+Phải giải thích lý do.
 ---
-# 8. Giữ Tính Tương Thích
-Khi sửa code:
-- Không làm hỏng chức năng cũ.
-- Không thay đổi public interface nếu không cần.
-- Không thay đổi định dạng dữ liệu nếu chưa được thống nhất.
+# 10. Giữ Tính Tương Thích
+Không:
+- phá API
+- đổi format dữ liệu
+- đổi public interface
+trừ khi đã thống nhất.
 ---
-# 9. Viết Theo MVP
-Luôn ưu tiên:
-Làm cho chạy trước.
-Sau đó mới:
-- Refactor.
-- Tối ưu.
-- Mở rộng.
-Không thiết kế cho những nhu cầu chưa tồn tại.
+# 11. MVP First
+Luôn theo thứ tự:
+1. Chạy được.
+2. Test được.
+3. Review được.
+4. Sau đó mới tối ưu.
+Không thiết kế cho nhu cầu chưa tồn tại.
 ---
-# 10. Khi Đề Xuất Giải Pháp
+# 12. Tool
+Một Tool chỉ làm một việc.
+Ví dụ:
+- Inventory Tool
+- Command Tool
+- Docker Tool
+- SSH Tool
+Không tạo Tool đa năng.
+---
+# 13. Collector
+Collector chỉ thu thập dữ liệu.
+Không:
+- reasoning
+- validate business
+- phân tích dữ liệu
+Collector chỉ sinh Stable Information.
+---
+# 14. Stable Store
+Stable Store chỉ lưu dữ liệu thay đổi ít.
+Không lưu:
+- log
+- command output
+- observation
+- runtime state
+---
+# 15. Khi Đề Xuất Giải Pháp
 Luôn ưu tiên:
 Phương án đơn giản nhất.
 Nếu có nhiều phương án:
-- Phân tích ưu điểm.
-- Phân tích nhược điểm.
-- Đề xuất phương án phù hợp với project hiện tại.
-Không mặc định chọn phương án phức tạp.
+- phân tích ưu điểm
+- phân tích nhược điểm
+- giải thích trade-off
+- đề xuất phương án phù hợp với MVP
 ---
-# 11. Khi Viết Code
+# 16. Khi Viết Code
 Chỉ viết đúng phần được yêu cầu.
 Không tự động:
-- Thêm tính năng.
-- Thêm TODO.
-- Thêm helper.
-- Thêm abstraction.
-Nếu thấy có thể cải thiện, chỉ đề xuất, không tự ý sửa.
+- thêm helper
+- thêm TODO
+- thêm abstraction
+- thêm feature
+- refactor phần khác
 ---
-# 12. Quy tắc cuối cùng
-Mọi quyết định đều phải ưu tiên:
-Đơn giản > Phức tạp
-Rõ ràng > Thông minh
-MVP > Hoàn hảo
-Có thể chạy > Thiết kế đẹp
-Kiến trúc ổn định > Tối ưu sớm
-# 13. Không Đoán
+# 17. Không Đoán
 Nếu thiếu thông tin:
-- Không tự suy diễn.
-- Không tự tạo giả định.
+- Không đoán.
+- Không suy diễn.
 - Không tự tạo dữ liệu.
-- Hỏi lại hoặc nêu rõ giả định trước khi viết code.
-Chỉ sử dụng những thông tin đã được thống nhất trong project.
+- Không tự tạo API.
+- Không tự tạo workflow.
+Đọc repository trước.
+Nếu vẫn thiếu thì hỏi.
+---
+# 18. Verification
+Sau mỗi thay đổi cần review:
+- Responsibility.
+- Dependency.
+- Boundary.
+Sau đó chạy:
+```bash
+git status
+git diff
+ruff check src tests
+python -m pytest
+```
+Nếu chỉ sửa nhỏ:
+Có thể chạy test liên quan trước.
+Sau đó mới chạy toàn bộ test.
+---
+# 19. Definition of Done
+Một sprint chỉ hoàn thành khi:
+- Code hoàn thành.
+- Test thành công.
+- Verification thành công.
+- Repository sạch.
+- Không phá kiến trúc.
+---
+# 20. Quy tắc cuối cùng
+Mọi quyết định đều phải ưu tiên:
+> Đơn giản > Phức tạp
+> MVP > Hoàn hảo
+> Rõ ràng > Thông minh
+> Có thể chạy > Thiết kế đẹp
+> Kiến trúc ổn định > Tối ưu sớm
+Nếu có nghi ngờ:
+Chọn phương án đơn giản hơn.

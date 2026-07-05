@@ -190,7 +190,7 @@ def collect_all(tables: list, workers: int = 4):
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_table = {executor.submit(query_table, t): t for t in tables}
         for future in as_completed(future_to_table):
-            table = future_to_table[future]
+            future_to_table[future]
             t, data, err = future.result()
             if err:
                 errors[t] = err

@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from src.shared.execution.tool_result import ToolResult
+from src.tool.tool import Tool
 
-class KnowledgeTool:
+
+class KnowledgeTool(Tool):
     """
     Tool for reading data from the Stable Store.
 
@@ -44,3 +47,32 @@ class KnowledgeTool:
     ) -> list[str]:
         data = self._load(source)
         return sorted(data.keys())
+
+    def execute(
+        self,
+        arguments: dict[str, object],
+    ) -> ToolResult:
+        source = arguments.get("source")
+        resource = arguments.get("resource")
+
+        if not isinstance(source, str):
+            raise ValueError("Missing source.")
+
+        if not isinstance(resource, str):
+            raise ValueError("Missing resource.")
+
+        try:
+            data = self.get(
+                source=source,
+                resource=resource,
+            )
+        except FileNotFoundError:
+            return ToolResult(
+                success=False,
+                error=f"Unknown source: '{source}'.",
+            )
+
+        return ToolResult(
+            success=True,
+            data=data,
+        )

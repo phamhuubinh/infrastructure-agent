@@ -1,96 +1,192 @@
 # 03 - Project State
 Tài liệu này mô tả trạng thái hiện tại của project.
 Mục đích:
-- AI biết project đã làm đến đâu.
+- AI biết project đang ở giai đoạn nào.
 - AI biết phạm vi cần thực hiện.
-- Tránh tự ý phát triển vượt quá MVP.
+- AI tránh phát triển vượt quá MVP.
+- AI không suy diễn những thành phần chưa tồn tại.
 ---
 # Mục tiêu hiện tại
-Hoàn thành MVP đầu tiên.
+Hoàn thành MVP đầu tiên của AI Agent.
 Ưu tiên:
-- Làm cho toàn bộ luồng hoạt động.
-- Giữ kiến trúc đơn giản.
-- Không tối ưu sớm.
-- Không mở rộng ngoài phạm vi.
+1. Hoàn thiện luồng Reasoning.
+2. Hoàn thiện Tool.
+3. Hoàn thiện Agent.
+4. Giữ kiến trúc đơn giản.
+5. Không tối ưu sớm.
 ---
-# Trạng thái hiện tại
-## Đã hoàn thành
-### Agent
-- Đã kết nối được với Reasoning Model.
-- Có thể gửi Prompt.
-- Có thể nhận phản hồi từ Model.
+# Kiến trúc hiện tại
+Project theo kiến trúc:
+```text
+User
+    │
+    ▼
+Reasoning Model
+    │
+    ▼
+Agent
+    │
+    ▼
+Tool
+    │
+    ├────────► Stable Store
+    │
+    └────────► Environment
+```
+Model là thành phần duy nhất được reasoning.
 ---
-### Linux Collector
-Đã có pipeline:
-collect_osquery.py
-↓
-result.json
-↓
-build_knowledge_store.py
-↓
-knowledge_store.json
-↓
-update_knowledge.py
-Collector hiện tại sử dụng osquery.
+# Đã hoàn thành
+## Agent
+Đã có Agent MVP.
+Agent có khả năng:
+- nhận request từ Model
+- gọi Tool
+- trả Tool Result
+- lặp cho tới Final Response
+Agent không chứa business logic.
 ---
-### Stable Store
-Đã có phiên bản đầu tiên.
-Stable Store lưu dữ liệu ổn định của hệ thống.
+## Model Adapter
+Đã có abstraction để kết nối nhiều Model.
 Ví dụ:
+- Mock Model
+- Ollama
+- Model khác trong tương lai
+Agent không phụ thuộc vào implementation của Model.
+---
+## Execution Runtime
+Đã có Runtime cơ bản.
+Bao gồm:
+- Execution Session
+- Execution Plan
+- Execution Step
+- Execution Result
+- Execution Context
+Runtime chịu trách nhiệm điều phối việc thực thi.
+Không reasoning.
+---
+## Collector
+Đã có Linux Collector.
+Pipeline:
+```text
+collect_osquery
+        │
+        ▼
+raw observation
+        │
+        ▼
+knowledge builder
+        │
+        ▼
+stable store
+```
+Collector hiện sử dụng osquery.
+---
+## Stable Store
+Đã có phiên bản đầu tiên.
+Stable Store lưu:
 - System
 - Hardware
 - Network
-- Users
+- User
 - Docker
 - LXD
+- Repository Information
+Stable Store chỉ lưu dữ liệu thay đổi ít.
 ---
-### Knowledge Tool
-Đã có phiên bản MVP.
-Hiện tại có thể:
-- đọc Stable Store
-- lấy dữ liệu theo resource
+## Knowledge / Inventory
+Đã có Tool đọc Stable Store.
+Có thể:
+- đọc resource
+- trả dữ liệu theo resource
+- phục vụ Model
+---
+## Test
+Đã có test cho nhiều thành phần.
+Bao gồm:
+- schema
+- runtime
+- model
+- shared
+Project ưu tiên duy trì test hoạt động trong suốt quá trình phát triển.
 ---
 # Đang thực hiện
-Hoàn thiện luồng:
-User
-↓
+Ưu tiên hiện tại:
+```text
 Reasoning Model
-↓
+        │
+        ▼
 Agent
-↓
-Knowledge Tool
-↓
+        │
+        ▼
+Tool
+        │
+        ▼
 Stable Store
-↓
-Agent
-↓
+        │
+        ▼
+Tool Result
+        │
+        ▼
 Reasoning Model
-↓
+        │
+        ▼
 Final Response
+```
+Hoàn thiện toàn bộ vòng lặp reasoning.
 ---
 # Chưa thực hiện
-Các thành phần sau chưa triển khai.
-Không tự ý thực hiện nếu chưa có yêu cầu.
-- Function Calling
-- Tool Schema
-- Runtime Collector
-- Runtime Store
+Các thành phần dưới đây chưa phải ưu tiên.
+Không triển khai nếu chưa có yêu cầu.
+- Multi Agent
+- Planner
+- Plugin
 - Scheduler
-- SQLite
-- Search Engine
+- Runtime Store
 - Embedding
+- Search Engine
+- Vector Database
 - Cache
+- Distributed Runtime
 ---
-# Nguyên tắc
-Mọi thay đổi phải phục vụ mục tiêu hoàn thành MVP.
+# Không nằm trong MVP
+Hiện tại chưa cần:
+- Multi Model Collaboration
+- Memory Retrieval
+- Long-term Conversation Memory
+- Agent Communication
+- Workflow Engine
+- Event System
+Mọi đề xuất liên quan các nội dung trên cần được xem xét lại sau khi MVP hoàn thành.
+---
+# Nguyên tắc phát triển
+Mọi thay đổi phải phục vụ mục tiêu:
+- hoàn thành MVP
+- giảm độ phức tạp
+- không phá kiến trúc
+- không tăng coupling
 Nếu một giải pháp:
-- làm tăng độ phức tạp
-- nhưng không giúp MVP hoàn thành
+- làm code phức tạp hơn
+- tăng abstraction
+- không giúp MVP hoàn thành
 => Không thực hiện.
 ---
-# Bước tiếp theo
+# Thứ tự ưu tiên
 Ưu tiên theo thứ tự:
-1. Hoàn thiện Knowledge Tool.
-2. Tích hợp Knowledge Tool vào Agent.
-3. Hoàn thiện luồng Agent ↔ Model ↔ Knowledge Tool.
-4. Sau khi MVP ổn định mới triển khai Function Calling.
+1. Hoàn thiện Tool.
+2. Hoàn thiện Agent.
+3. Hoàn thiện luồng Agent ↔ Model.
+4. Hoàn thiện Runtime.
+5. Ổn định test.
+6. Verification.
+7. Sau khi MVP ổn định mới mở rộng.
+---
+# Definition of MVP
+MVP được xem là hoàn thành khi:
+- Agent hoạt động ổn định.
+- Model có thể reasoning nhiều bước.
+- Tool hoạt động đúng.
+- Stable Store hoạt động đúng.
+- Collector cập nhật được dữ liệu.
+- Toàn bộ test thành công.
+- Repository luôn ở trạng thái sạch.
+Cho đến thời điểm đó, mọi quyết định đều phải ưu tiên hoàn thành MVP thay vì bổ sung tính năng mới.
