@@ -3,17 +3,7 @@ from __future__ import annotations
 import json
 
 from src.shared.reasoning.action import Action
-from src.shared.reasoning.final_response import (
-    FinalResponse,
-)
-
-SUPPORTED_TOOLS = {
-    "shell",
-    "ssh",
-    "read_file",
-    "write_file",
-    "get_context",
-}
+from src.shared.reasoning.final_response import FinalResponse
 
 
 def parse_response(
@@ -30,13 +20,8 @@ def parse_response(
         if "arguments" not in data:
             raise ValueError("Missing arguments.")
 
-        tool = data["tool"]
-
-        if tool not in SUPPORTED_TOOLS:
-            raise ValueError(f"Unsupported tool: {tool}")
-
         return Action(
-            tool=tool,
+            tool=data["tool"],
             arguments=data["arguments"],
         )
 

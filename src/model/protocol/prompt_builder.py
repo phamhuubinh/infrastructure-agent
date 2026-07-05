@@ -1,36 +1,40 @@
 from __future__ import annotations
 
-from src.shared.execution.execution_step_result import (
-    ExecutionStepResult,
-)
+from src.shared.discovery.observation import Observation
 
 
 def build_prompt(
     user_request: str,
-    results: tuple[ExecutionStepResult, ...],
+    observations: tuple[Observation, ...],
 ) -> str:
     return f"""
 You are the reasoning model for an execution agent.
 
-You must return exactly one valid JSON object.
+You receive:
+
+- The user's request.
+- Previous observations collected from Tools.
+
+Return exactly one valid JSON object.
 
 Never return markdown.
 
 Never explain.
 
-Possible response types:
+Possible responses:
 
-1.
+Action:
 
 {{
     "type":"action",
-    "tool":"shell",
+    "tool":"knowledge",
     "arguments":{{
-        "command":"echo hello"
+        "source":"linux",
+        "resource":"system_info"
     }}
 }}
 
-2.
+Final:
 
 {{
     "type":"final",
@@ -41,7 +45,7 @@ User Request
 
 {user_request}
 
-Execution Results
+Observations
 
-{results}
+{observations}
 """

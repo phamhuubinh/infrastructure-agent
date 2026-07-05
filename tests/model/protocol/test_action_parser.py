@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 
 from src.model.protocol.action_parser import parse_response
@@ -5,49 +7,39 @@ from src.shared.reasoning.action import Action
 from src.shared.reasoning.final_response import FinalResponse
 
 
-def test_action_json():
-    data = {
-        "type": "action",
-        "tool": "shell",
-        "arguments": {
-            "command": "echo hello",
-        },
-    }
-
-    action = Action(
-        tool=data["tool"],
-        arguments=data["arguments"],
-    )
-
-    assert action.tool == "shell"
-    assert action.arguments["command"] == "echo hello"
-
-
-def test_final_json():
-    data = {
-        "type": "final",
-        "content": "hello",
-    }
-
-    response = FinalResponse(
-        content=data["content"],
-    )
-
-    assert response.content == "hello"
-
-
-def test_unknown_tool():
-    with pytest.raises(ValueError):
-        parse_response("""
-            {
-                "type":"action",
-                "tool":"docker",
-                "arguments":{}
+def test_parse_action() -> None:
+    result = parse_response("""
+        {
+            "type":"action",
+            "tool":"knowledge",
+            "arguments":{
+                "source":"linux",
+                "resource":"system_info"
             }
-            """)
+        }
+        """)
+
+    assert isinstance(result, Action)
+    assert result.tool == "knowledge"
+    assert result.arguments == {
+        "source": "linux",
+        "resource": "system_info",
+    }
 
 
-def test_missing_tool():
+def test_parse_final() -> None:
+    result = parse_response("""
+        {
+            "type":"final",
+            "content":"hello"
+        }
+        """)
+
+    assert isinstance(result, FinalResponse)
+    assert result.content == "hello"
+
+
+def test_missing_tool() -> None:
     with pytest.raises(ValueError):
         parse_response("""
             {
@@ -57,10 +49,20 @@ def test_missing_tool():
             """)
 
 
-def test_unknown_response_type():
+def test_missing_arguments() -> None:
     with pytest.raises(ValueError):
         parse_response("""
             {
-                "type":"hello"
+                "type":"action",
+                "tool":"knowledge"
+            }
+            """)
+
+
+def test_unknown_response_type() -> None:
+    with pytest.raises(ValueError):
+        parse_response("""
+            {
+                "type":"unknown"
             }
             """)

@@ -1,42 +1,61 @@
 from __future__ import annotations
 
-import time
-
-from src.infrastructure.ollama.ollama_client import OllamaClient
 from src.model.ollama_model_adapter import OllamaModelAdapter
-from src.shared.execution.execution_plan import ExecutionPlan
+from src.shared.discovery.observation import Observation
+from src.shared.reasoning.action import Action
 
 
-def test_generate_execution_plan() -> None:
+class FakeOllamaClient:
+    def generate(
+        self,
+        prompt: str,
+    ) -> str:
+        return """
+        {
+            "type":"action",
+            "tool":"knowledge",
+            "arguments":{
+                "source":"linux",
+                "resource":"system_info"
+            }
+        }
+        """
+
+
+def test_reason_returns_action() -> None:
     adapter = OllamaModelAdapter(
-        OllamaClient(),
+        FakeOllamaClient(),
     )
 
-    start = time.perf_counter()
-
-    plan = adapter.generate_execution_plan(
-        "Print hello.",
+    result = adapter.reason(
+        user_request="Show system information.",
+        observations=(),
     )
 
-    elapsed = time.perf_counter() - start
+    assert isinstance(result, Action)
 
-    print(f"\nElapsed: {elapsed:.2f}s")
-    print(f"Command: {plan.steps[0].payload}")
+    assert result.tool == "knowledge"
 
-    assert isinstance(plan, ExecutionPlan)
+    assert result.arguments == {
+        "source": "linux",
+        "resource": "system_info",
+    }
 
-    assert len(plan.steps) == 1
 
-    assert plan.steps[0].step_type == "cli"
-
-    assert isinstance(
-        plan.steps[0].payload,
-        str,
+def test_reason_includes_observations() -> None:
+    adapter = OllamaModelAdapter(
+        FakeOllamaClient(),
     )
 
-    assert (
-        len(
-            plan.steps[0].payload,
-        )
-        > 0
+    result = adapter.reason(
+        user_request="Show system information.",
+        observations=(
+            Observation(
+                data={
+                    "hostname": "server01",
+                },
+            ),
+        ),
     )
+
+    assert isinstance(result, Action)
