@@ -1,0 +1,100 @@
+# 04 - Architecture Decisions
+Tài liệu này lưu các quyết định kiến trúc của project.
+Mỗi quyết định phải ghi rõ:
+- Decision
+- Context
+- Reason
+- Consequence
+Không ghi TODO.
+Không ghi roadmap.
+Không ghi implementation.
+---
+# AD-001
+## Decision
+Reasoning chỉ thuộc về Reasoning Model.
+## Context
+Hệ thống được thiết kế theo hướng Model-Driven.
+## Reason
+Tránh trùng trách nhiệm.
+Giảm độ phức tạp.
+## Consequence
+Agent và Tool không được reasoning.
+---
+# AD-002
+## Decision
+Agent chỉ là Dispatcher.
+## Context
+Agent nằm giữa Model và Tool.
+## Reason
+Agent chỉ điều phối giao tiếp.
+Không chứa business logic.
+## Consequence
+Agent:
+- nhận request
+- gọi Tool
+- trả kết quả
+Không phân tích dữ liệu.
+---
+# AD-003
+## Decision
+Knowledge Tool là giao diện duy nhất truy cập Stable Store.
+## Context
+Model không được truy cập trực tiếp dữ liệu.
+## Reason
+Ẩn implementation.
+Giảm coupling.
+## Consequence
+Model chỉ giao tiếp với Knowledge Tool.
+---
+# AD-004
+## Decision
+Collector chỉ thu thập dữ liệu.
+## Context
+Collector chạy độc lập với Model.
+## Reason
+Tách biệt Data Collection và Reasoning.
+## Consequence
+Collector không được phân tích dữ liệu.
+---
+# AD-005
+## Decision
+Stable Store chỉ lưu dữ liệu ổn định.
+## Context
+Một số dữ liệu thay đổi rất ít.
+## Reason
+Giảm token.
+Giảm số lần thu thập.
+## Consequence
+Thông tin như:
+- Hardware
+- OS
+- SSH
+- Docker Inventory
+được lưu trong Stable Store.
+---
+# AD-006
+## Decision
+Working Context không được lưu.
+## Context
+Reasoning Session là stateless.
+## Reason
+Giảm coupling.
+Giảm dữ liệu cũ.
+## Consequence
+Tool Result chỉ tồn tại trong phiên làm việc hiện tại.
+---
+# AD-007
+## Decision
+Ưu tiên MVP trước.
+## Context
+Project đang trong giai đoạn đầu.
+## Reason
+Giảm over-engineering.
+## Consequence
+Không triển khai:
+- SQLite
+- Search Engine
+- Embedding
+- Plugin
+- Runtime Store
+cho đến khi MVP hoàn thành.

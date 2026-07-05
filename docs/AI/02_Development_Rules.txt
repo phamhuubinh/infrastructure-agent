@@ -1,0 +1,110 @@
+# 02 - Development Rules
+Trước khi viết hoặc sửa bất kỳ đoạn code nào, luôn tuân thủ các quy tắc dưới đây.
+---
+# 1. Mục tiêu
+Mục tiêu của project là xây dựng một AI Agent đơn giản, dễ bảo trì và dễ mở rộng.
+Không ưu tiên viết code "đẹp" nếu làm tăng độ phức tạp.
+Luôn ưu tiên:
+- Đơn giản.
+- Dễ đọc.
+- Dễ debug.
+- Ít phụ thuộc.
+---
+# 2. Giữ nguyên kiến trúc
+Không tự ý thay đổi kiến trúc.
+Không thêm component mới nếu chưa thực sự cần.
+Không đổi trách nhiệm giữa các component.
+Nếu thấy cần thay đổi kiến trúc, phải giải thích lý do và trade-off trước.
+---
+# 3. Không Over-Engineering
+Không thêm:
+- Interface.
+- Abstract Class.
+- Factory.
+- Strategy.
+- Repository.
+- Design Pattern.
+nếu project hiện tại chưa cần.
+Ưu tiên code trực tiếp và rõ ràng.
+---
+# 4. Một Component - Một Trách Nhiệm
+Reasoning Model
+- Chỉ reasoning.
+Agent
+- Chỉ điều phối.
+Knowledge Tool
+- Chỉ truy cập dữ liệu.
+Collector
+- Chỉ thu thập dữ liệu.
+Không được trộn trách nhiệm.
+---
+# 5. Viết Code
+Ưu tiên:
+- Hàm nhỏ.
+- Tên rõ ràng.
+- Logic đơn giản.
+Không viết một hàm làm nhiều việc.
+Nếu một hàm bắt đầu quá dài, đề xuất tách nhỏ.
+---
+# 6. Không Refactor Khi Không Cần
+Không đổi tên.
+Không format lại toàn bộ project.
+Không tối ưu code.
+Không thay đổi cấu trúc thư mục.
+trừ khi được yêu cầu.
+---
+# 7. Không Thêm Dependency
+Không thêm:
+- Framework.
+- Library.
+- SDK.
+nếu project đã có thể giải quyết bằng thư viện chuẩn của Python.
+Nếu bắt buộc phải thêm dependency, phải giải thích lý do.
+---
+# 8. Giữ Tính Tương Thích
+Khi sửa code:
+- Không làm hỏng chức năng cũ.
+- Không thay đổi public interface nếu không cần.
+- Không thay đổi định dạng dữ liệu nếu chưa được thống nhất.
+---
+# 9. Viết Theo MVP
+Luôn ưu tiên:
+Làm cho chạy trước.
+Sau đó mới:
+- Refactor.
+- Tối ưu.
+- Mở rộng.
+Không thiết kế cho những nhu cầu chưa tồn tại.
+---
+# 10. Khi Đề Xuất Giải Pháp
+Luôn ưu tiên:
+Phương án đơn giản nhất.
+Nếu có nhiều phương án:
+- Phân tích ưu điểm.
+- Phân tích nhược điểm.
+- Đề xuất phương án phù hợp với project hiện tại.
+Không mặc định chọn phương án phức tạp.
+---
+# 11. Khi Viết Code
+Chỉ viết đúng phần được yêu cầu.
+Không tự động:
+- Thêm tính năng.
+- Thêm TODO.
+- Thêm helper.
+- Thêm abstraction.
+Nếu thấy có thể cải thiện, chỉ đề xuất, không tự ý sửa.
+---
+# 12. Quy tắc cuối cùng
+Mọi quyết định đều phải ưu tiên:
+Đơn giản > Phức tạp
+Rõ ràng > Thông minh
+MVP > Hoàn hảo
+Có thể chạy > Thiết kế đẹp
+Kiến trúc ổn định > Tối ưu sớm
+# 13. Không Đoán
+Nếu thiếu thông tin:
+- Không tự suy diễn.
+- Không tự tạo giả định.
+- Không tự tạo dữ liệu.
+- Hỏi lại hoặc nêu rõ giả định trước khi viết code.
+Chỉ sử dụng những thông tin đã được thống nhất trong project.

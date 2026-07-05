@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from src.model.model_adapter import ModelAdapter
-from src.shared.execution.execution_plan import ExecutionPlan
-from src.shared.execution.execution_step import ExecutionStep
-from src.shared.execution.execution_step_result import (
-    ExecutionStepResult,
-)
+from src.shared.discovery.observation import Observation
+from src.shared.reasoning.action import Action
+from src.shared.reasoning.final_response import FinalResponse
 
 
 class MockModelAdapter(ModelAdapter):
@@ -13,21 +11,19 @@ class MockModelAdapter(ModelAdapter):
     Minimal reasoning model used for MVP testing.
     """
 
-    def generate_execution_plan(
+    def reason(
         self,
         user_request: str,
-    ) -> ExecutionPlan:
-        return ExecutionPlan(
-            steps=(
-                ExecutionStep(
-                    step_type="cli",
-                    payload=f"echo {user_request}",
-                ),
-            ),
-        )
+        observations: tuple[Observation, ...],
+    ) -> Action | FinalResponse:
+        if not observations:
+            return Action(
+                tool="shell",
+                arguments={
+                    "command": f"echo {user_request}",
+                },
+            )
 
-    def analyze_execution_results(
-        self,
-        results: tuple[ExecutionStepResult, ...],
-    ) -> str:
-        return results[0].stdout
+        return FinalResponse(
+            content=str(observations[-1].data),
+        )

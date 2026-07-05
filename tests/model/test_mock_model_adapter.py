@@ -1,30 +1,37 @@
 from __future__ import annotations
 
 from src.model.mock_model_adapter import MockModelAdapter
-from src.shared.execution.execution_step_result import (
-    ExecutionStepResult,
-)
+from src.shared.discovery.observation import Observation
+from src.shared.reasoning.action import Action
+from src.shared.reasoning.final_response import FinalResponse
 
 
-def test_generate_execution_plan() -> None:
+def test_reason_returns_action_on_first_iteration() -> None:
     model = MockModelAdapter()
 
-    plan = model.generate_execution_plan("hello")
+    result = model.reason(
+        "hello",
+        (),
+    )
 
-    assert len(plan.steps) == 1
-    assert plan.steps[0].step_type == "cli"
-    assert plan.steps[0].payload == "echo hello"
+    assert isinstance(result, Action)
+    assert result.tool == "shell"
+    assert result.arguments == {
+        "command": "echo hello",
+    }
 
 
-def test_analyze_execution_results() -> None:
+def test_reason_returns_final_after_observation() -> None:
     model = MockModelAdapter()
 
-    results = (
-        ExecutionStepResult(
-            stdout="hello\n",
-            stderr="",
-            exit_code=0,
+    result = model.reason(
+        "hello",
+        (
+            Observation(
+                data="hello\n",
+            ),
         ),
     )
 
-    assert model.analyze_execution_results(results) == "hello\n"
+    assert isinstance(result, FinalResponse)
+    assert result.content == "hello\n"

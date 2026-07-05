@@ -1,0 +1,160 @@
+# 01 - Architecture
+## Tổng quan
+Kiến trúc được thiết kế theo nguyên tắc tách biệt hoàn toàn giữa Reasoning và Data Collection.
+Mỗi thành phần chỉ có một trách nhiệm duy nhất.
+```
+                User
+                  │
+                           ▼
+          Reasoning Model
+                  │
+                           ▼
+                Agent
+                  │
+                           ▼
+         Knowledge Tool
+          ┌──────────────┐
+          │              │
+               ▼                    ▼
+   Stable Store     Runtime Collector
+```
+---
+# 1. Reasoning Model
+Reasoning Model chịu trách nhiệm:
+- Hiểu yêu cầu của người dùng.
+- Quyết định cần thông tin gì.
+- Phân tích dữ liệu nhận được.
+- Sinh câu trả lời cuối cùng.
+Reasoning Model không:
+- Thu thập dữ liệu.
+- Gọi trực tiếp hệ điều hành.
+- Biết cách Tool hoạt động.
+- Biết dữ liệu được lưu ở đâu.
+Reasoning Model chỉ giao tiếp với Agent.
+---
+# 2. Agent
+Agent chỉ là Dispatcher.
+Agent chịu trách nhiệm:
+- Nhận yêu cầu từ Model.
+- Chuyển yêu cầu đến Tool.
+- Trả kết quả về Model.
+Agent không:
+- Reasoning.
+- Phân tích dữ liệu.
+- Chứa business logic.
+- Thu thập dữ liệu.
+Agent phải càng đơn giản càng tốt.
+---
+# 3. Knowledge Tool
+Knowledge Tool là giao diện duy nhất giữa Model và dữ liệu.
+Knowledge Tool chịu trách nhiệm:
+- Đọc Stable Store.
+- Trả dữ liệu theo yêu cầu.
+- Yêu cầu Collector cập nhật khi cần.
+Knowledge Tool không:
+- Reasoning.
+- Thu thập dữ liệu trực tiếp.
+- Biết Model suy nghĩ gì.
+---
+# 4. Stable Store
+Stable Store lưu thông tin ít thay đổi.
+Ví dụ:
+- Hệ điều hành.
+- Hardware.
+- SSH.
+- Docker Inventory.
+- VMware Inventory.
+- Repository.
+- Installed Software.
+Stable Store được tạo bởi Collector.
+Stable Store tồn tại qua nhiều session.
+Mục đích:
+- Giảm token.
+- Tránh thu thập lại dữ liệu nhiều lần.
+---
+# 5. Runtime Collector
+Collector chịu trách nhiệm thu thập dữ liệu.
+Ví dụ:
+- Linux
+- Docker
+- VMware
+- Zabbix
+Collector:
+- Thu thập dữ liệu.
+- Chuyển dữ liệu thành Stable Store.
+- Không reasoning.
+Collector có thể chạy:
+- Theo lịch.
+- Theo yêu cầu.
+- Khi người dùng cập nhật.
+---
+# 6. Working Context
+Working Context chỉ tồn tại trong một Reasoning Session.
+Ví dụ:
+- Tool Result
+- API Response
+- Command Output
+- Observation
+Working Context bị hủy sau khi Model trả Final Response.
+Không lưu Working Context vào Stable Store.
+---
+# 7. Quy tắc giao tiếp
+Các thành phần chỉ giao tiếp qua Interface.
+Không được truy cập trực tiếp implementation của nhau.
+Ví dụ:
+Reasoning Model
+↓
+Agent
+↓
+Knowledge Tool
+↓
+Stable Store
+Không được:
+Reasoning Model
+↓
+Stable Store
+hoặc
+Reasoning Model
+↓
+Collector
+---
+# 8. Dependency
+Reasoning Model
+↓
+Agent
+↓
+Knowledge Tool
+↓
+Collector
+↓
+Environment
+Chiều phụ thuộc chỉ đi theo một hướng.
+Không được phụ thuộc ngược.
+---
+# 9. Nguyên tắc mở rộng
+Khi thêm nguồn dữ liệu mới:
+Ví dụ:
+- Windows
+- Kubernetes
+- GitHub
+- Jira
+- Cloud
+Chỉ cần thêm Collector mới.
+Không thay đổi:
+- Reasoning Model
+- Agent
+- Kiến trúc tổng thể
+---
+# 10. Mục tiêu cuối cùng
+Mọi thành phần đều độc lập.
+Có thể thay đổi:
+- Model
+- Collector
+- Stable Store
+mà không ảnh hưởng đến các thành phần còn lại.
+Kiến trúc phải luôn giữ:
+- Đơn giản.
+- Dễ hiểu.
+- Dễ mở rộng.
+- Ít coupling.
+- Không over-engineering.

@@ -1,0 +1,96 @@
+# 03 - Project State
+Tài liệu này mô tả trạng thái hiện tại của project.
+Mục đích:
+- AI biết project đã làm đến đâu.
+- AI biết phạm vi cần thực hiện.
+- Tránh tự ý phát triển vượt quá MVP.
+---
+# Mục tiêu hiện tại
+Hoàn thành MVP đầu tiên.
+Ưu tiên:
+- Làm cho toàn bộ luồng hoạt động.
+- Giữ kiến trúc đơn giản.
+- Không tối ưu sớm.
+- Không mở rộng ngoài phạm vi.
+---
+# Trạng thái hiện tại
+## Đã hoàn thành
+### Agent
+- Đã kết nối được với Reasoning Model.
+- Có thể gửi Prompt.
+- Có thể nhận phản hồi từ Model.
+---
+### Linux Collector
+Đã có pipeline:
+collect_osquery.py
+↓
+result.json
+↓
+build_knowledge_store.py
+↓
+knowledge_store.json
+↓
+update_knowledge.py
+Collector hiện tại sử dụng osquery.
+---
+### Stable Store
+Đã có phiên bản đầu tiên.
+Stable Store lưu dữ liệu ổn định của hệ thống.
+Ví dụ:
+- System
+- Hardware
+- Network
+- Users
+- Docker
+- LXD
+---
+### Knowledge Tool
+Đã có phiên bản MVP.
+Hiện tại có thể:
+- đọc Stable Store
+- lấy dữ liệu theo resource
+---
+# Đang thực hiện
+Hoàn thiện luồng:
+User
+↓
+Reasoning Model
+↓
+Agent
+↓
+Knowledge Tool
+↓
+Stable Store
+↓
+Agent
+↓
+Reasoning Model
+↓
+Final Response
+---
+# Chưa thực hiện
+Các thành phần sau chưa triển khai.
+Không tự ý thực hiện nếu chưa có yêu cầu.
+- Function Calling
+- Tool Schema
+- Runtime Collector
+- Runtime Store
+- Scheduler
+- SQLite
+- Search Engine
+- Embedding
+- Cache
+---
+# Nguyên tắc
+Mọi thay đổi phải phục vụ mục tiêu hoàn thành MVP.
+Nếu một giải pháp:
+- làm tăng độ phức tạp
+- nhưng không giúp MVP hoàn thành
+=> Không thực hiện.
+---
+# Bước tiếp theo
+Ưu tiên theo thứ tự:
+1. Hoàn thiện Knowledge Tool.
+2. Tích hợp Knowledge Tool vào Agent.
+3. Hoàn thiện luồng Agent ↔ Model ↔ Knowledge Tool.
+4. Sau khi MVP ổn định mới triển khai Function Calling.

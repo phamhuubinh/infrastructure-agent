@@ -125,6 +125,16 @@ Examples of reusable concepts include:
 * RuntimeMetadata
 These examples describe architectural ownership only.
 ---
+## Information Models
+The Shared layer defines common information models shared across architectural components.
+Examples include:
+* Stable Information
+* Dynamic Information
+* Information Metadata
+These models define information structure only.
+They never define storage policy, caching behavior, execution policy or ownership decisions.
+Architectural components consume these definitions while preserving their own responsibilities.
+---
 ## Architectural Constraints
 The Shared layer:
 * contains reusable definitions only;

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from src.shared.execution.execution_plan import ExecutionPlan
-from src.shared.execution.execution_step_result import (
-    ExecutionStepResult,
-)
+from src.shared.discovery.observation import Observation
+from src.shared.reasoning.action import Action
+from src.shared.reasoning.final_response import FinalResponse
 
 
 class ModelAdapter(ABC):
@@ -14,21 +13,12 @@ class ModelAdapter(ABC):
     """
 
     @abstractmethod
-    def generate_execution_plan(
+    def reason(
         self,
         user_request: str,
-    ) -> ExecutionPlan:
+        observations: tuple[Observation, ...],
+    ) -> Action | FinalResponse:
         """
-        Generate an execution plan from a user request.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def analyze_execution_results(
-        self,
-        results: tuple[ExecutionStepResult, ...],
-    ) -> str:
-        """
-        Produce a response from raw execution results.
+        Produce the next Action or the FinalResponse.
         """
         raise NotImplementedError
