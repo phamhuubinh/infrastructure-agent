@@ -66,11 +66,11 @@
     },
     {
       "name": "/dev/loop0",
-      "size": "113640"
+      "size": "8"
     },
     {
       "name": "/dev/loop1",
-      "size": "8"
+      "size": "113640"
     },
     {
       "name": "/dev/loop10",
@@ -9327,12 +9327,12 @@
     },
     {
       "name": "saoudrizwan.claude-dev",
-      "version": "4.0.4",
+      "version": "4.0.6",
       "publisher": "Cline"
     },
     {
       "name": "openai.chatgpt",
-      "version": "26.623.70822",
+      "version": "26.623.101652",
       "publisher": "OpenAI"
     }
   ],

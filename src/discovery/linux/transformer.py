@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
 """
-build_knowledge_store.py
+transformer.py
 --------------------------
-Xay dung Knowledge Store tu file JSON osquery da thu thap (vi du result.json
-tao boi collect_osquery.py).
+Transform raw Linux discovery data into Linux inventory.
 
 Khac voi filter_osquery.py / collect_osquery.py (chi loc theo TEN BANG),
 script nay loc sau hon: voi MOI bang, chi giu lai cac FIELD co gia tri
 phan tich/nhan dien cao, bo cac field ky thuat thap (id noi bo, hash,
 bien the signed/unsigned, timestamp cai dat, duong dan he thong...).
 
-Muc dich: Knowledge Store se duoc nhieu tool khac nhau (khong chi osquery)
+Muc dich: Stable Store se duoc nhieu tool khac nhau (khong chi osquery)
 ghi vao, nen du lieu can gon, de doc, khong lan rac chi tiet ky thuat
 khong can cho cau hoi nghiep vu (vd "may co cai Docker khong", "SSH dang
 chay khong", "user nao ton tai").
 
 Cach dung:
-    python3 build_knowledge_store.py result.json -o knowledge_store.json
-    python3 build_knowledge_store.py result.json          # in ra stdout
+    python3 transformer.py \
+        stable_store/linux/raw/osquery.json \
+        -o stable_store/linux/inventory.json
 """
 
-import json
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -32,18 +32,22 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 FIELD_SELECTION = {
     # --- He thong ---
-    "system_info": ["hostname", "cpu_brand", "cpu_physical_cores", "cpu_logical_cores", "physical_memory"],
+    "system_info": [
+        "hostname",
+        "cpu_brand",
+        "cpu_physical_cores",
+        "cpu_logical_cores",
+        "physical_memory",
+    ],
     "os_version": ["name", "version", "codename", "arch"],
     "kernel_info": ["version"],
     "secureboot": ["secure_boot", "setup_mode"],
-
     # --- Phan cung ---
     "block_devices": ["name", "size"],
     "pci_devices": ["model", "vendor"],
     "usb_devices": ["model", "vendor"],
     "interface_addresses": ["interface", "address", "type"],
     "interface_details": ["interface", "mac", "link_speed"],
-
     # --- Phan mem cai dat ---
     "deb_packages": ["name", "version"],
     "python_packages": ["name", "version"],
@@ -51,17 +55,14 @@ FIELD_SELECTION = {
     "chrome_extensions": ["name", "version", "identifier"],
     "vscode_extensions": ["name", "version", "publisher"],
     "apt_sources": ["source", "release"],
-
     # --- Mang ---
     "etc_hosts": ["address", "hostnames"],
-
     # --- Nguoi dung & truy cap ---
     "users": ["username", "directory", "shell"],
     "groups": ["groupname"],
     "user_groups": ["uid", "gid"],
     "ssh_configs": ["block", "option"],
     "user_ssh_keys": ["path", "key_length"],
-
     # --- Docker (thuong rong tren may khong dung Docker, nhung khai bao san
     # de tu dong ap dung dung khi chay tren may co Docker) ---
     "docker_images": ["id", "tags", "size", "created"],
@@ -74,7 +75,6 @@ FIELD_SELECTION = {
     "docker_image_layers": ["id", "layer_id"],
     "docker_network_labels": ["id", "key", "value"],
     "docker_volume_labels": ["name", "key", "value"],
-
     # --- LXD (tuong tu Docker) ---
     "lxd_images": ["fingerprint", "aliases", "architecture", "size"],
     "lxd_networks": ["name", "type", "managed"],
@@ -119,7 +119,9 @@ def build_table(table_name: str, value):
     if not isinstance(value, list):
         # Truong hop hiem: bang tra ve dict thay vi list
         if isinstance(value, dict):
-            cleaned = select_fields(value, fields) if fields else clean_object_full(value)
+            cleaned = (
+                select_fields(value, fields) if fields else clean_object_full(value)
+            )
             return cleaned if cleaned else {}
         return value
 
@@ -167,44 +169,72 @@ def build_knowledge_store(data: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Xay dung Knowledge Store: chi giu field quan trong cho tung bang osquery."
+        description="Transform Linux discovery data into inventory."
     )
-    parser.add_argument("input", help="Duong dan file JSON osquery da thu thap (vd result.json)")
+
     parser.add_argument(
-        "-o", "--output", default=None,
-        help="Duong dan file JSON ket qua (mac dinh: in ra stdout)"
+        "input",
+        help="Path to raw Linux discovery JSON.",
     )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output inventory JSON (default: stdout).",
+    )
+
     args = parser.parse_args()
 
     input_path = Path(args.input)
+
     if not input_path.exists():
-        print(f"Loi: khong tim thay file {input_path}", file=sys.stderr)
+        print(
+            f"Error: file not found: {input_path}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    with input_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        data = json.load(file)
 
-    store = build_knowledge_store(data)
+    inventory = build_knowledge_store(data)
 
-    # Bao cao nhanh: bang nao (con duoc giu lai) khong duoc khai bao field-selection rieng
     undeclared = [
-        t for t in data.keys()
-        if t not in FIELD_SELECTION and t not in EXCLUDED_TABLES
+        table
+        for table in data.keys()
+        if table not in FIELD_SELECTION and table not in EXCLUDED_TABLES
     ]
+
     if undeclared:
         print(
-            f"[i] {len(undeclared)} bang chua khai bao FIELD_SELECTION rieng, "
-            f"da giu nguyen toan bo field (chi xoa gia tri rong): "
+            f"[i] {len(undeclared)} tables use fallback field selection: "
             + ", ".join(undeclared),
             file=sys.stderr,
         )
 
-    output_json = json.dumps(store, ensure_ascii=False, indent=2)
+    output_json = json.dumps(
+        inventory,
+        ensure_ascii=False,
+        indent=2,
+    )
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(output_json)
-        print(f"Da luu Knowledge Store: {args.output}", file=sys.stderr)
+        output_path = Path(args.output)
+
+        with output_path.open(
+            "w",
+            encoding="utf-8",
+        ) as file:
+            file.write(output_json)
+
+        print(
+            f"Linux inventory saved: {output_path}",
+            file=sys.stderr,
+        )
     else:
         print(output_json)
 

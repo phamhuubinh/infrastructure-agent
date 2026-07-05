@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-collect_osquery.py
+collector.py
 -------------------
 Goi truc tiep osqueryi de lay DUNG cac bang can thiet (khong dump toan bo
 bang cua osquery), sau do ap dung quy tac lam sach:
@@ -19,16 +19,19 @@ Yeu cau: da cai osquery (co lenh `osqueryi` trong PATH).
     - Windows       : choco install osquery
 
 Cach dung:
-    python3 collect_osquery.py -o result.json
-    python3 collect_osquery.py                     # in ra stdout
-    python3 collect_osquery.py --workers 8 -o out.json
+    python3 collector.py \
+        -o stable_store/linux/raw/osquery.json
+    python3 collector.py
+    python3 collector.py \
+        --workers 8 \
+        -o stable_store/linux/raw/osquery.json
 """
 
+import argparse
 import json
 import shutil
 import subprocess
 import sys
-import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ---------------------------------------------------------------------------
@@ -36,28 +39,61 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ---------------------------------------------------------------------------
 TABLES = [
     # He thong
-    "system_info", "os_version", "kernel_info", "secureboot", "systemd_units",
+    "system_info",
+    "os_version",
+    "kernel_info",
+    "secureboot",
+    "systemd_units",
     # Phan cung
-    "block_devices", "pci_devices", "usb_devices", "memory_info",
-    "interface_addresses", "interface_details",
+    "block_devices",
+    "pci_devices",
+    "usb_devices",
+    "memory_info",
+    "interface_addresses",
+    "interface_details",
     # Phan mem
-    "deb_packages", "python_packages", "npm_packages",
-    "chrome_extensions", "vscode_extensions", "apt_sources",
+    "deb_packages",
+    "python_packages",
+    "npm_packages",
+    "chrome_extensions",
+    "vscode_extensions",
+    "apt_sources",
     # Mang
-    "dns_resolvers", "etc_hosts", "routes", "listening_ports",
+    "dns_resolvers",
+    "etc_hosts",
+    "routes",
+    "listening_ports",
     # Nguoi dung & truy cap
-    "users", "groups", "user_groups", "ssh_configs",
+    "users",
+    "groups",
+    "user_groups",
+    "ssh_configs",
     "user_ssh_keys",
     # Docker
-    "docker_containers", "docker_images", "docker_info", "docker_networks",
-    "docker_version", "docker_volumes", "docker_container_labels",
-    "docker_container_mounts", "docker_container_networks",
-    "docker_container_ports", "docker_image_labels", "docker_image_layers",
-    "docker_network_labels", "docker_volume_labels",
+    "docker_containers",
+    "docker_images",
+    "docker_info",
+    "docker_networks",
+    "docker_version",
+    "docker_volumes",
+    "docker_container_labels",
+    "docker_container_mounts",
+    "docker_container_networks",
+    "docker_container_ports",
+    "docker_image_labels",
+    "docker_image_layers",
+    "docker_network_labels",
+    "docker_volume_labels",
     # LXD
-    "lxd_certificates", "lxd_cluster", "lxd_cluster_members", "lxd_images",
-    "lxd_instance_config", "lxd_instance_devices", "lxd_instances",
-    "lxd_networks", "lxd_storage_pools",
+    "lxd_certificates",
+    "lxd_cluster",
+    "lxd_cluster_members",
+    "lxd_images",
+    "lxd_instance_config",
+    "lxd_instance_devices",
+    "lxd_instances",
+    "lxd_networks",
+    "lxd_storage_pools",
 ]
 
 
@@ -166,15 +202,19 @@ def collect_all(tables: list, workers: int = 4):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Lay truc tiep tu osquery, chi giu bang trong danh sach, xoa field/object rong."
+        description="Collect Linux inventory from osquery."
     )
     parser.add_argument(
-        "-o", "--output", default=None,
-        help="Duong dan file JSON ket qua (mac dinh: in ra stdout)"
+        "-o",
+        "--output",
+        default=None,
+        help="Duong dan file JSON ket qua (mac dinh: in ra stdout)",
     )
     parser.add_argument(
-        "--workers", type=int, default=4,
-        help="So luong query chay song song (mac dinh: 4)"
+        "--workers",
+        type=int,
+        default=4,
+        help="So luong query chay song song (mac dinh: 4)",
     )
     args = parser.parse_args()
 
