@@ -40,13 +40,23 @@ class Agent:
                     f"Unsupported reasoning result: {type(decision).__name__}"
                 )
 
-            tool = self._tool_registry.get(
-                decision.tool,
-            )
+            try:
+                tool = self._tool_registry.get(
+                    decision.tool,
+                )
 
-            result = tool.execute(
-                decision.arguments,
-            )
+                result = tool.execute(
+                    decision.arguments,
+                )
+            except Exception as exc:
+                observations += (
+                    Observation(
+                        data=None,
+                        success=False,
+                        error=str(exc),
+                    ),
+                )
+                continue
 
             observations += (
                 Observation(

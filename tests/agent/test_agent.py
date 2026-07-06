@@ -74,3 +74,123 @@ def test_agent_propagates_tool_failure_to_model() -> None:
     response = agent.run("do something")
 
     assert response == "success=False error=command not found"
+
+
+class UnknownToolModel:
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        if not observations:
+            return Action(
+                tool="does_not_exist",
+                arguments={},
+            )
+
+        observation = observations[-1]
+
+        return FinalResponse(
+            content=f"success={observation.success} error={observation.error}",
+        )
+
+
+def test_agent_handles_unknown_tool_without_crashing() -> None:
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="shell",
+        tool=ShellTool(),
+    )
+
+    agent = Agent(
+        model=UnknownToolModel(),
+        tool_registry=registry,
+    )
+
+    response = agent.run("do something")
+
+    assert response == 'success=False error="Unknown tool: \'does_not_exist\'."'
+
+
+class MissingArgumentModel:
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        if not observations:
+            return Action(
+                tool="shell",
+                arguments={},
+            )
+
+        observation = observations[-1]
+
+        return FinalResponse(
+            content=f"success={observation.success} error={observation.error}",
+        )
+
+
+def test_agent_handles_invalid_arguments_without_crashing() -> None:
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="shell",
+        tool=ShellTool(),
+    )
+
+    agent = Agent(
+        model=MissingArgumentModel(),
+        tool_registry=registry,
+    )
+
+    response = agent.run("do something")
+
+    assert response == "success=False error=Missing command."
+
+
+class RetryAfterDispatchErrorModel:
+    def __init__(self) -> None:
+        self._step = 0
+
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        self._step += 1
+
+        if self._step == 1:
+            return Action(
+                tool="does_not_exist",
+                arguments={},
+            )
+
+        if self._step == 2:
+            return Action(
+                tool="shell",
+                arguments={"command": "echo recovered"},
+            )
+
+        return FinalResponse(
+            content=str(observations[-1].data),
+        )
+
+
+def test_agent_recovers_after_dispatch_error() -> None:
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="shell",
+        tool=ShellTool(),
+    )
+
+    agent = Agent(
+        model=RetryAfterDispatchErrorModel(),
+        tool_registry=registry,
+    )
+
+    response = agent.run("do something")
+
+    assert response.strip() == "recovered"
