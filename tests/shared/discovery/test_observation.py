@@ -13,6 +13,24 @@ def test_observation_stores_data() -> None:
     assert observation.data == "sample"
 
 
+def test_observation_defaults_to_success_with_no_error() -> None:
+    observation = Observation(data="sample")
+
+    assert observation.success is True
+    assert observation.error is None
+
+
+def test_observation_stores_failure_details() -> None:
+    observation = Observation(
+        data=None,
+        success=False,
+        error="command not found",
+    )
+
+    assert observation.success is False
+    assert observation.error == "command not found"
+
+
 def test_observation_is_immutable() -> None:
     observation = Observation(data="sample")
 

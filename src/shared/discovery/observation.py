@@ -10,3 +10,5 @@ class Observation:
     """
 
     data: object
+    success: bool = True
+    error: str | None = None

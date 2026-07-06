@@ -51,5 +51,7 @@ class Agent:
             observations += (
                 Observation(
                     data=result.data,
+                    success=result.success,
+                    error=result.error,
                 ),
             )
