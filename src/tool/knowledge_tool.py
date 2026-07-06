@@ -62,17 +62,25 @@ class KnowledgeTool(Tool):
             raise ValueError("Missing resource.")
 
         try:
-            data = self.get(
-                source=source,
-                resource=resource,
-            )
+            data = self._load(source)
         except FileNotFoundError:
             return ToolResult(
                 success=False,
                 error=f"Unknown source: '{source}'.",
             )
 
+        if resource not in data:
+            available = ", ".join(sorted(data.keys()))
+
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Unknown resource: '{resource}'. "
+                    f"Available resources for source '{source}': {available}."
+                ),
+            )
+
         return ToolResult(
             success=True,
-            data=data,
+            data=data[resource],
         )

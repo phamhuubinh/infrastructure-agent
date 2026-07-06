@@ -27,11 +27,11 @@ class Agent:
         observations: tuple[Observation, ...] = ()
 
         while True:
+
             decision = self._model.reason(
                 user_request=user_request,
                 observations=observations,
             )
-
             if isinstance(decision, FinalResponse):
                 return decision.content
 
