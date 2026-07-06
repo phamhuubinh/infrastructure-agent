@@ -33,6 +33,8 @@ class OllamaModelAdapter(ModelAdapter):
         response = self._client.generate(
             prompt,
         )
+        print("RAW RESPONSE:")
+        print(repr(response))
 
         return parse_response(
             response,
