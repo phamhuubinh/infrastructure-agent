@@ -12,8 +12,8 @@ Hoàn thành MVP đầu tiên của AI Agent.
 1. Hoàn thiện luồng Reasoning.
 2. Hoàn thiện Tool.
 3. Hoàn thiện Agent.
-4. Giữ kiến trúc đơn giản.
-5. Không tối ưu sớm.
+4. Hoàn thiện Provider.
+5. Giữ kiến trúc đơn giản.
 ---
 # Kiến trúc hiện tại
 Project theo kiến trúc:
@@ -29,11 +29,14 @@ Agent
     ▼
 Tool
     │
-    ├────────► Stable Store
+    ▼
+Provider
     │
-    └────────► Environment
+    ▼
+Environment
 ```
 Model là thành phần duy nhất được reasoning.
+Environment là Source of Truth.
 ---
 # Đã hoàn thành
 ## Agent
@@ -51,7 +54,7 @@ Ví dụ:
 - Mock Model
 - Ollama
 - Model khác trong tương lai
-Agent không phụ thuộc vào implementation của Model.
+Agent không phụ thuộc implementation của Model.
 ---
 ## Execution Runtime
 Đã có Runtime cơ bản.
@@ -62,43 +65,38 @@ Bao gồm:
 - Execution Result
 - Execution Context
 Runtime chịu trách nhiệm điều phối việc thực thi.
+Runtime không reasoning.
+---
+## Linux Provider
+Linux đã trở thành nguồn dữ liệu chính của hệ thống.
+Knowledge Tool lấy dữ liệu trực tiếp từ Linux Provider.
+Linux Provider chịu trách nhiệm:
+- truy cập Linux
+- lấy thông tin hệ thống
+- chuẩn hóa dữ liệu
+- trả Tool Result
+Không còn phụ thuộc pipeline osquery trong runtime.
+---
+## Provider
+Project đang chuyển sang kiến trúc Provider.
+Provider là lớp truy cập Source of Truth.
+Ví dụ:
+- Linux Provider
+- SSH Provider
+- Docker Provider
+- VMware Provider
+- Zabbix Provider
+- Grafana Provider
+Mỗi Provider chỉ biết cách lấy dữ liệu từ nguồn của mình.
 Không reasoning.
 ---
-## Collector
-Đã có Linux Collector.
-Pipeline:
-```text
-collect_osquery
-        │
-        ▼
-raw observation
-        │
-        ▼
-knowledge builder
-        │
-        ▼
-stable store
-```
-Collector hiện sử dụng osquery.
----
-## Stable Store
-Đã có phiên bản đầu tiên.
-Stable Store lưu:
-- System
-- Hardware
-- Network
-- User
-- Docker
-- LXD
-- Repository Information
-Stable Store chỉ lưu dữ liệu thay đổi ít.
----
-## Knowledge / Inventory
-Đã có Tool đọc Stable Store.
-Có thể:
-- đọc resource
-- trả dữ liệu theo resource
-- phục vụ Model
+## Knowledge Tool
+Đã có Tool truy cập dữ liệu.
+Knowledge Tool có thể:
+- nhận request từ Model
+- định tuyến request tới Provider phù hợp
+- trả Tool Result
+Knowledge Tool không trực tiếp truy cập Environment.
 ---
 ## Test
 Đã có test cho nhiều thành phần.
@@ -114,25 +112,34 @@ Project ưu tiên duy trì test hoạt động trong suốt quá trình phát tr
 ```text
 Reasoning Model
         │
-        ▼
+            ▼
 Agent
         │
-        ▼
+            ▼
 Tool
         │
-        ▼
-Stable Store
+            ▼
+Provider
         │
-        ▼
+            ▼
+Environment
+        │
+            ▼
 Tool Result
         │
-        ▼
+            ▼
 Reasoning Model
         │
-        ▼
+            ▼
 Final Response
 ```
 Hoàn thiện toàn bộ vòng lặp reasoning.
+---
+# Stable Store
+Stable Store đang được loại bỏ khỏi runtime.
+Có thể tiếp tục tồn tại trong giai đoạn migration hoặc phục vụ snapshot nếu cần.
+Stable Store không còn là nguồn dữ liệu chính của hệ thống.
+Runtime luôn ưu tiên đọc trực tiếp từ Source of Truth thông qua Provider.
 ---
 # Chưa thực hiện
 Các thành phần dưới đây chưa phải ưu tiên.
@@ -172,21 +179,22 @@ Nếu một giải pháp:
 ---
 # Thứ tự ưu tiên
 Ưu tiên theo thứ tự:
-1. Hoàn thiện Tool.
-2. Hoàn thiện Agent.
-3. Hoàn thiện luồng Agent ↔ Model.
-4. Hoàn thiện Runtime.
-5. Ổn định test.
-6. Verification.
-7. Sau khi MVP ổn định mới mở rộng.
+1. Hoàn thiện Provider.
+2. Hoàn thiện Tool.
+3. Hoàn thiện Agent.
+4. Hoàn thiện luồng Agent ↔ Model.
+5. Hoàn thiện Runtime.
+6. Ổn định test.
+7. Verification.
+Sau khi MVP ổn định mới mở rộng.
 ---
 # Definition of MVP
 MVP được xem là hoàn thành khi:
 - Agent hoạt động ổn định.
 - Model có thể reasoning nhiều bước.
 - Tool hoạt động đúng.
-- Stable Store hoạt động đúng.
-- Collector cập nhật được dữ liệu.
+- Provider hoạt động đúng.
+- Knowledge Tool có thể truy cập Source of Truth.
 - Toàn bộ test thành công.
 - Repository luôn ở trạng thái sạch.
 Cho đến thời điểm đó, mọi quyết định đều phải ưu tiên hoàn thành MVP thay vì bổ sung tính năng mới.

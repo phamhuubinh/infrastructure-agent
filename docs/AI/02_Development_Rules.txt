@@ -52,10 +52,10 @@ Chỉ reasoning.
 Chỉ dispatch.
 ## Tool
 Chỉ execute.
-## Collector
-Chỉ collect.
-## Stable Store
-Chỉ lưu Stable Information.
+## Provider
+Chỉ truy cập Source of Truth.
+## Environment
+Là Source of Truth.
 Không được trộn trách nhiệm.
 ---
 # 5. Model là trung tâm
@@ -128,21 +128,22 @@ Ví dụ:
 - SSH Tool
 Không tạo Tool đa năng.
 ---
-# 13. Collector
-Collector chỉ thu thập dữ liệu.
+# 13. Provider
+Provider chỉ truy cập Source of Truth.
 Không:
 - reasoning
 - validate business
 - phân tích dữ liệu
-Collector chỉ sinh Stable Information.
+- quyết định workflow
+Provider chỉ trả dữ liệu cho Tool.
 ---
 # 14. Stable Store
-Stable Store chỉ lưu dữ liệu thay đổi ít.
-Không lưu:
-- log
-- command output
-- observation
-- runtime state
+Stable Store không còn là runtime path mặc định.
+Stable Store chỉ dùng cho:
+- snapshot
+- migration
+- cache (nếu sau này cần)
+Runtime luôn ưu tiên Source of Truth.
 ---
 # 15. Khi Đề Xuất Giải Pháp
 Luôn ưu tiên:

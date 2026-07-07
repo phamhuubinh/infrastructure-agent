@@ -58,13 +58,13 @@ Tool:
 - Không biết workflow.
 - Không quyết định bước tiếp theo.
 ---
-## Collector
-Collector chỉ thu thập dữ liệu.
-Collector:
+## Provider
+Provider chỉ truy cập Source of Truth.
+Provider:
 - Không reasoning.
 - Không biết Model.
 - Không biết workflow.
-Collector chỉ tạo Stable Information.
+- Chỉ trả dữ liệu cho Tool.
 ---
 # Stateless
 Mỗi Reasoning Session hoàn toàn độc lập.
@@ -86,8 +86,8 @@ Ví dụ:
 - VMware
 - Installed Software
 - Repository
-Stable Information được Collector tạo.
-Model chỉ truy cập thông qua Tool.
+Stable Information có thể được lưu dưới dạng snapshot khi cần.
+Model chỉ truy cập dữ liệu thông qua Tool.
 ---
 # Working Information
 Working Information gồm:

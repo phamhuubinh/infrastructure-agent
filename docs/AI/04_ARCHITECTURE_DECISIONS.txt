@@ -20,7 +20,7 @@ Tách biệt hoàn toàn Reasoning và Execution.
 ## Consequence
 - Agent không reasoning.
 - Tool không reasoning.
-- Collector không reasoning.
+- Provider không reasoning.
 ---
 # AD-002
 ## Decision
@@ -42,7 +42,7 @@ Không:
 ---
 # AD-003
 ## Decision
-Tool chỉ thực hiện một nhiệm vụ.
+Một Tool chỉ thực hiện một nhiệm vụ.
 ## Context
 Project sử dụng Tool-Based Architecture.
 ## Reason
@@ -57,35 +57,36 @@ Không tạo Tool đa năng.
 ---
 # AD-004
 ## Decision
-Collector chỉ thu thập dữ liệu.
+Provider chỉ truy cập Source of Truth.
 ## Context
-Collector chạy độc lập với Model.
+Provider là lớp kết nối giữa Tool và hệ thống thực.
 ## Reason
-Tách biệt Data Collection và Reasoning.
+Tách biệt việc truy cập dữ liệu khỏi Reasoning và Tool Dispatch.
 ## Consequence
-Collector:
+Provider:
 - không reasoning
 - không biết Model
+- không biết Agent
 - không biết workflow
-Collector chỉ sinh Stable Information.
+Provider chỉ truy cập Source of Truth và trả dữ liệu.
 ---
 # AD-005
 ## Decision
-Stable Store chỉ lưu Stable Information.
+Runtime luôn ưu tiên Source of Truth.
 ## Context
-Một số dữ liệu thay đổi rất ít.
+Nguồn dữ liệu đáng tin cậy nhất là chính Environment.
 ## Reason
-Giảm token.
-Giảm số lần thu thập.
+Đảm bảo dữ liệu luôn mới.
+Giảm phụ thuộc vào dữ liệu snapshot.
 ## Consequence
-Stable Store chỉ lưu:
-- Hardware
-- Operating System
-- SSH
-- Docker Inventory
-- Installed Software
-- Repository Information
-Không lưu Runtime Information.
+Tool luôn ưu tiên:
+Environment
+↓
+Provider
+↓
+Tool
+Stable Store (nếu tồn tại) chỉ là snapshot hoặc cơ chế migration.
+Không còn là runtime path mặc định.
 ---
 # AD-006
 ## Decision
@@ -132,19 +133,25 @@ Tool mới được thao tác Environment.
 ---
 # AD-009
 ## Decision
-Model không truy cập trực tiếp Stable Store.
+Model không truy cập trực tiếp Source of Truth.
 ## Context
-Stable Store là implementation detail.
+Model không được phụ thuộc implementation.
 ## Reason
-Cho phép thay đổi Storage mà không ảnh hưởng Model.
+Cho phép thay đổi Provider hoặc Environment mà không ảnh hưởng Model.
 ## Consequence
-Mọi truy cập Stable Information đều thông qua Tool.
+Mọi truy cập dữ liệu đều phải thông qua Tool.
+Model không biết dữ liệu đến từ:
+- Linux
+- Docker
+- VMware
+- Zabbix
+- API
 ---
 # AD-010
 ## Decision
 Dependency chỉ đi theo một chiều.
 ## Context
-Kiến trúc phân tầng.
+Project áp dụng kiến trúc phân tầng.
 ## Reason
 Giảm phụ thuộc ngược.
 Dễ thay thế từng thành phần.
@@ -152,15 +159,17 @@ Dễ thay thế từng thành phần.
 ```text
 Reasoning Model
         │
-        ▼
+            ▼
 Agent
         │
-        ▼
+            ▼
 Tool
         │
-        ├────────► Stable Store
+            ▼
+Provider
         │
-        └────────► Environment
+            ▼
+Environment
 ```
 Không được phụ thuộc ngược.
 ---
@@ -192,13 +201,13 @@ Dễ đọc.
 Dễ debug.
 Dễ thay thế.
 ## Consequence
-| Component    | Responsibility 	  |
-|--------------|--------------------------|
-| Model        | Reasoning 		  |
-| Agent        | Dispatch  		  |
-| Tool 	       | Execute 		  |
-| Collector    | Collect 		  |
-| Stable Store | Store Stable Information |
+| Component   | Responsibility  |
+|-------------|-----------------|
+| Model       | Reasoning       |
+| Agent       | Dispatch        |
+| Tool 	      | Execute 	|
+| Provider    | Access Source   |
+| Environment | Source of Truth |
 Không chuyển Responsibility giữa các Component.
 ---
 # AD-013

@@ -1,36 +1,29 @@
 # 01 - Architecture
 ## Tổng quan
 Hệ thống được thiết kế theo kiến trúc **Model-Driven**.
-Reasoning chỉ tồn tại trong Model.
+Reasoning chỉ tồn tại trong Reasoning Model.
 Mọi thành phần còn lại chỉ thực hiện đúng trách nhiệm của mình.
-```text
-                User
+                 Tool
                   │
-                  	▼
-          Reasoning Model
-                  │
-                  	▼
-                Agent
-                  │
-                  	▼
-          Tool Dispatcher
-                  │
-     ┌────────────┴────────────┐
-     ▼                         		▼
-Knowledge Tool           Runtime Tool
-     │                         │
-     ▼                         		▼
-Stable Store             Environment
-                          (Linux/API/...)
-```
+        ┌─────────┴─────────┐
+        │                   │
+            ▼                            ▼
+   Linux Tool         Zabbix Tool
+        │                   │
+            ▼                            ▼
+   Provider*          Provider*
+        │                   │
+            ▼                            ▼
+ Linux /proc         Zabbix API
+*Provider là tùy chọn.
+Tool có thể truy cập trực tiếp Environment nếu không cần Provider.
 ---
 # Kiến trúc tổng thể
-Hệ thống gồm các thành phần sau:
+Hệ thống gồm các thành phần:
 - Reasoning Model
 - Agent
 - Tool
-- Stable Store
-- Collector
+- Provider (tùy chọn)
 - Environment
 Mỗi thành phần chỉ có một trách nhiệm.
 ---
@@ -40,16 +33,16 @@ Model chịu trách nhiệm:
 - hiểu yêu cầu người dùng
 - lập kế hoạch
 - quyết định cần dữ liệu gì
-- quyết định tool nào cần gọi
-- phân tích kết quả
-- quyết định khi nào kết thúc
+- quyết định Tool nào cần gọi
+- phân tích Tool Result
+- quyết định bước tiếp theo
 - sinh Final Response
 Model không:
-- truy cập OS
 - đọc file
+- chạy command
 - gọi API
-- biết Tool hoạt động như thế nào
-- biết dữ liệu được lưu ở đâu
+- truy cập hệ điều hành
+- biết dữ liệu được lấy như thế nào
 Model chỉ giao tiếp với Agent.
 ---
 # 2. Agent
@@ -59,7 +52,7 @@ Agent chịu trách nhiệm:
 - validate request
 - gọi Tool tương ứng
 - trả Tool Result về Model
-- lặp lại cho tới khi Model trả Final Response
+- lặp lại cho tới khi Model sinh Final Response
 Agent không:
 - reasoning
 - phân tích dữ liệu
@@ -69,167 +62,191 @@ Agent càng nhỏ càng tốt.
 ---
 # 3. Tool
 Tool là lớp thực thi.
-Một Tool chỉ làm một việc.
+Một Tool chỉ thực hiện một nhiệm vụ.
 Ví dụ:
-- Inventory Tool
+- Knowledge Tool
 - Command Tool
 - SSH Tool
 - Docker Tool
 - VMware Tool
-Tool:
-- đọc dữ liệu
-- chạy command
-- gọi API
-- trả dữ liệu
+Tool chịu trách nhiệm:
+- nhận request
+- gọi Provider hoặc Environment
+- trả Tool Result
 Tool không:
 - reasoning
-- quyết định bước tiếp theo
+- quyết định workflow
+- lưu trạng thái
 - biết mục tiêu cuối cùng
----
-# 4. Stable Store
-Stable Store lưu dữ liệu thay đổi ít.
+Một số Tool có thể truy cập Provider.
+Một số Tool có thể truy cập trực tiếp Environment nếu không cần Provider.
 Ví dụ:
-- Hardware
-- Operating System
-- Docker Inventory
-- Installed Software
-- SSH
-- Repository Information
-Stable Store tồn tại qua nhiều session.
-Stable Store chỉ được truy cập thông qua Tool.
-Model không truy cập trực tiếp Stable Store.
+Knowledge Tool
+        │
+            ▼
+Linux Provider
+        │
+            ▼
+Linux
+Command Tool
+        │
+            ▼
+Linux
+Docker Tool
+        │
+            ▼
+Docker Engine
 ---
-# 5. Collector
-Collector chịu trách nhiệm tạo Stable Store.
-Collector:
-- thu thập dữ liệu
-- chuẩn hóa dữ liệu
-- cập nhật Stable Store
-Collector không:
-- reasoning
-- biết Model
-- biết Agent
-Collector có thể chạy:
-- theo lịch
-- theo yêu cầu
-- khi inventory thay đổi
----
-# 6. Runtime Tool
-Một số dữ liệu không nên lưu.
+# 4. Tool Implementation
+Tool được chia theo từng domain.
 Ví dụ:
-- ps
-- top
-- ping
-- curl
-- docker logs
-- journalctl
-Những dữ liệu này được Runtime Tool lấy trực tiếp từ Environment.
-Không lưu vào Stable Store.
+- Linux Tool
+- Zabbix Tool
+- VMware Tool
+- Docker Tool
+- SSH Tool
+Mỗi Tool chỉ chịu trách nhiệm cho domain của mình.
+Tool có thể:
+- truy cập trực tiếp Environment;
+- hoặc thông qua Provider nếu việc truy cập đủ phức tạp.
+Tool không:
+- reasoning;
+- quyết định workflow;
+- lưu trạng thái.
+---
+# 5. Provider
+Provider là lớp tùy chọn.
+Provider được tạo khi:
+- logic truy cập Source of Truth đủ phức tạp;
+- cần tái sử dụng;
+- cần chuẩn hóa nhiều API.
+Nếu Tool chỉ cần thực hiện một vài command hoặc một vài API đơn giản thì Tool có thể truy cập trực tiếp Environment.
+Mỗi Provider chỉ biết cách truy cập một Source of Truth cụ thể.
+Ví dụ:
+- Linux Provider
+- Docker Provider
+- SSH Provider
+- VMware Provider
+- Zabbix Provider
+- Grafana Provider
+- Graylog Provider
+Provider chịu trách nhiệm:
+- truy cập Source of Truth;
+- chuẩn hóa dữ liệu;
+- trả dữ liệu cho Tool.
+Provider không:
+- reasoning;
+- quyết định workflow;
+- biết Model;
+- biết Agent;
+- lưu trạng thái.
+---
+# 6. Environment
+Environment là Source of Truth của hệ thống.
+Ví dụ:
+- Linux
+- Docker Engine
+- Kubernetes
+- VMware API
+- Zabbix API
+- Grafana API
+- Graylog API
+Tool luôn ưu tiên đọc trực tiếp từ Source of Truth.
+Environment không biết:
+- Model
+- Agent
+- Tool
 ---
 # 7. Working Context
-Working Context chỉ tồn tại trong một phiên reasoning.
+Working Context chỉ tồn tại trong một Reasoning Session.
 Bao gồm:
 - Tool Result
 - Observation
 - API Response
 - Command Output
 Working Context bị hủy sau khi sinh Final Response.
-Không lưu vào Stable Store.
+Không lưu qua các phiên.
 ---
 # 8. Luồng hoạt động
-```text
 User
     │
-    ▼
+      ▼
 Reasoning Model
     │
-    ▼
+      ▼
 Agent
     │
-    ▼
+      ▼
 Tool
     │
-    ▼
-Environment / Stable Store
+    ├──────────────► Provider
+    │                     │
+    │                     ▼
+    │               Environment
     │
-    ▼
+    └──────────────────────► Environment
+                (nếu không cần Provider)
+        │
+            ▼
 Tool Result
-    │
-    ▼
+        │
+            ▼
 Agent
-    │
-    ▼
+        │
+            ▼
 Reasoning Model
-    │
-    ▼
+        │
+            ▼
 Final Response
-```
-Nếu cần nhiều Tool:
-```text
-Model
- ↓
-Tool A
- ↓
-Model
- ↓
-Tool B
- ↓
-Model
- ↓
-Tool C
- ↓
-Model
- ↓
-Final Response
-```
-Model luôn là thành phần quyết định bước tiếp theo.
 ---
 # 9. Dependency
 Dependency chỉ đi theo một chiều.
-```text
 Reasoning Model
         │
-        ▼
+            ▼
 Agent
         │
-        ▼
+            ▼
 Tool
         │
-        ├────────► Stable Store
-        │
+        ├────────► Provider
+        │              │
+        │              ▼
         └────────► Environment
-```
 Không được phụ thuộc ngược.
 ---
 # 10. Responsibility
-| Component    | Responsibility 	  |
-|--------------|--------------------------|
-| Model        | Reasoning 		  |
-| Agent        | Dispatch                 |
-| Tool         | Execute                  |
-| Collector    | Collect                  |
-| Stable Store | Store Stable Information |
-| Environment  | Thực thi thực tế        |
+| Component   | Responsibility  |
+|-------------|-----------------|
+| Model       | Reasoning       |
+| Agent       | Dispatch        |
+| Tool        | Execute 	|
+| Provider    | Access Source   |
+| Environment | Source of Truth |
+Mỗi component chỉ có một responsibility.
 ---
 # 11. Nguyên tắc mở rộng
-Khi cần thêm nguồn dữ liệu mới:
+Khi cần hỗ trợ hệ thống mới:
 Ví dụ:
 - Kubernetes
 - GitHub
 - Jira
 - AWS
 - Azure
-Chỉ cần thêm Tool hoặc Collector mới.
-Không thay đổi:
+Chỉ cần:
+- thêm Tool mới;
+- hoặc thêm Provider nếu Tool cần tách logic truy cập dữ liệu.
+Không cần thay đổi:
 - Model
 - Agent
 - Kiến trúc tổng thể
 ---
 # 12. Mục tiêu cuối cùng
 Kiến trúc phải luôn giữ được:
-- Stateless
 - Model-Driven
+- Stateless
 - Tool-Based
+- Source of Truth
 - Low Coupling
 - High Cohesion
 - MVP First
