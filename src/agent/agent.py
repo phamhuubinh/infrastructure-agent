@@ -54,6 +54,8 @@ class Agent:
                         data=None,
                         success=False,
                         error=str(exc),
+                        tool=decision.tool,
+                        arguments=decision.arguments,
                     ),
                 )
                 continue
@@ -63,5 +65,7 @@ class Agent:
                     data=result.data,
                     success=result.success,
                     error=result.error,
+                    tool=decision.tool,
+                    arguments=decision.arguments,
                 ),
             )

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+
 from src.agent.agent import Agent
 from src.model.mock_model_adapter import MockModelAdapter
 from src.shared.execution.tool_result import ToolResult
 from src.shared.reasoning.action import Action
 from src.shared.reasoning.final_response import FinalResponse
+from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.shell_tool import ShellTool
 from src.tool.tool import Tool
 from src.tool.tool_registry import ToolRegistry
@@ -194,3 +197,261 @@ def test_agent_recovers_after_dispatch_error() -> None:
     response = agent.run("do something")
 
     assert response.strip() == "recovered"
+
+
+class DockerVersionOnceModel:
+    """
+    Simulates a model that correctly follows the prompt contract: it
+    queries "docker_version" once, sees a successful-but-empty
+    Observation, and immediately returns Final instead of repeating the
+    exact same call forever (the loop bug being regression-tested here).
+    """
+
+    def __init__(self) -> None:
+        self._step = 0
+
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        self._step += 1
+
+        if self._step == 1:
+            return Action(
+                tool="knowledge",
+                arguments={
+                    "source": "linux",
+                    "resource": "docker_version",
+                },
+            )
+
+        observation = observations[-1]
+
+        assert observation.success is True
+        assert observation.data == []
+
+        return FinalResponse(
+            content="Docker does not appear to be installed on this machine.",
+        )
+
+
+def test_agent_handles_docker_version_empty_result_without_looping(tmp_path) -> None:
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
+
+    linux.mkdir(parents=True)
+
+    (linux / "inventory.json").write_text(
+        json.dumps({"docker_version": []}),
+        encoding="utf-8",
+    )
+
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="knowledge",
+        tool=KnowledgeTool(str(store_root)),
+    )
+
+    agent = Agent(
+        model=DockerVersionOnceModel(),
+        tool_registry=registry,
+    )
+
+    response = agent.run("what version of docker is installed?")
+
+    assert response == "Docker does not appear to be installed on this machine."
+
+
+class LoopingDockerVersionModel:
+    """
+    Reproduces the original bug pattern: a model that keeps calling the
+    same tool with the exact same arguments whenever it sees an empty
+    successful result, instead of treating that result as final. Used to
+    confirm the Agent/Tool/Observation layer itself is not the cause of
+    the loop: it faithfully reports success=True with an empty value on
+    every call and never errors or crashes. The fix for the loop lives in
+    the prompt (see tests/model/protocol/test_prompt_builder.py), not in
+    this layer.
+    """
+
+    def __init__(self, max_calls: int) -> None:
+        self.calls = 0
+        self._max_calls = max_calls
+
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        self.calls += 1
+
+        if self.calls > self._max_calls:
+            return FinalResponse(content="gave up")
+
+        return Action(
+            tool="knowledge",
+            arguments={
+                "source": "linux",
+                "resource": "docker_version",
+            },
+        )
+
+
+def test_knowledge_tool_reports_empty_result_as_success_on_every_repeated_call(
+    tmp_path,
+) -> None:
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
+
+    linux.mkdir(parents=True)
+
+    (linux / "inventory.json").write_text(
+        json.dumps({"docker_version": []}),
+        encoding="utf-8",
+    )
+
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="knowledge",
+        tool=KnowledgeTool(str(store_root)),
+    )
+
+    model = LoopingDockerVersionModel(max_calls=5)
+
+    agent = Agent(
+        model=model,
+        tool_registry=registry,
+    )
+
+    response = agent.run("what version of docker is installed?")
+
+    assert model.calls == 6
+    assert response == "gave up"
+
+
+def test_observation_carries_the_tool_and_arguments_that_produced_it(
+    tmp_path,
+) -> None:
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
+
+    linux.mkdir(parents=True)
+
+    (linux / "inventory.json").write_text(
+        json.dumps({"docker_version": []}),
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    class CaptureModel:
+        def __init__(self) -> None:
+            self.step = 0
+
+        def reason(
+            self,
+            user_request: str,
+            observations,
+        ):
+            self.step += 1
+
+            if self.step == 1:
+                return Action(
+                    tool="knowledge",
+                    arguments={
+                        "source": "linux",
+                        "resource": "docker_version",
+                    },
+                )
+
+            captured["observation"] = observations[-1]
+
+            return FinalResponse(content="done")
+
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="knowledge",
+        tool=KnowledgeTool(str(store_root)),
+    )
+
+    agent = Agent(
+        model=CaptureModel(),
+        tool_registry=registry,
+    )
+
+    agent.run("what version of docker is installed?")
+
+    observation = captured["observation"]
+
+    assert observation.tool == "knowledge"
+    assert observation.arguments == {
+        "source": "linux",
+        "resource": "docker_version",
+    }
+
+
+class DetectsDuplicateActionModel:
+    """
+    Demonstrates the actual root-cause fix: a model can now recognize that
+    an Action was already taken by comparing (tool, arguments) against
+    prior Observations -- something impossible before Observation carried
+    that context.
+    """
+
+    def reason(
+        self,
+        user_request: str,
+        observations,
+    ):
+        already_called = any(
+            obs.tool == "knowledge"
+            and obs.arguments == {"source": "linux", "resource": "docker_version"}
+            for obs in observations
+        )
+
+        if already_called:
+            return FinalResponse(
+                content="already checked, docker is not installed",
+            )
+
+        return Action(
+            tool="knowledge",
+            arguments={
+                "source": "linux",
+                "resource": "docker_version",
+            },
+        )
+
+
+def test_model_can_detect_duplicate_action_using_observation_context(
+    tmp_path,
+) -> None:
+    store_root = tmp_path / "stable_store"
+    linux = store_root / "linux"
+
+    linux.mkdir(parents=True)
+
+    (linux / "inventory.json").write_text(
+        json.dumps({"docker_version": []}),
+        encoding="utf-8",
+    )
+
+    registry = ToolRegistry()
+
+    registry.register(
+        tool_id="knowledge",
+        tool=KnowledgeTool(str(store_root)),
+    )
+
+    agent = Agent(
+        model=DetectsDuplicateActionModel(),
+        tool_registry=registry,
+    )
+
+    response = agent.run("what version of docker is installed?")
+
+    assert response == "already checked, docker is not installed"
