@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from src.agent.agent import Agent
 from src.model.mock_model_adapter import MockModelAdapter
 from src.shared.execution.tool_result import ToolResult
@@ -236,22 +234,20 @@ class DockerVersionOnceModel:
         )
 
 
-def test_agent_handles_docker_version_empty_result_without_looping(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+def test_agent_handles_docker_version_empty_result_without_looping(monkeypatch) -> None:
+    def fake_execute(self, arguments):
+        return ToolResult(success=True, data=[])
 
-    linux.mkdir(parents=True)
-
-    (linux / "inventory.json").write_text(
-        json.dumps({"docker_version": []}),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
 
     registry = ToolRegistry()
 
     registry.register(
         tool_id="knowledge",
-        tool=KnowledgeTool(str(store_root)),
+        tool=KnowledgeTool(),
     )
 
     agent = Agent(
@@ -300,23 +296,21 @@ class LoopingDockerVersionModel:
 
 
 def test_knowledge_tool_reports_empty_result_as_success_on_every_repeated_call(
-    tmp_path,
+    monkeypatch,
 ) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+    def fake_execute(self, arguments):
+        return ToolResult(success=True, data=[])
 
-    linux.mkdir(parents=True)
-
-    (linux / "inventory.json").write_text(
-        json.dumps({"docker_version": []}),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
 
     registry = ToolRegistry()
 
     registry.register(
         tool_id="knowledge",
-        tool=KnowledgeTool(str(store_root)),
+        tool=KnowledgeTool(),
     )
 
     model = LoopingDockerVersionModel(max_calls=5)
@@ -333,16 +327,14 @@ def test_knowledge_tool_reports_empty_result_as_success_on_every_repeated_call(
 
 
 def test_observation_carries_the_tool_and_arguments_that_produced_it(
-    tmp_path,
+    monkeypatch,
 ) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+    def fake_execute(self, arguments):
+        return ToolResult(success=True, data=[])
 
-    linux.mkdir(parents=True)
-
-    (linux / "inventory.json").write_text(
-        json.dumps({"docker_version": []}),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
 
     captured = {}
@@ -375,7 +367,7 @@ def test_observation_carries_the_tool_and_arguments_that_produced_it(
 
     registry.register(
         tool_id="knowledge",
-        tool=KnowledgeTool(str(store_root)),
+        tool=KnowledgeTool(),
     )
 
     agent = Agent(
@@ -428,23 +420,21 @@ class DetectsDuplicateActionModel:
 
 
 def test_model_can_detect_duplicate_action_using_observation_context(
-    tmp_path,
+    monkeypatch,
 ) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+    def fake_execute(self, arguments):
+        return ToolResult(success=True, data=[])
 
-    linux.mkdir(parents=True)
-
-    (linux / "inventory.json").write_text(
-        json.dumps({"docker_version": []}),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
 
     registry = ToolRegistry()
 
     registry.register(
         tool_id="knowledge",
-        tool=KnowledgeTool(str(store_root)),
+        tool=KnowledgeTool(),
     )
 
     agent = Agent(

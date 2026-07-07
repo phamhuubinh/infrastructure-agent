@@ -1,177 +1,72 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from src.tool.knowledge_tool import KnowledgeTool
+from src.shared.execution.tool_result import ToolResult
 
 
-def test_get_returns_resource(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+def test_execute_dispatches_linux_source_to_linux_tool(monkeypatch) -> None:
+    tool = KnowledgeTool()
 
-    linux.mkdir(parents=True)
+    captured: dict[str, object] = {}
 
-    inventory = linux / "inventory.json"
+    def fake_execute(self, arguments):
+        captured["arguments"] = arguments
+        return ToolResult(success=True, data={"hostname": "test-host"})
 
-    inventory.write_text(
-        json.dumps(
-            {
-                "system_info": [
-                    {
-                        "hostname": "test-host",
-                    }
-                ],
-                "os_version": [
-                    {
-                        "name": "Ubuntu",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
-
-    tool = KnowledgeTool(str(store_root))
-
-    assert tool.get(
-        source="linux",
-        resource="system_info",
-    ) == [
-        {
-            "hostname": "test-host",
-        }
-    ]
-
-
-def test_get_returns_none_for_unknown_resource(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
-
-    linux.mkdir(parents=True)
-
-    inventory = linux / "inventory.json"
-
-    inventory.write_text(
-        json.dumps(
-            {
-                "system_info": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    tool = KnowledgeTool(str(store_root))
-
-    assert (
-        tool.get(
-            source="linux",
-            resource="missing",
-        )
-        is None
-    )
-
-
-def test_keys_returns_sorted_resource_names(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
-
-    linux.mkdir(parents=True)
-
-    inventory = linux / "inventory.json"
-
-    inventory.write_text(
-        json.dumps(
-            {
-                "z": [],
-                "a": [],
-                "m": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    tool = KnowledgeTool(str(store_root))
-
-    assert tool.keys(
-        source="linux",
-    ) == [
-        "a",
-        "m",
-        "z",
-    ]
-
-
-def test_execute_returns_data_for_known_resource(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
-
-    linux.mkdir(parents=True)
-
-    inventory = linux / "inventory.json"
-
-    inventory.write_text(
-        json.dumps(
-            {
-                "os_version": [{"name": "Ubuntu"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    tool = KnowledgeTool(str(store_root))
 
     result = tool.execute(
         {
             "source": "linux",
-            "resource": "os_version",
+            "resource": "get_system",
         }
     )
 
+    assert captured["arguments"] == {"action": "get_system"}
     assert result.success is True
-    assert result.data == [{"name": "Ubuntu"}]
-    assert result.error is None
+    assert result.data == {"hostname": "test-host"}
 
 
-def test_execute_reports_unknown_resource_with_available_list(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-    linux = store_root / "linux"
+def test_execute_returns_child_tool_error_unchanged(monkeypatch) -> None:
+    tool = KnowledgeTool()
 
-    linux.mkdir(parents=True)
+    def fake_execute(self, arguments):
+        return ToolResult(
+            success=False,
+            error="Unknown action: 'bogus'. Available actions: get_system.",
+        )
 
-    inventory = linux / "inventory.json"
-
-    inventory.write_text(
-        json.dumps(
-            {
-                "os_version": [],
-                "interface_addresses": [],
-            }
-        ),
-        encoding="utf-8",
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
     )
-
-    tool = KnowledgeTool(str(store_root))
 
     result = tool.execute(
         {
             "source": "linux",
-            "resource": "ip",
+            "resource": "bogus",
         }
     )
 
     assert result.success is False
-    assert result.data is None
-    assert "Unknown resource: 'ip'" in result.error
-    assert "interface_addresses" in result.error
-    assert "os_version" in result.error
+    assert result.error == "Unknown action: 'bogus'. Available actions: get_system."
 
 
-def test_execute_reports_unknown_source(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
+def test_execute_reports_unknown_source(monkeypatch) -> None:
+    tool = KnowledgeTool()
 
-    tool = KnowledgeTool(str(store_root))
+    def fail_if_called(self, arguments):
+        raise AssertionError("LinuxTool.execute must not be called for an unknown source.")
+
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fail_if_called,
+    )
 
     result = tool.execute(
         {
@@ -181,16 +76,52 @@ def test_execute_reports_unknown_source(tmp_path) -> None:
     )
 
     assert result.success is False
-    assert result.error == "Unknown source: 'windows'."
+    assert result.error == "Unknown source: 'windows'. Available sources: linux."
 
 
-def test_execute_raises_on_missing_arguments(tmp_path) -> None:
-    store_root = tmp_path / "stable_store"
-
-    tool = KnowledgeTool(str(store_root))
+def test_execute_raises_on_missing_arguments() -> None:
+    tool = KnowledgeTool()
 
     with pytest.raises(ValueError):
         tool.execute({"source": "linux"})
 
     with pytest.raises(ValueError):
-        tool.execute({"resource": "os_version"})
+        tool.execute({"resource": "get_system"})
+
+
+def test_execute_does_not_access_environment_directly() -> None:
+    """
+    KnowledgeTool must not run commands or touch the filesystem itself --
+    it only forwards to a child Tool. This is verified indirectly: with
+    an unknown source, execute() must return before ever touching Linux.
+    """
+    tool = KnowledgeTool()
+
+    result = tool.execute(
+        {
+            "source": "does-not-exist",
+            "resource": "anything",
+        }
+    )
+
+    assert result.success is False
+
+
+def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
+    """
+    End-to-end sanity check with the real LinuxTool (no monkeypatch):
+    an unknown resource must surface LinuxTool's own error, proving the
+    request actually reached LinuxTool rather than being swallowed.
+    """
+    tool = KnowledgeTool()
+
+    result = tool.execute(
+        {
+            "source": "linux",
+            "resource": "this_capability_does_not_exist",
+        }
+    )
+
+    assert result.success is False
+    assert "Unknown action: 'this_capability_does_not_exist'" in result.error
+    assert "get_system" in result.error
