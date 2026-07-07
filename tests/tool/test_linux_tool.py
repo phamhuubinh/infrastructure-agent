@@ -207,6 +207,1023 @@ def test_get_docker_reports_not_installed(monkeypatch) -> None:
     assert result.data == {"installed": False, "version": None}
 
 
+def test_execute_reports_unknown_action_includes_new_capabilities() -> None:
+    tool = LinuxTool()
+
+    result = tool.execute({"action": "get_disk_temperature"})
+
+    assert result.success is False
+    for name in [
+        "get_cpu",
+        "get_memory",
+        "get_disk",
+        "get_filesystem",
+        "get_dns",
+        "get_process",
+        "get_user",
+        "get_package",
+    ]:
+        assert name in result.error
+
+
+def test_get_cpu_parses_model_and_cores(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["nproc"]:
+            return True, "4"
+        if command == ["cat", "/proc/cpuinfo"]:
+            return True, (
+                "processor\t: 0\n"
+                "model name\t: Intel(R) Core(TM) i7-9700\n"
+                "processor\t: 1\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_cpu"})
+
+    assert result.success is True
+    assert result.data == {
+        "model": "Intel(R) Core(TM) i7-9700",
+        "cores": 4,
+    }
+
+
+def test_get_cpu_returns_defaults_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_cpu"})
+
+    assert result.success is True
+    assert result.data == {"model": "unknown", "cores": 0}
+
+
+def test_get_memory_parses_meminfo(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["cat", "/proc/meminfo"]:
+            return True, (
+                "MemTotal:       16384000 kB\n"
+                "MemFree:         2048000 kB\n"
+                "MemAvailable:    8192000 kB\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_memory"})
+
+    assert result.success is True
+    assert result.data == {
+        "total_kb": 16384000,
+        "free_kb": 2048000,
+        "available_kb": 8192000,
+    }
+
+
+def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_memory"})
+
+    assert result.success is True
+    assert result.data == {"total_kb": 0, "free_kb": 0, "available_kb": 0}
+
+
+def test_get_disk_parses_df_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "df":
+            return True, (
+                "source         fstype     1B-blocks       used       avail use% target\n"
+                "/dev/sda1      ext4      100000000   40000000   60000000  40% /\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_disk"})
+
+    assert result.success is True
+    assert result.data == {
+        "disks": [
+            {
+                "source": "/dev/sda1",
+                "fstype": "ext4",
+                "size_bytes": 100000000,
+                "used_bytes": 40000000,
+                "available_bytes": 60000000,
+                "use_percent": "40%",
+                "target": "/",
+            }
+        ]
+    }
+
+
+def test_get_disk_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_disk"})
+
+    assert result.success is True
+    assert result.data == {"disks": []}
+
+
+def test_get_filesystem_parses_proc_mounts(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["cat", "/proc/mounts"]:
+            return True, (
+                "/dev/sda1 / ext4 rw,relatime 0 0\n"
+                "tmpfs /tmp tmpfs rw,nosuid 0 0\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_filesystem"})
+
+    assert result.success is True
+    assert result.data == {
+        "mounts": [
+            {"device": "/dev/sda1", "mountpoint": "/", "fstype": "ext4"},
+            {"device": "tmpfs", "mountpoint": "/tmp", "fstype": "tmpfs"},
+        ]
+    }
+
+
+def test_get_filesystem_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_filesystem"})
+
+    assert result.success is True
+    assert result.data == {"mounts": []}
+
+
+def test_get_dns_parses_resolv_conf(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["cat", "/etc/resolv.conf"]:
+            return True, "nameserver 8.8.8.8\nnameserver 1.1.1.1\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_dns"})
+
+    assert result.success is True
+    assert result.data == {"nameservers": ["8.8.8.8", "1.1.1.1"]}
+
+
+def test_get_dns_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_dns"})
+
+    assert result.success is True
+    assert result.data == {"nameservers": []}
+
+
+def test_get_process_parses_ps_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "ps":
+            return True, "1 systemd 0.0 0.1\n42 sshd 0.1 0.2\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_process"})
+
+    assert result.success is True
+    assert result.data == {
+        "processes": [
+            {"pid": 1, "command": "systemd", "cpu_percent": "0.0", "memory_percent": "0.1"},
+            {"pid": 42, "command": "sshd", "cpu_percent": "0.1", "memory_percent": "0.2"},
+        ]
+    }
+
+
+def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_process"})
+
+    assert result.success is True
+    assert result.data == {"processes": []}
+
+
+def test_get_user_parses_etc_passwd(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["cat", "/etc/passwd"]:
+            return True, (
+                "root:x:0:0:root:/root:/bin/bash\n"
+                "alice:x:1000:1000:Alice:/home/alice:/bin/bash\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_user"})
+
+    assert result.success is True
+    assert result.data == {
+        "users": [
+            {"name": "root", "uid": "0", "gid": "0", "home": "/root", "shell": "/bin/bash"},
+            {
+                "name": "alice",
+                "uid": "1000",
+                "gid": "1000",
+                "home": "/home/alice",
+                "shell": "/bin/bash",
+            },
+        ]
+    }
+
+
+def test_get_user_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_user"})
+
+    assert result.success is True
+    assert result.data == {"users": []}
+
+
+def test_get_package_parses_dpkg_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "dpkg-query":
+            return True, "bash 5.2.21-2\ncurl 8.5.0-2\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_package"})
+
+    assert result.success is True
+    assert result.data == {
+        "packages": [
+            {"name": "bash", "version": "5.2.21-2"},
+            {"name": "curl", "version": "8.5.0-2"},
+        ]
+    }
+
+
+def test_get_package_falls_back_to_rpm(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "dpkg-query":
+            return False, ""
+        if command[0] == "rpm":
+            return True, "bash 5.2.15\ncurl 8.4.0\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_package"})
+
+    assert result.success is True
+    assert result.data == {
+        "packages": [
+            {"name": "bash", "version": "5.2.15"},
+            {"name": "curl", "version": "8.4.0"},
+        ]
+    }
+
+
+def test_get_package_returns_empty_list_when_no_package_manager(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_package"})
+
+    assert result.success is True
+    assert result.data == {"packages": []}
+
+
+def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["cat", "/etc/ssh/sshd_config"]:
+            return True, "Port 2222\nPermitRootLogin no\nPasswordAuthentication yes\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data == {
+        "port": "2222",
+        "permit_root_login": "no",
+        "password_authentication": "yes",
+        "active": "active",
+    }
+
+
+def test_get_ssh_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data == {
+        "port": "unknown",
+        "permit_root_login": "unknown",
+        "password_authentication": "unknown",
+        "active": "unknown",
+    }
+
+
+def test_get_hardware_reads_dmidecode(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["dmidecode", "-s", "system-manufacturer"]:
+            return True, "Dell Inc."
+        if command == ["dmidecode", "-s", "system-product-name"]:
+            return True, "PowerEdge R640"
+        if command == ["dmidecode", "-s", "system-serial-number"]:
+            return True, "ABC123"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_hardware"})
+
+    assert result.success is True
+    assert result.data == {
+        "manufacturer": "Dell Inc.",
+        "product": "PowerEdge R640",
+        "serial": "ABC123",
+    }
+
+
+def test_get_hardware_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_hardware"})
+
+    assert result.success is True
+    assert result.data == {
+        "manufacturer": "unknown",
+        "product": "unknown",
+        "serial": "unknown",
+    }
+
+
+def test_get_pci_parses_lspci_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lspci"]:
+            return True, "00:00.0 Host bridge: Intel Corporation Device 1234\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_pci"})
+
+    assert result.success is True
+    assert result.data == {
+        "devices": [
+            {
+                "address": "00:00.0",
+                "description": "Host bridge: Intel Corporation Device 1234",
+            }
+        ]
+    }
+
+
+def test_get_pci_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_pci"})
+
+    assert result.success is True
+    assert result.data == {"devices": []}
+
+
+def test_get_usb_parses_lsusb_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lsusb"]:
+            return True, "Bus 001 Device 002: ID 8087:0aaa Intel Corp. Hub\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_usb"})
+
+    assert result.success is True
+    assert result.data == {
+        "devices": [
+            {
+                "bus": "001",
+                "device": "002",
+                "id": "8087:0aaa",
+                "description": "Intel Corp. Hub",
+            }
+        ]
+    }
+
+
+def test_get_usb_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_usb"})
+
+    assert result.success is True
+    assert result.data == {"devices": []}
+
+
+def test_get_gpu_filters_vga_controllers(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lspci"]:
+            return True, (
+                "00:00.0 Host bridge: Intel Corporation Device 1234\n"
+                "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_gpu"})
+
+    assert result.success is True
+    assert result.data == {
+        "gpus": [
+            {
+                "address": "00:02.0",
+                "description": "VGA compatible controller: Intel Corporation UHD Graphics",
+            }
+        ]
+    }
+
+
+def test_get_gpu_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_gpu"})
+
+    assert result.success is True
+    assert result.data == {"gpus": []}
+
+
+def test_get_block_device_parses_lsblk_json(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "lsblk":
+            return True, (
+                '{"blockdevices": [{"name": "sda", "size": 100, '
+                '"type": "disk", "mountpoint": null, "fstype": null}]}'
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_block_device"})
+
+    assert result.success is True
+    assert result.data == {
+        "devices": [
+            {
+                "name": "sda",
+                "size": 100,
+                "type": "disk",
+                "mountpoint": None,
+                "fstype": None,
+            }
+        ]
+    }
+
+
+def test_get_block_device_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_block_device"})
+
+    assert result.success is True
+    assert result.data == {"devices": []}
+
+
+def test_get_block_device_returns_empty_list_on_invalid_json(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (True, "not json"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_block_device"})
+
+    assert result.success is True
+    assert result.data == {"devices": []}
+
+
+def test_get_secureboot_reports_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (True, "SecureBoot enabled"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_secureboot"})
+
+    assert result.success is True
+    assert result.data == {"state": "SecureBoot enabled"}
+
+
+def test_get_secureboot_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_secureboot"})
+
+    assert result.success is True
+    assert result.data == {"state": "unknown"}
+
+
+def test_get_apparmor_reports_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (True, "Y"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_apparmor"})
+
+    assert result.success is True
+    assert result.data == {"enabled": "Y"}
+
+
+def test_get_apparmor_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_apparmor"})
+
+    assert result.success is True
+    assert result.data == {"enabled": "unknown"}
+
+
+def test_get_selinux_reports_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (True, "Enforcing"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_selinux"})
+
+    assert result.success is True
+    assert result.data == {"status": "Enforcing"}
+
+
+def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_selinux"})
+
+    assert result.success is True
+    assert result.data == {"status": "unknown"}
+
+
+def test_get_firewall_prefers_ufw(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["ufw", "status"]:
+            return True, "Status: active"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_firewall"})
+
+    assert result.success is True
+    assert result.data == {"backend": "ufw", "status": "Status: active"}
+
+
+def test_get_firewall_falls_back_to_iptables(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["ufw", "status"]:
+            return False, ""
+        if command == ["iptables", "-L", "-n"]:
+            return True, "Chain INPUT (policy ACCEPT)"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_firewall"})
+
+    assert result.success is True
+    assert result.data == {"backend": "iptables", "status": "Chain INPUT (policy ACCEPT)"}
+
+
+def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_firewall"})
+
+    assert result.success is True
+    assert result.data == {"backend": "unknown", "status": "unknown"}
+
+
+def test_get_certificate_lists_filenames(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["ls", "/etc/ssl/certs"]:
+            return True, "ca-certificates.crt\nDigiCert_Global_Root_CA.pem\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_certificate"})
+
+    assert result.success is True
+    assert result.data == {
+        "certificates": ["ca-certificates.crt", "DigiCert_Global_Root_CA.pem"]
+    }
+
+
+def test_get_certificate_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_certificate"})
+
+    assert result.success is True
+    assert result.data == {"certificates": []}
+
+
+def test_get_journal_returns_entries(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command[0] == "journalctl":
+            return True, "Jul 07 10:00:00 host sshd[1]: started\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_journal"})
+
+    assert result.success is True
+    assert result.data == {"entries": ["Jul 07 10:00:00 host sshd[1]: started"]}
+
+
+def test_get_journal_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_journal"})
+
+    assert result.success is True
+    assert result.data == {"entries": []}
+
+
+def test_get_log_prefers_syslog(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["tail", "-n", "50", "/var/log/syslog"]:
+            return True, "line one\nline two\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_log"})
+
+    assert result.success is True
+    assert result.data == {"source": "/var/log/syslog", "lines": ["line one", "line two"]}
+
+
+def test_get_log_falls_back_to_messages(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["tail", "-n", "50", "/var/log/syslog"]:
+            return False, ""
+        if command == ["tail", "-n", "50", "/var/log/messages"]:
+            return True, "line one\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_log"})
+
+    assert result.success is True
+    assert result.data == {"source": "/var/log/messages", "lines": ["line one"]}
+
+
+def test_get_log_returns_unknown_when_no_log_file(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_log"})
+
+    assert result.success is True
+    assert result.data == {"source": "unknown", "lines": []}
+
+
+def test_get_time_parses_timedatectl(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["timedatectl"]:
+            return True, (
+                "Local time: Tue 2026-07-07 10:00:00 UTC\n"
+                "Time zone: UTC (UTC, +0000)\n"
+                "System clock synchronized: yes\n"
+            )
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_time"})
+
+    assert result.success is True
+    assert result.data == {
+        "local_time": "Tue 2026-07-07 10:00:00 UTC",
+        "time_zone": "UTC (UTC, +0000)",
+        "ntp_synchronized": "yes",
+    }
+
+
+def test_get_time_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_time"})
+
+    assert result.success is True
+    assert result.data == {
+        "local_time": "unknown",
+        "time_zone": "unknown",
+        "ntp_synchronized": "unknown",
+    }
+
+
+def test_get_locale_parses_key_value_pairs(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["locale"]:
+            return True, 'LANG=en_US.UTF-8\nLC_TIME="en_US.UTF-8"\n'
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_locale"})
+
+    assert result.success is True
+    assert result.data == {
+        "locale": {"LANG": "en_US.UTF-8", "LC_TIME": "en_US.UTF-8"}
+    }
+
+
+def test_get_locale_returns_empty_dict_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_locale"})
+
+    assert result.success is True
+    assert result.data == {"locale": {}}
+
+
+def test_get_environment_returns_names_not_values(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["env"]:
+            return True, "PATH=/usr/bin\nSECRET_TOKEN=super-secret-value\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_environment"})
+
+    assert result.success is True
+    assert result.data == {"variables": ["PATH", "SECRET_TOKEN"]}
+    assert "super-secret-value" not in str(result.data)
+
+
+def test_get_environment_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_environment"})
+
+    assert result.success is True
+    assert result.data == {"variables": []}
+
+
+def test_get_session_parses_who_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["who"]:
+            return True, "alice    pts/0        2026-07-07 10:00\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_session"})
+
+    assert result.success is True
+    assert result.data == {
+        "sessions": [
+            {
+                "user": "alice",
+                "terminal": "pts/0",
+                "raw": "alice    pts/0        2026-07-07 10:00",
+            }
+        ]
+    }
+
+
+def test_get_session_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_session"})
+
+    assert result.success is True
+    assert result.data == {"sessions": []}
+
+
+def test_get_module_parses_lsmod_output(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lsmod"]:
+            return True, "Module                  Size  Used by\nnf_tables              200000  1\n"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_module"})
+
+    assert result.success is True
+    assert result.data == {"modules": [{"name": "nf_tables", "size": "200000"}]}
+
+
+def test_get_module_returns_empty_list_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_module"})
+
+    assert result.success is True
+    assert result.data == {"modules": []}
+
+
+def test_get_lxd_reports_not_installed(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.tool.linux_tool._run",
+        lambda command, timeout=5: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_lxd"})
+
+    assert result.success is True
+    assert result.data == {"installed": False, "version": None, "containers": []}
+
+
+def test_get_lxd_reports_installed_with_containers(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lxd", "--version"]:
+            return True, "5.21.2"
+        if command == ["lxc", "list", "--format", "json"]:
+            return True, '[{"name": "c1"}, {"name": "c2"}]'
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_lxd"})
+
+    assert result.success is True
+    assert result.data == {
+        "installed": True,
+        "version": "5.21.2",
+        "containers": ["c1", "c2"],
+    }
+
+
+def test_get_lxd_returns_empty_containers_on_invalid_json(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["lxd", "--version"]:
+            return True, "5.21.2"
+        if command == ["lxc", "list", "--format", "json"]:
+            return True, "not json"
+        return False, ""
+
+    monkeypatch.setattr("src.tool.linux_tool._run", fake_run)
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_lxd"})
+
+    assert result.success is True
+    assert result.data == {
+        "installed": True,
+        "version": "5.21.2",
+        "containers": [],
+    }
+
+
 def test_run_returns_false_on_missing_binary() -> None:
     from src.tool.linux_tool import _run
 
