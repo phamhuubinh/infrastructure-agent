@@ -26,6 +26,21 @@ class KnowledgeTool(Tool):
             "linux": LinuxTool(),
         }
 
+    def get_capabilities(self) -> dict[str, list[str]]:
+        """
+        Get all available capabilities from child tools.
+        This method provides capability metadata for bootstrap generation.
+        """
+        capabilities = {}
+        for source, tool in self._child_tools.items():
+            # For LinuxTool, we extract the capability names from its _CAPABILITIES dictionary
+            if hasattr(tool, "_CAPABILITIES"):
+                capabilities[source] = list(tool._CAPABILITIES.keys())
+            else:
+                # Fallback for other tools that might not have this attribute
+                capabilities[source] = []
+        return capabilities
+
     def execute(
         self,
         arguments: dict[str, object],
