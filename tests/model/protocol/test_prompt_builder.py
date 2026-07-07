@@ -14,12 +14,32 @@ def test_prompt_is_valid_json() -> None:
     assert isinstance(parsed, dict)
 
 
-def test_prompt_contains_response_schemas() -> None:
+def test_prompt_contains_response_examples_as_flat_list() -> None:
     parsed = json.loads(build_prompt("hello", ()))
 
-    assert parsed["response_schemas"]["action"]["type"] == "action"
-    assert parsed["response_schemas"]["action"]["tool"] == "knowledge"
-    assert parsed["response_schemas"]["final"]["type"] == "final"
+    examples = parsed["response_examples"]
+
+    assert isinstance(examples, list)
+    assert len(examples) == 2
+
+    action_example = next(e for e in examples if e["type"] == "action")
+    final_example = next(e for e in examples if e["type"] == "final")
+
+    assert action_example["tool"] == "knowledge"
+    assert "content" in final_example
+
+
+def test_response_examples_are_never_wrapped_under_action_or_final_key() -> None:
+    parsed = json.loads(build_prompt("hello", ()))
+
+    examples = parsed["response_examples"]
+
+    assert isinstance(examples, list)
+
+    for example in examples:
+        assert "action" not in example
+        assert "final" not in example
+        assert example["type"] in ("action", "final")
 
 
 def test_prompt_contains_user_request() -> None:
@@ -109,6 +129,12 @@ def test_prompt_actions_taken_preserves_order_for_repeated_calls() -> None:
 
     assert len(parsed["actions_taken"]) == 2
     assert parsed["actions_taken"][0] == parsed["actions_taken"][1]
+
+
+def test_prompt_output_format_says_unwrapped() -> None:
+    parsed = json.loads(build_prompt("hello", ()))
+
+    assert "unwrapped" in parsed["output_format"]
 
 
 def test_prompt_contains_no_repeat_rule() -> None:

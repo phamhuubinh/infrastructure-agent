@@ -53,8 +53,8 @@ RULES = [
     '"not installed"), not a reason to retry.',
 ]
 
-RESPONSE_SCHEMAS = {
-    "action": {
+RESPONSE_EXAMPLES = [
+    {
         "type": "action",
         "tool": "knowledge",
         "arguments": {
@@ -62,11 +62,11 @@ RESPONSE_SCHEMAS = {
             "resource": "system_info",
         },
     },
-    "final": {
+    {
         "type": "final",
         "content": "...",
     },
-}
+]
 
 
 def _observation_to_dict(
@@ -92,8 +92,12 @@ def build_prompt(
 ) -> str:
     payload = {
         "role": "reasoning model for an execution agent",
-        "output_format": "exactly one JSON object, no markdown, no explanation",
-        "response_schemas": RESPONSE_SCHEMAS,
+        "output_format": (
+            "respond with exactly one of the objects in response_examples "
+            "below, unwrapped -- no markdown, no explanation, no extra key "
+            "wrapping it"
+        ),
+        "response_examples": RESPONSE_EXAMPLES,
         "rules": RULES,
         "available_resources": {
             "linux": LINUX_RESOURCES,
