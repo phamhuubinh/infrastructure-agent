@@ -267,3 +267,13 @@ Tool con không biết Agent.
 KnowledgeTool không truy cập trực tiếp Environment.
 KnowledgeTool chỉ chịu trách nhiệm định tuyến request tới Tool con.
 Tool con chịu trách nhiệm truy cập Environment hoặc Provider.
+## AD-022 Tool Capability Ownership
+Child Tools own their capability definitions.
+KnowledgeTool aggregates capabilities from child Tools.
+Bootstrap is generated from KnowledgeTool.
+PromptBuilder consumes Bootstrap only.
+PromptBuilder must never hardcode Tool capabilities.
+Reason:
+Capability definitions must exist in exactly one place.
+This avoids duplicated capability lists and keeps the protocol synchronized automatically.
+KnowledgeTool is the only component allowed to aggregate capability metadata from child Tools.

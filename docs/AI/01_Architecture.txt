@@ -29,6 +29,12 @@ KnowledgeTool chịu trách nhiệm:
 - gọi Tool con
 - trả ToolResult
 KnowledgeTool không truy cập trực tiếp Environment.
+## Capability Discovery
+KnowledgeTool owns the capability catalog exposed to the Reasoning Model.
+KnowledgeTool discovers capabilities from child Tools.
+Child Tools are the single source of truth for their own capabilities.
+The Reasoning Model never discovers capabilities directly from child Tools.
+PromptBuilder never imports or depends on child Tools.
 Tool con chịu trách nhiệm duy nhất cho domain của mình.
 *Provider là tùy chọn.
 Tool có thể truy cập trực tiếp Environment nếu không cần Provider.

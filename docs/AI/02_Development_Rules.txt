@@ -213,3 +213,9 @@ Model không được gọi Tool con trực tiếp.
 Agent chỉ dispatch Tool tổng.
 Tool con chỉ được gọi bởi Tool tổng.
 Tool con không được đăng ký trực tiếp để Model sử dụng.
+Rule #
+Tool capability definitions must never be duplicated.
+Every capability shall have exactly one owner.
+PromptBuilder must consume capability metadata from Bootstrap.
+Bootstrap must obtain capability metadata from KnowledgeTool.
+PromptBuilder must never maintain static capability lists for individual Tools.
