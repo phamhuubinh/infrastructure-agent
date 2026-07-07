@@ -3,18 +3,33 @@
 Hệ thống được thiết kế theo kiến trúc **Model-Driven**.
 Reasoning chỉ tồn tại trong Reasoning Model.
 Mọi thành phần còn lại chỉ thực hiện đúng trách nhiệm của mình.
-                 Tool
-                  │
-        ┌─────────┴─────────┐
-        │                   │
-            ▼                            ▼
-   Linux Tool         Zabbix Tool
-        │                   │
-            ▼                            ▼
-   Provider*          Provider*
-        │                   │
-            ▼                            ▼
- Linux /proc         Zabbix API
+Reasoning Model
+        │
+            ▼
+Agent
+        │
+            ▼
+KnowledgeTool (Tool tổng)
+        │
+        ├───────────────┐
+        │               │
+            ▼                      ▼
+LinuxTool      ZabbixTool      VMwareTool      DockerTool
+        │               │                │               │
+            ▼                      ▼                       ▼                      ▼
+     Linux         Zabbix API        vCenter API     Docker Engine
+KnowledgeTool là Tool duy nhất được Agent gọi.
+KnowledgeTool là Tool tổng duy nhất trong runtime.
+Model không biết sự tồn tại của LinuxTool, DockerTool, VMwareTool...
+KnowledgeTool chịu trách nhiệm định tuyến request tới Tool con phù hợp.
+Tool con không biết Model.
+Model chỉ biết KnowledgeTool.
+KnowledgeTool chịu trách nhiệm:
+- chọn Tool con
+- gọi Tool con
+- trả ToolResult
+KnowledgeTool không truy cập trực tiếp Environment.
+Tool con chịu trách nhiệm duy nhất cho domain của mình.
 *Provider là tùy chọn.
 Tool có thể truy cập trực tiếp Environment nếu không cần Provider.
 ---
@@ -81,21 +96,17 @@ Tool không:
 Một số Tool có thể truy cập Provider.
 Một số Tool có thể truy cập trực tiếp Environment nếu không cần Provider.
 Ví dụ:
-Knowledge Tool
+KnowledgeTool
         │
             ▼
-Linux Provider
+LinuxTool
         │
-            ▼
-Linux
-Command Tool
+        ├──────────────► Linux
         │
-            ▼
-Linux
-Docker Tool
-        │
-            ▼
-Docker Engine
+        └──────────────► LinuxProvider (optional)
+                               	│
+                               		▼
+                              Linux
 ---
 # 4. Tool Implementation
 Tool được chia theo từng domain.

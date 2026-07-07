@@ -206,3 +206,10 @@ Mọi quyết định đều phải ưu tiên:
 > Kiến trúc ổn định > Tối ưu sớm
 Nếu có nghi ngờ:
 Chọn phương án đơn giản hơn.
+---
+# 21. Tool Hierarchy
+Reasoning Model chỉ được gọi Tool tổng.
+Model không được gọi Tool con trực tiếp.
+Agent chỉ dispatch Tool tổng.
+Tool con chỉ được gọi bởi Tool tổng.
+Tool con không được đăng ký trực tiếp để Model sử dụng.

@@ -253,3 +253,17 @@ Trước khi:
 - refactor
 AI phải đọc repository liên quan.
 Nếu repository khác với trí nhớ hoặc suy luận, luôn ưu tiên repository.
+# AD-016
+## Decision
+KnowledgeTool là Tool tổng.
+## Context
+Project hỗ trợ nhiều domain.
+## Reason
+Model không nên biết Linux, Docker, VMware...
+## Consequence
+Agent chỉ gọi KnowledgeTool.
+KnowledgeTool route tới Tool con.
+Tool con không biết Agent.
+KnowledgeTool không truy cập trực tiếp Environment.
+KnowledgeTool chỉ chịu trách nhiệm định tuyến request tới Tool con.
+Tool con chịu trách nhiệm truy cập Environment hoặc Provider.
