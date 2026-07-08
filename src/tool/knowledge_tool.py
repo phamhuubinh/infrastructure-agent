@@ -36,6 +36,14 @@ class KnowledgeTool(Tool):
             # For LinuxTool, we extract the capability names from its _CAPABILITIES dictionary
             if hasattr(tool, "_CAPABILITIES"):
                 capabilities[source] = list(tool._CAPABILITIES.keys())
+            elif source == "linux":
+                # Special handling for LinuxTool - get capabilities from the module directly
+                import src.tool.linux_tool as linux_tool_module
+
+                if hasattr(linux_tool_module, "_CAPABILITIES"):
+                    capabilities[source] = list(linux_tool_module._CAPABILITIES.keys())
+                else:
+                    capabilities[source] = []
             else:
                 # Fallback for other tools that might not have this attribute
                 capabilities[source] = []
