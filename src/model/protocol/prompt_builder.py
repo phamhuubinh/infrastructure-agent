@@ -56,7 +56,7 @@ def build_prompt(
 
     # Get capabilities from KnowledgeTool instead of using hardcoded list
     knowledge_tool = KnowledgeTool()
-    capabilities = knowledge_tool.get_capabilities()
+    resources = knowledge_tool.get_available_resources()
 
     payload = {
         "role": "reasoning model for an execution agent",
@@ -67,7 +67,7 @@ def build_prompt(
         ),
         "response_examples": RESPONSE_EXAMPLES,
         "rules": RULES,
-        "available_resources": capabilities,
+        "available_resources": resources,
         "user_request": user_request,
         "actions_taken": [
             _observation_to_dict(observation) for observation in observations
