@@ -36,8 +36,9 @@ class OllamaModelAdapter(ModelAdapter):
             prompt,
         )
 
-        result = parse_response(
-            response,
-        )
+        try:
+            result = parse_response(response)
+        except ValueError as exc:
+            return FinalResponse(content=f"I received an invalid response from the model: {exc}")
 
         return result
