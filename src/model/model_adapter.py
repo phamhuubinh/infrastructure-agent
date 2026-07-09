@@ -17,6 +17,7 @@ class ModelAdapter(ABC):
         self,
         user_request: str,
         observations: tuple[Observation, ...],
+        available_resources: dict[str, list[str]] | None = None,
     ) -> Action | FinalResponse:
         """
         Produce the next Action or the FinalResponse.

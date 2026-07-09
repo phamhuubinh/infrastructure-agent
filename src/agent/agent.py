@@ -16,9 +16,11 @@ class Agent:
         self,
         model: ModelAdapter,
         tool_registry: ToolRegistry,
+        available_resources: dict[str, list[str]] | None = None,
     ) -> None:
         self._model = model
         self._tool_registry = tool_registry
+        self._available_resources = available_resources
 
     def run(
         self,
@@ -31,6 +33,7 @@ class Agent:
             decision = self._model.reason(
                 user_request=user_request,
                 observations=observations,
+                available_resources=self._available_resources,
             )
             if isinstance(decision, FinalResponse):
                 return decision.content

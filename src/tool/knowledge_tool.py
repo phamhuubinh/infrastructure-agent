@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.shared.execution.tool_result import ToolResult
 from src.tool.linux_tool import LinuxTool
+from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
 
 
@@ -21,36 +22,21 @@ class KnowledgeTool(Tool):
     một entry vào _child_tools. Không cần sửa gì khác trong KnowledgeTool.
     """
 
-    def __init__(self) -> None:
-        self._child_tools: dict[str, Tool] = {
-            "linux": LinuxTool(),
-        }
+    def __init__(
+        self,
+        target_registry: TargetRegistry | None = None,
+    ) -> None:
+        if target_registry is None:
+            target_registry = TargetRegistry()
+            target_registry.add("linux")
+        self._registry = target_registry
+        import src.tool.linux_tool as linux_tool_module
+        self._capabilities = list(linux_tool_module._CAPABILITIES.keys())
 
     def get_capabilities(self) -> dict[str, list[str]]:
-        """
-        Get all available capabilities from child tools.
-        This method provides capability metadata for bootstrap generation.
-        """
-        capabilities = {}
-        for source, tool in self._child_tools.items():
-            # For LinuxTool, we extract the capability names from its _CAPABILITIES dictionary
-            if hasattr(tool, "_CAPABILITIES"):
-                capabilities[source] = list(tool._CAPABILITIES.keys())
-            elif source == "linux":
-                # Special handling for LinuxTool - get capabilities from the module directly
-                import src.tool.linux_tool as linux_tool_module
-
-                if hasattr(linux_tool_module, "_CAPABILITIES"):
-                    capabilities[source] = list(linux_tool_module._CAPABILITIES.keys())
-                else:
-                    capabilities[source] = []
-            else:
-                # Fallback for other tools that might not have this attribute
-                capabilities[source] = []
-        return capabilities
+        return {name: self._capabilities for name in self._registry.target_names()}
 
     def get_available_resources(self) -> dict[str, list[str]]:
-        """Alias for :meth:`get_capabilities`. Present for backwards compatibility."""
         return self.get_capabilities()
 
     def execute(
@@ -66,10 +52,10 @@ class KnowledgeTool(Tool):
         if not isinstance(resource, str):
             raise ValueError("Missing resource.")
 
-        child_tool = self._child_tools.get(source)
-
-        if child_tool is None:
-            available = ", ".join(sorted(self._child_tools))
+        try:
+            child_tool = self._registry.get_tool(source)
+        except KeyError:
+            available = ", ".join(self._registry.target_names())
 
             return ToolResult(
                 success=False,

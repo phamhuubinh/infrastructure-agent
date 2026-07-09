@@ -147,3 +147,16 @@ def test_prompt_contains_empty_result_rule() -> None:
     parsed = json.loads(build_prompt("what is the docker version?", ()))
 
     assert any("not a reason to retry" in rule for rule in parsed["rules"])
+
+
+def test_prompt_accepts_custom_available_resources() -> None:
+    custom_resources = {
+        "linux": ["get_system", "get_network"],
+        "prod": ["get_system", "get_disk", "get_memory"],
+        "staging": ["get_system"],
+    }
+    parsed = json.loads(
+        build_prompt("check prod server", (), available_resources=custom_resources)
+    )
+
+    assert parsed["available_resources"] == custom_resources

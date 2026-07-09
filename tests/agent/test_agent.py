@@ -45,6 +45,7 @@ class ObservationEchoModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         if not observations:
             return Action(
@@ -82,6 +83,7 @@ class UnknownToolModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         if not observations:
             return Action(
@@ -119,6 +121,7 @@ class MissingArgumentModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         if not observations:
             return Action(
@@ -159,6 +162,7 @@ class RetryAfterDispatchErrorModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         self._step += 1
 
@@ -212,6 +216,7 @@ class DockerVersionOnceModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         self._step += 1
 
@@ -280,6 +285,7 @@ class LoopingDockerVersionModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         self.calls += 1
 
@@ -347,6 +353,7 @@ def test_observation_carries_the_tool_and_arguments_that_produced_it(
             self,
             user_request: str,
             observations,
+            **kwargs,
         ):
             self.step += 1
 
@@ -398,6 +405,7 @@ class DetectsDuplicateActionModel:
         self,
         user_request: str,
         observations,
+        **kwargs,
     ):
         already_called = any(
             obs.tool == "knowledge"

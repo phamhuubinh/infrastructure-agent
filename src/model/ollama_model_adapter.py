@@ -24,10 +24,12 @@ class OllamaModelAdapter(ModelAdapter):
         self,
         user_request: str,
         observations: tuple[Observation, ...],
+        available_resources: dict[str, list[str]] | None = None,
     ) -> Action | FinalResponse:
         prompt = build_prompt(
             user_request=user_request,
             observations=observations,
+            available_resources=available_resources,
         )
 
         response = self._client.generate(

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from src.tool.knowledge_tool import KnowledgeTool
 from src.shared.execution.tool_result import ToolResult
+from src.tool.execution_backend import LocalExecutionBackend, SSHExecutionBackend
+from src.tool.knowledge_tool import KnowledgeTool
+from src.tool.target_registry import TargetRegistry
 
 
 def test_execute_dispatches_linux_source_to_linux_tool(monkeypatch) -> None:
@@ -77,6 +79,53 @@ def test_execute_reports_unknown_source(monkeypatch) -> None:
 
     assert result.success is False
     assert result.error == "Unknown source: 'windows'. Available sources: linux."
+
+
+def test_knowledge_tool_with_remote_target(monkeypatch) -> None:
+    registry = TargetRegistry()
+    registry.add("linux", LocalExecutionBackend())
+    registry.add(
+        "prod",
+        SSHExecutionBackend(host="10.0.0.1", user="admin"),
+    )
+    tool = KnowledgeTool(target_registry=registry)
+
+    captured: dict[str, object] = {}
+
+    def fake_execute(self, arguments):
+        captured["arguments"] = arguments
+        return ToolResult(success=True, data={"hostname": "remote-host"})
+
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        fake_execute,
+    )
+
+    result = tool.execute(
+        {
+            "source": "prod",
+            "resource": "get_system",
+        }
+    )
+
+    assert captured["arguments"] == {"action": "get_system"}
+    assert result.success is True
+    assert result.data == {"hostname": "remote-host"}
+
+
+def test_knowledge_tool_lists_all_target_sources() -> None:
+    registry = TargetRegistry()
+    registry.add("linux", LocalExecutionBackend())
+    registry.add("staging", SSHExecutionBackend(host="10.0.0.2"))
+    registry.add("lab", SSHExecutionBackend(host="10.0.0.3"))
+    tool = KnowledgeTool(target_registry=registry)
+
+    caps = tool.get_capabilities()
+
+    assert "linux" in caps
+    assert "staging" in caps
+    assert "lab" in caps
+    assert caps["linux"] == caps["staging"] == caps["lab"]
 
 
 def test_execute_raises_on_missing_arguments() -> None:

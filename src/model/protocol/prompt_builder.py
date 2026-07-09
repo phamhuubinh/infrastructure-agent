@@ -50,13 +50,12 @@ def _observation_to_dict(
 def build_prompt(
     user_request: str,
     observations: tuple[Observation, ...],
+    available_resources: dict[str, list[str]] | None = None,
 ) -> str:
-    # Import here to avoid circular dependency
-    from src.tool.knowledge_tool import KnowledgeTool
+    if available_resources is None:
+        from src.tool.knowledge_tool import KnowledgeTool
 
-    # Get capabilities from KnowledgeTool instead of using hardcoded list
-    knowledge_tool = KnowledgeTool()
-    resources = knowledge_tool.get_available_resources()
+        available_resources = KnowledgeTool().get_available_resources()
 
     payload = {
         "role": "reasoning model for an execution agent",
@@ -67,7 +66,7 @@ def build_prompt(
         ),
         "response_examples": RESPONSE_EXAMPLES,
         "rules": RULES,
-        "available_resources": resources,
+        "available_resources": available_resources,
         "user_request": user_request,
         "actions_taken": [
             _observation_to_dict(observation) for observation in observations

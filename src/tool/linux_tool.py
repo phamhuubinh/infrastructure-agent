@@ -1,44 +1,15 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from collections.abc import Callable
 
 from src.shared.execution.tool_result import ToolResult
+from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
 
-def _run(
-    command: list[str],
-    timeout: int = 5,
-) -> tuple[bool, str]:
-    """
-    Execute one local command and return (success, stdout).
-
-    This is the single execution boundary for the Linux Tool. Every
-    capability below reaches the OS only through this function. Adding
-    SSH or container execution later means changing only this function --
-    no capability logic needs to change.
-    """
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False, ""
-
-    if completed.returncode != 0:
-        return False, ""
-
-    return True, completed.stdout.strip()
-
-
-def _read_os_release() -> dict[str, str]:
-    ok, output = _run(["cat", "/etc/os-release"])
+def _read_os_release(run: Callable[..., tuple[bool, str]]) -> dict[str, str]:
+    ok, output = run(["cat", "/etc/os-release"])
 
     if ok:
         fields: dict[str, str] = {}
@@ -56,7 +27,7 @@ def _read_os_release() -> dict[str, str]:
             "id": fields.get("ID", "unknown"),
         }
 
-    ok, output = _run(["lsb_release", "-a"])
+    ok, output = run(["lsb_release", "-a"])
 
     if ok:
         fields = {}
@@ -81,14 +52,14 @@ def _read_os_release() -> dict[str, str]:
     }
 
 
-def _get_system() -> dict[str, object]:
+def _get_system(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: machine identity (distro, hostname, kernel).
     """
-    os_info = _read_os_release()
+    os_info = _read_os_release(run)
 
-    hostname_ok, hostname = _run(["hostname"])
-    kernel_ok, kernel = _run(["uname", "-r"])
+    hostname_ok, hostname = run(["hostname"])
+    kernel_ok, kernel = run(["uname", "-r"])
 
     return {
         "os": os_info,
@@ -97,13 +68,13 @@ def _get_system() -> dict[str, object]:
     }
 
 
-def _get_network() -> dict[str, object]:
+def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: networking (interfaces, addresses, routes).
     """
     interfaces: list[dict[str, object]] = []
 
-    ok, output = _run(["ip", "-o", "addr", "show"])
+    ok, output = run(["ip", "-o", "addr", "show"])
 
     if ok:
         for line in output.splitlines():
@@ -122,7 +93,7 @@ def _get_network() -> dict[str, object]:
 
     routes: list[str] = []
 
-    ok, output = _run(["ip", "route"])
+    ok, output = run(["ip", "route"])
 
     if ok:
         routes = [line.strip() for line in output.splitlines() if line.strip()]
@@ -133,11 +104,11 @@ def _get_network() -> dict[str, object]:
     }
 
 
-def _get_services() -> dict[str, object]:
+def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: systemd services.
     """
-    ok, output = _run(
+    ok, output = run(
         [
             "systemctl",
             "list-units",
@@ -168,11 +139,11 @@ def _get_services() -> dict[str, object]:
     return {"services": services}
 
 
-def _get_docker() -> dict[str, object]:
+def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: Docker engine presence on this host (not the Docker API).
     """
-    ok, output = _run(["docker", "--version"])
+    ok, output = run(["docker", "--version"])
 
     if not ok:
         return {"installed": False, "version": None}
@@ -180,12 +151,12 @@ def _get_docker() -> dict[str, object]:
     return {"installed": True, "version": output}
 
 
-def _get_cpu() -> dict[str, object]:
+def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: CPU identity and core count.
     """
-    cores_ok, cores_output = _run(["nproc"])
-    cpuinfo_ok, cpuinfo_output = _run(["cat", "/proc/cpuinfo"])
+    cores_ok, cores_output = run(["nproc"])
+    cpuinfo_ok, cpuinfo_output = run(["cat", "/proc/cpuinfo"])
 
     model = "unknown"
 
@@ -204,11 +175,11 @@ def _get_cpu() -> dict[str, object]:
     }
 
 
-def _get_memory() -> dict[str, object]:
+def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: system memory (from /proc/meminfo, values in kB).
     """
-    ok, output = _run(["cat", "/proc/meminfo"])
+    ok, output = run(["cat", "/proc/meminfo"])
 
     fields: dict[str, str] = {}
 
@@ -234,11 +205,11 @@ def _get_memory() -> dict[str, object]:
     }
 
 
-def _get_disk() -> dict[str, object]:
+def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: mounted filesystem usage (size/used/available per mount).
     """
-    ok, output = _run(
+    ok, output = run(
         [
             "df",
             "-B1",
@@ -274,11 +245,11 @@ def _get_disk() -> dict[str, object]:
     return {"disks": disks}
 
 
-def _get_filesystem() -> dict[str, object]:
+def _get_filesystem(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: mounted filesystems (device, mountpoint, type).
     """
-    ok, output = _run(["cat", "/proc/mounts"])
+    ok, output = run(["cat", "/proc/mounts"])
 
     mounts: list[dict[str, object]] = []
 
@@ -300,11 +271,11 @@ def _get_filesystem() -> dict[str, object]:
     return {"mounts": mounts}
 
 
-def _get_dns() -> dict[str, object]:
+def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: DNS resolver configuration.
     """
-    ok, output = _run(["cat", "/etc/resolv.conf"])
+    ok, output = run(["cat", "/etc/resolv.conf"])
 
     nameservers: list[str] = []
 
@@ -323,11 +294,11 @@ def _get_dns() -> dict[str, object]:
     return {"nameservers": nameservers}
 
 
-def _get_process() -> dict[str, object]:
+def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: running processes.
     """
-    ok, output = _run(
+    ok, output = run(
         [
             "ps",
             "-eo",
@@ -359,11 +330,11 @@ def _get_process() -> dict[str, object]:
     return {"processes": processes}
 
 
-def _get_user() -> dict[str, object]:
+def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: local user accounts (from /etc/passwd).
     """
-    ok, output = _run(["cat", "/etc/passwd"])
+    ok, output = run(["cat", "/etc/passwd"])
 
     users: list[dict[str, object]] = []
 
@@ -389,13 +360,13 @@ def _get_user() -> dict[str, object]:
     return {"users": users}
 
 
-def _get_package() -> dict[str, object]:
+def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: installed packages (dpkg on Debian/Ubuntu, rpm fallback).
     """
     packages: list[dict[str, object]] = []
 
-    ok, output = _run(
+    ok, output = run(
         [
             "dpkg-query",
             "-W",
@@ -415,7 +386,7 @@ def _get_package() -> dict[str, object]:
 
         return {"packages": packages}
 
-    ok, output = _run(
+    ok, output = run(
         [
             "rpm",
             "-qa",
@@ -437,7 +408,7 @@ def _get_package() -> dict[str, object]:
     return {"packages": packages}
 
 
-def _get_ssh() -> dict[str, object]:
+def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: SSH server configuration summary (no keys, no secrets).
     """
@@ -445,7 +416,7 @@ def _get_ssh() -> dict[str, object]:
     permit_root_login = "unknown"
     password_authentication = "unknown"
 
-    ok, output = _run(["cat", "/etc/ssh/sshd_config"])
+    ok, output = run(["cat", "/etc/ssh/sshd_config"])
 
     if ok:
         for line in output.splitlines():
@@ -471,7 +442,7 @@ def _get_ssh() -> dict[str, object]:
     active = "unknown"
 
     for service_name in ("ssh", "sshd"):
-        ok, status_output = _run(["systemctl", "is-active", service_name])
+        ok, status_output = run(["systemctl", "is-active", service_name])
 
         if ok:
             active = status_output.strip()
@@ -485,13 +456,13 @@ def _get_ssh() -> dict[str, object]:
     }
 
 
-def _get_hardware() -> dict[str, object]:
+def _get_hardware(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: system hardware identity (vendor, product, serial).
     """
-    manufacturer_ok, manufacturer = _run(["dmidecode", "-s", "system-manufacturer"])
-    product_ok, product = _run(["dmidecode", "-s", "system-product-name"])
-    serial_ok, serial = _run(["dmidecode", "-s", "system-serial-number"])
+    manufacturer_ok, manufacturer = run(["dmidecode", "-s", "system-manufacturer"])
+    product_ok, product = run(["dmidecode", "-s", "system-product-name"])
+    serial_ok, serial = run(["dmidecode", "-s", "system-serial-number"])
 
     return {
         "manufacturer": manufacturer if manufacturer_ok else "unknown",
@@ -500,11 +471,11 @@ def _get_hardware() -> dict[str, object]:
     }
 
 
-def _get_pci() -> dict[str, object]:
+def _get_pci(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: PCI devices.
     """
-    ok, output = _run(["lspci"])
+    ok, output = run(["lspci"])
 
     devices: list[dict[str, object]] = []
 
@@ -521,11 +492,11 @@ def _get_pci() -> dict[str, object]:
     return {"devices": devices}
 
 
-def _get_usb() -> dict[str, object]:
+def _get_usb(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: USB devices.
     """
-    ok, output = _run(["lsusb"])
+    ok, output = run(["lsusb"])
 
     devices: list[dict[str, object]] = []
 
@@ -553,11 +524,11 @@ def _get_usb() -> dict[str, object]:
     return {"devices": devices}
 
 
-def _get_gpu() -> dict[str, object]:
+def _get_gpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: GPU/display controllers (filtered from PCI devices).
     """
-    ok, output = _run(["lspci"])
+    ok, output = run(["lspci"])
 
     gpus: list[dict[str, object]] = []
 
@@ -585,11 +556,11 @@ def _get_gpu() -> dict[str, object]:
     return {"gpus": gpus}
 
 
-def _get_block_device() -> dict[str, object]:
+def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: block devices (disks, partitions).
     """
-    ok, output = _run(
+    ok, output = run(
         [
             "lsblk",
             "-J",
@@ -611,43 +582,43 @@ def _get_block_device() -> dict[str, object]:
     return {"devices": devices}
 
 
-def _get_secureboot() -> dict[str, object]:
+def _get_secureboot(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: Secure Boot state.
     """
-    ok, output = _run(["mokutil", "--sb-state"])
+    ok, output = run(["mokutil", "--sb-state"])
 
     return {"state": output if ok else "unknown"}
 
 
-def _get_apparmor() -> dict[str, object]:
+def _get_apparmor(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: AppArmor enabled state.
     """
-    ok, output = _run(["cat", "/sys/module/apparmor/parameters/enabled"])
+    ok, output = run(["cat", "/sys/module/apparmor/parameters/enabled"])
 
     return {"enabled": output.strip() if ok else "unknown"}
 
 
-def _get_selinux() -> dict[str, object]:
+def _get_selinux(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: SELinux enforcement mode.
     """
-    ok, output = _run(["getenforce"])
+    ok, output = run(["getenforce"])
 
     return {"status": output if ok else "unknown"}
 
 
-def _get_firewall() -> dict[str, object]:
+def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: firewall status (ufw preferred, iptables fallback).
     """
-    ok, output = _run(["ufw", "status"])
+    ok, output = run(["ufw", "status"])
 
     if ok:
         return {"backend": "ufw", "status": output}
 
-    ok, output = _run(["iptables", "-L", "-n"])
+    ok, output = run(["iptables", "-L", "-n"])
 
     if ok:
         return {"backend": "iptables", "status": output}
@@ -655,22 +626,22 @@ def _get_firewall() -> dict[str, object]:
     return {"backend": "unknown", "status": "unknown"}
 
 
-def _get_certificate() -> dict[str, object]:
+def _get_certificate(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: installed CA certificate filenames (not their content).
     """
-    ok, output = _run(["ls", "/etc/ssl/certs"])
+    ok, output = run(["ls", "/etc/ssl/certs"])
 
     certificates = [line for line in output.splitlines() if line.strip()] if ok else []
 
     return {"certificates": certificates}
 
 
-def _get_journal() -> dict[str, object]:
+def _get_journal(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: recent systemd journal entries.
     """
-    ok, output = _run(
+    ok, output = run(
         [
             "journalctl",
             "-n",
@@ -686,12 +657,12 @@ def _get_journal() -> dict[str, object]:
     return {"entries": entries}
 
 
-def _get_log() -> dict[str, object]:
+def _get_log(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: recent system log lines (syslog or messages, whichever exists).
     """
     for path in ("/var/log/syslog", "/var/log/messages"):
-        ok, output = _run(["tail", "-n", "50", path])
+        ok, output = run(["tail", "-n", "50", path])
 
         if ok:
             return {"source": path, "lines": output.splitlines()}
@@ -699,11 +670,11 @@ def _get_log() -> dict[str, object]:
     return {"source": "unknown", "lines": []}
 
 
-def _get_time() -> dict[str, object]:
+def _get_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: system time and timezone configuration.
     """
-    ok, output = _run(["timedatectl"])
+    ok, output = run(["timedatectl"])
 
     fields: dict[str, str] = {}
 
@@ -722,11 +693,11 @@ def _get_time() -> dict[str, object]:
     }
 
 
-def _get_locale() -> dict[str, object]:
+def _get_locale(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: locale configuration.
     """
-    ok, output = _run(["locale"])
+    ok, output = run(["locale"])
 
     fields: dict[str, str] = {}
 
@@ -741,14 +712,14 @@ def _get_locale() -> dict[str, object]:
     return {"locale": fields}
 
 
-def _get_environment() -> dict[str, object]:
+def _get_environment(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: environment variable names.
 
     Only variable names are returned, never values, since values commonly
     carry secrets (tokens, passwords, connection strings).
     """
-    ok, output = _run(["env"])
+    ok, output = run(["env"])
 
     names: list[str] = []
 
@@ -763,11 +734,11 @@ def _get_environment() -> dict[str, object]:
     return {"variables": sorted(names)}
 
 
-def _get_session() -> dict[str, object]:
+def _get_session(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: currently logged in sessions.
     """
-    ok, output = _run(["who"])
+    ok, output = run(["who"])
 
     sessions: list[dict[str, object]] = []
 
@@ -789,11 +760,11 @@ def _get_session() -> dict[str, object]:
     return {"sessions": sessions}
 
 
-def _get_module() -> dict[str, object]:
+def _get_module(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: loaded kernel modules.
     """
-    ok, output = _run(["lsmod"])
+    ok, output = run(["lsmod"])
 
     modules: list[dict[str, object]] = []
 
@@ -811,18 +782,18 @@ def _get_module() -> dict[str, object]:
     return {"modules": modules}
 
 
-def _get_lxd() -> dict[str, object]:
+def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: LXD presence and containers, read directly from the LXD CLI.
     """
-    ok, version = _run(["lxd", "--version"])
+    ok, version = run(["lxd", "--version"])
 
     if not ok:
         return {"installed": False, "version": None, "containers": []}
 
     containers: list[object] = []
 
-    ok, output = _run(["lxc", "list", "--format", "json"])
+    ok, output = run(["lxc", "list", "--format", "json"])
 
     if ok:
         try:
@@ -838,7 +809,7 @@ def _get_lxd() -> dict[str, object]:
     }
 
 
-_CAPABILITIES: dict[str, Callable[[], dict[str, object]]] = {
+_CAPABILITIES: dict[str, Callable[..., dict[str, object]]] = {
     "get_system": _get_system,
     "get_network": _get_network,
     "get_services": _get_services,
@@ -889,6 +860,19 @@ class LinuxTool(Tool):
     thêm một entry vào _CAPABILITIES. Không cần sửa gì khác.
     """
 
+    def __init__(
+        self,
+        backend: ExecutionBackend | None = None,
+    ) -> None:
+        self._backend = backend or LocalExecutionBackend()
+
+    def _run(
+        self,
+        command: list[str],
+        timeout: int = 5,
+    ) -> tuple[bool, str]:
+        return self._backend.run(command, timeout=timeout)
+
     def execute(
         self,
         arguments: dict[str, object],
@@ -910,5 +894,5 @@ class LinuxTool(Tool):
 
         return ToolResult(
             success=True,
-            data=handler(),
+            data=handler(self._run),
         )
