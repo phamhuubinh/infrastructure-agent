@@ -50,29 +50,8 @@ class KnowledgeTool(Tool):
         return capabilities
 
     def get_available_resources(self) -> dict[str, list[str]]:
-        """
-        Get all available resources from child tools.
-        This method provides resource names that can be requested.
-        """
-        resources = {}
-        for source, tool in self._child_tools.items():
-            if hasattr(tool, "_CAPABILITIES"):
-                # For LinuxTool, the resource names are the keys in _CAPABILITIES
-                if hasattr(tool, "_CAPABILITIES") and isinstance(tool._CAPABILITIES, dict):
-                    resources[source] = list(tool._CAPABILITIES.keys())
-                else:
-                    resources[source] = []
-            elif source == "linux":
-                # Special handling for LinuxTool - get resources from the module directly
-                import src.tool.linux_tool as linux_tool_module
-
-                if hasattr(linux_tool_module, "_CAPABILITIES") and isinstance(linux_tool_module._CAPABILITIES, dict):
-                    resources[source] = list(linux_tool_module._CAPABILITIES.keys())
-                else:
-                    resources[source] = []
-            else:
-                resources[source] = []
-        return resources
+        """Alias for :meth:`get_capabilities`. Present for backwards compatibility."""
+        return self.get_capabilities()
 
     def execute(
         self,
