@@ -1,22 +1,24 @@
 # 03 - Project State
-Tài liệu này mô tả trạng thái hiện tại của project.
+This document describes the CURRENT repository state.
+Do not describe planned work here.
+Only update this document after implementation has been completed.
 Mục đích:
-- AI biết project đang ở giai đoạn nào.
-- AI biết phạm vi cần thực hiện.
-- AI tránh phát triển vượt quá MVP.
-- AI không suy diễn những thành phần chưa tồn tại.
+- Phản ánh trạng thái thực tế của repository.
+- Giúp AI hiểu phạm vi công việc hiện tại.
+- Giúp AI tránh phát triển vượt quá MVP.
+- Tránh suy diễn những thành phần chưa tồn tại.
 ---
 # Mục tiêu hiện tại
 Hoàn thành MVP đầu tiên của AI Agent.
 Ưu tiên:
-1. Hoàn thiện luồng Reasoning.
-2. Hoàn thiện Tool.
-3. Hoàn thiện Agent.
-4. Hoàn thiện Provider.
+1. Hoàn thiện Reasoning Loop.
+2. Hoàn thiện KnowledgeTool.
+3. Hoàn thiện Child Tools.
+4. Hoàn thiện Provider (khi cần).
 5. Giữ kiến trúc đơn giản.
 ---
 # Kiến trúc hiện tại
-Project theo kiến trúc:
+```
 User
     ↓
 Reasoning Model
@@ -25,30 +27,32 @@ Agent
     ↓
 KnowledgeTool
     ↓
-Tool con
+Child Tool
     ↓
 Provider (optional)
     ↓
 Environment
-Model là thành phần duy nhất được reasoning.
-Environment là Source of Truth.
+```
+- Reasoning chỉ tồn tại trong Reasoning Model.
+- Agent chỉ dispatch.
+- KnowledgeTool là Tool duy nhất được Agent gọi.
+- Child Tool chịu trách nhiệm theo từng domain.
+- Environment là Source of Truth.
 ---
 # Đã hoàn thành
 ## Agent
-Đã có Agent MVP.
-Agent có khả năng:
-- nhận request từ Model
-- gọi Tool
-- trả Tool Result
-- lặp cho tới Final Response
-Agent không chứa business logic.
+- Agent MVP hoàn thành.
+- Dispatch request.
+- Dispatch Tool.
+- Trả ToolResult.
+- Lặp đến Final Response.
+Không chứa business logic.
 ---
 ## Model Adapter
-Đã có abstraction để kết nối nhiều Model.
+Đã hỗ trợ nhiều implementation.
 Ví dụ:
 - Mock Model
 - Ollama
-- Model khác trong tương lai
 Agent không phụ thuộc implementation của Model.
 ---
 ## Execution Runtime
@@ -59,86 +63,67 @@ Bao gồm:
 - Execution Step
 - Execution Result
 - Execution Context
-Runtime chịu trách nhiệm điều phối việc thực thi.
-Runtime không reasoning.
----
-## Linux Tool
-LinuxTool MVP đã được triển khai.
-LinuxTool là Tool con đầu tiên của KnowledgeTool.
-LinuxTool chịu trách nhiệm:
-- truy cập Linux;
-- lấy dữ liệu từ Source of Truth;
-- trả ToolResult.
-KnowledgeTool đang trong quá trình migrate thành Tool tổng.
-LinuxProvider chưa được triển khai.
-Provider sẽ chỉ được tạo khi việc truy cập Linux đủ phức tạp để cần tách riêng.
----
-## Provider
-Project đang chuyển sang kiến trúc Provider.
-Provider là lớp truy cập Source of Truth.
-Ví dụ:
-- Linux Provider
-- SSH Provider
-- Docker Provider
-- VMware Provider
-- Zabbix Provider
-- Grafana Provider
-Mỗi Provider chỉ biết cách lấy dữ liệu từ nguồn của mình.
+Runtime chỉ điều phối thực thi.
 Không reasoning.
 ---
-## Knowledge Tool
-Đã có Tool truy cập dữ liệu.
-Knowledge Tool có thể:
-- nhận request từ Model;
-- định tuyến request tới Tool con;
+## KnowledgeTool
+Đã hoàn thành MVP.
+KnowledgeTool:
+- là Tool duy nhất được Agent gọi.
+- dispatch request tới Child Tool.
 - trả ToolResult.
-Knowledge Tool không trực tiếp truy cập Environment.
-Knowledge Tool không trực tiếp gọi Provider.
+- expose capability metadata.
+- không truy cập Environment trực tiếp.
+- không reasoning.
 ---
-## Test
-Đã có test cho nhiều thành phần.
-Bao gồm:
-- schema
+## Child Tool
+LinuxTool là Child Tool đầu tiên.
+LinuxTool:
+- sở hữu capability của chính mình.
+- truy cập Source of Truth.
+- trả ToolResult.
+Child Tool là single source of truth của capability metadata.
+---
+## Capability Metadata
+Đã hoàn thành.
+Nguyên tắc hiện tại:
+- Child Tool sở hữu capability.
+- KnowledgeTool tổng hợp capability metadata.
+- Bootstrap lấy capability metadata từ KnowledgeTool.
+- PromptBuilder không duy trì static capability list.
+---
+## Provider
+Provider vẫn là optional.
+Chỉ tạo khi logic truy cập Source of Truth đủ phức tạp.
+Hiện tại LinuxTool vẫn truy cập Environment trực tiếp.
+---
+## Testing
+Repository đã có test cho:
 - runtime
 - model
 - shared
-Project ưu tiên duy trì test hoạt động trong suốt quá trình phát triển.
+- tool
+- protocol
+Test phải luôn duy trì trạng thái xanh.
 ---
 # Đang thực hiện
 Ưu tiên hiện tại:
-Reasoning Model
-        │
-            ▼
-Agent
-        │
-            ▼
-Tool
-        │
-            ▼
-Provider
-        │
-            ▼
-Environment
-        │
-            ▼
-Tool Result
-        │
-            ▼
-Reasoning Model
-        │
-            ▼
-Final Response
-Hoàn thiện toàn bộ vòng lặp reasoning.
+1. Hoàn thiện Reasoning Loop.
+2. Hoàn thiện PromptBuilder.
+3. Hoàn thiện Tool ecosystem.
+4. Chuẩn hóa Provider khi cần.
+5. Ổn định test.
 ---
 # Stable Store
-Stable Store đang được loại bỏ khỏi runtime.
-Có thể tiếp tục tồn tại trong giai đoạn migration hoặc phục vụ snapshot nếu cần.
-Stable Store không còn là nguồn dữ liệu chính của hệ thống.
-Runtime luôn ưu tiên đọc trực tiếp từ Source of Truth thông qua Provider.
+Stable Store không còn là runtime path mặc định.
+Chỉ sử dụng cho:
+- snapshot
+- migration
+- cache (nếu cần)
+Runtime luôn ưu tiên Source of Truth.
 ---
 # Chưa thực hiện
-Các thành phần dưới đây chưa phải ưu tiên.
-Không triển khai nếu chưa có yêu cầu.
+Không triển khai nếu chưa có yêu cầu:
 - Multi Agent
 - Planner
 - Plugin
@@ -147,55 +132,46 @@ Không triển khai nếu chưa có yêu cầu.
 - Embedding
 - Search Engine
 - Vector Database
-- Cache
 - Distributed Runtime
 ---
 # Không nằm trong MVP
-Hiện tại chưa cần:
-- Multi Model Collaboration
+Chưa triển khai:
+- Long-term Memory
 - Memory Retrieval
-- Long-term Conversation Memory
-- Agent Communication
 - Workflow Engine
 - Event System
-Mọi đề xuất liên quan các nội dung trên cần được xem xét lại sau khi MVP hoàn thành.
+- Agent Communication
+- Multi Model Collaboration
 ---
 # Nguyên tắc phát triển
-Mọi thay đổi phải phục vụ mục tiêu:
-- hoàn thành MVP
-- giảm độ phức tạp
-- không phá kiến trúc
-- không tăng coupling
+Mọi thay đổi phải phục vụ:
+- Hoàn thành MVP.
+- Giảm độ phức tạp.
+- Không phá kiến trúc.
+- Không tăng coupling.
 Nếu một giải pháp:
-- làm code phức tạp hơn
 - tăng abstraction
-- không giúp MVP hoàn thành
-=> Không thực hiện.
+- tăng coupling
+- không giúp MVP
+→ Không thực hiện.
 ---
 # Thứ tự ưu tiên
-Ưu tiên theo thứ tự:
-1. Hoàn thiện Provider.
-2. Hoàn thiện Tool.
-3. Hoàn thiện Agent.
-4. Hoàn thiện luồng Agent ↔ Model.
-5. Hoàn thiện Runtime.
-6. Ổn định test.
+1. Hoàn thiện Reasoning Loop.
+2. Hoàn thiện PromptBuilder.
+3. Hoàn thiện Tool.
+4. Hoàn thiện Provider (khi cần).
+5. Ổn định Runtime.
+6. Duy trì test.
 7. Verification.
-Sau khi MVP ổn định mới mở rộng.
 ---
 # Definition of MVP
-MVP được xem là hoàn thành khi:
-- Agent hoạt động ổn định.
-- Model có thể reasoning nhiều bước.
-- Tool hoạt động đúng.
-- Provider hoạt động đúng.
-- Knowledge Tool có thể truy cập Source of Truth.
+MVP hoàn thành khi:
+- Reasoning Loop hoạt động ổn định.
+- Agent dispatch ổn định.
+- KnowledgeTool dispatch ổn định.
+- Child Tool hoạt động đúng.
+- Capability metadata đồng bộ.
+- Provider hoạt động khi cần.
 - Toàn bộ test thành công.
-- Repository luôn ở trạng thái sạch.
-Cho đến thời điểm đó, mọi quyết định đều phải ưu tiên hoàn thành MVP thay vì bổ sung tính năng mới.
-KnowledgeTool now dispatches requests to child Tools.
-LinuxTool is the first production child Tool.
-Capability ownership has moved to child Tools.
-PromptBuilder capability synchronization has not yet been migrated.
-Capability metadata generation from KnowledgeTool is pending.
-Bootstrap will consume capability metadata generated by KnowledgeTool.
+- Repository luôn sạch.
+Cho đến thời điểm đó, mọi quyết định đều ưu tiên hoàn thành MVP thay vì bổ sung tính năng mới.

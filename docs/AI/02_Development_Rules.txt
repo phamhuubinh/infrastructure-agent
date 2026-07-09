@@ -9,62 +9,60 @@ Project hướng đến một AI Agent:
 - Tool-Based.
 - Dễ bảo trì.
 - Dễ mở rộng.
-Không ưu tiên code "đẹp" nếu làm tăng độ phức tạp.
-Luôn ưu tiên:
+Ưu tiên:
 - MVP.
 - Đơn giản.
 - Dễ đọc.
 - Dễ debug.
 - Ít dependency.
+Không ưu tiên code "đẹp" nếu làm tăng độ phức tạp.
 ---
 # 2. Kiến trúc là nguồn sự thật
+Architecture Decisions là nguồn sự thật của project.
 Không tự ý thay đổi:
-- Responsibility.
-- Dependency.
-- Ownership.
-- Boundary.
+- Responsibility
+- Dependency
+- Ownership
+- Boundary
 Nếu cần thay đổi kiến trúc:
-Phải giải thích:
-- Context.
-- Lý do.
-- Trade-off.
-- Ảnh hưởng.
-Sau khi được chấp thuận mới thực hiện.
+- Giải thích Context.
+- Giải thích lý do.
+- Phân tích trade-off.
+- Phân tích ảnh hưởng.
+Chỉ được thay đổi sau khi người dùng chấp thuận.
 ---
 # 3. Không Over-Engineering
 Không thêm:
-- Interface.
-- Abstract Class.
-- Factory.
-- Strategy.
-- Repository Pattern.
-- Event Bus.
-- Plugin System.
-- Middleware.
-- Service Locator.
-nếu project chưa cần.
-Ưu tiên code trực tiếp.
+- Interface
+- Abstract Class
+- Factory
+- Strategy
+- Repository Pattern
+- Event Bus
+- Plugin System
+- Middleware
+- Service Locator
+nếu chưa có nhu cầu thực tế.
+Ưu tiên giải pháp đơn giản nhất.
 ---
 # 4. Một Component - Một Trách Nhiệm
-## Reasoning Model
-Chỉ reasoning.
-## Agent
-Chỉ dispatch.
-## Tool
-Chỉ execute.
-## Provider
-Chỉ truy cập Source of Truth.
-## Environment
-Là Source of Truth.
-Không được trộn trách nhiệm.
+| Component 	  | Responsibility 	   |
+|-----------------|------------------------|
+| Reasoning Model | Reasoning 		   |
+| Agent 	  | Dispatch 		   |
+| Tool 		  | Execute 		   |
+| Provider 	  | Access Source of Truth |
+| Environment     | Source of Truth 	   |
+Không trộn trách nhiệm.
 ---
 # 5. Model là trung tâm
-Workflow luôn do Model quyết định.
+Workflow luôn do Reasoning Model quyết định.
 Không được để:
-- Agent quyết định workflow.
-- Tool quyết định workflow.
-- Collector quyết định workflow.
-Model là nơi duy nhất được reasoning.
+- Agent reasoning.
+- Tool reasoning.
+- Provider reasoning.
+- Collector reasoning.
+Reasoning chỉ tồn tại trong Model.
 ---
 # 6. Stateless
 Không lưu:
@@ -72,21 +70,20 @@ Không lưu:
 - Observation
 - Runtime Response
 - Working Context
-Working Context chỉ tồn tại trong một phiên reasoning.
+Working Context chỉ tồn tại trong một Reasoning Session.
 Stable Store chỉ lưu dữ liệu ổn định.
 ---
-# 7. Viết Code
+# 7. Coding
 Ưu tiên:
 - Hàm nhỏ.
 - Tên rõ ràng.
 - Logic đơn giản.
 - Dễ đọc.
-Nếu hàm quá dài:
-Đề xuất tách.
-Không tách nếu chưa cần.
+- Patch nhỏ.
+Không tách hàm nếu chưa thực sự cần.
 ---
 # 8. Không Refactor Khi Không Cần
-Không:
+Không tự động:
 - đổi tên file
 - đổi tên class
 - đổi tên hàm
@@ -95,24 +92,25 @@ Không:
 trừ khi được yêu cầu.
 ---
 # 9. Không Thêm Dependency
-Ưu tiên thư viện chuẩn của Python.
+Ưu tiên Standard Library.
 Không thêm:
 - Framework
 - SDK
 - Library
-nếu có thể giải quyết bằng standard library.
-Nếu bắt buộc phải thêm dependency:
-Phải giải thích lý do.
+nếu có thể giải quyết bằng thư viện chuẩn.
+Nếu bắt buộc:
+- Giải thích lý do.
+- Chờ chấp thuận.
 ---
 # 10. Giữ Tính Tương Thích
 Không:
 - phá API
 - đổi format dữ liệu
 - đổi public interface
-trừ khi đã thống nhất.
+trừ khi đã được chấp thuận.
 ---
 # 11. MVP First
-Luôn theo thứ tự:
+Thứ tự ưu tiên:
 1. Chạy được.
 2. Test được.
 3. Review được.
@@ -120,102 +118,93 @@ Luôn theo thứ tự:
 Không thiết kế cho nhu cầu chưa tồn tại.
 ---
 # 12. Tool
-Một Tool chỉ làm một việc.
-Ví dụ:
-- Inventory Tool
-- Command Tool
-- Docker Tool
-- SSH Tool
+Một Tool chỉ làm đúng một việc.
 Không tạo Tool đa năng.
 ---
 # 13. Provider
 Provider chỉ truy cập Source of Truth.
 Không:
 - reasoning
-- validate business
-- phân tích dữ liệu
-- quyết định workflow
+- business validation
+- workflow
+- state management
 Provider chỉ trả dữ liệu cho Tool.
 ---
 # 14. Stable Store
-Stable Store không còn là runtime path mặc định.
-Stable Store chỉ dùng cho:
-- snapshot
-- migration
-- cache (nếu sau này cần)
+Stable Store không phải runtime path mặc định.
+Chỉ dùng cho:
+- Snapshot
+- Migration
+- Cache (khi cần)
 Runtime luôn ưu tiên Source of Truth.
 ---
-# 15. Khi Đề Xuất Giải Pháp
-Luôn ưu tiên:
-Phương án đơn giản nhất.
-Nếu có nhiều phương án:
-- phân tích ưu điểm
-- phân tích nhược điểm
-- giải thích trade-off
-- đề xuất phương án phù hợp với MVP
+# 15. Working Mode
+Mặc định AI hoạt động ở **Implementation Mode**.
+Trong chế độ này:
+- Implement đúng design đã được phê duyệt.
+- Không redesign kiến trúc.
+- Không mở rộng sprint.
+- Không tự thêm abstraction.
+- Không refactor ngoài phạm vi task.
+- Giữ patch nhỏ nhất có thể.
+Architecture Discussion chỉ diễn ra khi người dùng yêu cầu rõ ràng.
 ---
-# 16. Khi Viết Code
-Chỉ viết đúng phần được yêu cầu.
-Không tự động:
-- thêm helper
-- thêm TODO
-- thêm abstraction
-- thêm feature
-- refactor phần khác
----
-# 17. Không Đoán
-Nếu thiếu thông tin:
+# 16. Implementation
+Trong implementation task:
+- Chỉ sửa đúng phần được yêu cầu.
+- Hiểu repository trước khi sửa.
+- Giữ nguyên behavior nếu không được yêu cầu thay đổi.
 - Không đoán.
-- Không suy diễn.
-- Không tự tạo dữ liệu.
 - Không tự tạo API.
 - Không tự tạo workflow.
-Đọc repository trước.
-Nếu vẫn thiếu thì hỏi.
+- Không tự thêm feature.
 ---
-# 18. Verification
-Sau mỗi thay đổi cần review:
-- Responsibility.
-- Dependency.
-- Boundary.
-Sau đó chạy:
-```bash
-git status
-git diff
-ruff check src tests
-python -m pytest
-```
-Nếu chỉ sửa nhỏ:
-Có thể chạy test liên quan trước.
-Sau đó mới chạy toàn bộ test.
+# 17. Verification
+Sau khi implementation hoàn thành:
+1. Review thay đổi.
+2. Kiểm tra responsibility.
+3. Kiểm tra dependency.
+4. Kiểm tra boundary.
+5. Chạy affected tests.
+6. Nếu cần mới chạy full test suite.
+7. Kiểm tra git status.
+8. Kiểm tra git diff.
+Chỉ commit khi verification hoàn thành.
 ---
-# 19. Definition of Done
+# 18. Definition of Done
 Một sprint chỉ hoàn thành khi:
 - Code hoàn thành.
-- Test thành công.
+- Tests thành công.
 - Verification thành công.
 - Repository sạch.
 - Không phá kiến trúc.
+- Một logical change.
+- Một commit.
+---
+# 19. Capability Metadata
+Tool capability definitions phải có đúng một nguồn sự thật.
+Nguyên tắc:
+- Child Tool sở hữu capability của chính nó.
+- KnowledgeTool tổng hợp capability metadata.
+- Bootstrap lấy capability metadata từ KnowledgeTool.
+- PromptBuilder chỉ sử dụng capability metadata từ Bootstrap.
+- Không được duplicate capability definitions.
 ---
 # 20. Quy tắc cuối cùng
-Mọi quyết định đều phải ưu tiên:
+Luôn ưu tiên:
 > Đơn giản > Phức tạp
 > MVP > Hoàn hảo
 > Rõ ràng > Thông minh
-> Có thể chạy > Thiết kế đẹp
+> Chạy được > Thiết kế đẹp
+> Patch nhỏ > Refactor lớn
 > Kiến trúc ổn định > Tối ưu sớm
 Nếu có nghi ngờ:
-Chọn phương án đơn giản hơn.
+**Chọn phương án đơn giản hơn.**
 ---
-# 21. Tool Hierarchy
-Reasoning Model chỉ được gọi Tool tổng.
-Model không được gọi Tool con trực tiếp.
-Agent chỉ dispatch Tool tổng.
-Tool con chỉ được gọi bởi Tool tổng.
-Tool con không được đăng ký trực tiếp để Model sử dụng.
-Rule #
-Tool capability definitions must never be duplicated.
-Every capability shall have exactly one owner.
-PromptBuilder must consume capability metadata from Bootstrap.
-Bootstrap must obtain capability metadata from KnowledgeTool.
-PromptBuilder must never maintain static capability lists for individual Tools.
+# 21. Implementation Summary
+Implementation Summary
+Never report planned work as completed.
+Completed work must always be verifiable by:
+- git diff
+- git status
+- test results

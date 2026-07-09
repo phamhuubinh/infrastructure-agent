@@ -267,13 +267,37 @@ Tool con không biết Agent.
 KnowledgeTool không truy cập trực tiếp Environment.
 KnowledgeTool chỉ chịu trách nhiệm định tuyến request tới Tool con.
 Tool con chịu trách nhiệm truy cập Environment hoặc Provider.
-## AD-022 Tool Capability Ownership
-Child Tools own their capability definitions.
-KnowledgeTool aggregates capabilities from child Tools.
-Bootstrap is generated from KnowledgeTool.
-PromptBuilder consumes Bootstrap only.
-PromptBuilder must never hardcode Tool capabilities.
-Reason:
+# AD-022
+## Decision
+Child Tools own capability definitions.
+KnowledgeTool is the only component responsible for aggregating capability metadata.
+## Context
+The Reasoning Model requires a synchronized capability catalog without depending on individual Child Tools.
+## Reason
 Capability definitions must exist in exactly one place.
-This avoids duplicated capability lists and keeps the protocol synchronized automatically.
-KnowledgeTool is the only component allowed to aggregate capability metadata from child Tools.
+This prevents duplicated capability lists and keeps the prompt synchronized automatically.
+## Consequence
+- Child Tools define their own capabilities.
+- KnowledgeTool aggregates capability metadata.
+- Bootstrap obtains capability metadata from KnowledgeTool.
+- PromptBuilder consumes capability metadata from Bootstrap.
+- PromptBuilder must never maintain static capability lists.
+# AD-023
+## Decision
+Architecture ownership belongs to the human reviewer.
+AI implements approved architectural decisions.
+## Context
+The project adopts a review-driven development workflow.
+Architecture and implementation are treated as separate responsibilities.
+## Reason
+Keeping architecture decisions under human control improves consistency and prevents accidental redesign during implementation.
+The AI is most effective when focused on implementation quality, testing and repository consistency.
+## Consequence
+Default working mode is Implementation.
+During implementation:
+- AI does not redesign approved architecture.
+- AI does not expand sprint scope.
+- AI keeps patches minimal.
+- AI runs affected tests.
+- AI stops after the sprint completes.
+Architecture discussion only occurs when explicitly requested.

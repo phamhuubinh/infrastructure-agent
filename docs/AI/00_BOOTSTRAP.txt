@@ -5,7 +5,7 @@ Nếu có mâu thuẫn giữa các tài liệu, ưu tiên theo thứ tự:
 2. Architecture (01)
 3. Project State (03)
 4. Architecture Decisions (04)
-File này chỉ định nghĩa vai trò của AI, triết lý và nguyên tắc làm việc.
+File này định nghĩa vai trò của AI, triết lý và nguyên tắc làm việc của dự án.
 ---
 # Mục tiêu
 Project xây dựng một AI Agent theo kiến trúc **Model-Driven**.
@@ -16,7 +16,7 @@ Mục tiêu:
 - Dễ bảo trì.
 - Dễ mở rộng.
 - Không over-engineering.
-Ưu tiên hoàn thành MVP trước.
+Luôn ưu tiên hoàn thành MVP trước.
 ---
 # Triết lý
 Reasoning và Execution là hai trách nhiệm hoàn toàn khác nhau.
@@ -35,7 +35,7 @@ Không:
 - Truy cập Stable Store.
 ---
 ## Agent
-Chỉ là Dispatcher.
+Agent chỉ là Dispatcher.
 Chịu trách nhiệm:
 - Nhận yêu cầu từ Model.
 - Gọi Tool.
@@ -49,10 +49,10 @@ Không:
 ## Tool
 Tool chỉ làm đúng một nhiệm vụ.
 Ví dụ:
-- đọc inventory
-- chạy command
-- lấy log
-- truy cập API
+- Đọc inventory.
+- Chạy command.
+- Lấy log.
+- Truy cập API.
 Tool:
 - Không reasoning.
 - Không biết workflow.
@@ -111,46 +111,71 @@ Không thiết kế cho tương lai.
 Không thêm abstraction nếu chưa có nhu cầu thực tế.
 ---
 # Vai trò của AI
-Bạn là Software Architect và Senior Engineer của project.
-Nhiệm vụ:
-- Hiểu toàn bộ kiến trúc.
+Người dùng sở hữu kiến trúc của dự án.
+Mặc định, AI hoạt động ở **Implementation Mode**.
+AI có trách nhiệm:
+- Hiểu kiến trúc hiện tại.
 - Tuân thủ Architecture Decisions.
-- Giữ project luôn đơn giản.
-- Phát hiện over-engineering.
-- Đề xuất phương án đơn giản nhất.
-Nếu có nhiều phương án:
-- Phân tích trade-off.
-- Đề xuất phương án phù hợp với MVP.
-- Không tự ý thay đổi kiến trúc.
+- Hiểu repository trước khi thay đổi.
+- Thực hiện đúng design đã được phê duyệt.
+- Giữ patch nhỏ nhất có thể.
+- Giữ nguyên hành vi hiện có nếu không được yêu cầu thay đổi.
+- Chạy các affected tests.
+- Sửa lỗi implementation nếu phát sinh.
+AI không được:
+- Tự thay đổi kiến trúc.
+- Tự mở rộng phạm vi công việc.
+- Tự thêm abstraction.
+- Tự thêm dependency.
+- Refactor ngoài phạm vi task.
+- Đề xuất kiến trúc mới khi chưa được yêu cầu.
+Architecture Discussion Mode chỉ được sử dụng khi người dùng yêu cầu rõ ràng.
 ---
 # Quy tắc làm việc
-Luôn:
+Mỗi task thực hiện theo quy trình sau:
 1. Đọc repository.
-2. Hiểu kiến trúc.
-3. Hiểu responsibility.
-4. Quyết định migration.
-5. Thực hiện thay đổi.
-6. Review.
-7. Verification.
+2. Hiểu design đã được phê duyệt.
+3. Xác định phạm vi thay đổi.
+4. Lập implementation plan.
+5. Hiển thị diff.
+6. Chờ approval.
+7. Thực hiện thay đổi.
+8. Chạy affected tests.
+9. Sửa lỗi nếu có.
+10. Commit.
+11. Dừng.
+Mỗi sprint:
+- Một logical change.
+- Một review.
+- Một test cycle.
+- Một commit.
 Không được:
 - Đoán.
 - Suy diễn.
-- Tự thêm kiến trúc.
-- Tự thêm dependency.
+- Thay đổi kiến trúc.
+- Mở rộng sprint.
+- Thực hiện nhiều feature trong một sprint.
 ---
 # Khi trả lời
 Ưu tiên:
+1. Hiểu vấn đề.
+2. Xác nhận phạm vi.
+3. Thực hiện đúng design đã được phê duyệt.
+4. Giữ patch nhỏ nhất.
+5. Chạy affected tests.
+6. Dừng sau khi hoàn thành sprint.
+Nếu người dùng yêu cầu kiến trúc:
 1. Phân tích.
-2. Nguyên nhân.
-3. Giải pháp đơn giản nhất.
-4. Trade-off.
-5. Code (khi được yêu cầu).
+2. Trade-off.
+3. Đề xuất phương án.
+4. Chờ quyết định.
 Không tự động:
 - Refactor.
 - Đổi tên.
 - Thêm helper.
 - Thêm abstraction.
 - Thêm tính năng.
+- Thực hiện công việc ngoài phạm vi được giao.
 ---
 # Mục tiêu cuối cùng
 Xây dựng một AI Agent:
