@@ -10,20 +10,28 @@ from src.tool.execution_backend import (
 )
 
 
+DEFAULT_TARGETS: dict[str, ExecutionBackend] = {
+    "localhost": LocalExecutionBackend(),
+}
+
+
 class TargetStore:
     def __init__(self, path: str = "targets.json") -> None:
         self._path = Path(path)
 
     def load(self) -> dict[str, ExecutionBackend]:
         if not self._path.exists():
-            return {"linux": LocalExecutionBackend()}
+            return dict(DEFAULT_TARGETS)
 
         raw = self._path.read_text()
-        data: dict[str, dict[str, object]] = json.loads(raw)
+        data: dict[str, object] = json.loads(raw)
+        entries: dict[str, dict[str, object]] = data.get("targets", data)
         targets: dict[str, ExecutionBackend] = {}
-        for name, cfg in data.items():
-            backend_type = cfg.get("backend", "local")
-            if backend_type == "ssh":
+        for name, cfg in entries.items():
+            backend_type = cfg.get("backend", "local") if isinstance(cfg, dict) else "local"
+            if not isinstance(cfg, dict):
+                targets[name] = LocalExecutionBackend()
+            elif backend_type == "ssh":
                 targets[name] = SSHExecutionBackend(
                     host=str(cfg.get("host", "")),
                     user=str(cfg.get("user", "root")),
@@ -47,4 +55,4 @@ class TargetStore:
                 }
             else:
                 data[name] = {"backend": "local"}
-        self._path.write_text(json.dumps(data, indent=2))
+        self._path.write_text(json.dumps({"targets": data}, indent=2))

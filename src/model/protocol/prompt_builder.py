@@ -12,6 +12,8 @@ RULES = [
     "A failed entry's error lists valid resources; retry with one of those.",
     "A successful entry with empty data is itself a final answer (e.g. "
     '"not installed"), not a reason to retry.',
+    "When you have the answer or the user_request has been satisfied, "
+    'return type "final" with the answer in content.',
 ]
 
 RESPONSE_EXAMPLES = [
@@ -19,8 +21,24 @@ RESPONSE_EXAMPLES = [
         "type": "action",
         "tool": "knowledge",
         "arguments": {
-            "source": "linux",
-            "resource": "system_info",
+            "source": "localhost",
+            "resource": "get_system",
+        },
+    },
+    {
+        "type": "action",
+        "tool": "knowledge",
+        "arguments": {
+            "source": "monitor",
+            "resource": "get_system",
+        },
+    },
+    {
+        "type": "action",
+        "tool": "knowledge",
+        "arguments": {
+            "source": "zabbix",
+            "resource": "get_hosts",
         },
     },
     {

@@ -20,12 +20,13 @@ def test_prompt_contains_response_examples_as_flat_list() -> None:
     examples = parsed["response_examples"]
 
     assert isinstance(examples, list)
-    assert len(examples) == 2
+    assert len(examples) == 4
 
-    action_example = next(e for e in examples if e["type"] == "action")
+    action_examples = [e for e in examples if e["type"] == "action"]
     final_example = next(e for e in examples if e["type"] == "final")
 
-    assert action_example["tool"] == "knowledge"
+    assert len(action_examples) == 3
+    assert all(e["tool"] == "knowledge" for e in action_examples)
     assert "content" in final_example
 
 
@@ -51,7 +52,7 @@ def test_prompt_contains_user_request() -> None:
 def test_prompt_lists_available_resources_as_json_array() -> None:
     parsed = json.loads(build_prompt("what is the ip address?", ()))
 
-    resources = parsed["available_resources"]["linux"]
+    resources = parsed["available_resources"]["localhost"]
 
     assert isinstance(resources, list)
     assert "get_network" in resources

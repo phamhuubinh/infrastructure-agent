@@ -11,8 +11,8 @@ def test_load_creates_default_local_target_when_file_missing(tmp_path: Path) -> 
     store = TargetStore(path=str(tmp_path / "no_such_file.json"))
     backends = store.load()
 
-    assert "linux" in backends
-    assert isinstance(backends["linux"], LocalExecutionBackend)
+    assert "localhost" in backends
+    assert isinstance(backends["localhost"], LocalExecutionBackend)
 
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
@@ -20,7 +20,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     store = TargetStore(path=path)
 
     backends = {
-        "linux": LocalExecutionBackend(),
+        "localhost": LocalExecutionBackend(),
         "prod": SSHExecutionBackend(
             host="10.0.0.1",
             user="admin",
@@ -32,15 +32,15 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
 
     raw = Path(path).read_text()
     data = json.loads(raw)
-    assert data["linux"] == {"backend": "local"}
-    assert data["prod"]["backend"] == "ssh"
-    assert data["prod"]["host"] == "10.0.0.1"
-    assert data["prod"]["port"] == 2222
-    assert data["prod"]["user"] == "admin"
-    assert data["prod"]["identity_file"] == "/root/.ssh/id_rsa"
+    assert data["targets"]["localhost"] == {"backend": "local"}
+    assert data["targets"]["prod"]["backend"] == "ssh"
+    assert data["targets"]["prod"]["host"] == "10.0.0.1"
+    assert data["targets"]["prod"]["port"] == 2222
+    assert data["targets"]["prod"]["user"] == "admin"
+    assert data["targets"]["prod"]["identity_file"] == "/root/.ssh/id_rsa"
 
     loaded = store.load()
-    assert isinstance(loaded["linux"], LocalExecutionBackend)
+    assert isinstance(loaded["localhost"], LocalExecutionBackend)
     assert isinstance(loaded["prod"], SSHExecutionBackend)
 
 
@@ -75,7 +75,7 @@ def test_registry_persistence(tmp_path: Path) -> None:
 
     reloaded = TargetRegistry(store=store)
     names = reloaded.target_names()
-    assert "linux" in names
+    assert "localhost" in names
     assert "prod" in names
 
 

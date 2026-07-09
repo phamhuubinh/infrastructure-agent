@@ -49,14 +49,45 @@ def test_missing_tool() -> None:
             """)
 
 
-def test_missing_arguments() -> None:
-    with pytest.raises(ValueError):
-        parse_response("""
-            {
-                "type":"action",
-                "tool":"knowledge"
-            }
-            """)
+def test_missing_arguments_is_accepted_as_empty_dict() -> None:
+    result = parse_response("""
+        {
+            "type":"action",
+            "tool":"zabbix"
+        }
+        """)
+
+    assert isinstance(result, Action)
+    assert result.tool == "zabbix"
+    assert result.arguments == {}
+
+
+def test_null_arguments_is_accepted_as_empty_dict() -> None:
+    result = parse_response("""
+        {
+            "type":"action",
+            "tool":"zabbix",
+            "arguments":null
+        }
+        """)
+
+    assert isinstance(result, Action)
+    assert result.tool == "zabbix"
+    assert result.arguments == {}
+
+
+def test_empty_arguments_is_accepted() -> None:
+    result = parse_response("""
+        {
+            "type":"action",
+            "tool":"zabbix",
+            "arguments":{}
+        }
+        """)
+
+    assert isinstance(result, Action)
+    assert result.tool == "zabbix"
+    assert result.arguments == {}
 
 
 def test_unknown_response_type() -> None:

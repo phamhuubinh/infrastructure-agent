@@ -17,10 +17,12 @@ class Agent:
         model: ModelAdapter,
         tool_registry: ToolRegistry,
         available_resources: dict[str, list[str]] | None = None,
+        max_iterations: int = 15,
     ) -> None:
         self._model = model
         self._tool_registry = tool_registry
         self._available_resources = available_resources
+        self._max_iterations = max_iterations
 
     def run(
         self,
@@ -28,7 +30,7 @@ class Agent:
     ) -> str:
         observations: tuple[Observation, ...] = ()
 
-        while True:
+        for _ in range(self._max_iterations):
 
             decision = self._model.reason(
                 user_request=user_request,
@@ -72,3 +74,5 @@ class Agent:
                     arguments=decision.arguments,
                 ),
             )
+
+        return f"Max iterations ({self._max_iterations}) reached without FinalResponse."

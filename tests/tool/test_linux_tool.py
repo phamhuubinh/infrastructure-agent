@@ -879,7 +879,7 @@ def test_get_block_device_returns_empty_list_on_invalid_json(monkeypatch) -> Non
     assert result.data == {"devices": []}
 
 
-def test_get_secureboot_reports_state(monkeypatch) -> None:
+def test_get_secureboot_reports_enabled(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -890,7 +890,7 @@ def test_get_secureboot_reports_state(monkeypatch) -> None:
     result = tool.execute({"action": "get_secureboot"})
 
     assert result.success is True
-    assert result.data == {"state": "SecureBoot enabled"}
+    assert result.data == {"enabled": True}
 
 
 def test_get_secureboot_returns_unknown_on_failure(monkeypatch) -> None:
@@ -904,7 +904,7 @@ def test_get_secureboot_returns_unknown_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_secureboot"})
 
     assert result.success is True
-    assert result.data == {"state": "unknown"}
+    assert result.data == {"enabled": "unknown"}
 
 
 def test_get_apparmor_reports_enabled(monkeypatch) -> None:
@@ -918,7 +918,21 @@ def test_get_apparmor_reports_enabled(monkeypatch) -> None:
     result = tool.execute({"action": "get_apparmor"})
 
     assert result.success is True
-    assert result.data == {"enabled": "Y"}
+    assert result.data == {"enabled": True}
+
+
+def test_get_apparmor_reports_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: (True, "N"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_apparmor"})
+
+    assert result.success is True
+    assert result.data == {"enabled": False}
 
 
 def test_get_apparmor_returns_unknown_on_failure(monkeypatch) -> None:
@@ -963,7 +977,7 @@ def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
     assert result.data == {"status": "unknown"}
 
 
-def test_get_firewall_prefers_ufw(monkeypatch) -> None:
+def test_get_firewall_prefers_ufw_active(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command == ["ufw", "status"]:
             return True, "Status: active"
@@ -979,7 +993,26 @@ def test_get_firewall_prefers_ufw(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "ufw", "status": "Status: active"}
+    assert result.data == {"backend": "ufw", "active": True}
+
+
+def test_get_firewall_prefers_ufw_inactive(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["ufw", "status"]:
+            return True, "Status: inactive"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_firewall"})
+
+    assert result.success is True
+    assert result.data == {"backend": "ufw", "active": False}
 
 
 def test_get_firewall_falls_back_to_iptables(monkeypatch) -> None:
@@ -1000,7 +1033,7 @@ def test_get_firewall_falls_back_to_iptables(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "iptables", "status": "Chain INPUT (policy ACCEPT)"}
+    assert result.data == {"backend": "iptables", "active": True}
 
 
 def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
@@ -1014,7 +1047,7 @@ def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "unknown", "status": "unknown"}
+    assert result.data == {"backend": "unknown", "active": None}
 
 
 def test_get_certificate_lists_filenames(monkeypatch) -> None:
@@ -1274,7 +1307,6 @@ def test_get_session_parses_who_output(monkeypatch) -> None:
             {
                 "user": "alice",
                 "terminal": "pts/0",
-                "raw": "alice    pts/0        2026-07-07 10:00",
             }
         ]
     }
@@ -1450,6 +1482,52 @@ def test_ssh_backend_constructs_correct_command(monkeypatch) -> None:
     assert "admin@10.0.0.1" in ssh_cmd
 
 
+def test_ssh_backend_includes_batch_mode(monkeypatch) -> None:
+    from src.tool.execution_backend import SSHExecutionBackend
+
+    captured_commands = []
+
+    def fake_run(popenargs, **kwargs):
+        captured_commands.append(list(popenargs))
+        class Fake:
+            returncode = 0
+            stdout = "mocked"
+        return Fake()
+
+    monkeypatch.setattr(
+        "src.tool.execution_backend.subprocess.run",
+        fake_run,
+    )
+
+    backend = SSHExecutionBackend(host="10.0.0.1")
+    backend.run(["uname", "-r"])
+
+    assert "-o" in captured_commands[0]
+    assert "BatchMode=yes" in captured_commands[0]
+
+
+def test_ssh_backend_reports_password_prompt(monkeypatch) -> None:
+    from src.tool.execution_backend import SSHExecutionBackend
+
+    def fake_fail(popenargs, **kwargs):
+        class Fake:
+            returncode = 1
+            stdout = ""
+            stderr = "root@10.0.0.1's password:"
+        return Fake()
+
+    monkeypatch.setattr(
+        "src.tool.execution_backend.subprocess.run",
+        fake_fail,
+    )
+
+    backend = SSHExecutionBackend(host="10.0.0.1")
+    ok, output = backend.run(["uname", "-r"])
+
+    assert ok is False
+    assert "SSH authentication failed" in output
+
+
 def test_ssh_backend_returns_false_on_failure(monkeypatch) -> None:
     from src.tool.execution_backend import SSHExecutionBackend
 
@@ -1469,7 +1547,7 @@ def test_ssh_backend_returns_false_on_failure(monkeypatch) -> None:
     ok, output = backend.run(["uname", "-r"])
 
     assert ok is False
-    assert output == ""
+    assert "permission denied" in output
 
 
 def test_ssh_backend_returns_false_on_os_error(monkeypatch) -> None:
@@ -1508,3 +1586,116 @@ def test_local_backend_returns_false_on_timeout() -> None:
 
     assert ok is False
     assert output == ""
+
+
+def test_get_uptime_parses_proc_uptime(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (True, "12345.67 89012.34"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_uptime"})
+
+    assert result.success is True
+    assert result.data["uptime_seconds"] == 12345.67
+
+
+def test_get_uptime_returns_zero_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_uptime"})
+
+    assert result.success is True
+    assert result.data == {"uptime_seconds": 0}
+
+
+def test_get_boot_time_parses_who_b(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (True, "         system boot  2024-01-15 10:00"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_boot_time"})
+
+    assert result.success is True
+    assert result.data == {"boot_time": "system boot  2024-01-15 10:00"}
+
+
+def test_get_boot_time_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_boot_time"})
+
+    assert result.success is True
+    assert result.data == {"boot_time": "unknown"}
+
+
+def test_get_cpu_usage_parses_top_output(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (True, "%Cpu(s):  5.3 us,  2.1 sy,  0.0 ni, 92.6 id"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_cpu_usage"})
+
+    assert result.success is True
+    assert "cpu_usage" in result.data
+    assert "5.3" in str(result.data["cpu_usage"])
+
+
+def test_get_cpu_usage_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_cpu_usage"})
+
+    assert result.success is True
+    assert result.data == {"cpu_usage": "unknown"}
+
+
+def test_get_swap_parses_meminfo(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (True, "SwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_swap"})
+
+    assert result.success is True
+    assert result.data == {"total_kb": 2097152, "used_kb": 1048576, "free_kb": 1048576}
+
+
+def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_swap"})
+
+    assert result.success is True
+    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0}

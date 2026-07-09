@@ -63,6 +63,7 @@ class SSHExecutionBackend(ExecutionBackend):
     ) -> list[str]:
         parts: list[str] = [
             "ssh",
+            "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
@@ -92,6 +93,8 @@ class SSHExecutionBackend(ExecutionBackend):
             return False, ""
 
         if completed.returncode != 0:
-            return False, ""
+            if "password" in completed.stderr.lower():
+                return False, "SSH authentication failed (password prompted). Use SSH key authentication."
+            return False, completed.stderr.strip() or completed.stdout.strip()
 
         return True, completed.stdout.strip()

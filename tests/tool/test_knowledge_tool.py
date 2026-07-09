@@ -24,7 +24,7 @@ def test_execute_dispatches_linux_source_to_linux_tool(monkeypatch) -> None:
 
     result = tool.execute(
         {
-            "source": "linux",
+            "source": "localhost",
             "resource": "get_system",
         }
     )
@@ -50,7 +50,7 @@ def test_execute_returns_child_tool_error_unchanged(monkeypatch) -> None:
 
     result = tool.execute(
         {
-            "source": "linux",
+            "source": "localhost",
             "resource": "bogus",
         }
     )
@@ -78,7 +78,7 @@ def test_execute_reports_unknown_source(monkeypatch) -> None:
     )
 
     assert result.success is False
-    assert result.error == "Unknown source: 'windows'. Available sources: linux."
+    assert result.error == "Unknown source: 'windows'. Available sources: localhost."
 
 
 def test_knowledge_tool_with_remote_target(monkeypatch) -> None:
@@ -132,7 +132,7 @@ def test_execute_raises_on_missing_arguments() -> None:
     tool = KnowledgeTool()
 
     with pytest.raises(ValueError):
-        tool.execute({"source": "linux"})
+        tool.execute({"source": "localhost"})
 
     with pytest.raises(ValueError):
         tool.execute({"resource": "get_system"})
@@ -156,6 +156,53 @@ def test_execute_does_not_access_environment_directly() -> None:
     assert result.success is False
 
 
+def test_discovers_localhost_capabilities() -> None:
+    tool = KnowledgeTool()
+    caps = tool.get_capabilities()
+    assert "localhost" in caps
+    assert "get_system" in caps["localhost"]
+    assert "get_memory" in caps["localhost"]
+    assert len(caps["localhost"]) > 10
+
+
+def test_discovers_registered_tool_capabilities() -> None:
+    from src.tool.zabbix_tool import ZabbixTool
+
+    registry = TargetRegistry()
+    registry.add("localhost")
+    registry.register_tool("zabbix", ZabbixTool(url="http://x", token="x"))
+    tool = KnowledgeTool(target_registry=registry)
+
+    caps = tool.get_capabilities()
+
+    assert "localhost" in caps
+    assert "zabbix" in caps
+    assert "get_system" in caps["localhost"]
+    assert "get_hosts" in caps["zabbix"]
+    assert "get_problems" in caps["zabbix"]
+
+
+def test_empty_registry_returns_empty_dict() -> None:
+    registry = TargetRegistry()
+    tool = KnowledgeTool(target_registry=registry)
+    assert tool.get_capabilities() == {}
+
+
+def test_discovers_linux_and_zabbix_have_different_capabilities() -> None:
+    from src.tool.zabbix_tool import ZabbixTool
+
+    registry = TargetRegistry()
+    registry.add("localhost")
+    registry.register_tool("zabbix", ZabbixTool(url="http://x", token="x"))
+    tool = KnowledgeTool(target_registry=registry)
+
+    caps = tool.get_capabilities()
+
+    assert caps["localhost"] != caps["zabbix"]
+    assert "get_hosts" not in caps["localhost"]
+    assert "get_ssh" not in caps["zabbix"]
+
+
 def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
     """
     End-to-end sanity check with the real LinuxTool (no monkeypatch):
@@ -166,7 +213,7 @@ def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
 
     result = tool.execute(
         {
-            "source": "linux",
+            "source": "localhost",
             "resource": "this_capability_does_not_exist",
         }
     )

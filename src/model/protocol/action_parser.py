@@ -72,12 +72,17 @@ def parse_response(
         if "tool" not in data:
             raise ValueError("Missing tool.")
 
-        if "arguments" not in data:
-            raise ValueError("Missing arguments.")
+        args = data.get("arguments")
+
+        if args is None:
+            args = {}
+
+        if not isinstance(args, dict):
+            raise ValueError("Invalid arguments type.")
 
         return Action(
             tool=data["tool"],
-            arguments=data["arguments"],
+            arguments=args,
         )
 
     if response_type == "final":

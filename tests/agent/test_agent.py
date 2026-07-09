@@ -113,7 +113,8 @@ def test_agent_handles_unknown_tool_without_crashing() -> None:
 
     response = agent.run("do something")
 
-    assert response == 'success=False error="Unknown tool: \'does_not_exist\'."'
+    assert "Available tools:" in response
+    assert "shell" in response
 
 
 class MissingArgumentModel:
@@ -224,7 +225,7 @@ class DockerVersionOnceModel:
             return Action(
                 tool="knowledge",
                 arguments={
-                    "source": "linux",
+                    "source": "localhost",
                     "resource": "docker_version",
                 },
             )
@@ -295,7 +296,7 @@ class LoopingDockerVersionModel:
         return Action(
             tool="knowledge",
             arguments={
-                "source": "linux",
+                "source": "localhost",
                 "resource": "docker_version",
             },
         )
@@ -361,7 +362,7 @@ def test_observation_carries_the_tool_and_arguments_that_produced_it(
                 return Action(
                     tool="knowledge",
                     arguments={
-                        "source": "linux",
+                        "source": "localhost",
                         "resource": "docker_version",
                     },
                 )
@@ -388,7 +389,7 @@ def test_observation_carries_the_tool_and_arguments_that_produced_it(
 
     assert observation.tool == "knowledge"
     assert observation.arguments == {
-        "source": "linux",
+        "source": "localhost",
         "resource": "docker_version",
     }
 
@@ -409,7 +410,7 @@ class DetectsDuplicateActionModel:
     ):
         already_called = any(
             obs.tool == "knowledge"
-            and obs.arguments == {"source": "linux", "resource": "docker_version"}
+            and obs.arguments == {"source": "localhost", "resource": "docker_version"}
             for obs in observations
         )
 
@@ -421,10 +422,194 @@ class DetectsDuplicateActionModel:
         return Action(
             tool="knowledge",
             arguments={
-                "source": "linux",
+                "source": "localhost",
                 "resource": "docker_version",
             },
         )
+
+
+def test_agent_loop_terminates_after_max_iterations() -> None:
+    """
+    Regression test: if the model never returns FinalResponse,
+    the loop must terminate after max_iterations instead of running forever.
+    """
+    class InfiniteLoopModel:
+        def reason(self, user_request, observations, **kwargs):
+            return Action(tool="shell", arguments={"command": "echo loop"})
+
+    registry = ToolRegistry()
+    registry.register(tool_id="shell", tool=ShellTool())
+
+    agent = Agent(model=InfiniteLoopModel(), tool_registry=registry, max_iterations=3)
+    response = agent.run("test")
+
+    assert "Max iterations" in response
+
+
+def test_agent_returns_final_response_immediately_without_extra_model_calls(
+    monkeypatch,
+) -> None:
+    """
+    Regression test: verify the loop terminates on the first FinalResponse
+    without calling the model again.
+    """
+    call_count = 0
+
+    class SingleFinalModel:
+        def reason(self, user_request, observations, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return FinalResponse(content="done")
+
+    registry = ToolRegistry()
+    registry.register(tool_id="knowledge", tool=KnowledgeTool())
+
+    agent = Agent(model=SingleFinalModel(), tool_registry=registry)
+    response = agent.run("test")
+
+    assert response == "done"
+    assert call_count == 1
+
+
+def test_unknown_tool_error_lists_available_tools() -> None:
+    """
+    Regression test: when the model emits Action(tool="zabbix", ...)
+    the error must list valid tool IDs so the model can self-correct.
+    """
+    class FirstCallWrongModel:
+        def __init__(self) -> None:
+            self._step = 0
+
+        def reason(self, user_request, observations, **kwargs):
+            self._step += 1
+            if self._step == 1:
+                return Action(tool="zabbix", arguments={"resource": "get_hosts"})
+            observation = observations[-1]
+            assert "Available tools:" in observation.error
+            assert "knowledge" in observation.error
+            return FinalResponse(content="corrected")
+
+    registry = ToolRegistry()
+    registry.register(tool_id="knowledge", tool=KnowledgeTool())
+    registry.register(tool_id="shell", tool=ShellTool())
+
+    agent = Agent(model=FirstCallWrongModel(), tool_registry=registry)
+    response = agent.run("list hosts")
+    assert response == "corrected"
+
+
+class MultiStepZabbixModel:
+    """
+    Simulates a model that queries multiple Zabbix capabilities
+    before returning a final response.
+    """
+
+    def __init__(self) -> None:
+        self._step = 0
+
+    def reason(self, user_request, observations, **kwargs):
+        self._step += 1
+        if self._step == 1:
+            return Action(
+                tool="knowledge",
+                arguments={"source": "zabbix", "resource": "get_hosts"},
+            )
+        if self._step == 2:
+            return Action(
+                tool="knowledge",
+                arguments={"source": "zabbix", "resource": "get_triggers"},
+            )
+        observation = observations[-1]
+        return FinalResponse(content=f"hosts={observation.data}")
+
+
+def test_multi_step_agent_loop_terminates_within_few_model_calls(
+    monkeypatch,
+) -> None:
+    """
+    Regression test: verify a multi-step reasoning loop (action→result→action→result→final)
+    terminates promptly without extra iterations.
+    """
+    call_count = 0
+    captured_arguments: list[dict[str, object]] = []
+
+    def fake_knowledge_execute(self, arguments):
+        nonlocal call_count
+        call_count += 1
+        return ToolResult(
+            success=True,
+            data={"done": True},
+        )
+
+    monkeypatch.setattr(
+        "src.tool.knowledge_tool.KnowledgeTool.execute",
+        fake_knowledge_execute,
+    )
+
+    registry = ToolRegistry()
+    registry.register(tool_id="knowledge", tool=KnowledgeTool())
+
+    agent = Agent(model=MultiStepZabbixModel(), tool_registry=registry)
+    response = agent.run("check zabbix")
+
+    assert "hosts=" in response
+    assert call_count == 2
+
+
+def test_agent_recovers_from_wrong_tool_then_correct_format(monkeypatch) -> None:
+    """
+    Reproduces the exact integration bug:
+    1. Model emits Action(tool="zabbix", ...) - unknown tool
+    2. Agent returns failed Observation with available tools
+    3. Model corrects to Action(tool="knowledge", arguments={"source":"zabbix","resource":"get_hosts"})
+    4. KnowledgeTool dispatches to ZabbixTool (mocked)
+    5. Result returned to model
+    6. Model returns FinalResponse
+    """
+    captured_observations = []
+
+    class TwoStepModel:
+        def __init__(self) -> None:
+            self._step = 0
+
+        def reason(self, user_request, observations, **kwargs):
+            self._step += 1
+            captured_observations.extend(observations)
+
+            if self._step == 1:
+                return Action(tool="zabbix", arguments={"resource": "get_hosts"})
+
+            if self._step == 2:
+                return Action(
+                    tool="knowledge",
+                    arguments={"source": "zabbix", "resource": "get_hosts"},
+                )
+
+            observation = observations[-1]
+            return FinalResponse(content=f"result={observation.data}")
+
+    def fake_knowledge_execute(self, arguments):
+        if arguments.get("resource") == "get_hosts":
+            return ToolResult(
+                success=True,
+                data={"hosts": [{"hostid": "1", "host": "server01"}]},
+            )
+        return ToolResult(success=False, error="unknown action")
+
+    monkeypatch.setattr(
+        "src.tool.knowledge_tool.KnowledgeTool.execute",
+        fake_knowledge_execute,
+    )
+
+    registry = ToolRegistry()
+    registry.register(tool_id="knowledge", tool=KnowledgeTool())
+    registry.register(tool_id="shell", tool=ShellTool())
+
+    agent = Agent(model=TwoStepModel(), tool_registry=registry)
+    response = agent.run("list zabbix hosts")
+    assert response == "result={'hosts': [{'hostid': '1', 'host': 'server01'}]}"
+    assert any(o.success is False and "Available tools:" in o.error for o in captured_observations)
+    assert any(o.success is True for o in captured_observations)
 
 
 def test_model_can_detect_duplicate_action_using_observation_context(

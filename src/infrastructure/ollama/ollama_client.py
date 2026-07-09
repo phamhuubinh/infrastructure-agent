@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib import error as urlerror
 from urllib import request
 
 
@@ -16,6 +17,16 @@ class OllamaClient:
     ) -> None:
         self._host = host.rstrip("/")
         self._model = model
+
+    @staticmethod
+    def check_available(host: str = "http://localhost:11434", timeout: int = 3) -> bool:
+        host = host.rstrip("/")
+        try:
+            req = request.Request(url=f"{host}/api/tags")
+            with request.urlopen(req, timeout=timeout) as response:
+                return True
+        except (OSError, urlerror.URLError):
+            return False
 
     def generate(
         self,

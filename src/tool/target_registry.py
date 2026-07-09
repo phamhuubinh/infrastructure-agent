@@ -59,6 +59,15 @@ class TargetRegistry:
         if self._store is not None:
             self._store.save(self._backends)
 
+    def register_tool(
+        self,
+        name: str,
+        tool: Tool,
+    ) -> None:
+        if name in self._tools:
+            raise ValueError(f"Target '{name}' is already registered.")
+        self._tools[name] = tool
+
     def get_tool(self, name: str) -> Tool:
         try:
             return self._tools[name]
@@ -66,7 +75,7 @@ class TargetRegistry:
             raise KeyError(f"Unknown target: '{name}'.") from exc
 
     def target_names(self) -> list[str]:
-        return sorted(self._backends)
+        return sorted(self._tools)
 
     def backends(self) -> dict[str, ExecutionBackend]:
         return dict(self._backends)

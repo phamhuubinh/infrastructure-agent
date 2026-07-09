@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import inspect
+
 from src.shared.execution.tool_result import ToolResult
 from src.tool.linux_tool import LinuxTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
+
+
+def _tool_capabilities(tool: Tool) -> list[str]:
+    mod = inspect.getmodule(type(tool))
+    if mod is not None and hasattr(mod, "_CAPABILITIES"):
+        return list(mod._CAPABILITIES.keys())
+    return []
 
 
 class KnowledgeTool(Tool):
@@ -28,13 +37,15 @@ class KnowledgeTool(Tool):
     ) -> None:
         if target_registry is None:
             target_registry = TargetRegistry()
-            target_registry.add("linux")
+            target_registry.add("localhost")
         self._registry = target_registry
-        import src.tool.linux_tool as linux_tool_module
-        self._capabilities = list(linux_tool_module._CAPABILITIES.keys())
 
     def get_capabilities(self) -> dict[str, list[str]]:
-        return {name: self._capabilities for name in self._registry.target_names()}
+        caps: dict[str, list[str]] = {}
+        for name in self._registry.target_names():
+            tool = self._registry.get_tool(name)
+            caps[name] = _tool_capabilities(tool)
+        return caps
 
     def get_available_resources(self) -> dict[str, list[str]]:
         return self.get_capabilities()

@@ -69,3 +69,28 @@ def test_remove_nonexistent_target_raises() -> None:
 
     with pytest.raises(KeyError):
         registry.remove("does_not_exist")
+
+
+def test_register_tool_appears_in_target_names() -> None:
+    registry = TargetRegistry()
+    registry.register_tool("zabbix", LinuxTool())
+
+    assert "zabbix" in registry.target_names()
+
+
+def test_mixed_add_and_register_tool_listed_together() -> None:
+    registry = TargetRegistry()
+    registry.add("linux")
+    registry.register_tool("zabbix", LinuxTool())
+
+    names = registry.target_names()
+    assert "linux" in names
+    assert "zabbix" in names
+
+
+def test_register_tool_duplicate_raises() -> None:
+    registry = TargetRegistry()
+    registry.add("linux")
+
+    with pytest.raises(ValueError):
+        registry.register_tool("linux", LinuxTool())

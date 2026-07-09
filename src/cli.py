@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
 from src.agent.agent import Agent
 from src.infrastructure.ollama.ollama_client import OllamaClient
@@ -13,10 +15,44 @@ from src.tool.shell_tool import ShellTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 from src.tool.tool_registry import ToolRegistry
+from src.tool.zabbix_tool import ZabbixTool
+
+
+def _build_client(cfg: dict[str, object]) -> OllamaModelAdapter:
+    provider = cfg.get("provider", "auto")
+    base_url = cfg.get("base_url", "")
+    model = cfg.get("model")
+    api_key = cfg.get("api_key")
+
+    if provider == "openai":
+        raw = OpenAIClient(base_url=base_url, model=model, api_key=api_key)
+    elif provider == "ollama":
+        raw = OllamaClient(host=base_url, model=model)
+    else:
+        raise ValueError(f"Unknown provider: {provider!r}")
+
+    return OllamaModelAdapter(raw)
+
+
+def _load_server_config(name: str | None = None) -> dict[str, object]:
+    config_path = Path("servers.json")
+    if not config_path.exists():
+        raise RuntimeError("servers.json not found.")
+    data = json.loads(config_path.read_text())
+    servers: dict[str, object] = data.get("servers", {})
+    if name is None:
+        name = data.get("active_server", "")
+    cfg = servers.get(name)
+    if cfg is None:
+        available = ", ".join(sorted(servers))
+        raise RuntimeError(
+            f"Server {name!r} not found. Available servers: {available}"
+        )
+    return dict(cfg)
 
 
 def _add_target(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.store)
+    store = TargetStore(path=args.target_file)
     registry = TargetRegistry(store=store)
 
     parts = args.spec.split("@", 1)
@@ -43,7 +79,7 @@ def _add_target(args: argparse.Namespace) -> None:
 
 
 def _remove_target(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.store)
+    store = TargetStore(path=args.target_file)
     registry = TargetRegistry(store=store)
     try:
         registry.remove(args.name)
@@ -54,7 +90,7 @@ def _remove_target(args: argparse.Namespace) -> None:
 
 
 def _list_targets(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.store)
+    store = TargetStore(path=args.target_file)
     registry = TargetRegistry(store=store)
     names = registry.target_names()
     if not names:
@@ -65,7 +101,7 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.store)
+    store = TargetStore(path=args.target_file)
     registry = TargetRegistry(store=store)
 
     tool_registry = ToolRegistry()
@@ -82,17 +118,18 @@ def _run_agent(args: argparse.Namespace) -> None:
         ),
     )
 
-    if args.provider == "openai":
-        client = OpenAIClient(
-            base_url=args.openai_base_url,
-            model=args.openai_model,
-            api_key=args.openai_api_key,
-        )
-    else:
-        client = OllamaClient()
+    client = _build_client(_load_server_config(name=args.server))
+
+    registry.register_tool(
+        name="zabbix",
+        tool=ZabbixTool(
+            url="http://192.168.10.222/zabbix",
+            token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
+        ),
+    )
 
     agent = Agent(
-        model=OllamaModelAdapter(client),
+        model=client,
         tool_registry=tool_registry,
         available_resources=registry.target_names()
         and KnowledgeTool(target_registry=registry).get_available_resources(),
@@ -122,25 +159,28 @@ def _run_agent(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Infrastructure Agent")
-    parser.add_argument("--store", type=str, default="targets.json",
-                        help="Target store file path")
-    parser.add_argument("--provider", type=str, default="ollama",
-                        choices=["ollama", "openai"],
-                        help="Model provider")
-    parser.add_argument("--openai-base-url", type=str, default="http://localhost:8000",
-                        help="OpenAI-compatible API base URL")
-    parser.add_argument("--openai-model", type=str, default="default",
-                        help="OpenAI model name")
-    parser.add_argument("--openai-api-key", type=str, default=None,
-                        help="OpenAI API key (optional)")
+    parser.add_argument(
+        "--store", type=str, default="targets.json",
+        help="Execution target store file path (deprecated, use --target-file)"
+    )
+    parser.add_argument(
+        "--target-file", type=str, default="targets.json",
+        help="Execution target configuration file"
+    )
+    parser.add_argument(
+        "--server", type=str, default=None,
+        help="Server name from servers.json (default: active_server)"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     add_parser = subparsers.add_parser("add-target", help="Add a remote target")
-    add_parser.add_argument("spec", type=str,
-                            help="Target spec in format name@host or name@host:port")
+    add_parser.add_argument(
+        "spec", type=str, help="Target spec in format name@host or name@host:port"
+    )
     add_parser.add_argument("--ssh-user", type=str, default="root", help="SSH user")
-    add_parser.add_argument("--ssh-identity-file", type=str, default=None,
-                            help="SSH identity file path")
+    add_parser.add_argument(
+        "--ssh-identity-file", type=str, default=None, help="SSH identity file path"
+    )
 
     rem_parser = subparsers.add_parser("remove-target", help="Remove a target")
     rem_parser.add_argument("name", type=str, help="Target name")

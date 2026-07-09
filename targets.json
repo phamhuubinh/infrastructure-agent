@@ -1,0 +1,13 @@
+{
+  "default": "localhost",
+  "targets": {
+    "localhost": {
+      "backend": "local"
+    },
+    "monitor": {
+      "backend": "ssh",
+      "host": "monitor",
+      "user": "monitor"
+    }
+  }
+}

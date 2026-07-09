@@ -28,4 +28,7 @@ class ToolRegistry:
         try:
             return self._tools[tool_id]
         except KeyError as exc:
-            raise KeyError(f"Unknown tool: '{tool_id}'.") from exc
+            available = ", ".join(sorted(self._tools))
+            raise KeyError(
+                f"Unknown tool: '{tool_id}'. Available tools: {available}."
+            ) from exc

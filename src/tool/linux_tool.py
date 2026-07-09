@@ -8,6 +8,16 @@ from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
 
+def _parse_colon_output(output: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields
+
+
 def _read_os_release(run: Callable[..., tuple[bool, str]]) -> dict[str, str]:
     ok, output = run(["cat", "/etc/os-release"])
 
@@ -181,27 +191,18 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     ok, output = run(["cat", "/proc/meminfo"])
 
-    fields: dict[str, str] = {}
-
-    if ok:
-        for line in output.splitlines():
-            if ":" not in line:
-                continue
-
-            key, _, value = line.partition(":")
-            value_parts = value.strip().split()
-            fields[key.strip()] = value_parts[0] if value_parts else "0"
+    raw = _parse_colon_output(output) if ok else {}
 
     def to_int(value: str) -> int:
         try:
-            return int(value)
+            return int(value.split()[0]) if value.split() else 0
         except ValueError:
             return 0
 
     return {
-        "total_kb": to_int(fields.get("MemTotal", "0")),
-        "free_kb": to_int(fields.get("MemFree", "0")),
-        "available_kb": to_int(fields.get("MemAvailable", "0")),
+        "total_kb": to_int(raw.get("MemTotal", "0")),
+        "free_kb": to_int(raw.get("MemFree", "0")),
+        "available_kb": to_int(raw.get("MemAvailable", "0")),
     }
 
 
@@ -588,7 +589,9 @@ def _get_secureboot(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     ok, output = run(["mokutil", "--sb-state"])
 
-    return {"state": output if ok else "unknown"}
+    if not ok:
+        return {"enabled": "unknown"}
+    return {"enabled": "enabled" in output.lower()}
 
 
 def _get_apparmor(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -597,7 +600,9 @@ def _get_apparmor(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     ok, output = run(["cat", "/sys/module/apparmor/parameters/enabled"])
 
-    return {"enabled": output.strip() if ok else "unknown"}
+    if not ok:
+        return {"enabled": "unknown"}
+    return {"enabled": output.strip() == "Y"}
 
 
 def _get_selinux(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -616,14 +621,16 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, output = run(["ufw", "status"])
 
     if ok:
-        return {"backend": "ufw", "status": output}
+        words = output.lower().split()
+        active = "active" in words
+        return {"backend": "ufw", "active": active}
 
     ok, output = run(["iptables", "-L", "-n"])
 
     if ok:
-        return {"backend": "iptables", "status": output}
+        return {"backend": "iptables", "active": True}
 
-    return {"backend": "unknown", "status": "unknown"}
+    return {"backend": "unknown", "active": None}
 
 
 def _get_certificate(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -676,15 +683,7 @@ def _get_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     ok, output = run(["timedatectl"])
 
-    fields: dict[str, str] = {}
-
-    if ok:
-        for line in output.splitlines():
-            if ":" not in line:
-                continue
-
-            key, _, value = line.partition(":")
-            fields[key.strip()] = value.strip()
+    fields = _parse_colon_output(output) if ok else {}
 
     return {
         "local_time": fields.get("Local time", "unknown"),
@@ -753,7 +752,6 @@ def _get_session(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 {
                     "user": parts[0],
                     "terminal": parts[1],
-                    "raw": line,
                 }
             )
 
@@ -780,6 +778,48 @@ def _get_module(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             modules.append({"name": parts[0], "size": parts[1]})
 
     return {"modules": modules}
+
+
+def _get_uptime(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["cat", "/proc/uptime"])
+    if ok and output:
+        parts = output.split()
+        uptime_seconds = float(parts[0]) if parts else 0
+        return {"uptime_seconds": uptime_seconds}
+    return {"uptime_seconds": 0}
+
+
+def _get_boot_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["who", "-b"])
+    if ok and output:
+        return {"boot_time": output.strip()}
+    return {"boot_time": "unknown"}
+
+
+def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["top", "-bn1"])
+    if ok:
+        for line in output.splitlines():
+            if "Cpu(s)" in line or "%Cpu(s)" in line:
+                return {"cpu_usage": line.strip()}
+    return {"cpu_usage": "unknown"}
+
+
+def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["cat", "/proc/meminfo"])
+    if ok:
+        total = 0
+        free = 0
+        for line in output.splitlines():
+            if line.startswith("SwapTotal:"):
+                parts = line.split()
+                total = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            elif line.startswith("SwapFree:"):
+                parts = line.split()
+                free = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        used = total - free
+        return {"total_kb": total, "used_kb": used, "free_kb": free}
+    return {"total_kb": 0, "used_kb": 0, "free_kb": 0}
 
 
 def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -841,6 +881,10 @@ _CAPABILITIES: dict[str, Callable[..., dict[str, object]]] = {
     "get_session": _get_session,
     "get_module": _get_module,
     "get_lxd": _get_lxd,
+    "get_uptime": _get_uptime,
+    "get_boot_time": _get_boot_time,
+    "get_cpu_usage": _get_cpu_usage,
+    "get_swap": _get_swap,
 }
 
 
@@ -869,7 +913,7 @@ class LinuxTool(Tool):
     def _run(
         self,
         command: list[str],
-        timeout: int = 5,
+        timeout: int = 15,
     ) -> tuple[bool, str]:
         return self._backend.run(command, timeout=timeout)
 
