@@ -5,6 +5,7 @@ import sys
 
 from src.agent.agent import Agent
 from src.infrastructure.ollama.ollama_client import OllamaClient
+from src.infrastructure.openai.openai_client import OpenAIClient
 from src.model.ollama_model_adapter import OllamaModelAdapter
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.knowledge_tool import KnowledgeTool
@@ -81,10 +82,17 @@ def _run_agent(args: argparse.Namespace) -> None:
         ),
     )
 
+    if args.provider == "openai":
+        client = OpenAIClient(
+            base_url=args.openai_base_url,
+            model=args.openai_model,
+            api_key=args.openai_api_key,
+        )
+    else:
+        client = OllamaClient()
+
     agent = Agent(
-        model=OllamaModelAdapter(
-            OllamaClient(),
-        ),
+        model=OllamaModelAdapter(client),
         tool_registry=tool_registry,
         available_resources=registry.target_names()
         and KnowledgeTool(target_registry=registry).get_available_resources(),
@@ -116,6 +124,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Infrastructure Agent")
     parser.add_argument("--store", type=str, default="targets.json",
                         help="Target store file path")
+    parser.add_argument("--provider", type=str, default="ollama",
+                        choices=["ollama", "openai"],
+                        help="Model provider")
+    parser.add_argument("--openai-base-url", type=str, default="http://localhost:8000",
+                        help="OpenAI-compatible API base URL")
+    parser.add_argument("--openai-model", type=str, default="default",
+                        help="OpenAI model name")
+    parser.add_argument("--openai-api-key", type=str, default=None,
+                        help="OpenAI API key (optional)")
     subparsers = parser.add_subparsers(dest="command")
 
     add_parser = subparsers.add_parser("add-target", help="Add a remote target")
