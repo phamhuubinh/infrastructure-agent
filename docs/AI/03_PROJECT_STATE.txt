@@ -55,17 +55,6 @@ Ví dụ:
 - Ollama
 Agent không phụ thuộc implementation của Model.
 ---
-## Execution Runtime
-Đã có Runtime cơ bản.
-Bao gồm:
-- Execution Session
-- Execution Plan
-- Execution Step
-- Execution Result
-- Execution Context
-Runtime chỉ điều phối thực thi.
-Không reasoning.
----
 ## KnowledgeTool
 Đã hoàn thành MVP.
 KnowledgeTool:
@@ -99,7 +88,6 @@ Hiện tại LinuxTool vẫn truy cập Environment trực tiếp.
 ---
 ## Testing
 Repository đã có test cho:
-- runtime
 - model
 - shared
 - tool
