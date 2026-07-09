@@ -54,8 +54,8 @@ def test_prompt_lists_available_resources_as_json_array() -> None:
     resources = parsed["available_resources"]["linux"]
 
     assert isinstance(resources, list)
-    assert "interface_addresses" in resources
-    assert "docker_version" in resources
+    assert "get_network" in resources
+    assert "get_docker" in resources
 
 
 def test_prompt_actions_taken_is_empty_list_with_no_observations() -> None:
