@@ -101,6 +101,12 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
+    from src.agent.agent import set_verbose, set_status
+
+    if args.verbose:
+        set_verbose(True)
+    if args.status:
+        set_status(True)
     store = TargetStore(path=args.target_file)
     registry = TargetRegistry(store=store)
 
@@ -170,6 +176,14 @@ def main() -> None:
     parser.add_argument(
         "--server", type=str, default=None,
         help="Server name from servers.json (default: active_server)"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Show detailed debug output (prompt stats, timings, raw responses)"
+    )
+    parser.add_argument(
+        "--status", action="store_true",
+        help="Show one-line per iteration status"
     )
     subparsers = parser.add_subparsers(dest="command")
 

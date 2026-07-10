@@ -18,7 +18,7 @@ class OpenAIClient:
         base_url: str = "http://localhost:8000",
         model: str | None = None,
         api_key: str | None = None,
-        timeout: int = 30,
+        timeout: int | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key

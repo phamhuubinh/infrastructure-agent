@@ -16,6 +16,7 @@ class MockModelAdapter(ModelAdapter):
         user_request: str,
         observations: tuple[Observation, ...],
         available_resources: dict[str, list[str]] | None = None,
+        known_facts: dict[str, object] | None = None,
     ) -> Action | FinalResponse:
         if not observations:
             return Action(

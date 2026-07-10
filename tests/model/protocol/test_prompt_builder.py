@@ -20,12 +20,12 @@ def test_prompt_contains_response_examples_as_flat_list() -> None:
     examples = parsed["response_examples"]
 
     assert isinstance(examples, list)
-    assert len(examples) == 4
+    assert len(examples) == 3
 
     action_examples = [e for e in examples if e["type"] == "action"]
     final_example = next(e for e in examples if e["type"] == "final")
 
-    assert len(action_examples) == 3
+    assert len(action_examples) == 2
     assert all(e["tool"] == "knowledge" for e in action_examples)
     assert "content" in final_example
 

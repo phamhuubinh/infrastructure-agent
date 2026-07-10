@@ -32,15 +32,17 @@ class _ZabbixAPI:
         self,
         method: str,
         params: dict[str, object] | None = None,
+        skip_auth: bool = False,
     ) -> object:
         self._request_id += 1
         payload: dict[str, object] = {
             "jsonrpc": "2.0",
             "method": method,
             "params": params or {},
-            "auth": self._token,
             "id": self._request_id,
         }
+        if not skip_auth:
+            payload["auth"] = self._token
 
         headers = {"Content-Type": "application/json-rpc"}
         body = json.dumps(payload).encode("utf-8")
@@ -66,11 +68,31 @@ class _ZabbixAPI:
         result = data.get("result")
         if result is None:
             raise RuntimeError("Zabbix API returned no result.")
+
         return result
 
 
 def _get_api_version(zapi: _ZabbixAPI) -> dict[str, object]:
-    return {"version": zapi.call("apiinfo.version")}
+    return {"version": zapi.call("apiinfo.version", skip_auth=True)}
+
+
+def _format_host(h: dict[str, object]) -> dict[str, object]:
+    groups = h.get("groups")
+    interfaces = h.get("interfaces")
+    group_names = ", ".join(
+        g.get("name", "") for g in groups if isinstance(g, dict)
+    ) if isinstance(groups, list) else ""
+    ips = ", ".join(
+        i.get("ip", "") for i in interfaces if isinstance(i, dict)
+    ) if isinstance(interfaces, list) else ""
+    return {
+        "hostid": h.get("hostid"),
+        "host": h.get("host"),
+        "name": h.get("name"),
+        "status": h.get("status"),
+        "groups": group_names,
+        "ip": ips,
+    }
 
 
 def _get_hosts(zapi: _ZabbixAPI) -> dict[str, object]:
@@ -84,19 +106,7 @@ def _get_hosts(zapi: _ZabbixAPI) -> dict[str, object]:
     )
     if not isinstance(result, list):
         return {"hosts": []}
-    hosts = []
-    for h in result:
-        if not isinstance(h, dict):
-            continue
-        hosts.append({
-            "hostid": h.get("hostid"),
-            "host": h.get("host"),
-            "name": h.get("name"),
-            "status": h.get("status"),
-            "groups": h.get("groups"),
-            "interfaces": h.get("interfaces"),
-        })
-    return {"hosts": hosts}
+    return {"hosts": [_format_host(h) for h in result if isinstance(h, dict)]}
 
 
 def _get_host(zapi: _ZabbixAPI, host: str = "") -> dict[str, object]:
@@ -113,19 +123,7 @@ def _get_host(zapi: _ZabbixAPI, host: str = "") -> dict[str, object]:
     result = zapi.call("host.get", params)
     if not isinstance(result, list):
         return {"hosts": []}
-    hosts = []
-    for h in result:
-        if not isinstance(h, dict):
-            continue
-        hosts.append({
-            "hostid": h.get("hostid"),
-            "host": h.get("host"),
-            "name": h.get("name"),
-            "status": h.get("status"),
-            "groups": h.get("groups"),
-            "interfaces": h.get("interfaces"),
-        })
-    return {"hosts": hosts}
+    return {"hosts": [_format_host(h) for h in result if isinstance(h, dict)]}
 
 
 def _get_host_groups(zapi: _ZabbixAPI) -> dict[str, object]:
@@ -186,25 +184,28 @@ def _get_triggers(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     result = zapi.call("trigger.get", params)
     if not isinstance(result, list):
         return {"triggers": []}
+    severity_labels = {"0": "ok", "1": "info", "2": "warning", "3": "average", "4": "high", "5": "disaster"}
     triggers = []
     for t in result:
         if not isinstance(t, dict):
             continue
+        pri = str(t.get("priority", "0"))
         triggers.append({
             "triggerid": t.get("triggerid"),
             "description": t.get("description"),
             "priority": t.get("priority"),
+            "severity": severity_labels.get(pri, "unknown"),
             "status": t.get("status"),
             "value": t.get("value"),
             "hosts": t.get("hosts"),
         })
-    return {"triggers": triggers}
+    return {"triggers": triggers, "total_triggers": len(triggers)}
 
 
 def _get_events(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     params: dict[str, object] = {
         "output": ["eventid", "source", "object", "objectid", "clock", "value", "name", "severity"],
-        "sortfield": "clock",
+        "sortfield": "eventid",
         "sortorder": "DESC",
         "limit": 50,
     }
@@ -230,7 +231,7 @@ def _get_events(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
 def _get_problems(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     params: dict[str, object] = {
         "output": ["eventid", "objectid", "name", "clock", "severity"],
-        "sortfield": "clock",
+        "sortfield": "eventid",
         "sortorder": "DESC",
     }
     if hostid:
@@ -260,17 +261,8 @@ def _search_hosts(zapi: _ZabbixAPI, query: str = "") -> dict[str, object]:
     result = zapi.call("host.get", params)
     if not isinstance(result, list):
         return {"hosts": []}
-    hosts = []
-    for h in result:
-        if not isinstance(h, dict):
-            continue
-        hosts.append({
-            "hostid": h.get("hostid"),
-            "host": h.get("host"),
-            "name": h.get("name"),
-            "status": h.get("status"),
-        })
-    return {"hosts": hosts}
+    return {"hosts": [{"hostid": h.get("hostid"), "host": h.get("host"), "name": h.get("name"), "status": h.get("status")}
+                      for h in result if isinstance(h, dict)]}
 
 
 def _get_users(zapi: _ZabbixAPI) -> dict[str, object]:
@@ -330,43 +322,25 @@ class ZabbixTool(Tool):
         action = arguments.get("action")
 
         if not isinstance(action, str):
-            return ToolResult(
-                success=False,
-                error="Missing action.",
-            )
+            return ToolResult(success=False, error="Missing action.")
 
         handler = _CAPABILITIES.get(action)
 
         if handler is None:
             available = ", ".join(sorted(_CAPABILITIES))
-
             return ToolResult(
                 success=False,
                 error=f"Unknown action: '{action}'. Available actions: {available}.",
             )
 
-        api = _ZabbixAPI(
-            url=self._url,
-            token=self._token,
-            timeout=self._timeout,
-        )
-
+        api = _ZabbixAPI(url=self._url, token=self._token, timeout=self._timeout)
         extra = {k: v for k, v in arguments.items() if k != "action"}
 
         try:
             data = handler(api, **extra)
         except RuntimeError as exc:
-            return ToolResult(
-                success=False,
-                error=str(exc),
-            )
+            return ToolResult(success=False, error=str(exc))
         except Exception as exc:
-            return ToolResult(
-                success=False,
-                error=f"ZabbixTool error: {exc}",
-            )
+            return ToolResult(success=False, error=f"ZabbixTool error: {exc}")
 
-        return ToolResult(
-            success=True,
-            data=data,
-        )
+        return ToolResult(success=True, data=data)

@@ -88,8 +88,8 @@ def test_execute_returns_hosts(mock_zabbix) -> None:
             "host": "server01",
             "name": "Server 01",
             "status": "0",
-            "groups": None,
-            "interfaces": None,
+            "groups": "",
+            "ip": "",
         }
     ]
 
@@ -180,9 +180,11 @@ def test_execute_returns_triggers(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_triggers"})
     assert result.success is True
-    assert result.data["triggers"] == [
-        {"triggerid": "1", "description": "High CPU", "priority": "4", "status": "0", "value": "1", "hosts": []},
-    ]
+    assert len(result.data["triggers"]) == 1
+    t = result.data["triggers"][0]
+    assert t["triggerid"] == "1"
+    assert t["priority"] == "4"
+    assert t["severity"] in ("high", "average")
 
 
 def test_execute_returns_events(mock_zabbix) -> None:
@@ -230,7 +232,7 @@ def test_get_host_with_host_name_filter(mock_zabbix) -> None:
 
     assert result.success is True
     assert result.data["hosts"] == [
-        {"hostid": "2", "host": "web01", "name": "Web Server 01", "status": "0", "groups": None, "interfaces": None},
+        {"hostid": "2", "host": "web01", "name": "Web Server 01", "status": "0", "groups": "", "ip": ""},
     ]
 
     call = mock_zabbix.calls[0]

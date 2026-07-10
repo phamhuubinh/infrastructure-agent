@@ -148,7 +148,7 @@ def test_get_network_returns_empty_lists_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_network"})
 
     assert result.success is True
-    assert result.data == {"interfaces": [], "routes": []}
+    assert result.data == {"interfaces": [], "routes": [], "interface_count": 0, "active_interfaces": 0}
 
 
 def test_get_services_parses_systemctl_output(monkeypatch) -> None:
@@ -197,7 +197,7 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_services"})
 
     assert result.success is True
-    assert result.data == {"services": []}
+    assert result.data == {"services": [], "total": 0, "running": 0, "exited": 0, "failed": 0}
 
 
 def test_get_docker_reports_installed_version(monkeypatch) -> None:
@@ -314,8 +314,10 @@ def test_get_memory_parses_meminfo(monkeypatch) -> None:
     assert result.success is True
     assert result.data == {
         "total_kb": 16384000,
+        "used_kb": 8192000,
         "free_kb": 2048000,
         "available_kb": 8192000,
+        "usage_percent": 50.0,
     }
 
 
@@ -330,7 +332,7 @@ def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_memory"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 0, "free_kb": 0, "available_kb": 0}
+    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0, "available_kb": 0, "usage_percent": 0}
 
 
 def test_get_disk_parses_df_output(monkeypatch) -> None:
@@ -352,19 +354,9 @@ def test_get_disk_parses_df_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_disk"})
 
     assert result.success is True
-    assert result.data == {
-        "disks": [
-            {
-                "source": "/dev/sda1",
-                "fstype": "ext4",
-                "size_bytes": 100000000,
-                "used_bytes": 40000000,
-                "available_bytes": 60000000,
-                "use_percent": "40%",
-                "target": "/",
-            }
-        ]
-    }
+    assert result.data["disk_count"] == 1
+    assert result.data["high_usage_count"] == 0
+    assert result.data["disks"][0]["source"] == "/dev/sda1"
 
 
 def test_get_disk_returns_empty_list_on_failure(monkeypatch) -> None:
@@ -378,7 +370,7 @@ def test_get_disk_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_disk"})
 
     assert result.success is True
-    assert result.data == {"disks": []}
+    assert result.data == {"disks": [], "disk_count": 0, "high_usage_count": 0}
 
 
 def test_get_filesystem_parses_proc_mounts(monkeypatch) -> None:
@@ -560,7 +552,8 @@ def test_get_package_parses_dpkg_output(monkeypatch) -> None:
         "packages": [
             {"name": "bash", "version": "5.2.21-2"},
             {"name": "curl", "version": "8.5.0-2"},
-        ]
+        ],
+        "package_count": 2,
     }
 
 
@@ -586,7 +579,8 @@ def test_get_package_falls_back_to_rpm(monkeypatch) -> None:
         "packages": [
             {"name": "bash", "version": "5.2.15"},
             {"name": "curl", "version": "8.4.0"},
-        ]
+        ],
+        "package_count": 2,
     }
 
 
@@ -601,7 +595,7 @@ def test_get_package_returns_empty_list_when_no_package_manager(monkeypatch) -> 
     result = tool.execute({"action": "get_package"})
 
     assert result.success is True
-    assert result.data == {"packages": []}
+    assert result.data == {"packages": [], "package_count": 0}
 
 
 def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
@@ -1600,6 +1594,8 @@ def test_get_uptime_parses_proc_uptime(monkeypatch) -> None:
 
     assert result.success is True
     assert result.data["uptime_seconds"] == 12345.67
+    assert result.data["uptime_hours"] == 3.4
+    assert result.data["uptime_days"] == 0.1
 
 
 def test_get_uptime_returns_zero_on_failure(monkeypatch) -> None:
@@ -1613,7 +1609,7 @@ def test_get_uptime_returns_zero_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_uptime"})
 
     assert result.success is True
-    assert result.data == {"uptime_seconds": 0}
+    assert result.data == {"uptime_seconds": 0, "uptime_hours": 0, "uptime_days": 0}
 
 
 def test_get_boot_time_parses_who_b(monkeypatch) -> None:
@@ -1655,8 +1651,9 @@ def test_get_cpu_usage_parses_top_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_cpu_usage"})
 
     assert result.success is True
-    assert "cpu_usage" in result.data
-    assert "5.3" in str(result.data["cpu_usage"])
+    assert result.data["user"] == 5.3
+    assert result.data["system"] == 2.1
+    assert result.data["idle"] == 92.6
 
 
 def test_get_cpu_usage_returns_unknown_on_failure(monkeypatch) -> None:
@@ -1670,7 +1667,7 @@ def test_get_cpu_usage_returns_unknown_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_cpu_usage"})
 
     assert result.success is True
-    assert result.data == {"cpu_usage": "unknown"}
+    assert result.data == {"raw": "unknown", "user": 0, "system": 0, "idle": 0}
 
 
 def test_get_swap_parses_meminfo(monkeypatch) -> None:
@@ -1684,7 +1681,7 @@ def test_get_swap_parses_meminfo(monkeypatch) -> None:
     result = tool.execute({"action": "get_swap"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 2097152, "used_kb": 1048576, "free_kb": 1048576}
+    assert result.data == {"total_kb": 2097152, "used_kb": 1048576, "free_kb": 1048576, "usage_percent": 50.0}
 
 
 def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
@@ -1698,4 +1695,70 @@ def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_swap"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0}
+    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0, "usage_percent": 0}
+
+
+def test_get_service_checks_specific_service(monkeypatch) -> None:
+    def fake_run(command, timeout=15):
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        if command == ["systemctl", "is-enabled", "ssh"]:
+            return True, "enabled"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: fake_run(command, timeout),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_service", "name": "ssh"})
+
+    assert result.success is True
+    assert result.data == {"name": "ssh", "active": "active", "enabled": "enabled"}
+
+
+def test_get_service_returns_unknown_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_service", "name": "nonexistent"})
+
+    assert result.success is True
+    assert result.data == {"name": "nonexistent", "active": "unknown", "enabled": "unknown"}
+
+
+def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (True, "State  Recv-Q  Send-Q  Local Address:Port   Peer Address:Port  Process\nLISTEN 0       128         0.0.0.0:22         0.0.0.0:*      users:(())\nLISTEN 0       128         0.0.0.0:443        0.0.0.0:*      users:(())\n"),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_listening_ports"})
+
+    assert result.success is True
+    assert result.data["port_count"] == 2
+    ports = result.data["ports"]
+    assert any(p["port"] == "22" for p in ports)
+    assert any(p["port"] == "443" for p in ports)
+
+
+def test_get_listening_ports_returns_empty_on_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=15: (False, ""),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_listening_ports"})
+
+    assert result.success is True
+    assert result.data == {"ports": []}

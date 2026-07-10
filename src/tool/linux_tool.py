@@ -83,33 +83,43 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     Subsystem: networking (interfaces, addresses, routes).
     """
     interfaces: list[dict[str, object]] = []
+    interface_names: set[str] = set()
 
     ok, output = run(["ip", "-o", "addr", "show"])
 
     if ok:
         for line in output.splitlines():
             parts = line.split()
-
             if len(parts) < 4:
                 continue
-
+            ifname = parts[1]
+            interface_names.add(ifname)
             interfaces.append(
                 {
-                    "name": parts[1],
+                    "name": ifname,
                     "family": parts[2],
                     "address": parts[3],
                 }
             )
 
     routes: list[str] = []
-
     ok, output = run(["ip", "route"])
-
     if ok:
         routes = [line.strip() for line in output.splitlines() if line.strip()]
 
+    ok2, link_output = run(["ip", "-o", "link", "show"])
+    active_interfaces = 0
+    if ok2:
+        for line in link_output.splitlines():
+            if "state UP" in line or "state UNKNOWN" in line:
+                ifname2 = line.split(":")[1].strip() if ":" in line else ""
+                if ifname2:
+                    active_interfaces += 1
+
     return {
         "interfaces": interfaces,
+        "interface_count": len(interface_names),
+        "active_interfaces": active_interfaces,
         "routes": routes,
     }
 
@@ -129,6 +139,9 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     )
 
     services: list[dict[str, object]] = []
+    running = 0
+    exited = 0
+    failed = 0
 
     if ok:
         for line in output.splitlines():
@@ -137,16 +150,27 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             if len(parts) < 4:
                 continue
 
-            services.append(
-                {
-                    "name": parts[0],
-                    "load": parts[1],
-                    "active": parts[2],
-                    "sub": parts[3],
-                }
-            )
+            service = {
+                "name": parts[0],
+                "load": parts[1],
+                "active": parts[2],
+                "sub": parts[3],
+            }
+            services.append(service)
+            if parts[2] == "active" and parts[3] == "running":
+                running += 1
+            elif parts[3] == "exited":
+                exited += 1
+            elif parts[3] == "failed":
+                failed += 1
 
-    return {"services": services}
+    return {
+        "services": services,
+        "total": len(services),
+        "running": running,
+        "exited": exited,
+        "failed": failed,
+    }
 
 
 def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -185,6 +209,13 @@ def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
+def _to_int(value: str) -> int:
+    try:
+        return int(value.split()[0]) if value.split() else 0
+    except ValueError:
+        return 0
+
+
 def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: system memory (from /proc/meminfo, values in kB).
@@ -193,16 +224,18 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     raw = _parse_colon_output(output) if ok else {}
 
-    def to_int(value: str) -> int:
-        try:
-            return int(value.split()[0]) if value.split() else 0
-        except ValueError:
-            return 0
+    total = _to_int(raw.get("MemTotal", "0"))
+    available = _to_int(raw.get("MemAvailable", "0"))
+    free = _to_int(raw.get("MemFree", "0"))
+    usage_percent = round((1 - available / total) * 100, 1) if total > 0 else 0
 
+    used = total - available if total > available else 0
     return {
-        "total_kb": to_int(raw.get("MemTotal", "0")),
-        "free_kb": to_int(raw.get("MemFree", "0")),
-        "available_kb": to_int(raw.get("MemAvailable", "0")),
+        "total_kb": total,
+        "used_kb": used,
+        "free_kb": free,
+        "available_kb": available,
+        "usage_percent": usage_percent,
     }
 
 
@@ -243,7 +276,8 @@ def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 }
             )
 
-    return {"disks": disks}
+    high_usage = [d for d in disks if d.get("use_percent", "0%").strip("%").isdigit() and int(d["use_percent"].strip("%")) > 80]
+    return {"disks": disks, "disk_count": len(disks), "high_usage_count": len(high_usage)}
 
 
 def _get_filesystem(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -378,14 +412,9 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     if ok:
         for line in output.splitlines():
             parts = line.split(None, 1)
-
-            if len(parts) < 2:
-                continue
-
-            name, version = parts
-            packages.append({"name": name, "version": version})
-
-        return {"packages": packages}
+            if len(parts) >= 2:
+                packages.append({"name": parts[0], "version": parts[1]})
+        return {"packages": packages, "package_count": len(packages)}
 
     ok, output = run(
         [
@@ -399,14 +428,10 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     if ok:
         for line in output.splitlines():
             parts = line.split(None, 1)
+            if len(parts) >= 2:
+                packages.append({"name": parts[0], "version": parts[1]})
 
-            if len(parts) < 2:
-                continue
-
-            name, version = parts
-            packages.append({"name": name, "version": version})
-
-    return {"packages": packages}
+    return {"packages": packages, "package_count": len(packages)}
 
 
 def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -785,8 +810,12 @@ def _get_uptime(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     if ok and output:
         parts = output.split()
         uptime_seconds = float(parts[0]) if parts else 0
-        return {"uptime_seconds": uptime_seconds}
-    return {"uptime_seconds": 0}
+        return {
+            "uptime_seconds": uptime_seconds,
+            "uptime_hours": round(uptime_seconds / 3600, 1),
+            "uptime_days": round(uptime_seconds / 86400, 1),
+        }
+    return {"uptime_seconds": 0, "uptime_hours": 0, "uptime_days": 0}
 
 
 def _get_boot_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -801,8 +830,28 @@ def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     if ok:
         for line in output.splitlines():
             if "Cpu(s)" in line or "%Cpu(s)" in line:
-                return {"cpu_usage": line.strip()}
-    return {"cpu_usage": "unknown"}
+                parts = line.replace(",", " ").split()
+                result: dict[str, object] = {"raw": line.strip()}
+                for i, p in enumerate(parts):
+                    p_clean = p.strip("%")
+                    if p == "us," or p == "us":
+                        result["user"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "sy," or p == "sy":
+                        result["system"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "ni," or p == "ni":
+                        result["nice"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "id," or p == "id":
+                        result["idle"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "wa," or p == "wa":
+                        result["iowait"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "hi," or p == "hi":
+                        result["irq"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "si," or p == "si":
+                        result["softirq"] = float(parts[i - 1]) if i > 0 else 0
+                    elif p == "st," or p == "st":
+                        result["steal"] = float(parts[i - 1]) if i > 0 else 0
+                return result
+    return {"raw": "unknown", "user": 0, "system": 0, "idle": 0}
 
 
 def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -818,8 +867,115 @@ def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 parts = line.split()
                 free = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
         used = total - free
-        return {"total_kb": total, "used_kb": used, "free_kb": free}
-    return {"total_kb": 0, "used_kb": 0, "free_kb": 0}
+        usage_percent = round((used / total) * 100, 1) if total > 0 else 0
+        return {"total_kb": total, "used_kb": used, "free_kb": free, "usage_percent": usage_percent}
+    return {"total_kb": 0, "used_kb": 0, "free_kb": 0, "usage_percent": 0}
+
+
+def _get_service(run: Callable[..., tuple[bool, str]], name: str = "") -> dict[str, object]:
+    if not name:
+        return {"error": "Missing service name."}
+    ok, output = run(["systemctl", "is-active", name])
+    active_status = output.strip() if ok else "unknown"
+    ok2, output2 = run(["systemctl", "is-enabled", name])
+    enabled_status = output2.strip() if ok2 else "unknown"
+    return {
+        "name": name,
+        "active": active_status,
+        "enabled": enabled_status,
+    }
+
+
+def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["ss", "-tlnp"])
+    if not ok:
+        return {"ports": []}
+    ports: list[dict[str, object]] = []
+    for line in output.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 4:
+            addr = parts[3]
+            if ":" in addr:
+                port_str = addr.rsplit(":", 1)[-1]
+                ports.append({"address": addr, "port": port_str, "protocol": "tcp"})
+    return {"ports": ports, "port_count": len(ports)}
+
+
+def _get_disk_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    return _get_disk(run)
+
+
+def _get_system_load(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["cat", "/proc/loadavg"])
+    if ok:
+        parts = output.split()
+        return {
+            "load_1min": float(parts[0]) if parts else 0,
+            "load_5min": float(parts[1]) if len(parts) > 1 else 0,
+            "load_15min": float(parts[2]) if len(parts) > 2 else 0,
+            "raw": output.strip(),
+        }
+    return {"load_1min": 0, "load_5min": 0, "load_15min": 0}
+
+
+def _get_recent_logins(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["last", "-5"])
+    if not ok:
+        return {"logins": []}
+    logins: list[dict[str, object]] = []
+    for line in output.splitlines():
+        if not line.strip() or "wtmp" in line or "reboot" in line:
+            continue
+        parts = line.split()
+        if len(parts) >= 5:
+            logins.append({
+                "user": parts[0],
+                "terminal": parts[1],
+                "from": parts[2] if parts[2] != ":" else "",
+                "time": " ".join(parts[3:7]) if len(parts) >= 7 else "",
+            })
+    return {"logins": logins, "total_logins": len(logins)}
+
+
+def _get_filesystem_health(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["cat", "/proc/mounts"])
+    mounts: list[dict[str, object]] = []
+    if ok:
+        for line in output.splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                mounts.append({
+                    "device": parts[0],
+                    "mountpoint": parts[1],
+                    "fstype": parts[2],
+                    "options": parts[3] if len(parts) > 3 else "",
+                })
+    ro_mounts = [m for m in mounts if "ro" in m.get("options", "") and m.get("fstype") not in ("proc", "sysfs", "tmpfs")]
+    return {"mounts": mounts, "total_mounts": len(mounts), "read_only_mounts": len(ro_mounts)}
+
+
+def _get_time_sync(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    ok, output = run(["timedatectl"])
+    fields = _parse_colon_output(output) if ok else {}
+    return {
+        "ntp_synchronized": fields.get("System clock synchronized", "unknown"),
+        "ntp_service": fields.get("NTP service", "unknown"),
+        "time_zone": fields.get("Time zone", "unknown"),
+    }
+
+
+def _get_process_by_name(run: Callable[..., tuple[bool, str]], name: str = "") -> dict[str, object]:
+    if not name:
+        return _get_process(run)
+    ok, output = run(["pgrep", "-a", name])
+    if not ok:
+        return {"processes": [], "count": 0, "name": name}
+    processes = []
+    for line in output.splitlines():
+        parts = line.split(None, 1)
+        if parts:
+            processes.append({"pid": parts[0], "command": parts[1] if len(parts) > 1 else ""})
+    return {"processes": processes, "count": len(processes), "name": name}
 
 
 def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -885,6 +1041,14 @@ _CAPABILITIES: dict[str, Callable[..., dict[str, object]]] = {
     "get_boot_time": _get_boot_time,
     "get_cpu_usage": _get_cpu_usage,
     "get_swap": _get_swap,
+    "get_service": _get_service,
+    "get_listening_ports": _get_listening_ports,
+    "get_disk_usage": _get_disk_usage,
+    "get_system_load": _get_system_load,
+    "get_recent_logins": _get_recent_logins,
+    "get_filesystem_health": _get_filesystem_health,
+    "get_time_sync": _get_time_sync,
+    "get_process_by_name": _get_process_by_name,
 }
 
 
@@ -936,7 +1100,14 @@ class LinuxTool(Tool):
                 error=f"Unknown action: '{action}'. Available actions: {available}.",
             )
 
+        extra = {k: v for k, v in arguments.items() if k != "action"}
+
+        if extra:
+            data = handler(self._run, **extra)
+        else:
+            data = handler(self._run)
+
         return ToolResult(
             success=True,
-            data=handler(self._run),
+            data=data,
         )
