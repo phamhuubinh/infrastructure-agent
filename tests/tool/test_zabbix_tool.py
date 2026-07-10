@@ -82,6 +82,9 @@ def test_execute_returns_hosts(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is True
+    assert result.data["total_hosts"] == 1
+    assert result.data["enabled_hosts"] == 1
+    assert result.data["disabled_hosts"] == 0
     assert result.data["hosts"] == [
         {
             "hostid": "1",
@@ -158,6 +161,7 @@ def test_execute_returns_items(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_items"})
     assert result.success is True
+    assert result.data["total_items"] == 1
     assert result.data["items"] == [
         {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%"},
     ]
@@ -194,9 +198,9 @@ def test_execute_returns_events(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_events"})
     assert result.success is True
-    assert result.data["events"] == [
-        {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "3", "value": "1"},
-    ]
+    assert result.data["total_events"] == 1
+    assert result.data["events"][0]["eventid"] == "1"
+    assert result.data["events"][0]["severity_label"] == "average"
 
 
 def test_execute_returns_problems(mock_zabbix) -> None:
@@ -206,9 +210,9 @@ def test_execute_returns_problems(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_problems"})
     assert result.success is True
-    assert result.data["problems"] == [
-        {"eventid": "1", "name": "Disk full", "clock": "1700000000", "severity": "3"},
-    ]
+    assert result.data["total_problems"] == 1
+    assert result.data["problems"][0]["eventid"] == "1"
+    assert result.data["problems"][0]["severity_label"] == "average"
 
 
 def test_execute_returns_users(mock_zabbix) -> None:
@@ -283,7 +287,65 @@ def test_returns_empty_list_for_empty_result(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is True
-    assert result.data == {"hosts": []}
+    assert result.data.get("hosts") == []
+    assert result.data.get("total_hosts") == 0
+
+
+def test_get_problem_timeline_returns_problems_sorted(mock_zabbix) -> None:
+    mock_zabbix._result = [
+        {"eventid": "3", "name": "P3", "clock": "1700000000", "severity": "3", "acknowledged": "0"},
+        {"eventid": "2", "name": "P2", "clock": "1600000000", "severity": "2", "acknowledged": "0"},
+    ]
+    tool = ZabbixTool(token="test-token")
+    result = tool.execute({"action": "get_problem_timeline", "limit": "50"})
+
+    assert result.success is True
+    assert result.data["total"] == 2
+
+
+def test_get_host_inventory_returns_hosts(mock_zabbix) -> None:
+    mock_zabbix._result = [
+        {"hostid": "1", "host": "s1", "name": "Server 1", "status": "0"},
+    ]
+    tool = ZabbixTool(token="test-token")
+    result = tool.execute({"action": "get_host_inventory"})
+
+    assert result.success is True
+    assert result.data["total_hosts"] == 1
+
+
+def test_get_host_interfaces_returns_interfaces(mock_zabbix) -> None:
+    mock_zabbix._result = [
+        {"interfaceid": "1", "ip": "10.0.0.1", "port": "161", "type": "2"},
+    ]
+    tool = ZabbixTool(token="test-token")
+    result = tool.execute({"action": "get_host_interfaces", "hostid": "10644"})
+
+    assert result.success is True
+    assert result.data["total_interfaces"] == 1
+
+
+def test_get_maintenance_status_returns_maintenances(mock_zabbix) -> None:
+    mock_zabbix._result = [
+        {"maintenanceid": "1", "name": "Scheduled", "active_since": "1700000000", "active_till": "1700100000"},
+    ]
+    tool = ZabbixTool(token="test-token")
+    result = tool.execute({"action": "get_maintenance_status"})
+
+    assert result.success is True
+    assert result.data["total_maintenances"] == 1
+
+
+def test_get_event_summary_returns_events(mock_zabbix) -> None:
+    mock_zabbix._result = [
+        {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "4", "value": "1"},
+    ]
+    tool = ZabbixTool(token="test-token")
+    result = tool.execute({"action": "get_event_summary", "limit": "100"})
+
+    assert result.success is True
+    assert result.data["total"] == 1
+    assert "severity_summary" in result.data
 
 
 def test_passes_extra_arguments_to_handler(mock_zabbix) -> None:
