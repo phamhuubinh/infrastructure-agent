@@ -13,6 +13,8 @@ class AssessmentResult:
         model: The model name used for assessment.
         error: Error message if assessment failed.
         latency_ms: Time in milliseconds for the assessment call.
+        prompt_tokens: Token count from API response, or None if not reported.
+        completion_tokens: Token count from API response, or None if not reported.
     """
 
     content: str = ""
@@ -20,3 +22,5 @@ class AssessmentResult:
     model: str = ""
     error: str | None = None
     latency_ms: float = 0.0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None

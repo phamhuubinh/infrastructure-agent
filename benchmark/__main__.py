@@ -145,7 +145,7 @@ def _aggregate_repeated(
     return canonical
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="AI Agent Benchmark Suite")
     parser.add_argument(
         "--domain", type=str, default=None,
@@ -171,7 +171,12 @@ def main() -> None:
         "--repeat", type=int, default=1,
         help="Run benchmarks N times and aggregate variance"
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     metadata = collect_benchmark_metadata(
         server_name=args.server,

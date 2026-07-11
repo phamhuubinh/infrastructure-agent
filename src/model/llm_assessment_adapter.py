@@ -86,9 +86,12 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
 
         latency = round((_time.perf_counter() - t0) * 1000, 1)
 
+        usage = self._client.last_usage
         return AssessmentResult(
             content=response,
             success=True,
             model=self._client._model,
             latency_ms=latency,
+            prompt_tokens=usage.get("prompt_tokens") if usage else None,
+            completion_tokens=usage.get("completion_tokens") if usage else None,
         )

@@ -32,6 +32,12 @@ class LLMClient:
         self._timeout = timeout
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._last_usage: dict[str, int] | None = None
+
+    @property
+    def last_usage(self) -> dict[str, int] | None:
+        """Token usage from the most recent API response, or None if absent."""
+        return self._last_usage
 
     def generate(self, prompt: str) -> str:
         """Send a chat completion request and return the response content.
@@ -112,5 +118,15 @@ class LLMClient:
             raise RuntimeError(
                 f"LLM API returned no content in message"
             )
+
+        # Capture token usage if the server reports it.
+        raw_usage = data.get("usage")
+        if isinstance(raw_usage, dict):
+            self._last_usage = {
+                k: int(v) for k, v in raw_usage.items()
+                if isinstance(v, (int, float))
+            }
+        else:
+            self._last_usage = None
 
         return content

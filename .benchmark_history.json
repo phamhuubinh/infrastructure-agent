@@ -273,5 +273,133 @@
       "provider": "openai",
       "benchmark_version": "1.0"
     }
+  },
+  "4": {
+    "results": [
+      {
+        "benchmark": "monitor_server_analysis",
+        "domain": "scenario_investigation",
+        "request": "Ph\u00e2n t\u00edch m\u00e1y monitor. Cho t\u00f4i bi\u1ebft h\u1ec7 \u0111i\u1ec1u h\u00e0nh, kernel, CPU, memory, disk usage, services \u0111ang ch\u1ea1y, v\u00e0 c\u00e1c port \u0111ang listening.",
+        "response": "**1. Summary**\n\nThe investigation aimed to assess the operational status of the monitor machine, specifically requesting information on OS, kernel, CPU, memory, disk usage, running services, and listening ports. The pipeline successfully collected evidence on system load and running processes. However, evidence for CPU, memory, and disk usage was not collected due to missing capability routes. Evidence for listening ports was not provided.\n\n**2. Assessment per subsystem**\n\n*   **Operating System & Kernel:** No direct evidence was collected. The process list shows kernel threads (e.g., `[kthreadd]`, `[rcu_gp]`) and systemd processes, indicating a Linux system, but the specific distribution and kernel version are unknown.\n*   **CPU Usage:** **Unknown.** Evidence collection failed (`No route configured for capability: CPU Utilization`).\n*   **Memory Usage:** **Unknown.** Evidence collection failed (`No route configured for capability: Memory Utilization`).\n*   **Disk Usage:** **Unknown.** Evidence collection failed (`No route configured for capability: Disk Utilization`).\n*   **System Load:** **Operational.** The load average is 2.06 (1 min), 1.55 (5 min), 1.36 (15 min). This indicates a moderate load, but without CPU core count, it cannot be fully assessed.\n*   **Running Processes:** **Operational.** 477 processes are running. Key user-space services include `systemd`, `NetworkManager`, `snapd`, `cron`, `rsyslogd`, `gdm3`, `gnome-shell`, `ollama`, `chrome`, and `Zalo`. Kernel threads are also present.\n*   **Listening Ports:** **Unknown.** No evidence was provided for this subsystem.\n\n**3. Risks**\n\n*   **Missing Performance Data:** The inability to collect CPU, memory, and disk usage data represents a significant gap in the assessment. The system's performance health cannot be determined.\n*   **High Process Count:** 477 running processes is high for a standard workstation and may indicate resource contention or unnecessary services, though this cannot be confirmed without CPU/memory data.\n*   **Unverified Services:** The presence of `ollama` (AI model server) and multiple virtualization-related processes (`vmware-*`, `vmnet-*`) suggests a complex workload. Their resource impact is unknown.\n\n**4. Unknowns**\n\n*   **Operating System & Kernel Version:** Not determined. Evidence from `/etc/os-release` or `uname -a` would resolve this.\n*   **CPU, Memory, and Disk Utilization:** Not determined. Direct evidence from `top`, `free`, `df`, or similar commands is required.\n*   **Listening Ports:** Not determined. Evidence from `ss -tlnp` or `netstat -tlnp` is required.\n*   **CPU Core Count:** Not determined. This is needed to properly interpret the load average.\n\n**5. Recommendations**\n\n*   **Reconfigure Pipeline:** Investigate why the routes for CPU, Memory, and Disk Utilization capabilities are not configured. This is a pipeline configuration issue, not a system issue.\n*   **Collect Missing Evidence:** Once the pipeline is reconfigured, collect evidence for:\n    *   OS/Kernel version (`/etc/os-release`, `uname -a`)\n    *   CPU core count (`nproc`)\n    *   CPU, memory, and disk usage\n    *   Listening ports (`ss -tlnp`)\n*   **Review Running Services:** After performance data is available, review the necessity of the 477 running processes, particularly `ollama` and virtualization services, to optimize resource usage.",
+        "iterations": 1,
+        "elapsed": 32.797,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.7,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      },
+      {
+        "benchmark": "disk_nearly_full",
+        "domain": "scenario_investigation",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng? Cho t\u00f4i bi\u1ebft filesystem mount v\u00e0 dung l\u01b0\u1ee3ng c\u00f2n tr\u1ed1ng.",
+        "response": "**1. Summary**\nThe investigation attempted to assess localhost disk capacity, filesystem mount points, and free space. No evidence was collected because the pipeline had no routes configured for any of the required capabilities (Filesystem Discovery, Disk Utilization, Mount Point Discovery, or related storage health checks). The result is a complete absence of operational data.\n\n**2. Assessment per subsystem**\n\n| Subsystem | Status | Evidence |\n|-----------|--------|----------|\n| Filesystem Discovery | Unknown | No evidence collected. Capability returned error: \"No route configured\". |\n| Disk Utilization | Unknown | No evidence collected. Capability returned error: \"No route configured\". |\n| Mount Points | Unknown | No evidence collected. Capability returned error: \"No route configured\". |\n| RAID Health | Unknown | No evidence collected. Capability returned error: \"No route configured\". |\n| SMART Health | Unknown | No evidence collected. Capability returned error: \"No route configured\". |\n\n**3. Risks**\n- **Blind storage risk:** It is impossible to determine whether any disk is near full, over capacity, or has sufficient free space. This could lead to unplanned service disruption if a filesystem fills up.\n- **No baseline:** Without any disk usage or mount point data, capacity planning and alerting thresholds cannot be validated.\n\n**4. Unknowns**\n- Which filesystems are mounted on localhost and their mount points.\n- Used, available, and total capacity per filesystem.\n- Whether any filesystem is critically low on free space.\n- Health status of underlying physical disks (SMART, RAID).\n\n**Evidence that would resolve unknowns:** Successful execution of Filesystem Discovery (e.g., `df -h` or `lsblk` output) and Disk Utilization (e.g., `df` with usage percentages) for localhost.\n\n**5. Recommendations**\n- **Reconfigure pipeline:** Ensure the pipeline has routes configured for the following capabilities on localhost: Filesystem Discovery, Disk Utilization, and Mount Point Discovery.\n- **Re-collect evidence:** After routing is configured, re-run the investigation to obtain actual disk usage and mount point data.\n- **No other recommendations are supported by evidence** because no operational data exists.",
+        "iterations": 1,
+        "elapsed": 13.545,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.65,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      },
+      {
+        "benchmark": "memory_pressure",
+        "domain": "scenario_investigation",
+        "request": "Localhost \u0111ang b\u1ecb memory pressure. Ki\u1ec3m tra RAM usage, swap usage, process n\u00e0o \u0111ang d\u00f9ng nhi\u1ec1u RAM nh\u1ea5t.",
+        "response": "**1. Summary**\n\nThe investigation aimed to assess memory pressure on localhost by examining RAM usage, swap usage, and identifying the top memory-consuming processes. The pipeline successfully collected process and system load data. However, the core evidence required for a complete memory assessment (Memory Usage, Swap Usage) was not collected due to missing capability routes. The process list shows a high number of running processes (478), but memory percentages for individual processes are reported as `0.0` for the vast majority, which is inconsistent with a system under memory pressure.\n\n**2. Assessment per Subsystem**\n\n*   **Memory Usage (RAM):** **UNKNOWN.** No evidence was collected. The `Memory Utilization` capability failed with \"No route configured\".\n*   **Swap Usage:** **UNKNOWN.** No evidence was collected. The `Memory Utilization` capability, which would include swap data, failed.\n*   **Process Memory Consumption:** **INCONCLUSIVE.** While process data was collected, the `memory_percent` field for nearly all processes is `0.0`. This is likely a data formatting or parsing error in the evidence, as it is not physically possible for 478 processes to use 0% memory. The data cannot be used to identify top memory consumers.\n*   **System Load:** **ELEVATED.** The load average (1.46, 1.46, 1.33) on a system with 28 CPU cores (inferred from `cpuhp/0` to `cpuhp/27`) is low. This does not indicate CPU pressure but does not rule out memory pressure.\n\n**3. Risks**\n\n*   **Inability to Diagnose Memory Pressure:** The primary risk is that the core metrics (RAM usage, swap usage, per-process memory) required to diagnose the reported \"memory pressure\" are missing. Any action taken without this data could be misdirected or ineffective.\n*   **Potential for OOM (Out-of-Memory) Events:** The user reports memory pressure. Without swap and RAM usage data, the system could be at risk of the OOM killer activating, which would terminate processes unexpectedly. This risk is unconfirmed but plausible given the user's report.\n\n**4. Unknowns**\n\n*   **Total and Used Physical Memory (RAM):** Unknown. Evidence from `free -h` or `/proc/meminfo` is required.\n*   **Total and Used Swap Space:** Unknown. Evidence from `swapon --show` or `/proc/meminfo` is required.\n*   **Actual Memory Usage per Process:** Unknown. The collected process data is corrupted/unreliable. Evidence from a correctly formatted `ps aux --sort=-%mem` or `top -b -n 1` is required.\n*   **Cause of Memory Pressure:** Unknown. It could be a specific application (e.g., Chrome, Ollama, Zalo), a memory leak, or insufficient total RAM.\n\n**5. Recommendations**\n\n*   **Re-collect Core Memory Metrics:** The pipeline must be reconfigured to collect evidence for `Memory Utilization` and `Swap Usage`. The required capabilities are not currently routed.\n*   **Re-collect Process Data:** The pipeline must be reconfigured to collect process evidence with accurate, parseable memory percentages (e.g., using `ps aux --sort=-%mem | head -20`). The current data format is unusable for analysis.\n*   **No Action Until Evidence is Available:** No operational changes (e.g., killing processes, adding swap) should be made until the missing evidence is collected and analyzed.",
+        "iterations": 1,
+        "elapsed": 32.629,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.7,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      },
+      {
+        "benchmark": "network_troubleshoot",
+        "domain": "scenario_investigation",
+        "request": "Ki\u1ec3m tra network tr\u00ean localhost. Cho t\u00f4i bi\u1ebft c\u00e1c interface, IP address, default gateway, v\u00e0 DNS servers.",
+        "response": "**1. Summary**\n\nThe investigation aimed to assess the localhost network configuration, including interfaces, IP addresses, default gateway, and DNS servers. The evidence collection pipeline was unable to retrieve information for network interfaces, IP configuration, default gateway, or routing tables due to a configuration error (\"No route configured\"). Only DNS configuration and listening ports were successfully collected.\n\n**2. Assessment per Subsystem**\n\n| Subsystem | Status | Evidence |\n| :--- | :--- | :--- |\n| **Network Interfaces** | **Unknown** | No evidence collected. Capability failed with error: \"No route configured for capability: Network Interface Discovery\". |\n| **IP Configuration** | **Unknown** | No evidence collected. Capability failed with error: \"No route configured for capability: IP Configuration Assessment\". |\n| **Default Gateway** | **Unknown** | No evidence collected. Capability failed with error: \"No route configured for capability: Default Gateway Discovery\". |\n| **Routing Table** | **Unknown** | No evidence collected. Capability failed with error: \"No route configured for capability: Routing Table Assessment\". |\n| **DNS Configuration** | **Operational** | Evidence shows a single DNS nameserver configured: `127.0.0.53`. This is a local stub resolver (typically `systemd-resolved`). |\n| **Listening Ports** | **Operational** | Evidence shows 25 listening ports. Key localhost services include: `ollama` (127.0.0.1:11434), `opencode` (127.0.0.1:4096), and a DNS stub resolver (127.0.0.53:53). Multiple processes are listening on multicast address 224.0.0.251:5353 (mDNS). |\n| **Firewall** | **Unknown** | Evidence indicates the firewall backend is \"unknown\" and the active status is `null`. No conclusion can be drawn. |\n\n**3. Risks**\n\n- **Critical Evidence Gap:** The pipeline failed to collect core network configuration data (interfaces, IP, gateway, routing). This prevents any assessment of network connectivity, addressing, or routing health. The root cause is a pipeline configuration error, not a system issue.\n- **DNS Dependency:** The DNS resolver is set to `127.0.0.53`. If the local stub resolver (`systemd-resolved`) is misconfigured or not running, all DNS resolution will fail. This cannot be confirmed with current evidence.\n\n**4. Unknowns**\n\n- **Network Interfaces:** The list of physical and virtual network interfaces is unknown.\n- **IP Addresses:** The IP address(es) assigned to the localhost (e.g., `127.0.0.1`, any LAN IP) are unknown.\n- **Default Gateway:** The default gateway IP address is unknown.\n- **Routing Table:** The routing table contents (including the default route) are unknown.\n- **Firewall Status:** Whether a firewall is active or inactive is unknown.\n- **DNS Resolver Health:** Whether the `systemd-resolved` service is functioning correctly is unknown.\n\n**5. Recommendations**\n\n- **Re-run the pipeline:** The evidence collection pipeline has a configuration error for the \"IP Configuration Assessment\", \"Network Interface Discovery\", \"Default Gateway Discovery\", and \"Routing Table Assessment\" capabilities. These capabilities must be correctly routed to collect the missing evidence.\n- **Verify DNS resolver:** Once network configuration is available, verify that the `systemd-resolved` service is active and resolving names correctly, as the system depends on `127.0.0.53`.",
+        "iterations": 1,
+        "elapsed": 21.859,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.7,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      },
+      {
+        "benchmark": "service_diagnosis",
+        "domain": "scenario_investigation",
+        "request": "Service ssh kh\u00f4ng ho\u1ea1t \u0111\u1ed9ng. Ki\u1ec3m tra xem: ssh service c\u00f3 enabled kh\u00f4ng? Port 22 c\u00f3 \u0111ang listen kh\u00f4ng? C\u00f3 service n\u00e0o failed kh\u00f4ng?",
+        "response": "## Infrastructure Assessment Report\n\n### 1. Summary\nInvestigation focused on SSH service status, port 22 listening state, and overall service health. Evidence collected includes service status, running processes, and listening ports.\n\n**Key Finding:** SSH service (`ssh.service` or `sshd.service`) is **not present** in the system's service list. Port 22 is **not listening**. No failed services were detected.\n\n### 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n|-----------|--------|----------|\n| **SSH Service** | **NOT INSTALLED / NOT CONFIGURED** | Service list (67 services) does not include `ssh`, `sshd`, or any SSH-related service. |\n| **Port 22** | **NOT LISTENING** | Port discovery shows 25 listening ports; port 22 (TCP/UDP) is absent. |\n| **Service Health** | **NORMAL** | 0 failed services out of 67 total. All services are either `running` (36) or `exited` (31). |\n| **Service Configuration** | **UNKNOWN** | Evidence missing: \"No route configured for capability: Service Configuration Inspection\" |\n| **Service Logs** | **UNKNOWN** | Evidence missing: \"No route configured for capability: Service Log Discovery\" |\n| **Dependencies** | **UNKNOWN** | Evidence missing: \"No route configured for capability: Dependency Discovery\" |\n\n### 3. Risks\n\n| Risk | Justification |\n|------|---------------|\n| **SSH service is not installed** | No SSH-related service exists in the system's service list. SSH daemon (`sshd`) is not present. |\n| **No remote access capability** | Port 22 is not listening. Without SSH, remote administration is impossible. |\n| **Cannot determine why SSH is missing** | Service configuration and logs were not collected. Root cause (uninstalled vs. disabled vs. failed to start) is unknown. |\n\n### 4. Unknowns\n\n| Unknown | Required Evidence |\n|---------|-------------------|\n| Is SSH package installed? | Package inventory (e.g., `dpkg -l \\| grep ssh`) |\n| Was SSH ever configured? | Service configuration files (e.g., `/etc/ssh/sshd_config`) |\n| Why is SSH not running? | Service logs (e.g., `journalctl -u ssh` or `journalctl -u sshd`) |\n| Is SSH intentionally disabled? | Systemd unit status (e.g., `systemctl status ssh` or `systemctl status sshd`) |\n| Are there firewall rules blocking port 22? | Firewall rules (e.g., `ufw status`, `iptables -L`) |\n\n### 5. Recommendations\n\n| Action | Evidence Support |\n|--------|------------------|\n| **Install SSH server** | No SSH service or port 22 found. Install `openssh-server` package. |\n| **Enable and start SSH service** | After installation, run `systemctl enable --now ssh` (or `sshd`). |\n| **Verify port 22 is listening** | After starting SSH, re-run port discovery to confirm port 22 is open. |\n| **Check firewall rules** | If SSH is installed but port 22 is blocked, adjust firewall (e.g., `ufw allow 22`). |\n| **Collect missing evidence** | Obtain service configuration, logs, and package inventory to determine root cause. |",
+        "iterations": 1,
+        "elapsed": 33.487,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.7,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      },
+      {
+        "benchmark": "high_load_investigation",
+        "domain": "scenario_investigation",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra: CPU usage, load average, memory, process n\u00e0o \u0111ang ch\u1ea1y, v\u00e0 uptime.",
+        "response": "### 1. Summary\n\nThe investigation was initiated to assess a reported high load condition on localhost. The pipeline successfully collected evidence on **System Load Average** and **Process Discovery**. Evidence for **CPU Usage**, **Memory Usage**, **Disk Usage**, **I/O Performance**, and **Network Utilization** was not collected due to missing capability routes.\n\n**Findings:**\n- **Load Average:** The 1-minute load average is **2.05**, with 5-minute and 15-minute averages at 1.68 and 1.43 respectively.\n- **Processes:** 477 processes are running. The most CPU-intensive processes are Chrome-related (e.g., PID 61445 at 42.2%, PID 3517 at 24.8%, PID 4745 at 22.1%) and the GNOME Shell (PID 2193 at 7.0%). Memory percentages are low across all processes (max 1.2%).\n\n### 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n| :--- | :--- | :--- |\n| **System Load** | **DEGRADED** | Load average (1-min: 2.05) is elevated. This indicates the system is under significant load, consistent with the user report. |\n| **CPU Usage** | **UNKNOWN** | No evidence collected. Capability \"CPU Utilization\" returned an error (\"No route configured\"). |\n| **Memory Usage** | **UNKNOWN** | No evidence collected. Capability \"Memory Utilization\" returned an error. |\n| **Disk Usage** | **UNKNOWN** | No evidence collected. Capability \"Disk Utilization\" returned an error. |\n| **I/O Performance** | **UNKNOWN** | No evidence collected. Capability \"I/O Performance Assessment\" returned an error. |\n| **Network Utilization** | **UNKNOWN** | No evidence collected. Capability \"Network Utilization\" returned an error. |\n| **Process Health** | **DEGRADED** | Multiple Chrome processes are consuming significant CPU (e.g., PID 61445 at 42.2%). This is a likely contributor to the high load. |\n\n### 3. Risks\n\n- **High CPU Consumption by Browser:** Chrome processes (PIDs 61445, 3517, 3761, 4520, 4529, 4745) collectively account for a very high percentage of CPU usage. This is the most probable cause of the high load average and could lead to system unresponsiveness.\n- **Incomplete Diagnostic Data:** The inability to collect CPU, memory, disk, I/O, and network metrics prevents a complete root cause analysis. The system may have additional resource constraints (e.g., memory pressure, disk I/O bottlenecks) that are currently unknown.\n\n### 4. Unknowns\n\n- **CPU Utilization:** The exact percentage of CPU being used and per-core breakdown is unknown. This would help confirm if the high load is CPU-bound.\n- **Memory Utilization:** Total memory usage, swap usage, and available memory are unknown. This is critical to determine if the system is memory-constrained.\n- **Disk Utilization:** Disk space usage and I/O wait times are unknown. High disk I/O could also contribute to load.\n- **Network Utilization:** Network throughput and errors are unknown.\n- **I/O Statistics:** Read/write operations and latency are unknown.\n\n**Required Evidence:** To resolve these unknowns, the pipeline would need to successfully collect evidence for: CPU Usage, Memory Usage, Disk Usage, I/O Statistics, and Network Usage.\n\n### 5. Recommendations\n\n- **Investigate Chrome Processes:** The user should be advised to close unnecessary Chrome tabs or applications (especially PID 61445, 3517, 3761, 4520, 4529, 4745) to immediately reduce CPU load.\n- **Re-collect Missing Evidence:** The pipeline configuration should be reviewed to ensure routes for CPU, Memory, Disk, I/O, and Network capabilities are correctly configured. Re-running the assessment with these capabilities enabled is necessary for a complete diagnosis.\n- **Monitor System Resources:** After reducing browser load, the user should monitor the system load average to see if it returns to normal levels.",
+        "iterations": 1,
+        "elapsed": 36.332,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.7,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      }
+    ],
+    "overall": 0.69,
+    "metadata": {
+      "captured_at": "2026-07-11T17:34:46+0700",
+      "timestamp": 1783766086,
+      "git_commit": "d78ae72 fix(benchmark): wire metadata into reports, fix regression baseline matching, run_id, reproducibility",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
   }
 }

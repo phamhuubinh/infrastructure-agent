@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
@@ -16,17 +17,14 @@ from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.target_resolver import TargetResolver
-from src.tool.grafana_tool import GrafanaTool
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
-from src.tool.zabbix_tool import ZabbixTool
 
 
 def _load_server_config(
     server_name: str | None = None,
 ) -> dict[str, object]:
-    """Load model server configuration from servers.json."""
     config_path = Path("servers.json")
     if not config_path.exists():
         raise RuntimeError(
@@ -45,15 +43,67 @@ def _load_server_config(
     return dict(cfg)
 
 
+def _load_tools_config() -> dict[str, dict[str, Any]]:
+    """Load infrastructure tool configuration from tools.json.
+
+    Returns an empty dict if the file does not exist.
+    Each entry must have a "tool" field identifying the type.
+    """
+    config_path = Path("tools.json")
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text())
+        return dict(data) if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _register_tools(
+    registry: TargetRegistry,
+    tools_config: dict[str, dict[str, Any]],
+) -> None:
+    """Register tools from tools.json into the TargetRegistry.
+
+    Adding a supported tool type here is the only code change needed
+    when a new tool domain is added. The tool's credential configuration
+    lives in tools.json, not in source code.
+    """
+    for entry_name, cfg in tools_config.items():
+        tool_type = cfg.get("tool")
+        if tool_type == "zabbix":
+            from src.tool.zabbix_tool import ZabbixTool
+
+            registry.register_tool(
+                name=cfg.get("target", entry_name),
+                tool=ZabbixTool(
+                    url=str(cfg.get("url", "http://localhost/zabbix")),
+                    token=str(cfg.get("token", "")),
+                    timeout=int(cfg.get("timeout", 10)),
+                ),
+            )
+        elif tool_type == "grafana":
+            from src.tool.grafana_tool import GrafanaTool
+
+            registry.register_tool(
+                name=cfg.get("target", entry_name),
+                tool=GrafanaTool(
+                    url=str(cfg.get("url", "http://localhost:3000")),
+                    token=str(cfg.get("token", "")),
+                    timeout=int(cfg.get("timeout", 10)),
+                ),
+            )
+        # Future tool types can be added here with an elif block.
+        # Example:
+        # elif tool_type == "vmware":
+        #     from src.tool.vmware_tool import VMwareTool
+        #     registry.register_tool(name=cfg.get("target", entry_name), tool=VMwareTool(...))
+
+
 def _build_assessment_adapter(
     server_name: str | None = None,
     model: str | None = None,
 ) -> AssessmentModelAdapter:
-    """Build the appropriate assessment adapter.
-
-    If a server configuration is available, builds an LLMAssessmentAdapter.
-    Otherwise falls back to MockAssessmentAdapter.
-    """
     config = _load_server_config(server_name)
 
     base_url: str = str(config.get("base_url", "http://localhost:8000"))
@@ -74,8 +124,6 @@ def _build_assessment_adapter(
 
 def create_deterministic_agent(
     target_store_path: str = "targets.json",
-    register_zabbix: bool = True,
-    register_grafana: bool = True,
     server_name: str | None = None,
     model: str | None = None,
     assessment_adapter: AssessmentModelAdapter | None = None,
@@ -85,15 +133,11 @@ def create_deterministic_agent(
     This is the single Composition Root for the deterministic pipeline.
     All entry points (CLI, benchmark, test) construct the runtime here.
 
-    Responsibilities:
-    - wire TargetStore → TargetRegistry → KnowledgeTool
-    - wire all pipeline components into ExecutionEngine
-    - wire ExecutionEngine + AssessmentAdapter into DeterministicAgent
+    Infrastructure tools (Zabbix, Grafana, etc.) are configured via
+    tools.json — credentials never appear in source code.
 
     Args:
         target_store_path: Path to the targets configuration file.
-        register_zabbix: Whether to register the Zabbix tool.
-        register_grafana: Whether to register the Grafana tool.
         server_name: Name of the model server from servers.json.
         model: Override model name (overrides servers.json model).
         assessment_adapter: Optional pre-built assessment adapter.
@@ -105,20 +149,9 @@ def create_deterministic_agent(
     store = TargetStore(path=target_store_path)
     registry = TargetRegistry(store=store)
 
-    if register_zabbix:
-        registry.register_tool(
-            name="zabbix",
-            tool=ZabbixTool(
-                url="http://192.168.10.222/zabbix",
-                token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
-            ),
-        )
-
-    if register_grafana:
-        registry.register_tool(
-            name="grafana",
-            tool=GrafanaTool(),
-        )
+    # Register infrastructure tools from tools.json (not from hardcoded code).
+    tools_config = _load_tools_config()
+    _register_tools(registry, tools_config)
 
     kt = KnowledgeTool(target_registry=registry)
 
