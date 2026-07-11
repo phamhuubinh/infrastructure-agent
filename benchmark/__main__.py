@@ -4,28 +4,77 @@ import argparse
 import sys
 from typing import Any
 
-from benchmark.dataset import BENCHMARKS, Benchmark
+from benchmark.dataset import BENCHMARKS
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
 
 
-def _mock_model_run(request: str) -> str:
+def _build_deterministic_runtime():
+    """Build and return a DeterministicAgent for benchmark execution.
+
+    This is the production runtime. Benchmarks must validate the same
+    runtime used by CLI (default mode).
     """
-    Mock agent execution for benchmark testing.
-    In production this would call the real Agent.
-    """
-    from src.shared.discovery.observation import Observation
-    from src.shared.reasoning.action import Action
-    from src.shared.reasoning.final_response import FinalResponse
+    from src.pipeline.capability_resolver import CapabilityResolver
+    from src.pipeline.evidence_merge import EvidenceMerge
+    from src.pipeline.evidence_planner import EvidencePlanner
+    from src.pipeline.execution_engine import ExecutionEngine
+    from src.pipeline.execution_graph import ExecutionGraphBuilder
+    from src.pipeline.execution_planner import ExecutionPlanner
+    from src.pipeline.intent_resolver import IntentResolver
+    from src.pipeline.target_resolver import TargetResolver
+    from src.tool.grafana_tool import GrafanaTool
+    from src.tool.knowledge_tool import KnowledgeTool
+    from src.tool.target_registry import TargetRegistry
+    from src.tool.target_store import TargetStore
+    from src.tool.zabbix_tool import ZabbixTool
+
+    store = TargetStore()
+    registry = TargetRegistry(store=store)
+    registry.register_tool(
+        name="zabbix",
+        tool=ZabbixTool(
+            url="http://192.168.10.222/zabbix",
+            token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
+        ),
+    )
+    registry.register_tool(
+        name="grafana",
+        tool=GrafanaTool(),
+    )
+    kt = KnowledgeTool(target_registry=registry)
+
+    engine = ExecutionEngine(
+        intent_resolver=IntentResolver(),
+        target_resolver=TargetResolver(),
+        evidence_planner=EvidencePlanner(),
+        capability_resolver=CapabilityResolver(),
+        execution_planner=ExecutionPlanner(),
+        graph_builder=ExecutionGraphBuilder(),
+        knowledge_tool=kt,
+        evidence_merge=EvidenceMerge(),
+    )
+
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.mock_assessment_adapter import MockAssessmentAdapter
+
+    return DeterministicAgent(
+        execution_engine=engine,
+        assessment_model=MockAssessmentAdapter(),
+    )
+
+
+def _build_legacy_runtime():
+    """Build and return a legacy ReAct Agent for benchmark compatibility."""
     from src.agent.agent import Agent
     from src.model.mock_model_adapter import MockModelAdapter
+    from src.tool.grafana_tool import GrafanaTool
     from src.tool.knowledge_tool import KnowledgeTool
     from src.tool.shell_tool import ShellTool
     from src.tool.target_registry import TargetRegistry
     from src.tool.target_store import TargetStore
     from src.tool.tool_registry import ToolRegistry
     from src.tool.zabbix_tool import ZabbixTool
-    from src.tool.grafana_tool import GrafanaTool
 
     store = TargetStore()
     registry = TargetRegistry(store=store)
@@ -47,19 +96,24 @@ def _mock_model_run(request: str) -> str:
         tool=KnowledgeTool(target_registry=registry),
     )
     kt = KnowledgeTool(target_registry=registry)
-    agent = Agent(
+    return Agent(
         model=MockModelAdapter(),
         tool_registry=tool_registry,
         available_resources=registry.target_names() and kt.get_available_resources(),
         capability_metadata=registry.target_names() and kt.get_capability_metadata(),
     )
-    return agent.run(request)
 
 
 def _run_benchmarks(
     domain: str | None,
     export_json: bool,
+    use_legacy: bool = False,
 ) -> list[dict[str, Any]]:
+    if use_legacy:
+        agent = _build_legacy_runtime()
+    else:
+        agent = _build_deterministic_runtime()
+
     benchmarks = [b for b in BENCHMARKS if domain is None or b.domain == domain]
 
     results: list[dict[str, Any]] = []
@@ -68,28 +122,21 @@ def _run_benchmarks(
         print(f"  [{bm.domain}] {bm.name}... ", end="", flush=True)
         try:
             import time
+
             t0 = time.perf_counter()
-            response = _mock_model_run(bm.request)
+            response = agent.run(bm.request)
             elapsed = time.perf_counter() - t0
-            iterations = 0
-            cap_sequence: list[str] = []
             errors: list[str] = []
 
-            import json as _json
-            try:
-                action_or_final = _json.loads(response) if isinstance(response, str) else None
-            except Exception:
-                pass
-
-            scores_dict = score(bm, cap_sequence, iterations, response, errors)
+            scores_dict = score(bm, [], 1, response, errors)
             results.append({
                 "benchmark": bm.name,
                 "domain": bm.domain,
                 "request": bm.request,
                 "response": response,
-                "iterations": iterations,
+                "iterations": 1,
                 "elapsed": round(elapsed, 3),
-                "capability_sequence": cap_sequence,
+                "capability_sequence": [],
                 "errors": errors,
                 "scores": scores_dict,
                 "exception": None,
@@ -119,7 +166,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="AI Agent Benchmark Suite")
     parser.add_argument(
         "--domain", type=str, default=None,
-        choices=["linux", "remote", "zabbix", "safety", "generic"],
         help="Run only benchmarks for a specific domain"
     )
     parser.add_argument(
@@ -130,12 +176,17 @@ def main() -> None:
         "--model", type=str, default=None,
         help="Model name for comparison (not yet implemented)"
     )
+    parser.add_argument(
+        "--legacy", action="store_true",
+        help="Use legacy ReAct runtime instead of deterministic pipeline"
+    )
     args = parser.parse_args()
 
-    print("\nBenchmark Suite")
+    runtime_label = "legacy ReAct" if args.legacy else "deterministic"
+    print(f"\nBenchmark Suite ({runtime_label} runtime)")
     print("=" * 60)
 
-    results = _run_benchmarks(args.domain, args.json)
+    results = _run_benchmarks(args.domain, args.json, use_legacy=args.legacy)
 
     print()
     if args.json:
