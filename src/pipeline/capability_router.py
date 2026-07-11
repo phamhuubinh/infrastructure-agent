@@ -31,6 +31,7 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "filesystem": "Filesystem Information",
     "disk_usage": "Disk Utilization",
     "mount": "Mount Point Discovery",
+    "filesystem_discovery": "Filesystem Discovery",
     "smart": "SMART Health Assessment",
     "raid": "RAID Health Assessment",
     # ---- Linux network ----
@@ -49,6 +50,7 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "dependencies": "Dependency Discovery",
     "processes": "Process Discovery",
     "packages": "Package Discovery",
+    "service_discovery": "Service Discovery",
     "container": "Container Discovery",
     # ---- Linux config & environment ----
     "config": "Configuration Inspection",
@@ -116,8 +118,7 @@ class CapabilityRouter:
                     if op_name is None:
                         continue
                     # Only register if this operational capability exists in the library
-                    if op_name not in CAPABILITY_BY_EVIDENCE.values() and \
-                       op_name not in [v for v in CAPABILITY_BY_EVIDENCE.values()]:
+                    if op_name not in CAPABILITY_BY_EVIDENCE.values():
                         continue
                     # Register route if not already registered (first source wins)
                     if op_name not in self._routes:

@@ -10,6 +10,12 @@ from src.tool.tool import Tool
 
 
 def _tool_capabilities(tool: Tool) -> list[str]:
+    """Return the list of capability names exposed by a Tool module.
+
+    Used by get_capabilities() for lightweight name-only discovery.
+    The full metadata (covers, category, intents, related) is available
+    via get_capability_metadata().
+    """
     mod = inspect.getmodule(type(tool))
     if mod is not None and hasattr(mod, "_CAPABILITIES"):
         return list(mod._CAPABILITIES.keys())
@@ -17,19 +23,21 @@ def _tool_capabilities(tool: Tool) -> list[str]:
 
 
 class KnowledgeTool(Tool):
-    """
-    Tool tổng (dispatcher). Đây là Tool duy nhất Model biết tới.
+    """Single dispatch entry point for all infrastructure tool execution.
 
-    KnowledgeTool nhận request {"source", "resource"} từ Agent, xác định
-    Tool con phụ trách "source", chuyển tiếp "resource" cho Tool con dưới
-    dạng "action", và trả nguyên ToolResult mà Tool con sinh ra.
+    KnowledgeTool owns exactly one responsibility: route a (source, resource)
+    pair to the correct Child Tool registered in the TargetRegistry.
 
-    KnowledgeTool không truy cập Environment, không chạy shell command,
-    không biết Linux command hay bất kỳ command nào của Tool con -- nó
-    chỉ biết Tool con nào phụ trách source nào.
+    It does NOT:
+    - access infrastructure directly
+    - execute shell commands
+    - know about individual tool implementations
+    - perform reasoning or assessment
 
-    Để thêm domain mới (Docker, VMware...): tạo Tool con mới rồi thêm
-    một entry vào _child_tools. Không cần sửa gì khác trong KnowledgeTool.
+    Adding a new infrastructure domain (Docker, VMware, ...):
+    - Create a new Child Tool class
+    - Register it in the TargetRegistry (via tools.json or directly)
+    - No changes needed in KnowledgeTool
     """
 
     def __init__(
@@ -42,14 +50,17 @@ class KnowledgeTool(Tool):
         self._registry = target_registry
 
     def get_capabilities(self) -> dict[str, list[str]]:
+        """Return mapping from target name to list of capability names.
+
+        Lightweight discovery — returns only capability names.
+        For full metadata (covers, category, intents), use
+        get_capability_metadata().
+        """
         caps: dict[str, list[str]] = {}
         for name in self._registry.target_names():
             tool = self._registry.get_tool(name)
             caps[name] = _tool_capabilities(tool)
         return caps
-
-    def get_available_resources(self) -> dict[str, list[str]]:
-        return self.get_capabilities()
 
     def execute(
         self,
@@ -80,10 +91,19 @@ class KnowledgeTool(Tool):
 
         return child_tool.execute(child_args)
 
-    def get_child_tool(self, source: str) -> Tool:
-        return self._registry.get_tool(source)
-
     def get_capability_metadata(self) -> dict[str, list[dict[str, object]]]:
+        """Return full capability metadata for every registered target.
+
+        Each capability entry includes:
+        - name: the capability identifier
+        - category: functional category (system, network, storage, ...)
+        - intents: related investigation intents
+        - related: related capability names (dependency hints)
+        - covers: convention tags for operational capability routing
+
+        The handler field (implementation function) is intentionally
+        excluded — it is an internal implementation detail of each tool.
+        """
         result: dict[str, list[dict[str, object]]] = {}
         for name in self._registry.target_names():
             tool = self._registry.get_tool(name)

@@ -220,6 +220,46 @@ def test_discovers_linux_and_zabbix_have_different_capabilities() -> None:
     assert "get_ssh" not in caps["zabbix"]
 
 
+def test_get_capability_metadata_structure() -> None:
+    """get_capability_metadata returns structured capability metadata."""
+    tool = KnowledgeTool()
+    meta = tool.get_capability_metadata()
+
+    assert "localhost" in meta
+    localhost_caps = meta["localhost"]
+    assert len(localhost_caps) > 10
+
+    get_system = [c for c in localhost_caps if c["name"] == "get_system"]
+    assert len(get_system) == 1
+    sys_entry = get_system[0]
+    assert "category" in sys_entry
+    assert "intents" in sys_entry
+    assert "related" in sys_entry
+    assert "covers" in sys_entry
+    assert "handler" not in sys_entry
+
+
+def test_get_capability_metadata_registered_tools() -> None:
+    """All registered tools should appear in metadata."""
+    from src.tool.zabbix_tool import ZabbixTool
+
+    registry = TargetRegistry()
+    registry.add("localhost")
+    registry.register_tool("zabbix", ZabbixTool(url="http://x", token="x"))
+    tool = KnowledgeTool(target_registry=registry)
+
+    meta = tool.get_capability_metadata()
+    assert "localhost" in meta
+    assert "zabbix" in meta
+    assert len(meta["zabbix"]) > 0
+
+
+def test_get_capability_metadata_empty_registry() -> None:
+    registry = TargetRegistry()
+    tool = KnowledgeTool(target_registry=registry)
+    assert tool.get_capability_metadata() == {}
+
+
 def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
     """
     End-to-end sanity check with the real LinuxTool (no monkeypatch):
