@@ -19,6 +19,7 @@ from src.tool.knowledge_tool import KnowledgeTool
 # an entry should be added here if no existing covers tag matches.
 
 _COVERS_TO_OPERATIONAL: dict[str, str] = {
+    # ---- Linux system ----
     "system-identity": "System Information",
     "cpu": "CPU Information",
     "cpu_usage": "CPU Utilization",
@@ -32,6 +33,7 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "mount": "Mount Point Discovery",
     "smart": "SMART Health Assessment",
     "raid": "RAID Health Assessment",
+    # ---- Linux network ----
     "network": "Network Information",
     "interface": "Network Interface Discovery",
     "ip": "IP Configuration Assessment",
@@ -40,6 +42,7 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "routing": "Routing Table Assessment",
     "listening-ports": "Port Discovery",
     "network_usage": "Network Utilization",
+    # ---- Linux services & processes ----
     "services": "Service Status",
     "service_config": "Service Configuration Inspection",
     "service_logs": "Service Log Discovery",
@@ -47,28 +50,27 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "processes": "Process Discovery",
     "packages": "Package Discovery",
     "container": "Container Discovery",
+    # ---- Linux config & environment ----
     "config": "Configuration Inspection",
     "load": "System Load Assessment",
     "system-time": "Time Synchronization",
     "system-logs": "Log Discovery",
     "io": "I/O Performance Assessment",
     "env": "Environment Variable Discovery",
+    # ---- Linux security ----
     "secure-boot": "Secure Boot Status",
     "apparmor": "AppArmor Status",
     "selinux": "SELinux Status",
     "ssh": "SSH Configuration Inspection",
     "firewall": "Firewall Inspection",
-    "secure-boot": "Secure Boot Status",
-    "apparmor": "AppArmor Status",
-    "selinux": "SELinux Status",
     "sessions": "Recent Login Discovery",
     "certificates": "Certificate Discovery",
-    # Monitoring
+    # ---- Zabbix monitoring ----
     "zabbix-problems": "Monitoring Problems",
     "zabbix-triggers": "Alert Triggers",
     "zabbix-hosts": "Host Status Assessment",
     "zabbix-events": "Event History Discovery",
-    # Grafana
+    # ---- Grafana ----
     "dashboards": "Dashboard Discovery",
     "datasources": "Data Source Discovery",
 }

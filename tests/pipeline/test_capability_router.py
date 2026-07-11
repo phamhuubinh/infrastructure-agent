@@ -77,6 +77,33 @@ class TestCapabilityRouter:
         assert route is not None
         assert route == ("localhost", "get_listening_ports")
 
+    def test_cpu_utilization_routed(self) -> None:
+        """CPU Utilization should route to get_cpu_usage (now has cpu_usage covers tag)."""
+        router, _ = _build_router()
+        route = router.resolve("CPU Utilization")
+        assert route is not None, "CPU Utilization should have a route"
+        assert route == ("localhost", "get_cpu_usage")
+
+    def test_memory_utilization_routed(self) -> None:
+        """Memory Utilization should route to get_memory (now has memory_usage covers tag)."""
+        router, _ = _build_router()
+        route = router.resolve("Memory Utilization")
+        assert route is not None, "Memory Utilization should have a route"
+        assert route == ("localhost", "get_memory")
+
+    def test_disk_utilization_routed(self) -> None:
+        """Disk Utilization should route to get_disk_usage."""
+        router, _ = _build_router()
+        route = router.resolve("Disk Utilization")
+        assert route is not None, "Disk Utilization should have a route"
+        assert route == ("localhost", "get_disk_usage")
+
+    def test_certificate_discovery_routed(self) -> None:
+        router, _ = _build_router()
+        route = router.resolve("Certificate Discovery")
+        assert route is not None
+        assert route == ("localhost", "get_certificate")
+
     def test_available_routes_returns_list(self) -> None:
         router, _ = _build_router()
         routes = router.available_routes()
