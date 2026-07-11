@@ -1,31 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 
 from src.agent.runtime_factory import create_deterministic_agent
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
-
-
-def _load_server_config(name: str | None = None) -> dict[str, object]:
-    config_path = Path("servers.json")
-    if not config_path.exists():
-        raise RuntimeError("servers.json not found.")
-    data = json.loads(config_path.read_text())
-    servers: dict[str, object] = data.get("servers", {})
-    if name is None:
-        name = data.get("active_server", "")
-    cfg = servers.get(name)
-    if cfg is None:
-        available = ", ".join(sorted(servers))
-        raise RuntimeError(
-            f"Server {name!r} not found. Available servers: {available}"
-        )
-    return dict(cfg)
 
 
 def _add_target(args: argparse.Namespace) -> None:
@@ -78,9 +59,13 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
-    agent = create_deterministic_agent(target_store_path=args.target_file)
+    agent = create_deterministic_agent(
+        target_store_path=args.target_file,
+        server_name=args.server,
+        model=args.model,
+    )
 
-    print("Deterministic pipeline is ready (mock assessment).")
+    print("Deterministic pipeline is ready.")
     print("Type 'exit' to quit.")
 
     while True:
@@ -104,6 +89,14 @@ def main() -> None:
     parser.add_argument(
         "--target-file", type=str, default="targets.json",
         help="Execution target configuration file"
+    )
+    parser.add_argument(
+        "--server", type=str, default=None,
+        help="Model server name from servers.json (default: active_server)"
+    )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        help="Override model name (overrides servers.json)"
     )
     parser.add_argument(
         "--verbose", action="store_true",
