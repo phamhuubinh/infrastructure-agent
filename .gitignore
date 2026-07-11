@@ -16,3 +16,6 @@ __pycache__/
 .venv/
 
 .vscode/
+
+# Benchmark history (auto-generated, environment-specific)
+.benchmark_history.json

@@ -1,0 +1,404 @@
+From c24353c78ca5dbe963cdf5bf45b961cddded79ce Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Sat, 11 Jul 2026 18:03:14 +0700
+Subject: [PATCH] refactor(runtime): complete configuration-driven tool
+ registration
+
+---
+ src/agent/runtime_factory.py            | 174 +++++++++++++++++++-----
+ tests/agent/test_deterministic_agent.py | 129 +++++++++++++++++-
+ 2 files changed, 265 insertions(+), 38 deletions(-)
+
+diff --git a/src/agent/runtime_factory.py b/src/agent/runtime_factory.py
+index 31419c7..f764333 100644
+--- a/src/agent/runtime_factory.py
++++ b/src/agent/runtime_factory.py
+@@ -1,6 +1,7 @@
+ from __future__ import annotations
+ 
+ import json
++import sys
+ from pathlib import Path
+ from typing import Any
+ 
+@@ -22,13 +23,18 @@ from src.tool.target_registry import TargetRegistry
+ from src.tool.target_store import TargetStore
+ 
+ 
++# ---------------------------------------------------------------------------
++# Model server configuration (servers.json)
++# ---------------------------------------------------------------------------
++
+ def _load_server_config(
+     server_name: str | None = None,
+ ) -> dict[str, object]:
+     config_path = Path("servers.json")
+     if not config_path.exists():
+         raise RuntimeError(
+-            "servers.json not found. Create a servers.json with model configuration."
++            "servers.json not found. "
++            "Create a servers.json with model configuration."
+         )
+     data = json.loads(config_path.read_text())
+     servers: dict[str, object] = data.get("servers", {})
+@@ -38,67 +44,157 @@ def _load_server_config(
+     if cfg is None:
+         available = ", ".join(sorted(servers))
+         raise RuntimeError(
+-            f"Server {server_name!r} not found. Available servers: {available}"
++            f"Server {server_name!r} not found. "
++            f"Available servers: {available}"
+         )
+     return dict(cfg)
+ 
+ 
++# ---------------------------------------------------------------------------
++# Infrastructure tool configuration (tools.json)
++# ---------------------------------------------------------------------------
++# Supported tool types and their required config fields.
++# Adding a new tool type requires:
++#   1. An entry in _SUPPORTED_TOOL_TYPES
++#   2. An import and construction block in _register_single_tool
++
++_SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
++    "zabbix": ("url", "token"),
++    "grafana": ("url", "token"),
++}
++
++
+ def _load_tools_config() -> dict[str, dict[str, Any]]:
+     """Load infrastructure tool configuration from tools.json.
+ 
+     Returns an empty dict if the file does not exist.
+-    Each entry must have a "tool" field identifying the type.
++    Prints a warning to stderr for invalid JSON or read errors.
+     """
+     config_path = Path("tools.json")
+     if not config_path.exists():
+         return {}
+     try:
+-        data = json.loads(config_path.read_text())
+-        return dict(data) if isinstance(data, dict) else {}
+-    except (json.JSONDecodeError, OSError):
++        raw = config_path.read_text()
++        data = json.loads(raw)
++        if not isinstance(data, dict):
++            print(
++                "Warning: tools.json must contain a JSON object at top level. "
++                "Skipping tool registration.",
++                file=sys.stderr,
++            )
++            return {}
++        return dict(data)
++    except json.JSONDecodeError as exc:
++        print(
++            f"Warning: tools.json contains invalid JSON ({exc}). "
++            f"Skipping tool registration.",
++            file=sys.stderr,
++        )
++        return {}
++    except OSError as exc:
++        print(
++            f"Warning: Cannot read tools.json ({exc}). "
++            f"Skipping tool registration.",
++            file=sys.stderr,
++        )
+         return {}
+ 
+ 
++def _register_single_tool(
++    registry: TargetRegistry,
++    entry_name: str,
++    cfg: dict[str, Any],
++) -> None:
++    """Register one tool from a tools.json entry.
++
++    Validates the entry, constructs the tool, and registers it.
++    Prints a warning for invalid entries instead of crashing.
++    """
++    tool_type = cfg.get("tool")
++    if not isinstance(tool_type, str) or not tool_type:
++        print(
++            f"Warning: tools.json entry '{entry_name}' is missing "
++            f"a valid 'tool' field. Skipping.",
++            file=sys.stderr,
++        )
++        return
++
++    if tool_type not in _SUPPORTED_TOOL_TYPES:
++        supported = ", ".join(sorted(_SUPPORTED_TOOL_TYPES))
++        print(
++            f"Warning: Unknown tool type '{tool_type}' in "
++            f"tools.json entry '{entry_name}'. "
++            f"Supported types: {supported}. Skipping.",
++            file=sys.stderr,
++        )
++        return
++
++    # Validate required fields.
++    required_fields = _SUPPORTED_TOOL_TYPES[tool_type]
++    missing = [f for f in required_fields if not cfg.get(f)]
++    if missing:
++        print(
++            f"Warning: tools.json entry '{entry_name}' of type "
++            f"'{tool_type}' is missing required fields: "
++            f"{', '.join(missing)}. Skipping.",
++            file=sys.stderr,
++        )
++        return
++
++    target_name = str(cfg.get("target", entry_name))
++
++    if tool_type == "zabbix":
++        from src.tool.zabbix_tool import ZabbixTool
++
++        tool = ZabbixTool(
++            url=str(cfg["url"]),
++            token=str(cfg["token"]),
++            timeout=int(cfg.get("timeout", 10)),
++        )
++    elif tool_type == "grafana":
++        from src.tool.grafana_tool import GrafanaTool
++
++        tool = GrafanaTool(
++            url=str(cfg["url"]),
++            token=str(cfg["token"]),
++            timeout=int(cfg.get("timeout", 10)),
++        )
++    else:
++        return  # pragma: no cover — unreachable due to _SUPPORTED_TOOL_TYPES check
++
++    try:
++        registry.register_tool(name=target_name, tool=tool)
++    except ValueError as exc:
++        print(
++            f"Warning: Failed to register tool '{target_name}' "
++            f"from tools.json entry '{entry_name}': {exc}",
++            file=sys.stderr,
++        )
++
++
+ def _register_tools(
+     registry: TargetRegistry,
+     tools_config: dict[str, dict[str, Any]],
+ ) -> None:
+-    """Register tools from tools.json into the TargetRegistry.
++    """Register all tools from tools.json into the TargetRegistry.
+ 
+-    Adding a supported tool type here is the only code change needed
+-    when a new tool domain is added. The tool's credential configuration
+-    lives in tools.json, not in source code.
++    Each entry is validated and registered independently.
++    A single invalid entry does not block other entries.
+     """
+     for entry_name, cfg in tools_config.items():
+-        tool_type = cfg.get("tool")
+-        if tool_type == "zabbix":
+-            from src.tool.zabbix_tool import ZabbixTool
+-
+-            registry.register_tool(
+-                name=cfg.get("target", entry_name),
+-                tool=ZabbixTool(
+-                    url=str(cfg.get("url", "http://localhost/zabbix")),
+-                    token=str(cfg.get("token", "")),
+-                    timeout=int(cfg.get("timeout", 10)),
+-                ),
++        if not isinstance(cfg, dict):
++            print(
++                f"Warning: tools.json entry '{entry_name}' is not a JSON object. "
++                f"Skipping.",
++                file=sys.stderr,
+             )
+-        elif tool_type == "grafana":
+-            from src.tool.grafana_tool import GrafanaTool
+-
+-            registry.register_tool(
+-                name=cfg.get("target", entry_name),
+-                tool=GrafanaTool(
+-                    url=str(cfg.get("url", "http://localhost:3000")),
+-                    token=str(cfg.get("token", "")),
+-                    timeout=int(cfg.get("timeout", 10)),
+-                ),
+-            )
+-        # Future tool types can be added here with an elif block.
+-        # Example:
+-        # elif tool_type == "vmware":
+-        #     from src.tool.vmware_tool import VMwareTool
+-        #     registry.register_tool(name=cfg.get("target", entry_name), tool=VMwareTool(...))
++            continue
++        _register_single_tool(registry, entry_name, cfg)
++
+ 
++# ---------------------------------------------------------------------------
++# Assessment adapter construction
++# ---------------------------------------------------------------------------
+ 
+ def _build_assessment_adapter(
+     server_name: str | None = None,
+@@ -122,6 +218,10 @@ def _build_assessment_adapter(
+     return LLMAssessmentAdapter(client=client)
+ 
+ 
++# ---------------------------------------------------------------------------
++# Public entry point
++# ---------------------------------------------------------------------------
++
+ def create_deterministic_agent(
+     target_store_path: str = "targets.json",
+     server_name: str | None = None,
+diff --git a/tests/agent/test_deterministic_agent.py b/tests/agent/test_deterministic_agent.py
+index 785f6dc..1f3921a 100644
+--- a/tests/agent/test_deterministic_agent.py
++++ b/tests/agent/test_deterministic_agent.py
+@@ -6,6 +6,7 @@ from unittest import mock
+ 
+ from src.agent.deterministic_agent import DeterministicAgent
+ from src.agent.runtime_factory import create_deterministic_agent
++from src.agent.runtime_factory import _load_tools_config, _SUPPORTED_TOOL_TYPES
+ 
+ 
+ def test_deterministic_agent_runs_pipeline() -> None:
+@@ -25,9 +26,58 @@ def test_pipeline_only() -> None:
+     assert request.intent is not None
+ 
+ 
++# ---------------------------------------------------------------------------
++# tools.json loading
++# ---------------------------------------------------------------------------
++
++
++def test_no_tools_file_returns_empty() -> None:
++    with mock.patch("pathlib.Path.exists", return_value=False):
++        config = _load_tools_config()
++        assert config == {}
++
++
++def test_invalid_json_returns_empty() -> None:
++    with mock.patch.object(Path, "exists", return_value=True):
++        with mock.patch.object(Path, "read_text", return_value="not json"):
++            config = _load_tools_config()
++            assert config == {}
++
++
++def test_non_dict_json_returns_empty() -> None:
++    with mock.patch.object(Path, "exists", return_value=True):
++        with mock.patch.object(Path, "read_text", return_value='"string"'):
++            config = _load_tools_config()
++            assert config == {}
++
++
++def test_oserror_returns_empty() -> None:
++    with mock.patch.object(Path, "exists", return_value=True):
++        with mock.patch.object(Path, "read_text", side_effect=OSError("denied")):
++            config = _load_tools_config()
++            assert config == {}
++
++
++def test_valid_config_loaded() -> None:
++    data = {
++        "zabbix": {
++            "tool": "zabbix", "url": "http://z", "token": "t",
++            "target": "zabbix",
++        },
++    }
++    with mock.patch.object(Path, "exists", return_value=True):
++        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
++            config = _load_tools_config()
++            assert config == data
++
++
++# ---------------------------------------------------------------------------
++# Tool registration edge cases
++# ---------------------------------------------------------------------------
++
++
+ @mock.patch("src.agent.runtime_factory._load_tools_config")
+ def test_tools_loaded_from_config(mock_load: mock.Mock) -> None:
+-    """Verify that tools are registered from tools.json config."""
+     mock_load.return_value = {
+         "zabbix": {
+             "tool": "zabbix",
+@@ -45,3 +95,80 @@ def test_tools_loaded_from_config(mock_load: mock.Mock) -> None:
+     agent = create_deterministic_agent()
+     request = agent.execute_pipeline_only("check health")
+     assert len(request.evidence) > 0
++
++
++@mock.patch("src.agent.runtime_factory._load_tools_config")
++def test_missing_tool_field_skips_entry(mock_load: mock.Mock) -> None:
++    mock_load.return_value = {
++        "bad_entry": {"url": "http://test"},
++    }
++    # Should not crash — just skip
++    agent = create_deterministic_agent()
++    request = agent.execute_pipeline_only("check health")
++    assert len(request.evidence) > 0
++
++
++@mock.patch("src.agent.runtime_factory._load_tools_config")
++def test_unknown_tool_type_skips_entry(mock_load: mock.Mock) -> None:
++    mock_load.return_value = {
++        "vmware": {
++            "tool": "vmware", "url": "http://v", "token": "t",
++        },
++    }
++    agent = create_deterministic_agent()
++    request = agent.execute_pipeline_only("check health")
++    assert len(request.evidence) > 0
++
++
++@mock.patch("src.agent.runtime_factory._load_tools_config")
++def test_missing_required_fields_skips_entry(mock_load: mock.Mock) -> None:
++    mock_load.return_value = {
++        "zabbix": {
++            "tool": "zabbix",
++            # missing url and token
++        },
++    }
++    agent = create_deterministic_agent()
++    request = agent.execute_pipeline_only("check health")
++    assert len(request.evidence) > 0
++
++
++@mock.patch("src.agent.runtime_factory._load_tools_config")
++def test_duplicate_target_name_handled(mock_load: mock.Mock) -> None:
++    mock_load.return_value = {
++        "zabbix1": {
++            "tool": "zabbix", "url": "http://z1", "token": "t1",
++            "target": "zabbix",
++        },
++        "zabbix2": {
++            "tool": "zabbix", "url": "http://z2", "token": "t2",
++            "target": "zabbix",  # same target name as zabbix1
++        },
++    }
++    # Should not crash — second entry should warn about duplicate
++    agent = create_deterministic_agent()
++    request = agent.execute_pipeline_only("check health")
++    assert len(request.evidence) > 0
++
++
++@mock.patch("src.agent.runtime_factory._load_tools_config")
++def test_non_dict_entry_skipped(mock_load: mock.Mock) -> None:
++    mock_load.return_value = {
++        "bad_entry": "not a dict",
++    }
++    agent = create_deterministic_agent()
++    request = agent.execute_pipeline_only("check health")
++    assert len(request.evidence) > 0
++
++
++# ---------------------------------------------------------------------------
++# Supported tool types
++# ---------------------------------------------------------------------------
++
++
++def test_supported_tool_types_defined() -> None:
++    assert "zabbix" in _SUPPORTED_TOOL_TYPES
++    assert "grafana" in _SUPPORTED_TOOL_TYPES
++    for tool_type, required in _SUPPORTED_TOOL_TYPES.items():
++        assert "url" in required
++        assert "token" in required
+-- 
+2.34.1
+
