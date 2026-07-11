@@ -68,6 +68,7 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     # ---- Zabbix monitoring ----
     "zabbix-problems": "Monitoring Problems",
     "zabbix-triggers": "Alert Triggers",
+    "alert_severity": "Alert Severity Assessment",
     "zabbix-hosts": "Host Status Assessment",
     "zabbix-events": "Event History Discovery",
     # ---- Grafana ----

@@ -1084,14 +1084,14 @@ def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 _CAPABILITIES: dict[str, Capability] = {
     "get_system": Capability("get_system", _get_system, "system", ("identity", "inventory"), ("get_memory", "get_disk"), ("system-identity",)),
-    "get_network": Capability("get_network", _get_network, "network", ("health", "connectivity"), ("get_dns", "get_listening_ports"), ("network",)),
+    "get_network": Capability("get_network", _get_network, "network", ("health", "connectivity"), ("get_dns", "get_listening_ports"), ("network", "interface", "ip", "gateway", "routing", "network_usage")),
     "get_services": Capability("get_services", _get_services, "system", ("services", "health"), ("get_service", "search_service", "get_listening_ports"), ("services", "dependencies")),
     "search_service": Capability("search_service", _search_service, "system", ("services", "discovery"), ("get_service", "get_listening_ports"), ("services", "application-discovery")),
     "get_docker": Capability("get_docker", _get_docker, "container", ("container", "health"), ("get_services",), ("container",)),
     "get_cpu": Capability("get_cpu", _get_cpu, "system", ("health", "performance"), ("get_cpu_usage", "get_memory"), ("cpu",)),
     "get_memory": Capability("get_memory", _get_memory, "system", ("health", "performance"), ("get_swap", "get_system_load"), ("memory", "memory_usage")),
     "get_disk": Capability("get_disk", _get_disk, "storage", ("storage", "health"), ("get_filesystem", "get_block_device", "get_disk_usage"), ("storage",)),
-    "get_filesystem": Capability("get_filesystem", _get_filesystem, "storage", ("storage", "health"), ("get_disk",), ("filesystem",)),
+    "get_filesystem": Capability("get_filesystem", _get_filesystem, "storage", ("storage", "health"), ("get_disk",), ("filesystem", "mount")),
     "get_dns": Capability("get_dns", _get_dns, "network", ("dns", "connectivity"), ("get_network",), ("dns",)),
     "get_process": Capability("get_process", _get_process, "system", ("processes", "performance"), ("search_process", "get_memory", "get_cpu_usage"), ("processes",)),
     "search_process": Capability("search_process", _search_process, "system", ("processes", "discovery", "application"), ("get_process",), ("processes", "application-discovery")),

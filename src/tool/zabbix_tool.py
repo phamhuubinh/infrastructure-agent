@@ -580,7 +580,7 @@ _CAPABILITIES: dict[str, Capability] = {
     "get_host_groups": Capability("get_host_groups", _get_host_groups, "monitoring", ("monitor", "inventory"), ("get_hosts",), ("zabbix-groups",)),
     "get_templates": Capability("get_templates", _get_templates, "monitoring", ("monitor", "inventory", "configuration"), ("get_hosts",), ("zabbix-templates",)),
     "get_items": Capability("get_items", _get_items, "monitoring", ("monitor", "inventory", "investigation"), ("get_triggers",), ("zabbix-items",)),
-    "get_triggers": Capability("get_triggers", _get_triggers, "monitoring", ("monitor", "alerts"), ("get_problems", "get_events"), ("zabbix-triggers",)),
+    "get_triggers": Capability("get_triggers", _get_triggers, "monitoring", ("monitor", "alerts"), ("get_problems", "get_events"), ("zabbix-triggers", "alert_severity")),
     "get_events": Capability("get_events", _get_events, "monitoring", ("monitor", "events", "timeline"), ("get_problems",), ("zabbix-events",)),
     "get_problems": Capability("get_problems", _get_problems, "monitoring", ("monitor", "alerts", "incidents"), ("get_triggers", "get_events"), ("zabbix-problems",)),
     "get_problem_timeline": Capability("get_problem_timeline", _get_problem_timeline, "monitoring", ("monitor", "events", "timeline"), ("get_problems",), ("zabbix-events",)),
