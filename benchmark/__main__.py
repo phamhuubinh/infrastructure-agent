@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
+
 from benchmark.assessment_evaluator import AssessmentExpected
 from benchmark.assessment_evaluator import evaluate as evaluate_assessment
 from benchmark.assessment_evaluator import metrics_to_dict
@@ -171,12 +173,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--repeat", type=int, default=1,
         help="Run benchmarks N times and aggregate variance"
     )
+    parser.add_argument(
+        "--prompt", type=str, default="compact",
+        choices=list(PROMPT_VERSIONS.keys()),
+        help="Prompt version to use for assessment"
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # Set prompt version before any assessment calls.
+    from src.model.protocol.prompt_builder_v2 import set_prompt_version
+    set_prompt_version(args.prompt)
 
     metadata = collect_benchmark_metadata(
         server_name=args.server,

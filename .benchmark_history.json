@@ -523,5 +523,371 @@
       "provider": "openai",
       "benchmark_version": "1.0"
     }
+  },
+  "6": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "```json\n{\n  \"role\": \"infrastructure assessment engine\",\n  \"assessment\": {\n    \"summary\": \"Localhost (binh) is a healthy Ubuntu 22.04 workstation with 28 CPU cores, 64 GB RAM, and ample storage. All core subsystems (CPU, memory, storage, network, services) are operating within normal parameters. No critical failures or performance bottlenecks detected. A non-critical pattern of repeated SECCOMP audit events from the snap 'whatsdesk' application is noted. Security posture data is unavailable due to a pipeline configuration gap.\",\n    \"assessment_per_subsystem\": {\n      \"system_information\": {\n        \"status\": \"healthy\",\n        \"details\": \"Hostname 'binh', Ubuntu 22.04, kernel 5.19.0-32-generic. Standard OS configuration.\"\n      },\n      \"cpu\": {\n        \"status\": \"healthy\",\n        \"details\": \"28-core Intel Xeon E5-2680 v4 @ 2.40GHz. Process list shows no runaway CPU usage; highest user process (Chrome) at ~55% on a single core, which is acceptable for a workstation.\"\n      },\n      \"memory\": {\n        \"status\": \"healthy\",\n        \"details\": \"64 GB total, 10.3% used (6.5 GB). 56 GB available. Swap is 2 GB and unused (0%). No memory pressure.\"\n      },\n      \"storage\": {\n        \"status\": \"healthy\",\n        \"details\": \"Root partition (/) at 19% usage (250 GB total). 10 mounts total. One high-usage mount detected: 'Google Drive' (rclone fuse) at 83% of 15 GB quota. This is a cloud storage mount, not a local disk risk. All local disks (NVMe, SATA) are well below 35% usage.\"\n      },\n      \"network\": {\n        \"status\": \"healthy\",\n        \"details\": \"4 active interfaces. Primary interface enp7s0 (192.168.10.173/24) with default gateway. Two VMware virtual network adapters (vmnet1, vmnet8) present. No errors or anomalies.\"\n      },\n      \"services\": {\n        \"status\": \"healthy\",\n        \"details\": \"67 services loaded, 36 running, 31 exited (expected for oneshot/socket-activated services). 0 failed services. Key services running: NetworkManager, cron, rsyslog, ssh-agent, snapd, systemd-resolved, systemd-timesyncd, ufw (exited but configured).\"\n      },\n      \"time_synchronization\": {\n        \"status\": \"healthy\",\n        \"details\": \"NTP synchronized: yes. Timezone: Asia/Ho_Chi_Minh (+07). Local time accurate.\"\n      },\n      \"containers\": {\n        \"status\": \"healthy\",\n        \"details\": \"Docker is not installed. No containers. This is expected for a workstation.\"\n      },\n      \"security_posture\": {\n        \"status\": \"unknown\",\n        \"details\": \"Evidence collection failed: 'No route configured for capability: Security Posture Summary'. No data on firewall rules, user audits, or SELinux/AppArmor status (beyond AppArmor service being active).\"\n      },\n      \"logs\": {\n        \"status\": \"informational\",\n        \"details\": \"Recent logs show a repeating pattern: every ~60 seconds, the snap 'whatsdesk' triggers a SECCOMP audit event (syscall=425, code=0x50000). This is a non-fatal, allowed syscall (clone3) being logged. It is not an error but indicates verbose auditing for this snap. One instance of Xorg input lag warning ('event2 - SEMICO USB Keyboard: client bug: event processing lagging behind by 27ms') was observed, likely transient.\"\n      }\n    },\n    \"risks\": [\n      {\n        \"severity\": \"low\",\n        \"description\": \"Repeated SECCOMP audit events from snap 'whatsdesk' (syscall 425).\",\n        \"impact\": \"Log noise. Could fill audit logs over time. No security violation indicated (code=0x50000 means allowed).\",\n        \"recommendation\": \"Review AppArmor profile for snap.whatsdesk. If logging is unnecessary, adjust audit rules to suppress this specific event.\"\n      },\n      {\n        \"severity\": \"low\",\n        \"description\": \"Google Drive rclone mount at 83% capacity (12.3 GB used of 15 GB).\",\n        \"impact\": \"If this mount is used for active workflows, it may run out of space soon.\",\n        \"recommendation\": \"Monitor cloud storage quota. Clean up or expand if needed.\"\n      },\n      {\n        \"severity\": \"medium\",\n        \"description\": \"Security posture data is missing (pipeline configuration gap).\",\n        \"impact\": \"Cannot verify firewall (ufw) rules, user privileges, or mandatory access control (AppArmor) status. Blind spot for compliance.\",\n        \"recommendation\": \"Configure the 'Security Posture Summary' capability in the assessment pipeline. Manually verify ufw status and AppArmor profiles as a one-time check.\"\n      }\n    ],\n    \"unknowns\": [\n      \"Security posture: No data on firewall rules, user audit logs, or detailed AppArmor/SELinux status.\",\n      \"Disk health (SMART): Not collected. No evidence on pending sector reallocations or drive wear for NVMe or SATA disks.\",\n      \"Network latency/throughput: Not measured. No evidence of packet loss or bandwidth saturation.\",\n      \"Kernel parameters: Not collected. No evidence on sysctl settings (e.g., net.core.somaxconn, vm.swappiness).\"\n    ],\n    \"recommendations\": [\n      \"1. Address pipeline gap: Configure 'Security Posture Summary' capability to enable firewall and MAC policy checks.\",\n      \"2. Reduce log noise: Review and suppress SECCOMP audit events for snap.whatsdesk if not required for security monitoring.\",\n      \"3. Monitor cloud storage: Check Google Drive mount usage; clean up or expand quota if approaching limit.\",\n      \"4. Optional - Add SMART monitoring: Include disk health checks (smartctl) in future assessments for proactive drive failure detection.\",\n      \"5. No immediate action required: System is stable and healthy. Continue routine monitoring.\"\n    ]\n  }\n}\n```",
+        "iterations": 1,
+        "elapsed": 57.084,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.3333,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 5552,
+          "overall": 0.8067
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "# Operational Assessment: Localhost Storage Capacity\n\n## 1. Summary\n\n**No disks are near full capacity.** The highest usage is a Google Drive fuse mount at 83%, but all physical disks are well within normal operating ranges (13-34%). System root (`/`) is at 19% usage. No immediate action required.\n\n## 2. Assessment per Subsystem\n\n### Physical Disks\n\n| Device | Mount Point | Size | Used | Available | Usage | Status |\n|--------|-------------|------|------|-----------|-------|--------|\n| `/dev/nvme0n1p2` | `/` | 233 GB | 41.9 GB | 179.4 GB | **19%** | \u2705 Healthy |\n| `/dev/nvme0n1p1` | `/boot/efi` | 511 MB | 6.1 MB | 505 MB | **2%** | \u2705 Healthy |\n| `/dev/sda1` | `/mnt/DE607FFB607FD92B` | 465.7 GB | 157.8 GB | 308 GB | **34%** | \u2705 Healthy |\n| `/dev/sdb1` | `/mnt/9AB65A21B659FDE7` | 931.5 GB | 115.7 GB | 815.8 GB | **13%** | \u2705 Healthy |\n| `/dev/sdc1` | `/mnt/BA828B22828AE26D` | 3.64 TB | 614.2 GB | 3.11 TB | **17%** | \u2705 Healthy |\n\n### Virtual/Network Mounts\n\n| Mount | Type | Size | Used | Available | Usage | Status |\n|-------|------|------|------|-----------|-------|--------|\n| `GoogleDrive:` (fuse.rclone) | Cloud | 15 GB | 12.3 GB | 2.69 GB | **83%** | \u26a0\ufe0f Elevated |\n| `/run` (tmpfs) | RAM | 6.27 GB | 2.5 MB | 6.27 GB | **1%** | \u2705 Healthy |\n| `/dev/shm` (tmpfs) | RAM | 31.4 GB | 375 MB | 31 GB | **2%** | \u2705 Healthy |\n\n### Memory & Swap\n- **RAM**: 10.2% used (6.4 GB / 62.7 GB) \u2014 \u2705 Healthy\n- **Swap**: 0% used (0 B / 2 GB) \u2014 \u2705 Healthy\n\n## 3. Risks\n\n- **Google Drive fuse mount at 83%**: This is a cloud storage mount with only 2.69 GB remaining. If this is used for active work, it may fill soon. However, this is a virtual mount, not a physical disk.\n- **No physical disk exceeds 34%** \u2014 no capacity risk identified.\n\n## 4. Unknowns\n\n- **Disk health (SMART)**: No evidence collected on disk health metrics (reallocated sectors, pending errors, etc.). Physical disks may have undetected hardware issues.\n- **I/O performance**: No latency or throughput data collected. High usage does not guarantee good performance.\n- **Google Drive mount behavior**: No evidence on whether the 83% usage is expected or if it will auto-expand.\n\n## 5. Recommendations\n\n1. **No immediate action required** for physical disk capacity.\n2. **Monitor Google Drive mount** if it is used for active data \u2014 consider cleaning or expanding if approaching 100%.\n3. **Schedule SMART health checks** for all physical disks (`/dev/nvme0n1`, `/dev/sda`, `/dev/sdb`, `/dev/sdc`) to rule out hardware degradation.\n4. **Set up capacity alerts** at 80% for root (`/`) and 85% for data volumes as a proactive measure.",
+        "iterations": 1,
+        "elapsed": 40.354,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.6667,
+          "recommendation_coverage": 0.3333,
+          "grounding": 0.8667,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 2592,
+          "overall": 0.74
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "```json\n{\n  \"role\": \"infrastructure assessment engine\",\n  \"response\": {\n    \"1. Summary\": \"The localhost security baseline assessment reveals a mixed posture. AppArmor is enabled, providing mandatory access control. However, Secure Boot is disabled, which weakens the boot chain integrity. The firewall status is unknown, and SSH configuration details are missing, representing significant gaps in the security perimeter. A large number of system certificates are present, but no custom or expired certificates were flagged. Several listening services (Ollama, Opencode, DNS) are exposed on localhost, and multiple applications (Chrome, Zalo, WhatsApp) are using mDNS, which is a potential information leakage vector.\",\n    \"2. Assessment per subsystem\": {\n      \"Mandatory Access Control (AppArmor)\": \"AppArmor is enabled. This is a positive finding, indicating a baseline level of application confinement is active.\",\n      \"Mandatory Access Control (SELinux)\": \"SELinux status is 'unknown'. This is a gap. The system may be using AppArmor exclusively, but the absence of a clear SELinux status means this layer cannot be confirmed as healthy.\",\n      \"Boot Security (Secure Boot)\": \"Secure Boot is disabled. This is a critical finding. The system is vulnerable to bootkits and unauthorized boot-time code execution.\",\n      \"Network Perimeter (Firewall)\": \"Firewall status is unknown (backend unknown, active null). This is a major gap. Without evidence of an active firewall, the host's network exposure cannot be assessed.\",\n      \"Remote Access (SSH)\": \"SSH configuration details (port, root login, password auth) are all unknown. This is a critical gap. The security posture of the primary remote access service is unverified.\",\n      \"Identity & Access (Recent Logins)\": \"One active session for user 'binh' on terminal ':1' was found. This is a single data point. No evidence of failed logins or unusual access patterns was collected.\",\n      \"Cryptography (Certificates)\": \"A large number of system-trusted CA certificates are present (e.g., DigiCert, GlobalSign, Microsoft). No evidence of expired, self-signed, or untrusted certificates was found. The presence of 'ssl-cert-snakeoil.pem' is noted as a default self-signed certificate, which is standard for many Linux distributions but should be replaced in production.\",\n      \"Network Services (Listening Ports)\": \"25 listening ports/services were identified. Key services include: Ollama (11434), Opencode (4096), systemd-resolved (53), and mDNS (5353). Multiple instances of mDNS from Chrome, Zalo, and WhatsApp Desktop are broadcasting on the network, which can leak hostname and service information.\"\n    },\n    \"3. Risks\": {\n      \"Critical\": [\n        \"Secure Boot is disabled, allowing unauthorized boot-time code execution.\",\n        \"Firewall status is unknown; the host may be fully exposed to the network.\",\n        \"SSH configuration is unknown; insecure settings (e.g., root login, password auth) may be in use.\"\n      ],\n      \"High\": [\n        \"SELinux status is unknown; a defense-in-depth layer is unverified.\",\n        \"Multiple applications (Chrome, Zalo, WhatsApp) are using mDNS, potentially leaking hostname and service information to the local network.\"\n      ],\n      \"Medium\": [\n        \"Default self-signed certificate (ssl-cert-snakeoil.pem) is present. While standard, it should be replaced for any production TLS services.\",\n        \"Ollama and Opencode services are listening on localhost. If misconfigured, they could be exposed.\"\n      ]\n    },\n    \"4. Unknowns\": {\n      \"Firewall\": \"No evidence of firewall rules or active backend (e.g., iptables, nftables, ufw).\",\n      \"SSH\": \"No evidence of SSH port, PermitRootLogin, or PasswordAuthentication settings.\",\n      \"SELinux\": \"Status is 'unknown'; cannot confirm if it is enforcing, permissive, or disabled.\",\n      \"User Account Security\": \"No evidence of password policies, account lockout, or sudo configuration.\",\n      \"Audit Logging\": \"No evidence of auditd or system logging configuration.\",\n      \"File Integrity\": \"No evidence of file integrity monitoring (e.g., AIDE, Tripwire).\",\n      \"Kernel Security\": \"No evidence of kernel hardening parameters (e.g., sysctl settings).\"\n    },\n    \"5. Recommendations\": {\n      \"Immediate\": [\n        \"Enable Secure Boot in the system firmware.\",\n        \"Verify and enable a firewall (e.g., ufw, firewalld, or iptables). Configure default deny inbound rules.\",\n        \"Audit and harden SSH configuration: disable root login, disable password authentication, use key-based auth only, and change the default port if possible.\"\n      ],\n      \"Short-term\": [\n        \"Investigate SELinux status. If not required, ensure AppArmor profiles are comprehensive and enforced.\",\n        \"Review mDNS usage. Disable mDNS on production interfaces or restrict it to trusted networks.\",\n        \"Replace the default 'ssl-cert-snakeoil.pem' with a proper certificate for any TLS services.\",\n        \"Review the necessity of Ollama and Opencode services. Ensure they are bound only to 127.0.0.1 and are not exposed externally.\"\n      ],\n      \"Long-term\": [\n        \"Implement a file integrity monitoring solution (e.g., AIDE).\",\n        \"Enable and configure auditd for comprehensive logging.\",\n        \"Apply kernel hardening parameters (e.g., via sysctl or a tool like Lynis).\",\n        \"Establish a regular security baseline scanning schedule.\"\n      ]\n    }\n  }\n}\n```",
+        "iterations": 1,
+        "elapsed": 36.573,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 1.0,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 5455,
+          "overall": 0.94
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "### 1. Summary\nThe system is not under high load. CPU is 95.7% idle, memory usage is 10.3%, and disk I/O wait is 0.0%. The load average (1.66) is slightly elevated relative to the number of CPU cores (28), but this is not critical given the low CPU utilization. The primary resource consumer is Google Chrome (multiple processes), with a single Chrome process using 54.8% CPU. No evidence of a system-wide bottleneck was found.\n\n### 2. Assessment per subsystem\n\n- **CPU Utilization**: Healthy. 95.7% idle, 3.3% user, 1.0% system. No CPU pressure.\n- **Memory Utilization**: Healthy. 10.3% used (6.7 GB of 65.7 GB). 58.9 GB available.\n- **Disk Utilization**: Healthy. Root partition (`/`) at 19% usage. One high-usage disk detected: a Google Drive FUSE mount at 83% (13.2 GB used of 16 GB). This is a cloud storage mount, not a local disk, and does not affect system performance.\n- **I/O Performance**: No evidence collected (capability not configured). However, `iowait` is 0.0%, indicating no I/O bottleneck.\n- **System Load**: Load average is 1.66 (1 min), 1.28 (5 min), 1.25 (15 min). For a 28-core system, this is low. The 1-minute spike is likely transient.\n- **Network Utilization**: Evidence only shows interface configuration and routing. No bandwidth or throughput data collected. Cannot assess network load.\n- **Processes**: 483 processes running. Top CPU consumers:\n    - Chrome (PID 61445): 54.8% CPU\n    - Chrome (PID 3517): 25.5% CPU\n    - opencode (PID 4745): 22.2% CPU\n    - Chrome (PID 3761): 14.8% CPU\n    - Chrome (PID 4529): 10.5% CPU\n    - gnome-shell (PID 2193): 7.3% CPU\n    - Chrome (PID 3472): 4.1% CPU\n    - nvidia IRQ (PID 1489): 3.1% CPU\n    - Xorg (PID 2050): 2.6% CPU\n    - pulseaudio (PID 1314): 2.0% CPU\n    - Zalo (PID 2693): 1.1% CPU\n    - Total Chrome processes account for the majority of CPU usage.\n\n### 3. Risks\n\n- **Single process CPU saturation**: Chrome process (PID 61445) at 54.8% CPU could cause UI lag or responsiveness issues for the user. This is a user-space risk, not a system risk.\n- **Google Drive mount at 83%**: The FUSE mount for Google Drive is nearly full (13.2 GB / 16 GB). This could cause write failures or slowdowns for applications using that mount.\n- **Missing I/O performance data**: Without I/O statistics, disk latency or queue depth issues cannot be ruled out, though iowait=0% suggests no current problem.\n\n### 4. Unknowns\n\n- **I/O performance**: No I/O statistics (e.g., await, svctm, queue depth) were collected. Cannot confirm disk health or latency.\n- **Network throughput**: No bandwidth or packet rate data. Cannot assess if network is a bottleneck.\n- **Historical trends**: Single snapshot only. Cannot determine if load is increasing or if this is a normal baseline.\n\n### 5. Recommendations\n\n1. **Investigate Chrome CPU usage**: Identify which tab or extension in Chrome (PID 61445) is consuming 54.8% CPU. Consider closing unused tabs or disabling problematic extensions.\n2. **Free up Google Drive space**: The mount at `/mnt/DE607FFB607FD92B/Google Drive` is 83% full. Delete or archive files to prevent write failures.\n3. **Collect I/O performance data**: Configure the pipeline to collect `iostat` or similar metrics to confirm no underlying disk latency issues.\n4. **Monitor over time**: Collect a time series of CPU, memory, and load to distinguish transient spikes from sustained issues.",
+        "iterations": 1,
+        "elapsed": 38.733,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.5,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3368,
+          "overall": 0.9
+        }
+      }
+    ],
+    "overall": 0.95,
+    "metadata": {
+      "captured_at": "2026-07-11T19:16:00+0700",
+      "timestamp": 1783772160,
+      "git_commit": "58318f5 feat(rag): complete knowledge evidence integration subsystem",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
+  },
+  "7": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "```json\n{\n  \"summary\": \"Localhost (hostname: binh) is a Ubuntu 22.04 workstation with 28 CPU cores, 64 GB RAM, and multiple storage volumes. Overall resource utilization is low: CPU idle, memory at 10.2%, swap unused, and most disks under 35% usage. One Google Drive fuse mount is at 83% capacity. All 67 system services are active with zero failures. No Docker containers are present. Time is synchronized via NTP. The system is operationally healthy with no critical alerts.\",\n  \"assessment\": {\n    \"status\": \"healthy\",\n    \"resource_health\": {\n      \"cpu\": \"adequate\",\n      \"memory\": \"adequate\",\n      \"swap\": \"adequate\",\n      \"storage\": \"adequate\"\n    },\n    \"os\": \"Ubuntu 22.04, kernel 5.19.0-32-generic\",\n    \"uptime_context\": \"System is actively running a desktop session (GNOME) with user applications (Chrome, Zalo, WhatsDesk, Ollama).\"\n  },\n  \"risks\": [\n    {\n      \"severity\": \"medium\",\n      \"category\": \"storage\",\n      \"description\": \"Google Drive fuse mount at /mnt/DE607FFB607FD92B/Google Drive is 83% full (13.2 GB used of 15.0 GB). May cause write failures or performance degradation if capacity is exhausted.\",\n      \"evidence\": \"Storage evidence: GoogleDrive: fuse.rclone mount at 83% usage.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"category\": \"performance\",\n      \"description\": \"Repeated SECCOMP audit events for snap.whatsdesk process (syscall 425) every minute. While not a failure, this indicates a sandboxed application repeatedly triggering seccomp filters, which may indicate a compatibility issue or excessive logging overhead.\",\n      \"evidence\": \"Log Discovery evidence: repeated SECCOMP audit entries for whatsdesk every 60 seconds.\"\n    },\n    {\n      \"severity\": \"low\",\n      \"category\": \"performance\",\n      \"description\": \"X server reported input lag: 'event2 - SEMICO USB Keyboard: client bug: event processing lagging behind by 27ms, your system is too slow'. Indicates transient desktop performance issue.\",\n      \"evidence\": \"Log Discovery evidence: Jul 11 19:07:03 gdm-x-session[2050]: (EE) event2 ... lagging behind by 27ms.\"\n    }\n  ],\n  \"unknowns\": [\n    {\n      \"category\": \"security\",\n      \"description\": \"Security Posture Summary capability returned no route configured. No firewall rules, open ports, or security baseline data available.\",\n      \"evidence\": \"Security Posture Summary evidence: success=false, error='No route configured for capability: Security Posture Summary'.\"\n    }\n  ],\n  \"recommendations\": [\n    {\n      \"priority\": \"medium\",\n      \"action\": \"Free up space on Google Drive mount or increase quota. Current usage is 83% (13.2 GB / 15 GB).\",\n      \"rationale\": \"Prevents write failures and service disruption for rclone-based cloud storage.\"\n    },\n    {\n      \"priority\": \"low\",\n      \"action\": \"Investigate repeated SECCOMP syscall 425 from snap.whatsdesk. Consider updating the snap or reviewing its confinement profile.\",\n      \"rationale\": \"Reduces log noise and potential performance impact from repeated audit events.\"\n    },\n    {\n      \"priority\": \"low\",\n      \"action\": \"Monitor desktop input lag. If persistent, check for high CPU load from Chrome or other processes during peak usage.\",\n      \"rationale\": \"Ensures consistent user experience; current lag is minor (27ms).\"\n    },\n    {\n      \"priority\": \"informational\",\n      \"action\": \"Implement a security posture assessment (e.g., firewall audit, open port scan, vulnerability scan) to complete the security baseline.\",\n      \"rationale\": \"Current security posture is unknown; this is a gap in operational visibility.\"\n    }\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 41.466,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.3333,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3576,
+          "overall": 0.8067
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "```json\n{\n  \"summary\": \"Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost cho th\u1ea5y kh\u00f4ng c\u00f3 \u1ed5 \u0111\u0129a n\u00e0o g\u1ea7n \u0111\u1ea7y. \u1ed4 \u0111\u0129a h\u1ec7 th\u1ed1ng (/) ch\u1ec9 s\u1eed d\u1ee5ng 19% dung l\u01b0\u1ee3ng. \u1ed4 \u0111\u0129a c\u00f3 m\u1ee9c s\u1eed d\u1ee5ng cao nh\u1ea5t l\u00e0 Google Drive (fuse.rclone) v\u1edbi 83%, nh\u01b0ng \u0111\u00e2y l\u00e0 \u1ed5 \u0111\u0129a m\u1ea1ng, kh\u00f4ng ph\u1ea3i \u1ed5 \u0111\u0129a localhost.\",\n  \"assessment\": \"Dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost hi\u1ec7n t\u1ea1i \u0111ang \u1edf tr\u1ea1ng th\u00e1i t\u1ed1t. \u1ed4 \u0111\u0129a ch\u00ednh (/) c\u00f2n 192.6 GB tr\u1ed1ng, t\u01b0\u01a1ng \u0111\u01b0\u01a1ng 81% dung l\u01b0\u1ee3ng. C\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd kh\u00e1c (sda1, sdc1, sdb1) c\u0169ng c\u00f3 dung l\u01b0\u1ee3ng tr\u1ed1ng d\u1ed3i d\u00e0o. H\u1ec7 th\u1ed1ng kh\u00f4ng c\u00f3 nguy c\u01a1 thi\u1ebfu h\u1ee5t dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a trong th\u1eddi gian t\u1edbi.\",\n  \"risks\": [\n    \"\u1ed4 \u0111\u0129a Google Drive (fuse.rclone) \u0111\u00e3 s\u1eed d\u1ee5ng 83% dung l\u01b0\u1ee3ng (13.2 GB / 16 GB). M\u1eb7c d\u00f9 \u0111\u00e2y l\u00e0 \u1ed5 \u0111\u0129a m\u1ea1ng, nh\u01b0ng n\u1ebfu \u0111\u1ed3ng b\u1ed9 nhi\u1ec1u d\u1eef li\u1ec7u h\u01a1n, n\u00f3 c\u00f3 th\u1ec3 nhanh ch\u00f3ng \u0111\u1ea7y v\u00e0 g\u00e2y ra l\u1ed7i ghi file.\",\n    \"Kh\u00f4ng c\u00f3 th\u00f4ng tin v\u1ec1 t\u00ecnh tr\u1ea1ng s\u1ee9c kh\u1ecfe (SMART) c\u1ee7a c\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd (NVMe, SATA). Kh\u00f4ng th\u1ec3 \u0111\u00e1nh gi\u00e1 r\u1ee7i ro h\u1ecfng h\u00f3c ph\u1ea7n c\u1ee9ng.\"\n  ],\n  \"unknowns\": [\n    \"T\u00ecnh tr\u1ea1ng s\u1ee9c kh\u1ecfe (SMART) c\u1ee7a \u1ed5 \u0111\u0129a NVMe (nvme0n1) v\u00e0 c\u00e1c \u1ed5 \u0111\u0129a SATA (sda, sdb, sdc) kh\u00f4ng \u0111\u01b0\u1ee3c cung c\u1ea5p.\",\n    \"M\u1ee9c \u0111\u1ed9 I/O (\u0111\u1ecdc/ghi) c\u1ee7a c\u00e1c \u1ed5 \u0111\u0129a kh\u00f4ng \u0111\u01b0\u1ee3c cung c\u1ea5p.\",\n    \"Chi ti\u1ebft v\u1ec1 ph\u00e2n v\u00f9ng v\u00e0 k\u00edch th\u01b0\u1edbc c\u1ee7a c\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd (v\u00ed d\u1ee5: c\u00f3 ph\u00e2n v\u00f9ng n\u00e0o kh\u00e1c kh\u00f4ng) kh\u00f4ng \u0111\u01b0\u1ee3c cung c\u1ea5p.\"\n  ],\n  \"recommendations\": [\n    \"Theo d\u00f5i dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a Google Drive (fuse.rclone) n\u1ebfu n\u00f3 \u0111\u01b0\u1ee3c s\u1eed d\u1ee5ng th\u01b0\u1eddng xuy\u00ean.\",\n    \"Th\u1ef1c hi\u1ec7n ki\u1ec3m tra s\u1ee9c kh\u1ecfe \u1ed5 \u0111\u0129a (SMART) cho t\u1ea5t c\u1ea3 c\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd \u0111\u1ec3 ph\u00e1t hi\u1ec7n s\u1edbm c\u00e1c d\u1ea5u hi\u1ec7u h\u1ecfng h\u00f3c.\",\n    \"Thi\u1ebft l\u1eadp c\u1ea3nh b\u00e1o khi dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a \u0111\u1ea1t \u0111\u1ebfn ng\u01b0\u1ee1ng 80-85% \u0111\u1ec3 c\u00f3 k\u1ebf ho\u1ea1ch m\u1edf r\u1ed9ng ho\u1eb7c d\u1ecdn d\u1eb9p k\u1ecbp th\u1eddi.\"\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 35.404,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.9,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.6,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 1589,
+          "overall": 0.3
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "```json\n{\n  \"role\": \"infrastructure assessment engine\",\n  \"summary\": \"The localhost security baseline assessment reveals a mixed security posture. AppArmor is enabled, providing mandatory access control. However, Secure Boot is disabled, which weakens the boot chain integrity. A significant number of CA certificates (over 150) are present, which expands the attack surface for trust-based attacks. Several listening services (ollama, opencode, DNS) are bound to localhost, which is standard but requires monitoring. The SSH and firewall configurations are unknown, representing critical gaps in the assessment. A single user session (binh) is active.\",\n  \"assessment\": \"The system has a partial security baseline. AppArmor is a positive control, but the lack of Secure Boot is a notable weakness. The large certificate store is a potential risk if any CA is compromised. The unknown SSH and firewall states are significant blind spots. The listening services appear to be local-only, which is good practice, but their security configurations (e.g., authentication, encryption) are not assessed.\",\n  \"risks\": [\n    \"Secure Boot is disabled, allowing potential bootkits or unauthorized OS modifications.\",\n    \"Over 150 CA certificates are trusted, increasing the risk of accepting a fraudulent or compromised certificate.\",\n    \"SSH configuration is unknown; if misconfigured (e.g., root login or password auth enabled), it could be a direct attack vector.\",\n    \"Firewall status is unknown; if inactive, all local services are exposed to the network.\",\n    \"SELinux status is unknown; if disabled, a key MAC layer is missing.\",\n    \"Multiple applications (Chrome, Zalo, WhatsApp) are using mDNS (port 5353), which can leak host information on the local network.\"\n  ],\n  \"unknowns\": [\n    \"SSH port, PermitRootLogin, and PasswordAuthentication settings.\",\n    \"Firewall backend and active status.\",\n    \"SELinux status (enforcing/permissive/disabled).\",\n    \"Security posture of the ollama and opencode services (e.g., authentication, API exposure).\",\n    \"Purpose and validity of the large number of CA certificates (some may be outdated or unnecessary).\"\n  ],\n  \"recommendations\": [\n    \"Enable Secure Boot in the system firmware to ensure boot chain integrity.\",\n    \"Audit the CA certificate store and remove any unnecessary or untrusted certificates.\",\n    \"Determine and document the SSH configuration; disable root login and password authentication if not required.\",\n    \"Enable and configure a firewall (e.g., ufw or firewalld) to restrict inbound connections.\",\n    \"Verify and enforce SELinux to be in enforcing mode for additional MAC protection.\",\n    \"Review the security configuration of the ollama and opencode services, ensuring they require authentication if exposed.\",\n    \"Disable mDNS on applications if not needed, or restrict it via firewall rules.\"\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 20.015,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.9,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.6,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.6667,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 2883,
+          "overall": 0.8733
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "## Summary\nThe system is not under high load. CPU is 95.7% idle, memory usage is 10.1%, and load averages (1.78, 1.49, 1.33) are low relative to the 28-core CPU. No evidence supports the claim of \"high load.\"\n\n## Assessment\n- **CPU**: 2.9% user, 1.4% system, 95.7% idle. No CPU pressure.\n- **Memory**: 6.7 GB used of 65.8 GB total (10.1%). 59 GB free/available.\n- **Load Average**: 1.78/1.49/1.33 \u2014 well below the 28-core threshold.\n- **Disk**: All physical disks under 35% usage. One virtual mount (Google Drive via rclone) at 83%, but this is a cloud sync mount, not a system disk.\n- **Processes**: 485 total. Top consumers: Chrome (multiple processes, ~54.6% CPU on one), `opencode` (22.1%), `gnome-shell` (7.3%). No runaway or anomalous processes.\n- **I/O**: No I/O wait (0.0%). I/O performance assessment failed due to missing route \u2014 not a system issue.\n\n## Risks\n- **None identified.** All core metrics are within normal operating ranges.\n\n## Unknowns\n- **I/O Performance**: Could not be assessed due to missing capability route. This is a tooling gap, not a system issue.\n- **Network throughput**: No bandwidth or packet-level data collected. Not indicated as a concern.\n\n## Recommendations\n1. **No action required.** The system is operating normally with ample headroom.\n2. **If \"high load\" was user-perceived**, investigate application-level latency (e.g., Chrome tabs, opencode, or Google Drive sync) rather than system resources.\n3. **Re-enable I/O assessment capability** if future I/O monitoring is needed.",
+        "iterations": 1,
+        "elapsed": 24.81,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.5,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 1520,
+          "overall": 0.9
+        }
+      }
+    ],
+    "overall": 0.93,
+    "metadata": {
+      "captured_at": "2026-07-11T19:18:53+0700",
+      "timestamp": 1783772333,
+      "git_commit": "58318f5 feat(rag): complete knowledge evidence integration subsystem",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
+  },
+  "8": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "```json\n{\n  \"summary\": \"Localhost (binh) is a Ubuntu 22.04 workstation with 28 cores, 64GB RAM, and multiple storage devices. Overall system health is good with low resource usage, all services running, and time synchronized. A security posture assessment was not possible due to a missing route. A Google Drive mount is at 83% capacity, which is a potential concern.\",\n  \"assessments\": {\n    \"CPU\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Intel Xeon E5-2680 v4 @ 2.40GHz, 28 cores. No high usage reported.\"\n    },\n    \"Memory\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Total: 64GB, Used: 6.5GB (10.1%), Available: 56.4GB. Usage is low.\"\n    },\n    \"Swap\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Total: 2GB, Used: 0GB (0%). No swap usage.\"\n    },\n    \"Filesystem\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Root ext4 filesystem at 19% usage. Multiple external NTFS drives mounted. All filesystems are within normal usage limits.\"\n    },\n    \"Storage\": {\n      \"status\": \"WARNING\",\n      \"evidence\": \"10 disks detected. One high usage: Google Drive mount at 83% (15GB total, 12.3GB used). All other disks are below 35% usage.\"\n    },\n    \"Docker\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Docker is not installed. No containers to assess.\"\n    },\n    \"Services\": {\n      \"status\": \"OK\",\n      \"evidence\": \"67 services loaded, 36 running, 31 exited, 0 failed. All critical services (NetworkManager, cron, ssh, etc.) are active.\"\n    },\n    \"System Information\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Ubuntu 22.04, kernel 5.19.0-32-generic, hostname 'binh'.\"\n    },\n    \"Logs\": {\n      \"status\": \"WARNING\",\n      \"evidence\": \"Repeated SECCOMP audit events for snap.whatsdesk (syscall 425) every minute. This indicates a confined snap application is repeatedly triggering a seccomp filter, which may be a misconfiguration or a benign but noisy behavior.\"\n    },\n    \"Network\": {\n      \"status\": \"OK\",\n      \"evidence\": \"4 interfaces: lo, enp7s0 (192.168.10.173/24), vmnet1, vmnet8. Default route via 192.168.10.1. No issues detected.\"\n    },\n    \"Processes\": {\n      \"status\": \"OK\",\n      \"evidence\": \"484 processes running. Top consumers: Chrome (multiple processes), OpenCode, and Gnome Shell. No runaway processes.\"\n    },\n    \"Time Synchronization\": {\n      \"status\": \"OK\",\n      \"evidence\": \"NTP synchronized: yes. Timezone: Asia/Ho_Chi_Minh. Local time is accurate.\"\n    },\n    \"Security Posture\": {\n      \"status\": \"UNKNOWN\",\n      \"evidence\": \"No route configured for capability: Security Posture Summary. Unable to assess firewall, user accounts, or other security settings.\"\n    }\n  },\n  \"risks\": [\n    {\n      \"risk\": \"Google Drive mount is at 83% capacity (12.3GB used of 15GB). May cause write failures or performance degradation if it fills up.\",\n      \"severity\": \"medium\",\n      \"evidence\": \"Storage Information: GoogleDrive: mount at /mnt/DE607FFB607FD92B/Google Drive, use_percent 83%.\"\n    },\n    {\n      \"risk\": \"Repeated SECCOMP audit events for snap.whatsdesk every minute. This could indicate a misconfigured snap or an application attempting restricted syscalls, potentially leading to instability or security bypass.\",\n      \"severity\": \"low\",\n      \"evidence\": \"Log Discovery: Multiple entries of 'audit: type=1326 ... subj=snap.whatsdesk.whatsdesk ... syscall=425' every minute.\"\n    },\n    {\n      \"risk\": \"Security posture is completely unknown. No firewall, user account, or patch assessment was possible. This leaves the system vulnerable to undetected misconfigurations.\",\n      \"severity\": \"high\",\n      \"evidence\": \"Security Posture Summary: 'No route configured for capability: Security Posture Summary'.\"\n    }\n  ],\n  \"unknowns\": [\n    \"Security posture (firewall, user accounts, installed security tools) could not be assessed due to missing capability route.\"\n  ],\n  \"recommendations\": [\n    \"Investigate and resolve the missing 'Security Posture Summary' capability to enable full security assessment.\",\n    \"Free up space on the Google Drive mount or increase its quota to avoid reaching 100% capacity.\",\n    \"Review the repeated SECCOMP audit events for snap.whatsdesk. Consider updating the snap or reconfiguring its permissions to reduce noise.\",\n    \"Ensure the system firewall (ufw) is enabled and properly configured, as it was not assessed.\",\n    \"Consider regular monitoring of disk usage on all mounts, especially the Google Drive fuse mount.\"\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 49.432,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.3333,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 4415,
+          "overall": 0.8667
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "```json\n{\n  \"summary\": \"Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost cho th\u1ea5y kh\u00f4ng c\u00f3 \u1ed5 \u0111\u0129a v\u1eadt l\u00fd n\u00e0o g\u1ea7n \u0111\u1ea7y. \u1ed4 \u0111\u0129a h\u1ec7 th\u1ed1ng (/) ch\u1ec9 s\u1eed d\u1ee5ng 19%, c\u00e1c \u1ed5 \u0111\u0129a ngo\u00e0i (NTFS) c\u00f3 m\u1ee9c s\u1eed d\u1ee5ng t\u1eeb 13% \u0111\u1ebfn 34%. Tuy nhi\u00ean, c\u00f3 m\u1ed9t \u1ed5 \u0111\u0129a \u1ea3o (Google Drive mount qua rclone) \u0111ang \u1edf m\u1ee9c s\u1eed d\u1ee5ng 83%, c\u1ea7n \u0111\u01b0\u1ee3c l\u01b0u \u00fd.\",\n  \"assessments\": {\n    \"Disk Usage - System (/)\": {\n      \"status\": \"OK\",\n      \"evidence\": \"\u1ed4 \u0111\u0129a h\u1ec7 th\u1ed1ng (/dev/nvme0n1p2) c\u00f3 dung l\u01b0\u1ee3ng 233.1 GB, \u0111\u00e3 s\u1eed d\u1ee5ng 41.9 GB (19%), c\u00f2n tr\u1ed1ng 179.4 GB. M\u1ee9c s\u1eed d\u1ee5ng th\u1ea5p, kh\u00f4ng c\u00f3 nguy c\u01a1.\"\n    },\n    \"Disk Usage - External Drives\": {\n      \"status\": \"OK\",\n      \"evidence\": \"C\u00e1c \u1ed5 \u0111\u0129a ngo\u00e0i (NTFS) \u0111\u1ec1u c\u00f3 m\u1ee9c s\u1eed d\u1ee5ng th\u1ea5p: /mnt/DE607FFB607FD92B (34%), /mnt/BA828B22828AE26D (17%), /mnt/9AB65A21B659FDE7 (13%). Dung l\u01b0\u1ee3ng tr\u1ed1ng c\u00f2n nhi\u1ec1u.\"\n    },\n    \"Disk Usage - Google Drive (rclone)\": {\n      \"status\": \"WARNING\",\n      \"evidence\": \"\u1ed4 \u0111\u0129a Google Drive \u1ea3o (mount qua rclone) c\u00f3 dung l\u01b0\u1ee3ng 15 GB, \u0111\u00e3 s\u1eed d\u1ee5ng 12.3 GB (83%), ch\u1ec9 c\u00f2n tr\u1ed1ng 2.7 GB. M\u1ee9c s\u1eed d\u1ee5ng cao, c\u1ea7n theo d\u00f5i.\"\n    },\n    \"Memory Usage\": {\n      \"status\": \"OK\",\n      \"evidence\": \"RAM t\u1ed5ng 64.2 GB, \u0111\u00e3 s\u1eed d\u1ee5ng 6.3 GB (10%), c\u00f2n kh\u1ea3 d\u1ee5ng 56.4 GB. M\u1ee9c s\u1eed d\u1ee5ng r\u1ea5t th\u1ea5p.\"\n    },\n    \"Swap Usage\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Swap t\u1ed5ng 2 GB, kh\u00f4ng s\u1eed d\u1ee5ng (0%).\"\n    },\n    \"CPU Usage\": {\n      \"status\": \"OK\",\n      \"evidence\": \"CPU Intel Xeon E5-2680 v4 @ 2.40GHz, 28 nh\u00e2n. C\u00e1c ti\u1ebfn tr\u00ecnh \u0111\u1ec1u c\u00f3 m\u1ee9c s\u1eed d\u1ee5ng CPU th\u1ea5p.\"\n    },\n    \"System Services\": {\n      \"status\": \"OK\",\n      \"evidence\": \"T\u1ea5t c\u1ea3 67 d\u1ecbch v\u1ee5 \u0111\u1ec1u \u0111ang ho\u1ea1t \u0111\u1ed9ng b\u00ecnh th\u01b0\u1eddng (36 running, 31 exited), kh\u00f4ng c\u00f3 d\u1ecbch v\u1ee5 n\u00e0o b\u1ecb l\u1ed7i.\"\n    },\n    \"Time Synchronization\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Th\u1eddi gian h\u1ec7 th\u1ed1ng \u0111\u00e3 \u0111\u01b0\u1ee3c \u0111\u1ed3ng b\u1ed9 NTP (ntp_synchronized: yes). M\u00fai gi\u1edd Asia/Ho_Chi_Minh.\"\n    }\n  },\n  \"risks\": [\n    {\n      \"risk\": \"\u1ed4 \u0111\u0129a Google Drive \u1ea3o (rclone) s\u1eafp \u0111\u1ea7y\",\n      \"severity\": \"medium\",\n      \"evidence\": \"\u1ed4 \u0111\u0129a Google Drive mount t\u1ea1i /mnt/DE607FFB607FD92B/Google Drive \u0111\u00e3 s\u1eed d\u1ee5ng 83% dung l\u01b0\u1ee3ng (12.3 GB / 15 GB). N\u1ebfu ti\u1ebfp t\u1ee5c t\u0103ng, c\u00f3 th\u1ec3 g\u00e2y ra l\u1ed7i ghi d\u1eef li\u1ec7u ho\u1eb7c gi\u00e1n \u0111o\u1ea1n d\u1ecbch v\u1ee5 \u0111\u1ed3ng b\u1ed9.\"\n    }\n  ],\n  \"unknowns\": [\n    \"Kh\u00f4ng c\u00f3 th\u00f4ng tin v\u1ec1 t\u00ecnh tr\u1ea1ng s\u1ee9c kh\u1ecfe (S.M.A.R.T.) c\u1ee7a c\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd.\",\n    \"Kh\u00f4ng c\u00f3 th\u00f4ng tin v\u1ec1 l\u1ecbch s\u1eed s\u1eed d\u1ee5ng dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a \u0111\u1ec3 \u0111\u00e1nh gi\u00e1 xu h\u01b0\u1edbng t\u0103ng tr\u01b0\u1edfng.\"\n  ],\n  \"recommendations\": [\n    \"Theo d\u00f5i dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a Google Drive (rclone) v\u00e0 xem x\u00e9t d\u1ecdn d\u1eb9p ho\u1eb7c m\u1edf r\u1ed9ng dung l\u01b0\u1ee3ng n\u1ebfu c\u1ea7n.\",\n    \"Thi\u1ebft l\u1eadp c\u1ea3nh b\u00e1o khi dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a \u0111\u1ea1t ng\u01b0\u1ee1ng 90% \u0111\u1ec3 ch\u1ee7 \u0111\u1ed9ng x\u1eed l\u00fd.\",\n    \"Ki\u1ec3m tra t\u00ecnh tr\u1ea1ng S.M.A.R.T. c\u1ee7a c\u00e1c \u1ed5 \u0111\u0129a v\u1eadt l\u00fd (nvme0n1, sda, sdb, sdc) \u0111\u1ec3 \u0111\u00e1nh gi\u00e1 s\u1ee9c kh\u1ecfe v\u00e0 nguy c\u01a1 h\u1ecfng h\u00f3c.\"\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 45.36,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.6667,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.8667,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 2663,
+          "overall": 0.6733
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "```json\n{\n  \"summary\": \"Security baseline assessment of localhost reveals several critical and warning-level issues. Secure Boot is disabled, SELinux status is unknown, and AppArmor is enabled. SSH configuration details are unknown, and the firewall status is unknown. A large number of CA certificates are present, and several listening ports were found, including services like ollama and opencode on localhost. Recent login activity by user 'binh' was detected.\",\n  \"assessments\": {\n    \"SELinux\": {\n      \"status\": \"UNKNOWN\",\n      \"evidence\": \"SELinux status could not be determined; reported as 'unknown'.\"\n    },\n    \"AppArmor\": {\n      \"status\": \"OK\",\n      \"evidence\": \"AppArmor is enabled on the system.\"\n    },\n    \"Secure Boot\": {\n      \"status\": \"CRITICAL\",\n      \"evidence\": \"Secure Boot is disabled, which reduces system integrity protection against boot-level attacks.\"\n    },\n    \"SSH Configuration\": {\n      \"status\": \"UNKNOWN\",\n      \"evidence\": \"SSH configuration details (port, permit root login, password authentication, active status) are all unknown.\"\n    },\n    \"Firewall\": {\n      \"status\": \"UNKNOWN\",\n      \"evidence\": \"Firewall backend and active status are unknown.\"\n    },\n    \"Recent Logins\": {\n      \"status\": \"OK\",\n      \"evidence\": \"Only one recent session detected for user 'binh' on terminal ':1'.\"\n    },\n    \"Listening Ports\": {\n      \"status\": \"WARNING\",\n      \"evidence\": \"28 listening ports found. Notable services: ollama (11434), opencode (4096), DNS (53), and multiple mDNS (5353) processes from Chrome, Zalo, and WhatsApp. Some ports are bound to all interfaces (0.0.0.0).\"\n    },\n    \"Certificates\": {\n      \"status\": \"WARNING\",\n      \"evidence\": \"A large number of CA certificates (over 150) are present, including many third-party roots. This increases the attack surface for trust validation.\"\n    }\n  },\n  \"risks\": [\n    {\n      \"risk\": \"Secure Boot disabled\",\n      \"severity\": \"high\",\n      \"evidence\": \"Secure Boot is disabled, allowing potential boot-level malware or unauthorized OS modifications.\"\n    },\n    {\n      \"risk\": \"Unknown SSH configuration\",\n      \"severity\": \"medium\",\n      \"evidence\": \"SSH configuration is unknown; if misconfigured (e.g., root login or password auth enabled), it could allow unauthorized access.\"\n    },\n    {\n      \"risk\": \"Unknown firewall status\",\n      \"severity\": \"medium\",\n      \"evidence\": \"Firewall status is unknown; lack of firewall may expose services to network attacks.\"\n    },\n    {\n      \"risk\": \"Excessive CA certificates\",\n      \"severity\": \"low\",\n      \"evidence\": \"Over 150 CA certificates are installed, increasing the risk of trusting a compromised or rogue CA.\"\n    },\n    {\n      \"risk\": \"Unnecessary services exposed on localhost\",\n      \"severity\": \"low\",\n      \"evidence\": \"Services like ollama and opencode are listening on localhost; if misconfigured, they could be accessed by other users or processes.\"\n    }\n  ],\n  \"unknowns\": [\n    \"SELinux status is unknown; cannot assess mandatory access control enforcement.\",\n    \"SSH configuration details (port, root login, password auth) are unknown.\",\n    \"Firewall backend and active status are unknown.\",\n    \"Purpose and security posture of listening services (ollama, opencode) are unknown.\"\n  ],\n  \"recommendations\": [\n    \"Enable Secure Boot in the system firmware to protect against boot-level attacks.\",\n    \"Investigate and configure SELinux to enforce mandatory access controls.\",\n    \"Audit and harden SSH configuration: disable root login, disable password authentication, use key-based auth, and change default port if needed.\",\n    \"Enable and configure a firewall (e.g., ufw or iptables) to restrict inbound connections to only necessary services.\",\n    \"Review and remove unnecessary CA certificates from the system trust store to reduce attack surface.\",\n    \"Audit listening services (ollama, opencode) to ensure they are properly secured and not exposed unnecessarily.\",\n    \"Regularly review user sessions and monitor for unauthorized access.\"\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 28.482,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.6667,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 4036,
+          "overall": 0.8733
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "",
+        "iterations": 1,
+        "elapsed": 60.247,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.82,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.3,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.0,
+          "completeness": 0.0,
+          "consistency": 1.0,
+          "length": 0,
+          "overall": 0.0
+        }
+      }
+    ],
+    "overall": 0.92,
+    "metadata": {
+      "captured_at": "2026-07-11T19:20:55+0700",
+      "timestamp": 1783772455,
+      "git_commit": "58318f5 feat(rag): complete knowledge evidence integration subsystem",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
   }
 }
