@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time as _time
+from typing import TYPE_CHECKING
 
 from src.model.model_adapter import ModelAdapter
 from src.shared.discovery.observation import Observation
@@ -9,6 +10,9 @@ from src.shared.reasoning.action import Action
 from src.shared.reasoning.final_response import FinalResponse
 from src.shared.reasoning.reasoning_state import ReasoningState
 from src.tool.tool_registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from src.pipeline.execution_engine import ExecutionEngine
 
 
 _VERBOSE = False
@@ -43,12 +47,14 @@ class Agent:
         available_resources: dict[str, list[str]] | None = None,
         max_iterations: int = 15,
         capability_metadata: dict[str, list[dict[str, object]]] | None = None,
+        execution_engine: ExecutionEngine | None = None,
     ) -> None:
         self._model = model
         self._tool_registry = tool_registry
         self._available_resources = available_resources
         self._max_iterations = max_iterations
         self._capability_metadata = capability_metadata or {}
+        self._execution_engine = execution_engine
 
     def run(
         self,
