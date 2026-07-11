@@ -34,6 +34,7 @@ class OllamaModelAdapter(ModelAdapter):
         observations: tuple[Observation, ...],
         available_resources: dict[str, list[str]] | None = None,
         known_facts: dict[str, object] | None = None,
+        capability_metadata: dict[str, list[dict[str, object]]] | None = None,
     ) -> Action | FinalResponse:
         t0 = _time.perf_counter()
 
@@ -42,6 +43,7 @@ class OllamaModelAdapter(ModelAdapter):
             observations=observations,
             available_resources=available_resources,
             known_facts=known_facts,
+            capability_metadata=capability_metadata,
         )
 
         _log(f"[{_time.perf_counter() - t0:.3f}s] build_prompt")
@@ -67,6 +69,6 @@ class OllamaModelAdapter(ModelAdapter):
         if isinstance(result, Action):
             _log(f"Action tool={result.tool} args={result.arguments}")
         else:
-            _log(f"FinalResponse content={result.content[:80]}...")
+            _log(f"FinalResponse content={str(result.content)[:80]}...")
 
         return result

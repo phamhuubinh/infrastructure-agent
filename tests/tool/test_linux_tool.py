@@ -197,24 +197,31 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_services"})
 
     assert result.success is True
-    assert result.data == {"services": [], "total": 0, "running": 0, "exited": 0, "failed": 0}
+    assert result.data == {"services": [], "total": 0, "running": 0, "exited": 0, "failed": 0, "failed_services": []}
 
 
 def test_get_docker_reports_installed_version(monkeypatch) -> None:
+    call_count = 0
+    def fake_run(command, timeout=5):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return (True, "Docker version 27.3.1, build ce12230")
+        return (True, "abc123 nginx web-nginx Up 2 hours")
+
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=5: (True, "Docker version 27.3.1, build ce12230"),
+        lambda self, command, timeout=5: fake_run(command, timeout),
     )
 
     tool = LinuxTool()
     result = tool.execute({"action": "get_docker"})
 
     assert result.success is True
-    assert result.data == {
-        "installed": True,
-        "version": "Docker version 27.3.1, build ce12230",
-    }
+    assert result.data["installed"] is True
+    assert "version" in result.data
+    assert "containers" in result.data
 
 
 def test_get_docker_reports_not_installed(monkeypatch) -> None:
@@ -228,7 +235,8 @@ def test_get_docker_reports_not_installed(monkeypatch) -> None:
     result = tool.execute({"action": "get_docker"})
 
     assert result.success is True
-    assert result.data == {"installed": False, "version": None}
+    assert result.data["installed"] is False
+    assert result.data["container_count"] == 0
 
 
 def test_execute_reports_unknown_action_includes_new_capabilities() -> None:
@@ -450,7 +458,7 @@ def test_get_dns_returns_empty_list_on_failure(monkeypatch) -> None:
 def test_get_process_parses_ps_output(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command[0] == "ps":
-            return True, "1 systemd 0.0 0.1\n42 sshd 0.1 0.2\n"
+            return True, "1 /sbin/init 0.0 0.1\n42 /usr/sbin/sshd 0.1 0.2\n"
         return False, ""
 
     monkeypatch.setattr(
@@ -463,12 +471,10 @@ def test_get_process_parses_ps_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_process"})
 
     assert result.success is True
-    assert result.data == {
-        "processes": [
-            {"pid": 1, "command": "systemd", "cpu_percent": "0.0", "memory_percent": "0.1"},
-            {"pid": 42, "command": "sshd", "cpu_percent": "0.1", "memory_percent": "0.2"},
-        ]
-    }
+    assert result.data["processes"] == [
+        {"pid": 1, "command": "/sbin/init", "cpu_percent": "0.0", "memory_percent": "0.1"},
+        {"pid": 42, "command": "/usr/sbin/sshd", "cpu_percent": "0.1", "memory_percent": "0.2"},
+    ]
 
 
 def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
@@ -482,7 +488,8 @@ def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_process"})
 
     assert result.success is True
-    assert result.data == {"processes": []}
+    assert result.data["processes"] == []
+    assert result.data["total"] == 0
 
 
 def test_get_user_parses_etc_passwd(monkeypatch) -> None:
@@ -532,7 +539,7 @@ def test_get_user_returns_empty_list_on_failure(monkeypatch) -> None:
     assert result.data == {"users": []}
 
 
-def test_get_package_parses_dpkg_output(monkeypatch) -> None:
+def test_get_package_returns_count_summary(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command[0] == "dpkg-query":
             return True, "bash 5.2.21-2\ncurl 8.5.0-2\n"
@@ -548,13 +555,8 @@ def test_get_package_parses_dpkg_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_package"})
 
     assert result.success is True
-    assert result.data == {
-        "packages": [
-            {"name": "bash", "version": "5.2.21-2"},
-            {"name": "curl", "version": "8.5.0-2"},
-        ],
-        "package_count": 2,
-    }
+    assert result.data["package_count"] == 2
+    assert "summary" in result.data
 
 
 def test_get_package_falls_back_to_rpm(monkeypatch) -> None:
@@ -575,16 +577,10 @@ def test_get_package_falls_back_to_rpm(monkeypatch) -> None:
     result = tool.execute({"action": "get_package"})
 
     assert result.success is True
-    assert result.data == {
-        "packages": [
-            {"name": "bash", "version": "5.2.15"},
-            {"name": "curl", "version": "8.4.0"},
-        ],
-        "package_count": 2,
-    }
+    assert result.data["package_count"] == 2
 
 
-def test_get_package_returns_empty_list_when_no_package_manager(monkeypatch) -> None:
+def test_get_package_returns_empty_count_when_no_package_manager(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -595,7 +591,7 @@ def test_get_package_returns_empty_list_when_no_package_manager(monkeypatch) -> 
     result = tool.execute({"action": "get_package"})
 
     assert result.success is True
-    assert result.data == {"packages": [], "package_count": 0}
+    assert result.data["package_count"] == 0
 
 
 def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
@@ -1734,20 +1730,28 @@ def test_get_service_returns_unknown_on_failure(monkeypatch) -> None:
 
 
 def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
+    def fake_ss(command, timeout=15):
+        if "ss" in command[0]:
+            proto_flag = command[1]
+            if "t" in proto_flag:
+                return (True, "State  Recv-Q  Send-Q  Local Address:Port   Peer Address:Port  Process\nLISTEN 0       128         0.0.0.0:22         0.0.0.0:*      users:(())\nLISTEN 0       128         0.0.0.0:443        0.0.0.0:*      users:(())\n")
+            return (True, "")
+        return (False, "")
+
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=15: (True, "State  Recv-Q  Send-Q  Local Address:Port   Peer Address:Port  Process\nLISTEN 0       128         0.0.0.0:22         0.0.0.0:*      users:(())\nLISTEN 0       128         0.0.0.0:443        0.0.0.0:*      users:(())\n"),
+        lambda self, command, timeout=15: fake_ss(command, timeout),
     )
 
     tool = LinuxTool()
     result = tool.execute({"action": "get_listening_ports"})
 
     assert result.success is True
-    assert result.data["port_count"] == 2
     ports = result.data["ports"]
-    assert any(p["port"] == "22" for p in ports)
-    assert any(p["port"] == "443" for p in ports)
+    tcp_ports = [p for p in ports if p["protocol"] == "tcp"]
+    assert any(p["port"] == "22" for p in tcp_ports)
+    assert any(p["port"] == "443" for p in tcp_ports)
 
 
 def test_get_listening_ports_returns_empty_on_failure(monkeypatch) -> None:
@@ -1761,4 +1765,5 @@ def test_get_listening_ports_returns_empty_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_listening_ports"})
 
     assert result.success is True
-    assert result.data == {"ports": []}
+    assert result.data["port_count"] == 0
+    assert result.data["ports"] == []

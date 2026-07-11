@@ -16,6 +16,7 @@ from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 from src.tool.tool_registry import ToolRegistry
 from src.tool.zabbix_tool import ZabbixTool
+from src.tool.grafana_tool import GrafanaTool
 
 
 def _build_client(cfg: dict[str, object]) -> OllamaModelAdapter:
@@ -134,11 +135,17 @@ def _run_agent(args: argparse.Namespace) -> None:
         ),
     )
 
+    registry.register_tool(
+        name="grafana",
+        tool=GrafanaTool(),
+    )
+
+    kt = KnowledgeTool(target_registry=registry)
     agent = Agent(
         model=client,
         tool_registry=tool_registry,
-        available_resources=registry.target_names()
-        and KnowledgeTool(target_registry=registry).get_available_resources(),
+        available_resources=registry.target_names() and kt.get_available_resources(),
+        capability_metadata=registry.target_names() and kt.get_capability_metadata(),
     )
 
     print("Agent is ready.")

@@ -25,6 +25,7 @@ def _mock_model_run(request: str) -> str:
     from src.tool.target_store import TargetStore
     from src.tool.tool_registry import ToolRegistry
     from src.tool.zabbix_tool import ZabbixTool
+    from src.tool.grafana_tool import GrafanaTool
 
     store = TargetStore()
     registry = TargetRegistry(store=store)
@@ -35,17 +36,22 @@ def _mock_model_run(request: str) -> str:
             token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
         ),
     )
+    registry.register_tool(
+        name="grafana",
+        tool=GrafanaTool(),
+    )
     tool_registry = ToolRegistry()
     tool_registry.register(tool_id="shell", tool=ShellTool())
     tool_registry.register(
         tool_id="knowledge",
         tool=KnowledgeTool(target_registry=registry),
     )
+    kt = KnowledgeTool(target_registry=registry)
     agent = Agent(
         model=MockModelAdapter(),
         tool_registry=tool_registry,
-        available_resources=registry.target_names()
-        and KnowledgeTool(target_registry=registry).get_available_resources(),
+        available_resources=registry.target_names() and kt.get_available_resources(),
+        capability_metadata=registry.target_names() and kt.get_capability_metadata(),
     )
     return agent.run(request)
 

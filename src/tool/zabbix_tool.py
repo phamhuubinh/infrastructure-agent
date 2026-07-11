@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Callable
 from urllib import error as urlerror
 from urllib import request
 
+from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.tool import Tool
 
@@ -63,7 +65,206 @@ def _count_by_severity(items: list[dict[str, object]], key: str = "severity") ->
 
 
 # ============================================================
-# EXISTING CAPABILITIES — ENRICHED
+# ITEM KEY -> OBSERVED SIGNAL MAPPING (deterministic)
+# ============================================================
+
+_ITEM_SIGNAL_MAP: dict[str, str] = {
+    "system.cpu.util": "CPU Utilization",
+    "system.cpu.num": "CPU Count",
+    "system.cpu.load": "CPU Load",
+    "vm.memory.size": "Memory Utilization",
+    "vfs.fs.size": "Disk Capacity",
+    "vfs.fs.discovery": "Filesystem Discovery",
+    "vfs.fs.inode": "Inode Usage",
+    "net.if.in": "Network Throughput",
+    "net.if.out": "Network Throughput",
+    "net.if.total": "Network Throughput",
+    "icmpping": "Availability",
+    "icmppingloss": "Packet Loss",
+    "icmppingsec": "Latency",
+    "system.uptime": "System Uptime",
+    "agent.ping": "Agent Availability",
+    "proc.num": "Process Count",
+    "service.info": "Service Status",
+    "system.hostname": "System Identity",
+    "system.uname": "System Identity",
+    "system.sw.os": "System Identity",
+    "system.swap.size": "Swap Utilization",
+    "vfs.dev.read": "Disk IOPS",
+    "vfs.dev.write": "Disk IOPS",
+    "vfs.dev.read.ops": "Disk IOPS",
+    "vfs.dev.write.ops": "Disk IOPS",
+    "vfs.dev.read.latency": "Disk Latency",
+    "vfs.dev.write.latency": "Disk Latency",
+    "system.localtime": "System Time",
+    "system.boottime": "Boot Time",
+    "sensor.temp": "Temperature",
+    "sensor.fan": "Fan",
+    "sensor.psu": "Power Supply",
+    "sensor.voltage": "Voltage",
+    "kernel.maxprocs": "Kernel Limits",
+    "kernel.openfiles": "Kernel Limits",
+    "zabbix.host.count": "Zabbix Statistics",
+    "zabbix.item.count": "Zabbix Statistics",
+    "zabbix.trigger.count": "Zabbix Statistics",
+}
+
+
+def _classify_item_key(key: str) -> str:
+    key_lower = key.lower().strip()
+    exact = _ITEM_SIGNAL_MAP.get(key_lower)
+    if exact:
+        return exact
+    if "docker." in key_lower:
+        return "Container"
+    if "vmware." in key_lower:
+        return "Virtualization"
+    if "snmp." in key_lower or key_lower.startswith("snmp_"):
+        return "SNMP Monitoring"
+    if "ipmi." in key_lower:
+        return "IPMI Hardware"
+    if "zabbix" in key_lower:
+        return "Zabbix Statistics"
+    if "jmx" in key_lower:
+        return "JMX Monitoring"
+    if "grinder" in key_lower:
+        return "Application Performance"
+    if "log" in key_lower and "count" in key_lower:
+        return "Log Monitoring"
+    if "log" in key_lower and ("match" in key_lower or "event" in key_lower):
+        return "Log Event"
+    if "trap" in key_lower:
+        return "SNMP Trap"
+    if key_lower.startswith("eventlog"):
+        return "Windows Event Log"
+    if "perf_counter" in key_lower or "perfcount" in key_lower:
+        return "Windows Performance"
+    if "service_state" in key_lower or "service.info" in key_lower:
+        return "Service Status"
+    if "web.page" in key_lower or "web.test" in key_lower:
+        return "Web Monitoring"
+    if "ssh" in key_lower and "run" in key_lower:
+        return "Remote Command"
+    if "telnet" in key_lower:
+        return "Remote Command"
+    if key_lower.startswith("db.") or key_lower.startswith("database."):
+        return "Database"
+    if "pgsql" in key_lower or "mysql" in key_lower or "oracle" in key_lower or "mssql" in key_lower:
+        return "Database"
+    if "redis" in key_lower:
+        return "Cache"
+    if "memcached" in key_lower:
+        return "Cache"
+    if "rabbitmq" in key_lower or "kafka" in key_lower:
+        return "Message Queue"
+    if "nginx" in key_lower or "apache" in key_lower or "httpd" in key_lower:
+        return "Web Server"
+    if "postfix" in key_lower or "sendmail" in key_lower:
+        return "Mail Server"
+    if "cert" in key_lower:
+        return "TLS Certificate"
+    if "ssl" in key_lower:
+        return "TLS Certificate"
+    if "dns" in key_lower:
+        return "DNS"
+    if "dhcp" in key_lower:
+        return "DHCP"
+    if "bgp" in key_lower:
+        return "BGP"
+    if "ospf" in key_lower:
+        return "OSPF"
+    if "vpn" in key_lower:
+        return "VPN"
+    if "firewall" in key_lower:
+        return "Firewall"
+    if "nat" in key_lower:
+        return "NAT"
+    if "backup" in key_lower:
+        return "Backup"
+    if "replication" in key_lower or "replica" in key_lower:
+        return "Replication"
+    if "raid" in key_lower:
+        return "RAID"
+    if "ups" in key_lower:
+        return "UPS"
+    return "Other"
+
+
+# ============================================================
+# TEMPLATE DOMAIN CLASSIFICATION
+# ============================================================
+
+_TEMPLATE_DOMAIN_MAP: dict[str, str] = {
+    "linux": "Compute",
+    "windows": "Compute",
+    "cisco": "Networking",
+    "juniper": "Networking",
+    "arista": "Networking",
+    "huawei": "Networking",
+    "mikrotik": "Networking",
+    "router": "Routing",
+    "switch": "Switching",
+    "firewall": "Security",
+    "fortigate": "Security",
+    "paloalto": "Security",
+    "checkpoint": "Security",
+    "vmware": "Virtualization",
+    "vsphere": "Virtualization",
+    "hyper-v": "Virtualization",
+    "docker": "Container Platform",
+    "kubernetes": "Container Platform",
+    "mysql": "Database",
+    "postgresql": "Database",
+    "oracle": "Database",
+    "mssql": "Database",
+    "mongodb": "Database",
+    "redis": "Cache",
+    "apache": "Web Server",
+    "nginx": "Web Server",
+    "iis": "Web Server",
+    "tomcat": "Application Server",
+    "zabbix": "Monitoring",
+    "snmptrap": "Monitoring",
+    "dns": "DNS",
+    "bind": "DNS",
+    "dhcp": "DHCP",
+    "ldap": "Identity",
+    "openldap": "Identity",
+    "ad": "Identity",
+    "backup": "Backup",
+    "bacula": "Backup",
+    "veeam": "Backup",
+}
+
+
+def _classify_template_domain(template_name: str) -> str:
+    name_lower = template_name.lower()
+    for keyword, domain in _TEMPLATE_DOMAIN_MAP.items():
+        if keyword in name_lower:
+            return domain
+    return "Other"
+
+
+# ============================================================
+# ITEM FORMAT WITH NORMALIZED EVIDENCE
+# ============================================================
+
+def _format_item(item: dict[str, object]) -> dict[str, object]:
+    key = str(item.get("key_", ""))
+    return {
+        "itemid": item.get("itemid"),
+        "name": item.get("name", ""),
+        "key_": key,
+        "lastvalue": item.get("lastvalue"),
+        "units": item.get("units"),
+        "value_type": item.get("value_type", "0"),
+        "observed_signal": _classify_item_key(key),
+        "infrastructure_domain": "Monitoring",
+    }
+
+
+# ============================================================
+# CAPABILITY HANDLERS
 # ============================================================
 
 def _get_api_version(zapi: _ZabbixAPI) -> dict[str, object]:
@@ -79,17 +280,27 @@ def _format_host(h: dict[str, object]) -> dict[str, object]:
     ips = ", ".join(
         i.get("ip", "") for i in interfaces if isinstance(i, dict)
     ) if isinstance(interfaces, list) else ""
+    tags = h.get("tags")
     return {
         "hostid": h.get("hostid"), "host": h.get("host"), "name": h.get("name"),
         "status": h.get("status"), "groups": group_names, "ip": ips,
+        "proxy_hostid": h.get("proxy_hostid"),
+        "available": h.get("available"),
+        "error": h.get("error", ""),
+        "maintenance_status": h.get("maintenance_status"),
+        "monitored_by": h.get("monitored_by"),
+        "tags": [{"tag": t.get("tag", ""), "value": t.get("value", "")}
+                 for t in tags if isinstance(t, dict)] if isinstance(tags, list) else [],
     }
 
 
 def _get_hosts(zapi: _ZabbixAPI) -> dict[str, object]:
     result = zapi.call("host.get", {
-        "output": ["hostid", "host", "name", "status"],
+        "output": ["hostid", "host", "name", "status", "proxy_hostid", "available", "error",
+                    "maintenance_status", "monitored_by"],
         "selectGroups": ["groupid", "name"],
         "selectInterfaces": ["interfaceid", "ip", "dns", "port", "type"],
+        "selectTags": ["tag", "value"],
     })
     if not isinstance(result, list):
         return {"hosts": [], "total_hosts": 0}
@@ -103,9 +314,11 @@ def _get_hosts(zapi: _ZabbixAPI) -> dict[str, object]:
 
 def _get_host(zapi: _ZabbixAPI, host: str = "") -> dict[str, object]:
     params: dict[str, object] = {
-        "output": ["hostid", "host", "name", "status"],
+        "output": ["hostid", "host", "name", "status", "proxy_hostid", "available", "error",
+                    "maintenance_status", "monitored_by"],
         "selectGroups": ["groupid", "name"],
         "selectInterfaces": ["interfaceid", "ip", "dns", "port", "type"],
+        "selectTags": ["tag", "value"],
     }
     if host:
         if host.isdigit():
@@ -126,37 +339,52 @@ def _get_host_groups(zapi: _ZabbixAPI) -> dict[str, object]:
 
 
 def _get_templates(zapi: _ZabbixAPI) -> dict[str, object]:
-    result = zapi.call("template.get", {"output": ["templateid", "host", "name"]})
+    result = zapi.call("template.get", {"output": ["templateid", "host", "name", "description"],
+                                         "selectGroups": ["groupid", "name"]})
     if not isinstance(result, list):
-        return {"templates": []}
-    return {"templates": [t for t in result if isinstance(t, dict)]}
+        return {"templates": [], "total": 0}
+    templates = []
+    for t in result:
+        if not isinstance(t, dict):
+            continue
+        name = t.get("name", t.get("host", ""))
+        templates.append({
+            "templateid": t.get("templateid"), "name": name, "host": t.get("host", ""),
+            "description": t.get("description", ""),
+            "domain": _classify_template_domain(name),
+        })
+    by_domain: dict[str, int] = {}
+    for t in templates:
+        d = t["domain"]
+        by_domain[d] = by_domain.get(d, 0) + 1
+    return {"templates": templates, "total": len(templates), "domain_summary": by_domain}
 
 
 def _get_items(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     params: dict[str, object] = {
-        "output": ["itemid", "name", "key_", "type", "value_type", "units", "lastvalue", "lastclock"],
-        "sortfield": "name", "limit": 100,
+        "output": ["itemid", "name", "key_", "type", "value_type", "units", "lastvalue", "lastclock", "error", "status"],
+        "sortfield": "name", "limit": 500,
     }
     if hostid:
         params["hostids"] = hostid
     result = zapi.call("item.get", params)
     if not isinstance(result, list):
         return {"items": [], "total_items": 0}
-    items = []
-    for item in result:
-        if not isinstance(item, dict):
-            continue
-        items.append({
-            "itemid": item.get("itemid"), "name": item.get("name"), "key_": item.get("key_"),
-            "lastvalue": item.get("lastvalue"), "units": item.get("units"),
-        })
-    return {"items": items, "total_items": len(items)}
+    items = [_format_item(item) for item in result if isinstance(item, dict)]
+    by_signal: dict[str, int] = {}
+    for item in items:
+        sig = item.get("observed_signal", "Other")
+        by_signal[sig] = by_signal.get(sig, 0) + 1
+    return {"items": items, "total_items": len(items), "observed_signal_summary": by_signal}
 
 
 def _get_triggers(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     params: dict[str, object] = {
-        "output": ["triggerid", "description", "expression", "priority", "status", "value"],
+        "output": ["triggerid", "description", "expression", "priority", "status", "value",
+                    "lastchange", "comments", "url", "error"],
         "selectHosts": ["hostid", "host"],
+        "selectTags": ["tag", "value"],
+        "selectDependencies": ["triggerid", "description"],
         "filter": {"value": 1},
         "sortfield": "priority", "sortorder": "DESC",
     }
@@ -170,11 +398,21 @@ def _get_triggers(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
         if not isinstance(t, dict):
             continue
         pri = str(t.get("priority", "0"))
+        deps = t.get("dependencies", [])
+        tags = t.get("tags", [])
         triggers.append({
             "triggerid": t.get("triggerid"), "description": t.get("description"),
             "expression": t.get("expression"), "priority": t.get("priority"),
             "severity": _severity_label(pri), "status": t.get("status"),
             "value": t.get("value"), "hosts": t.get("hosts"),
+            "lastchange": t.get("lastchange"),
+            "comments": t.get("comments", ""),
+            "url": t.get("url", ""),
+            "error": t.get("error", ""),
+            "dependencies": [{"triggerid": d.get("triggerid"), "description": d.get("description", "")}
+                             for d in deps if isinstance(d, dict)] if isinstance(deps, list) else [],
+            "tags": [{"tag": tg.get("tag", ""), "value": tg.get("value", "")}
+                     for tg in tags if isinstance(tg, dict)] if isinstance(tags, list) else [],
         })
     severity_summary = _count_by_severity(triggers)
     return {"triggers": triggers, "total_triggers": len(triggers), "severity_summary": severity_summary}
@@ -244,10 +482,6 @@ def _get_users(zapi: _ZabbixAPI) -> dict[str, object]:
     return {"users": [u for u in result if isinstance(u, dict)]}
 
 
-# ============================================================
-# NEW CAPABILITIES
-# ============================================================
-
 def _get_problem_timeline(zapi: _ZabbixAPI, limit: int = 50) -> dict[str, object]:
     params: dict[str, object] = {
         "output": ["eventid", "objectid", "name", "clock", "severity", "acknowledged"],
@@ -274,7 +508,7 @@ def _get_host_inventory(zapi: _ZabbixAPI) -> dict[str, object]:
         "output": ["hostid", "host", "name", "status"],
         "selectGroups": ["groupid", "name"],
         "selectInterfaces": ["interfaceid", "ip", "dns", "port", "type"],
-        "selectInventory": ["os", "type", "location"],
+        "selectInventory": ["os", "type", "location", "hardware", "software"],
     })
     if not isinstance(result, list):
         return {"hosts": []}
@@ -285,8 +519,11 @@ def _get_host_inventory(zapi: _ZabbixAPI) -> dict[str, object]:
         inventory = h.get("inventory")
         hosts.append({
             "hostid": h.get("hostid"), "host": h.get("host"), "name": h.get("name"),
-            "status": h.get("status"), "os": inventory.get("os") if isinstance(inventory, dict) else None,
+            "status": h.get("status"),
+            "os": inventory.get("os") if isinstance(inventory, dict) else None,
             "type": inventory.get("type") if isinstance(inventory, dict) else None,
+            "location": inventory.get("location") if isinstance(inventory, dict) else None,
+            "hardware": inventory.get("hardware") if isinstance(inventory, dict) else None,
         })
     return {"hosts": hosts, "total_hosts": len(hosts)}
 
@@ -335,23 +572,23 @@ def _get_event_summary(zapi: _ZabbixAPI, limit: int = 100) -> dict[str, object]:
 # CAPABILITIES REGISTRY
 # ============================================================
 
-_CAPABILITIES: dict[str, Callable[..., dict[str, object]]] = {
-    "get_api_version": _get_api_version,
-    "get_hosts": _get_hosts,
-    "get_host": _get_host,
-    "search_hosts": _search_hosts,
-    "get_host_groups": _get_host_groups,
-    "get_templates": _get_templates,
-    "get_items": _get_items,
-    "get_triggers": _get_triggers,
-    "get_events": _get_events,
-    "get_problems": _get_problems,
-    "get_problem_timeline": _get_problem_timeline,
-    "get_host_inventory": _get_host_inventory,
-    "get_host_interfaces": _get_host_interfaces,
-    "get_maintenance_status": _get_maintenance_status,
-    "get_event_summary": _get_event_summary,
-    "get_users": _get_users,
+_CAPABILITIES: dict[str, Capability] = {
+    "get_api_version": Capability("get_api_version", _get_api_version, "monitoring", ("monitor", "inventory"), ("get_hosts",), ("monitoring-version",)),
+    "get_hosts": Capability("get_hosts", _get_hosts, "monitoring", ("monitor", "inventory"), ("get_problems", "get_triggers"), ("zabbix-hosts",)),
+    "get_host": Capability("get_host", _get_host, "monitoring", ("monitor", "inventory"), ("get_items",), ("zabbix-hosts",)),
+    "search_hosts": Capability("search_hosts", _search_hosts, "monitoring", ("monitor", "inventory", "discovery"), ("get_host",), ("zabbix-hosts",)),
+    "get_host_groups": Capability("get_host_groups", _get_host_groups, "monitoring", ("monitor", "inventory"), ("get_hosts",), ("zabbix-groups",)),
+    "get_templates": Capability("get_templates", _get_templates, "monitoring", ("monitor", "inventory", "configuration"), ("get_hosts",), ("zabbix-templates",)),
+    "get_items": Capability("get_items", _get_items, "monitoring", ("monitor", "inventory", "investigation"), ("get_triggers",), ("zabbix-items",)),
+    "get_triggers": Capability("get_triggers", _get_triggers, "monitoring", ("monitor", "alerts"), ("get_problems", "get_events"), ("zabbix-triggers",)),
+    "get_events": Capability("get_events", _get_events, "monitoring", ("monitor", "events", "timeline"), ("get_problems",), ("zabbix-events",)),
+    "get_problems": Capability("get_problems", _get_problems, "monitoring", ("monitor", "alerts", "incidents"), ("get_triggers", "get_events"), ("zabbix-problems",)),
+    "get_problem_timeline": Capability("get_problem_timeline", _get_problem_timeline, "monitoring", ("monitor", "events", "timeline"), ("get_problems",), ("zabbix-events",)),
+    "get_host_inventory": Capability("get_host_inventory", _get_host_inventory, "monitoring", ("monitor", "inventory"), ("get_hosts",), ("zabbix-hosts",)),
+    "get_host_interfaces": Capability("get_host_interfaces", _get_host_interfaces, "monitoring", ("monitor", "inventory"), ("get_hosts",), ("zabbix-interfaces",)),
+    "get_maintenance_status": Capability("get_maintenance_status", _get_maintenance_status, "monitoring", ("monitor", "maintenance"), ("get_hosts",), ("zabbix-maintenance",)),
+    "get_event_summary": Capability("get_event_summary", _get_event_summary, "monitoring", ("monitor", "events", "timeline"), ("get_problems",), ("zabbix-events",)),
+    "get_users": Capability("get_users", _get_users, "monitoring", ("monitor", "inventory"), (), ("zabbix-users",)),
 }
 
 
@@ -366,18 +603,30 @@ class ZabbixTool(Tool):
         if not isinstance(action, str):
             return ToolResult(success=False, error="Missing action.")
 
-        handler = _CAPABILITIES.get(action)
-        if handler is None:
+        cap = _CAPABILITIES.get(action)
+        if cap is None:
             available = ", ".join(sorted(_CAPABILITIES))
             return ToolResult(success=False, error=f"Unknown action: '{action}'. Available actions: {available}.")
+
+        handler = cap.handler if isinstance(cap, Capability) else cap
 
         api = _ZabbixAPI(url=self._url, token=self._token, timeout=self._timeout)
         extra = {k: v for k, v in arguments.items() if k != "action"}
 
         try:
-            data = handler(api, **extra)
+            sig = inspect.signature(handler)
+            filtered: dict[str, object] = {}
+            for k, v in extra.items():
+                if k in sig.parameters:
+                    filtered[k] = v
+                else:
+                    import sys as _sys
+                    print(f"[DEBUG] ZabbixTool: ignored argument '{k}' for capability '{action}'", file=_sys.stderr)
+            data = handler(api, **filtered)
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
+        except TypeError as exc:
+            return ToolResult(success=False, error=f"ZabbixTool error: {exc}")
         except Exception as exc:
             return ToolResult(success=False, error=f"ZabbixTool error: {exc}")
 

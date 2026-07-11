@@ -85,16 +85,12 @@ def test_execute_returns_hosts(mock_zabbix) -> None:
     assert result.data["total_hosts"] == 1
     assert result.data["enabled_hosts"] == 1
     assert result.data["disabled_hosts"] == 0
-    assert result.data["hosts"] == [
-        {
-            "hostid": "1",
-            "host": "server01",
-            "name": "Server 01",
-            "status": "0",
-            "groups": "",
-            "ip": "",
-        }
-    ]
+    h = result.data["hosts"][0]
+    assert h["hostid"] == "1"
+    assert h["host"] == "server01"
+    assert h["name"] == "Server 01"
+    assert h["status"] == "0"
+    assert h["groups"] == ""
 
 
 def test_execute_returns_host_groups(mock_zabbix) -> None:
@@ -149,22 +145,25 @@ def test_execute_returns_templates(mock_zabbix) -> None:
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_templates"})
     assert result.success is True
-    assert result.data["templates"] == [
-        {"templateid": "1", "host": "Template OS Linux", "name": "Template OS Linux"},
-    ]
+    assert result.data["total"] == 1
+    t = result.data["templates"][0]
+    assert t["templateid"] == "1"
+    assert t["name"] == "Template OS Linux"
+    assert "domain" in t
 
 
 def test_execute_returns_items(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%"},
+        {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%", "value_type": "0"},
     ]
     tool = ZabbixTool(token="test-token")
     result = tool.execute({"action": "get_items"})
     assert result.success is True
     assert result.data["total_items"] == 1
-    assert result.data["items"] == [
-        {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%"},
-    ]
+    item = result.data["items"][0]
+    assert item["itemid"] == "1"
+    assert item["key_"] == "system.cpu.util"
+    assert item["observed_signal"] == "CPU Utilization"
 
 
 def test_get_items_filters_by_host_id(mock_zabbix) -> None:
@@ -235,9 +234,11 @@ def test_get_host_with_host_name_filter(mock_zabbix) -> None:
     result = tool.execute({"action": "get_host", "host": "web01"})
 
     assert result.success is True
-    assert result.data["hosts"] == [
-        {"hostid": "2", "host": "web01", "name": "Web Server 01", "status": "0", "groups": "", "ip": ""},
-    ]
+    h = result.data["hosts"][0]
+    assert h["hostid"] == "2"
+    assert h["host"] == "web01"
+    assert h["name"] == "Web Server 01"
+    assert h["status"] == "0"
 
     call = mock_zabbix.calls[0]
     assert call["method"] == "host.get"

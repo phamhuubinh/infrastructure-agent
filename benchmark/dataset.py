@@ -25,6 +25,12 @@ CAPABILITY_CATEGORIES: dict[str, list[str]] = {
     "zabbix_templates": ["get_templates"],
     "zabbix_users": ["get_users"],
     "zabbix_version": ["get_api_version"],
+    "grafana_health": ["health"],
+    "grafana_dashboards": ["dashboards", "dashboard_search", "dashboard_summary", "dashboard_details"],
+    "grafana_folders": ["folders"],
+    "grafana_datasources": ["datasources"],
+    "grafana_alerts": ["alert_rules"],
+    "grafana_annotations": ["annotations"],
 }
 
 

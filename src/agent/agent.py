@@ -4,8 +4,10 @@ import time as _time
 
 from src.model.model_adapter import ModelAdapter
 from src.shared.discovery.observation import Observation
+from src.shared.evidence_extractor import extract_known_facts
 from src.shared.reasoning.action import Action
 from src.shared.reasoning.final_response import FinalResponse
+from src.shared.reasoning.reasoning_state import ReasoningState
 from src.tool.tool_registry import ToolRegistry
 
 
@@ -31,6 +33,7 @@ def _log(msg: str = "") -> None:
 class Agent:
     """
     Coordinates the reasoning loop between the Model and Tools.
+    Uses ReasoningState to manage observations and known facts per request.
     """
 
     def __init__(
@@ -39,18 +42,19 @@ class Agent:
         tool_registry: ToolRegistry,
         available_resources: dict[str, list[str]] | None = None,
         max_iterations: int = 15,
+        capability_metadata: dict[str, list[dict[str, object]]] | None = None,
     ) -> None:
         self._model = model
         self._tool_registry = tool_registry
         self._available_resources = available_resources
         self._max_iterations = max_iterations
-        self._known_facts: dict[str, object] = {}
+        self._capability_metadata = capability_metadata or {}
 
     def run(
         self,
         user_request: str,
     ) -> str:
-        observations: tuple[Observation, ...] = ()
+        state = ReasoningState()
 
         for iteration in range(self._max_iterations):
             iter_t0 = _time.perf_counter()
@@ -60,13 +64,16 @@ class Agent:
                 print(f"Iteration {iteration}")
                 print(f"{'='*60}")
 
+            known_facts = extract_known_facts(state.observations)
+
             t_reason = _time.perf_counter()
             try:
                 decision = self._model.reason(
                     user_request=user_request,
-                    observations=observations,
+                    observations=state.observations,
                     available_resources=self._available_resources,
-                    known_facts=self._known_facts,
+                    known_facts=known_facts,
+                    capability_metadata=self._capability_metadata,
                 )
             except Exception as exc:
                 if _VERBOSE:
@@ -89,6 +96,14 @@ class Agent:
             if _STATUS:
                 print(f"[{iteration}] {decision.tool}", end="")
 
+            # ---- Deduplication: skip if identical call already succeeded ----
+            if state.was_executed(decision):
+                if _VERBOSE:
+                    print(f"[{_time.perf_counter() - iter_t0:.3f}s] SKIP (already executed): {action_desc}")
+                if _STATUS:
+                    print(f" -> SKIP (duplicate)")
+                continue
+
             t_tool = _time.perf_counter()
             try:
                 tool = self._tool_registry.get(decision.tool)
@@ -96,7 +111,7 @@ class Agent:
             except Exception as exc:
                 if _VERBOSE:
                     print(f"[{_time.perf_counter() - t_tool:.3f}s] tool FAILED: {exc}")
-                observations += (
+                state.add_observation(
                     Observation(
                         data=None,
                         success=False,
@@ -135,7 +150,7 @@ class Agent:
                 result_str = str(result.data) if result.data else ""
                 print(f"ToolResult: success={result.success} data_chars={len(result_str):,}")
 
-            observations += (
+            state.add_observation(
                 Observation(
                     data=result.data,
                     success=result.success,
@@ -144,24 +159,5 @@ class Agent:
                     arguments=decision.arguments,
                 ),
             )
-
-            # Update known facts (summarized)
-            if result.success and result.data:
-                action_key = (
-                    f"{decision.tool}:"
-                    f"{decision.arguments.get('source', '')}:"
-                    f"{decision.arguments.get('resource', '')}"
-                )
-                raw = result.data
-                if isinstance(raw, dict):
-                    flat = {}
-                    for k, v in raw.items():
-                        if not isinstance(v, (list, dict)):
-                            flat[k] = v
-                        elif isinstance(v, list):
-                            flat[f"{k}_count"] = len(v)
-                    self._known_facts[action_key] = flat
-                else:
-                    self._known_facts[action_key] = str(raw)[:200]
 
         return f"Max iterations ({self._max_iterations}) reached without FinalResponse."

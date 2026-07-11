@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import inspect
 import json
 from collections.abc import Callable
 
+from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
@@ -126,7 +128,7 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: systemd services.
+    Subsystem: systemd services summary.
     """
     ok, output = run(
         [
@@ -164,25 +166,57 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             elif parts[3] == "failed":
                 failed += 1
 
+    failed_names = [s["name"] for s in services if s["sub"] == "failed"]
+
     return {
         "services": services,
         "total": len(services),
         "running": running,
         "exited": exited,
         "failed": failed,
+        "failed_services": failed_names,
     }
+
+
+def _search_service(run: Callable[..., tuple[bool, str]], query: str = "") -> dict[str, object]:
+    """
+    Deterministic service search. Filters systemd units inside the Tool.
+    """
+    if not query:
+        return {"error": "Missing query parameter."}
+    ok, output = run(["systemctl", "list-units", "--type=service", "--no-legend", "--no-pager"])
+    if not ok:
+        return {"matches": [], "count": 0, "query": query}
+    matches = []
+    query_lower = query.lower()
+    for line in output.splitlines():
+        if query_lower in line.lower():
+            parts = line.split(None, 4)
+            if len(parts) >= 4:
+                matches.append({"name": parts[0], "load": parts[1], "active": parts[2], "sub": parts[3]})
+    return {"matches": matches, "count": len(matches), "query": query}
 
 
 def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: Docker engine presence on this host (not the Docker API).
+    Subsystem: Docker engine presence and running containers.
     """
     ok, output = run(["docker", "--version"])
 
     if not ok:
-        return {"installed": False, "version": None}
+        return {"installed": False, "version": None, "containers": [], "container_count": 0}
 
-    return {"installed": True, "version": output}
+    version = output.strip()
+    containers: list[dict[str, object]] = []
+
+    ok2, output2 = run(["docker", "ps", "--format", "{{.ID}} {{.Image}} {{.Names}} {{.Status}}"])
+    if ok2:
+        for line in output2.splitlines():
+            parts = line.split(None, 3)
+            if len(parts) >= 3:
+                containers.append({"id": parts[0], "image": parts[1], "name": parts[2], "status": parts[3] if len(parts) > 3 else ""})
+
+    return {"installed": True, "version": version, "containers": containers, "container_count": len(containers)}
 
 
 def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -331,13 +365,13 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: running processes.
+    Subsystem: running processes. Returns full command lines (not truncated names).
     """
     ok, output = run(
         [
             "ps",
             "-eo",
-            "pid,comm,pcpu,pmem",
+            "pid,args,pcpu,pmem",
             "--no-headers",
         ]
     )
@@ -351,18 +385,18 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             if len(parts) < 4:
                 continue
 
-            pid, comm, pcpu, pmem = parts
+            pid, args, pcpu, pmem = parts
 
             processes.append(
                 {
                     "pid": int(pid) if pid.isdigit() else 0,
-                    "command": comm,
+                    "command": args,
                     "cpu_percent": pcpu,
                     "memory_percent": pmem,
                 }
             )
 
-    return {"processes": processes}
+    return {"processes": processes, "total": len(processes), "summary": f"{len(processes)} running processes"}
 
 
 def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -397,10 +431,8 @@ def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: installed packages (dpkg on Debian/Ubuntu, rpm fallback).
+    Subsystem: installed packages summary (count only — use search_package for detail).
     """
-    packages: list[dict[str, object]] = []
-
     ok, output = run(
         [
             "dpkg-query",
@@ -410,11 +442,8 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     )
 
     if ok:
-        for line in output.splitlines():
-            parts = line.split(None, 1)
-            if len(parts) >= 2:
-                packages.append({"name": parts[0], "version": parts[1]})
-        return {"packages": packages, "package_count": len(packages)}
+        lines = [l for l in output.splitlines() if l.strip()]
+        return {"package_count": len(lines), "summary": f"{len(lines)} packages installed"}
 
     ok, output = run(
         [
@@ -426,12 +455,42 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     )
 
     if ok:
-        for line in output.splitlines():
-            parts = line.split(None, 1)
-            if len(parts) >= 2:
-                packages.append({"name": parts[0], "version": parts[1]})
+        lines = [l for l in output.splitlines() if l.strip()]
+        return {"package_count": len(lines), "summary": f"{len(lines)} packages installed"}
 
-    return {"packages": packages, "package_count": len(packages)}
+    return {"package_count": 0, "summary": "unable to query packages"}
+
+
+def _search_package(run: Callable[..., tuple[bool, str]], query: str = "") -> dict[str, object]:
+    """
+    Deterministic package search. Filters package list inside the Tool.
+    Returns only matching packages — no thousands of raw entries.
+    """
+    if not query:
+        return {"error": "Missing query parameter."}
+    ok, output = run(["dpkg-query", "-W", "-f=${Package} ${Version}\n"])
+    if ok:
+        matches = []
+        query_lower = query.lower()
+        for line in output.splitlines():
+            if query_lower in line.lower():
+                parts = line.split(None, 1)
+                if len(parts) >= 2:
+                    matches.append({"name": parts[0], "version": parts[1]})
+        return {"matches": matches, "count": len(matches), "query": query}
+
+    ok, output = run(["rpm", "-qa", "--qf", "%{NAME} %{VERSION}\n"])
+    if ok:
+        matches = []
+        query_lower = query.lower()
+        for line in output.splitlines():
+            if query_lower in line.lower():
+                parts = line.split(None, 1)
+                if len(parts) >= 2:
+                    matches.append({"name": parts[0], "version": parts[1]})
+        return {"matches": matches, "count": len(matches), "query": query}
+
+    return {"matches": [], "count": 0, "query": query}
 
 
 def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -887,17 +946,26 @@ def _get_service(run: Callable[..., tuple[bool, str]], name: str = "") -> dict[s
 
 
 def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["ss", "-tlnp"])
-    if not ok:
-        return {"ports": []}
     ports: list[dict[str, object]] = []
-    for line in output.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) >= 4:
-            addr = parts[3]
-            if ":" in addr:
-                port_str = addr.rsplit(":", 1)[-1]
-                ports.append({"address": addr, "port": port_str, "protocol": "tcp"})
+
+    for proto in ("tcp", "udp"):
+        ok, output = run(["ss", f"-l{proto[0]}np"])
+        if ok:
+            for line in output.splitlines()[1:]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    addr = parts[3]
+                    if ":" in addr:
+                        port_str = addr.rsplit(":", 1)[-1]
+                        process = ""
+                        if len(parts) >= 6:
+                            proc_part = parts[5] if len(parts) > 5 else ""
+                            if "users:" in proc_part:
+                                import re as _re
+                                m = _re.search(r'"([^"]*)"', proc_part)
+                                if m:
+                                    process = m.group(1)
+                        ports.append({"address": addr, "port": port_str, "protocol": proto, "process": process})
     return {"ports": ports, "port_count": len(ports)}
 
 
@@ -965,17 +1033,26 @@ def _get_time_sync(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_process_by_name(run: Callable[..., tuple[bool, str]], name: str = "") -> dict[str, object]:
-    if not name:
-        return _get_process(run)
-    ok, output = run(["pgrep", "-a", name])
+    return _search_process(run, query=name) if name else _get_process(run)
+
+
+def _search_process(run: Callable[..., tuple[bool, str]], query: str = "") -> dict[str, object]:
+    """
+    Deterministic process search. Filters full command lines inside the Tool.
+    """
+    if not query:
+        return {"error": "Missing query parameter."}
+    ok, output = run(["ps", "-eo", "pid,args", "--no-headers"])
     if not ok:
-        return {"processes": [], "count": 0, "name": name}
-    processes = []
+        return {"matches": [], "count": 0, "query": query}
+    matches = []
+    query_lower = query.lower()
     for line in output.splitlines():
-        parts = line.split(None, 1)
-        if parts:
-            processes.append({"pid": parts[0], "command": parts[1] if len(parts) > 1 else ""})
-    return {"processes": processes, "count": len(processes), "name": name}
+        if query_lower in line.lower():
+            parts = line.split(None, 1)
+            if parts:
+                matches.append({"pid": parts[0], "command": parts[1] if len(parts) > 1 else ""})
+    return {"matches": matches, "count": len(matches), "query": query}
 
 
 def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -1005,50 +1082,53 @@ def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
-_CAPABILITIES: dict[str, Callable[..., dict[str, object]]] = {
-    "get_system": _get_system,
-    "get_network": _get_network,
-    "get_services": _get_services,
-    "get_docker": _get_docker,
-    "get_cpu": _get_cpu,
-    "get_memory": _get_memory,
-    "get_disk": _get_disk,
-    "get_filesystem": _get_filesystem,
-    "get_dns": _get_dns,
-    "get_process": _get_process,
-    "get_user": _get_user,
-    "get_package": _get_package,
-    "get_ssh": _get_ssh,
-    "get_hardware": _get_hardware,
-    "get_pci": _get_pci,
-    "get_usb": _get_usb,
-    "get_gpu": _get_gpu,
-    "get_block_device": _get_block_device,
-    "get_secureboot": _get_secureboot,
-    "get_apparmor": _get_apparmor,
-    "get_selinux": _get_selinux,
-    "get_firewall": _get_firewall,
-    "get_certificate": _get_certificate,
-    "get_journal": _get_journal,
-    "get_log": _get_log,
-    "get_time": _get_time,
-    "get_locale": _get_locale,
-    "get_environment": _get_environment,
-    "get_session": _get_session,
-    "get_module": _get_module,
-    "get_lxd": _get_lxd,
-    "get_uptime": _get_uptime,
-    "get_boot_time": _get_boot_time,
-    "get_cpu_usage": _get_cpu_usage,
-    "get_swap": _get_swap,
-    "get_service": _get_service,
-    "get_listening_ports": _get_listening_ports,
-    "get_disk_usage": _get_disk_usage,
-    "get_system_load": _get_system_load,
-    "get_recent_logins": _get_recent_logins,
-    "get_filesystem_health": _get_filesystem_health,
-    "get_time_sync": _get_time_sync,
-    "get_process_by_name": _get_process_by_name,
+_CAPABILITIES: dict[str, Capability] = {
+    "get_system": Capability("get_system", _get_system, "system", ("identity", "inventory"), ("get_memory", "get_disk"), ("system-identity",)),
+    "get_network": Capability("get_network", _get_network, "network", ("health", "connectivity"), ("get_dns", "get_listening_ports"), ("network",)),
+    "get_services": Capability("get_services", _get_services, "system", ("services", "health"), ("get_service", "search_service", "get_listening_ports"), ("services",)),
+    "search_service": Capability("search_service", _search_service, "system", ("services", "discovery"), ("get_service", "get_listening_ports"), ("services", "application-discovery")),
+    "get_docker": Capability("get_docker", _get_docker, "container", ("container", "health"), ("get_services",), ("container",)),
+    "get_cpu": Capability("get_cpu", _get_cpu, "system", ("health", "performance"), ("get_cpu_usage", "get_memory"), ("cpu",)),
+    "get_memory": Capability("get_memory", _get_memory, "system", ("health", "performance"), ("get_swap", "get_system_load"), ("memory",)),
+    "get_disk": Capability("get_disk", _get_disk, "storage", ("storage", "health"), ("get_filesystem", "get_block_device", "get_disk_usage"), ("storage",)),
+    "get_filesystem": Capability("get_filesystem", _get_filesystem, "storage", ("storage", "health"), ("get_disk",), ("filesystem",)),
+    "get_dns": Capability("get_dns", _get_dns, "network", ("dns", "connectivity"), ("get_network",), ("dns",)),
+    "get_process": Capability("get_process", _get_process, "system", ("processes", "performance"), ("search_process", "get_memory", "get_cpu_usage"), ("processes",)),
+    "search_process": Capability("search_process", _search_process, "system", ("processes", "discovery", "application"), ("get_process",), ("processes", "application-discovery")),
+    "get_user": Capability("get_user", _get_user, "system", ("inventory",), ("get_session",), ("users",)),
+    "get_package": Capability("get_package", _get_package, "system", ("inventory",), ("search_package",), ("packages",)),
+    "search_package": Capability("search_package", _search_package, "system", ("packages", "discovery", "application"), ("get_package",), ("packages", "application-discovery")),
+    "get_ssh": Capability("get_ssh", _get_ssh, "security", ("ssh", "authentication"), ("get_firewall", "get_listening_ports"), ("ssh",)),
+    "get_hardware": Capability("get_hardware", _get_hardware, "system", ("inventory",), ("get_system",), ("hardware",)),
+    "get_pci": Capability("get_pci", _get_pci, "system", ("inventory",), ("get_hardware",), ("hardware",)),
+    "get_usb": Capability("get_usb", _get_usb, "system", ("inventory",), ("get_hardware",), ("hardware",)),
+    "get_gpu": Capability("get_gpu", _get_gpu, "system", ("inventory",), ("get_hardware",), ("hardware",)),
+    "get_block_device": Capability("get_block_device", _get_block_device, "storage", ("storage",), ("get_disk",), ("storage",)),
+    "get_secureboot": Capability("get_secureboot", _get_secureboot, "security", ("security",), ("get_apparmor", "get_selinux"), ("secure-boot",)),
+    "get_apparmor": Capability("get_apparmor", _get_apparmor, "security", ("security",), ("get_selinux", "get_firewall"), ("apparmor",)),
+    "get_selinux": Capability("get_selinux", _get_selinux, "security", ("security",), ("get_apparmor",), ("selinux",)),
+    "get_firewall": Capability("get_firewall", _get_firewall, "security", ("security", "firewall"), ("get_services", "get_listening_ports"), ("firewall",)),
+    "get_certificate": Capability("get_certificate", _get_certificate, "security", ("security",), ("get_ssh",), ("tls-certificates",)),
+    "get_journal": Capability("get_journal", _get_journal, "system", ("logs", "diagnostics"), ("get_log",), ("system-logs",)),
+    "get_log": Capability("get_log", _get_log, "system", ("logs", "diagnostics"), ("get_journal",), ("system-logs",)),
+    "get_time": Capability("get_time", _get_time, "system", ("time", "health"), ("get_time_sync", "get_uptime"), ("system-time",)),
+    "get_locale": Capability("get_locale", _get_locale, "system", ("inventory",), (), ("system-locale",)),
+    "get_environment": Capability("get_environment", _get_environment, "system", ("inventory",), (), ("system-environment",)),
+    "get_session": Capability("get_session", _get_session, "system", ("inventory",), ("get_recent_logins",), ("sessions",)),
+    "get_module": Capability("get_module", _get_module, "system", ("inventory",), (), ("kernel-modules",)),
+    "get_lxd": Capability("get_lxd", _get_lxd, "container", ("container",), ("get_docker",), ("container",)),
+    "get_uptime": Capability("get_uptime", _get_uptime, "system", ("uptime", "health"), ("get_boot_time",), ("uptime",)),
+    "get_boot_time": Capability("get_boot_time", _get_boot_time, "system", ("uptime",), ("get_uptime",), ("boot-time",)),
+    "get_cpu_usage": Capability("get_cpu_usage", _get_cpu_usage, "system", ("cpu", "performance"), ("get_cpu", "get_system_load"), ("cpu",)),
+    "get_swap": Capability("get_swap", _get_swap, "system", ("memory", "health"), ("get_memory",), ("swap",)),
+    "get_service": Capability("get_service", _get_service, "system", ("services",), ("get_services", "search_service"), ("services",)),
+    "get_listening_ports": Capability("get_listening_ports", _get_listening_ports, "network", ("network", "security"), ("search_process",), ("network", "listening-ports")),
+    "get_disk_usage": Capability("get_disk_usage", _get_disk_usage, "storage", ("storage", "health"), ("get_disk",), ("storage",)),
+    "get_system_load": Capability("get_system_load", _get_system_load, "system", ("load", "performance"), ("get_cpu", "get_memory"), ("load",)),
+    "get_recent_logins": Capability("get_recent_logins", _get_recent_logins, "system", ("security",), ("get_session",), ("sessions",)),
+    "get_filesystem_health": Capability("get_filesystem_health", _get_filesystem_health, "storage", ("storage", "health"), ("get_filesystem",), ("filesystem",)),
+    "get_time_sync": Capability("get_time_sync", _get_time_sync, "system", ("time", "health"), ("get_time",), ("system-time",)),
+    "get_process_by_name": Capability("get_process_by_name", _get_process_by_name, "system", ("processes", "discovery"), ("search_process", "get_process"), ("processes",)),
 }
 
 
@@ -1090,9 +1170,9 @@ class LinuxTool(Tool):
         if not isinstance(action, str):
             raise ValueError("Missing action.")
 
-        handler = _CAPABILITIES.get(action)
+        cap = _CAPABILITIES.get(action)
 
-        if handler is None:
+        if cap is None:
             available = ", ".join(sorted(_CAPABILITIES))
 
             return ToolResult(
@@ -1100,10 +1180,19 @@ class LinuxTool(Tool):
                 error=f"Unknown action: '{action}'. Available actions: {available}.",
             )
 
+        handler = cap.handler if isinstance(cap, Capability) else cap
         extra = {k: v for k, v in arguments.items() if k != "action"}
+        sig = inspect.signature(handler)
+        filtered: dict[str, object] = {}
+        for k, v in extra.items():
+            if k in sig.parameters:
+                filtered[k] = v
+            else:
+                import sys as _sys
+                print(f"[DEBUG] LinuxTool: ignored argument '{k}' for capability '{action}'", file=_sys.stderr)
 
-        if extra:
-            data = handler(self._run, **extra)
+        if filtered:
+            data = handler(self._run, **filtered)
         else:
             data = handler(self._run)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 
+from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.linux_tool import LinuxTool
 from src.tool.target_registry import TargetRegistry
@@ -73,4 +74,35 @@ class KnowledgeTool(Tool):
                 error=f"Unknown source: '{source}'. Available sources: {available}.",
             )
 
-        return child_tool.execute({"action": resource})
+        child_args: dict[str, object] = {"action": resource}
+        extra = {k: v for k, v in arguments.items() if k not in ("source", "resource")}
+        child_args.update(extra)
+
+        return child_tool.execute(child_args)
+
+    def get_child_tool(self, source: str) -> Tool:
+        return self._registry.get_tool(source)
+
+    def get_capability_metadata(self) -> dict[str, list[dict[str, object]]]:
+        result: dict[str, list[dict[str, object]]] = {}
+        for name in self._registry.target_names():
+            tool = self._registry.get_tool(name)
+            mod = inspect.getmodule(type(tool))
+            if mod is None or not hasattr(mod, "_CAPABILITIES"):
+                continue
+            raw = getattr(mod, "_CAPABILITIES")
+            entries: list[dict[str, object]] = []
+            for cap_name, value in raw.items():
+                if isinstance(value, Capability):
+                    entries.append({
+                        "name": cap_name,
+                        "category": value.category,
+                        "intents": list(value.intents),
+                        "related": list(value.related),
+                        "covers": list(value.covers),
+                    })
+                else:
+                    entries.append({"name": cap_name})
+            if entries:
+                result[name] = entries
+        return result

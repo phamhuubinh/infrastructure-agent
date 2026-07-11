@@ -21,11 +21,46 @@ RULES = [
     "BEFORE calling another capability, evaluate: "
     "will this information materially change the final conclusion? "
     "If YES, collect evidence. If NO, return FinalResponse.",
-    "Analyse collected evidence. Clearly distinguish: facts (observed), inference (derived), "
-    "hypothesis (possible but unconfirmed), recommendation (suggested action).",
-    "State your confidence level explicitly when the evidence is incomplete.",
-    "If Zabbix is relevant to the user request, always collect problems, triggers, and hosts "
-    "before returning a final assessment.",
+    "Do not stop investigating simply because some evidence has been collected. "
+    "Continue collecting evidence until one of: (a) sufficient evidence exists to answer with reasonable confidence; "
+    "(b) no additional relevant capabilities are available; (c) more evidence would not materially improve the answer. "
+    "For broad requests (e.g. check the server, inspect the machine, review configuration, system health, "
+    "operational assessment), investigate all major subsystems relevant to the target. "
+    "Before FinalResponse: have I investigated every major aspect? "
+    "Is additional evidence available that could change my conclusion? "
+    "Am I stopping because I have enough evidence, or because I already have some evidence? "
+    "Unknowns should represent information that cannot currently be determined, "
+    "not information that could have been collected using existing capabilities.",
+    "When presenting your final assessment, structure it into four clear sections: "
+    "Evidence: what was directly observed (scoped to its source). "
+    "Assessment: what the evidence implies operationally. "
+    "Unknowns: what cannot yet be concluded. "
+    "Recommendations: suggested next steps (only if supported by evidence).",
+    "Never treat absence of evidence as evidence of absence. "
+    "If no evidence exists for a claim, say 'There is no evidence of X in the available Y data', "
+    "not 'X does not exist'.",
+    "Evidence is scoped to its source. "
+    "Evidence from one source (Linux, Zabbix, Grafana, etc.) must never be used to invalidate "
+    "or deny entities in another source unless explicit evidence establishes a relationship between them.",
+    "Never make stronger claims than the evidence supports. "
+    "If evidence is insufficient, state exactly what additional evidence would be required.",
+    "Select the correct source based on the user's intent: "
+    "use the zabbix source for monitoring questions (host problems, interface down, WAN status, alerts, triggers); "
+    "use the grafana source for visualization questions (dashboards, panels, datasources, folders, annotations); "
+    "Priority: collect evidence directly related to the user's intent before general system info. "
+    "Example: 'check monitor' -> monitoring services (Grafana, Zabbix) first; "
+    "'check SSH' -> SSH config, ports, firewall, auth first; "
+    "'check storage' -> disk, filesystem, storage first. "
+    "General OS info must not take priority over evidence that directly answers the question.",
+    "Before selecting any capability, first identify the investigation target. "
+    "If the user explicitly names a known source or target (e.g. monitor, prod, staging, zabbix, grafana), "
+    "investigate that source first. "
+    "Otherwise determine which source best matches the user's intent. "
+    "Only use localhost when no other source is applicable. "
+    "Never assume localhost simply because the request concerns configuration, services, monitoring, "
+    "health, logs, diagnostics, or operating systems — always determine the target first. "
+    "If multiple sources are relevant, collect evidence from all before answering. "
+    "Never force an investigation sequence. The model remains responsible for reasoning.",
 ]
 
 TERMINATION_RULES = """
@@ -158,6 +193,40 @@ CAPABILITY_DESCRIPTIONS: dict[str, str] = {
     "get_api_version": "Purpose: Zabbix API version. Use for compatibility questions. "
                        "Do NOT use when: monitoring or host questions. "
                        "Output: version string. Follow-up: get_hosts.",
+    "health": "Purpose: Grafana health status. Use first when checking Grafana connectivity. "
+              "Do NOT use when: checking dashboards or datasources. "
+              "Output: health status response. Follow-up: version.",
+    "version": "Purpose: Grafana version. Use for version/compatibility questions. "
+               "Do NOT use when: monitoring or dashboard questions. "
+               "Output: version string. Follow-up: dashboards.",
+    "dashboards": "Purpose: List all Grafana dashboards. Use for dashboard inventory questions. "
+                  "Do NOT use when: searching for specific dashboards (use dashboard_search). "
+                  "Output: dashboard list with title, uid, folder, tags. Follow-up: dashboard_search.",
+    "dashboard_search": "Purpose: Search Grafana dashboards by query. Use when looking for specific dashboards. "
+                        "Do NOT use when: listing all dashboards (use dashboards). "
+                        "Output: matching dashboards. Follow-up: dashboards.",
+    "dashboard_summary": "Purpose: Aggregated Grafana dashboard overview. Use for high-level dashboard inventory. "
+                          "Do NOT use when: detailed dashboard info (use dashboards or dashboard_search). "
+                          "Output: total count, tag list, unique tag count. Follow-up: dashboards.",
+    "dashboard_details": "Purpose: Full dashboard definition with panels, queries, metrics, field config, transformations, and observed signals. "
+                          "Use when: panel details, query languages (PromQL, SQL), metrics, thresholds, units, or panel structure questions. "
+                          "Do NOT use when: listing all dashboards (use dashboards). "
+                          "Requires: uid parameter. "
+                          "Output: title, version, time range, variables, panels with queries/metrics/field_config/transformations, "
+                          "panel_type_summary, datasource_domain_summary, observed_signals, infrastructure_domains. "
+                          "Follow-up: dashboards.",
+    "folders": "Purpose: List Grafana folders. Use for folder/classification questions. "
+               "Do NOT use when: dashboard or datasource questions. "
+               "Output: folder list. Follow-up: dashboards.",
+    "datasources": "Purpose: List Grafana datasources. Use for datasource/connection questions. "
+                   "Do NOT use when: dashboard or alert questions. "
+                   "Output: datasource list with name, type, url. Follow-up: dashboards.",
+    "alert_rules": "Purpose: Grafana alert rule definitions. Use for rule configuration questions. "
+                   "Do NOT use when: current alert states. "
+                   "Output: alert rule list. Follow-up: dashboards.",
+    "annotations": "Purpose: Grafana annotations. Use for annotation/event timeline questions. "
+                   "Do NOT use when: dashboard or alert questions. "
+                   "Output: annotation list with text and timestamps. Follow-up: dashboards.",
 }
 
 RESPONSE_EXAMPLES = [
@@ -175,6 +244,14 @@ RESPONSE_EXAMPLES = [
         "arguments": {
             "source": "zabbix",
             "resource": "get_hosts",
+        },
+    },
+    {
+        "type": "action",
+        "tool": "knowledge",
+        "arguments": {
+            "source": "grafana",
+            "resource": "dashboards",
         },
     },
     {
@@ -289,6 +366,7 @@ def build_prompt(
     observations: tuple[Observation, ...],
     available_resources: dict[str, list[str]] | None = None,
     known_facts: dict[str, object] | None = None,
+    capability_metadata: dict[str, list[dict[str, object]]] | None = None,
 ) -> str:
     if available_resources is None:
         from src.tool.knowledge_tool import KnowledgeTool
@@ -319,5 +397,8 @@ def build_prompt(
 
     if known_facts:
         payload["known_facts"] = _summarize_known_facts(known_facts)
+
+    if capability_metadata:
+        payload["capability_metadata"] = capability_metadata
 
     return json.dumps(payload)

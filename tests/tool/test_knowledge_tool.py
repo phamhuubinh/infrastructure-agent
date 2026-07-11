@@ -182,6 +182,23 @@ def test_discovers_registered_tool_capabilities() -> None:
     assert "get_problems" in caps["zabbix"]
 
 
+def test_discovers_grafana_tool_capabilities() -> None:
+    from src.tool.grafana_tool import GrafanaTool
+
+    registry = TargetRegistry()
+    registry.add("localhost")
+    registry.register_tool("grafana", GrafanaTool(url="http://x", token="x"))
+    tool = KnowledgeTool(target_registry=registry)
+
+    caps = tool.get_capabilities()
+
+    assert "localhost" in caps
+    assert "grafana" in caps
+    assert "health" in caps["grafana"]
+    assert "dashboards" in caps["grafana"]
+    assert "dashboard_summary" in caps["grafana"]
+
+
 def test_empty_registry_returns_empty_dict() -> None:
     registry = TargetRegistry()
     tool = KnowledgeTool(target_registry=registry)
