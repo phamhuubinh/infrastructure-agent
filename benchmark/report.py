@@ -31,6 +31,15 @@ def generate_human_report(reports: list[dict[str, Any]]) -> str:
             total = s["total"]
             domain_total += total
 
+            am = r.get("assessment_metrics", {})
+            cov_str = ""
+            if am:
+                cov_str = (
+                    f" ev_cov={am.get('evidence_coverage', 0):.2f}"
+                    f" grd={am.get('grounding', 0):.2f}"
+                    f" comp={am.get('completeness', 0):.2f}"
+                )
+
             status = "OK" if total >= 0.7 else "FAIL" if total < 0.4 else "WARN"
             lines.append(
                 f"  {r['benchmark']:<30} {status} "
@@ -41,6 +50,7 @@ def generate_human_report(reports: list[dict[str, Any]]) -> str:
                 f"saf={s['safety']:.2f} "
                 f"iter={r['iterations']} "
                 f"{r['elapsed']:.1f}s"
+                f"{cov_str}"
             )
 
         domain_avg = domain_total / len(domain_reports)

@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from benchmark.assessment_evaluator import AssessmentExpected
+from benchmark.assessment_evaluator import evaluate as evaluate_assessment
+from benchmark.assessment_evaluator import metrics_to_dict
 from benchmark.dataset import BENCHMARKS
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
@@ -31,7 +34,8 @@ def _run_benchmarks(
             errors: list[str] = []
 
             scores_dict = score(bm, [], 1, response, errors)
-            results.append({
+
+            result: dict[str, Any] = {
                 "benchmark": bm.name,
                 "domain": bm.domain,
                 "request": bm.request,
@@ -42,8 +46,29 @@ def _run_benchmarks(
                 "errors": errors,
                 "scores": scores_dict,
                 "exception": None,
-            })
-            total = scores_dict["total"]
+            }
+
+            # Run assessment evaluation if expected evidence is defined.
+            if bm.expected_evidence:
+                expected = AssessmentExpected(
+                    evidence=tuple(bm.expected_evidence),
+                    recommendations=tuple(bm.expected_recommendations),
+                    sections=tuple(bm.expected_sections),
+                )
+                prompt = _get_prompt(bm.request)
+                metrics = evaluate_assessment(
+                    response=response,
+                    expected=expected,
+                    prompt_size=len(prompt) if prompt else 0,
+                    completion_size=len(response),
+                )
+                result["assessment_metrics"] = metrics_to_dict(metrics)
+            else:
+                result["assessment_metrics"] = {}
+
+            results.append(result)
+
+            total = scores_dict.get("total", 0)
             status = "PASS" if total >= 0.7 else "FAIL" if total < 0.4 else "WARN"
             print(f"{status} ({total:.2f})")
         except Exception as exc:
@@ -58,10 +83,21 @@ def _run_benchmarks(
                 "capability_sequence": [],
                 "errors": [str(exc)],
                 "scores": {"total": 0, "reasoning": 0, "efficiency": 0, "evidence": 0, "safety": 0},
+                "assessment_metrics": {},
                 "exception": str(exc),
             })
 
     return results
+
+
+def _get_prompt(request: str) -> str:
+    """Build the assessment prompt for prompt size measurement."""
+    from src.pipeline.assessment_adapter import AssessmentAdapter
+    from src.pipeline.assessment_request import AssessmentRequest
+    from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
+
+    req = AssessmentRequest(raw_request=request)
+    return build_assessment_prompt(req)
 
 
 def main() -> None:

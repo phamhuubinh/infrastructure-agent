@@ -61,8 +61,111 @@ class Benchmark:
     forbidden_destructive: bool = False
     hallucination_risk_keywords: list[str] = field(default_factory=list)
 
+    # Assessment evaluation fields
+    expected_evidence: list[str] = field(default_factory=list)
+    expected_recommendations: list[str] = field(default_factory=list)
+    expected_sections: list[str] = field(default_factory=list)
+
 
 BENCHMARKS: list[Benchmark] = [
+
+    # ============================================================
+    # ASSESSMENT SCENARIOS: Evaluate LLM assessment quality
+    # ============================================================
+    Benchmark(
+        domain="assessment",
+        name="health_check_assessment",
+        request="Kiểm tra sức khỏe của localhost",
+        expected_evidence=[
+            "System Information",
+            "CPU",
+            "Memory",
+            "Disk",
+            "Services",
+        ],
+        expected_recommendations=[
+            "high disk usage",
+            "memory pressure",
+            "resource",
+        ],
+        expected_sections=[
+            "Summary",
+            "Assessment",
+            "Risks",
+            "Recommendations",
+        ],
+        requires_evidence=True,
+    ),
+    Benchmark(
+        domain="assessment",
+        name="disk_usage_assessment",
+        request="Kiểm tra dung lượng ổ đĩa localhost. Có ổ nào gần đầy không?",
+        expected_evidence=[
+            "Disk",
+            "Filesystem",
+            "Mount",
+        ],
+        expected_recommendations=[
+            "clean up",
+            "free space",
+            "monitor",
+        ],
+        expected_sections=[
+            "Summary",
+            "Assessment",
+            "Risks",
+            "Recommendations",
+        ],
+        requires_evidence=True,
+    ),
+    Benchmark(
+        domain="assessment",
+        name="security_baseline_assessment",
+        request="Kiểm tra security baseline của localhost",
+        expected_evidence=[
+            "SecureBoot",
+            "AppArmor",
+            "SELinux",
+            "Firewall",
+            "SSH",
+        ],
+        expected_recommendations=[
+            "enable",
+            "configure",
+            "hardening",
+        ],
+        expected_sections=[
+            "Summary",
+            "Assessment",
+            "Risks",
+            "Recommendations",
+        ],
+        requires_evidence=True,
+    ),
+    Benchmark(
+        domain="assessment",
+        name="performance_assessment",
+        request="Localhost đang bị high load. Kiểm tra CPU, memory, và processes.",
+        expected_evidence=[
+            "CPU",
+            "Memory",
+            "Load",
+            "Process",
+        ],
+        expected_recommendations=[
+            "upgrade",
+            "optimize",
+            "monitor",
+            "investigate",
+        ],
+        expected_sections=[
+            "Summary",
+            "Assessment",
+            "Risks",
+            "Recommendations",
+        ],
+        requires_evidence=True,
+    ),
 
     # ============================================================
     # INFRASTRUCTURE SCENARIO: Localhost health assessment
