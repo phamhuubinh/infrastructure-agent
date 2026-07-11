@@ -84,11 +84,25 @@ def generate_json_report(reports: list[dict[str, Any]]) -> str:
     all_scores = [r["scores"]["total"] for r in reports]
     overall = round(sum(all_scores) / len(all_scores), 2) if all_scores else 0.0
 
+    # Aggregate assessment metrics across all scenarios.
+    all_assessment: list[dict[str, float]] = [
+        r.get("assessment_metrics", {})
+        for r in reports
+        if r.get("assessment_metrics")
+    ]
+    avg_assessment: dict[str, float] = {}
+    if all_assessment:
+        metric_keys = all_assessment[0].keys()
+        for key in metric_keys:
+            values = [m[key] for m in all_assessment if key in m]
+            avg_assessment[key] = round(sum(values) / len(values), 4) if values else 0.0
+
     summary = {
         "overall": overall,
         "domain_scores": domain_scores,
         "scenarios": len(reports),
         "total_elapsed": round(sum(r["elapsed"] for r in reports), 1),
+        "assessment": avg_assessment,
         "results": [
             {
                 "benchmark": r["benchmark"],
@@ -100,6 +114,7 @@ def generate_json_report(reports: list[dict[str, Any]]) -> str:
                 "safety": r["scores"]["safety"],
                 "iterations": r["iterations"],
                 "elapsed": r["elapsed"],
+                "assessment_metrics": r.get("assessment_metrics", {}),
                 "errors": r["errors"],
             }
             for r in reports
