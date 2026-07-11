@@ -57,3 +57,4 @@ class InvestigationRequest:
     evidence: list[EvidencePackage] = field(default_factory=list)
     evidence_complete: bool = False
     missing_evidence: tuple[str, ...] = ()
+    runtime_metrics: object = field(default_factory=lambda: None)

@@ -7,6 +7,7 @@ from src.pipeline.execution_graph import ExecutionGraph
 from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import ExecutionRuntime
+from src.pipeline.execution_runtime import RuntimeMetrics
 from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
@@ -75,12 +76,16 @@ class ExecutionEngine:
 
         # Execute the graph through the runtime.
         if graph.nodes:
-            results = self._runtime.execute(graph)
+            results, metrics = self._runtime.execute(graph)
         else:
-            results = {}
+            results, metrics = {}, RuntimeMetrics()
 
         self._merge(request, results)
         self._evidence_completeness.check(request)
+
+        # Attach metrics to the request for observability.
+        metrics.evidence_complete = request.evidence_complete
+        request.runtime_metrics = metrics
 
         return request
 

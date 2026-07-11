@@ -70,7 +70,7 @@ def _graph_from_steps(
 class TestEmptyGraph:
     def test_no_nodes_returns_empty(self, runtime: ExecutionRuntime) -> None:
         graph = ExecutionGraph()
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert results == {}
 
 
@@ -83,7 +83,7 @@ class TestSingleNode:
     def test_known_capability_dispatches(self, runtime: ExecutionRuntime) -> None:
         step = _step("System Information")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "System Information" in results
         # Should succeed or fail based on actual system state.
         # We just verify it dispatches without error.
@@ -92,7 +92,7 @@ class TestSingleNode:
     def test_unknown_capability_returns_error(self, runtime: ExecutionRuntime) -> None:
         step = _step("Unknown Capability")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "Unknown Capability" in results
         assert results["Unknown Capability"].success is False
         assert "No route configured" in (results["Unknown Capability"].error or "")
@@ -111,7 +111,7 @@ class TestDependencyOrdering:
             [step_a, step_b],
             deps={"CPU Information": ("System Information",)},
         )
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "System Information" in results
         assert "CPU Information" in results
 
@@ -120,7 +120,7 @@ class TestDependencyOrdering:
         step_b = _step("CPU Information", "CPU")
         step_c = _step("Memory Information", "Memory")
         graph = _graph_from_steps([step_a, step_b, step_c])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert len(results) == 3
 
 
@@ -133,7 +133,7 @@ class TestFailureHandling:
     def test_all_node_failures_collected(self, runtime: ExecutionRuntime) -> None:
         step = _step("Unknown Capability X")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "Unknown Capability X" in results
         assert results["Unknown Capability X"].success is False
 
@@ -141,7 +141,7 @@ class TestFailureHandling:
         step_good = _step("System Information")
         step_bad = _step("Unknown Capability Y")
         graph = _graph_from_steps([step_good, step_bad])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "System Information" in results
         assert "Unknown Capability Y" in results
         # Good one may succeed or fail at system level, but must have executed
@@ -162,7 +162,7 @@ class TestParallelExecution:
             _step("Memory Information", "Memory"),
         ]
         graph = _graph_from_steps(steps)
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert len(results) == 3
         for name in ("System Information", "CPU Information", "Memory Information"):
             assert name in results
@@ -182,7 +182,7 @@ class TestKnowledgeToolIntegration:
         step = _step("System Information")
         graph = _graph_from_steps([step])
         runtime = ExecutionRuntime(knowledge_tool=knowledge_tool)
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "System Information" in results
 
 
@@ -202,7 +202,7 @@ class TestMockedExecution:
         runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
         step = _step("System Information")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
 
         assert "System Information" in results
         assert results["System Information"].success is True
@@ -220,7 +220,7 @@ class TestMockedExecution:
         runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
         step = _step("System Information")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
 
         assert "System Information" in results
         assert results["System Information"].success is False
@@ -246,7 +246,7 @@ class TestMockedExecution:
                 "Memory Information": ("System Information",),
             },
         )
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert len(results) == 3
         # A must be executed before B and C
         assert mock_kt.execute.call_count == 3
@@ -277,7 +277,7 @@ class TestMockedExecution:
         runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
         step = _step("NonExistentCapability")
         graph = _graph_from_steps([step])
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
 
         assert "NonExistentCapability" in results
         assert results["NonExistentCapability"].success is False

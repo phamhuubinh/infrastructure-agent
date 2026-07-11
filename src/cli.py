@@ -141,33 +141,77 @@ def _run_agent(args: argparse.Namespace) -> None:
     )
 
     kt = KnowledgeTool(target_registry=registry)
-    agent = Agent(
-        model=client,
-        tool_registry=tool_registry,
-        available_resources=registry.target_names() and kt.get_available_resources(),
-        capability_metadata=registry.target_names() and kt.get_capability_metadata(),
-    )
 
-    print("Agent is ready.")
-    print("Type 'exit' to quit.")
+    if args.deterministic:
+        from src.pipeline.capability_resolver import CapabilityResolver
+        from src.pipeline.evidence_merge import EvidenceMerge
+        from src.pipeline.evidence_planner import EvidencePlanner
+        from src.pipeline.execution_engine import ExecutionEngine
+        from src.pipeline.execution_graph import ExecutionGraphBuilder
+        from src.pipeline.execution_planner import ExecutionPlanner
+        from src.pipeline.intent_resolver import IntentResolver
+        from src.pipeline.target_resolver import TargetResolver
 
-    while True:
-        user_request = input("> ").strip()
+        engine = ExecutionEngine(
+            intent_resolver=IntentResolver(),
+            target_resolver=TargetResolver(),
+            evidence_planner=EvidencePlanner(),
+            capability_resolver=CapabilityResolver(),
+            execution_planner=ExecutionPlanner(),
+            graph_builder=ExecutionGraphBuilder(),
+            knowledge_tool=kt,
+            evidence_merge=EvidenceMerge(),
+        )
 
-        if user_request.lower() in {
-            "exit",
-            "quit",
-        }:
-            break
+        from src.agent.deterministic_agent import DeterministicAgent
+        from src.model.mock_assessment_adapter import MockAssessmentAdapter
 
-        if not user_request:
-            continue
+        agent = DeterministicAgent(
+            execution_engine=engine,
+            assessment_model=MockAssessmentAdapter(),
+        )
 
-        answer = agent.run(user_request)
+        print("Deterministic pipeline is ready (mock assessment).")
+        print("Type 'exit' to quit.")
 
-        print()
-        print(answer)
-        print()
+        while True:
+            user_request = input("> ").strip()
+            if user_request.lower() in {"exit", "quit"}:
+                break
+            if not user_request:
+                continue
+            answer = agent.run(user_request)
+            print()
+            print(answer)
+            print()
+    else:
+        agent = Agent(
+            model=client,
+            tool_registry=tool_registry,
+            available_resources=registry.target_names() and kt.get_available_resources(),
+            capability_metadata=registry.target_names() and kt.get_capability_metadata(),
+        )
+
+        print("Agent is ready (legacy ReAct).")
+        print("Type 'exit' to quit.")
+
+        while True:
+            user_request = input("> ").strip()
+
+            if user_request.lower() in {
+                "exit",
+                "quit",
+            }:
+                break
+
+            if not user_request:
+                continue
+
+            answer = agent.run(user_request)
+
+            print()
+            print(answer)
+            print()
 
 
 def main() -> None:
@@ -191,6 +235,10 @@ def main() -> None:
     parser.add_argument(
         "--status", action="store_true",
         help="Show one-line per iteration status"
+    )
+    parser.add_argument(
+        "--deterministic", action="store_true",
+        help="Use the deterministic pipeline instead of legacy ReAct"
     )
     subparsers = parser.add_subparsers(dest="command")
 

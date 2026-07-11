@@ -166,5 +166,5 @@ class TestExecutionRuntimeIntegration:
         graph = ExecutionGraph(nodes=(
             ExecutionNode(execution_step=step),
         ))
-        results = runtime.execute(graph)
+        results, _ = runtime.execute(graph)
         assert "System Information" in results
