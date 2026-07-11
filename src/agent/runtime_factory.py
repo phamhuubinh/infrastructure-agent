@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -22,13 +23,18 @@ from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
 
+# ---------------------------------------------------------------------------
+# Model server configuration (servers.json)
+# ---------------------------------------------------------------------------
+
 def _load_server_config(
     server_name: str | None = None,
 ) -> dict[str, object]:
     config_path = Path("servers.json")
     if not config_path.exists():
         raise RuntimeError(
-            "servers.json not found. Create a servers.json with model configuration."
+            "servers.json not found. "
+            "Create a servers.json with model configuration."
         )
     data = json.loads(config_path.read_text())
     servers: dict[str, object] = data.get("servers", {})
@@ -38,67 +44,157 @@ def _load_server_config(
     if cfg is None:
         available = ", ".join(sorted(servers))
         raise RuntimeError(
-            f"Server {server_name!r} not found. Available servers: {available}"
+            f"Server {server_name!r} not found. "
+            f"Available servers: {available}"
         )
     return dict(cfg)
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure tool configuration (tools.json)
+# ---------------------------------------------------------------------------
+# Supported tool types and their required config fields.
+# Adding a new tool type requires:
+#   1. An entry in _SUPPORTED_TOOL_TYPES
+#   2. An import and construction block in _register_single_tool
+
+_SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
+    "zabbix": ("url", "token"),
+    "grafana": ("url", "token"),
+}
 
 
 def _load_tools_config() -> dict[str, dict[str, Any]]:
     """Load infrastructure tool configuration from tools.json.
 
     Returns an empty dict if the file does not exist.
-    Each entry must have a "tool" field identifying the type.
+    Prints a warning to stderr for invalid JSON or read errors.
     """
     config_path = Path("tools.json")
     if not config_path.exists():
         return {}
     try:
-        data = json.loads(config_path.read_text())
-        return dict(data) if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError):
+        raw = config_path.read_text()
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            print(
+                "Warning: tools.json must contain a JSON object at top level. "
+                "Skipping tool registration.",
+                file=sys.stderr,
+            )
+            return {}
+        return dict(data)
+    except json.JSONDecodeError as exc:
+        print(
+            f"Warning: tools.json contains invalid JSON ({exc}). "
+            f"Skipping tool registration.",
+            file=sys.stderr,
+        )
         return {}
+    except OSError as exc:
+        print(
+            f"Warning: Cannot read tools.json ({exc}). "
+            f"Skipping tool registration.",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def _register_single_tool(
+    registry: TargetRegistry,
+    entry_name: str,
+    cfg: dict[str, Any],
+) -> None:
+    """Register one tool from a tools.json entry.
+
+    Validates the entry, constructs the tool, and registers it.
+    Prints a warning for invalid entries instead of crashing.
+    """
+    tool_type = cfg.get("tool")
+    if not isinstance(tool_type, str) or not tool_type:
+        print(
+            f"Warning: tools.json entry '{entry_name}' is missing "
+            f"a valid 'tool' field. Skipping.",
+            file=sys.stderr,
+        )
+        return
+
+    if tool_type not in _SUPPORTED_TOOL_TYPES:
+        supported = ", ".join(sorted(_SUPPORTED_TOOL_TYPES))
+        print(
+            f"Warning: Unknown tool type '{tool_type}' in "
+            f"tools.json entry '{entry_name}'. "
+            f"Supported types: {supported}. Skipping.",
+            file=sys.stderr,
+        )
+        return
+
+    # Validate required fields.
+    required_fields = _SUPPORTED_TOOL_TYPES[tool_type]
+    missing = [f for f in required_fields if not cfg.get(f)]
+    if missing:
+        print(
+            f"Warning: tools.json entry '{entry_name}' of type "
+            f"'{tool_type}' is missing required fields: "
+            f"{', '.join(missing)}. Skipping.",
+            file=sys.stderr,
+        )
+        return
+
+    target_name = str(cfg.get("target", entry_name))
+
+    if tool_type == "zabbix":
+        from src.tool.zabbix_tool import ZabbixTool
+
+        tool = ZabbixTool(
+            url=str(cfg["url"]),
+            token=str(cfg["token"]),
+            timeout=int(cfg.get("timeout", 10)),
+        )
+    elif tool_type == "grafana":
+        from src.tool.grafana_tool import GrafanaTool
+
+        tool = GrafanaTool(
+            url=str(cfg["url"]),
+            token=str(cfg["token"]),
+            timeout=int(cfg.get("timeout", 10)),
+        )
+    else:
+        return  # pragma: no cover — unreachable due to _SUPPORTED_TOOL_TYPES check
+
+    try:
+        registry.register_tool(name=target_name, tool=tool)
+    except ValueError as exc:
+        print(
+            f"Warning: Failed to register tool '{target_name}' "
+            f"from tools.json entry '{entry_name}': {exc}",
+            file=sys.stderr,
+        )
 
 
 def _register_tools(
     registry: TargetRegistry,
     tools_config: dict[str, dict[str, Any]],
 ) -> None:
-    """Register tools from tools.json into the TargetRegistry.
+    """Register all tools from tools.json into the TargetRegistry.
 
-    Adding a supported tool type here is the only code change needed
-    when a new tool domain is added. The tool's credential configuration
-    lives in tools.json, not in source code.
+    Each entry is validated and registered independently.
+    A single invalid entry does not block other entries.
     """
     for entry_name, cfg in tools_config.items():
-        tool_type = cfg.get("tool")
-        if tool_type == "zabbix":
-            from src.tool.zabbix_tool import ZabbixTool
-
-            registry.register_tool(
-                name=cfg.get("target", entry_name),
-                tool=ZabbixTool(
-                    url=str(cfg.get("url", "http://localhost/zabbix")),
-                    token=str(cfg.get("token", "")),
-                    timeout=int(cfg.get("timeout", 10)),
-                ),
+        if not isinstance(cfg, dict):
+            print(
+                f"Warning: tools.json entry '{entry_name}' is not a JSON object. "
+                f"Skipping.",
+                file=sys.stderr,
             )
-        elif tool_type == "grafana":
-            from src.tool.grafana_tool import GrafanaTool
+            continue
+        _register_single_tool(registry, entry_name, cfg)
 
-            registry.register_tool(
-                name=cfg.get("target", entry_name),
-                tool=GrafanaTool(
-                    url=str(cfg.get("url", "http://localhost:3000")),
-                    token=str(cfg.get("token", "")),
-                    timeout=int(cfg.get("timeout", 10)),
-                ),
-            )
-        # Future tool types can be added here with an elif block.
-        # Example:
-        # elif tool_type == "vmware":
-        #     from src.tool.vmware_tool import VMwareTool
-        #     registry.register_tool(name=cfg.get("target", entry_name), tool=VMwareTool(...))
 
+# ---------------------------------------------------------------------------
+# Assessment adapter construction
+# ---------------------------------------------------------------------------
 
 def _build_assessment_adapter(
     server_name: str | None = None,
@@ -121,6 +217,10 @@ def _build_assessment_adapter(
 
     return LLMAssessmentAdapter(client=client)
 
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
 
 def create_deterministic_agent(
     target_store_path: str = "targets.json",
