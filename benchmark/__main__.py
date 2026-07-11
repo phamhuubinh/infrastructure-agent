@@ -12,56 +12,12 @@ from benchmark.scoring import score
 def _build_deterministic_runtime():
     """Build and return a DeterministicAgent for benchmark execution.
 
-    This is the production runtime. Benchmarks must validate the same
-    runtime used by CLI (default mode).
+    Uses the same Composition Root as CLI — there is exactly one
+    implementation of runtime construction.
     """
-    from src.pipeline.capability_resolver import CapabilityResolver
-    from src.pipeline.evidence_merge import EvidenceMerge
-    from src.pipeline.evidence_planner import EvidencePlanner
-    from src.pipeline.execution_engine import ExecutionEngine
-    from src.pipeline.execution_graph import ExecutionGraphBuilder
-    from src.pipeline.execution_planner import ExecutionPlanner
-    from src.pipeline.intent_resolver import IntentResolver
-    from src.pipeline.target_resolver import TargetResolver
-    from src.tool.grafana_tool import GrafanaTool
-    from src.tool.knowledge_tool import KnowledgeTool
-    from src.tool.target_registry import TargetRegistry
-    from src.tool.target_store import TargetStore
-    from src.tool.zabbix_tool import ZabbixTool
+    from src.agent.runtime_factory import create_deterministic_agent
 
-    store = TargetStore()
-    registry = TargetRegistry(store=store)
-    registry.register_tool(
-        name="zabbix",
-        tool=ZabbixTool(
-            url="http://192.168.10.222/zabbix",
-            token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
-        ),
-    )
-    registry.register_tool(
-        name="grafana",
-        tool=GrafanaTool(),
-    )
-    kt = KnowledgeTool(target_registry=registry)
-
-    engine = ExecutionEngine(
-        intent_resolver=IntentResolver(),
-        target_resolver=TargetResolver(),
-        evidence_planner=EvidencePlanner(),
-        capability_resolver=CapabilityResolver(),
-        execution_planner=ExecutionPlanner(),
-        graph_builder=ExecutionGraphBuilder(),
-        knowledge_tool=kt,
-        evidence_merge=EvidenceMerge(),
-    )
-
-    from src.agent.deterministic_agent import DeterministicAgent
-    from src.model.mock_assessment_adapter import MockAssessmentAdapter
-
-    return DeterministicAgent(
-        execution_engine=engine,
-        assessment_model=MockAssessmentAdapter(),
-    )
+    return create_deterministic_agent()
 
 
 def _build_legacy_runtime():
