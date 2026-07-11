@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -52,8 +53,8 @@ def _load_server_config(
 # ---------------------------------------------------------------------------
 # Diagnostics — single warning helper
 # ---------------------------------------------------------------------------
-
-import sys as _sys  # late import to avoid shadowing
+# All Runtime Configuration warnings go through _warn().
+# There is exactly one stderr print site in the entire runtime factory.
 
 
 def _warn(message: str) -> None:
@@ -62,7 +63,7 @@ def _warn(message: str) -> None:
     Using a single helper ensures consistent diagnostic output and
     makes warning behavior testable.
     """
-    print(f"Warning: {message}", file=_sys.stderr)
+    print(f"Warning: {message}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
