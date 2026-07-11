@@ -142,7 +142,35 @@ def _run_agent(args: argparse.Namespace) -> None:
 
     kt = KnowledgeTool(target_registry=registry)
 
-    if args.deterministic:
+    if args.legacy:
+        agent = Agent(
+            model=client,
+            tool_registry=tool_registry,
+            available_resources=registry.target_names() and kt.get_available_resources(),
+            capability_metadata=registry.target_names() and kt.get_capability_metadata(),
+        )
+
+        print("Agent is ready (legacy ReAct).")
+        print("Type 'exit' to quit.")
+
+        while True:
+            user_request = input("> ").strip()
+
+            if user_request.lower() in {
+                "exit",
+                "quit",
+            }:
+                break
+
+            if not user_request:
+                continue
+
+            answer = agent.run(user_request)
+
+            print()
+            print(answer)
+            print()
+    else:
         from src.pipeline.capability_resolver import CapabilityResolver
         from src.pipeline.evidence_merge import EvidenceMerge
         from src.pipeline.evidence_planner import EvidencePlanner
@@ -184,34 +212,6 @@ def _run_agent(args: argparse.Namespace) -> None:
             print()
             print(answer)
             print()
-    else:
-        agent = Agent(
-            model=client,
-            tool_registry=tool_registry,
-            available_resources=registry.target_names() and kt.get_available_resources(),
-            capability_metadata=registry.target_names() and kt.get_capability_metadata(),
-        )
-
-        print("Agent is ready (legacy ReAct).")
-        print("Type 'exit' to quit.")
-
-        while True:
-            user_request = input("> ").strip()
-
-            if user_request.lower() in {
-                "exit",
-                "quit",
-            }:
-                break
-
-            if not user_request:
-                continue
-
-            answer = agent.run(user_request)
-
-            print()
-            print(answer)
-            print()
 
 
 def main() -> None:
@@ -237,8 +237,8 @@ def main() -> None:
         help="Show one-line per iteration status"
     )
     parser.add_argument(
-        "--deterministic", action="store_true",
-        help="Use the deterministic pipeline instead of legacy ReAct"
+        "--legacy", action="store_true",
+        help="Use legacy ReAct pipeline instead of deterministic pipeline"
     )
     subparsers = parser.add_subparsers(dest="command")
 

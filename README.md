@@ -1,32 +1,52 @@
-# Model-Driven Execution Runtime
+# Infrastructure Investigation Agent
 
-A runtime that enables reasoning models to execute actions safely through a deterministic execution agent.
+A deterministic infrastructure investigation platform.
 
-**Note:** The `docs/` directory is the **Source of Truth** for architectural and design documentation.
+Evidence-driven investigation with AI-powered assessment.
 
-**Current Phase:** Phase 3 - Implementation
+## Architecture
 
-User
-    │
-    ▼
-Reasoning Model
-    │
-    ▼
-Action
-    │
-    ▼
-Agent
-    │
-    ▼
-Execution
-    │
-    ▼
-Observation
-    │
-    ▼
-Reasoning Model
-    │
- ┌──┴─────────────┐
- │                │
- ▼                ▼
-Action        Final Answer
+```
+User Request
+    ↓
+Intent Resolution (deterministic)
+    ↓
+Target Resolution (deterministic)
+    ↓
+Evidence Planning (deterministic)
+    ↓
+Capability Resolution (deterministic)
+    ↓
+Execution Planning (deterministic)
+    ↓
+Execution Graph (deterministic)
+    ↓
+Execution Runtime → KnowledgeTool → Child Tools
+    ↓
+Evidence Collection
+    ↓
+Assessment (AI)
+    ↓
+Response
+```
+
+The investigation pipeline is fully deterministic.
+AI is used only for assessment.
+
+## CLI Usage
+
+Default mode (deterministic pipeline):
+
+```
+python -m src.cli
+```
+
+Legacy ReAct mode (optional):
+
+```
+python -m src.cli --legacy
+```
+
+## Documentation
+
+The `docs/` directory is the **Source of Truth** for architectural and design documentation.
