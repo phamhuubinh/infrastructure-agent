@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 
 def _get_git_commit() -> str:
-    """Get the current git commit hash, or 'unknown' if not available."""
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", "-1"],
@@ -19,6 +20,24 @@ def _get_git_commit() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         pass
     return "unknown"
+
+
+def _resolve_server_config(
+    server_name: str | None,
+) -> dict[str, Any]:
+    """Load a server config from servers.json, returning {} on failure."""
+    if server_name is None:
+        return {}
+    try:
+        config_path = Path("servers.json")
+        if not config_path.exists():
+            return {}
+        data = json.loads(config_path.read_text())
+        servers: dict[str, Any] = data.get("servers", {})
+        cfg = servers.get(server_name, {})
+        return dict(cfg) if isinstance(cfg, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def collect_benchmark_metadata(
@@ -34,22 +53,8 @@ def collect_benchmark_metadata(
     Returns:
         A dict with benchmark metadata fields.
     """
-    resolved_model: str | None = model
-
-    # Try to resolve model name from servers.json if not provided.
-    if resolved_model is None and server_name is not None:
-        try:
-            import json
-            from pathlib import Path
-            config_path = Path("servers.json")
-            if config_path.exists():
-                data = json.loads(config_path.read_text())
-                servers: dict[str, object] = data.get("servers", {})
-                cfg = servers.get(server_name, {})
-                if isinstance(cfg, dict):
-                    resolved_model = cfg.get("model")
-        except (json.JSONDecodeError, OSError):
-            pass
+    config = _resolve_server_config(server_name)
+    resolved_model: str | None = model or config.get("model")
 
     return {
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -57,5 +62,6 @@ def collect_benchmark_metadata(
         "git_commit": _get_git_commit(),
         "server": server_name or "",
         "model": resolved_model or "mock",
+        "provider": config.get("provider", ""),
         "benchmark_version": "1.0",
     }

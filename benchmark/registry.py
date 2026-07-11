@@ -31,6 +31,30 @@ def _get_nested(result: dict[str, Any], path: str) -> float:
     return float(current) if isinstance(current, (int, float)) else 0.0
 
 
+def _next_run_id(history: dict[str, Any]) -> str:
+    """Return the next numeric run_id as a string.
+
+    Uses integer sorting so that run 10 comes after run 9.
+    """
+    if not history:
+        return "1"
+    max_id = max(int(k) for k in history if k.isdigit())
+    return str(max_id + 1)
+
+
+def _metadata_matches(
+    meta_a: dict[str, Any] | None,
+    meta_b: dict[str, Any] | None,
+) -> bool:
+    """Return True if both metadata dicts have the same model and server."""
+    if not meta_a or not meta_b:
+        return True  # No metadata = legacy fallback = always match
+    return (
+        meta_a.get("model") == meta_b.get("model")
+        and meta_a.get("server") == meta_b.get("server")
+    )
+
+
 def load_history() -> dict[str, Any]:
     if not _registry_path.exists():
         return {}
@@ -45,7 +69,7 @@ def save_results(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     history = load_history()
-    run_id = str(len(history) + 1)
+    run_id = _next_run_id(history)
     entry: dict[str, Any] = {
         "results": results,
         "overall": _compute_overall(results),
@@ -59,13 +83,35 @@ def save_results(
 
 def detect_regressions(
     new_results: list[dict[str, Any]],
+    new_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Detect regressions against a matching previous run.
+
+    Only compares against a previous run whose metadata.model and
+    metadata.server match the new run's (when metadata exists on both
+    sides). If no matching run exists, returns an empty list —
+    mismatched comparisons produce meaningless deltas.
+
+    Backward compatible: runs without metadata fall back to comparing
+    against the last run in history.
+    """
     history = load_history()
     if not history:
         return []
 
-    previous_run = list(history.values())[-1]
-    prev_results = previous_run["results"]
+    # Search runs in reverse order for a matching previous run.
+    matched_run: dict[str, Any] | None = None
+    for run_id in sorted(history, key=lambda x: int(x) if x.isdigit() else 0, reverse=True):
+        run = history[run_id]
+        prev_meta = run.get("metadata")
+        if _metadata_matches(prev_meta, new_metadata):
+            matched_run = run
+            break
+
+    if matched_run is None:
+        return []
+
+    prev_results = matched_run["results"]
     prev_map = {r["benchmark"]: r for r in prev_results}
     new_map = {r["benchmark"]: r for r in new_results}
 

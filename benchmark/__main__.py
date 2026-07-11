@@ -106,6 +106,45 @@ def _get_prompt(request: str) -> str:
     return build_assessment_prompt(req)
 
 
+def _aggregate_repeated(
+    all_runs: list[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Aggregate N repeated benchmark runs.
+
+    Takes the first run's results as the canonical output,
+    adding _variance fields to each result's assessment_metrics.
+    """
+    if len(all_runs) <= 1:
+        return all_runs[0] if all_runs else []
+
+    canonical = all_runs[0]
+    metric_keys = ["evidence_coverage", "grounding", "completeness", "overall"]
+
+    for i, base in enumerate(canonical):
+        bm_name = base["benchmark"]
+        values: dict[str, list[float]] = {k: [] for k in metric_keys}
+        for run in all_runs:
+            for r in run:
+                if r["benchmark"] == bm_name:
+                    am = r.get("assessment_metrics", {})
+                    for k in metric_keys:
+                        values[k].append(am.get(k, 0.0))
+                    break
+
+        am = base.get("assessment_metrics", {})
+        for k in metric_keys:
+            if values[k]:
+                vals = values[k]
+                mean = sum(vals) / len(vals)
+                variance = sum((x - mean) ** 2 for x in vals) / len(vals)
+                am[f"{k}_min"] = round(min(vals), 4)
+                am[f"{k}_max"] = round(max(vals), 4)
+                am[f"{k}_mean"] = round(mean, 4)
+                am[f"{k}_std"] = round(variance ** 0.5, 4)
+
+    return canonical
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI Agent Benchmark Suite")
     parser.add_argument(
@@ -128,32 +167,45 @@ def main() -> None:
         "--server", type=str, default=None,
         help="Model server name from servers.json"
     )
+    parser.add_argument(
+        "--repeat", type=int, default=1,
+        help="Run benchmarks N times and aggregate variance"
+    )
     args = parser.parse_args()
 
-    runtime_label = args.server or "mock"
-    print(f"\nBenchmark Suite (runtime: {runtime_label})")
-    print("=" * 60)
-
-    results = _run_benchmarks(
-        domain=args.domain,
-        export_json=args.json,
+    metadata = collect_benchmark_metadata(
         server_name=args.server,
         model=args.model,
     )
+    runtime_label = args.server or metadata.get("provider", "mock") or "mock"
+    print(f"\nBenchmark Suite (runtime: {runtime_label}, repeat={args.repeat})")
+    print("=" * 60)
 
-    # Persist if requested.
-    if args.save:
-        metadata = collect_benchmark_metadata(
+    # Run N times for reproducibility measurement.
+    all_runs: list[list[dict[str, Any]]] = []
+    for rep in range(args.repeat):
+        if args.repeat > 1:
+            print(f"\n--- Run {rep + 1}/{args.repeat} ---")
+        results = _run_benchmarks(
+            domain=args.domain,
+            export_json=args.json,
             server_name=args.server,
             model=args.model,
         )
-        history = save_results(results, metadata=metadata)
-        run_id = max(history.keys())
-        print(f"\nResults saved to benchmark history (run #{run_id}).")
+        all_runs.append(results)
 
-    # Check for regressions against previous run.
+    results = _aggregate_repeated(all_runs)
+
+    # Persist if requested.
     if args.save:
-        regressions = detect_regressions(results)
+        history = save_results(results, metadata=metadata)
+        run_ids = sorted(history, key=lambda x: int(x) if x.isdigit() else 0)
+        current_id = run_ids[-1]
+        print(f"\nResults saved to benchmark history (run #{current_id}).")
+
+    # Check for regressions against matching previous run.
+    if args.save:
+        regressions = detect_regressions(results, new_metadata=metadata)
         if regressions:
             print("\nREGRESSIONS DETECTED:")
             for reg in regressions:
@@ -167,9 +219,9 @@ def main() -> None:
 
     print()
     if args.json:
-        print(generate_json_report(results))
+        print(generate_json_report(results, metadata=metadata))
     else:
-        print(generate_human_report(results))
+        print(generate_human_report(results, metadata=metadata))
 
     if args.domain:
         all_in_domain = [b for b in BENCHMARKS if b.domain == args.domain]

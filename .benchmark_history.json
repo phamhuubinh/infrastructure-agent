@@ -240,5 +240,38 @@
       "model": "deepseek-ai/DeepSeek-V4-Flash",
       "benchmark_version": "1.0"
     }
+  },
+  "3": {
+    "results": [
+      {
+        "benchmark": "localhost_health_check",
+        "domain": "scenario_localhost",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost. Cho t bi\u1ebft hostname, uptime, CPU usage, memory usage, disk usage, Docker status, v\u00e0 services \u0111ang ch\u1ea1y.",
+        "response": "```json\n{\n  \"summary\": \"Investigated localhost health. Hostname and uptime were not collected. Load average (1.08, 1.36, 1.39) indicates moderate load. CPU, memory, and disk usage were not collected due to missing capability routes. Docker status was not collected. 480 processes are running, including system services, desktop environment, Chrome, Zalo, and Ollama.\",\n  \"assessments\": {\n    \"hostname\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"No evidence collected for hostname.\"\n    },\n    \"uptime\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"No evidence collected for uptime.\"\n    },\n    \"cpu_usage\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"Capability 'CPU Utilization' failed: No route configured.\"\n    },\n    \"memory_usage\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"Capability 'Memory Utilization' failed: No route configured.\"\n    },\n    \"disk_usage\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"Capability 'Disk Utilization' failed: No route configured.\"\n    },\n    \"docker_status\": {\n      \"status\": \"unknown\",\n      \"evidence\": \"No evidence collected for Docker status.\"\n    },\n    \"system_load\": {\n      \"status\": \"operational\",\n      \"evidence\": \"Load averages: 1-min=1.08, 5-min=1.36, 15-min=1.39. This indicates moderate load on a multi-core system (28 CPU threads observed in process list).\"\n    },\n    \"running_services\": {\n      \"status\": \"operational\",\n      \"evidence\": \"480 processes running. Key services observed: systemd (PID 1), NetworkManager, cron, rsyslogd, snapd, gdm3, gnome-shell, ollama, chrome, and various system daemons.\"\n    }\n  },\n  \"risks\": [\n    {\n      \"risk\": \"Missing core performance metrics\",\n      \"justification\": \"CPU, memory, and disk usage data could not be collected because the pipeline has no route configured for these capabilities. This prevents assessment of resource exhaustion or bottlenecks.\"\n    },\n    {\n      \"risk\": \"High number of user-space processes\",\n      \"justification\": \"480 processes running, including multiple Chrome instances (PIDs 3472, 3517, 3761, 4520, 4529, 7255, 55029) consuming significant CPU (up to 49.2%) and memory (up to 1.2%). This may indicate high resource utilization, but cannot be confirmed without CPU/memory usage totals.\"\n    }\n  ],\n  \"unknowns\": [\n    {\n      \"item\": \"Hostname\",\n      \"reason\": \"Not collected.\",\n      \"helpful_evidence\": \"Output of 'hostname' command.\"\n    },\n    {\n      \"item\": \"Uptime\",\n      \"reason\": \"Not collected.\",\n      \"helpful_evidence\": \"Output of 'uptime' command.\"\n    },\n    {\n      \"item\": \"CPU usage percentage\",\n      \"reason\": \"Capability not routed.\",\n      \"helpful_evidence\": \"Aggregate CPU usage from 'top' or 'mpstat'.\"\n    },\n    {\n      \"item\": \"Memory usage (total/used/free)\",\n      \"reason\": \"Capability not routed.\",\n      \"helpful_evidence\": \"Output of 'free -h' or 'cat /proc/meminfo'.\"\n    },\n    {\n      \"item\": \"Disk usage (mounted filesystems)\",\n      \"reason\": \"Capability not routed.\",\n      \"helpful_evidence\": \"Output of 'df -h'.\"\n    },\n    {\n      \"item\": \"Docker status\",\n      \"reason\": \"Not collected.\",\n      \"helpful_evidence\": \"Output of 'docker info' or 'systemctl status docker'.\"\n    }\n  ],\n  \"recommendations\": [\n    {\n      \"action\": \"Configure routes for CPU, memory, and disk utilization capabilities in the pipeline.\",\n      \"justification\": \"These are essential for performance assessment and are currently missing.\"\n    },\n    {\n      \"action\": \"Collect hostname and uptime evidence to complete the baseline system identification.\",\n      \"justification\": \"These are basic system attributes requested in the investigation.\"\n    },\n    {\n      \"action\": \"Collect Docker status evidence if container workloads are expected.\",\n      \"justification\": \"Docker status was requested but not collected.\"\n    }\n  ]\n}\n```",
+        "iterations": 1,
+        "elapsed": 38.131,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.65,
+          "reasoning": 0.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {}
+      }
+    ],
+    "overall": 0.65,
+    "metadata": {
+      "captured_at": "2026-07-11T16:49:25+0700",
+      "timestamp": 1783763365,
+      "git_commit": "18caae0 feat(benchmark): establish real benchmark baseline",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
   }
 }
