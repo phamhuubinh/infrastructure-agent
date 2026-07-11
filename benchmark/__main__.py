@@ -7,6 +7,9 @@ from benchmark.assessment_evaluator import AssessmentExpected
 from benchmark.assessment_evaluator import evaluate as evaluate_assessment
 from benchmark.assessment_evaluator import metrics_to_dict
 from benchmark.dataset import BENCHMARKS
+from benchmark.metadata import collect_benchmark_metadata
+from benchmark.registry import detect_regressions
+from benchmark.registry import save_results
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
 
@@ -14,10 +17,15 @@ from benchmark.scoring import score
 def _run_benchmarks(
     domain: str | None,
     export_json: bool,
+    server_name: str | None = None,
+    model: str | None = None,
 ) -> list[dict[str, Any]]:
     from src.agent.runtime_factory import create_deterministic_agent
 
-    agent = create_deterministic_agent()
+    agent = create_deterministic_agent(
+        server_name=server_name,
+        model=model,
+    )
 
     benchmarks = [b for b in BENCHMARKS if domain is None or b.domain == domain]
 
@@ -48,7 +56,6 @@ def _run_benchmarks(
                 "exception": None,
             }
 
-            # Run assessment evaluation if expected evidence is defined.
             if bm.expected_evidence:
                 expected = AssessmentExpected(
                     evidence=tuple(bm.expected_evidence),
@@ -91,7 +98,6 @@ def _run_benchmarks(
 
 
 def _get_prompt(request: str) -> str:
-    """Build the assessment prompt for prompt size measurement."""
     from src.pipeline.assessment_adapter import AssessmentAdapter
     from src.pipeline.assessment_request import AssessmentRequest
     from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
@@ -111,15 +117,53 @@ def main() -> None:
         help="Export report as JSON"
     )
     parser.add_argument(
+        "--save", action="store_true",
+        help="Persist benchmark results to history"
+    )
+    parser.add_argument(
         "--model", type=str, default=None,
-        help="Model name for comparison (not yet implemented)"
+        help="Override model name"
+    )
+    parser.add_argument(
+        "--server", type=str, default=None,
+        help="Model server name from servers.json"
     )
     args = parser.parse_args()
 
-    print("\nBenchmark Suite (deterministic runtime)")
+    runtime_label = args.server or "mock"
+    print(f"\nBenchmark Suite (runtime: {runtime_label})")
     print("=" * 60)
 
-    results = _run_benchmarks(args.domain, args.json)
+    results = _run_benchmarks(
+        domain=args.domain,
+        export_json=args.json,
+        server_name=args.server,
+        model=args.model,
+    )
+
+    # Persist if requested.
+    if args.save:
+        metadata = collect_benchmark_metadata(
+            server_name=args.server,
+            model=args.model,
+        )
+        history = save_results(results, metadata=metadata)
+        run_id = max(history.keys())
+        print(f"\nResults saved to benchmark history (run #{run_id}).")
+
+    # Check for regressions against previous run.
+    if args.save:
+        regressions = detect_regressions(results)
+        if regressions:
+            print("\nREGRESSIONS DETECTED:")
+            for reg in regressions:
+                print(
+                    f"  {reg['benchmark']}: {reg['metric']} "
+                    f"{reg['previous']:.2f} → {reg['new']:.2f} "
+                    f"({reg['delta']:+.2f})"
+                )
+        else:
+            print("\nNo regressions detected.")
 
     print()
     if args.json:

@@ -4,12 +4,22 @@ import json
 from typing import Any
 
 
-def generate_human_report(reports: list[dict[str, Any]]) -> str:
+def generate_human_report(
+    reports: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
+) -> str:
     lines: list[str] = []
     lines.append("=" * 60)
     lines.append("BENCHMARK REPORT")
     lines.append("=" * 60)
     lines.append("")
+
+    if metadata:
+        lines.append(f"  Model: {metadata.get('model', 'unknown')}")
+        lines.append(f"  Server: {metadata.get('server', 'mock')}")
+        lines.append(f"  Commit: {metadata.get('git_commit', 'unknown')}")
+        lines.append(f"  Time: {metadata.get('captured_at', 'unknown')}")
+        lines.append("")
 
     domains: dict[str, list[dict[str, Any]]] = {}
     for r in reports:
@@ -71,7 +81,10 @@ def generate_human_report(reports: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def generate_json_report(reports: list[dict[str, Any]]) -> str:
+def generate_json_report(
+    reports: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
+) -> str:
     domains: dict[str, list[dict[str, Any]]] = {}
     for r in reports:
         domains.setdefault(r["domain"], []).append(r)
@@ -97,7 +110,7 @@ def generate_json_report(reports: list[dict[str, Any]]) -> str:
             values = [m[key] for m in all_assessment if key in m]
             avg_assessment[key] = round(sum(values) / len(values), 4) if values else 0.0
 
-    summary = {
+    summary: dict[str, Any] = {
         "overall": overall,
         "domain_scores": domain_scores,
         "scenarios": len(reports),
@@ -120,5 +133,8 @@ def generate_json_report(reports: list[dict[str, Any]]) -> str:
             for r in reports
         ],
     }
+
+    if metadata:
+        summary["benchmark"] = metadata
 
     return json.dumps(summary, indent=2)

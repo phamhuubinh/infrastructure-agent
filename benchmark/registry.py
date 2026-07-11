@@ -40,13 +40,19 @@ def load_history() -> dict[str, Any]:
         return {}
 
 
-def save_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+def save_results(
+    results: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     history = load_history()
     run_id = str(len(history) + 1)
-    history[run_id] = {
+    entry: dict[str, Any] = {
         "results": results,
         "overall": _compute_overall(results),
     }
+    if metadata:
+        entry["metadata"] = metadata
+    history[run_id] = entry
     _registry_path.write_text(json.dumps(history, indent=2))
     return history
 

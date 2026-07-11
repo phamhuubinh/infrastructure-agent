@@ -1,0 +1,244 @@
+{
+  "1": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "Investigation: Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost\nIntent: MACHINE_ASSESSMENT\nEvidence collected: 13\n  Successful: 12\n  Failed: 1\nEvidence complete: True",
+        "iterations": 1,
+        "elapsed": 0.132,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.0,
+          "completeness": 0.25,
+          "consistency": 1.0,
+          "length": 149,
+          "overall": 0.15
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "Investigation: Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?\nIntent: MACHINE_ASSESSMENT\nEvidence collected: 13\n  Successful: 12\n  Failed: 1\nEvidence complete: True",
+        "iterations": 1,
+        "elapsed": 0.034,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.0,
+          "completeness": 0.25,
+          "consistency": 1.0,
+          "length": 178,
+          "overall": 0.15
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "Investigation: Ki\u1ec3m tra security baseline c\u1ee7a localhost\nIntent: SECURITY_ASSESSMENT\nEvidence collected: 8\n  Successful: 7\n  Failed: 1\nEvidence complete: True",
+        "iterations": 1,
+        "elapsed": 0.07,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 0.0,
+          "completeness": 0.25,
+          "consistency": 1.0,
+          "length": 157,
+          "overall": 0.15
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "Investigation: Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.\nIntent: PERFORMANCE_ASSESSMENT\nEvidence collected: 7\n  Successful: 2\n  Failed: 5\nEvidence complete: False\nMissing evidence: CPU Usage, Memory Usage, Disk Usage",
+        "iterations": 1,
+        "elapsed": 0.024,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 1.0,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.0,
+          "grounding": 1.0,
+          "completeness": 0.25,
+          "consistency": 1.0,
+          "length": 239,
+          "overall": 0.65
+        }
+      }
+    ],
+    "overall": 0.96,
+    "metadata": {
+      "captured_at": "2026-07-11T16:18:18+0700",
+      "timestamp": 1783761498,
+      "git_commit": "8e9b642 feat(benchmark): integrate assessment metrics into reporting pipeline",
+      "server": "",
+      "model": "mock",
+      "benchmark_version": "1.0"
+    }
+  },
+  "2": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "## Infrastructure Assessment: localhost (binh)\n\n### 1. Summary\nInvestigation of localhost (hostname: binh, Ubuntu 22.04, kernel 5.19.0-32-generic) assessed core subsystems: CPU, memory, storage, swap, network, services, time synchronization, containers, and security posture. The system is operational with no critical failures detected. One storage device (Google Drive mount) is at high usage (83%). Security posture could not be assessed due to missing capability.\n\n### 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n|-----------|--------|----------|\n| **CPU** | Operational | 28 cores, Intel Xeon E5-2680 v4 @ 2.40GHz. No load data available. |\n| **Memory** | Operational | 64.2 GB total, 10.9% used (7.2 GB used, 55.9 GB free, 58.6 GB available). |\n| **Swap** | Operational | 2.0 GB total, 0% used. |\n| **Storage (Root)** | Operational | /dev/nvme0n1p2 (ext4): 233 GB total, 19% used (44.9 GB used, 192.7 GB available). |\n| **Storage (External)** | Operational | 3 NTFS drives mounted: /dev/sda1 (34% used), /dev/sdb1 (13% used), /dev/sdc1 (17% used). |\n| **Storage (Cloud)** | Degraded | Google Drive (fuse.rclone): 15 GB total, 83% used (13.2 GB used, 2.9 GB available). |\n| **Network** | Operational | 4 interfaces: lo, enp7s0 (192.168.10.173/24), vmnet1, vmnet8. Default route via 192.168.10.1. |\n| **Time Sync** | Operational | NTP synchronized: yes. Timezone: Asia/Ho_Chi_Minh (+07). |\n| **Services** | Operational | 68 services loaded, 0 failed. All critical services (NetworkManager, systemd, cron, ssh, etc.) running. |\n| **Containers** | Not Present | Docker not installed. No containers. |\n| **Security Posture** | Unknown | Capability not available. No evidence collected. |\n| **Processes** | Operational | 477 processes running. No anomalous processes observed. |\n\n### 3. Risks\n\n| Risk | Severity | Justification |\n|------|----------|---------------|\n| **Google Drive storage near capacity** | Medium | Mount at /mnt/DE607FFB607FD92B/Google Drive is 83% full (2.9 GB available of 15 GB). Continued usage may cause write failures. |\n| **Security posture unknown** | Medium | No security assessment capability available. Vulnerabilities, firewall status, and patch levels are unverified. |\n| **High disk temperatures detected** | Low | SMART logs show /dev/sda at 108\u00b0C and /dev/sdb at 161\u00b0C (Temperature_Celsius attributes). These values may indicate sensor misreading or potential hardware stress. |\n| **Repeated SECCOMP audit events** | Low | whatsdesk (snap) generates repeated SECCOMP syscall=425 events. These are allowed (sig=0) but indicate a sandboxed application making filtered syscalls. |\n\n### 4. Unknowns\n\n| Unknown | Impact | Required Evidence |\n|---------|--------|-------------------|\n| Security posture (firewall, patches, vulnerabilities) | Cannot verify system is hardened or exposed | Security Posture Summary capability |\n| CPU load/utilization | Cannot assess if CPU is overloaded | CPU load averages or utilization percentage |\n| Network throughput/errors | Cannot assess network health | Interface statistics (packets, errors, drops) |\n| Disk health (SMART status) | Cannot verify disk reliability | SMART health status for all physical disks |\n| Running services listening on ports | Cannot verify exposed services | Listening port enumeration |\n\n### 5. Recommendations\n\n1. **Address Google Drive capacity**: Free space on the Google Drive mount (83% used) or increase allocation to prevent write failures.\n2. **Investigate disk temperatures**: Monitor /dev/sda and /dev/sdb temperatures. If readings are accurate, improve cooling or replace drives.\n3. **Enable security assessment**: Configure the Security Posture Summary capability to verify firewall (ufw), patch status, and vulnerability exposure.\n4. **Monitor whatsdesk SECCOMP events**: If application behavior changes or errors appear, investigate the filtered syscall (425 = io_uring_setup).",
+        "iterations": 1,
+        "elapsed": 45.851,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.0,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3907,
+          "overall": 0.74
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "## 1. Summary\n\nInvestigated disk storage usage on localhost (hostname: `binh`, Ubuntu 22.04). Found **10 mounted filesystems** including physical disks, tmpfs, and a cloud mount. **One filesystem is near capacity**: a Google Drive mount (fuse.rclone) at **83% usage** (12.3 GB used of 15.0 GB). All local physical disks are well below critical thresholds.\n\n## 2. Assessment per Subsystem\n\n| Mount Point | Device | Size | Used | Available | Usage | Status |\n|---|---|---|---|---|---|---|\n| `/` | /dev/nvme0n1p2 (ext4) | 233 GB | 41.8 GB | 179.4 GB | **19%** | \u2705 Healthy |\n| `/boot/efi` | /dev/nvme0n1p1 (vfat) | 511 MB | 6.1 MB | 505 MB | **2%** | \u2705 Healthy |\n| `/mnt/DE607FFB607FD92B` | /dev/sda1 (NTFS) | 465.7 GB | 157.8 GB | 308 GB | **34%** | \u2705 Healthy |\n| `/mnt/BA828B22828AE26D` | /dev/sdc1 (NTFS) | 3.64 TB | 614 GB | 3.04 TB | **17%** | \u2705 Healthy |\n| `/mnt/9AB65A21B659FDE7` | /dev/sdb1 (NTFS) | 931.5 GB | 115.7 GB | 815.7 GB | **13%** | \u2705 Healthy |\n| `/mnt/DE607FFB607FD92B/Google Drive` | GoogleDrive: (fuse.rclone) | 15.0 GB | 12.3 GB | 2.69 GB | **83%** | \u26a0\ufe0f Near capacity |\n| `/run`, `/dev/shm`, `/run/lock`, `/run/user/1000` | tmpfs | Various | 1% each | \u2014 | **1%** | \u2705 Healthy |\n\n**Memory**: 10.9% used (5.6 GB / 64 GB) \u2014 \u2705 Healthy  \n**Swap**: 0% used (0 B / 2 GB) \u2014 \u2705 Healthy  \n\n## 3. Risks\n\n- **Google Drive mount at 83% capacity** (2.69 GB remaining). Evidence: `use_percent: \"83%\"` on `GoogleDrive:` filesystem mounted at `/mnt/DE607FFB607FD92B/Google Drive`. If usage continues, writes may fail or the mount may become read-only.\n- **No other disks are near capacity.** All local physical disks are \u226434% used.\n\n## 4. Unknowns\n\n- **Google Drive quota/plan**: The evidence shows 15 GB total capacity, which matches a free-tier Google Drive account. Whether additional storage can be allocated is unknown without account-level evidence.\n- **Growth rate**: No historical usage data was collected. It is unknown how quickly the 2.69 GB remaining will be consumed.\n- **rclone sync status**: Whether the mount is actively syncing or idle is not determined from the evidence.\n\n## 5. Recommendations\n\n1. **Free space on Google Drive mount**: Delete unnecessary files from `/mnt/DE607FFB607FD92B/Google Drive` or move data to local disks (which have ample free space).\n2. **Monitor usage**: Set up a disk usage alert for the Google Drive mount if it is critical to operations.\n3. **Consider upgrade**: If the Google Drive mount is essential and cannot be reduced, upgrade the Google Drive storage plan.",
+        "iterations": 1,
+        "elapsed": 39.443,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.6667,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 2513,
+          "overall": 0.9333
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "**1. Summary**\n\nThe investigation assessed the security baseline of localhost. Evidence was collected for AppArmor, SELinux, recent logins, SSH configuration, firewall, Secure Boot, and listening ports. Certificate discovery failed due to a pipeline configuration issue. Key findings include: Secure Boot is disabled, AppArmor is enabled, SELinux status is unknown, SSH configuration details are unknown, the firewall status is unknown, and several services are listening on localhost ports.\n\n**2. Assessment per subsystem**\n\n*   **AppArmor:** Operational. Evidence confirms AppArmor is enabled.\n*   **SELinux:** Unknown. Evidence indicates the status could not be determined.\n*   **Secure Boot:** Non-compliant. Evidence confirms Secure Boot is disabled.\n*   **SSH Configuration:** Unknown. Evidence could not determine the port, root login policy, password authentication status, or active state.\n*   **Firewall:** Unknown. Evidence could not determine the backend or active status.\n*   **Listening Ports:** Operational. Evidence shows 25 listening ports/services, including ollama (11434), opencode (4096), and DNS (53) on localhost.\n*   **Recent Logins:** Operational. Evidence shows a single session for user \"binh\" on terminal `:1`.\n*   **Certificate Discovery:** Failed. No evidence was collected due to a missing route for the capability.\n\n**3. Risks**\n\n*   **Secure Boot Disabled (High):** The system is vulnerable to bootkits and unauthorized boot-time code execution. Evidence: `{\"enabled\": false}`.\n*   **Unknown Firewall Status (High):** Without evidence of an active firewall, the system may be exposed to network-based attacks. Evidence: `{\"active\": null}`.\n*   **Unknown SSH Configuration (High):** Inability to verify SSH settings (e.g., root login, password auth) leaves the system potentially exposed to brute-force or unauthorized access. Evidence: All SSH fields are `\"unknown\"`.\n*   **Unidentified Listening Services (Medium):** Ports 902 (TCP) and several UDP ports (5353, 57730, 56908) have no associated process identified, which could indicate unknown or unauthorized services. Evidence: Empty process names for these ports.\n*   **Certificate Discovery Failure (Medium):** The inability to inspect certificates prevents assessment of TLS/SSL security posture. Evidence: `\"No route configured for capability: Certificate Discovery\"`.\n\n**4. Unknowns**\n\n*   **SELinux Status:** Could not be determined. Evidence: `{\"status\": \"unknown\"}`. Additional evidence (e.g., `getenforce` output) would clarify.\n*   **SSH Configuration Details:** Port, PermitRootLogin, PasswordAuthentication, and active state are unknown. Evidence: All fields are `\"unknown\"`. Evidence from `/etc/ssh/sshd_config` would resolve this.\n*   **Firewall Status:** Backend and active state are unknown. Evidence: `{\"backend\": \"unknown\", \"active\": null}`. Evidence from `ufw status` or `iptables -L` would resolve this.\n*   **Certificate Inventory:** No certificate data was collected. Evidence: Capability failed. Evidence from a properly configured certificate discovery capability is required.\n\n**5. Recommendations**\n\n*   **Enable Secure Boot:** Re-enable Secure Boot in the system firmware to protect against boot-level threats. (Supported by evidence: Secure Boot is disabled.)\n*   **Verify and Configure Firewall:** Determine the firewall status and ensure a firewall (e.g., `ufw`, `iptables`) is active and configured to restrict unnecessary inbound connections. (Supported by evidence: Firewall status is unknown.)\n*   **Audit SSH Configuration:** Inspect `/etc/ssh/sshd_config` to ensure `PermitRootLogin` is set to `no` and `PasswordAuthentication` is set to `no` (or use key-based auth only). (Supported by evidence: SSH configuration is unknown.)\n*   **Investigate Unidentified Services:** Identify the processes listening on ports 902 (TCP) and the unnamed UDP ports (5353, 57730, 56908) to confirm they are authorized. (Supported by evidence: Empty process names for these ports.)\n*   **Resolve Certificate Discovery:** Configure the pipeline to support the Certificate Discovery capability to enable future TLS/SSL security assessments. (Supported by evidence: Capability failed due to missing route.)",
+        "iterations": 1,
+        "elapsed": 26.818,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.6667,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 4207,
+          "overall": 0.8733
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "**1. Summary: What was investigated and what was found.**\n\nThe investigation was initiated due to a report of high load on localhost. The pipeline collected evidence on system load averages and running processes. Direct evidence for CPU, memory, and disk usage was not collected due to configuration errors. The collected evidence shows a system load average of 1.99 (1-minute), 1.58 (5-minute), and 1.55 (15-minute) on a system with 28 logical CPUs (based on process list). The process list shows 476 running processes, with the highest CPU consumers being Chrome processes (up to 50.1% CPU per process) and a process named \"opencode web\" (24.8% CPU).\n\n**2. Assessment per subsystem: Operational status based on evidence.**\n\n*   **System Load:** **ELEVATED**. The 1-minute load average (1.99) is low relative to the 28 CPU cores, indicating the system is not CPU-bound. However, the load is higher than the 5-minute (1.58) and 15-minute (1.55) averages, suggesting a recent increase in activity.\n*   **CPU Utilization:** **UNKNOWN**. No direct CPU usage data was collected. The process list shows individual process CPU percentages, but the sum of these percentages is not a reliable indicator of total CPU utilization. The low load average relative to core count suggests CPU is not the bottleneck.\n*   **Memory Utilization:** **UNKNOWN**. No direct memory usage data was collected. The process list shows memory percentages for individual processes, but total memory usage and available memory are unknown.\n*   **Disk Utilization:** **UNKNOWN**. No disk usage or I/O statistics were collected.\n*   **Processes:** **OPERATIONAL**. 476 processes are running. The most resource-intensive processes are user applications (Chrome, opencode, Zalo, gnome-shell). No anomalous or malicious processes are immediately evident from the command names.\n\n**3. Risks: Issues that require attention, justified by evidence.**\n\n*   **High User Application Resource Consumption:** Multiple Chrome processes and an \"opencode web\" process are consuming significant CPU (e.g., PID 7255 at 50.1%, PID 4745 at 24.8%). This is the most likely cause of the perceived \"high load\" and could lead to system unresponsiveness for the user.\n*   **Inability to Diagnose Root Cause:** The lack of CPU, memory, and disk utilization data prevents a complete assessment. The \"high load\" report cannot be definitively linked to a specific resource bottleneck (CPU, memory, I/O).\n\n**4. Unknowns: What could not be determined and what evidence would help.**\n\n*   **Total CPU Utilization:** Not determined. Evidence needed: `CPU Usage` (e.g., `top` or `mpstat` output).\n*   **Total Memory Utilization:** Not determined. Evidence needed: `Memory Usage` (e.g., `free -h` or `/proc/meminfo`).\n*   **Disk Usage & I/O:** Not determined. Evidence needed: `Disk Usage` (e.g., `df -h`) and `I/O Statistics` (e.g., `iostat`).\n*   **Network Utilization:** Not determined. Evidence needed: `Network Usage` (e.g., `nload` or `iftop`).\n*   **Cause of Load Average Increase:** The recent increase in load (1-min > 5-min) is unexplained. Evidence needed: A time-series of CPU, memory, and I/O metrics to correlate with the load spike.\n\n**5. Recommendations: Actionable next steps (only if supported by evidence).**\n\n*   **Investigate High CPU Processes:** The user should inspect the Chrome and \"opencode\" processes (PIDs 7255, 4745, 4520, 4529, 3761, 3517, 3472) to determine if they are behaving as expected. Closing unnecessary tabs or applications may resolve the perceived high load.\n*   **Collect Missing Evidence:** To perform a complete performance assessment, the pipeline must be reconfigured to collect `CPU Usage`, `Memory Usage`, and `Disk Usage` evidence. Without this data, the root cause of the reported high load cannot be confirmed.",
+        "iterations": 1,
+        "elapsed": 36.922,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 1.0,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 1.0,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.25,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3797,
+          "overall": 0.85
+        }
+      }
+    ],
+    "overall": 0.96,
+    "metadata": {
+      "captured_at": "2026-07-11T16:20:53+0700",
+      "timestamp": 1783761653,
+      "git_commit": "8e9b642 feat(benchmark): integrate assessment metrics into reporting pipeline",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "benchmark_version": "1.0"
+    }
+  }
+}
