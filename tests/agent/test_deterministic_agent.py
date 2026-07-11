@@ -6,7 +6,7 @@ from unittest import mock
 
 from src.agent.deterministic_agent import DeterministicAgent
 from src.agent.runtime_factory import create_deterministic_agent
-from src.agent.runtime_factory import _load_tools_config, _SUPPORTED_TOOL_TYPES
+from src.agent.runtime_factory import _load_tools_config, _SUPPORTED_TOOL_TYPES, _warn
 
 
 def test_deterministic_agent_runs_pipeline() -> None:
@@ -172,3 +172,104 @@ def test_supported_tool_types_defined() -> None:
     for tool_type, required in _SUPPORTED_TOOL_TYPES.items():
         assert "url" in required
         assert "token" in required
+
+
+# ---------------------------------------------------------------------------
+# Warning helper
+# ---------------------------------------------------------------------------
+
+
+def test_warn_output(capsys: pytest.CaptureFixture) -> None:
+    """_warn() should print 'Warning:' prefix to stderr."""
+    _warn("test warning")
+    captured = capsys.readouterr()
+    assert captured.err == "Warning: test warning\n"
+    assert captured.out == ""
+
+
+def test_warn_called_on_invalid_json() -> None:
+    """Loading invalid JSON should trigger a warning."""
+    with mock.patch.object(Path, "exists", return_value=True):
+        with mock.patch.object(Path, "read_text", return_value="not json"):
+            with mock.patch(
+                "src.agent.runtime_factory._warn"
+            ) as mock_warn:
+                _load_tools_config()
+                mock_warn.assert_called_once()
+                assert "invalid JSON" in mock_warn.call_args[0][0]
+
+
+def test_warn_called_on_non_dict_json() -> None:
+    """Loading non-dict JSON should trigger a warning."""
+    with mock.patch.object(Path, "exists", return_value=True):
+        with mock.patch.object(Path, "read_text", return_value='"string"'):
+            with mock.patch(
+                "src.agent.runtime_factory._warn"
+            ) as mock_warn:
+                _load_tools_config()
+                mock_warn.assert_called_once()
+                assert "JSON object" in mock_warn.call_args[0][0]
+
+
+def test_warn_called_on_missing_tool_field() -> None:
+    """Entry without tool field should trigger a warning."""
+    from src.agent.runtime_factory import _register_single_tool
+    from src.tool.target_registry import TargetRegistry
+
+    registry = TargetRegistry()
+    with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
+        _register_single_tool(registry, "bad_entry", {"url": "x"})
+        mock_warn.assert_called_once()
+        assert "missing" in mock_warn.call_args[0][0]
+
+
+def test_warn_called_on_unknown_tool_type() -> None:
+    """Unknown tool type should trigger a warning."""
+    from src.agent.runtime_factory import _register_single_tool
+    from src.tool.target_registry import TargetRegistry
+
+    registry = TargetRegistry()
+    with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
+        _register_single_tool(registry, "bad", {"tool": "nonexistent"})
+        mock_warn.assert_called_once()
+        assert "Unknown" in mock_warn.call_args[0][0]
+
+
+def test_warn_called_on_missing_required_fields() -> None:
+    """Missing required fields should trigger a warning."""
+    from src.agent.runtime_factory import _register_single_tool
+    from src.tool.target_registry import TargetRegistry
+
+    registry = TargetRegistry()
+    with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
+        _register_single_tool(registry, "bad", {"tool": "zabbix"})
+        mock_warn.assert_called_once()
+        assert "missing" in mock_warn.call_args[0][0]
+
+
+def test_warn_called_on_duplicate_registration() -> None:
+    """Duplicate tool name should trigger a warning."""
+    from src.agent.runtime_factory import _register_single_tool
+    from src.tool.target_registry import TargetRegistry
+    from src.tool.tool import Tool
+    from src.shared.execution.tool_result import ToolResult
+
+    # Register first tool with target name "zabbix"
+    registry = TargetRegistry()
+    registry.register_tool(
+        name="zabbix",
+        tool=type("FakeZabbix", (Tool,), {
+            "execute": lambda self, args: ToolResult(success=True),
+        })(),
+    )
+
+    with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
+        _register_single_tool(
+            registry, "zabbix2",
+            {"tool": "zabbix", "url": "http://z", "token": "t", "target": "zabbix"},
+        )
+        mock_warn.assert_called_once()
+        assert "Failed to register" in mock_warn.call_args[0][0]
+
+
+import pytest  # noqa: E402, F811

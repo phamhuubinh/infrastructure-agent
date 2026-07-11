@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +50,22 @@ def _load_server_config(
 
 
 # ---------------------------------------------------------------------------
+# Diagnostics — single warning helper
+# ---------------------------------------------------------------------------
+
+import sys as _sys  # late import to avoid shadowing
+
+
+def _warn(message: str) -> None:
+    """Emit a runtime configuration warning to stderr.
+
+    Using a single helper ensures consistent diagnostic output and
+    makes warning behavior testable.
+    """
+    print(f"Warning: {message}", file=_sys.stderr)
+
+
+# ---------------------------------------------------------------------------
 # Infrastructure tool configuration (tools.json)
 # ---------------------------------------------------------------------------
 # Supported tool types and their required config fields.
@@ -68,7 +83,7 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
     """Load infrastructure tool configuration from tools.json.
 
     Returns an empty dict if the file does not exist.
-    Prints a warning to stderr for invalid JSON or read errors.
+    Warnings are emitted via _warn() for invalid JSON or read errors.
     """
     config_path = Path("tools.json")
     if not config_path.exists():
@@ -77,25 +92,22 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
         raw = config_path.read_text()
         data = json.loads(raw)
         if not isinstance(data, dict):
-            print(
-                "Warning: tools.json must contain a JSON object at top level. "
-                "Skipping tool registration.",
-                file=sys.stderr,
+            _warn(
+                "tools.json must contain a JSON object at top level. "
+                "Skipping tool registration."
             )
             return {}
         return dict(data)
     except json.JSONDecodeError as exc:
-        print(
-            f"Warning: tools.json contains invalid JSON ({exc}). "
-            f"Skipping tool registration.",
-            file=sys.stderr,
+        _warn(
+            f"tools.json contains invalid JSON ({exc}). "
+            f"Skipping tool registration."
         )
         return {}
     except OSError as exc:
-        print(
-            f"Warning: Cannot read tools.json ({exc}). "
-            f"Skipping tool registration.",
-            file=sys.stderr,
+        _warn(
+            f"Cannot read tools.json ({exc}). "
+            f"Skipping tool registration."
         )
         return {}
 
@@ -108,36 +120,32 @@ def _register_single_tool(
     """Register one tool from a tools.json entry.
 
     Validates the entry, constructs the tool, and registers it.
-    Prints a warning for invalid entries instead of crashing.
+    Warnings are emitted via _warn() for invalid entries instead of crashing.
     """
     tool_type = cfg.get("tool")
     if not isinstance(tool_type, str) or not tool_type:
-        print(
-            f"Warning: tools.json entry '{entry_name}' is missing "
-            f"a valid 'tool' field. Skipping.",
-            file=sys.stderr,
+        _warn(
+            f"tools.json entry '{entry_name}' is missing "
+            f"a valid 'tool' field. Skipping."
         )
         return
 
     if tool_type not in _SUPPORTED_TOOL_TYPES:
         supported = ", ".join(sorted(_SUPPORTED_TOOL_TYPES))
-        print(
-            f"Warning: Unknown tool type '{tool_type}' in "
+        _warn(
+            f"Unknown tool type '{tool_type}' in "
             f"tools.json entry '{entry_name}'. "
-            f"Supported types: {supported}. Skipping.",
-            file=sys.stderr,
+            f"Supported types: {supported}. Skipping."
         )
         return
 
-    # Validate required fields.
     required_fields = _SUPPORTED_TOOL_TYPES[tool_type]
     missing = [f for f in required_fields if not cfg.get(f)]
     if missing:
-        print(
-            f"Warning: tools.json entry '{entry_name}' of type "
+        _warn(
+            f"tools.json entry '{entry_name}' of type "
             f"'{tool_type}' is missing required fields: "
-            f"{', '.join(missing)}. Skipping.",
-            file=sys.stderr,
+            f"{', '.join(missing)}. Skipping."
         )
         return
 
@@ -160,15 +168,14 @@ def _register_single_tool(
             timeout=int(cfg.get("timeout", 10)),
         )
     else:
-        return  # pragma: no cover — unreachable due to _SUPPORTED_TOOL_TYPES check
+        return  # pragma: no cover — unreachable via _SUPPORTED_TOOL_TYPES check
 
     try:
         registry.register_tool(name=target_name, tool=tool)
     except ValueError as exc:
-        print(
-            f"Warning: Failed to register tool '{target_name}' "
-            f"from tools.json entry '{entry_name}': {exc}",
-            file=sys.stderr,
+        _warn(
+            f"Failed to register tool '{target_name}' "
+            f"from tools.json entry '{entry_name}': {exc}"
         )
 
 
@@ -183,10 +190,9 @@ def _register_tools(
     """
     for entry_name, cfg in tools_config.items():
         if not isinstance(cfg, dict):
-            print(
-                f"Warning: tools.json entry '{entry_name}' is not a JSON object. "
-                f"Skipping.",
-                file=sys.stderr,
+            _warn(
+                f"tools.json entry '{entry_name}' is not a JSON object. "
+                f"Skipping."
             )
             continue
         _register_single_tool(registry, entry_name, cfg)
