@@ -5,34 +5,10 @@ import json
 import sys
 from pathlib import Path
 
-from src.agent.agent import Agent
-from src.infrastructure.ollama.ollama_client import OllamaClient
-from src.infrastructure.openai.openai_client import OpenAIClient
-from src.model.ollama_model_adapter import OllamaModelAdapter
+from src.agent.runtime_factory import create_deterministic_agent
 from src.tool.execution_backend import SSHExecutionBackend
-from src.tool.knowledge_tool import KnowledgeTool
-from src.tool.shell_tool import ShellTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
-from src.tool.tool_registry import ToolRegistry
-from src.tool.zabbix_tool import ZabbixTool
-from src.tool.grafana_tool import GrafanaTool
-
-
-def _build_client(cfg: dict[str, object]) -> OllamaModelAdapter:
-    provider = cfg.get("provider", "auto")
-    base_url = cfg.get("base_url", "")
-    model = cfg.get("model")
-    api_key = cfg.get("api_key")
-
-    if provider == "openai":
-        raw = OpenAIClient(base_url=base_url, model=model, api_key=api_key)
-    elif provider == "ollama":
-        raw = OllamaClient(host=base_url, model=model)
-    else:
-        raise ValueError(f"Unknown provider: {provider!r}")
-
-    return OllamaModelAdapter(raw)
 
 
 def _load_server_config(name: str | None = None) -> dict[str, object]:
@@ -102,92 +78,21 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
-    from src.agent.agent import set_verbose, set_status
+    agent = create_deterministic_agent(target_store_path=args.target_file)
 
-    if args.verbose:
-        set_verbose(True)
-    if args.status:
-        set_status(True)
-    store = TargetStore(path=args.target_file)
-    registry = TargetRegistry(store=store)
+    print("Deterministic pipeline is ready (mock assessment).")
+    print("Type 'exit' to quit.")
 
-    tool_registry = ToolRegistry()
-
-    tool_registry.register(
-        tool_id="shell",
-        tool=ShellTool(),
-    )
-
-    tool_registry.register(
-        tool_id="knowledge",
-        tool=KnowledgeTool(
-            target_registry=registry,
-        ),
-    )
-
-    client = _build_client(_load_server_config(name=args.server))
-
-    registry.register_tool(
-        name="zabbix",
-        tool=ZabbixTool(
-            url="http://192.168.10.222/zabbix",
-            token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
-        ),
-    )
-
-    registry.register_tool(
-        name="grafana",
-        tool=GrafanaTool(),
-    )
-
-    kt = KnowledgeTool(target_registry=registry)
-
-    if args.legacy:
-        agent = Agent(
-            model=client,
-            tool_registry=tool_registry,
-            available_resources=registry.target_names() and kt.get_available_resources(),
-            capability_metadata=registry.target_names() and kt.get_capability_metadata(),
-        )
-
-        print("Agent is ready (legacy ReAct).")
-        print("Type 'exit' to quit.")
-
-        while True:
-            user_request = input("> ").strip()
-
-            if user_request.lower() in {
-                "exit",
-                "quit",
-            }:
-                break
-
-            if not user_request:
-                continue
-
-            answer = agent.run(user_request)
-
-            print()
-            print(answer)
-            print()
-    else:
-        from src.agent.runtime_factory import create_deterministic_agent
-
-        agent = create_deterministic_agent(target_store_path=args.target_file)
-
-        print("Deterministic pipeline is ready (mock assessment).")
-        print("Type 'exit' to quit.")
-
-        while True:
-            user_request = input("> ").strip()
-            if user_request.lower() in {"exit", "quit"}:
-                break
-            if not user_request:
-                continue
-            answer = agent.run(user_request)
-            print()
-            print(answer)
-            print()
+    while True:
+        user_request = input("> ").strip()
+        if user_request.lower() in {"exit", "quit"}:
+            break
+        if not user_request:
+            continue
+        answer = agent.run(user_request)
+        print()
+        print(answer)
+        print()
 
 
 def main() -> None:
@@ -201,20 +106,12 @@ def main() -> None:
         help="Execution target configuration file"
     )
     parser.add_argument(
-        "--server", type=str, default=None,
-        help="Server name from servers.json (default: active_server)"
-    )
-    parser.add_argument(
         "--verbose", action="store_true",
         help="Show detailed debug output (prompt stats, timings, raw responses)"
     )
     parser.add_argument(
         "--status", action="store_true",
         help="Show one-line per iteration status"
-    )
-    parser.add_argument(
-        "--legacy", action="store_true",
-        help="Use legacy ReAct pipeline instead of deterministic pipeline"
     )
     subparsers = parser.add_subparsers(dest="command")
 

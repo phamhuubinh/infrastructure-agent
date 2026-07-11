@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from typing import Any
 
 from benchmark.dataset import BENCHMARKS
@@ -9,66 +8,13 @@ from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
 
 
-def _build_deterministic_runtime():
-    """Build and return a DeterministicAgent for benchmark execution.
-
-    Uses the same Composition Root as CLI — there is exactly one
-    implementation of runtime construction.
-    """
-    from src.agent.runtime_factory import create_deterministic_agent
-
-    return create_deterministic_agent()
-
-
-def _build_legacy_runtime():
-    """Build and return a legacy ReAct Agent for benchmark compatibility."""
-    from src.agent.agent import Agent
-    from src.model.mock_model_adapter import MockModelAdapter
-    from src.tool.grafana_tool import GrafanaTool
-    from src.tool.knowledge_tool import KnowledgeTool
-    from src.tool.shell_tool import ShellTool
-    from src.tool.target_registry import TargetRegistry
-    from src.tool.target_store import TargetStore
-    from src.tool.tool_registry import ToolRegistry
-    from src.tool.zabbix_tool import ZabbixTool
-
-    store = TargetStore()
-    registry = TargetRegistry(store=store)
-    registry.register_tool(
-        name="zabbix",
-        tool=ZabbixTool(
-            url="http://192.168.10.222/zabbix",
-            token="7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
-        ),
-    )
-    registry.register_tool(
-        name="grafana",
-        tool=GrafanaTool(),
-    )
-    tool_registry = ToolRegistry()
-    tool_registry.register(tool_id="shell", tool=ShellTool())
-    tool_registry.register(
-        tool_id="knowledge",
-        tool=KnowledgeTool(target_registry=registry),
-    )
-    kt = KnowledgeTool(target_registry=registry)
-    return Agent(
-        model=MockModelAdapter(),
-        tool_registry=tool_registry,
-        available_resources=registry.target_names() and kt.get_available_resources(),
-        capability_metadata=registry.target_names() and kt.get_capability_metadata(),
-    )
-
-
 def _run_benchmarks(
     domain: str | None,
     export_json: bool,
-    use_legacy: bool = False,
 ) -> list[dict[str, Any]]:
-    if use_legacy:
-        agent = _build_legacy_runtime()
-    else:
-        agent = _build_deterministic_runtime()
+    from src.agent.runtime_factory import create_deterministic_agent
+
+    agent = create_deterministic_agent()
 
     benchmarks = [b for b in BENCHMARKS if domain is None or b.domain == domain]
 
@@ -132,17 +78,12 @@ def main() -> None:
         "--model", type=str, default=None,
         help="Model name for comparison (not yet implemented)"
     )
-    parser.add_argument(
-        "--legacy", action="store_true",
-        help="Use legacy ReAct runtime instead of deterministic pipeline"
-    )
     args = parser.parse_args()
 
-    runtime_label = "legacy ReAct" if args.legacy else "deterministic"
-    print(f"\nBenchmark Suite ({runtime_label} runtime)")
+    print("\nBenchmark Suite (deterministic runtime)")
     print("=" * 60)
 
-    results = _run_benchmarks(args.domain, args.json, use_legacy=args.legacy)
+    results = _run_benchmarks(args.domain, args.json)
 
     print()
     if args.json:

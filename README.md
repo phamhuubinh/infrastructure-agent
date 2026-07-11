@@ -35,16 +35,8 @@ AI is used only for assessment.
 
 ## CLI Usage
 
-Default mode (deterministic pipeline):
-
 ```
 python -m src.cli
-```
-
-Legacy ReAct mode (optional):
-
-```
-python -m src.cli --legacy
 ```
 
 ## Documentation
