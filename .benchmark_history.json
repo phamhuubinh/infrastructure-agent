@@ -401,5 +401,127 @@
       "provider": "openai",
       "benchmark_version": "1.0"
     }
+  },
+  "5": {
+    "results": [
+      {
+        "benchmark": "health_check_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra s\u1ee9c kh\u1ecfe c\u1ee7a localhost",
+        "response": "### 1. Summary\nThe localhost (hostname: `binh`, Ubuntu 22.04, kernel 5.19.0-32-generic) was assessed for operational health. The system is **operational** with no critical failures detected. All core subsystems (CPU, memory, storage, network, services, time sync) are within normal parameters. A security posture assessment could not be performed due to a missing capability route.\n\n### 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n| :--- | :--- | :--- |\n| **Operating System** | **Healthy** | Ubuntu 22.04, kernel 5.19.0-32-generic. |\n| **CPU** | **Healthy** | 28 cores, Intel Xeon E5-2680 v4 @ 2.40GHz. No evidence of high load or errors. |\n| **Memory** | **Healthy** | 65.75 GB total, 11.2% used (7.4 GB). 58.4 GB available. |\n| **Swap** | **Healthy** | 2 GB total, 0% used. |\n| **Storage (Root)** | **Healthy** | `/dev/nvme0n1p2` (ext4) at 19% usage (250 GB total). |\n| **Storage (External)** | **Healthy** | All external drives (`/dev/sda1`, `/dev/sdb1`, `/dev/sdc1`) below 35% usage. |\n| **Storage (Cloud)** | **At Risk** | `GoogleDrive:` (fuse.rclone) at 83% usage (16 GB total, 2.9 GB free). |\n| **Network** | **Healthy** | 4 active interfaces. Primary interface `enp7s0` has IP `192.168.10.173/24` with a default route via `192.168.10.1`. |\n| **Time Synchronization** | **Healthy** | NTP synchronized: `yes`. Timezone: Asia/Ho_Chi_Minh. |\n| **Services** | **Healthy** | 68 services loaded, 37 running, 0 failed. |\n| **Containers (Docker)** | **Not Installed** | Docker is not installed. |\n| **Security Posture** | **Unknown** | Capability failed: \"No route configured for capability: Security Posture Summary\". |\n| **Processes** | **Healthy** | 481 processes running. No evidence of resource exhaustion. |\n\n### 3. Risks\n- **Google Drive Storage Capacity (High Usage):** The `GoogleDrive:` mount (fuse.rclone) is at **83% usage** (13.2 GB used of 16 GB). This is a high utilization level and may lead to write failures or performance degradation if usage continues to increase.\n- **Security Posture Unknown:** The security assessment capability failed. The system's firewall (ufw), AppArmor, and other security controls could not be evaluated. This is a blind spot.\n\n### 4. Unknowns\n- **Security Posture:** The overall security health (firewall rules, AppArmor status, open ports, user privileges) could not be determined because the `Security Posture Summary` capability failed with \"No route configured\". Evidence from a working security assessment tool is required.\n- **Disk Health (SMART):** While `smartd` is running, no detailed SMART health data for the physical disks (e.g., reallocated sectors, pending errors) was collected. Evidence of raw SMART attributes would confirm disk health.\n- **Network Performance:** No evidence of network latency, packet loss, or bandwidth utilization was collected. This is not a current risk but is an unknown for performance tuning.\n\n### 5. Recommendations\n- **Investigate Google Drive Storage:** Review the files stored on the `GoogleDrive:` mount at `/mnt/DE607FFB607FD92B/Google Drive`. Consider archiving or deleting unnecessary files to free up space, or increase the storage quota.\n- **Resolve Security Assessment Failure:** Investigate why the `Security Posture Summary` capability is not configured. Ensure the necessary tools (e.g., `ufw status`, `apparmor_status`, `ss -tuln`) are available and the pipeline has a route to execute them. A full security audit is recommended.\n- **Monitor Disk Usage:** Continue to monitor the root partition (`/dev/nvme0n1p2`) and external drives, though current usage is low.",
+        "iterations": 1,
+        "elapsed": 43.45,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.3333,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3587,
+          "overall": 0.8067
+        }
+      },
+      {
+        "benchmark": "disk_usage_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra dung l\u01b0\u1ee3ng \u1ed5 \u0111\u0129a localhost. C\u00f3 \u1ed5 n\u00e0o g\u1ea7n \u0111\u1ea7y kh\u00f4ng?",
+        "response": "## 1. Summary\n\nInvestigated disk storage capacity on localhost (hostname: `binh`, Ubuntu 22.04). Found 10 mounted filesystems. One mount point (`/mnt/DE607FFB607FD92B/Google Drive`) is at 83% usage \u2014 approaching capacity but not critical. All other disks are below 35% usage.\n\n## 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n|-----------|--------|----------|\n| **System disk (`/dev/nvme0n1p2`)** | HEALTHY | 19% used (42 GB of 233 GB) |\n| **EFI partition (`/dev/nvme0n1p1`)** | HEALTHY | 2% used |\n| **External disk `/dev/sda1`** | HEALTHY | 34% used (158 GB of 466 GB) |\n| **External disk `/dev/sdc1`** | HEALTHY | 17% used (614 GB of 3.6 TB) |\n| **External disk `/dev/sdb1`** | HEALTHY | 13% used (116 GB of 931 GB) |\n| **Google Drive (rclone mount)** | WARNING | 83% used (12.3 GB of 15 GB) |\n| **All tmpfs mounts** | HEALTHY | 1-2% used |\n| **Memory** | HEALTHY | 11.2% used (7.0 GB of 62.7 GB) |\n| **Swap** | HEALTHY | 0% used (2.0 GB available) |\n\n## 3. Risks\n\n- **Google Drive mount at 83%**: The rclone-mounted Google Drive at `/mnt/DE607FFB607FD92B/Google Drive` has only 2.7 GB free of 15 GB total. If usage continues to grow, writes may fail. This is a cloud storage mount, so behavior depends on Google Drive quota limits.\n\n## 4. Unknowns\n\n- **Google Drive quota**: The actual cloud-side storage quota/limit for this Google Drive account is unknown. The 15 GB reported may be the local cache limit, not the cloud quota.\n- **Disk health metrics**: No SMART data or disk health indicators were collected for any physical disk. Potential hardware degradation cannot be assessed.\n- **I/O performance**: No disk I/O latency or throughput data was collected. Performance bottlenecks cannot be ruled out.\n\n## 5. Recommendations\n\n1. **Clean up Google Drive** at `/mnt/DE607FFB607FD92B/Google Drive` \u2014 remove or archive files to free space, or increase the storage quota if possible.\n2. **Monitor Google Drive usage** \u2014 if this is a cloud quota limit, writes will fail once full.\n3. **No action needed** for system disk or other local storage \u2014 all are well below capacity thresholds.",
+        "iterations": 1,
+        "elapsed": 34.135,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 1.0,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 2105,
+          "overall": 1.0
+        }
+      },
+      {
+        "benchmark": "security_baseline_assessment",
+        "domain": "assessment",
+        "request": "Ki\u1ec3m tra security baseline c\u1ee7a localhost",
+        "response": "**1. Summary**\n\nThe investigation assessed the security baseline of localhost. Evidence was collected for SELinux, AppArmor, Secure Boot, firewall, SSH configuration, recent logins, listening ports, and installed certificates. Key findings include: Secure Boot is disabled, AppArmor is enabled, SELinux status is unknown, firewall status is unknown, and SSH configuration details are unknown. A single user session was active. Multiple listening ports and a large set of CA certificates were found.\n\n**2. Assessment per Subsystem**\n\n| Subsystem | Status | Evidence |\n| :--- | :--- | :--- |\n| **Mandatory Access Control (MAC)** | **Degraded** | AppArmor is enabled. SELinux status is unknown. |\n| **Secure Boot** | **Non-compliant** | Secure Boot is disabled. |\n| **Firewall** | **Unknown** | Firewall backend and active status are unknown. |\n| **SSH Configuration** | **Unknown** | Port, PermitRootLogin, PasswordAuthentication, and active status are unknown. |\n| **User Sessions** | **Operational** | One active session for user \"binh\" on terminal \":1\". |\n| **Listening Ports** | **Operational** | 25 ports are listening. Notable services: ollama (11434), opencode (4096), DNS (53), and multiple mDNS (5353) instances. |\n| **Certificate Store** | **Operational** | A large set of CA certificates (200+) is present, including system and third-party roots. |\n\n**3. Risks**\n\n*   **Disabled Secure Boot (High):** The system is vulnerable to bootkits and unauthorized boot-time code execution. Evidence: `Secure Boot: enabled: false`.\n*   **Unknown Firewall Status (High):** Without firewall evidence, the system's network perimeter defenses cannot be confirmed. This is a critical gap in the security baseline.\n*   **Unknown SSH Configuration (High):** The SSH daemon's configuration (root login, password auth) is unknown. This could represent a significant remote attack vector.\n*   **Unknown SELinux Status (Medium):** While AppArmor is enabled, the status of SELinux is unknown. If SELinux is also present but misconfigured or disabled, it could create a false sense of security or a conflict.\n*   **mDNS Exposure (Low):** Multiple processes (Chrome, Zalo, WhatsDesk) are broadcasting via mDNS (port 5353), which can leak host information on the local network.\n\n**4. Unknowns**\n\n*   **SELinux Status:** The collected evidence returned \"unknown\". Evidence required: SELinux status (enforcing/permissive/disabled) and policy type.\n*   **Firewall Configuration:** The backend (e.g., iptables, nftables, ufw) and active ruleset are unknown. Evidence required: active firewall rules and default policies.\n*   **SSH Configuration:** The SSH daemon's port, root login policy, and password authentication setting are unknown. Evidence required: contents of `/etc/ssh/sshd_config`.\n*   **System Patch Level:** The current patch level of the OS and installed packages was not assessed. Evidence required: list of installed packages and their versions.\n*   **Audit Logging:** The status of system auditing (e.g., auditd) is unknown. Evidence required: auditd service status and configuration.\n\n**5. Recommendations**\n\n*   **Enable Secure Boot:** Re-enable Secure Boot in the system firmware to ensure boot chain integrity.\n*   **Investigate and Configure Firewall:** Determine the active firewall backend and ensure a restrictive default-deny policy is in place.\n*   **Harden SSH:** Review and enforce SSH configuration: disable root login, disable password authentication, and use a non-default port if possible.\n*   **Resolve SELinux Status:** Determine if SELinux is installed and, if so, ensure it is in enforcing mode or properly disabled if AppArmor is the sole MAC system.\n*   **Review mDNS Services:** Evaluate the necessity of mDNS services and disable them on production or sensitive systems to reduce information leakage.",
+        "iterations": 1,
+        "elapsed": 27.51,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 0.8,
+          "recommendation_coverage": 0.6667,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3822,
+          "overall": 0.8733
+        }
+      },
+      {
+        "benchmark": "performance_assessment",
+        "domain": "assessment",
+        "request": "Localhost \u0111ang b\u1ecb high load. Ki\u1ec3m tra CPU, memory, v\u00e0 processes.",
+        "response": "## Infrastructure Assessment Report\n\n### 1. Summary\nInvestigated localhost performance (CPU, memory, processes) due to reported high load. Evidence shows **elevated system load averages** (1-min: 2.39, 5-min: 2.10, 15-min: 1.84) despite **low CPU utilization** (6.5% combined user+system, 93.5% idle) and **low memory usage** (11.3%). The load is likely caused by I/O wait or process contention, but I/O statistics were unavailable.\n\n### 2. Assessment per Subsystem\n\n| Subsystem | Status | Evidence |\n|-----------|--------|----------|\n| **CPU** | **Healthy** | 93.5% idle, 5.0% user, 1.5% system, 0.0% iowait |\n| **Memory** | **Healthy** | 11.3% used (7.1 GB / 62.7 GB), 55.2 GB free, 58.3 GB available |\n| **System Load** | **Elevated** | Load averages: 2.39 (1m), 2.10 (5m), 1.84 (15m) \u2014 above typical thresholds for this system |\n| **Disk** | **Healthy** | Root (/) at 19%, all local disks <35% except Google Drive fuse mount at 83% |\n| **Network** | **Healthy** | 4 active interfaces, no congestion indicators |\n| **Processes** | **Active** | 481 processes; top consumers: Chrome (multiple instances, up to 55.9% CPU each), gnome-shell (7.3%), opencode web (22.7%), ollama serve (0.0% CPU) |\n| **I/O Performance** | **Unknown** | Capability failed: \"No route configured for capability: I/O Performance Assessment\" |\n\n### 3. Risks\n\n| Risk | Severity | Justification |\n|------|----------|---------------|\n| **High system load without high CPU** | **Medium** | Load average (2.39) exceeds number of CPU cores (28 logical cores from process list), yet CPU idle is 93.5%. This indicates processes are waiting on I/O or locks, not CPU cycles. |\n| **Missing I/O metrics** | **Medium** | Without I/O statistics, root cause of high load cannot be confirmed. I/O wait may be masked by aggregate CPU stats. |\n| **Google Drive fuse mount at 83%** | **Low** | Fuse filesystem at 83% usage (12.3 GB / 15 GB) may cause performance degradation for cloud-synced operations. |\n| **Chrome memory footprint** | **Low** | Multiple Chrome processes consuming up to 1.4% memory each; cumulative impact is moderate but not critical. |\n\n### 4. Unknowns\n\n| Unknown | Impact | Required Evidence |\n|---------|--------|-------------------|\n| **I/O wait / disk latency** | High \u2014 likely root cause of high load | I/O statistics (await, svctm, %util per device) |\n| **Per-process I/O activity** | Medium \u2014 could identify specific culprit | Per-process I/O read/write counters |\n| **Context switch rate** | Medium \u2014 could explain load without CPU | Context switch statistics (/proc/stat) |\n| **Load average trend over time** | Low \u2014 snapshot may not represent sustained load | Historical load average data |\n\n### 5. Recommendations\n\n1. **Collect I/O statistics** to determine if disk I/O is causing the elevated load. Focus on `/dev/nvme0n1p2` (root filesystem) and external USB drives (`/dev/sda1`, `/dev/sdb1`, `/dev/sdc1`).\n2. **Investigate Chrome processes** \u2014 PID 61445 (55.9% CPU) and PID 4520 (12.9% CPU) are the top CPU consumers. Check if these are expected workloads.\n3. **Monitor Google Drive fuse mount** \u2014 at 83% usage, consider cleaning or expanding if performance degrades.\n4. **Check for process contention** \u2014 the load average of 2.39 with 28 cores suggests processes are blocked (I/O, locks, or kernel threads). Review `D` state processes if I/O data confirms high wait.",
+        "iterations": 1,
+        "elapsed": 39.042,
+        "capability_sequence": [],
+        "errors": [],
+        "scores": {
+          "total": 0.95,
+          "reasoning": 1.0,
+          "efficiency": 1.0,
+          "evidence": 0.8,
+          "safety": 1.0
+        },
+        "exception": null,
+        "assessment_metrics": {
+          "evidence_coverage": 1.0,
+          "recommendation_coverage": 0.5,
+          "grounding": 1.0,
+          "completeness": 1.0,
+          "consistency": 1.0,
+          "length": 3360,
+          "overall": 0.9
+        }
+      }
+    ],
+    "overall": 0.95,
+    "metadata": {
+      "captured_at": "2026-07-11T18:46:12+0700",
+      "timestamp": 1783770372,
+      "git_commit": "b0168d6 refactor(knowledge): complete knowledge tool subsystem",
+      "server": "sv1",
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "provider": "openai",
+      "benchmark_version": "1.0"
+    }
   }
 }
