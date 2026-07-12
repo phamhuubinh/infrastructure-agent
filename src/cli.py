@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from src.agent.runtime_factory import create_deterministic_agent
@@ -59,6 +60,59 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 _last_request = None
+
+
+def _run_web(args: argparse.Namespace) -> None:
+    """Start web UI server."""
+    try:
+        from fastapi import FastAPI
+        from fastapi.middleware.cors import CORSMiddleware
+        import uvicorn
+    except ImportError:
+        print("Web UI requires: pip install fastapi uvicorn")
+        sys.exit(1)
+
+    from src.agent.runtime_factory import create_deterministic_agent
+
+    app = FastAPI(title="Infrastructure Agent", version="1.0.0")
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+    agent = create_deterministic_agent(
+        target_store_path=args.target_file,
+        server_name=args.server,
+        model=args.model,
+    )
+
+    @app.get("/api/health")
+    def health():
+        return {"status": "ok", "version": "1.0.0"}
+
+    @app.post("/api/query")
+    def query(body: dict):
+        question = (body.get("question") or "").strip()
+        if not question:
+            from fastapi import HTTPException
+            raise HTTPException(400, "Question is required")
+
+        investigation = agent.execute_pipeline_only(question)
+        assessment = agent.run(question)
+
+        return {
+            "assessment": assessment,
+            "intent": investigation.intent.name if investigation.intent else "",
+            "target": investigation.target or "",
+            "evidence_count": len(investigation.evidence),
+            "evidence_complete": investigation.evidence_complete,
+        }
+
+    port = args.port
+    ui_dir = os.path.join(os.path.dirname(__file__), "..", "ui")
+    index_path = os.path.join(ui_dir, "public", "index.html")
+
+    print(f"Web UI server starting on 127.0.0.1:{port}")
+    print(f"Frontend: cd ui && npm run dev (port 5173)")
+    print()
+    uvicorn.run(app, host="127.0.0.1", port=port)
 
 
 def _run_agent(args: argparse.Namespace) -> None:
@@ -182,6 +236,14 @@ def main() -> None:
         "--status", action="store_true",
         help="Show one-line per iteration status"
     )
+    parser.add_argument(
+        "--web", action="store_true",
+        help="Start web UI server instead of terminal mode"
+    )
+    parser.add_argument(
+        "--port", type=int, default=61888,
+        help="Port for web UI server (default: 61888)"
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     add_parser = subparsers.add_parser("add-target", help="Add a remote target")
@@ -206,6 +268,8 @@ def main() -> None:
         _remove_target(args)
     elif args.command == "list-targets":
         _list_targets(args)
+    elif args.web:
+        _run_web(args)
     else:
         _run_agent(args)
 

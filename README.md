@@ -33,10 +33,31 @@ Response
 The investigation pipeline is fully deterministic.
 AI is used only for assessment.
 
-## CLI Usage
+## Quick Start
 
-```
+### CLI
+
+```bash
 python -m src.cli
+```
+
+### API Server
+
+```bash
+pip install fastapi uvicorn
+python api_server.py
+# → http://localhost:8080
+# POST /api/query  {"question": "check server health"}
+# GET  /api/health
+```
+
+### Web UI (Lovable)
+
+```bash
+cd ui
+npm install
+npm run dev
+# → http://localhost:5173
 ```
 
 ## Documentation
