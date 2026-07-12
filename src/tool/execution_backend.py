@@ -65,6 +65,11 @@ class SSHExecutionBackend(ExecutionBackend):
             "ssh",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
+            # Intentional: trusted local network only.
+            # StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null
+            # avoids interactive prompts on first connection and host key
+            # rotation without manual cleanup. Not suitable for internet-facing
+            # deployments — see ADR in docs/ai/09_ARCHITECTURE_DECISIONS.md.
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-p", str(self._port),
