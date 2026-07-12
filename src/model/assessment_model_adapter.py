@@ -27,3 +27,13 @@ class AssessmentModelAdapter(ABC):
             and recommendations.
         """
         raise NotImplementedError
+
+    def assess_raw(self, prompt: str) -> str:
+        """Send a raw prompt to the model without evidence context.
+
+        Used for general chat and question classification.
+        Default implementation delegates to assess() with an empty request.
+        Override in subclasses for direct LLM access.
+        """
+        from src.pipeline.assessment_request import AssessmentRequest
+        return self.assess(AssessmentRequest(raw_request=prompt))

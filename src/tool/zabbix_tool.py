@@ -620,8 +620,7 @@ class ZabbixTool(Tool):
                 if k in sig.parameters:
                     filtered[k] = v
                 else:
-                    import sys as _sys
-                    print(f"[DEBUG] ZabbixTool: ignored argument '{k}' for capability '{action}'", file=_sys.stderr)
+                    pass
             data = handler(api, **filtered)
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))

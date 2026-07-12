@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 from urllib import error as urlerror
 from urllib import request
 
@@ -82,6 +83,8 @@ class LLMClient:
                 data: dict[str, object] = json.loads(
                     response.read().decode("utf-8")
                 )
+        except KeyboardInterrupt:
+            raise RuntimeError("Cancelled")
         except urlerror.HTTPError as exc:
             raise RuntimeError(
                 f"LLM API returned HTTP {exc.code} at "

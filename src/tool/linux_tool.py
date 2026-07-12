@@ -1206,8 +1206,7 @@ class LinuxTool(Tool):
             if k in sig.parameters:
                 filtered[k] = v
             else:
-                import sys as _sys
-                print(f"[DEBUG] LinuxTool: ignored argument '{k}' for capability '{action}'", file=_sys.stderr)
+                pass
 
         if filtered:
             data = handler(self._run, **filtered)

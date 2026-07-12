@@ -12,6 +12,15 @@ class MockAssessmentAdapter(AssessmentModelAdapter):
     Useful for testing the pipeline without LLM dependencies.
     """
 
+    def assess_raw(self, prompt: str) -> str:
+        """Mock raw chat — just echo back a friendly response."""
+        from src.pipeline.intent_resolver import IntentResolver
+        resolver = IntentResolver()
+        req = resolver.resolve(prompt)
+        if req.confidence.name in ("HIGH", "MEDIUM"):
+            return "yes"
+        return "I'm a mock assistant. I can help with infrastructure questions."
+
     def assess(self, assessment_request: AssessmentRequest) -> str:
         """Return a structured summary of collected evidence.
 

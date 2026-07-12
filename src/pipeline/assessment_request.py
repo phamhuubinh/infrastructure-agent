@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.pipeline.evidence_package import EvidencePackage
-    from src.pipeline.intent_resolver import Intent
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from dataclasses import field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

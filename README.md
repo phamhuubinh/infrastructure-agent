@@ -41,23 +41,34 @@ AI is used only for assessment.
 python -m src.cli
 ```
 
-### API Server
+### Web UI
 
 ```bash
-pip install fastapi uvicorn
-python api_server.py
-# → http://localhost:8080
-# POST /api/query  {"question": "check server health"}
-# GET  /api/health
-```
+# Terminal 1: backend
+python -m src.cli --web
 
-### Web UI (Lovable)
-
-```bash
+# Terminal 2: frontend (development)
 cd ui
 npm install
 npm run dev
 # → http://localhost:5173
+```
+
+### Web UI (single command, development mode)
+
+```bash
+python -m src.cli --web
+# Backend API: http://localhost:61888
+# Frontend: auto-starts Vite dev server at http://localhost:5173
+```
+
+### Production build
+
+The TanStack Start SSR frontend requires the Nitro runtime for production.
+For local use, development mode is recommended:
+
+```bash
+python -m src.cli --web
 ```
 
 ## Documentation

@@ -20,5 +20,6 @@ __pycache__/
 # Benchmark history (auto-generated, environment-specific)
 .benchmark_history.json
 
-# Lovable UI dependencies
+# UI dependencies
 ui/node_modules/
+ui/dist/

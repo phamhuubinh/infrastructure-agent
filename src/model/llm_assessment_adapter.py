@@ -55,6 +55,10 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         """
         return self._assess_with_result(assessment_request)
 
+    def assess_raw(self, prompt: str) -> str:
+        """Send a raw prompt to the LLM without evidence wrapper."""
+        return self._client.generate(prompt)
+
     def _assess_with_result(
         self,
         assessment_request: AssessmentRequest,
