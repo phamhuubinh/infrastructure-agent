@@ -6,8 +6,8 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ChatProvider } from "@/lib/chat-store";
 
 function NotFoundComponent() {
   return (
@@ -27,7 +27,13 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => { reportLovableError(error, { boundary: "tanstack_root_error_component" }); }, [error]);
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && (window as any).__lovableEvents?.captureException) {
+        (window as any).__lovableEvents.captureException(error, { boundary: "tanstack_root_error_component" });
+      }
+    } catch {}
+  }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -48,17 +54,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Chat — Atlas Workspace" },
-      { name: "description", content: "Conversation with your AI agent." },
-      { name: "author", content: "Atlas" },
-      { property: "og:title", content: "Chat — Atlas Workspace" },
-      { property: "og:description", content: "Conversation with your AI agent." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:title", content: "Chat — Atlas Workspace" },
-      { name: "twitter:description", content: "Conversation with your AI agent." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/0fb6a4d7-8ffa-4d98-bcb2-4982d13d37aa/id-preview-91fc9c71--4f0931df-de33-4706-a813-a7feb588b5e0.lovable.app-1783855327527.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/0fb6a4d7-8ffa-4d98-bcb2-4982d13d37aa/id-preview-91fc9c71--4f0931df-de33-4706-a813-a7feb588b5e0.lovable.app-1783855327527.png" },
+      { title: "Infrastructure Agent" },
+      { name: "description", content: "Infrastructure Investigation Platform" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -76,7 +73,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="vi" className="dark">
       <head><HeadContent /></head>
       <body>
         {children}
@@ -87,15 +84,17 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const { queryClient } = Route.useRouteContext();
+  const queryClient = new QueryClient();
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground grain">
-        <AppSidebar />
-        <div className="flex-1 min-w-0 flex">
-          <Outlet />
+      <ChatProvider>
+        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground grain">
+          <AppSidebar />
+          <div className="flex-1 min-w-0 flex">
+            <Outlet />
+          </div>
         </div>
-      </div>
+      </ChatProvider>
     </QueryClientProvider>
   );
 }
