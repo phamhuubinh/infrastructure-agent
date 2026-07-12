@@ -42,6 +42,9 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("summary",),
         ("general",),
         ("state",),
+        ("configuration", "cấu hình"),
+        ("của",),
+        ("kiểm tra",),
     ),
     Intent.APPLICATION_DISCOVERY: (
         ("installed", "install", "installation"),
@@ -81,6 +84,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("zabbix",),
         ("grafana",),
         ("monitor", "monitoring"),
+        ("health",),
         ("dashboard", "dashboards"),
         ("host", "hosts"),
         ("event", "events"),
@@ -179,9 +183,9 @@ _INTENT_PRIORITY: dict[Intent, int] = {
     Intent.STORAGE_ASSESSMENT: 28,
     Intent.PERFORMANCE_ASSESSMENT: 25,
     Intent.NETWORK_ASSESSMENT: 20,
-    Intent.MONITORING_ASSESSMENT: 15,
-    Intent.APPLICATION_DISCOVERY: 10,
-    Intent.MACHINE_ASSESSMENT: 5,
+    Intent.MACHINE_ASSESSMENT: 11,
+    Intent.MONITORING_ASSESSMENT: 10,
+    Intent.APPLICATION_DISCOVERY: 12,
 }
 
 
@@ -213,6 +217,7 @@ _PHRASES: frozenset[str] = frozenset({
     "io wait",
     "load average",
     "ip address",
+    "cấu hình",
 })
 
 

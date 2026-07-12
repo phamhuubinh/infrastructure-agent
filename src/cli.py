@@ -58,6 +58,9 @@ def _list_targets(args: argparse.Namespace) -> None:
         print(name)
 
 
+_last_request = None
+
+
 def _run_agent(args: argparse.Namespace) -> None:
     agent = create_deterministic_agent(
         target_store_path=args.target_file,
@@ -65,16 +68,89 @@ def _run_agent(args: argparse.Namespace) -> None:
         model=args.model,
     )
 
-    print("Deterministic pipeline is ready.")
-    print("Type 'exit' to quit.")
+    print("Infrastructure Investigation Agent")
+    print("=" * 36)
+    print("Gõ /help để xem hướng dẫn, /exit để thoát.")
+    print()
 
     while True:
-        user_request = input("> ").strip()
-        if user_request.lower() in {"exit", "quit"}:
+        try:
+            print("> ", end="", flush=True)
+            lines: list[str] = []
+            while True:
+                line = sys.stdin.readline()
+                if not line:
+                    break
+                line = line.rstrip("\n")
+                if not line and lines:
+                    break
+                if not line and not lines:
+                    continue
+                lines.append(line)
+
+            raw_input = "\n".join(lines).strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
             break
-        if not user_request:
+
+        if not raw_input:
             continue
-        answer = agent.run(user_request)
+
+        # --- Built-in commands ---
+        if raw_input.lower() in {"/exit", "/quit", "exit", "quit"}:
+            break
+
+        if raw_input.lower() == "/help":
+            print()
+            print("  /exit       Thoát")
+            print("  /help       Xem hướng dẫn này")
+            print("  /model      Xem model đang dùng")
+            print("  /evidence   Xem danh sách evidence sau câu hỏi trước")
+            print("  /intent     Xem intent sau câu hỏi trước")
+            print("  /target     Xem target sau câu hỏi trước")
+            print()
+            print("  Gõ câu hỏi để hỏi (Enter: xuống dòng, Ctrl+D: gửi)")
+            print()
+            continue
+
+        if raw_input.lower() == "/model":
+            print(f"  Model: {args.server or 'mock'}")
+            if args.model:
+                print(f"  Override: {args.model}")
+            continue
+
+        if raw_input.lower() == "/evidence":
+            if _last_request is None:
+                print("  Chưa có câu hỏi nào được xử lý.")
+                continue
+            print(f"  Evidence collected: {len(_last_request.evidence)} items")
+            print(f"  Complete: {_last_request.evidence_complete}")
+            for pkg in _last_request.evidence:
+                status = "✓" if pkg.success else "✗"
+                print(f"    {status} {pkg.capability_name}")
+            continue
+
+        if raw_input.lower() == "/intent":
+            if _last_request is None:
+                print("  Chưa có câu hỏi nào được xử lý.")
+                continue
+            print(f"  Intent: {_last_request.intent.name if _last_request.intent else 'N/A'}")
+            continue
+
+        if raw_input.lower() == "/target":
+            if _last_request is None:
+                print("  Chưa có câu hỏi nào được xử lý.")
+                continue
+            print(f"  Target: {_last_request.target or 'N/A'}")
+            continue
+
+        if raw_input.startswith("/"):
+            print(f"  Lệnh không hợp lệ: {raw_input}. Gõ /help để xem các lệnh.")
+            continue
+
+        # --- Normal question ---
+        _last_request = agent.execute_pipeline_only(raw_input)
+        answer = agent.run(raw_input)
         print()
         print(answer)
         print()
@@ -91,8 +167,8 @@ def main() -> None:
         help="Execution target configuration file"
     )
     parser.add_argument(
-        "--server", type=str, default=None,
-        help="Model server name from servers.json (default: active_server)"
+        "--server", type=str, default="sv1",
+        help="Model server name from servers.json (default: sv1)"
     )
     parser.add_argument(
         "--model", type=str, default=None,

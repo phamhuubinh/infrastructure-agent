@@ -76,7 +76,8 @@ class ExecutionEngine:
 
         # Execute the graph through the runtime.
         if graph.nodes:
-            results, metrics = self._runtime.execute(graph)
+            target = request.target or "localhost"
+            results, metrics = self._runtime.execute(graph, target=target)
         else:
             results, metrics = {}, RuntimeMetrics()
 

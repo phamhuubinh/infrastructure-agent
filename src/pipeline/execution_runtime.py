@@ -68,6 +68,7 @@ class ExecutionRuntime:
     def execute(
         self,
         graph: ExecutionGraph,
+        target: str = "localhost",
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -128,7 +129,7 @@ class ExecutionRuntime:
             if len(ready) == 1:
                 node = ready[0]
                 cap_name = node.execution_step.capability.name
-                result = self._execute_node(node)
+                result = self._execute_node(node, target=target)
                 metrics.tool_calls += 1
                 results[cap_name] = result
                 if result.success:
@@ -139,7 +140,7 @@ class ExecutionRuntime:
                 ) as executor:
                     future_map: dict[concurrent.futures.Future, ExecutionNode] = {}
                     for node in ready:
-                        future = executor.submit(self._execute_node, node)
+                        future = executor.submit(self._execute_node, node, target=target)
                         future_map[future] = node
                         metrics.tool_calls += 1
 
@@ -174,6 +175,7 @@ class ExecutionRuntime:
     def _execute_node(
         self,
         node: ExecutionNode,
+        target: str = "localhost",
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name
@@ -186,6 +188,13 @@ class ExecutionRuntime:
             )
 
         source, resource = route
+
+        # If the route points to localhost but the investigation target is
+        # a remote machine, override the source with the real target.
+        # Domain-specific routes (zabbix, grafana) are preserved as-is.
+        if source == "localhost" and target != "localhost":
+            source = target
+
         arguments: dict[str, object] = {
             "source": source,
             "resource": resource,

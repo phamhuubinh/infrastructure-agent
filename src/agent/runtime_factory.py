@@ -264,7 +264,7 @@ def create_deterministic_agent(
 
     engine = ExecutionEngine(
         intent_resolver=IntentResolver(),
-        target_resolver=TargetResolver(),
+        target_resolver=TargetResolver(target_registry=registry),
         evidence_planner=EvidencePlanner(),
         capability_resolver=CapabilityResolver(),
         execution_planner=ExecutionPlanner(),
