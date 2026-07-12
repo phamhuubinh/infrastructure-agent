@@ -4,6 +4,10 @@ A deterministic infrastructure investigation platform.
 
 Evidence-driven investigation with AI-powered assessment.
 
+> **Current status: local, single-user only.** Runs on one machine, no accounts, no database, no remote hosting. This is intentional for the current phase — see `docs/ai/08_PROJECT_STATE.md`.
+>
+> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + Dify + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for how the work is sequenced (WP1–WP5). None of that is built yet.
+
 ## Architecture
 
 ```
@@ -74,3 +78,13 @@ python -m src.cli --web
 ## Documentation
 
 The `docs/` directory is the **Source of Truth** for architectural and design documentation.
+
+`docs/ai/` is written for AI coding agents working in this repo (start at `docs/ai/00_BOOTSTRAP.md` for reading order and conflict priority). It covers:
+
+- current architecture (local, today) vs. target platform architecture (future)
+- the deterministic execution pipeline and tool/capability design rules
+- mandatory development rules
+- `docs/ai/08_PROJECT_STATE.md` — the single source of truth for what is actually implemented right now; if any other doc disagrees with it, this file wins
+- `docs/ai/09_ARCHITECTURE_DECISIONS.md` — the ADR log
+
+`docs/adr/` holds longer-form narrative architecture decision records referenced from `docs/ai/09_ARCHITECTURE_DECISIONS.md`.
