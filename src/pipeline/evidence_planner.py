@@ -29,6 +29,8 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Recent Logs",
             "Docker",
             "Security Status",
+            "Block Device Information",
+            "GPU Information",
         ),
     ),
     Intent.APPLICATION_DISCOVERY: (
@@ -80,6 +82,7 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Recent Logins",
             "Listening Ports",
             "Certificates",
+            "Firewall Status",
         ),
     ),
     Intent.PERFORMANCE_ASSESSMENT: (

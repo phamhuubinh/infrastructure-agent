@@ -67,6 +67,10 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "firewall": "Firewall Inspection",
     "sessions": "Recent Login Discovery",
     "certificates": "Certificate Discovery",
+    "gpu": "GPU Information",
+    "block_device": "Block Device Information",
+    "firewall_status": "Firewall Status",
+    "open_ports": "Listening Ports",
     # ---- Zabbix monitoring ----
     "zabbix-problems": "Monitoring Problems",
     "zabbix-triggers": "Alert Triggers",

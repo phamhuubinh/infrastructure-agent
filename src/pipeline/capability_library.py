@@ -112,6 +112,14 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Environment Variables": "Environment Variable Discovery",
 
     # ------------------------------------------------------------------
+    # Extended capabilities (newly routed — same name, no transformation)
+    # ------------------------------------------------------------------
+    "Firewall Status": "Firewall Status",
+    "Block Device Information": "Block Device Information",
+    "GPU Information": "GPU Information",
+    "Listening Ports": "Port Discovery",
+
+    # ------------------------------------------------------------------
     # Troubleshooting — no fixed mapping; evidence depends on the problem
     # ------------------------------------------------------------------
 }

@@ -373,9 +373,12 @@ class TestLibraryCoverage:
         "Filesystems", "Disk Usage", "Mount Points",
         "SMART Status", "RAID Status", "Storage Performance",
         "Network Interfaces", "IP Configuration", "Default Gateway",
-        "DNS", "Routing",
-        "Environment Variables",
-    }
+            "DNS", "Routing",
+            "Environment Variables",
+            "Firewall Status",
+            "Block Device Information",
+            "GPU Information",
+        }
 
     def test_all_evidence_names_have_mappings(self) -> None:
         missing = self._ALL_EVIDENCE_NAMES - set(CAPABILITY_BY_EVIDENCE)

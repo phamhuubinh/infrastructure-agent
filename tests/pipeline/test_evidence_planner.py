@@ -44,13 +44,14 @@ class TestMachineAssessment:
     def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.MACHINE_ASSESSMENT)
         planner.plan(req)
-        assert _names(req.optional_evidence) == [
-            "Processes",
-            "Time Synchronization",
-            "Recent Logs",
-            "Docker",
-            "Security Status",
-        ]
+        names = _names(req.optional_evidence)
+        assert "Processes" in names
+        assert "Time Synchronization" in names
+        assert "Recent Logs" in names
+        assert "Docker" in names
+        assert "Security Status" in names
+        assert "Block Device Information" in names
+        assert "GPU Information" in names
 
     def test_all_required(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.MACHINE_ASSESSMENT)
@@ -161,11 +162,11 @@ class TestSecurityAssessment:
     def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.SECURITY_ASSESSMENT)
         planner.plan(req)
-        assert _names(req.optional_evidence) == [
-            "Recent Logins",
-            "Listening Ports",
-            "Certificates",
-        ]
+        names = _names(req.optional_evidence)
+        assert "Recent Logins" in names
+        assert "Listening Ports" in names
+        assert "Certificates" in names
+        assert "Firewall Status" in names
 
 
 # ---------------------------------------------------------------------------

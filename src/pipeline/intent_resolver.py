@@ -45,6 +45,8 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("configuration", "cấu hình"),
         ("của",),
         ("kiểm tra",),
+        ("vấn đề",),
+        ("nghiêm trọng", "nghiêm-trọng"),
     ),
     Intent.APPLICATION_DISCOVERY: (
         ("installed", "install", "installation"),
@@ -66,7 +68,6 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("application",),
         ("package", "packages"),
         ("container", "containers"),
-        ("vmware",),
     ),
     Intent.SERVICE_ASSESSMENT: (
         ("service", "services"),
@@ -94,6 +95,10 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("severity",),
         ("alarm", "alarms"),
         ("down",),
+        ("priorit", "priority", "ưu tiên"),
+        ("sự cố", "sự-cố"),
+        ("vấn đề",),
+        ("nghiêm trọng", "nghiêm-trọng"),
     ),
     Intent.SECURITY_ASSESSMENT: (
         ("ssh",),
@@ -115,6 +120,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("performance",),
         ("cpu",),
         ("memory", "ram"),
+        ("memory leak",),
         ("load", "load average"),
         ("bottleneck", "bottlenecks"),
         ("iowait", "io wait"),
@@ -137,7 +143,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("fsck",),
     ),
     Intent.NETWORK_ASSESSMENT: (
-        ("network", "networking"),
+        ("network", "networking", "mạng", "kết nối mạng"),
         ("ip", "ip address", "ipv4", "ipv6"),
         ("interface", "interfaces", "nic"),
         ("gateway",),
@@ -146,9 +152,10 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("port", "ports", "open port"),
         ("connectivity", "connect", "connection", "connected"),
         ("ping",),
-        ("bandwidth",),
+        ("bandwidth", "băng thông", "băng-thông"),
         ("latency",),
         ("vlan",),
+        ("packet loss",),
     ),
     Intent.CONFIGURATION_ASSESSMENT: (
         ("config", "configuration", "configured"),
@@ -227,6 +234,12 @@ _PHRASES: frozenset[str] = frozenset({
     "open ports",
     "memory leak",
     "packet loss",
+    "kết nối mạng",
+    "băng thông",
+    "sự cố",
+    "vấn đề",
+    "nghiêm trọng",
+    "ưu tiên",
 })
 
 
