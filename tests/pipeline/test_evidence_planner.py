@@ -49,7 +49,6 @@ class TestMachineAssessment:
         assert "Time Synchronization" in names
         assert "Recent Logs" in names
         assert "Docker" in names
-        assert "Security Status" in names
         assert "Block Device Information" in names
         assert "GPU Information" in names
 
@@ -112,7 +111,6 @@ class TestServiceAssessment:
         assert _names(req.optional_evidence) == [
             "Running Processes",
             "Listening Ports",
-            "Dependencies",
         ]
 
 
@@ -166,7 +164,6 @@ class TestSecurityAssessment:
         assert "Recent Logins" in names
         assert "Listening Ports" in names
         assert "Certificates" in names
-        assert "Firewall Status" in names
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +214,7 @@ class TestStorageAssessment:
             "SMART Status",
             "RAID Status",
             "Storage Performance",
+            "Block Device Information",
         ]
 
 
@@ -230,9 +228,7 @@ class TestNetworkAssessment:
         req = _request(Intent.NETWORK_ASSESSMENT)
         planner.plan(req)
         assert _names(req.required_evidence) == [
-            "Network Interfaces",
-            "IP Configuration",
-            "Default Gateway",
+            "Network",
         ]
 
     def test_optional(self, planner: EvidencePlanner) -> None:
@@ -240,7 +236,6 @@ class TestNetworkAssessment:
         planner.plan(req)
         assert _names(req.optional_evidence) == [
             "DNS",
-            "Routing",
             "Listening Ports",
             "Firewall",
         ]
@@ -283,12 +278,12 @@ class TestTroubleshooting:
         names = [e.name for e in req.required_evidence]
         assert "System Information" in names
         assert "Services" in names
-        assert "Processes" in names
+        assert "Recent Logs" in names
 
     def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.TROUBLESHOOTING)
         planner.plan(req)
-        assert len(req.optional_evidence) == 5
+        assert len(req.optional_evidence) == 4
         names = [e.name for e in req.optional_evidence]
         assert "CPU" in names
         assert "Memory" in names

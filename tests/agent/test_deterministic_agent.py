@@ -13,8 +13,8 @@ def test_deterministic_agent_runs_pipeline() -> None:
     agent = create_deterministic_agent()
     result = agent.run("check the server health")
     assert "Investigation: check the server health" in result
-    assert "Evidence collected: 15" in result
-    assert "Successful: 14" in result
+    assert "Evidence collected: 14" in result
+    assert "Successful: 13" in result
     assert "Failed: 1" in result
     assert "Evidence complete: True" in result
 

@@ -10,6 +10,11 @@ from src.pipeline.investigation_request import InvestigationRequest
 # ---------------------------------------------------------------------------
 # Each template is defined as (required_names, optional_names) matching the
 # document's Required Evidence and Optional Evidence sections exactly.
+#
+# Optimization rules:
+# 1. No two evidence items may call the same tool capability.
+# 2. Each evidence item must serve a distinct purpose.
+# 3. Optional evidence must provide meaningful additional value.
 
 _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Intent.MACHINE_ASSESSMENT: (
@@ -28,7 +33,6 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Time Synchronization",
             "Recent Logs",
             "Docker",
-            "Security Status",
             "Block Device Information",
             "GPU Information",
         ),
@@ -54,7 +58,6 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         (
             "Running Processes",
             "Listening Ports",
-            "Dependencies",
         ),
     ),
     Intent.MONITORING_ASSESSMENT: (
@@ -82,7 +85,6 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Recent Logins",
             "Listening Ports",
             "Certificates",
-            "Firewall Status",
         ),
     ),
     Intent.PERFORMANCE_ASSESSMENT: (
@@ -108,17 +110,15 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "SMART Status",
             "RAID Status",
             "Storage Performance",
+            "Block Device Information",
         ),
     ),
     Intent.NETWORK_ASSESSMENT: (
         (
-            "Network Interfaces",
-            "IP Configuration",
-            "Default Gateway",
+            "Network",
         ),
         (
             "DNS",
-            "Routing",
             "Listening Ports",
             "Firewall",
         ),
@@ -138,14 +138,13 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         (
             "System Information",
             "Services",
-            "Processes",
+            "Recent Logs",
         ),
         (
             "CPU",
             "Memory",
             "Disk",
             "Network",
-            "Recent Logs",
         ),
     ),
 }

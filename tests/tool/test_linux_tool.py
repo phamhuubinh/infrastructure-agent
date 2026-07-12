@@ -471,10 +471,9 @@ def test_get_process_parses_ps_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_process"})
 
     assert result.success is True
-    assert result.data["processes"] == [
-        {"pid": 1, "command": "/sbin/init", "cpu_percent": "0.0", "memory_percent": "0.1"},
-        {"pid": 42, "command": "/usr/sbin/sshd", "cpu_percent": "0.1", "memory_percent": "0.2"},
-    ]
+    assert result.data["total"] == 2
+    assert len(result.data["top_memory"]) == 2
+    assert len(result.data["top_cpu"]) == 2
 
 
 def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
@@ -488,8 +487,9 @@ def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_process"})
 
     assert result.success is True
-    assert result.data["processes"] == []
     assert result.data["total"] == 0
+    assert result.data["top_memory"] == []
+    assert result.data["top_cpu"] == []
 
 
 def test_get_user_parses_etc_passwd(monkeypatch) -> None:

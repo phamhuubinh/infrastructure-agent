@@ -365,7 +365,8 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: running processes. Returns full command lines (not truncated names).
+    Subsystem: running processes. Returns summary + top consumers.
+    Full list is omitted to keep prompt size manageable.
     """
     ok, output = run(
         [
@@ -396,7 +397,24 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 }
             )
 
-    return {"processes": processes, "total": len(processes), "summary": f"{len(processes)} running processes"}
+    # Sort by memory descending, take top 15 for summary
+    sorted_procs = sorted(processes, key=lambda p: float(p.get("memory_percent", 0) or 0), reverse=True)
+    top_by_mem = sorted_procs[:15]
+
+    # Sort by CPU descending
+    sorted_cpu = sorted(processes, key=lambda p: float(p.get("cpu_percent", 0) or 0), reverse=True)
+    top_by_cpu = sorted_cpu[:15]
+
+    zombie_count = sum(1 for p in processes if "zombie" in str(p.get("command", "")).lower())
+    defunct_count = sum(1 for p in processes if "defunct" in str(p.get("command", "")).lower())
+
+    return {
+        "total": len(processes),
+        "summary": f"{len(processes)} running processes",
+        "zombie_count": zombie_count + defunct_count,
+        "top_cpu": top_by_cpu,
+        "top_memory": top_by_mem,
+    }
 
 
 def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
