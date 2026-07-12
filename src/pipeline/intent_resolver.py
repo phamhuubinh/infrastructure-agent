@@ -65,6 +65,8 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("mongodb", "mongo"),
         ("application",),
         ("package", "packages"),
+        ("container", "containers"),
+        ("vmware",),
     ),
     Intent.SERVICE_ASSESSMENT: (
         ("service", "services"),
@@ -86,10 +88,12 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("monitor", "monitoring"),
         ("health",),
         ("dashboard", "dashboards"),
+        ("panel", "panels"),
         ("host", "hosts"),
         ("event", "events"),
         ("severity",),
         ("alarm", "alarms"),
+        ("down",),
     ),
     Intent.SECURITY_ASSESSMENT: (
         ("ssh",),
@@ -121,6 +125,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("disk", "disks"),
         ("filesystem", "filesystems"),
         ("storage",),
+        ("swap",),
         ("mount", "mounted", "mounts", "mountpoint"),
         ("inode", "inodes"),
         ("partition", "partitions"),
@@ -138,7 +143,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("gateway",),
         ("route", "routing"),
         ("dns",),
-        ("port", "ports"),
+        ("port", "ports", "open port"),
         ("connectivity", "connect", "connection", "connected"),
         ("ping",),
         ("bandwidth",),
@@ -218,6 +223,10 @@ _PHRASES: frozenset[str] = frozenset({
     "load average",
     "ip address",
     "cấu hình",
+    "open port",
+    "open ports",
+    "memory leak",
+    "packet loss",
 })
 
 

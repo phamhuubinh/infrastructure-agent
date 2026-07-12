@@ -275,15 +275,22 @@ class TestConfigurationAssessment:
 
 
 class TestTroubleshooting:
-    def test_required_empty(self, planner: EvidencePlanner) -> None:
+    def test_required(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.TROUBLESHOOTING)
         planner.plan(req)
-        assert req.required_evidence == []
+        assert len(req.required_evidence) == 3
+        names = [e.name for e in req.required_evidence]
+        assert "System Information" in names
+        assert "Services" in names
+        assert "Processes" in names
 
-    def test_optional_empty(self, planner: EvidencePlanner) -> None:
+    def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.TROUBLESHOOTING)
         planner.plan(req)
-        assert req.optional_evidence == []
+        assert len(req.optional_evidence) == 5
+        names = [e.name for e in req.optional_evidence]
+        assert "CPU" in names
+        assert "Memory" in names
 
 
 # ---------------------------------------------------------------------------

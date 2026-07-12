@@ -10,7 +10,8 @@ class TargetResolver:
     Responsibilities:
     - read user request, extract target name
     - match against registered targets (from TargetRegistry)
-    - fall back to "localhost" if no explicit target is found
+    - use intent-based default when no explicit target is found
+    - fall back to "localhost"
 
     Never performs execution or evidence collection.
     """
@@ -21,25 +22,40 @@ class TargetResolver:
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.
 
-        Scans the request for known target/domain-tool names.
-        Falls back to "localhost" if nothing matches.
+        Scans the request for known target/domain-tool names first.
+        If no explicit match, uses intent + keyword-based defaults.
 
         Args:
             request: InvestigationRequest. Mutates request.target.
         """
         raw = request.raw_request.lower()
+        intent = request.intent
 
-        # Collect all registered names (targets + domain tools).
+        # Step 1: Try explicit name matching from registry.
         known_names: list[str] = []
         if self._registry is not None:
             known_names = self._registry.target_names()
 
-        # Sort by length descending so more specific names match first
-        # (e.g. "monitor-zabbix" before "monitor").
         for name in sorted(known_names, key=len, reverse=True):
             if name.lower() in raw:
                 request.target = name
                 return
 
-        # Default fallback.
+        # Step 2: Intent + keyword-based defaults.
+        if intent is not None and self._registry is not None:
+            intent_name = intent.name
+
+            # Dashboard/panel questions → prefer grafana
+            if intent_name == "MONITORING_ASSESSMENT":
+                if any(kw in raw for kw in ("dashboard", "panel", "grafana")):
+                    if "grafana" in known_names:
+                        request.target = "grafana"
+                        return
+                # Everything else monitoring → prefer zabbix
+                for preferred in ("zabbix", "grafana"):
+                    if preferred in known_names:
+                        request.target = preferred
+                        return
+
+        # Step 3: Fallback.
         request.target = "localhost"

@@ -132,8 +132,18 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ),
     ),
     Intent.TROUBLESHOOTING: (
-        (),
-        (),
+        (
+            "System Information",
+            "Services",
+            "Processes",
+        ),
+        (
+            "CPU",
+            "Memory",
+            "Disk",
+            "Network",
+            "Recent Logs",
+        ),
     ),
 }
 
