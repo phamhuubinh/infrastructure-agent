@@ -593,7 +593,7 @@ _CAPABILITIES: dict[str, Capability] = {
 
 
 class ZabbixTool(Tool):
-    def __init__(self, url: str = "http://localhost/zabbix", token: str = "", timeout: int = 10) -> None:
+    def __init__(self, url: str, token: str, timeout: int = 10) -> None:
         self._url = url
         self._token = token
         self._timeout = timeout

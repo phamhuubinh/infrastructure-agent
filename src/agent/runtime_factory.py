@@ -74,6 +74,8 @@ def _warn(message: str) -> None:
 #   1. An entry in _SUPPORTED_TOOL_TYPES
 #   2. An import and construction block in _register_single_tool
 
+from src.shared.secrets import load_secrets
+
 _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
     "grafana": ("url", "token"),
@@ -81,9 +83,12 @@ _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
 
 
 def _load_tools_config() -> dict[str, dict[str, Any]]:
-    """Load infrastructure tool configuration from tools.json.
+    """Load infrastructure tool configuration from tools.json and secrets.
 
-    Returns an empty dict if the file does not exist.
+    Credentials (url, token) are overlaid from config/secrets.local.json
+    on top of tools.json. This keeps secrets out of version control.
+
+    Returns an empty dict if tools.json does not exist.
     Warnings are emitted via _warn() for invalid JSON or read errors.
     """
     config_path = Path("tools.json")
@@ -98,7 +103,19 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
                 "Skipping tool registration."
             )
             return {}
-        return dict(data)
+
+        config: dict[str, dict[str, Any]] = dict(data)
+
+        # Overlay secrets from config/secrets.local.json
+        try:
+            secrets = load_secrets()
+            for tool_name, secret_cfg in secrets.items():
+                if tool_name in config:
+                    config[tool_name].update(secret_cfg)
+        except FileNotFoundError:
+            pass  # secrets file is optional for tools that don't need it
+
+        return config
     except json.JSONDecodeError as exc:
         _warn(
             f"tools.json contains invalid JSON ({exc}). "

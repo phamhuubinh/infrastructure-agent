@@ -37,6 +37,34 @@ Response
 The investigation pipeline is fully deterministic.
 AI is used only for assessment.
 
+## Configuration
+
+### Infrastructure tools (Zabbix, Grafana)
+
+Tool credentials are managed via two files:
+
+- **`tools.json`** — tool registry (committed to git, contains no secrets).
+- **`config/secrets.local.json`** — actual credentials (NOT committed to git).
+
+Create `config/secrets.local.json` with this structure:
+
+```json
+{
+  "grafana": {
+    "url": "http://your-grafana:3000",
+    "token": "your-grafana-token"
+  },
+  "zabbix": {
+    "url": "http://your-zabbix/zabbix",
+    "token": "your-zabbix-token"
+  }
+}
+```
+
+A template is available at `config/secrets.local.example.json`.
+
+> **⚠️ Security note:** The Grafana token was previously hardcoded in source code and pushed to git history. It should be considered compromised. Revoke/rotate the token on your Grafana server and update `config/secrets.local.json` when convenient.
+
 ## Quick Start
 
 ### CLI

@@ -10,13 +10,8 @@ from src.shared.execution.tool_result import ToolResult
 from src.tool.tool import Tool
 
 
-# ---- Default configuration ----
-DEFAULT_GRAFANA_URL = "http://192.168.10.222:3000"
-DEFAULT_GRAFANA_TOKEN = "glsa_QJGHWVzeJ5ujBcTBN9PpRNTDE40yrGTg_28574da4"
-
-
 class GrafanaProvider:
-    def __init__(self, url: str = DEFAULT_GRAFANA_URL, token: str = DEFAULT_GRAFANA_TOKEN, timeout: int = 10) -> None:
+    def __init__(self, url: str, token: str, timeout: int = 10) -> None:
         self._url = url.rstrip("/")
         self._headers = {
             "Authorization": f"Bearer {token}",
@@ -605,7 +600,7 @@ _CAPABILITIES: dict[str, Capability] = {
 
 
 class GrafanaTool(Tool):
-    def __init__(self, url: str = DEFAULT_GRAFANA_URL, token: str = DEFAULT_GRAFANA_TOKEN, timeout: int = 10) -> None:
+    def __init__(self, url: str, token: str, timeout: int = 10) -> None:
         self._url = url
         self._token = token
         self._timeout = timeout

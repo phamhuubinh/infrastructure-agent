@@ -3,8 +3,12 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autonomous-agent"
+name = "infrastructure-agent"
 version = "0.1.0"
-description = "A project for building autonomous agents."
-authors = [{name = "Your Name", email = "you@example.com"}]
+description = "Deterministic infrastructure investigation agent with AI-powered assessment."
+authors = [{name = "Infrastructure Agent"}]
 dependencies = []
+
+[project.optional-dependencies]
+web = ["fastapi>=0.100", "uvicorn>=0.20"]
+test = ["pytest>=7"]
