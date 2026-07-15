@@ -1,7 +1,15 @@
 import { useState } from "react";
 import {
-  Copy, RefreshCw, ThumbsUp, ThumbsDown, Check, User, Sparkles,
-  ChevronDown, ChevronRight, Loader2,
+  Copy,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  Check,
+  User,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,7 +32,13 @@ export function UserMessage({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function AssistantMessage({ children, agent = "Assistant" }: { children: React.ReactNode; agent?: string }) {
+export function AssistantMessage({
+  children,
+  agent = "Assistant",
+}: {
+  children: React.ReactNode;
+  agent?: string;
+}) {
   return (
     <div className="flex gap-3 group">
       <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-orange-500 grid place-items-center shrink-0 shadow-[var(--shadow-glow)]">
@@ -34,9 +48,7 @@ export function AssistantMessage({ children, agent = "Assistant" }: { children: 
         <div className="flex items-center gap-2 mb-1.5">
           <span className="text-sm font-medium">{agent}</span>
         </div>
-        <div className="text-[14.5px] leading-relaxed space-y-3 text-foreground/95">
-          {children}
-        </div>
+        <div className="text-[14.5px] leading-relaxed space-y-3 text-foreground/95">{children}</div>
         <div className="mt-2 flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
           <IconBtn icon={Copy} label="Copy" />
           <IconBtn icon={RefreshCw} label="Regenerate" />
@@ -52,12 +64,23 @@ function IconBtn({ icon: Icon, label }: { icon: any; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <Button
-      variant="ghost" size="icon"
+      variant="ghost"
+      size="icon"
       className="h-7 w-7 text-muted-foreground hover:text-foreground"
-      onClick={() => { if (label === "Copy") { setCopied(true); setTimeout(() => setCopied(false), 1200); } }}
+      onClick={() => {
+        if (label === "Copy") {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1200);
+        }
+      }}
       title={label}
+      aria-label={label}
     >
-      {copied && label === "Copy" ? <Check className="h-3.5 w-3.5 text-success" /> : <Icon className="h-3.5 w-3.5" />}
+      {copied && label === "Copy" ? (
+        <Check className="h-3.5 w-3.5 text-success" />
+      ) : (
+        <Icon className="h-3.5 w-3.5" />
+      )}
     </Button>
   );
 }
@@ -73,13 +96,27 @@ export function CodeBlock({ lang = "tsx", code }: { lang?: string; code: string 
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-surface-2">
         <span className="text-mono text-[11px] text-muted-foreground">{lang}</span>
         <button
-          onClick={() => { navigator.clipboard?.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+          onClick={() => {
+            navigator.clipboard?.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          }}
           className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
         >
-          {copied ? <><Check className="h-3 w-3 text-success" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+          {copied ? (
+            <>
+              <Check className="h-3 w-3 text-success" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" /> Copy
+            </>
+          )}
         </button>
       </div>
-      <pre className="p-3.5 text-mono text-[12.5px] leading-relaxed overflow-x-auto"><code>{code}</code></pre>
+      <pre className="p-3.5 text-mono text-[12.5px] leading-relaxed overflow-x-auto">
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }
@@ -91,7 +128,9 @@ export function ThinkingBlock({ text }: { text?: string }) {
         <Sparkles className="h-4 w-4 text-primary-foreground animate-pulse" />
       </div>
       <div className="flex-1">
-        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">Thinking</div>
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+          Đang suy nghĩ
+        </div>
         <div className="rounded-lg border border-dashed border-border bg-surface-2/40 px-3 py-2.5 text-sm text-muted-foreground italic">
           {text || "Đang xử lý..."}
           <span className="inline-block ml-1 w-1.5 h-3.5 bg-primary/70 align-middle animate-pulse" />
@@ -105,7 +144,11 @@ export function StreamingDots() {
   return (
     <div className="flex gap-1 items-center h-5">
       {[0, 1, 2].map((i) => (
-        <span key={i} className="h-1.5 w-1.5 rounded-full bg-primary/80 animate-bounce" style={{ animationDelay: `${i * 120}ms` }} />
+        <span
+          key={i}
+          className="h-1.5 w-1.5 rounded-full bg-primary/80 animate-bounce"
+          style={{ animationDelay: `${i * 120}ms` }}
+        />
       ))}
     </div>
   );

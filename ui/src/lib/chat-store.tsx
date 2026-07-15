@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useRef, type ReactNode } from "react";
 
 export type Step = {
   type: string;
@@ -77,63 +77,87 @@ function genId() {
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<Session[]>(() => [{
-    id: genId(),
-    title: "New chat",
-    messages: [{
-      role: "assistant",
-      content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-    }],
-  }]);
+  const [sessions, setSessions] = useState<Session[]>(() => [
+    {
+      id: genId(),
+      title: "New chat",
+      messages: [
+        {
+          role: "assistant",
+          content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
+        },
+      ],
+    },
+  ]);
   const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+  const sessionsRef = useRef(sessions);
+  const currentIdRef = useRef(currentSessionId);
+  sessionsRef.current = sessions;
+  currentIdRef.current = currentSessionId;
 
   const value: ChatContextValue = {
     sessions,
     currentSessionId,
     createSession() {
       const id = genId();
-      setSessions(prev => [...prev, {
-        id, title: "New chat", messages: [{
-          role: "assistant", content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-        }],
-      }]);
+      setSessions((prev) => [
+        ...prev,
+        {
+          id,
+          title: "New chat",
+          messages: [
+            {
+              role: "assistant",
+              content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
+            },
+          ],
+        },
+      ]);
       setCurrentSessionId(id);
+      currentIdRef.current = id;
       return id;
     },
     switchSession(id: string) {
       setCurrentSessionId(id);
+      currentIdRef.current = id;
     },
     getSession() {
-      return sessions.find(s => s.id === currentSessionId);
+      return sessionsRef.current.find((s) => s.id === currentIdRef.current);
     },
     updateSession(updates: Partial<Session>) {
-      setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, ...updates } : s));
+      const id = currentIdRef.current;
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      );
     },
     deleteSession(id: string) {
-      setSessions(prev => {
-        const next = prev.filter(s => s.id !== id);
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
         if (currentSessionId === id && next.length > 0) {
           setCurrentSessionId(next[0].id);
         } else if (next.length === 0) {
           const fresh = genId();
           setCurrentSessionId(fresh);
-          return [{
-            id: fresh, title: "New chat", messages: [{
-              role: "assistant", content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-            }],
-          }];
+          return [
+            {
+              id: fresh,
+              title: "New chat",
+              messages: [
+                {
+                  role: "assistant",
+                  content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
+                },
+              ],
+            },
+          ];
         }
         return next;
       });
     },
     renameSession(id: string, title: string) {
-      setSessions(prev => prev.map(s => s.id === id ? { ...s, title } : s));
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
     },
   };
 
-  return (
-    <ChatContext.Provider value={value}>
-      {children}
-    </ChatContext.Provider>
-  );
+  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

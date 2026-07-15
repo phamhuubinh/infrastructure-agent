@@ -1,11 +1,15 @@
 import { useRef } from "react";
-import {
-  ArrowUp, Send,
-} from "lucide-react";
+import { ArrowUp, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export function RichInput({ onDropOver, onSend }: { onDropOver?: boolean; onSend?: (text: string) => void }) {
+export function RichInput({
+  onDropOver,
+  onSend,
+}: {
+  onDropOver?: boolean;
+  onSend?: (text: string) => void;
+}) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -19,21 +23,30 @@ export function RichInput({ onDropOver, onSend }: { onDropOver?: boolean; onSend
   }
 
   return (
-    <div className={cn(
-      "relative rounded-2xl border bg-surface/80 backdrop-blur transition-all",
-      onDropOver ? "border-primary glow-ring" : "border-border-strong shadow-[var(--shadow-elegant)]",
-    )}>
+    <div
+      className={cn(
+        "relative rounded-2xl border bg-surface/80 backdrop-blur transition-all",
+        onDropOver
+          ? "border-primary glow-ring"
+          : "border-border-strong shadow-[var(--shadow-elegant)]",
+      )}
+    >
       <textarea
         ref={ref}
         onKeyDown={handleKeyDown}
-        placeholder="Ask anything…"
+        placeholder="Hỏi về hạ tầng…"
         rows={2}
         className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
       />
       <div className="flex items-center gap-1 px-2 pb-2">
         <div className="ml-auto flex items-center gap-2">
-          <kbd className="hidden sm:inline text-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted-foreground border border-border">⏎</kbd>
-          <Button size="icon" className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
+          <kbd className="hidden sm:inline text-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted-foreground border border-border">
+            ⏎
+          </kbd>
+          <Button
+            size="icon"
+            className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+          >
             <Send className="h-4 w-4" />
           </Button>
         </div>

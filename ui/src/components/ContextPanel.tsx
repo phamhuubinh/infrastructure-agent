@@ -1,8 +1,16 @@
 import { useState } from "react";
 import {
-  FileText, Braces, Info, ChevronDown,
-  ChevronRight, Copy, CheckCircle2, XCircle,
-  AlertCircle, Clock, X,
+  FileText,
+  Braces,
+  Info,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Clock,
+  X,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -77,8 +85,10 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
           ) : (
             <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
           )}
-          <span className="text-sm font-medium">Context</span>
-          <span className="text-mono text-[11px] text-muted-foreground">· {session.id.slice(0, 12)}</span>
+          <span className="text-sm font-medium">Ngữ cảnh</span>
+          <span className="text-mono text-[11px] text-muted-foreground">
+            · {session.id.slice(0, 12)}
+          </span>
         </div>
         {onClose && (
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onClose}>
@@ -97,9 +107,15 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
       ) : (
         <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
           <TabsList className="mx-3 mt-3 bg-surface-2 border border-border h-9 p-1 grid grid-cols-3">
-            <TabsTrigger value="overview" className="text-xs data-[state=active]:bg-surface-3"><Info className="h-3.5 w-3.5" /></TabsTrigger>
-            <TabsTrigger value="json" className="text-xs data-[state=active]:bg-surface-3"><Braces className="h-3.5 w-3.5" /></TabsTrigger>
-            <TabsTrigger value="logs" className="text-xs data-[state=active]:bg-surface-3"><FileText className="h-3.5 w-3.5" /></TabsTrigger>
+            <TabsTrigger value="overview" className="text-xs data-[state=active]:bg-surface-3">
+              <Info className="h-3.5 w-3.5" />
+            </TabsTrigger>
+            <TabsTrigger value="json" className="text-xs data-[state=active]:bg-surface-3">
+              <Braces className="h-3.5 w-3.5" />
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="text-xs data-[state=active]:bg-surface-3">
+              <FileText className="h-3.5 w-3.5" />
+            </TabsTrigger>
           </TabsList>
 
           <div className="flex-1 overflow-y-auto p-4">
@@ -114,7 +130,9 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
                   {intentStep.matched_keywords && intentStep.matched_keywords.length > 0 && (
                     <div className="flex gap-1 flex-wrap mt-2">
                       {intentStep.matched_keywords.map((kw) => (
-                        <Badge key={kw} variant="secondary" className="text-[10px]">{kw}</Badge>
+                        <Badge key={kw} variant="secondary" className="text-[10px]">
+                          {kw}
+                        </Badge>
                       ))}
                     </div>
                   )}
@@ -131,19 +149,32 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
                   </div>
                   {evidenceStep.runtime_metrics && (
                     <div className="grid grid-cols-3 gap-2 text-sm mb-2">
-                      <Meta k="Duration" v={`${((evidenceStep.runtime_metrics.execution_duration || 0) * 1000).toFixed(0)}ms`} />
-                      <Meta k="Nodes" v={`${evidenceStep.runtime_metrics.successful_nodes}/${evidenceStep.runtime_metrics.total_nodes}`} />
+                      <Meta
+                        k="Duration"
+                        v={`${((evidenceStep.runtime_metrics.execution_duration || 0) * 1000).toFixed(0)}ms`}
+                      />
+                      <Meta
+                        k="Nodes"
+                        v={`${evidenceStep.runtime_metrics.successful_nodes}/${evidenceStep.runtime_metrics.total_nodes}`}
+                      />
                       <Meta k="Tool calls" v={String(evidenceStep.runtime_metrics.tool_calls)} />
                     </div>
                   )}
                   {evidenceStep.items && evidenceStep.items.length > 0 && (
                     <div className="space-y-1">
                       {evidenceStep.items.map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-2 text-sm">
-                          {item.success
-                            ? <CheckCircle2 className="h-3 w-3 text-success shrink-0" />
-                            : <XCircle className="h-3 w-3 text-destructive shrink-0" />}
-                          <span className="flex-1 truncate text-mono text-[12px]">{item.capability}</span>
+                        <div
+                          key={i}
+                          className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-2 text-sm"
+                        >
+                          {item.success ? (
+                            <CheckCircle2 className="h-3 w-3 text-success shrink-0" />
+                          ) : (
+                            <XCircle className="h-3 w-3 text-destructive shrink-0" />
+                          )}
+                          <span className="flex-1 truncate text-mono text-[12px]">
+                            {item.capability}
+                          </span>
                           <span className="text-[10px] text-muted-foreground">{item.evidence}</span>
                         </div>
                       ))}
@@ -162,9 +193,30 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
                 <Section title="Assessment" defaultOpen>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <Meta k="Model" v={assessmentStep.model || "N/A"} />
-                    <Meta k="Latency" v={assessmentStep.latency_ms ? `${(assessmentStep.latency_ms / 1000).toFixed(1)}s` : "N/A"} />
-                    <Meta k="Prompt tokens" v={assessmentStep.prompt_tokens != null ? String(assessmentStep.prompt_tokens) : "N/A"} />
-                    <Meta k="Completion tokens" v={assessmentStep.completion_tokens != null ? String(assessmentStep.completion_tokens) : "N/A"} />
+                    <Meta
+                      k="Latency"
+                      v={
+                        assessmentStep.latency_ms
+                          ? `${(assessmentStep.latency_ms / 1000).toFixed(1)}s`
+                          : "N/A"
+                      }
+                    />
+                    <Meta
+                      k="Prompt tokens"
+                      v={
+                        assessmentStep.prompt_tokens != null
+                          ? String(assessmentStep.prompt_tokens)
+                          : "N/A"
+                      }
+                    />
+                    <Meta
+                      k="Completion tokens"
+                      v={
+                        assessmentStep.completion_tokens != null
+                          ? String(assessmentStep.completion_tokens)
+                          : "N/A"
+                      }
+                    />
                   </div>
                 </Section>
               )}
@@ -186,19 +238,28 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
 
             <TabsContent value="logs" className="mt-0 space-y-1">
               {steps.map((step, i) => (
-                <div key={i} className="grid grid-cols-[auto_1fr] gap-2 text-mono text-[11.5px] px-1 py-1 rounded hover:bg-surface-2">
-                  <span className={cn(
-                    "uppercase font-medium text-[10px]",
-                    step.type === "intent" && "text-blue-400",
-                    step.type === "evidence" && "text-amber-400",
-                    step.type === "prompt" && "text-purple-400",
-                    step.type === "assessment" && "text-green-400",
-                  )}>{step.type}</span>
+                <div
+                  key={i}
+                  className="grid grid-cols-[auto_1fr] gap-2 text-mono text-[11.5px] px-1 py-1 rounded hover:bg-surface-2"
+                >
+                  <span
+                    className={cn(
+                      "uppercase font-medium text-[10px]",
+                      step.type === "intent" && "text-blue-400",
+                      step.type === "evidence" && "text-amber-400",
+                      step.type === "prompt" && "text-purple-400",
+                      step.type === "assessment" && "text-green-400",
+                    )}
+                  >
+                    {step.type}
+                  </span>
                   <span className="text-foreground/85">
                     {step.type === "intent" && `${step.intent} → ${step.target}`}
-                    {step.type === "evidence" && `${step.successful}/${step.collected} items collected`}
+                    {step.type === "evidence" &&
+                      `${step.successful}/${step.collected} items collected`}
                     {step.type === "prompt" && `${(step.size || 0).toLocaleString()} bytes`}
-                    {step.type === "assessment" && `${step.model || ""} · ${step.latency_ms ? `${(step.latency_ms / 1000).toFixed(1)}s` : ""}`}
+                    {step.type === "assessment" &&
+                      `${step.model || ""} · ${step.latency_ms ? `${(step.latency_ms / 1000).toFixed(1)}s` : ""}`}
                   </span>
                 </div>
               ))}
@@ -210,7 +271,15 @@ export function ContextPanel({ onClose, session }: { onClose?: () => void; sessi
   );
 }
 
-function Section({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function Section({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-lg border border-border bg-surface-2/40">

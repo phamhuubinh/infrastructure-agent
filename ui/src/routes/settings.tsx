@@ -3,7 +3,12 @@ import { Settings, Construction } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/settings")({
-  head: () => ({ meta: [{ title: "Settings — Infrastructure Agent" }, { name: "description", content: "Configure your workspace." }] }),
+  head: () => ({
+    meta: [
+      { title: "Cài đặt — Orion" },
+      { name: "description", content: "Configure your workspace." },
+    ],
+  }),
   component: SettingsPage,
 });
 

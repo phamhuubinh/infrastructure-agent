@@ -3,7 +3,12 @@ import { BarChart3, Construction } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/analytics")({
-  head: () => ({ meta: [{ title: "Analytics — Infrastructure Agent" }, { name: "description", content: "Usage analytics." }] }),
+  head: () => ({
+    meta: [
+      { title: "Phân tích — Orion" },
+      { name: "description", content: "Usage analytics." },
+    ],
+  }),
   component: AnalyticsPage,
 });
 

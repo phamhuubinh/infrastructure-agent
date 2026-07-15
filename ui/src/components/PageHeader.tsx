@@ -1,6 +1,14 @@
 import { ReactNode } from "react";
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4 px-6 sm:px-8 pt-6 pb-4 border-b border-border">
       <div className="min-w-0">
