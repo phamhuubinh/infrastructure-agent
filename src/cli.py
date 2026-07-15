@@ -365,6 +365,9 @@ def _run_log() -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
+    from src.shared.logger import info as _info
+    _info("orion", message="orion started")
+
     agent = create_deterministic_agent(
         target_store_path=args.target_file,
         server_name=args.server,
@@ -396,6 +399,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         except EOFError:
             print()
             break
+    _info("orion", message="orion stopped")
 
         raw_input = line.rstrip("\r\n")
 
