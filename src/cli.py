@@ -291,7 +291,7 @@ def _run_web(args: argparse.Namespace) -> None:
         else:
             steps.append({
                 "type": "assessment",
-                "content": agent.run(question),
+                "content": agent.run_with_request(question, investigation),
             })
 
         return {

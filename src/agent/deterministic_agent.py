@@ -53,7 +53,17 @@ class DeterministicAgent:
             return self.chat(user_request)
 
         investigation = self._execution_engine.execute(user_request)
+        return self._assess(user_request, investigation)
 
+    def run_with_request(self, user_request: str, investigation: InvestigationRequest) -> str:
+        """Run assessment from an already-completed investigation.
+        
+        Skips the pipeline execution and goes straight to assessment.
+        Used by web API to avoid running the pipeline twice.
+        """
+        return self._assess(user_request, investigation)
+
+    def _assess(self, user_request: str, investigation: InvestigationRequest) -> str:
         # Deterministic shortcuts: skip LLM if evidence is simple enough.
         deterministic = self._try_deterministic_response(investigation)
         if deterministic is not None:
