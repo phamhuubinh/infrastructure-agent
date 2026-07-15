@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import time as _time
 from abc import ABC, abstractmethod
+
+from src.shared.logger import info, error
 
 
 class ExecutionBackend(ABC):
@@ -25,6 +28,8 @@ class LocalExecutionBackend(ExecutionBackend):
         command: list[str],
         timeout: int = 5,
     ) -> tuple[bool, str]:
+        _t0 = _time.monotonic()
+        cmd_str = " ".join(command) if command else ""
         try:
             completed = subprocess.run(
                 command,
@@ -33,12 +38,18 @@ class LocalExecutionBackend(ExecutionBackend):
                 timeout=timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error("exec", command=cmd_str, status="failed", error=str(exc), host="localhost", message="Failed")
             return False, ""
 
         if completed.returncode != 0:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error("exec", command=cmd_str, status="failed", returncode=completed.returncode, host="localhost", message="Failed")
             return False, ""
 
+        _dur = int((_time.monotonic() - _t0) * 1000)
+        info("exec", command=cmd_str, status="success", duration_ms=_dur, host="localhost", message="Completed")
         return True, completed.stdout.strip()
 
 
@@ -85,7 +96,10 @@ class SSHExecutionBackend(ExecutionBackend):
         command: list[str],
         timeout: int = 5,
     ) -> tuple[bool, str]:
+        _t0 = _time.monotonic()
         ssh_cmd = self._build_ssh_command(command)
+        cmd_str = " ".join(command) if command else ""
+        host = self._host
         try:
             completed = subprocess.run(
                 ssh_cmd,
@@ -94,12 +108,20 @@ class SSHExecutionBackend(ExecutionBackend):
                 timeout=timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error("exec", command=cmd_str, status="failed", error=str(exc), host=host, message="Failed")
             return False, ""
 
         if completed.returncode != 0:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            err_msg = completed.stderr.strip() or completed.stdout.strip()
             if "password" in completed.stderr.lower():
+                error("exec", command=cmd_str, status="failed", error="SSH authentication failed (password prompted)", host=host, message="Failed")
                 return False, "SSH authentication failed (password prompted). Use SSH key authentication."
-            return False, completed.stderr.strip() or completed.stdout.strip()
+            error("exec", command=cmd_str, status="failed", error=err_msg, host=host, message="Failed")
+            return False, err_msg
 
+        _dur = int((_time.monotonic() - _t0) * 1000)
+        info("exec", command=cmd_str, status="success", duration_ms=_dur, host=host, message="Completed")
         return True, completed.stdout.strip()

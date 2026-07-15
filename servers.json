@@ -4,12 +4,14 @@
     "sv1": {
       "provider": "openai",
       "base_url": "http://192.168.90.240:8000",
-      "model": "deepseek-ai/DeepSeek-V4-Flash"
+      "model": "deepseek-ai/DeepSeek-V4-Flash",
+      "timeout": 300
     },
     "sv2": {
       "provider": "ollama",
       "base_url": "http://localhost:11434",
-      "model": "qwen3:14b"
+      "model": "qwen3:14b",
+      "timeout": 300
     }
   }
 }

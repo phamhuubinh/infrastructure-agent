@@ -17,6 +17,30 @@ from src.pipeline.investigation_request import InvestigationRequest
 # 3. Optional evidence must provide meaningful additional value.
 
 _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    Intent.CPU_ASSESSMENT: (
+        ("CPU Hardware", "CPU Runtime"),
+        ("Processes",),
+    ),
+    Intent.MEMORY_ASSESSMENT: (
+        ("Memory",),
+        ("Processes",),
+    ),
+    Intent.DISK_ASSESSMENT: (
+        ("Storage",),
+        ("Filesystem", "Block Device Information"),
+    ),
+    Intent.NETWORK_ASSESSMENT_SINGLE: (
+        ("Network",),
+        (),
+    ),
+    Intent.PROCESS_ASSESSMENT: (
+        ("Processes",),
+        (),
+    ),
+    Intent.FILESYSTEM_ASSESSMENT: (
+        ("Filesystem",),
+        ("Block Device Information",),
+    ),
     Intent.MACHINE_ASSESSMENT: (
         (
             "System Information",
@@ -24,11 +48,11 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Memory",
             "Swap",
             "Storage",
+        ),
+        (
             "Filesystem",
             "Network",
             "Services",
-        ),
-        (
             "Processes",
             "Time Synchronization",
             "Recent Logs",
@@ -52,10 +76,10 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Intent.SERVICE_ASSESSMENT: (
         (
             "Service Status",
-            "Service Configuration",
-            "Service Logs",
         ),
         (
+            "Service Configuration",
+            "Service Logs",
             "Running Processes",
             "Listening Ports",
         ),
@@ -66,11 +90,17 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
             "Triggers",
             "Alert Severity",
             "Host Status",
+            "Host Groups",
+            "Templates",
         ),
         (
             "Dashboards",
+            "Dashboard Folders",
             "Data Sources",
+            "Alert Rules",
             "Event History",
+            "Users",
+            "Maintenance Status",
         ),
     ),
     Intent.SECURITY_ASSESSMENT: (

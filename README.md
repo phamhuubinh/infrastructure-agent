@@ -1,6 +1,6 @@
-# Infrastructure Investigation Agent
+# Orion
 
-A deterministic infrastructure investigation platform.
+Infrastructure investigation platform with AI-powered assessment.
 
 Evidence-driven investigation with AI-powered assessment.
 

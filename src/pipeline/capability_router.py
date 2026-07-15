@@ -76,10 +76,18 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "zabbix-triggers": "Alert Triggers",
     "alert_severity": "Alert Severity Assessment",
     "zabbix-hosts": "Host Status Assessment",
+    "zabbix-groups": "Host Group Discovery",
+    "zabbix-templates": "Template Discovery",
+    "zabbix-users": "Monitoring User Discovery",
+    "zabbix-maintenance": "Maintenance Status Discovery",
     "zabbix-events": "Event History Discovery",
+    "zabbix-interfaces": "Host Interface Discovery",
+    "zabbix-items": "Item Discovery",
     # ---- Grafana ----
     "dashboards": "Dashboard Discovery",
+    "monitoring-folders": "Dashboard Folder Discovery",
     "datasources": "Data Source Discovery",
+    "monitoring-alerts": "Alert Rule Discovery",
 }
 
 

@@ -22,6 +22,8 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     # ------------------------------------------------------------------
     "System Information": "System Information",
     "CPU": "CPU Information",
+    "CPU Hardware": "CPU Information",
+    "CPU Runtime": "CPU Information",
     "Memory": "Memory Information",
     "Swap": "Swap Information",
     "Storage": "Storage Information",
@@ -59,9 +61,18 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Triggers": "Alert Triggers",
     "Alert Severity": "Alert Severity Assessment",
     "Host Status": "Host Status Assessment",
+    "Host Groups": "Host Group Discovery",
+    "Templates": "Template Discovery",
     "Dashboards": "Dashboard Discovery",
+    "Dashboard Folders": "Dashboard Folder Discovery",
     "Data Sources": "Data Source Discovery",
+    "Alert Rules": "Alert Rule Discovery",
     "Event History": "Event History Discovery",
+    "Users": "Monitoring User Discovery",
+    "Maintenance Status": "Maintenance Status Discovery",
+    "Host Interfaces": "Host Interface Discovery",
+    "Items": "Item Discovery",
+    "Alerts": "Alert Discovery",
 
     # ------------------------------------------------------------------
     # Security Assessment

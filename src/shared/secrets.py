@@ -7,6 +7,22 @@ from pathlib import Path
 SECRETS_PATH = Path("config/secrets.local.json")
 
 
+def get_tool_config(tool_name: str) -> dict[str, str] | None:
+    """Get configuration for a specific tool from config/secrets.local.json.
+
+    Args:
+        tool_name: The tool name (e.g. "grafana", "zabbix").
+
+    Returns:
+        A dict with config keys (url, token, etc.) or None if not found.
+    """
+    try:
+        secrets = load_secrets()
+        return secrets.get(tool_name)
+    except (FileNotFoundError, ValueError):
+        return None
+
+
 def load_secrets() -> dict[str, dict[str, str]]:
     """Load secrets from config/secrets.local.json.
 

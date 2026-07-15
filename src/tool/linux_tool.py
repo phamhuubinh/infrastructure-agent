@@ -4,8 +4,11 @@ import inspect
 import json
 from collections.abc import Callable
 
+import time as _time
+
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.shared.logger import info, error
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
@@ -169,7 +172,6 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     failed_names = [s["name"] for s in services if s["sub"] == "failed"]
 
     return {
-        "services": services,
         "total": len(services),
         "running": running,
         "exited": exited,
@@ -221,25 +223,43 @@ def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
-    Subsystem: CPU identity and core count.
+    Subsystem: CPU identity, core count, and runtime metrics.
     """
     cores_ok, cores_output = run(["nproc"])
     cpuinfo_ok, cpuinfo_output = run(["cat", "/proc/cpuinfo"])
 
     model = "unknown"
+    threads = 0
 
     if cpuinfo_ok:
         for line in cpuinfo_output.splitlines():
             if line.lower().startswith("model name"):
                 _, _, value = line.partition(":")
                 model = value.strip()
-                break
+            elif line.lower().startswith("processor"):
+                threads += 1
 
     cores = int(cores_output) if cores_ok and cores_output.isdigit() else 0
+
+    # Runtime metrics: CPU usage breakdown + load
+    usage_data = _get_cpu_usage(run)
+    load_ok, load_output = run(["cat", "/proc/loadavg"])
+    load = None
+    if load_ok:
+        parts = load_output.split()
+        if len(parts) >= 3:
+            load = {
+                "1min": float(parts[0]) if parts[0].replace('.','',1).isdigit() else 0,
+                "5min": float(parts[1]) if parts[1].replace('.','',1).isdigit() else 0,
+                "15min": float(parts[2]) if parts[2].replace('.','',1).isdigit() else 0,
+            }
 
     return {
         "model": model,
         "cores": cores,
+        "threads": threads,
+        "usage": usage_data,
+        "load": load,
     }
 
 
@@ -372,7 +392,7 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         [
             "ps",
             "-eo",
-            "pid,args,pcpu,pmem",
+            "pid=,pcpu=,pmem=,args=",
             "--no-headers",
         ]
     )
@@ -386,7 +406,7 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             if len(parts) < 4:
                 continue
 
-            pid, args, pcpu, pmem = parts
+            pid, pcpu, pmem, args = parts
 
             processes.append(
                 {
@@ -397,13 +417,19 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 }
             )
 
-    # Sort by memory descending, take top 15 for summary
+    # Sort by memory descending, take top 5 for summary
     sorted_procs = sorted(processes, key=lambda p: float(p.get("memory_percent", 0) or 0), reverse=True)
-    top_by_mem = sorted_procs[:15]
+    top_by_mem = sorted_procs[:5]
 
     # Sort by CPU descending
     sorted_cpu = sorted(processes, key=lambda p: float(p.get("cpu_percent", 0) or 0), reverse=True)
-    top_by_cpu = sorted_cpu[:15]
+    top_by_cpu = sorted_cpu[:5]
+
+    # Trim command to 40 chars max
+    for p in top_by_cpu + top_by_mem:
+        cmd = str(p.get("command", ""))
+        if len(cmd) > 40:
+            p["command"] = cmd[:40] + "..."
 
     zombie_count = sum(1 for p in processes if "zombie" in str(p.get("command", "")).lower())
     defunct_count = sum(1 for p in processes if "defunct" in str(p.get("command", "")).lower())
@@ -908,7 +934,7 @@ def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         for line in output.splitlines():
             if "Cpu(s)" in line or "%Cpu(s)" in line:
                 parts = line.replace(",", " ").split()
-                result: dict[str, object] = {"raw": line.strip()}
+                result: dict[str, object] = {}
                 for i, p in enumerate(parts):
                     p_clean = p.strip("%")
                     if p == "us," or p == "us":
@@ -1184,14 +1210,22 @@ class LinuxTool(Tool):
         arguments: dict[str, object],
     ) -> ToolResult:
         action = arguments.get("action")
+        request_id = arguments.get("request_id")
 
         if not isinstance(action, str):
             raise ValueError("Missing action.")
+
+        host = getattr(self._backend, '_host', 'localhost')
+
+        info("linux", request=request_id, capability=action, status="start", host=host, message="Executing")
+        _t0 = _time.monotonic()
 
         cap = _CAPABILITIES.get(action)
 
         if cap is None:
             available = ", ".join(sorted(_CAPABILITIES))
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error("linux", request=request_id, capability=action, status="failed", error=f"Unknown action: '{action}'", host=host, message="Failed")
 
             return ToolResult(
                 success=False,
@@ -1208,10 +1242,18 @@ class LinuxTool(Tool):
             else:
                 pass
 
-        if filtered:
-            data = handler(self._run, **filtered)
-        else:
-            data = handler(self._run)
+        try:
+            if filtered:
+                data = handler(self._run, **filtered)
+            else:
+                data = handler(self._run)
+        except Exception as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error("linux", request=request_id, capability=action, status="failed", error=str(exc), host=host, message="Failed")
+            raise
+
+        _dur = int((_time.monotonic() - _t0) * 1000)
+        info("linux", request=request_id, capability=action, status="success", duration_ms=_dur, host=host, message="Completed")
 
         return ToolResult(
             success=True,

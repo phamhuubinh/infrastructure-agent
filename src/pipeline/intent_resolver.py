@@ -17,6 +17,13 @@ class Intent(Enum):
     NETWORK_ASSESSMENT = auto()
     CONFIGURATION_ASSESSMENT = auto()
     TROUBLESHOOTING = auto()
+    CPU_ASSESSMENT = auto()
+    MEMORY_ASSESSMENT = auto()
+    DISK_ASSESSMENT = auto()
+    NETWORK_ASSESSMENT_SINGLE = auto()
+    PROCESS_ASSESSMENT = auto()
+    FILESYSTEM_ASSESSMENT = auto()
+    KNOWLEDGE_ASSESSMENT = auto()
 
 
 class Confidence(Enum):
@@ -32,6 +39,50 @@ class Confidence(Enum):
 # Matching any keyword in a group counts as one match.
 
 _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
+    Intent.CPU_ASSESSMENT: (
+        ("cpu",),
+        ("cpu usage", "cpu utilization", "cpu load"),
+        ("processor",),
+        ("core", "cores"),
+        ("cpu percent",),
+    ),
+    Intent.MEMORY_ASSESSMENT: (
+        ("memory", "ram"),
+        ("memory usage", "memory utilization"),
+        ("swap",),
+        ("memory leak",),
+    ),
+    Intent.DISK_ASSESSMENT: (
+        ("disk", "disks"),
+        ("disk usage", "disk space"),
+        ("ổ cứng", "ssd", "hdd"),
+        ("filesystem", "filesystems"),
+        ("storage",),
+        ("iowait", "io wait"),
+        ("iops",),
+        ("fsck",),
+    ),
+    Intent.NETWORK_ASSESSMENT_SINGLE: (
+        ("network", "networking", "mạng", "kết nối mạng"),
+        ("network usage", "network traffic"),
+        ("băng thông", "băng-thông"),
+        ("bandwidth",),
+        ("latency",),
+        ("ping",),
+    ),
+    Intent.PROCESS_ASSESSMENT: (
+        ("process", "processes"),
+        ("process list",),
+        ("top process",),
+        ("ps",),
+        ("running process",),
+    ),
+    Intent.FILESYSTEM_ASSESSMENT: (
+        ("filesystem", "filesystems"),
+        ("mount", "mounts", "mountpoint", "mounted"),
+        ("inode", "inodes"),
+        ("fsck",),
+    ),
     Intent.MACHINE_ASSESSMENT: (
         ("health", "healthy"),
         ("machine",),
@@ -78,6 +129,15 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("enabled",),
         ("restart", "started", "stopped"),
         ("failed",),
+        ("sshd", "ssh service"),
+        ("nginx", "apache", "httpd"),
+        ("docker",),
+        ("postgresql", "postgres"),
+        ("redis",),
+        ("elasticsearch", "elastic"),
+        ("kafka",),
+        ("rabbitmq",),
+        ("mongodb", "mongo"),
     ),
     Intent.MONITORING_ASSESSMENT: (
         ("alert", "alerts"),
@@ -99,6 +159,11 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("sự cố", "sự-cố"),
         ("vấn đề",),
         ("nghiêm trọng", "nghiêm-trọng"),
+        ("trend", "history", "chart", "graph"),
+        ("timeseries", "time series", "time-series"),
+        ("metric", "metrics"),
+        ("1h", "24h", "7d", "30d"),
+        ("biểu đồ", "đồ thị"),
     ),
     Intent.SECURITY_ASSESSMENT: (
         ("ssh",),
@@ -180,6 +245,16 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("not working", "not responding", "unreachable"),
         ("investigate",),
     ),
+    Intent.KNOWLEDGE_ASSESSMENT: (
+        ("kubernetes", "k8s"),
+        ("what is", "what are"),
+        ("how does", "how do", "how to"),
+        ("explain", "define", "definition"),
+        ("difference", "vs", "versus"),
+        ("tutorial", "guide", "example"),
+        ("best practice",),
+        ("architecture", "architect"),
+    ),
 }
 
 # Priority override rules.
@@ -192,12 +267,19 @@ _INTENT_PRIORITY: dict[Intent, int] = {
     Intent.TROUBLESHOOTING: 50,
     Intent.SECURITY_ASSESSMENT: 45,
     Intent.SERVICE_ASSESSMENT: 35,
+    Intent.CPU_ASSESSMENT: 32,
+    Intent.MEMORY_ASSESSMENT: 31,
+    Intent.DISK_ASSESSMENT: 30,
+    Intent.PROCESS_ASSESSMENT: 29,
+    Intent.FILESYSTEM_ASSESSMENT: 28,
     Intent.STORAGE_ASSESSMENT: 28,
-    Intent.PERFORMANCE_ASSESSMENT: 25,
+    Intent.PERFORMANCE_ASSESSMENT: 27,
     Intent.NETWORK_ASSESSMENT: 20,
+    Intent.NETWORK_ASSESSMENT_SINGLE: 21,
     Intent.MACHINE_ASSESSMENT: 11,
     Intent.MONITORING_ASSESSMENT: 10,
     Intent.APPLICATION_DISCOVERY: 12,
+    Intent.KNOWLEDGE_ASSESSMENT: 5,
 }
 
 
@@ -240,6 +322,8 @@ _PHRASES: frozenset[str] = frozenset({
     "vấn đề",
     "nghiêm trọng",
     "ưu tiên",
+    "ssh service",
+    "time series",
 })
 
 

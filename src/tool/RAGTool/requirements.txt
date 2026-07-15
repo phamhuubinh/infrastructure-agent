@@ -1,0 +1,48 @@
+# --- Core (needed for the service to boot at all) ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+requests>=2.32
+numpy>=1.26
+pypdf>=5.0
+python-multipart>=0.0.9
+
+# --- Recommended for real (non-fallback) usage ---
+scikit-learn>=1.4          # RAPTOR clustering (GaussianMixture)
+
+# --- Optional: heavy / model-loading providers ---
+# Uncomment only the ones you'll actually deploy — each pulls significant
+# weight (torch, model downloads). None of these are needed to run the
+# service in its offline-testable default configuration (hash embedding +
+# in-memory store + no-op reranker).
+
+# PDF parsers
+# docling>=2.0                       # primary parser
+# marker-pdf>=1.0                    # fallback parser
+# magic-pdf[full]>=1.0               # MinerU, scientific-doc parser
+
+# OCR
+# paddlepaddle-gpu>=2.6               # or paddlepaddle (CPU) if no GPU
+# paddleocr>=2.8
+
+# Embedding / reranking (local inference)
+# sentence-transformers>=3.0          # Qwen3-Embedding
+# FlagEmbedding>=1.3                  # BGE-M3 embeddings + BGE-reranker-v2
+
+# Vector DB
+# qdrant-client>=1.9
+
+# Graph RAG
+# graphrag>=1.0                       # Microsoft GraphRAG
+# lightrag-hku>=1.0                   # LightRAG (faster alternative)
+
+# Evaluation
+# ragas>=0.2
+# datasets>=2.19
+
+# Agent
+# langgraph>=0.2
+# langchain-core>=0.3
+
+# --- Dev / test ---
+pytest>=8.0

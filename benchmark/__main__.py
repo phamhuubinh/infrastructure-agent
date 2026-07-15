@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
+import sys
+import time
+from io import StringIO
+from pathlib import Path
 from typing import Any
 
 from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
@@ -14,6 +20,96 @@ from benchmark.registry import detect_regressions
 from benchmark.registry import save_results
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
+
+
+def _timestamped_log_path() -> Path:
+    """Return a log path with a timestamp to prevent overwriting."""
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    return Path(f"benchmark_results_{ts}.log")
+
+
+def _export_csv(results: list[dict[str, Any]], path: Path) -> None:
+    """Export benchmark results to CSV format."""
+    fieldnames = [
+        "benchmark", "domain", "total", "reasoning", "efficiency",
+        "evidence", "safety", "elapsed", "iterations",
+        "evidence_coverage", "grounding", "completeness", "overall",
+        "errors",
+    ]
+    with path.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for r in results:
+            am = r.get("assessment_metrics", {})
+            row = {
+                "benchmark": r["benchmark"],
+                "domain": r["domain"],
+                "total": r["scores"]["total"],
+                "reasoning": r["scores"]["reasoning"],
+                "efficiency": r["scores"]["efficiency"],
+                "evidence": r["scores"]["evidence"],
+                "safety": r["scores"]["safety"],
+                "elapsed": r["elapsed"],
+                "iterations": r["iterations"],
+                "evidence_coverage": am.get("evidence_coverage", ""),
+                "grounding": am.get("grounding", ""),
+                "completeness": am.get("completeness", ""),
+                "overall": am.get("overall", ""),
+                "errors": "; ".join(r.get("errors", [])),
+            }
+            writer.writerow(row)
+
+
+def _export_markdown(results: list[dict[str, Any]], path: Path) -> None:
+    """Export benchmark summary as Markdown table."""
+    domains: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        domains.setdefault(r["domain"], []).append(r)
+
+    lines = [
+        "# Benchmark Report",
+        "",
+        f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+    ]
+
+    all_totals = []
+    for domain in sorted(domains):
+        dr = domains[domain]
+        lines.append(f"## {domain.upper()}")
+        lines.append("")
+        lines.append("| Benchmark | Total | Reasoning | Efficiency | Evidence | Safety | Elapsed |")
+        lines.append("|-----------|-------|-----------|------------|----------|--------|---------|")
+        for r in dr:
+            s = r["scores"]
+            lines.append(
+                f"| {r['benchmark']} | {s['total']:.2f} | {s['reasoning']:.2f} "
+                f"| {s['efficiency']:.2f} | {s['evidence']:.2f} | {s['safety']:.2f} "
+                f"| {r['elapsed']:.1f}s |"
+            )
+            all_totals.append(s["total"])
+        lines.append("")
+
+    if all_totals:
+        scores = sorted(all_totals)
+        n = len(scores)
+        mean = sum(scores) / n
+        mid = n // 2
+        median = scores[mid] if n % 2 else (scores[mid - 1] + scores[mid]) / 2
+        variance = sum((x - mean) ** 2 for x in scores) / n
+        lines.append("## Summary Statistics")
+        lines.append("")
+        lines.append(f"| Metric | Value |")
+        lines.append(f"|--------|-------|")
+        lines.append(f"| Count | {n} |")
+        lines.append(f"| Mean | {mean:.4f} |")
+        lines.append(f"| Median | {median:.4f} |")
+        lines.append(f"| Std Dev | {variance ** 0.5:.4f} |")
+        lines.append(f"| Min | {min(scores):.4f} |")
+        lines.append(f"| Max | {max(scores):.4f} |")
+        lines.append("")
+
+    path.write_text("\n".join(lines))
 
 
 def _run_benchmarks(
@@ -178,6 +274,22 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=list(PROMPT_VERSIONS.keys()),
         help="Prompt version to use for assessment"
     )
+    parser.add_argument(
+        "--csv", action="store_true", default=True,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-csv", action="store_false", dest="csv",
+        help="Skip CSV export"
+    )
+    parser.add_argument(
+        "--markdown", action="store_true", default=True,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-markdown", action="store_false", dest="markdown",
+        help="Skip Markdown export"
+    )
     return parser
 
 
@@ -235,9 +347,30 @@ def main(argv: list[str] | None = None) -> None:
 
     print()
     if args.json:
-        print(generate_json_report(results, metadata=metadata))
+        report_json = generate_json_report(results, metadata=metadata)
+        print(report_json)
+        # Write to timestamped JSON file.
+        log_path = _timestamped_log_path().with_suffix(".json")
+        log_path.write_text(report_json)
+        print(f"\nReport saved to {log_path}")
     else:
-        print(generate_human_report(results, metadata=metadata))
+        report_str = generate_human_report(results, metadata=metadata)
+        print(report_str)
+        # Write to timestamped log file.
+        log_path = _timestamped_log_path()
+        log_path.write_text(report_str)
+        print(f"\nLog saved to {log_path}")
+
+    # Always export CSV and Markdown summary.
+    if args.csv:
+        csv_path = log_path.with_suffix(".csv")
+        _export_csv(results, csv_path)
+        print(f"CSV exported to {csv_path}")
+
+    if args.markdown:
+        md_path = log_path.with_suffix(".md")
+        _export_markdown(results, md_path)
+        print(f"Markdown exported to {md_path}")
 
     if args.domain:
         all_in_domain = [b for b in BENCHMARKS if b.domain == args.domain]

@@ -3,11 +3,21 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "infrastructure-agent"
+name = "orion"
 version = "0.1.0"
-description = "Deterministic infrastructure investigation agent with AI-powered assessment."
-authors = [{name = "Infrastructure Agent"}]
+description = "Orion — Infrastructure investigation platform with AI-powered assessment."
+authors = [{name = "Orion"}]
 dependencies = []
+
+[project.scripts]
+orion = "orion_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-dir]
+"" = "."
+"src" = "src"
 
 [project.optional-dependencies]
 web = ["fastapi>=0.100", "uvicorn>=0.20"]

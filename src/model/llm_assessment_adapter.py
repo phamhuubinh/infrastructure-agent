@@ -7,6 +7,7 @@ from src.model.assessment_result import AssessmentResult
 from src.model.llm_client import LLMClient
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
+from src.shared.logger import info as _info
 
 
 class LLMAssessmentAdapter(AssessmentModelAdapter):
@@ -57,7 +58,17 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
 
     def assess_raw(self, prompt: str) -> str:
         """Send a raw prompt to the LLM without evidence wrapper."""
-        return self._client.generate(prompt)
+        t0 = _time.perf_counter()
+        try:
+            response = self._client.generate(prompt)
+            latency = round((_time.perf_counter() - t0) * 1000, 1)
+            usage = self._client.last_usage
+            _info("llm", status="success", mode="raw", duration_ms=latency, input_tokens=usage.get("prompt_tokens","N/A") if usage else "N/A", output_tokens=usage.get("completion_tokens","N/A") if usage else "N/A", message="LLM raw response received")
+            return response
+        except Exception as exc:
+            latency = round((_time.perf_counter() - t0) * 1000, 1)
+            _info("llm", status="error", mode="raw", duration_ms=latency, error=str(exc)[:80], message="LLM raw call failed")
+            raise
 
     def _assess_with_result(
         self,
@@ -80,6 +91,7 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         try:
             response = self._client.generate(prompt)
         except Exception as exc:
+            _info("llm", status="error", error=str(exc)[:80], duration_ms=round((_time.perf_counter() - t0) * 1000, 1), message="LLM call failed")
             return AssessmentResult(
                 content="",
                 success=False,
@@ -91,11 +103,14 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         latency = round((_time.perf_counter() - t0) * 1000, 1)
 
         usage = self._client.last_usage
+        pt = usage.get("prompt_tokens") if usage else None
+        ct = usage.get("completion_tokens") if usage else None
+        _info("llm", status="success", duration_ms=latency, input_tokens=pt or "N/A", output_tokens=ct or "N/A", message="LLM response received")
         return AssessmentResult(
             content=response,
             success=True,
             model=self._client._model,
             latency_ms=latency,
-            prompt_tokens=usage.get("prompt_tokens") if usage else None,
-            completion_tokens=usage.get("completion_tokens") if usage else None,
+            prompt_tokens=pt,
+            completion_tokens=ct,
         )
