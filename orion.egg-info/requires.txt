@@ -1,0 +1,7 @@
+
+[test]
+pytest>=7
+
+[web]
+fastapi>=0.100
+uvicorn>=0.20
