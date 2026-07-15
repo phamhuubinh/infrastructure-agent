@@ -41,6 +41,7 @@ def list_sessions(store_dir: str | None = None) -> list[dict]:
             msgs = data.get("messages", [])
             sessions.append({
                 "id": data.get("session_id", f.stem),
+                "title": data.get("title", ""),
                 "source": data.get("source", "terminal"),
                 "updated": data.get("updated_at", ""),
                 "turns": len([m for m in msgs if m.get("role") == "user"]),

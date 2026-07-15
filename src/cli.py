@@ -125,9 +125,41 @@ def _run_web(args: argparse.Namespace) -> None:
         model=args.model,
     )
 
+    _sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+
     @app.get("/api/health")
     def health():
         return {"status": "ok", "version": "1.0.0"}
+
+    @app.get("/api/sessions")
+    def list_sessions_api():
+        from src.agent.conversation_store import list_sessions
+        return {"sessions": list_sessions(_sessions_dir)}
+
+    @app.delete("/api/sessions/{session_id}")
+    def delete_session(session_id: str):
+        path = os.path.join(_sessions_dir, f"{session_id}.json")
+        if not os.path.exists(path):
+            from fastapi import HTTPException
+            raise HTTPException(404, f"Session '{session_id}' not found")
+        os.remove(path)
+        return {"status": "deleted", "session_id": session_id}
+
+    @app.patch("/api/sessions/{session_id}")
+    def rename_session(session_id: str, body: dict):
+        path = os.path.join(_sessions_dir, f"{session_id}.json")
+        if not os.path.exists(path):
+            from fastapi import HTTPException
+            raise HTTPException(404, f"Session '{session_id}' not found")
+        new_title = body.get("title", "").strip()
+        if not new_title:
+            from fastapi import HTTPException
+            raise HTTPException(400, "title is required")
+        import json as _json
+        data = _json.loads(Path(path).read_text())
+        data["title"] = new_title
+        Path(path).write_text(_json.dumps(data, indent=2))
+        return {"status": "renamed", "session_id": session_id, "title": new_title}
 
     @app.post("/api/query")
     def query(body: dict):
@@ -463,6 +495,7 @@ def main() -> None:
     session_sub.add_parser("list", help=argparse.SUPPRESS, add_help=False)
     del_parser = session_sub.add_parser("delete", help=argparse.SUPPRESS, add_help=False)
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
+    del_parser.add_argument("-y", "--yes", action="store_true", help=argparse.SUPPRESS)
     session_sub.add_parser("clean", help=argparse.SUPPRESS, add_help=False)
 
     run_parser = subparsers.add_parser("run", help=argparse.SUPPRESS, add_help=False)
@@ -507,11 +540,16 @@ def main() -> None:
 
         if args.session_action == "delete":
             path = os.path.join(sessions_dir, f"{args.id}.json")
-            if os.path.exists(path):
-                os.remove(path)
-                print(f"Session '{args.id}' deleted.")
-            else:
+            if not os.path.exists(path):
                 print(f"Session '{args.id}' not found.")
+                return
+            if not args.yes:
+                ans = input(f"Delete session '{args.id}'? [y/N] ").strip().lower()
+                if ans not in ("y", "yes"):
+                    print("Cancelled.")
+                    return
+            os.remove(path)
+            print(f"Session '{args.id}' deleted.")
             return
 
         if args.session_action == "clean":

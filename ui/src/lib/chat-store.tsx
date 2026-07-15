@@ -1,5 +1,7 @@
 import { createContext, useContext, useState, useRef, type ReactNode } from "react";
 
+const API_URL = import.meta.env.VITE_API_URL || "";
+
 export type Step = {
   type: string;
   intent?: string;
@@ -130,7 +132,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
       );
     },
-    deleteSession(id: string) {
+    async deleteSession(id: string) {
+      try {
+        await fetch(`${API_URL}/api/sessions/${id}`, { method: "DELETE" });
+      } catch {
+        // server not available, delete locally anyway
+      }
       setSessions((prev) => {
         const next = prev.filter((s) => s.id !== id);
         if (currentSessionId === id && next.length > 0) {
@@ -154,7 +161,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         return next;
       });
     },
-    renameSession(id: string, title: string) {
+    async renameSession(id: string, title: string) {
+      try {
+        await fetch(`${API_URL}/api/sessions/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+      } catch {
+        // server not available
+      }
       setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
     },
   };
