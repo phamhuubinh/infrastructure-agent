@@ -515,6 +515,7 @@ def main() -> None:
     web_parser.add_argument("--port", type=int, default=61888, help=argparse.SUPPRESS)
     web_parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
     web_parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
+    web_parser.add_argument("--target-file", type=str, default="targets.json", help=argparse.SUPPRESS)
 
     subparsers.add_parser("log", help=argparse.SUPPRESS, add_help=False)
 
