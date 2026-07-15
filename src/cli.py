@@ -110,6 +110,7 @@ def _run_web(args: argparse.Namespace) -> None:
         print("Web UI requires: pip install fastapi uvicorn")
         sys.exit(1)
 
+    import uuid as _uuid
     from src.agent.runtime_factory import create_deterministic_agent
     from src.agent.conversation_store import ConversationStore, list_sessions
 
@@ -137,7 +138,7 @@ def _run_web(args: argparse.Namespace) -> None:
     _web_sessions: dict[str, ConversationStore] = {}
 
     def _get_or_create_session(session_id: str | None) -> ConversationStore:
-        sid = session_id or uuid.uuid4().hex[:12]
+        sid = session_id or _uuid.uuid4().hex[:12]
         if sid not in _web_sessions:
             cs = ConversationStore(session_id=sid, store_dir=_sessions_dir, source="web", summarize_fn=agent._assessment_model.assess_raw)
             _web_sessions[sid] = cs
