@@ -291,6 +291,26 @@ def _run_web(args: argparse.Namespace) -> None:
         _cleanup_web()
 
 
+def _run_log() -> None:
+    _log_path = os.path.join(os.path.expanduser("~"), ".orion", "orion.log")
+    try:
+        print(f"Orion log (Ctrl+C to stop)")
+        import time as _lt
+        _last_size = 0
+        while True:
+            try:
+                with open(_log_path) as _f:
+                    _f.seek(_last_size)
+                    for _line in _f:
+                        print(_line, end="", flush=True)
+                    _last_size = _f.tell()
+            except FileNotFoundError:
+                pass
+            _lt.sleep(0.2)
+    except KeyboardInterrupt:
+        print()
+
+
 def _run_agent(args: argparse.Namespace) -> None:
     agent = create_deterministic_agent(
         target_store_path=args.target_file,
@@ -298,6 +318,9 @@ def _run_agent(args: argparse.Namespace) -> None:
         model=args.model,
     )
 
+    resume_id = getattr(args, "resume", None)
+    if resume_id:
+        print(f"Resuming session: {resume_id}")
     print("Infrastructure Investigation Agent")
     print("=" * 36)
     print("  /help    Commands")
@@ -408,18 +431,20 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Commands:\n"
+            "  help                  Show this help message\n"
             "  session               Manage sessions\n"
             "    session list        List all saved sessions\n"
             "    session delete <id> Delete a specific session by ID\n"
             "    session clean       Delete ALL sessions\n"
+            "  resume <id>           Resume an existing session by ID\n"
+            "  web                   Start web UI (default: terminal mode)\n"
+            "  log                   Tail structured log output\n"
             "  add-target            Add a remote SSH target\n"
             "  remove-target         Remove a remote SSH target\n"
             "  list-targets          List all configured targets\n"
+            "  run                   Run terminal agent (default if no command)\n"
             "\n"
-            "Flags:\n"
-            "  --web                 Start web UI (default: terminal mode)\n"
-            "  --resume <id>         Resume an existing session by ID\n"
-            "  --log                 Tail structured log output\n"
+            "Options:\n"
             "  --port <port>         Web UI port (default: 61888)\n"
             "  --server <name>       Model server name from servers.json\n"
             "  --model <name>        Override model name\n"
@@ -433,10 +458,7 @@ def main() -> None:
     parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--status", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--web", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--resume", type=str, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--port", type=int, default=61888, help=argparse.SUPPRESS)
-    parser.add_argument("--log", action="store_true", help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help=argparse.SUPPRESS)
 
     subparsers.add_parser("help", help=argparse.SUPPRESS, add_help=False)
@@ -448,6 +470,13 @@ def main() -> None:
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
     session_sub.add_parser("clean", help=argparse.SUPPRESS, add_help=False)
 
+    resume_parser = subparsers.add_parser("resume", help=argparse.SUPPRESS, add_help=False)
+    resume_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
+
+    subparsers.add_parser("web", help=argparse.SUPPRESS, add_help=False)
+
+    subparsers.add_parser("log", help=argparse.SUPPRESS, add_help=False)
+
     add_parser = subparsers.add_parser("add-target", help=argparse.SUPPRESS, add_help=False)
     add_parser.add_argument("spec", type=str, help=argparse.SUPPRESS)
     add_parser.add_argument("--ssh-user", type=str, default="root", help=argparse.SUPPRESS)
@@ -458,9 +487,11 @@ def main() -> None:
 
     subparsers.add_parser("list-targets", help=argparse.SUPPRESS, add_help=False)
 
+    subparsers.add_parser("run", help=argparse.SUPPRESS, add_help=False)
+
     args = parser.parse_args()
 
-    if args.command == "help":
+    if args.command == "help" or args.command is None:
         parser.print_help()
         return
 
@@ -495,14 +526,29 @@ def main() -> None:
             print(f"{s['id']:<24} {s['source']:<10} {s['turns']:<6} {s['updated'][:19]:<20} {preview}")
         return
 
+    if args.command == "resume":
+        args.resume = args.id
+        _run_agent(args)
+        return
+
+    if args.command == "web":
+        _run_web(args)
+        return
+
+    if args.command == "log":
+        _run_log()
+        return
+
+    if args.command == "run":
+        _run_agent(args)
+        return
+
     if args.command == "add-target":
         _add_target(args)
     elif args.command == "remove-target":
         _remove_target(args)
     elif args.command == "list-targets":
         _list_targets(args)
-    elif args.web:
-        _run_web(args)
     else:
         _run_agent(args)
 
