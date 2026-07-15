@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -110,6 +111,7 @@ def _run_web(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     from src.agent.runtime_factory import create_deterministic_agent
+    from src.agent.conversation_store import ConversationStore, list_sessions
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     ui_dir = os.path.join(project_root, "ui")
@@ -119,7 +121,10 @@ def _run_web(args: argparse.Namespace) -> None:
 
     backend_port = args.port
 
-    app = FastAPI(title="Infrastructure Agent", version="1.0.0")
+    from src.shared.logger import info as _info
+    _info("orion-web", message="orion-web started", port=backend_port)
+
+    app = FastAPI(title="Orion", version="1.0.0")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
     agent = create_deterministic_agent(
@@ -129,6 +134,17 @@ def _run_web(args: argparse.Namespace) -> None:
     )
 
     _sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+    _web_sessions: dict[str, ConversationStore] = {}
+
+    def _get_or_create_session(session_id: str | None) -> ConversationStore:
+        sid = session_id or uuid.uuid4().hex[:12]
+        if sid not in _web_sessions:
+            cs = ConversationStore(session_id=sid, store_dir=_sessions_dir, source="web", summarize_fn=agent._assessment_model.assess_raw)
+            _web_sessions[sid] = cs
+            cs._save()
+        cs = _web_sessions[sid]
+        agent._conversation_store = cs
+        return cs
 
     @app.get("/api/health")
     def health():
@@ -136,7 +152,6 @@ def _run_web(args: argparse.Namespace) -> None:
 
     @app.get("/api/sessions")
     def list_sessions_api():
-        from src.agent.conversation_store import list_sessions
         return {"sessions": list_sessions(_sessions_dir)}
 
     @app.delete("/api/sessions/{session_id}")
@@ -146,6 +161,7 @@ def _run_web(args: argparse.Namespace) -> None:
             from fastapi import HTTPException
             raise HTTPException(404, f"Session '{session_id}' not found")
         os.remove(path)
+        _web_sessions.pop(session_id, None)
         return {"status": "deleted", "session_id": session_id}
 
     @app.patch("/api/sessions/{session_id}")
@@ -158,10 +174,9 @@ def _run_web(args: argparse.Namespace) -> None:
         if not new_title:
             from fastapi import HTTPException
             raise HTTPException(400, "title is required")
-        import json as _json
-        data = _json.loads(Path(path).read_text())
+        data = json.loads(Path(path).read_text())
         data["title"] = new_title
-        Path(path).write_text(_json.dumps(data, indent=2))
+        Path(path).write_text(json.dumps(data, indent=2))
         return {"status": "renamed", "session_id": session_id, "title": new_title}
 
     @app.post("/api/query")
@@ -175,9 +190,11 @@ def _run_web(args: argparse.Namespace) -> None:
             from fastapi import HTTPException
             raise HTTPException(400, "Question is required")
 
+        session_id = body.get("session_id")
+        _get_or_create_session(session_id)
+
         def _safe_data(val: object) -> object:
             """Recursively sanitize data for JSON serialization."""
-            import typing
             if val is None or isinstance(val, (bool, int, float, str)):
                 return val
             if isinstance(val, (list, tuple)):
@@ -299,7 +316,7 @@ def _run_web(args: argparse.Namespace) -> None:
     frontend_port = 5173
 
     vite_proc = subprocess.Popen(
-        [os.path.join(ui_dir, "node_modules", ".bin", "vite"), "dev", "--port", str(frontend_port)],
+        ["npx", "vite", "dev", "--port", str(frontend_port)],
         cwd=ui_dir,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -323,6 +340,7 @@ def _run_web(args: argparse.Namespace) -> None:
     try:
         uvicorn.run(app, host="127.0.0.1", port=backend_port)
     finally:
+        _info("orion-web", message="orion-web stopped")
         _cleanup_web()
 
 
