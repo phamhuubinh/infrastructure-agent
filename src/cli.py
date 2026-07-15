@@ -72,12 +72,15 @@ def _cleanup_web() -> None:
     for p in _WEB_PROCESSES:
         try:
             p.terminate()
-            p.wait(timeout=3)
+            p.wait(timeout=2)
         except Exception:
             try:
                 p.kill()
+                p.wait(timeout=1)
             except Exception:
                 pass
+    import subprocess as _sp
+    _sp.run(["pkill", "-f", "vite"], capture_output=True)
     _WEB_PROCESSES.clear()
 
 
