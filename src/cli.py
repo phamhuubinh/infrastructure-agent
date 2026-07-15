@@ -436,29 +436,24 @@ def main() -> None:
             "    session list        List all saved sessions\n"
             "    session delete <id> Delete a specific session by ID\n"
             "    session clean       Delete ALL sessions\n"
-            "  resume <id>           Resume an existing session by ID\n"
-            "  web                   Start web UI (default: terminal mode)\n"
+            "  run                   Run terminal agent (default)\n"
+            "    --server <name>       Model server (default: sv1)\n"
+            "    --model <name>        Override model name\n"
+            "    --target-file <path>  Target config (default: targets.json)\n"
+            "    --verbose             Debug output\n"
+            "    --status              One-line per-iteration status\n"
+            "  resume <id>           Resume session\n"
+            "    (same options as run)\n"
+            "  web                   Start web UI\n"
+            "    --port <port>         Port (default: 61888)\n"
+            "    --server <name>       Model server\n"
+            "    --model <name>        Override model name\n"
             "  log                   Tail structured log output\n"
             "  add-target            Add a remote SSH target\n"
             "  remove-target         Remove a remote SSH target\n"
             "  list-targets          List all configured targets\n"
-            "  run                   Run terminal agent (default if no command)\n"
-            "\n"
-            "Options:\n"
-            "  --port <port>         Web UI port (default: 61888)\n"
-            "  --server <name>       Model server name from servers.json\n"
-            "  --model <name>        Override model name\n"
-            "  --target-file <path>  Target config file (default: targets.json)\n"
-            "  --verbose             Show detailed debug output\n"
-            "  --status              Show one-line per-iteration status\n"
         ),
     )
-    parser.add_argument("--target-file", type=str, default="targets.json", help=argparse.SUPPRESS)
-    parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
-    parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--status", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--port", type=int, default=61888, help=argparse.SUPPRESS)
     subparsers = parser.add_subparsers(dest="command", help=argparse.SUPPRESS)
 
     subparsers.add_parser("help", help=argparse.SUPPRESS, add_help=False)
@@ -470,10 +465,23 @@ def main() -> None:
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
     session_sub.add_parser("clean", help=argparse.SUPPRESS, add_help=False)
 
+    run_parser = subparsers.add_parser("run", help=argparse.SUPPRESS, add_help=False)
+    run_parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
+    run_parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
+    run_parser.add_argument("--target-file", type=str, default="targets.json", help=argparse.SUPPRESS)
+    run_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    run_parser.add_argument("--status", action="store_true", help=argparse.SUPPRESS)
+
     resume_parser = subparsers.add_parser("resume", help=argparse.SUPPRESS, add_help=False)
     resume_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
+    resume_parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
+    resume_parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
+    resume_parser.add_argument("--target-file", type=str, default="targets.json", help=argparse.SUPPRESS)
 
-    subparsers.add_parser("web", help=argparse.SUPPRESS, add_help=False)
+    web_parser = subparsers.add_parser("web", help=argparse.SUPPRESS, add_help=False)
+    web_parser.add_argument("--port", type=int, default=61888, help=argparse.SUPPRESS)
+    web_parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
+    web_parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
 
     subparsers.add_parser("log", help=argparse.SUPPRESS, add_help=False)
 
@@ -486,8 +494,6 @@ def main() -> None:
     rem_parser.add_argument("name", type=str, help=argparse.SUPPRESS)
 
     subparsers.add_parser("list-targets", help=argparse.SUPPRESS, add_help=False)
-
-    subparsers.add_parser("run", help=argparse.SUPPRESS, add_help=False)
 
     args = parser.parse_args()
 
