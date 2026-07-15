@@ -403,52 +403,97 @@ def _run_agent(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Infrastructure Agent")
-    parser.add_argument(
-        "--target-file", type=str, default="targets.json",
-        help="Execution target configuration file"
+    parser = argparse.ArgumentParser(
+        description="Orion — Infrastructure Investigation Platform",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Commands:\n"
+            "  session               Manage sessions\n"
+            "    session list        List all saved sessions\n"
+            "    session delete <id> Delete a specific session by ID\n"
+            "    session clean       Delete ALL sessions\n"
+            "  add-target            Add a remote SSH target\n"
+            "  remove-target         Remove a remote SSH target\n"
+            "  list-targets          List all configured targets\n"
+            "\n"
+            "Flags:\n"
+            "  --web                 Start web UI (default: terminal mode)\n"
+            "  --resume <id>         Resume an existing session by ID\n"
+            "  --log                 Tail structured log output\n"
+            "  --port <port>         Web UI port (default: 61888)\n"
+            "  --server <name>       Model server name from servers.json\n"
+            "  --model <name>        Override model name\n"
+            "  --target-file <path>  Target config file (default: targets.json)\n"
+            "  --verbose             Show detailed debug output\n"
+            "  --status              Show one-line per-iteration status\n"
+        ),
     )
-    parser.add_argument(
-        "--server", type=str, default="sv1",
-        help="Model server name from servers.json (default: sv1)"
-    )
-    parser.add_argument(
-        "--model", type=str, default=None,
-        help="Override model name (overrides servers.json)"
-    )
-    parser.add_argument(
-        "--verbose", action="store_true",
-        help="Show detailed debug output (prompt stats, timings, raw responses)"
-    )
-    parser.add_argument(
-        "--status", action="store_true",
-        help="Show one-line per iteration status"
-    )
-    parser.add_argument(
-        "--web", action="store_true",
-        help="Start web UI server instead of terminal mode"
-    )
-    parser.add_argument(
-        "--port", type=int, default=61888,
-        help="Port for web UI server (default: 61888)"
-    )
-    subparsers = parser.add_subparsers(dest="command")
+    parser.add_argument("--target-file", type=str, default="targets.json", help=argparse.SUPPRESS)
+    parser.add_argument("--server", type=str, default="sv1", help=argparse.SUPPRESS)
+    parser.add_argument("--model", type=str, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--status", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--web", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--resume", type=str, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--port", type=int, default=61888, help=argparse.SUPPRESS)
+    parser.add_argument("--log", action="store_true", help=argparse.SUPPRESS)
+    subparsers = parser.add_subparsers(dest="command", help=argparse.SUPPRESS)
 
-    add_parser = subparsers.add_parser("add-target", help="Add a remote target")
-    add_parser.add_argument(
-        "spec", type=str, help="Target spec in format name@host or name@host:port"
-    )
-    add_parser.add_argument("--ssh-user", type=str, default="root", help="SSH user")
-    add_parser.add_argument(
-        "--ssh-identity-file", type=str, default=None, help="SSH identity file path"
-    )
+    subparsers.add_parser("help", help=argparse.SUPPRESS, add_help=False)
 
-    rem_parser = subparsers.add_parser("remove-target", help="Remove a target")
-    rem_parser.add_argument("name", type=str, help="Target name")
+    session_parser = subparsers.add_parser("session", help=argparse.SUPPRESS, add_help=False)
+    session_sub = session_parser.add_subparsers(dest="session_action", help=argparse.SUPPRESS)
+    session_sub.add_parser("list", help=argparse.SUPPRESS, add_help=False)
+    del_parser = session_sub.add_parser("delete", help=argparse.SUPPRESS, add_help=False)
+    del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
+    session_sub.add_parser("clean", help=argparse.SUPPRESS, add_help=False)
 
-    subparsers.add_parser("list-targets", help="List all targets")
+    add_parser = subparsers.add_parser("add-target", help=argparse.SUPPRESS, add_help=False)
+    add_parser.add_argument("spec", type=str, help=argparse.SUPPRESS)
+    add_parser.add_argument("--ssh-user", type=str, default="root", help=argparse.SUPPRESS)
+    add_parser.add_argument("--ssh-identity-file", type=str, default=None, help=argparse.SUPPRESS)
+
+    rem_parser = subparsers.add_parser("remove-target", help=argparse.SUPPRESS, add_help=False)
+    rem_parser.add_argument("name", type=str, help=argparse.SUPPRESS)
+
+    subparsers.add_parser("list-targets", help=argparse.SUPPRESS, add_help=False)
 
     args = parser.parse_args()
+
+    if args.command == "help":
+        parser.print_help()
+        return
+
+    if args.command == "session":
+        from src.agent.conversation_store import list_sessions
+        sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+
+        if args.session_action == "delete":
+            path = os.path.join(sessions_dir, f"{args.id}.json")
+            if os.path.exists(path):
+                os.remove(path)
+                print(f"Session '{args.id}' deleted.")
+            else:
+                print(f"Session '{args.id}' not found.")
+            return
+
+        if args.session_action == "clean":
+            import shutil
+            if os.path.exists(sessions_dir):
+                shutil.rmtree(sessions_dir)
+                print("All sessions deleted.")
+            return
+
+        sessions = list_sessions()
+        if not sessions:
+            print("No sessions found.")
+            return
+        print(f"{'ID':<24} {'Source':<10} {'Turns':<6} {'Updated':<20} Preview")
+        print("-" * 100)
+        for s in sessions:
+            preview = s["preview"][:50]
+            print(f"{s['id']:<24} {s['source']:<10} {s['turns']:<6} {s['updated'][:19]:<20} {preview}")
+        return
 
     if args.command == "add-target":
         _add_target(args)
