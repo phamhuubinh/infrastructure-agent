@@ -399,7 +399,6 @@ def _run_agent(args: argparse.Namespace) -> None:
         except EOFError:
             print()
             break
-    _info("orion", message="orion stopped")
 
         raw_input = line.rstrip("\r\n")
 
@@ -480,6 +479,8 @@ def _run_agent(args: argparse.Namespace) -> None:
         finally:
             _sig.signal(_sig.SIGINT, _old_sigint)
             print("---")
+
+    _info("orion", message="orion stopped")
 
 
 def main() -> None:
