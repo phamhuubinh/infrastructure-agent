@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import sys
+import os
 from pathlib import Path
 from typing import Any
 
+from src.shared.logger import info, warning, error, debug
+from src.agent.conversation_store import ConversationStore
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
@@ -27,13 +30,16 @@ from src.tool.target_store import TargetStore
 # Model server configuration (servers.json)
 # ---------------------------------------------------------------------------
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
+
 def _load_server_config(
     server_name: str | None = None,
 ) -> dict[str, object]:
-    config_path = Path("servers.json")
+    config_path = _project_root() / "servers.json"
     if not config_path.exists():
         raise RuntimeError(
-            "servers.json not found. "
+            "servers.json not found at " + str(config_path) + ". "
             "Create a servers.json with model configuration."
         )
     data = json.loads(config_path.read_text())
@@ -251,6 +257,7 @@ def create_deterministic_agent(
     server_name: str | None = None,
     model: str | None = None,
     assessment_adapter: AssessmentModelAdapter | None = None,
+    conversation_store: ConversationStore | None = None,
 ) -> DeterministicAgent:
     """Build the production deterministic runtime.
 
@@ -270,12 +277,22 @@ def create_deterministic_agent(
     Returns:
         A fully wired DeterministicAgent ready for execution.
     """
+    from src.shared.logger import info as _info
+    _info("orion", message="orion building", target_store=target_store_path, server=server_name or "mock", model_override=model or "none")
     store = TargetStore(path=target_store_path)
-    registry = TargetRegistry(store=store)
+
+    registry_count = 0
+    try:
+        registry = TargetRegistry(store=store)
+        registry_count = len(registry.list_targets()) if hasattr(registry, 'list_targets') else 0
+    except Exception:
+        registry = TargetRegistry(store=store)
+    _info("registry", targets=registry_count, message="Target registry loaded")
 
     # Register infrastructure tools from tools.json (not from hardcoded code).
     tools_config = _load_tools_config()
     _register_tools(registry, tools_config)
+    _info("tools", tools=len(tools_config.get("tools", [])) if isinstance(tools_config, dict) else 0, message="Tools registered")
 
     kt = KnowledgeTool(target_registry=registry)
 
@@ -291,15 +308,26 @@ def create_deterministic_agent(
     )
 
     if assessment_adapter is None:
-        if server_name or model:
-            assessment_adapter = _build_assessment_adapter(
-                server_name=server_name,
-                model=model,
-            )
-        else:
-            assessment_adapter = MockAssessmentAdapter()
+        server_name = server_name or "sv1"
+        model = model or None
+        base_url = "unknown"
+        resolved_model = "unknown"
+        try:
+            cfg = _load_server_config(server_name)
+            base_url = str(cfg.get("base_url", "unknown"))
+            resolved_model = str(cfg.get("model", "unknown"))
+        except Exception:
+            pass
+        _info("llm", provider=base_url, model=resolved_model, message="Initializing LLM adapter")
+        assessment_adapter = _build_assessment_adapter(
+            server_name=server_name,
+            model=model,
+        )
 
-    return DeterministicAgent(
+    agent = DeterministicAgent(
         execution_engine=engine,
         assessment_model=assessment_adapter,
+        conversation_store=conversation_store,
     )
+    _info("orion", message="orion started")
+    return agent
