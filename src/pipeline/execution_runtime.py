@@ -117,7 +117,16 @@ class ExecutionRuntime:
             if not ready:
                 still_remaining.clear()
                 ready = [remaining.pop(0)]
-                remaining = still_remaining
+
+            remaining = still_remaining
+
+            # Circuit breaker: detect infinite loop — if nothing was completed
+            # this iteration and no exception occurred, raise instead of looping forever.
+            if not ready:
+                raise RuntimeError(
+                    f"Execution stuck: {len(remaining)} node(s) have unmet dependencies "
+                    f"that will never be satisfied. Remaining: {[n.execution_step.capability.name for n in remaining[:10]]}"
+                )
 
             if len(ready) > max_parallel_batch:
                 max_parallel_batch = len(ready)
