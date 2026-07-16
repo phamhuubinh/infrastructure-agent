@@ -284,7 +284,7 @@ def create_deterministic_agent(
     registry_count = 0
     try:
         registry = TargetRegistry(store=store)
-        registry_count = len(registry.list_targets()) if hasattr(registry, 'list_targets') else 0
+        registry_count = len(registry.target_names())
     except Exception:
         registry = TargetRegistry(store=store)
     _info("registry", targets=registry_count, message="Target registry loaded")

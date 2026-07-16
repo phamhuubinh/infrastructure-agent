@@ -42,7 +42,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Installed Packages": "Package Discovery",
     "System Services": "Service Discovery",
     "Running Processes": "Process Discovery",
-    "Listening Ports": "Port Discovery",
     "Configuration Files": "Configuration Inspection",
     "Containers": "Container Discovery",
 
@@ -115,10 +114,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Routing": "Routing Table Assessment",
     "Listening Ports": "Port Discovery",
     "Firewall": "Firewall Inspection",
-
-    # ------------------------------------------------------------------
-    # Configuration Assessment
-    # ------------------------------------------------------------------
     "Configuration Files": "Configuration Inspection",
     "Environment Variables": "Environment Variable Discovery",
 
@@ -128,7 +123,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Firewall Status": "Firewall Status",
     "Block Device Information": "Block Device Information",
     "GPU Information": "GPU Information",
-    "Listening Ports": "Port Discovery",
 
     # ------------------------------------------------------------------
     # Troubleshooting — no fixed mapping; evidence depends on the problem

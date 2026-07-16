@@ -80,8 +80,7 @@ def _cleanup_web() -> None:
                 p.wait(timeout=1)
             except Exception:
                 pass
-    import subprocess as _sp
-    _sp.run(["pkill", "-f", "vite"], capture_output=True)
+    subprocess.run(["pkill", "-f", "vite"], capture_output=True)
     _WEB_PROCESSES.clear()
 
 

@@ -193,19 +193,6 @@ class DeterministicAgent:
 
         return response
 
-    def _build_messages_prompt(self, messages: list[dict[str, str]]) -> str:
-        lines = []
-        for msg in messages:
-            role = msg["role"]
-            content = msg["content"]
-            if role == "system":
-                lines.append(f"Context: {content}")
-            elif role == "user":
-                lines.append(f"User: {content}")
-            elif role == "assistant":
-                lines.append(f"Assistant: {content}")
-        return "\n\n".join(lines)
-
     def _is_knowledge_question(self, user_request: str) -> bool:
         """Check if the request is a general knowledge question (e.g. K8s)."""
         from src.pipeline.intent_resolver import IntentResolver as _Resolver
