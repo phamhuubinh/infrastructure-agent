@@ -99,6 +99,41 @@
       "status": "pending"
     },
     {
+      "id": 24,
+      "priority": "P1",
+      "category": "enhancement",
+      "description": "Implement early completion in ExecutionRuntime — stop executing once sufficient evidence collected (05_EXECUTION_PIPELINE.md line 60)",
+      "status": "pending"
+    },
+    {
+      "id": 25,
+      "priority": "P1",
+      "category": "metadata",
+      "description": "Add missing capability metadata fields: description, supported targets, parameters, estimated cost to Capability dataclass and tools (06_TOOL_AND_CAPABILITY_DESIGN.md line 25)",
+      "status": "pending"
+    },
+    {
+      "id": 26,
+      "priority": "P1",
+      "category": "dependencies",
+      "description": "Fix pyproject.toml dep issue — fastapi/uvicorn/pydantic are runtime deps not optional; remove unused requests/numpy",
+      "status": "pending"
+    },
+    {
+      "id": 27,
+      "priority": "P1",
+      "category": "documentation",
+      "description": "Fix 08_PROJECT_STATE.md claim about RAGTool — RAGTool exists at src/tool/RAGTool/",
+      "status": "pending"
+    },
+    {
+      "id": 28,
+      "priority": "P1",
+      "category": "documentation",
+      "description": "Fix 02_CURRENT_ARCHITECTURE.md line 59-61 — claims no tests/benchmark but both exist",
+      "status": "pending"
+    },
+    {
       "id": 17,
       "priority": "P2",
       "category": "documentation",
@@ -120,17 +155,10 @@
       "status": "pending"
     },
     {
-      "id": 20,
-      "priority": "P2",
-      "category": "dependencies",
-      "description": "Remove unused dependencies from pyproject.toml — numpy, requests",
-      "status": "pending"
-    },
-    {
       "id": 21,
       "priority": "P2",
       "category": "cleanup",
-      "description": "Remove ui/AGENTS.md — Lovable branding not fully cleaned up",
+      "description": "Remove ui/AGENTS.md and ui/.lovable/ — Lovable branding not fully cleaned up",
       "status": "pending"
     },
     {
@@ -145,6 +173,27 @@
       "priority": "P2",
       "category": "documentation",
       "description": "Document .workflow directory in README",
+      "status": "pending"
+    },
+    {
+      "id": 29,
+      "priority": "P2",
+      "category": "enhancement",
+      "description": "Add intra-execution caching to avoid duplicate infrastructure access within single execution (06_TOOL_AND_CAPABILITY_DESIGN.md line 27)",
+      "status": "pending"
+    },
+    {
+      "id": 30,
+      "priority": "P2",
+      "category": "cleanup",
+      "description": "Update .clinerules to follow reading order and conflict priority from 00_BOOTSTRAP.md",
+      "status": "pending"
+    },
+    {
+      "id": 20,
+      "priority": "P2",
+      "category": "dependencies",
+      "description": "Remove unused dependencies from pyproject.toml — numpy, requests",
       "status": "pending"
     }
   ],
@@ -169,6 +218,6 @@
   "metrics": {
     "tests_passed": 600,
     "tests_total": 600,
-    "commits_made": 13
+    "commits_made": 15
   }
 }
