@@ -48,7 +48,7 @@
       "priority": "P0",
       "category": "platform",
       "description": "WP1: Set up Docker Compose for API/Web UI/PostgreSQL (local)",
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-07-16T22:25:26Z"
     },
     {
