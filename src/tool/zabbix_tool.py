@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable
 from urllib import error as urlerror
 from urllib import request
 

@@ -104,6 +104,6 @@ class DeterministicResponder:
             )
 
         return (
-            f"## Service Status\n\n"
-            f"No service status data available. Could not determine service state."
+            "## Service Status\n\n"
+            "No service status data available. Could not determine service state."
         )

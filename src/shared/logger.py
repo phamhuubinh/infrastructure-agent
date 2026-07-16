@@ -7,7 +7,6 @@ import threading
 
 _lock = threading.Lock()
 _enabled = False
-_file_writer = None
 _file_lock = threading.Lock()
 
 

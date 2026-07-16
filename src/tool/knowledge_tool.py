@@ -101,7 +101,6 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "system-environment": "Environment Variable Discovery",
     "tls-certificates": "Certificate Discovery",
     "application-discovery": "Service Discovery",
-    "monitoring-version": "Monitoring Version",
 }
 
 

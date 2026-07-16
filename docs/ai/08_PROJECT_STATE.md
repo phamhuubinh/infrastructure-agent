@@ -43,13 +43,9 @@
 - **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
 
 ## Known issues / open items being tracked
-- **Dependency declaration**: `pyproject.toml` currently lists `dependencies = []` while the codebase has real imports beyond the standard library — needs to be reconciled (rule 15, `07_DEVELOPMENT_RULES.md`).
-- **Credential handling**: tool defaults for Grafana/Zabbix must not hardcode tokens (rule 16). `servers.json`, `targets.json`, `tools.json` contain real tokens and IPs — should be `.gitignored` and loaded from env.
 - **SSH host key checking** is currently disabled by design for the local trusted-network use case — this is an intentional trade-off, recorded in `09_ARCHITECTURE_DECISIONS.md`, not an oversight.
-- **Empty scaffolding directories**: `src/knowledge/`, `src/schema/`, `src/runtime/` exist as empty scaffolding with no files. Treat as reserved-but-unused; do not build against them without confirming intent first.
-- **pytest plugin incompatibility**: `ModuleNotFoundError: No module named '_pytest.scope'` prevents automated test runs.
+- **Dependency reconciliation**: `pyproject.toml` dependencies have been partially reconciled. Third-party packages that are actually imported are declared; unused declarations (`numpy`, `requests`) remain as placeholders pending removal.
 
 ## Next milestones
-1. Reconcile dependency declarations and credential handling (housekeeping, no roadmap dependency).
-2. Fix pytest plugin incompatibility to enable automated test suite.
-3. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
+1. Complete code quality improvements (lint fixes, test coverage for untested modules).
+2. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.

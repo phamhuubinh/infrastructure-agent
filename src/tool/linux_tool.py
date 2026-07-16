@@ -492,7 +492,7 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     )
 
     if ok:
-        lines = [l for l in output.splitlines() if l.strip()]
+        lines = [ln for ln in output.splitlines() if ln.strip()]
         return {"package_count": len(lines), "summary": f"{len(lines)} packages installed"}
 
     ok, output = run(
@@ -505,7 +505,7 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     )
 
     if ok:
-        lines = [l for l in output.splitlines() if l.strip()]
+        lines = [ln for ln in output.splitlines() if ln.strip()]
         return {"package_count": len(lines), "summary": f"{len(lines)} packages installed"}
 
     return {"package_count": 0, "summary": "unable to query packages"}

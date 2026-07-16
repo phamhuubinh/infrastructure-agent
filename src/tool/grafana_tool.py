@@ -383,8 +383,8 @@ def _dashboard_details(api: GrafanaProvider, uid: str = "") -> dict[str, object]
         "live_now": dashboard.get("liveNow", False),
         "time_from": time.get("from", ""),
         "time_to": time.get("to", ""),
-        "links": [{"title": l.get("title", ""), "type": l.get("type", ""), "url": l.get("url", "")}
-                   for l in links if isinstance(l, dict)],
+        "links": [{"title": link.get("title", ""), "type": link.get("type", ""), "url": link.get("url", "")}
+                   for link in links if isinstance(link, dict)],
         "variables": [
             {
                 "name": v.get("name", ""), "type": v.get("type", ""),

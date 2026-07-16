@@ -148,14 +148,15 @@ run_iteration() {
   log "OPENCODE" "launching..."
   cd "$REPO_ROOT" && opencode run "$prompt" --auto --no-replay 2>&1 | tee -a "$SESSION_LOG" || true
 
-  # Post OpenCode: run full validation (background, non-blocking)
+  # Post OpenCode: run validation (non-blocking, detached)
   log "TASK" "[#$task_id] post-run validation..."
-  full_test &
-  local test_pid=$!
-  # Wait up to 30s, then detach (tests keep running in background)
-  sleep 30 && wait $test_pid 2>/dev/null || true
-  lint_check
-  typecheck
+  (
+    lint_check
+    typecheck
+    # Full test runs detached — does not block the daemon loop
+    timeout 600 bash "$SCRIPT_DIR/commands/run-tests.sh" > /tmp/orion_full_test.log 2>&1 || true
+    log "TEST" "detached test run finished"
+  ) &
 
   log "TASK" "[#$task_id] done"
   return 0
