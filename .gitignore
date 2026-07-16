@@ -26,3 +26,6 @@ ui/dist/
 
 # Local secrets (credentials, API tokens)
 config/secrets.local.json
+
+# Tool config with secrets removed — never commit token/url here
+tools.json

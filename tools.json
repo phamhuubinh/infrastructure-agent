@@ -1,15 +1,11 @@
 {
   "zabbix": {
     "tool": "zabbix",
-    "url": "http://192.168.10.222/zabbix",
-    "token": "7456fa347e17ce81f8f9d7429c8d4b8c2161b9fe62596d629ad390fdfb7e4eb7",
     "timeout": 10,
     "target": "zabbix"
   },
   "grafana": {
     "tool": "grafana",
-    "url": "http://192.168.10.222:3000",
-    "token": "glsa_QJGHWVzeJ5ujBcTBN9PpRNTDE40yrGTg_28574da4",
     "timeout": 10,
     "target": "grafana"
   }
