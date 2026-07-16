@@ -6,6 +6,9 @@ from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 
+_EXPECTED_CORES = 4
+_EXPECTED_PACKAGES_3 = 3
+
 
 class TestAssessmentAdapter:
     def test_build_full_request(self) -> None:
@@ -31,7 +34,7 @@ class TestAssessmentAdapter:
         assert result.raw_request == "check server health"
         assert result.intent == "MACHINE_ASSESSMENT"
         assert len(result.evidence) == 1
-        assert result.evidence[0].data["cores"] == 4
+        assert result.evidence[0].data["cores"] == _EXPECTED_CORES
         assert result.evidence_complete is True
         assert result.missing_evidence == ()
 
@@ -72,7 +75,9 @@ class TestAssessmentAdapter:
         inv.evidence = [
             EvidencePackage(capability_name="CPU", evidence_name="CPU", success=True),
             EvidencePackage(
-                capability_name="RAM", evidence_name="Memory", success=True,
+                capability_name="RAM",
+                evidence_name="Memory",
+                success=True,
             ),
             EvidencePackage(
                 capability_name="Disk",
@@ -82,7 +87,7 @@ class TestAssessmentAdapter:
             ),
         ]
         result = AssessmentAdapter().build(inv)
-        assert len(result.evidence) == 3
+        assert len(result.evidence) == _EXPECTED_PACKAGES_3
         assert result.evidence[0].capability_name == "CPU"
         assert result.evidence[1].capability_name == "RAM"
         assert result.evidence[2].error == "I/O error"
@@ -128,7 +133,7 @@ class TestAssessmentAdapter:
             ),
         ]
         result = AssessmentAdapter().build(inv)
-        assert result.evidence[0].data["cores"] == 4
+        assert result.evidence[0].data["cores"] == _EXPECTED_CORES
         assert result.evidence[0].data["model"] == "Intel Xeon"
         assert result.evidence[1].success is False
         assert result.evidence[1].error == "Connection refused"
