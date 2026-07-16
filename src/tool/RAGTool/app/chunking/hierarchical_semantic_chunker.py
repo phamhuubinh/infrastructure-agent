@@ -19,6 +19,7 @@ whole chunker is testable without a real model. Swap in a real embedding
 provider (Qwen3 / BGE-M3 / OpenAI-compatible) for production-quality
 semantic boundaries.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -81,7 +82,9 @@ class HierarchicalSemanticChunker:
 
     # -- Pass 2: semantic packing within a section ------------------------
 
-    def _chunk_section(self, blocks, heading_path: list[str], doc_id: str) -> list[Chunk]:
+    def _chunk_section(
+        self, blocks, heading_path: list[str], doc_id: str
+    ) -> list[Chunk]:
         chunks: list[Chunk] = []
         buffer_texts: list[str] = []
         buffer_page: int | None = None

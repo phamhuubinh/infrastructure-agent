@@ -91,6 +91,7 @@ def test_localhost_fallback_when_no_explicit_target() -> None:
 
 def test_monitoring_assignment_falls_back_to_zabbix() -> None:
     from src.pipeline.intent_resolver import IntentResolver
+
     resolver = _resolver_with_targets("localhost", "zabbix")
     intent_resolver = IntentResolver()
     req = intent_resolver.resolve("show alerts")

@@ -35,7 +35,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Recent Logs": "Log Discovery",
     "Docker": "Container Discovery",
     "Security Status": "Security Posture Summary",
-
     # ------------------------------------------------------------------
     # Application Discovery
     # ------------------------------------------------------------------
@@ -44,7 +43,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Running Processes": "Process Discovery",
     "Configuration Files": "Configuration Inspection",
     "Containers": "Container Discovery",
-
     # ------------------------------------------------------------------
     # Service Assessment
     # ------------------------------------------------------------------
@@ -52,7 +50,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Service Configuration": "Service Configuration Inspection",
     "Service Logs": "Service Log Discovery",
     "Dependencies": "Dependency Discovery",
-
     # ------------------------------------------------------------------
     # Monitoring Assessment
     # ------------------------------------------------------------------
@@ -72,7 +69,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Host Interfaces": "Host Interface Discovery",
     "Items": "Item Discovery",
     "Alerts": "Alert Discovery",
-
     # ------------------------------------------------------------------
     # Security Assessment
     # ------------------------------------------------------------------
@@ -83,7 +79,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "SELinux": "SELinux Status",
     "Recent Logins": "Recent Login Discovery",
     "Certificates": "Certificate Discovery",
-
     # ------------------------------------------------------------------
     # Performance Assessment
     # ------------------------------------------------------------------
@@ -93,7 +88,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Load Average": "System Load Assessment",
     "I/O Statistics": "I/O Performance Assessment",
     "Network Usage": "Network Utilization",
-
     # ------------------------------------------------------------------
     # Storage Assessment
     # ------------------------------------------------------------------
@@ -103,7 +97,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "SMART Status": "SMART Health Assessment",
     "RAID Status": "RAID Health Assessment",
     "Storage Performance": "Storage Performance Assessment",
-
     # ------------------------------------------------------------------
     # Network Assessment
     # ------------------------------------------------------------------
@@ -116,14 +109,12 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "Firewall": "Firewall Inspection",
     "Configuration Files": "Configuration Inspection",
     "Environment Variables": "Environment Variable Discovery",
-
     # ------------------------------------------------------------------
     # Extended capabilities (newly routed — same name, no transformation)
     # ------------------------------------------------------------------
     "Firewall Status": "Firewall Status",
     "Block Device Information": "Block Device Information",
     "GPU Information": "GPU Information",
-
     # ------------------------------------------------------------------
     # Additional tool-level operational capabilities
     # ------------------------------------------------------------------
@@ -138,7 +129,6 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "System Boot Time": "System Boot Time",
     "Kernel Module Discovery": "Kernel Module Discovery",
     "System Locale Discovery": "System Locale Discovery",
-
     # ------------------------------------------------------------------
     # Troubleshooting — no fixed mapping; evidence depends on the problem
     # ------------------------------------------------------------------

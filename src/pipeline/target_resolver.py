@@ -19,10 +19,7 @@ class UnknownTargetError(ValueError):
                 f"Did you mean: {', '.join(sorted(available))}"
             )
         else:
-            super().__init__(
-                f"Unknown target: '{raw_target}'.\n"
-                f"No targets configured."
-            )
+            super().__init__(f"Unknown target: '{raw_target}'.\nNo targets configured.")
 
 
 class TargetResolver:
@@ -117,7 +114,10 @@ class TargetResolver:
 
             # Dashboard/panel questions -> prefer grafana
             if intent_name == "MONITORING_ASSESSMENT":
-                if any(kw in raw for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")):
+                if any(
+                    kw in raw
+                    for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")
+                ):
                     if "grafana" in known_names:
                         request.target = "grafana"
                         return
@@ -131,16 +131,63 @@ class TargetResolver:
         # If the request mentions "on <name>" or "for <name>" and that
         # name looks like a hostname, raise UnknownTargetError.
         _prepositions = frozenset({"on", "for", "at", "from"})
-        _skip_words = frozenset({
-            "the", "a", "an", "is", "are", "was", "were", "check", "show",
-            "get", "list", "find", "what", "how", "why", "when", "where",
-            "in", "with", "of", "to", "and", "or", "but", "not", "all",
-            "cpu", "memory", "disk", "network", "storage", "system",
-            "alert", "alerts", "problem", "problems", "service", "services",
-            "status", "health", "performance", "security", "config",
-            "monitor", "monitoring", "dashboard", "dashboards", "host",
-            "hosts", "process", "processes", "package", "packages",
-        })
+        _skip_words = frozenset(
+            {
+                "the",
+                "a",
+                "an",
+                "is",
+                "are",
+                "was",
+                "were",
+                "check",
+                "show",
+                "get",
+                "list",
+                "find",
+                "what",
+                "how",
+                "why",
+                "when",
+                "where",
+                "in",
+                "with",
+                "of",
+                "to",
+                "and",
+                "or",
+                "but",
+                "not",
+                "all",
+                "cpu",
+                "memory",
+                "disk",
+                "network",
+                "storage",
+                "system",
+                "alert",
+                "alerts",
+                "problem",
+                "problems",
+                "service",
+                "services",
+                "status",
+                "health",
+                "performance",
+                "security",
+                "config",
+                "monitor",
+                "monitoring",
+                "dashboard",
+                "dashboards",
+                "host",
+                "hosts",
+                "process",
+                "processes",
+                "package",
+                "packages",
+            }
+        )
         for i, word in enumerate(words):
             if word in _prepositions and i + 1 < len(words):
                 candidate = words[i + 1]

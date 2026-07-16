@@ -11,10 +11,12 @@ from app.fusion.rrf import reciprocal_rank_fusion
 
 class RrfTest(unittest.TestCase):
     def test_doc_appearing_in_both_rankings_outranks_single_ranking_doc(self):
-        fused = reciprocal_rank_fusion({
-            "dense": ["a", "b", "c"],
-            "sparse": ["b", "a", "d"],
-        })
+        fused = reciprocal_rank_fusion(
+            {
+                "dense": ["a", "b", "c"],
+                "sparse": ["b", "a", "d"],
+            }
+        )
         ids = [f.id for f in fused]
         # 'a' and 'b' both appear in both rankings near the top; either could
         # be first depending on exact ranks, but both must outrank 'c' and 'd'

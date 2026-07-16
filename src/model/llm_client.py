@@ -46,7 +46,12 @@ class LLMClient:
     def last_usage(self) -> dict[str, int] | None:
         return self._last_usage
 
-    def generate(self, prompt: str, request_id: str | None = None, system_prompt: str | None = None) -> str:
+    def generate(
+        self,
+        prompt: str,
+        request_id: str | None = None,
+        system_prompt: str | None = None,
+    ) -> str:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -77,26 +82,43 @@ class LLMClient:
         )
 
         t0 = time.monotonic()
-        debug("llm", request=request_id or "-", model=self._model, provider=self._provider,
-              endpoint=self._base_url, message="LLM request started")
+        debug(
+            "llm",
+            request=request_id or "-",
+            model=self._model,
+            provider=self._provider,
+            endpoint=self._base_url,
+            message="LLM request started",
+        )
 
         elapsed_ms: int = 0
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
-                data: dict[str, object] = json.loads(
-                    response.read().decode("utf-8")
-                )
+                data: dict[str, object] = json.loads(response.read().decode("utf-8"))
         except KeyboardInterrupt:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            log_error("llm", request=request_id or "-", model=self._model,
-                      provider=self._provider, endpoint=self._base_url, error="Cancelled",
-                      elapsed_ms=elapsed_ms)
+            log_error(
+                "llm",
+                request=request_id or "-",
+                model=self._model,
+                provider=self._provider,
+                endpoint=self._base_url,
+                error="Cancelled",
+                elapsed_ms=elapsed_ms,
+            )
             raise RuntimeError("Cancelled")
         except urlerror.HTTPError as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            log_error("llm", request=request_id or "-", model=self._model,
-                      provider=self._provider, endpoint=self._base_url, error=exc.reason,
-                      status=exc.code, elapsed_ms=elapsed_ms)
+            log_error(
+                "llm",
+                request=request_id or "-",
+                model=self._model,
+                provider=self._provider,
+                endpoint=self._base_url,
+                error=exc.reason,
+                status=exc.code,
+                elapsed_ms=elapsed_ms,
+            )
             raise RuntimeError(
                 f"LLM API returned HTTP {exc.code} at "
                 f"{self._base_url}/v1/chat/completions "
@@ -104,24 +126,34 @@ class LLMClient:
             ) from exc
         except (OSError, json.JSONDecodeError) as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            log_error("llm", request=request_id or "-", model=self._model,
-                      provider=self._provider, endpoint=self._base_url, error=str(exc),
-                      elapsed_ms=elapsed_ms)
+            log_error(
+                "llm",
+                request=request_id or "-",
+                model=self._model,
+                provider=self._provider,
+                endpoint=self._base_url,
+                error=str(exc),
+                elapsed_ms=elapsed_ms,
+            )
             raise RuntimeError(
-                f"LLM API request failed at "
-                f"{self._base_url}/v1/chat/completions: {exc}"
+                f"LLM API request failed at {self._base_url}/v1/chat/completions: {exc}"
             ) from exc
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
         choices = data.get("choices")
         if not isinstance(choices, list) or len(choices) == 0:
-            log_error("llm", request=request_id or "-", model=self._model,
-                      provider=self._provider, endpoint=self._base_url, error="no_choices",
-                      elapsed_ms=elapsed_ms)
+            log_error(
+                "llm",
+                request=request_id or "-",
+                model=self._model,
+                provider=self._provider,
+                endpoint=self._base_url,
+                error="no_choices",
+                elapsed_ms=elapsed_ms,
+            )
             raise RuntimeError(
-                f"LLM API returned no choices at "
-                f"{self._base_url}/v1/chat/completions"
+                f"LLM API returned no choices at {self._base_url}/v1/chat/completions"
             )
 
         first = choices[0]
@@ -139,8 +171,7 @@ class LLMClient:
         raw_usage = data.get("usage")
         if isinstance(raw_usage, dict):
             self._last_usage = {
-                k: int(v) for k, v in raw_usage.items()
-                if isinstance(v, (int, float))
+                k: int(v) for k, v in raw_usage.items() if isinstance(v, (int, float))
             }
         else:
             self._last_usage = None
@@ -151,30 +182,43 @@ class LLMClient:
             if isinstance(fr, str):
                 finish_reason = fr
 
-        info("llm", request=request_id or "-",
-             model=self._model,
-             provider=self._provider,
-             endpoint=self._base_url,
-             max_tokens=self._max_tokens,
-             temperature=self._temperature,
-             timeout=self._timeout,
-             input_tokens=self._last_usage.get("prompt_tokens") if self._last_usage else None,
-             output_tokens=self._last_usage.get("completion_tokens") if self._last_usage else None,
-             total_tokens=self._last_usage.get("total_tokens") if self._last_usage else None,
-             duration_ms=elapsed_ms,
-             finish_reason=finish_reason,
-             message="LLM response received")
+        info(
+            "llm",
+            request=request_id or "-",
+            model=self._model,
+            provider=self._provider,
+            endpoint=self._base_url,
+            max_tokens=self._max_tokens,
+            temperature=self._temperature,
+            timeout=self._timeout,
+            input_tokens=self._last_usage.get("prompt_tokens")
+            if self._last_usage
+            else None,
+            output_tokens=self._last_usage.get("completion_tokens")
+            if self._last_usage
+            else None,
+            total_tokens=self._last_usage.get("total_tokens")
+            if self._last_usage
+            else None,
+            duration_ms=elapsed_ms,
+            finish_reason=finish_reason,
+            message="LLM response received",
+        )
 
         return content
 
     def health_check(self, timeout: int = 5) -> bool:
-        data = json.dumps({"model": self._model, "messages": [{"role": "user", "content": "ok"}]}).encode()
+        data = json.dumps(
+            {"model": self._model, "messages": [{"role": "user", "content": "ok"}]}
+        ).encode()
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
         req = request.Request(
             f"{self._base_url}/v1/chat/completions",
-            data=data, headers=headers, method="POST",
+            data=data,
+            headers=headers,
+            method="POST",
         )
         with request.urlopen(req, timeout=timeout) as resp:
             resp.read()

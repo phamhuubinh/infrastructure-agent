@@ -6,6 +6,7 @@ on a document. Requires `pip install marker-pdf`. Written against Marker's
 real API (`PdfConverter` + model dict loader); fails soft to let the router
 try MinerU/pypdf next.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -62,7 +63,9 @@ def _markdown_to_blocks(markdown_text: str) -> list[ParsedBlock]:
         if line.startswith("#"):
             level = len(line) - len(line.lstrip("#"))
             blocks.append(
-                ParsedBlock(text=line.lstrip("# ").strip(), block_type="heading", level=level)
+                ParsedBlock(
+                    text=line.lstrip("# ").strip(), block_type="heading", level=level
+                )
             )
         elif line.startswith("|"):
             blocks.append(ParsedBlock(text=line, block_type="table"))

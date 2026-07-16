@@ -83,14 +83,12 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "monitoring-folders": "Dashboard Folder Discovery",
     "datasources": "Data Source Discovery",
     "monitoring-alerts": "Alert Rule Discovery",
-
     # Grafana — additional covers tags
     "monitoring-health": "Monitoring Health",
     "monitoring-version": "Monitoring Version",
     "panels": "Dashboard Panel Discovery",
     "queries": "Dashboard Query Discovery",
     "monitoring-annotations": "Monitoring Annotation Discovery",
-
     # Linux — additional covers tags
     "users": "User Discovery",
     "hardware": "Hardware Inventory",
@@ -221,26 +219,30 @@ class KnowledgeTool(Tool):
             for cap_name, value in raw.items():
                 if isinstance(value, Capability):
                     if value.operational_name:
-                        entries.append({
-                            "name": cap_name,
-                            "category": value.category,
-                            "intents": list(value.intents),
-                            "related": list(value.related),
-                            "covers": list(value.covers),
-                            "operational_name": value.operational_name,
-                        })
+                        entries.append(
+                            {
+                                "name": cap_name,
+                                "category": value.category,
+                                "intents": list(value.intents),
+                                "related": list(value.related),
+                                "covers": list(value.covers),
+                                "operational_name": value.operational_name,
+                            }
+                        )
                     elif value.covers:
                         for tag in value.covers:
                             resolved = _COVERS_TO_OPERATIONAL.get(tag)
                             if resolved:
-                                entries.append({
-                                    "name": cap_name,
-                                    "category": value.category,
-                                    "intents": list(value.intents),
-                                    "related": list(value.related),
-                                    "covers": [tag],
-                                    "operational_name": resolved,
-                                })
+                                entries.append(
+                                    {
+                                        "name": cap_name,
+                                        "category": value.category,
+                                        "intents": list(value.intents),
+                                        "related": list(value.related),
+                                        "covers": [tag],
+                                        "operational_name": resolved,
+                                    }
+                                )
                     else:
                         entries.append({"name": cap_name})
                 else:

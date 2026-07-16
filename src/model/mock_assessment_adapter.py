@@ -15,6 +15,7 @@ class MockAssessmentAdapter(AssessmentModelAdapter):
     def assess_raw(self, prompt: str) -> str:
         """Mock raw chat — just echo back a friendly response."""
         from src.pipeline.intent_resolver import IntentResolver
+
         resolver = IntentResolver()
         req = resolver.resolve(prompt)
         if req.confidence.name in ("HIGH", "MEDIUM"):

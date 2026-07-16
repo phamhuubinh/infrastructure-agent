@@ -11,6 +11,7 @@ API-based models" — it's real, network-testable code (point `base_url` at
 any running OpenAI-compatible server, including a local vLLM instance),
 without needing to load a model in-process.
 """
+
 from __future__ import annotations
 
 import requests

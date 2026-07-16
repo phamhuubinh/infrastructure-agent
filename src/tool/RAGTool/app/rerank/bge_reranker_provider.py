@@ -4,6 +4,7 @@ Requires `pip install FlagEmbedding` (uses the lightweight
 `FlagReranker`/`LayerWiseFlagLLMReranker` gemma-based v2 model family).
 Written against FlagEmbedding's real API.
 """
+
 from __future__ import annotations
 
 from app.rerank.base import RerankedResult
@@ -12,7 +13,12 @@ from app.rerank.base import RerankedResult
 class BgeRerankerV2Provider:
     name = "bge-reranker-v2"
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3", device: str = "cuda", use_fp16: bool = True) -> None:
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-reranker-v2-m3",
+        device: str = "cuda",
+        use_fp16: bool = True,
+    ) -> None:
         self._model_name = model_name
         self._device = device
         self._use_fp16 = use_fp16
@@ -31,7 +37,9 @@ class BgeRerankerV2Provider:
             )
         return self._model
 
-    def rerank(self, query: str, candidates: list[tuple[str, str]], top_k: int = 10) -> list[RerankedResult]:
+    def rerank(
+        self, query: str, candidates: list[tuple[str, str]], top_k: int = 10
+    ) -> list[RerankedResult]:
         if not candidates:
             return []
         model = self._get_model()

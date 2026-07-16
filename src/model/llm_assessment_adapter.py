@@ -63,11 +63,26 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
             response = self._client.generate(prompt)
             latency = round((_time.perf_counter() - t0) * 1000, 1)
             usage = self._client.last_usage
-            _info("llm", status="success", mode="raw", duration_ms=latency, input_tokens=usage.get("prompt_tokens","N/A") if usage else "N/A", output_tokens=usage.get("completion_tokens","N/A") if usage else "N/A", message="LLM raw response received")
+            _info(
+                "llm",
+                status="success",
+                mode="raw",
+                duration_ms=latency,
+                input_tokens=usage.get("prompt_tokens", "N/A") if usage else "N/A",
+                output_tokens=usage.get("completion_tokens", "N/A") if usage else "N/A",
+                message="LLM raw response received",
+            )
             return response
         except Exception as exc:
             latency = round((_time.perf_counter() - t0) * 1000, 1)
-            _info("llm", status="error", mode="raw", duration_ms=latency, error=str(exc)[:80], message="LLM raw call failed")
+            _info(
+                "llm",
+                status="error",
+                mode="raw",
+                duration_ms=latency,
+                error=str(exc)[:80],
+                message="LLM raw call failed",
+            )
             raise
 
     def _assess_with_result(
@@ -91,7 +106,13 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         try:
             response = self._client.generate(prompt)
         except Exception as exc:
-            _info("llm", status="error", error=str(exc)[:80], duration_ms=round((_time.perf_counter() - t0) * 1000, 1), message="LLM call failed")
+            _info(
+                "llm",
+                status="error",
+                error=str(exc)[:80],
+                duration_ms=round((_time.perf_counter() - t0) * 1000, 1),
+                message="LLM call failed",
+            )
             return AssessmentResult(
                 content="",
                 success=False,
@@ -105,7 +126,14 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         usage = self._client.last_usage
         pt = usage.get("prompt_tokens") if usage else None
         ct = usage.get("completion_tokens") if usage else None
-        _info("llm", status="success", duration_ms=latency, input_tokens=pt or "N/A", output_tokens=ct or "N/A", message="LLM response received")
+        _info(
+            "llm",
+            status="success",
+            duration_ms=latency,
+            input_tokens=pt or "N/A",
+            output_tokens=ct or "N/A",
+            message="LLM response received",
+        )
         return AssessmentResult(
             content=response,
             success=True,

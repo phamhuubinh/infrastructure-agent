@@ -6,6 +6,7 @@ Docling/Marker/MinerU produce much better structure (headings, tables,
 reading order) — but this one always works, so ingestion never hard-fails
 just because a heavier parser's dependency isn't installed yet.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,7 +45,9 @@ class PyPdfParser:
                 blocks.append(
                     ParsedBlock(
                         text=para,
-                        block_type="heading" if _looks_like_heading(para) else "paragraph",
+                        block_type="heading"
+                        if _looks_like_heading(para)
+                        else "paragraph",
                         level=1 if _looks_like_heading(para) else 0,
                         page=page_idx,
                     )

@@ -8,6 +8,7 @@ last because it has no external dependency and therefore always works —
 this guarantees ingestion never dies just because Docling/Marker aren't
 deployed yet.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +19,13 @@ from app.parsers.base import DocumentParser, ParsedDocument, ParserError
 logger = logging.getLogger(__name__)
 
 _SCIENTIFIC_HINTS = (
-    "abstract", "references", "doi:", "arxiv", "et al.", "fig.", "eq.",
+    "abstract",
+    "references",
+    "doi:",
+    "arxiv",
+    "et al.",
+    "fig.",
+    "eq.",
 )
 
 
@@ -41,7 +48,9 @@ class ParserRouter:
 
     def looks_scientific(self, path: Path) -> bool:
         try:
-            sample = path.read_bytes()[:20000].decode("latin-1", errors="ignore").lower()
+            sample = (
+                path.read_bytes()[:20000].decode("latin-1", errors="ignore").lower()
+            )
         except Exception:
             return False
         return sum(hint in sample for hint in _SCIENTIFIC_HINTS) >= 2
@@ -65,7 +74,9 @@ class ParserRouter:
                 if errors:
                     logger.info(
                         "Parsed '%s' with fallback parser '%s' after: %s",
-                        path, parser.name, "; ".join(errors),
+                        path,
+                        parser.name,
+                        "; ".join(errors),
                     )
                 return doc
             except ParserError as exc:

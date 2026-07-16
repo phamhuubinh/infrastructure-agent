@@ -5,6 +5,7 @@ plain text plus structural hints (pages, headings, tables) that downstream
 chunking can use. All parsers must implement the same contract so the
 router can fall back between them transparently.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

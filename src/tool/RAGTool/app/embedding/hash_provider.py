@@ -8,6 +8,7 @@ any network access or GPU, in this sandbox and in CI. Swap for
 Qwen3EmbeddingProvider / BgeM3EmbeddingProvider / an OpenAI-compatible
 provider hitting vLLM before going to production.
 """
+
 from __future__ import annotations
 
 import hashlib

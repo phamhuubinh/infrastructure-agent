@@ -8,6 +8,7 @@ real public API so it works as-is once the dependency is installed on your
 GPU/CPU host; it fails soft (ParserError) if the package or model download
 isn't available, so the router falls back to Marker/MinerU/pypdf.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

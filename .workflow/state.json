@@ -19,8 +19,7 @@
       "priority": "P0",
       "category": "testing",
       "description": "Write unit tests for src/pipeline/assessment_adapter.py",
-      "status": "in_progress",
-      "started_at": "2026-07-16T21:45:51Z"
+      "status": "completed"
     },
     {
       "id": 6,
@@ -248,6 +247,13 @@
     }
   ],
   "completed": [
+    {
+      "id": 5,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/pipeline/assessment_adapter.py",
+      "status": "completed"
+    },
     {
       "id": 1,
       "priority": "P0",

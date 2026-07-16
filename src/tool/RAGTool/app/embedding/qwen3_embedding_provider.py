@@ -8,6 +8,7 @@ Qwen3-Embedding uses instruction-prefixed queries for retrieval — this
 provider applies the recommended instruction template for queries and
 leaves documents unprefixed, per the model's usage guide.
 """
+
 from __future__ import annotations
 
 
@@ -19,7 +20,9 @@ class Qwen3EmbeddingProvider:
         "answer the query\nQuery: "
     )
 
-    def __init__(self, model_name: str = "Qwen/Qwen3-Embedding-0.6B", device: str = "cuda") -> None:
+    def __init__(
+        self, model_name: str = "Qwen/Qwen3-Embedding-0.6B", device: str = "cuda"
+    ) -> None:
         self._model_name = model_name
         self._device = device
         self._model = None
@@ -40,12 +43,16 @@ class Qwen3EmbeddingProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         model = self._get_model()
-        embeddings = model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        embeddings = model.encode(
+            texts, normalize_embeddings=True, convert_to_numpy=True
+        )
         return embeddings.tolist()
 
     def embed_query(self, text: str) -> list[float]:
         model = self._get_model()
         embeddings = model.encode(
-            [self._QUERY_INSTRUCTION + text], normalize_embeddings=True, convert_to_numpy=True
+            [self._QUERY_INSTRUCTION + text],
+            normalize_embeddings=True,
+            convert_to_numpy=True,
         )
         return embeddings[0].tolist()

@@ -5,6 +5,7 @@ any network, GPU, or external service. Run with:
 
     python3 -m unittest tests.test_pipeline_e2e -v
 """
+
 from __future__ import annotations
 
 import sys
@@ -41,7 +42,9 @@ class PipelineEndToEndTest(unittest.TestCase):
         self.embedder = HashEmbeddingProvider(dimension=128)
         self.vector_store = InMemoryVectorStore()
         self.bm25 = BM25Index()
-        self.chunker = HierarchicalSemanticChunker(embedder=self.embedder, max_tokens=100)
+        self.chunker = HierarchicalSemanticChunker(
+            embedder=self.embedder, max_tokens=100
+        )
 
         doc = ParsedDocument(
             source_path="fake.pdf",

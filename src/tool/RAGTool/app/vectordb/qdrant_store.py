@@ -5,6 +5,7 @@ Requires `pip install qdrant-client` and a running Qdrant instance (see
 the real `qdrant-client` API; collections are created on first upsert if
 they don't exist yet, sized from the first vector's dimension.
 """
+
 from __future__ import annotations
 
 from app.vectordb.base import ScoredRecord, VectorRecord
@@ -13,7 +14,9 @@ from app.vectordb.base import ScoredRecord, VectorRecord
 class QdrantVectorStore:
     name = "qdrant"
 
-    def __init__(self, url: str = "http://localhost:6333", api_key: str | None = None) -> None:
+    def __init__(
+        self, url: str = "http://localhost:6333", api_key: str | None = None
+    ) -> None:
         try:
             from qdrant_client import QdrantClient
         except ImportError as exc:
@@ -46,14 +49,17 @@ class QdrantVectorStore:
         ]
         self._client.upsert(collection_name=collection, points=points)
 
-    def search(self, collection: str, query_vector: list[float], top_k: int = 10) -> list[ScoredRecord]:
+    def search(
+        self, collection: str, query_vector: list[float], top_k: int = 10
+    ) -> list[ScoredRecord]:
         if not self._client.collection_exists(collection):
             return []
         results = self._client.query_points(
             collection_name=collection, query=query_vector, limit=top_k
         ).points
         return [
-            ScoredRecord(id=str(p.id), score=p.score, payload=p.payload or {}) for p in results
+            ScoredRecord(id=str(p.id), score=p.score, payload=p.payload or {})
+            for p in results
         ]
 
     def delete(self, collection: str, ids: list[str]) -> None:
@@ -61,4 +67,6 @@ class QdrantVectorStore:
 
         if not self._client.collection_exists(collection):
             return
-        self._client.delete(collection_name=collection, points_selector=PointIdsList(points=ids))
+        self._client.delete(
+            collection_name=collection, points_selector=PointIdsList(points=ids)
+        )

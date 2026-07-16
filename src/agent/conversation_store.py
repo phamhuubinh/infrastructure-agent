@@ -31,7 +31,9 @@ Produce only the new merged summary, nothing else."""
 
 
 def list_sessions(store_dir: str | None = None) -> list[dict]:
-    store_path = Path(store_dir or os.path.join(os.path.expanduser("~"), ".orion", "sessions"))
+    store_path = Path(
+        store_dir or os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+    )
     sessions = []
     if not store_path.exists():
         return sessions
@@ -39,27 +41,37 @@ def list_sessions(store_dir: str | None = None) -> list[dict]:
         try:
             data = json.loads(f.read_text())
             msgs = data.get("messages", [])
-            sessions.append({
-                "id": data.get("session_id", f.stem),
-                "title": data.get("title", ""),
-                "source": data.get("source", "terminal"),
-                "updated": data.get("updated_at", ""),
-                "turns": len([m for m in msgs if m.get("role") == "user"]),
-                "preview": (msgs[:1] or [{}])[0].get("content", "")[:80] if msgs else "",
-                "has_summary": bool(data.get("summary")),
-            })
+            sessions.append(
+                {
+                    "id": data.get("session_id", f.stem),
+                    "title": data.get("title", ""),
+                    "source": data.get("source", "terminal"),
+                    "updated": data.get("updated_at", ""),
+                    "turns": len([m for m in msgs if m.get("role") == "user"]),
+                    "preview": (msgs[:1] or [{}])[0].get("content", "")[:80]
+                    if msgs
+                    else "",
+                    "has_summary": bool(data.get("summary")),
+                }
+            )
         except Exception:
             pass
     return sessions
 
 
 class ConversationStore:
-    def __init__(self, session_id: str, store_dir: str | None = None,
-                 summarize_fn: Callable[[str], str] | None = None,
-                 source: str = "terminal") -> None:
+    def __init__(
+        self,
+        session_id: str,
+        store_dir: str | None = None,
+        summarize_fn: Callable[[str], str] | None = None,
+        source: str = "terminal",
+    ) -> None:
         self._session_id = session_id
         self._source = source
-        self._store_dir = Path(store_dir or os.path.join(os.path.expanduser("~"), ".orion", "sessions"))
+        self._store_dir = Path(
+            store_dir or os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+        )
         self._store_dir.mkdir(parents=True, exist_ok=True)
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
@@ -74,7 +86,12 @@ class ConversationStore:
     @property
     def history(self) -> list[dict[str, str]]:
         if self._summary:
-            return [{"role": "system", "content": f"Previous conversation summary: {self._summary}"}] + self._mem
+            return [
+                {
+                    "role": "system",
+                    "content": f"Previous conversation summary: {self._summary}",
+                }
+            ] + self._mem
         return list(self._mem)
 
     def add_turn(self, user: str, assistant: str) -> None:
@@ -103,8 +120,7 @@ class ConversationStore:
             return
 
         new_turns_text = "\n".join(
-            f"{m['role']}: {m['content'][:500]}"
-            for m in all_turns
+            f"{m['role']}: {m['content'][:500]}" for m in all_turns
         )
 
         prompt = _SUMMARIZE_SYSTEM_PROMPT.format(
@@ -120,11 +136,19 @@ class ConversationStore:
                     self._mem = []
                     self._dirty = True
                     self._save()
-                    info("session", session=self._session_id, summary_length=len(self._summary),
-                         message="Conversation summarized via LLM")
+                    info(
+                        "session",
+                        session=self._session_id,
+                        summary_length=len(self._summary),
+                        message="Conversation summarized via LLM",
+                    )
         except Exception as exc:
-            info("session", session=self._session_id, error=str(exc)[:80],
-                 message="Summarization failed, keeping full history")
+            info(
+                "session",
+                session=self._session_id,
+                error=str(exc)[:80],
+                message="Summarization failed, keeping full history",
+            )
 
     def set_summarize_fn(self, fn: Callable[[str], str]) -> None:
         """Set the LLM summarization function.
@@ -158,12 +182,20 @@ class ConversationStore:
             data = json.loads(path.read_text())
             self._mem = data.get("messages", [])
             self._summary = data.get("summary")
-            info("session", session=self._session_id, messages=len(self._mem),
-                 has_summary=self._summary is not None,
-                 message="Session loaded from disk")
+            info(
+                "session",
+                session=self._session_id,
+                messages=len(self._mem),
+                has_summary=self._summary is not None,
+                message="Session loaded from disk",
+            )
         except (json.JSONDecodeError, OSError) as exc:
-            info("session", session=self._session_id, error=str(exc)[:60],
-                 message="Failed to load session, starting fresh")
+            info(
+                "session",
+                session=self._session_id,
+                error=str(exc)[:60],
+                message="Failed to load session, starting fresh",
+            )
 
     def _save(self) -> None:
         if not self._dirty:
@@ -180,5 +212,9 @@ class ConversationStore:
             self.store_path.write_text(json.dumps(data, indent=2))
             self._dirty = False
         except OSError as exc:
-            info("session", session=self._session_id, error=str(exc)[:60],
-                 message="Failed to save session")
+            info(
+                "session",
+                session=self._session_id,
+                error=str(exc)[:60],
+                message="Failed to save session",
+            )

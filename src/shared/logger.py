@@ -36,6 +36,7 @@ def _now() -> str:
     sec = int(t)
     ms = int((t - sec) * 1000)
     import datetime
+
     dt = datetime.datetime.fromtimestamp(sec)
     return f"{dt.strftime('%Y-%m-%d %H:%M:%S')}.{ms:03d}"
 

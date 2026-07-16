@@ -6,6 +6,7 @@ tends to be lexically/semantically closer to real relevant documents than
 the bare query is. Uses whatever LLM client is configured
 (app/serving/llm_client.py, OpenAI-compatible — works with vLLM).
 """
+
 from __future__ import annotations
 
 from app.embedding.base import EmbeddingProvider
@@ -20,7 +21,12 @@ _HYDE_PROMPT_TEMPLATE = (
 
 
 class HydeQueryExpander:
-    def __init__(self, llm_client: LlmClient, embedder: EmbeddingProvider, num_hypotheses: int = 1) -> None:
+    def __init__(
+        self,
+        llm_client: LlmClient,
+        embedder: EmbeddingProvider,
+        num_hypotheses: int = 1,
+    ) -> None:
         self._llm = llm_client
         self._embedder = embedder
         self._num_hypotheses = num_hypotheses

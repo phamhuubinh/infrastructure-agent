@@ -59,6 +59,7 @@ class TestLLMClient:
         assert call_args.get_method() == "POST"
         assert "/v1/chat/completions" in call_args.full_url
         import json
+
         body = json.loads(call_args.data)
         assert body["model"] == "gpt-4"
         assert body["messages"][0]["content"] == "test prompt"
@@ -76,6 +77,7 @@ class TestLLMClient:
     @mock.patch("urllib.request.urlopen")
     def test_generate_http_error(self, mock_urlopen: mock.Mock) -> None:
         from urllib.error import HTTPError
+
         mock_urlopen.side_effect = HTTPError(
             url="http://test/v1/chat/completions",
             code=401,
@@ -103,9 +105,7 @@ class TestLLMClient:
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_no_content(self, mock_urlopen: mock.Mock) -> None:
-        mock_urlopen.return_value = _mock_response(
-            b'{"choices": [{"message": {}}]}'
-        )
+        mock_urlopen.return_value = _mock_response(b'{"choices": [{"message": {}}]}')
         client = LLMClient()
         with pytest.raises(RuntimeError, match="no content"):
             client.generate("test")

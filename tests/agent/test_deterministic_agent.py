@@ -11,9 +11,12 @@ from src.agent.runtime_factory import _load_tools_config, _SUPPORTED_TOOL_TYPES,
 
 def test_deterministic_agent_runs_pipeline() -> None:
     from src.pipeline.target_resolver import TargetResolver
+
     original_resolve = TargetResolver.resolve
+
     def patched_resolve(self, request):
         request.target = "localhost"
+
     TargetResolver.resolve = patched_resolve
     try:
         agent = create_deterministic_agent()
@@ -28,8 +31,10 @@ def test_pipeline_only() -> None:
     from src.pipeline.target_resolver import TargetResolver
 
     original_resolve = TargetResolver.resolve
+
     def patched_resolve(self, request):
         request.target = "localhost"
+
     TargetResolver.resolve = patched_resolve
     try:
         agent = create_deterministic_agent()
@@ -75,7 +80,9 @@ def test_oserror_returns_empty() -> None:
 def test_valid_config_loaded() -> None:
     data = {
         "zabbix": {
-            "tool": "zabbix", "url": "http://z", "token": "t",
+            "tool": "zabbix",
+            "url": "http://z",
+            "token": "t",
             "target": "zabbix",
         },
     }
@@ -126,7 +133,9 @@ def test_missing_tool_field_skips_entry(mock_load: mock.Mock) -> None:
 def test_unknown_tool_type_skips_entry(mock_load: mock.Mock) -> None:
     mock_load.return_value = {
         "vmware": {
-            "tool": "vmware", "url": "http://v", "token": "t",
+            "tool": "vmware",
+            "url": "http://v",
+            "token": "t",
         },
     }
     agent = create_deterministic_agent()
@@ -151,11 +160,15 @@ def test_missing_required_fields_skips_entry(mock_load: mock.Mock) -> None:
 def test_duplicate_target_name_handled(mock_load: mock.Mock) -> None:
     mock_load.return_value = {
         "zabbix1": {
-            "tool": "zabbix", "url": "http://z1", "token": "t1",
+            "tool": "zabbix",
+            "url": "http://z1",
+            "token": "t1",
             "target": "zabbix",
         },
         "zabbix2": {
-            "tool": "zabbix", "url": "http://z2", "token": "t2",
+            "tool": "zabbix",
+            "url": "http://z2",
+            "token": "t2",
             "target": "zabbix",  # same target name as zabbix1
         },
     }
@@ -205,9 +218,7 @@ def test_warn_called_on_invalid_json() -> None:
     """Loading invalid JSON should trigger a warning."""
     with mock.patch.object(Path, "exists", return_value=True):
         with mock.patch.object(Path, "read_text", return_value="not json"):
-            with mock.patch(
-                "src.agent.runtime_factory._warn"
-            ) as mock_warn:
+            with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
                 _load_tools_config()
                 mock_warn.assert_called_once()
                 assert "invalid JSON" in mock_warn.call_args[0][0]
@@ -217,9 +228,7 @@ def test_warn_called_on_non_dict_json() -> None:
     """Loading non-dict JSON should trigger a warning."""
     with mock.patch.object(Path, "exists", return_value=True):
         with mock.patch.object(Path, "read_text", return_value='"string"'):
-            with mock.patch(
-                "src.agent.runtime_factory._warn"
-            ) as mock_warn:
+            with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
                 _load_tools_config()
                 mock_warn.assert_called_once()
                 assert "JSON object" in mock_warn.call_args[0][0]
@@ -272,14 +281,19 @@ def test_warn_called_on_duplicate_registration() -> None:
     registry = TargetRegistry()
     registry.register_tool(
         name="zabbix",
-        tool=type("FakeZabbix", (Tool,), {
-            "execute": lambda self, args: ToolResult(success=True),
-        })(),
+        tool=type(
+            "FakeZabbix",
+            (Tool,),
+            {
+                "execute": lambda self, args: ToolResult(success=True),
+            },
+        )(),
     )
 
     with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
         _register_single_tool(
-            registry, "zabbix2",
+            registry,
+            "zabbix2",
             {"tool": "zabbix", "url": "http://z", "token": "t", "target": "zabbix"},
         )
         mock_warn.assert_called_once()
@@ -297,6 +311,7 @@ import pytest  # noqa: E402, F811
 def test_agent_sets_summarize_fn_on_conversation_store() -> None:
     """Agent should call set_summarize_fn on the conversation store."""
     from src.agent.conversation_store import ConversationStore
+
     store = ConversationStore("test_summarize_fn_integration")
     assert store._summarize_fn is None
 
@@ -308,6 +323,7 @@ def test_agent_sets_summarize_fn_on_conversation_store() -> None:
 
 def test_set_summarize_fn_replaces_function() -> None:
     from src.agent.conversation_store import ConversationStore
+
     store = ConversationStore("test_set_fn")
 
     def my_fn(prompt: str) -> str:

@@ -7,13 +7,19 @@ uniform with the other providers).
 Requires `pip install FlagEmbedding`. Model downloads from Hugging Face on
 first use.
 """
+
 from __future__ import annotations
 
 
 class BgeM3EmbeddingProvider:
     name = "bge-m3"
 
-    def __init__(self, model_name: str = "BAAI/bge-m3", device: str = "cuda", use_fp16: bool = True) -> None:
+    def __init__(
+        self,
+        model_name: str = "BAAI/bge-m3",
+        device: str = "cuda",
+        use_fp16: bool = True,
+    ) -> None:
         self._model_name = model_name
         self._device = device
         self._use_fp16 = use_fp16
@@ -35,7 +41,9 @@ class BgeM3EmbeddingProvider:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         model = self._get_model()
-        output = model.encode(texts, return_dense=True, return_sparse=False, return_colbert_vecs=False)
+        output = model.encode(
+            texts, return_dense=True, return_sparse=False, return_colbert_vecs=False
+        )
         return output["dense_vecs"].tolist()
 
     def embed_query(self, text: str) -> list[float]:

@@ -17,7 +17,13 @@ def _sample_result() -> dict:
     return {
         "benchmark": "test_bm",
         "domain": "test",
-        "scores": {"total": 0.95, "reasoning": 1.0, "efficiency": 1.0, "evidence": 1.0, "safety": 1.0},
+        "scores": {
+            "total": 0.95,
+            "reasoning": 1.0,
+            "efficiency": 1.0,
+            "evidence": 1.0,
+            "safety": 1.0,
+        },
         "assessment_metrics": {"overall": 0.8},
         "iterations": 1,
         "elapsed": 0.1,
@@ -59,15 +65,19 @@ def test_human_report_shows_assessment_metrics() -> None:
     """Human report should show assessment metrics when present."""
     result = _sample_result()
     result["assessment_metrics"] = metrics_to_dict(
-        type("Metrics", (), {
-            "evidence_coverage": 0.8,
-            "recommendation_coverage": 0.5,
-            "grounding": 0.75,
-            "completeness": 1.0,
-            "consistency": 1.0,
-            "length": 500,
-            "overall": 0.81,
-        })()
+        type(
+            "Metrics",
+            (),
+            {
+                "evidence_coverage": 0.8,
+                "recommendation_coverage": 0.5,
+                "grounding": 0.75,
+                "completeness": 1.0,
+                "consistency": 1.0,
+                "length": 500,
+                "overall": 0.81,
+            },
+        )()
     )
     report = generate_human_report([result])
     assert "ev_cov=0.80" in report

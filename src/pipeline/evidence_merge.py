@@ -50,12 +50,14 @@ class EvidenceMerge:
             seen.add(cap_name)
 
             ev_name = ev_name_by_cap.get(cap_name, cap_name)
-            packages.append(EvidencePackage(
-                capability_name=cap_name,
-                evidence_name=ev_name,
-                data=result.data if result.success else None,
-                success=result.success,
-                error=result.error if not result.success else None,
-            ))
+            packages.append(
+                EvidencePackage(
+                    capability_name=cap_name,
+                    evidence_name=ev_name,
+                    data=result.data if result.success else None,
+                    success=result.success,
+                    error=result.error if not result.success else None,
+                )
+            )
 
         request.evidence = packages

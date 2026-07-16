@@ -28,7 +28,7 @@ class Tool(ABC):
         user_request: str,
     ) -> str:
         """Build tool-specific deep links from collected evidence.
-        
+
         Optional hook for tools that can generate external URLs.
         Returns an empty string by default.
         """

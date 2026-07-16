@@ -148,7 +148,12 @@ def test_get_network_returns_empty_lists_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_network"})
 
     assert result.success is True
-    assert result.data == {"interfaces": [], "routes": [], "interface_count": 0, "active_interfaces": 0}
+    assert result.data == {
+        "interfaces": [],
+        "routes": [],
+        "interface_count": 0,
+        "active_interfaces": 0,
+    }
 
 
 def test_get_services_parses_systemctl_output(monkeypatch) -> None:
@@ -185,11 +190,18 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_services"})
 
     assert result.success is True
-    assert result.data == {"total": 0, "running": 0, "exited": 0, "failed": 0, "failed_services": []}
+    assert result.data == {
+        "total": 0,
+        "running": 0,
+        "exited": 0,
+        "failed": 0,
+        "failed_services": [],
+    }
 
 
 def test_get_docker_reports_installed_version(monkeypatch) -> None:
     call_count = 0
+
     def fake_run(command, timeout=5):
         nonlocal call_count
         call_count += 1
@@ -333,7 +345,13 @@ def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_memory"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0, "available_kb": 0, "usage_percent": 0}
+    assert result.data == {
+        "total_kb": 0,
+        "used_kb": 0,
+        "free_kb": 0,
+        "available_kb": 0,
+        "usage_percent": 0,
+    }
 
 
 def test_get_disk_parses_df_output(monkeypatch) -> None:
@@ -378,8 +396,7 @@ def test_get_filesystem_parses_proc_mounts(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command == ["cat", "/proc/mounts"]:
             return True, (
-                "/dev/sda1 / ext4 rw,relatime 0 0\n"
-                "tmpfs /tmp tmpfs rw,nosuid 0 0\n"
+                "/dev/sda1 / ext4 rw,relatime 0 0\ntmpfs /tmp tmpfs rw,nosuid 0 0\n"
             )
         return False, ""
 
@@ -510,7 +527,13 @@ def test_get_user_parses_etc_passwd(monkeypatch) -> None:
     assert result.success is True
     assert result.data == {
         "users": [
-            {"name": "root", "uid": "0", "gid": "0", "home": "/root", "shell": "/bin/bash"},
+            {
+                "name": "root",
+                "uid": "0",
+                "gid": "0",
+                "home": "/root",
+                "shell": "/bin/bash",
+            },
             {
                 "name": "alice",
                 "uid": "1000",
@@ -1121,7 +1144,10 @@ def test_get_log_prefers_syslog(monkeypatch) -> None:
     result = tool.execute({"action": "get_log"})
 
     assert result.success is True
-    assert result.data == {"source": "/var/log/syslog", "lines": ["line one", "line two"]}
+    assert result.data == {
+        "source": "/var/log/syslog",
+        "lines": ["line one", "line two"],
+    }
 
 
 def test_get_log_falls_back_to_messages(monkeypatch) -> None:
@@ -1220,9 +1246,7 @@ def test_get_locale_parses_key_value_pairs(monkeypatch) -> None:
     result = tool.execute({"action": "get_locale"})
 
     assert result.success is True
-    assert result.data == {
-        "locale": {"LANG": "en_US.UTF-8", "LC_TIME": "en_US.UTF-8"}
-    }
+    assert result.data == {"locale": {"LANG": "en_US.UTF-8", "LC_TIME": "en_US.UTF-8"}}
 
 
 def test_get_locale_returns_empty_dict_on_failure(monkeypatch) -> None:
@@ -1316,7 +1340,10 @@ def test_get_session_returns_empty_list_on_failure(monkeypatch) -> None:
 def test_get_module_parses_lsmod_output(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command == ["lsmod"]:
-            return True, "Module                  Size  Used by\nnf_tables              200000  1\n"
+            return (
+                True,
+                "Module                  Size  Used by\nnf_tables              200000  1\n",
+            )
         return False, ""
 
     monkeypatch.setattr(
@@ -1417,14 +1444,18 @@ def test_linux_tool_accepts_ssh_backend(monkeypatch) -> None:
 
     def fake_subprocess_run(*, command=None, **kwargs):
         captured.append((command, 0))
+
         class Fake:
             returncode = 0
             stdout = "mocked output"
+
         return Fake()
 
     monkeypatch.setattr(
         "src.tool.execution_backend.subprocess.run",
-        lambda *args, **kwargs: fake_subprocess_run(command=args[0] if args else kwargs.get("command")),
+        lambda *args, **kwargs: fake_subprocess_run(
+            command=args[0] if args else kwargs.get("command")
+        ),
     )
 
     backend = SSHExecutionBackend(host="10.0.0.1", user="admin")
@@ -1441,9 +1472,11 @@ def test_ssh_backend_constructs_correct_command(monkeypatch) -> None:
 
     def fake_run(popenargs, **kwargs):
         captured_commands.append(list(popenargs))
+
         class Fake:
             returncode = 0
             stdout = "mocked"
+
         return Fake()
 
     monkeypatch.setattr(
@@ -1476,9 +1509,11 @@ def test_ssh_backend_includes_batch_mode(monkeypatch) -> None:
 
     def fake_run(popenargs, **kwargs):
         captured_commands.append(list(popenargs))
+
         class Fake:
             returncode = 0
             stdout = "mocked"
+
         return Fake()
 
     monkeypatch.setattr(
@@ -1501,6 +1536,7 @@ def test_ssh_backend_reports_password_prompt(monkeypatch) -> None:
             returncode = 1
             stdout = ""
             stderr = "root@10.0.0.1's password:"
+
         return Fake()
 
     monkeypatch.setattr(
@@ -1523,6 +1559,7 @@ def test_ssh_backend_returns_false_on_failure(monkeypatch) -> None:
             returncode = 1
             stdout = ""
             stderr = "permission denied"
+
         return Fake()
 
     monkeypatch.setattr(
@@ -1609,7 +1646,10 @@ def test_get_boot_time_parses_who_b(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=15: (True, "         system boot  2024-01-15 10:00"),
+        lambda self, command, timeout=15: (
+            True,
+            "         system boot  2024-01-15 10:00",
+        ),
     )
 
     tool = LinuxTool()
@@ -1637,7 +1677,10 @@ def test_get_cpu_usage_parses_top_output(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=15: (True, "%Cpu(s):  5.3 us,  2.1 sy,  0.0 ni, 92.6 id"),
+        lambda self, command, timeout=15: (
+            True,
+            "%Cpu(s):  5.3 us,  2.1 sy,  0.0 ni, 92.6 id",
+        ),
     )
 
     tool = LinuxTool()
@@ -1667,14 +1710,22 @@ def test_get_swap_parses_meminfo(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=15: (True, "SwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"),
+        lambda self, command, timeout=15: (
+            True,
+            "SwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n",
+        ),
     )
 
     tool = LinuxTool()
     result = tool.execute({"action": "get_swap"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 2097152, "used_kb": 1048576, "free_kb": 1048576, "usage_percent": 50.0}
+    assert result.data == {
+        "total_kb": 2097152,
+        "used_kb": 1048576,
+        "free_kb": 1048576,
+        "usage_percent": 50.0,
+    }
 
 
 def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
@@ -1688,7 +1739,12 @@ def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_swap"})
 
     assert result.success is True
-    assert result.data == {"total_kb": 0, "used_kb": 0, "free_kb": 0, "usage_percent": 0}
+    assert result.data == {
+        "total_kb": 0,
+        "used_kb": 0,
+        "free_kb": 0,
+        "usage_percent": 0,
+    }
 
 
 def test_get_service_checks_specific_service(monkeypatch) -> None:
@@ -1723,7 +1779,11 @@ def test_get_service_returns_unknown_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_service", "name": "nonexistent"})
 
     assert result.success is True
-    assert result.data == {"name": "nonexistent", "active": "unknown", "enabled": "unknown"}
+    assert result.data == {
+        "name": "nonexistent",
+        "active": "unknown",
+        "enabled": "unknown",
+    }
 
 
 def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
@@ -1731,7 +1791,10 @@ def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
         if "ss" in command[0]:
             proto_flag = command[1]
             if "t" in proto_flag:
-                return (True, "State  Recv-Q  Send-Q  Local Address:Port   Peer Address:Port  Process\nLISTEN 0       128         0.0.0.0:22         0.0.0.0:*      users:(())\nLISTEN 0       128         0.0.0.0:443        0.0.0.0:*      users:(())\n")
+                return (
+                    True,
+                    "State  Recv-Q  Send-Q  Local Address:Port   Peer Address:Port  Process\nLISTEN 0       128         0.0.0.0:22         0.0.0.0:*      users:(())\nLISTEN 0       128         0.0.0.0:443        0.0.0.0:*      users:(())\n",
+                )
             return (True, "")
         return (False, "")
 

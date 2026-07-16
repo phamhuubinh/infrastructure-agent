@@ -12,12 +12,14 @@ from app.sparse.bm25_index import BM25Index
 class Bm25IndexTest(unittest.TestCase):
     def setUp(self):
         self.index = BM25Index()
-        self.index.add_many([
-            ("d1", "zabbix monitoring alerts and triggers for server health"),
-            ("d2", "grafana dashboards visualize metrics from prometheus"),
-            ("d3", "ssh configuration hardening best practices for linux servers"),
-            ("d4", "zabbix host groups and templates configuration guide"),
-        ])
+        self.index.add_many(
+            [
+                ("d1", "zabbix monitoring alerts and triggers for server health"),
+                ("d2", "grafana dashboards visualize metrics from prometheus"),
+                ("d3", "ssh configuration hardening best practices for linux servers"),
+                ("d4", "zabbix host groups and templates configuration guide"),
+            ]
+        )
 
     def test_relevant_doc_ranks_first(self):
         hits = self.index.search("zabbix configuration", top_k=4)

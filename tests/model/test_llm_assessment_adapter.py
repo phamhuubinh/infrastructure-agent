@@ -100,5 +100,6 @@ class TestAssessmentResult:
     def test_frozen(self) -> None:
         r = AssessmentResult(content="ok")
         import pytest
+
         with pytest.raises(AttributeError):
             r.content = "changed"  # type: ignore[misc]

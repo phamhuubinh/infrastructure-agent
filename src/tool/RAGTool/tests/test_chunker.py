@@ -45,8 +45,12 @@ class ChunkerTest(unittest.TestCase):
         self.assertIn("| a | b |", table_chunks[0].text)
 
     def test_long_section_splits_on_token_budget(self):
-        long_paragraphs = [ParsedBlock(text="word " * 100, block_type="paragraph") for _ in range(5)]
-        doc = ParsedDocument(source_path="x", parser_name="test", blocks=long_paragraphs)
+        long_paragraphs = [
+            ParsedBlock(text="word " * 100, block_type="paragraph") for _ in range(5)
+        ]
+        doc = ParsedDocument(
+            source_path="x", parser_name="test", blocks=long_paragraphs
+        )
         chunker = HierarchicalSemanticChunker(embedder=None, max_tokens=80)
         chunks = chunker.chunk(doc, doc_id="d1")
         self.assertGreater(len(chunks), 1)
@@ -56,9 +60,18 @@ class ChunkerTest(unittest.TestCase):
             source_path="x",
             parser_name="test",
             blocks=[
-                ParsedBlock(text="Zabbix triggers monitor CPU usage on servers.", block_type="paragraph"),
-                ParsedBlock(text="Zabbix triggers also monitor disk usage thresholds.", block_type="paragraph"),
-                ParsedBlock(text="The recipe requires flour sugar and butter mixed well.", block_type="paragraph"),
+                ParsedBlock(
+                    text="Zabbix triggers monitor CPU usage on servers.",
+                    block_type="paragraph",
+                ),
+                ParsedBlock(
+                    text="Zabbix triggers also monitor disk usage thresholds.",
+                    block_type="paragraph",
+                ),
+                ParsedBlock(
+                    text="The recipe requires flour sugar and butter mixed well.",
+                    block_type="paragraph",
+                ),
             ],
         )
         chunker = HierarchicalSemanticChunker(

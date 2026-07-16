@@ -134,6 +134,7 @@ class TestAssessmentMetrics:
     def test_frozen(self) -> None:
         m = AssessmentMetrics()
         import pytest
+
         with pytest.raises(AttributeError):
             m.evidence_coverage = 0.5  # type: ignore[misc]
 

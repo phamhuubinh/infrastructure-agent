@@ -36,4 +36,5 @@ class AssessmentModelAdapter(ABC):
         Override in subclasses for direct LLM access.
         """
         from src.pipeline.assessment_request import AssessmentRequest
+
         return self.assess(AssessmentRequest(raw_request=prompt))

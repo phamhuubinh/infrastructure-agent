@@ -12,7 +12,7 @@ def _normalize_evidence(data: Any) -> Any:
         for key, value in data.items():
             if isinstance(value, list):
                 if len(value) > 5:
-                    normalized[key] = value[:5] + [f"...+{len(value)-5}"]
+                    normalized[key] = value[:5] + [f"...+{len(value) - 5}"]
                 else:
                     normalized[key] = value
             elif isinstance(value, str) and len(value) > 300:
@@ -24,7 +24,7 @@ def _normalize_evidence(data: Any) -> Any:
         return normalized
     elif isinstance(data, list):
         if len(data) > 5:
-            return data[:5] + [f"...+{len(data)-5}"]
+            return data[:5] + [f"...+{len(data) - 5}"]
         return data
     elif isinstance(data, str) and len(data) > 300:
         return data[:300] + "..."
@@ -37,7 +37,18 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
 
     if evidence_name in ("CPU", "CPU Runtime", "CPU Usage", "CPU Information"):
         parts = []
-        for k in ("model", "cores", "usage_percent", "user", "system", "idle", "iowait", "load_1min", "load_5min", "load_15min"):
+        for k in (
+            "model",
+            "cores",
+            "usage_percent",
+            "user",
+            "system",
+            "idle",
+            "iowait",
+            "load_1min",
+            "load_5min",
+            "load_15min",
+        ):
             v = pkg_data.get(k)
             if v is not None:
                 parts.append(f"{k}={v}")
@@ -51,7 +62,9 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
                     parts.append(f"{k}={v}%")
         load = pkg_data.get("load", {})
         if isinstance(load, dict):
-            parts.append(f"load={load.get('1min','?')}/{load.get('5min','?')}/{load.get('15min','?')}")
+            parts.append(
+                f"load={load.get('1min', '?')}/{load.get('5min', '?')}/{load.get('15min', '?')}"
+            )
         model = pkg_data.get("model", "")
         cores = pkg_data.get("cores", 0)
         if model or cores:
@@ -74,7 +87,12 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         return "Memory: " + ", ".join(parts) if parts else ""
 
     if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
-        mounts = pkg_data.get("mounts") or pkg_data.get("disks") or pkg_data.get("filesystems") or []
+        mounts = (
+            pkg_data.get("mounts")
+            or pkg_data.get("disks")
+            or pkg_data.get("filesystems")
+            or []
+        )
         if not isinstance(mounts, list):
             return ""
         lines = []
@@ -89,7 +107,7 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
                 else:
                     lines.append(f"{mp} {used}")
         if len(mounts) > 8:
-            lines.append(f"...+{len(mounts)-8}")
+            lines.append(f"...+{len(mounts) - 8}")
         return "Disks:\n" + "\n".join(lines) if lines else ""
 
     if evidence_name in ("Services", "Service Status"):
@@ -98,7 +116,9 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         running = pkg_data.get("running", 0)
         parts = [f"total={total}", f"running={running}"]
         if failed_list:
-            parts.append(f"failed={len(failed_list)}:{','.join(str(s)[:15] for s in failed_list[:3])}")
+            parts.append(
+                f"failed={len(failed_list)}:{','.join(str(s)[:15] for s in failed_list[:3])}"
+            )
         return "Services: " + ", ".join(parts)
 
     if evidence_name == "Network":
@@ -112,7 +132,7 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
                 addr = iface.get("address", iface.get("addr", iface.get("ip", "")))
                 parts.append(f"{name}={addr}")
         if len(ifaces) > 6:
-            parts.append(f"...+{len(ifaces)-6}")
+            parts.append(f"...+{len(ifaces) - 6}")
         routes = pkg_data.get("routes", [])
         if routes:
             parts.append(f"routes={len(routes)}")
@@ -180,15 +200,19 @@ PROMPT_VERSIONS = {
 
 _INTENT_PROMPTS = {}
 
+
 def _init_intent_prompts():
     from src.pipeline.intent_resolver import Intent
-    _INTENT_PROMPTS.update({
-        Intent.CPU_ASSESSMENT: CPU_PROMPT,
-        Intent.MEMORY_ASSESSMENT: MEMORY_PROMPT,
-        Intent.DISK_ASSESSMENT: DISK_PROMPT,
-        Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
-        Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
-    })
+
+    _INTENT_PROMPTS.update(
+        {
+            Intent.CPU_ASSESSMENT: CPU_PROMPT,
+            Intent.MEMORY_ASSESSMENT: MEMORY_PROMPT,
+            Intent.DISK_ASSESSMENT: DISK_PROMPT,
+            Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
+            Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
+        }
+    )
 
 
 # Default prompt version used by the system.
@@ -216,6 +240,7 @@ def _resolve_intent_prompt(intent_str: str) -> str:
 
     try:
         from src.pipeline.intent_resolver import Intent
+
         intent_enum = Intent[intent_str]
         return _INTENT_PROMPTS.get(intent_enum, _ACTIVE_PROMPT)
     except (KeyError, ValueError):
@@ -246,7 +271,9 @@ def build_assessment_prompt(
         f"Evidence complete: {assessment_request.evidence_complete}",
     ]
     if assessment_request.missing_evidence:
-        lines.append(f"Missing evidence: {', '.join(assessment_request.missing_evidence)}")
+        lines.append(
+            f"Missing evidence: {', '.join(assessment_request.missing_evidence)}"
+        )
 
     lines.append("")
     lines.append("--- Evidence ---")

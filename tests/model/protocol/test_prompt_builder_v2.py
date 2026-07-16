@@ -79,8 +79,18 @@ class TestBuildAssessmentPrompt:
             raw_request="check the server health",
             intent="MACHINE_ASSESSMENT",
             evidence=(
-                EvidencePackage(capability_name="CPU", evidence_name="CPU", success=True, data={"cores": 4}),
-                EvidencePackage(capability_name="Memory", evidence_name="Memory", success=True, data={"total": 8192}),
+                EvidencePackage(
+                    capability_name="CPU",
+                    evidence_name="CPU",
+                    success=True,
+                    data={"cores": 4},
+                ),
+                EvidencePackage(
+                    capability_name="Memory",
+                    evidence_name="Memory",
+                    success=True,
+                    data={"total": 8192},
+                ),
             ),
         )
         prompt = build_assessment_prompt(req)

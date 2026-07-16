@@ -111,7 +111,9 @@ class TestBuilder:
         builder = ExecutionGraphBuilder()
         step = _step("CPU Information", evidence_name="CPU")
         step2 = ExecutionStep(
-            capability=CapabilityReference(name="Memory Information", evidence_name="Memory"),
+            capability=CapabilityReference(
+                name="Memory Information", evidence_name="Memory"
+            ),
             step_id="mem-1",
             metadata={"domain": "linux"},
         )

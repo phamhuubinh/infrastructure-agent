@@ -25,7 +25,7 @@ class _MockGrafana:
         self.calls.append({"url": req.full_url, "method": req.method})
         auth = req.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            self.last_auth = auth[len("Bearer "):]
+            self.last_auth = auth[len("Bearer ") :]
         return json.dumps(self._result).encode("utf-8")
 
 
@@ -89,8 +89,10 @@ def test_execute_returns_version(mock_grafana) -> None:
 def test_execute_returns_dashboards(mock_grafana) -> None:
     mock_grafana._result = [
         {
-            "title": "Server Dashboard", "uid": "abc123",
-            "folderTitle": "Servers", "tags": ["production"],
+            "title": "Server Dashboard",
+            "uid": "abc123",
+            "folderTitle": "Servers",
+            "tags": ["production"],
             "url": "/d/abc123",
         },
     ]
@@ -100,8 +102,10 @@ def test_execute_returns_dashboards(mock_grafana) -> None:
     assert result.data["total"] == 1
     assert result.data["dashboards"] == [
         {
-            "title": "Server Dashboard", "uid": "abc123",
-            "folder": "Servers", "tags": ["production"],
+            "title": "Server Dashboard",
+            "uid": "abc123",
+            "folder": "Servers",
+            "tags": ["production"],
             "url": "/d/abc123",
         },
     ]
@@ -150,7 +154,12 @@ def test_execute_returns_folders(mock_grafana) -> None:
 
 def test_execute_returns_datasources(mock_grafana) -> None:
     mock_grafana._result = [
-        {"name": "Prometheus", "type": "prometheus", "url": "http://prom:9090", "isDefault": True},
+        {
+            "name": "Prometheus",
+            "type": "prometheus",
+            "url": "http://prom:9090",
+            "isDefault": True,
+        },
     ]
     tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "datasources"})
@@ -173,9 +182,28 @@ def test_dashboard_details_returns_panels(mock_grafana) -> None:
         "dashboard": {
             "title": "Server Overview",
             "panels": [
-                {"id": 1, "title": "CPU", "type": "timeseries", "datasource": {"type": "prometheus"}, "targets": [{}]},
-                {"id": 2, "title": "Memory", "type": "stat", "datasource": {"type": "prometheus"}, "targets": [{}, {}]},
-                {"id": 3, "title": "Zabbix Status", "type": "table", "datasource": {"type": "zabbix-datasource"}, "targets": [{}], "description": "Zabbix health"},
+                {
+                    "id": 1,
+                    "title": "CPU",
+                    "type": "timeseries",
+                    "datasource": {"type": "prometheus"},
+                    "targets": [{}],
+                },
+                {
+                    "id": 2,
+                    "title": "Memory",
+                    "type": "stat",
+                    "datasource": {"type": "prometheus"},
+                    "targets": [{}, {}],
+                },
+                {
+                    "id": 3,
+                    "title": "Zabbix Status",
+                    "type": "table",
+                    "datasource": {"type": "zabbix-datasource"},
+                    "targets": [{}],
+                    "description": "Zabbix health",
+                },
             ],
         },
     }
@@ -223,8 +251,11 @@ def test_execute_returns_alert_rules(mock_grafana) -> None:
 def test_execute_returns_annotations(mock_grafana) -> None:
     mock_grafana._result = [
         {
-            "id": 1, "text": "Deployed v2.0", "dashboardUID": "abc",
-            "created": 1700000000, "updated": 1700000000,
+            "id": 1,
+            "text": "Deployed v2.0",
+            "dashboardUID": "abc",
+            "created": 1700000000,
+            "updated": 1700000000,
         },
     ]
     tool = GrafanaTool(url="http://localhost:3000", token="test-token")

@@ -22,7 +22,9 @@ def _with_evidence(
     req = InvestigationRequest(raw_request="test", intent=Intent.MACHINE_ASSESSMENT)
     req.required_evidence = [EvidenceRequirement(name=n) for n in required]
     if optional:
-        req.optional_evidence = [EvidenceRequirement(name=n, required=False) for n in optional]
+        req.optional_evidence = [
+            EvidenceRequirement(name=n, required=False) for n in optional
+        ]
     return req
 
 
@@ -41,10 +43,18 @@ def _evidence_names(refs: list[CapabilityReference]) -> list[str]:
 
 class TestMachineAssessmentCapabilities:
     def test_required(self, resolver: CapabilityResolver) -> None:
-        req = _with_evidence([
-            "System Information", "CPU", "Memory", "Swap",
-            "Storage", "Filesystem", "Network", "Services",
-        ])
+        req = _with_evidence(
+            [
+                "System Information",
+                "CPU",
+                "Memory",
+                "Swap",
+                "Storage",
+                "Filesystem",
+                "Network",
+                "Services",
+            ]
+        )
         resolver.resolve(req)
         assert _names(req.capability_references) == [
             "System Information",
@@ -58,10 +68,16 @@ class TestMachineAssessmentCapabilities:
         ]
 
     def test_optional(self, resolver: CapabilityResolver) -> None:
-        req = _with_evidence([], [
-            "Processes", "Time Synchronization", "Recent Logs",
-            "Docker", "Security Status",
-        ])
+        req = _with_evidence(
+            [],
+            [
+                "Processes",
+                "Time Synchronization",
+                "Recent Logs",
+                "Docker",
+                "Security Status",
+            ],
+        )
         resolver.resolve(req)
         assert _names(req.capability_references) == [
             "Process Discovery",
@@ -101,9 +117,14 @@ class TestApplicationDiscoveryCapabilities:
 
 class TestMonitoringAssessmentCapabilities:
     def test_required(self, resolver: CapabilityResolver) -> None:
-        req = _with_evidence([
-            "Active Problems", "Triggers", "Alert Severity", "Host Status",
-        ])
+        req = _with_evidence(
+            [
+                "Active Problems",
+                "Triggers",
+                "Alert Severity",
+                "Host Status",
+            ]
+        )
         resolver.resolve(req)
         assert _names(req.capability_references) == [
             "Monitoring Problems",
@@ -113,9 +134,14 @@ class TestMonitoringAssessmentCapabilities:
         ]
 
     def test_optional(self, resolver: CapabilityResolver) -> None:
-        req = _with_evidence([], [
-            "Dashboards", "Data Sources", "Event History",
-        ])
+        req = _with_evidence(
+            [],
+            [
+                "Dashboards",
+                "Data Sources",
+                "Event History",
+            ],
+        )
         resolver.resolve(req)
         assert _names(req.capability_references) == [
             "Dashboard Discovery",
@@ -131,10 +157,15 @@ class TestMonitoringAssessmentCapabilities:
 
 class TestSecurityAssessmentCapabilities:
     def test_required(self, resolver: CapabilityResolver) -> None:
-        req = _with_evidence([
-            "SSH Configuration", "Firewall", "Secure Boot",
-            "AppArmor", "SELinux",
-        ])
+        req = _with_evidence(
+            [
+                "SSH Configuration",
+                "Firewall",
+                "Secure Boot",
+                "AppArmor",
+                "SELinux",
+            ]
+        )
         resolver.resolve(req)
         assert _names(req.capability_references) == [
             "SSH Configuration Inspection",
@@ -281,7 +312,9 @@ class TestEdgeCases:
         ]
         assert "UnknownEvidence" not in _evidence_names(req.capability_references)
 
-    def test_duplicate_evidence_is_deduplicated(self, resolver: CapabilityResolver) -> None:
+    def test_duplicate_evidence_is_deduplicated(
+        self, resolver: CapabilityResolver
+    ) -> None:
         req = _with_evidence(["CPU", "CPU", "CPU"])
         resolver.resolve(req)
         assert _names(req.capability_references) == ["CPU Information"]
@@ -356,44 +389,87 @@ class TestLibraryCoverage:
     corresponding entry in the capability library."""
 
     _ALL_EVIDENCE_NAMES = {
-        "System Information", "CPU", "CPU Hardware", "CPU Runtime",
-        "Memory", "Swap",
-        "Storage", "Filesystem", "Network", "Services",
-        "Processes", "Time Synchronization", "Recent Logs",
-        "Docker", "Security Status",
-        "Installed Packages", "System Services", "Running Processes",
-        "Listening Ports", "Configuration Files", "Containers",
-        "Service Status", "Service Configuration", "Service Logs",
+        "System Information",
+        "CPU",
+        "CPU Hardware",
+        "CPU Runtime",
+        "Memory",
+        "Swap",
+        "Storage",
+        "Filesystem",
+        "Network",
+        "Services",
+        "Processes",
+        "Time Synchronization",
+        "Recent Logs",
+        "Docker",
+        "Security Status",
+        "Installed Packages",
+        "System Services",
+        "Running Processes",
+        "Listening Ports",
+        "Configuration Files",
+        "Containers",
+        "Service Status",
+        "Service Configuration",
+        "Service Logs",
         "Dependencies",
-        "Active Problems", "Triggers", "Alert Severity", "Host Status",
-        "Host Groups", "Templates",
-        "Dashboards", "Dashboard Folders", "Data Sources",
-        "Alert Rules", "Event History", "Users", "Maintenance Status",
-        "Host Interfaces", "Items", "Alerts",
-        "SSH Configuration", "Firewall", "Secure Boot",
-        "AppArmor", "SELinux", "Recent Logins", "Certificates",
-        "CPU Usage", "Memory Usage", "Disk Usage", "Load Average",
-        "I/O Statistics", "Network Usage",
-        "Filesystems", "Disk Usage", "Mount Points",
-        "SMART Status", "RAID Status", "Storage Performance",
-        "Network Interfaces", "IP Configuration", "Default Gateway",
-            "DNS", "Routing",
-            "Environment Variables",
-            "Firewall Status",
-            "Block Device Information",
-            "GPU Information",
-            "Monitoring Health",
-            "Monitoring Version",
-            "Dashboard Panel Discovery",
-            "Dashboard Query Discovery",
-            "Monitoring Annotation Discovery",
-            "User Discovery",
-            "Hardware Inventory",
-            "System Uptime",
-            "System Boot Time",
-            "Kernel Module Discovery",
-            "System Locale Discovery",
-        }
+        "Active Problems",
+        "Triggers",
+        "Alert Severity",
+        "Host Status",
+        "Host Groups",
+        "Templates",
+        "Dashboards",
+        "Dashboard Folders",
+        "Data Sources",
+        "Alert Rules",
+        "Event History",
+        "Users",
+        "Maintenance Status",
+        "Host Interfaces",
+        "Items",
+        "Alerts",
+        "SSH Configuration",
+        "Firewall",
+        "Secure Boot",
+        "AppArmor",
+        "SELinux",
+        "Recent Logins",
+        "Certificates",
+        "CPU Usage",
+        "Memory Usage",
+        "Disk Usage",
+        "Load Average",
+        "I/O Statistics",
+        "Network Usage",
+        "Filesystems",
+        "Disk Usage",
+        "Mount Points",
+        "SMART Status",
+        "RAID Status",
+        "Storage Performance",
+        "Network Interfaces",
+        "IP Configuration",
+        "Default Gateway",
+        "DNS",
+        "Routing",
+        "Environment Variables",
+        "Firewall Status",
+        "Block Device Information",
+        "GPU Information",
+        "Monitoring Health",
+        "Monitoring Version",
+        "Dashboard Panel Discovery",
+        "Dashboard Query Discovery",
+        "Monitoring Annotation Discovery",
+        "User Discovery",
+        "Hardware Inventory",
+        "System Uptime",
+        "System Boot Time",
+        "Kernel Module Discovery",
+        "System Locale Discovery",
+    }
 
     def test_all_evidence_names_have_mappings(self) -> None:
         missing = self._ALL_EVIDENCE_NAMES - set(CAPABILITY_BY_EVIDENCE)

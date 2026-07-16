@@ -46,9 +46,11 @@ class CapabilityResolver:
             if cap_name in seen:
                 continue
             seen.add(cap_name)
-            result.append(CapabilityReference(
-                name=cap_name,
-                evidence_name=evidence.name,
-            ))
+            result.append(
+                CapabilityReference(
+                    name=cap_name,
+                    evidence_name=evidence.name,
+                )
+            )
 
         request.capability_references = result

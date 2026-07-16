@@ -113,7 +113,11 @@ class ExecutionRuntime:
 
         import concurrent.futures
 
-        _timeout_deadline = _time.perf_counter() + overall_timeout if overall_timeout > 0 else float("inf")
+        _timeout_deadline = (
+            _time.perf_counter() + overall_timeout
+            if overall_timeout > 0
+            else float("inf")
+        )
 
         while remaining:
             if _time.perf_counter() > _timeout_deadline:
@@ -171,6 +175,7 @@ class ExecutionRuntime:
                     metrics.timed_out = True
                 else:
                     import concurrent.futures as _cf
+
                     executor = _cf.ThreadPoolExecutor(max_workers=1)
                     try:
                         fut = executor.submit(self._execute_node, node, target=target)
@@ -194,13 +199,19 @@ class ExecutionRuntime:
                 ) as executor:
                     future_map: dict[concurrent.futures.Future, ExecutionNode] = {}
                     for node in ready:
-                        future = executor.submit(self._execute_node, node, target=target)
+                        future = executor.submit(
+                            self._execute_node, node, target=target
+                        )
                         future_map[future] = node
                         metrics.tool_calls += 1
 
-                    parallel_timeout = max(_timeout_deadline - _time.perf_counter(), 1.0)
+                    parallel_timeout = max(
+                        _timeout_deadline - _time.perf_counter(), 1.0
+                    )
                     try:
-                        for future in concurrent.futures.as_completed(future_map, timeout=parallel_timeout):
+                        for future in concurrent.futures.as_completed(
+                            future_map, timeout=parallel_timeout
+                        ):
                             node = future_map[future]
                             cap_name = node.execution_step.capability.name
                             try:
@@ -226,16 +237,10 @@ class ExecutionRuntime:
                         metrics.timed_out = True
 
         metrics.execution_duration = _time.perf_counter() - t0
-        metrics.successful_nodes = sum(
-            1 for r in results.values() if r.success
-        )
-        metrics.failed_nodes = sum(
-            1 for r in results.values() if not r.success
-        )
+        metrics.successful_nodes = sum(1 for r in results.values() if r.success)
+        metrics.failed_nodes = sum(1 for r in results.values() if not r.success)
         if metrics.total_nodes > 0:
-            metrics.parallel_ratio = (
-                total_nodes_in_parallel / metrics.total_nodes
-            )
+            metrics.parallel_ratio = total_nodes_in_parallel / metrics.total_nodes
 
         return results, metrics
 

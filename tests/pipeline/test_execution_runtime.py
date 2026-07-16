@@ -31,13 +31,16 @@ def runtime(knowledge_tool: KnowledgeTool) -> ExecutionRuntime:
 
 def _step(cap_name: str, evidence_name: str = "") -> ExecutionStep:
     return ExecutionStep(
-        capability=CapabilityReference(name=cap_name, evidence_name=evidence_name or cap_name),
+        capability=CapabilityReference(
+            name=cap_name, evidence_name=evidence_name or cap_name
+        ),
     )
 
 
 def _node(step: ExecutionStep, deps: tuple[str, ...] = ()) -> tuple:
     """Build a node tuple for ExecutionGraph."""
     from src.pipeline.execution_graph import ExecutionNode
+
     return ("node", step, deps, ExecutionNode(execution_step=step, depends_on=deps))
 
 

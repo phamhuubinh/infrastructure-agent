@@ -4,6 +4,7 @@ a pluggable provider passed in via the constructor, so swapping e.g.
 Qwen3Embedding for the hash fallback, or Qdrant for the in-memory store,
 never touches this file.
 """
+
 from __future__ import annotations
 
 import logging
@@ -52,7 +53,11 @@ class IngestPipeline:
         document = self._parser_router.parse(path)
         warnings = list(document.warnings)
 
-        if self._needs_ocr(document) and self._ocr is not None and self._ocr.is_available():
+        if (
+            self._needs_ocr(document)
+            and self._ocr is not None
+            and self._ocr.is_available()
+        ):
             warnings.append(
                 "Low/no extractable text detected — OCR repair is configured but "
                 "per-page image extraction must be wired in for the specific parser "
@@ -61,7 +66,12 @@ class IngestPipeline:
 
         chunks = self._chunker.chunk(document, doc_id=doc_id)
         if not chunks:
-            return IngestResult(doc_id=doc_id, chunk_count=0, warnings=warnings + ["No chunks produced."], parser_used=document.parser_name)
+            return IngestResult(
+                doc_id=doc_id,
+                chunk_count=0,
+                warnings=warnings + ["No chunks produced."],
+                parser_used=document.parser_name,
+            )
 
         texts = [c.text for c in chunks]
         vectors = self._embedder.embed(texts)

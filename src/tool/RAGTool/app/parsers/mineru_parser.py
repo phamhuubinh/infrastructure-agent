@@ -6,6 +6,7 @@ reading order. Requires `pip install magic-pdf[full]`. This is the third
 tier in the router: tried when the document looks like a scientific
 paper (see router heuristic) and Docling/Marker are unavailable or fail.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,10 @@ class MinerUParser:
 
     def parse(self, path: Path) -> ParsedDocument:
         try:
-            from magic_pdf.data.data_reader_writer import FileBasedDataReader, FileBasedDataWriter
+            from magic_pdf.data.data_reader_writer import (
+                FileBasedDataReader,
+                FileBasedDataWriter,
+            )
             from magic_pdf.data.dataset import PymuDocDataset
             from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
         except ImportError as exc:
@@ -41,7 +45,9 @@ class MinerUParser:
                 pipe_result = infer_result.pipe_ocr_mode(FileBasedDataWriter(tmp))
 
                 content_list_writer = FileBasedDataWriter(tmp)
-                pipe_result.dump_content_list(content_list_writer, "content_list.json", "images")
+                pipe_result.dump_content_list(
+                    content_list_writer, "content_list.json", "images"
+                )
                 content_list = json.loads(Path(tmp, "content_list.json").read_text())
             except Exception as exc:
                 raise ParserError(f"MinerU failed to convert '{path}': {exc}") from exc
@@ -58,14 +64,24 @@ class MinerUParser:
             elif item_type in {"title", "heading"}:
                 blocks.append(
                     ParsedBlock(
-                        text=text, block_type="heading", level=item.get("text_level", 1) or 1, page=page
+                        text=text,
+                        block_type="heading",
+                        level=item.get("text_level", 1) or 1,
+                        page=page,
                     )
                 )
             elif item_type == "equation":
                 blocks.append(
-                    ParsedBlock(text=text, block_type="paragraph", page=page, metadata={"formula": True})
+                    ParsedBlock(
+                        text=text,
+                        block_type="paragraph",
+                        page=page,
+                        metadata={"formula": True},
+                    )
                 )
             else:
                 blocks.append(ParsedBlock(text=text, block_type="paragraph", page=page))
 
-        return ParsedDocument(source_path=str(path), blocks=blocks, parser_name=self.name)
+        return ParsedDocument(
+            source_path=str(path), blocks=blocks, parser_name=self.name
+        )

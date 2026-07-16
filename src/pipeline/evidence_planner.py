@@ -74,9 +74,7 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ),
     ),
     Intent.SERVICE_ASSESSMENT: (
-        (
-            "Service Status",
-        ),
+        ("Service Status",),
         (
             "Service Configuration",
             "Service Logs",
@@ -144,9 +142,7 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         ),
     ),
     Intent.NETWORK_ASSESSMENT: (
-        (
-            "Network",
-        ),
+        ("Network",),
         (
             "DNS",
             "Listening Ports",
@@ -223,8 +219,10 @@ class EvidencePlanner:
         required_names, optional_names = _TEMPLATES[intent]
 
         request.required_evidence = _build_requirements(
-            required_names, required=True,
+            required_names,
+            required=True,
         )
         request.optional_evidence = _build_requirements(
-            optional_names, required=False,
+            optional_names,
+            required=False,
         )

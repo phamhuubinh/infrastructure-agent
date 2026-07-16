@@ -91,8 +91,7 @@ class ExecutionGraphBuilder:
             return ExecutionGraph()
 
         nodes: list[ExecutionNode] = [
-            ExecutionNode(execution_step=step)
-            for step in plan.steps
+            ExecutionNode(execution_step=step) for step in plan.steps
         ]
 
         return ExecutionGraph(nodes=tuple(nodes))

@@ -33,6 +33,7 @@ def cleanup_web() -> None:
 
 def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
     import urllib.request
+
     start = time.monotonic()
     while time.monotonic() - start < timeout:
         try:
@@ -84,7 +85,9 @@ def create_app(
         return cs
 
     app = FastAPI(title="Orion", version="1.0.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    )
 
     @app.get("/api/health")
     def health():
@@ -107,6 +110,7 @@ def create_app(
         path = os.path.join(sessions_dir, f"{session_id}.json")
         if not os.path.exists(path):
             from fastapi import HTTPException
+
             raise HTTPException(404, f"Session '{session_id}' not found")
         os.remove(path)
         web_sessions.pop(session_id, None)
@@ -117,10 +121,12 @@ def create_app(
         path = os.path.join(sessions_dir, f"{session_id}.json")
         if not os.path.exists(path):
             from fastapi import HTTPException
+
             raise HTTPException(404, f"Session '{session_id}' not found")
         new_title = body.get("title", "").strip()
         if not new_title:
             from fastapi import HTTPException
+
             raise HTTPException(400, "title is required")
         data = json.loads(Path(path).read_text())
         data["title"] = new_title
@@ -132,6 +138,7 @@ def create_app(
         question = (body.get("question") or "").strip()
         if not question:
             from fastapi import HTTPException
+
             raise HTTPException(400, "Question is required")
 
         session_id = body.get("session_id")

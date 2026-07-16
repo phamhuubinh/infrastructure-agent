@@ -3,6 +3,7 @@ parallel -> RRF fusion -> rerank top candidates -> (optional graph search
 merged in) -> generate answer. Every stage is a pluggable provider, same
 principle as the ingest pipeline.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -68,10 +69,14 @@ class QueryPipeline:
 
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         query_vector = (
-            self._hyde.expand_to_embedding(query) if self._hyde else self._embedder.embed_query(query)
+            self._hyde.expand_to_embedding(query)
+            if self._hyde
+            else self._embedder.embed_query(query)
         )
 
-        dense_hits = self._vector_store.search(self._collection, query_vector, top_k=self._dense_top_k)
+        dense_hits = self._vector_store.search(
+            self._collection, query_vector, top_k=self._dense_top_k
+        )
         sparse_hits = self._bm25.search(query, top_k=self._sparse_top_k)
 
         payload_by_id = {h.id: h.payload for h in dense_hits}
@@ -88,7 +93,9 @@ class QueryPipeline:
         # sparse-only hits won't have text/payload from the dense search —
         # in production, fetch their text/payload from the vector store or
         # a document store by id; omitted here for brevity in this scaffold.
-        candidates = [(f.id, text_by_id.get(f.id, "")) for f in fused if text_by_id.get(f.id)]
+        candidates = [
+            (f.id, text_by_id.get(f.id, "")) for f in fused if text_by_id.get(f.id)
+        ]
 
         reranked = self._reranker.rerank(query, candidates, top_k=self._final_top_k)
 
@@ -103,7 +110,12 @@ class QueryPipeline:
             graph_hits = self._graph.search(query, top_k=3)
             for gh in graph_hits:
                 results.append(
-                    RetrievedChunk(id="graph:" + gh.text[:16], text=gh.text, score=gh.score, payload={"source": "graph"})
+                    RetrievedChunk(
+                        id="graph:" + gh.text[:16],
+                        text=gh.text,
+                        score=gh.score,
+                        payload={"source": "graph"},
+                    )
                 )
 
         return results
@@ -111,9 +123,12 @@ class QueryPipeline:
     def answer(self, query: str) -> QueryResult:
         retrieved = self.retrieve(query)
         if self._llm is None:
-            return QueryResult(answer="[no LLM client configured — retrieval-only mode]", retrieved=retrieved)
+            return QueryResult(
+                answer="[no LLM client configured — retrieval-only mode]",
+                retrieved=retrieved,
+            )
 
-        context = "\n\n".join(f"[{i+1}] {c.text}" for i, c in enumerate(retrieved))
+        context = "\n\n".join(f"[{i + 1}] {c.text}" for i, c in enumerate(retrieved))
         prompt = _ANSWER_PROMPT.format(context=context, query=query)
         answer_text = self._llm.complete(prompt, temperature=0.2, max_tokens=700)
         return QueryResult(answer=answer_text, retrieved=retrieved)

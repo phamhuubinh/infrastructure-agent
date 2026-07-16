@@ -8,6 +8,7 @@ from src.backend.app import create_app
 def test_health_endpoint() -> None:
     app, _, _ = create_app()
     from fastapi.testclient import TestClient
+
     client = TestClient(app)
     resp = client.get("/api/health")
     assert resp.status_code == 200
@@ -17,6 +18,7 @@ def test_health_endpoint() -> None:
 def test_check_model_calls_health_check() -> None:
     app, _, _ = create_app()
     from fastapi.testclient import TestClient
+
     client = TestClient(app)
 
     # LLM is online — should return ok
@@ -32,6 +34,7 @@ def test_check_model_returns_ok_when_llm_healthy(mock_health) -> None:
     mock_health.return_value = True
     app, _, _ = create_app()
     from fastapi.testclient import TestClient
+
     client = TestClient(app)
     resp = client.get("/api/check-model")
     assert resp.json()["status"] == "ok"
@@ -43,6 +46,7 @@ def test_check_model_returns_error_when_llm_unhealthy(mock_health) -> None:
     mock_health.side_effect = RuntimeError("LLM unreachable")
     app, _, _ = create_app()
     from fastapi.testclient import TestClient
+
     client = TestClient(app)
     resp = client.get("/api/check-model")
     data = resp.json()
@@ -53,6 +57,7 @@ def test_check_model_returns_error_when_llm_unhealthy(mock_health) -> None:
 def test_check_model_returns_valid_json() -> None:
     app, _, _ = create_app()
     from fastapi.testclient import TestClient
+
     client = TestClient(app)
     resp = client.get("/api/check-model")
     assert resp.status_code == 200

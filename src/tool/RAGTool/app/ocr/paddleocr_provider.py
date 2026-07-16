@@ -5,6 +5,7 @@ for reasonable throughput). Written against PaddleOCR's real API
 (`PaddleOCR(...).ocr(...)`). Model weights download on first use — needs
 network the first time it runs, then caches locally.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,6 +23,7 @@ class PaddleOcrProvider:
     def is_available(self) -> bool:
         try:
             import paddleocr  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -30,7 +32,9 @@ class PaddleOcrProvider:
         if self._engine is None:
             from paddleocr import PaddleOCR
 
-            self._engine = PaddleOCR(use_angle_cls=True, lang=self._lang, show_log=False)
+            self._engine = PaddleOCR(
+                use_angle_cls=True, lang=self._lang, show_log=False
+            )
         return self._engine
 
     def run(self, image_path: Path) -> OcrResult:

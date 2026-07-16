@@ -13,6 +13,7 @@ workspace (`workspace_dir`, produced by `graphrag index` or the
 call `build_workspace_index()` once (offline/batch) after ingesting new
 documents, not per-request.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,7 +42,9 @@ class MicrosoftGraphRagProvider:
             from graphrag.api import build_index
             from graphrag.config.load_config import load_config
         except ImportError as exc:
-            raise RuntimeError("graphrag is not installed (`pip install graphrag`)") from exc
+            raise RuntimeError(
+                "graphrag is not installed (`pip install graphrag`)"
+            ) from exc
 
         config = load_config(self._workspace_dir)
         asyncio.run(build_index(config=config))
@@ -54,7 +57,9 @@ class MicrosoftGraphRagProvider:
             from graphrag.api import global_search
             from graphrag.config.load_config import load_config
         except ImportError as exc:
-            raise RuntimeError("graphrag is not installed (`pip install graphrag`)") from exc
+            raise RuntimeError(
+                "graphrag is not installed (`pip install graphrag`)"
+            ) from exc
 
         config = load_config(self._workspace_dir)
         output_dir = self._workspace_dir / "output"

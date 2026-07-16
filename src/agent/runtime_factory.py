@@ -28,8 +28,10 @@ from src.tool.target_store import TargetStore
 # Model server configuration (servers.json)
 # ---------------------------------------------------------------------------
 
+
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
+
 
 def _load_server_config(
     server_name: str | None = None,
@@ -48,8 +50,7 @@ def _load_server_config(
     if cfg is None:
         available = ", ".join(sorted(servers))
         raise RuntimeError(
-            f"Server {server_name!r} not found. "
-            f"Available servers: {available}"
+            f"Server {server_name!r} not found. Available servers: {available}"
         )
     return dict(cfg)
 
@@ -121,16 +122,10 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
 
         return config
     except json.JSONDecodeError as exc:
-        _warn(
-            f"tools.json contains invalid JSON ({exc}). "
-            f"Skipping tool registration."
-        )
+        _warn(f"tools.json contains invalid JSON ({exc}). Skipping tool registration.")
         return {}
     except OSError as exc:
-        _warn(
-            f"Cannot read tools.json ({exc}). "
-            f"Skipping tool registration."
-        )
+        _warn(f"Cannot read tools.json ({exc}). Skipping tool registration.")
         return {}
 
 
@@ -212,10 +207,7 @@ def _register_tools(
     """
     for entry_name, cfg in tools_config.items():
         if not isinstance(cfg, dict):
-            _warn(
-                f"tools.json entry '{entry_name}' is not a JSON object. "
-                f"Skipping."
-            )
+            _warn(f"tools.json entry '{entry_name}' is not a JSON object. Skipping.")
             continue
         _register_single_tool(registry, entry_name, cfg)
 
@@ -223,6 +215,7 @@ def _register_tools(
 # ---------------------------------------------------------------------------
 # Assessment adapter construction
 # ---------------------------------------------------------------------------
+
 
 def _build_assessment_adapter(
     server_name: str | None = None,
@@ -250,6 +243,7 @@ def _build_assessment_adapter(
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
 def create_deterministic_agent(
     target_store_path: str = "targets.json",
     server_name: str | None = None,
@@ -276,7 +270,14 @@ def create_deterministic_agent(
         A fully wired DeterministicAgent ready for execution.
     """
     from src.shared.logger import info as _info
-    _info("orion", message="orion building", target_store=target_store_path, server=server_name or "mock", model_override=model or "none")
+
+    _info(
+        "orion",
+        message="orion building",
+        target_store=target_store_path,
+        server=server_name or "mock",
+        model_override=model or "none",
+    )
     store = TargetStore(path=target_store_path)
 
     registry_count = 0
@@ -290,7 +291,13 @@ def create_deterministic_agent(
     # Register infrastructure tools from tools.json (not from hardcoded code).
     tools_config = _load_tools_config()
     _register_tools(registry, tools_config)
-    _info("tools", tools=len(tools_config.get("tools", [])) if isinstance(tools_config, dict) else 0, message="Tools registered")
+    _info(
+        "tools",
+        tools=len(tools_config.get("tools", []))
+        if isinstance(tools_config, dict)
+        else 0,
+        message="Tools registered",
+    )
 
     kt = KnowledgeTool(target_registry=registry)
 
@@ -316,7 +323,12 @@ def create_deterministic_agent(
             resolved_model = str(cfg.get("model", "unknown"))
         except Exception:
             pass
-        _info("llm", provider=base_url, model=resolved_model, message="Initializing LLM adapter")
+        _info(
+            "llm",
+            provider=base_url,
+            model=resolved_model,
+            message="Initializing LLM adapter",
+        )
         assessment_adapter = _build_assessment_adapter(
             server_name=server_name,
             model=model,

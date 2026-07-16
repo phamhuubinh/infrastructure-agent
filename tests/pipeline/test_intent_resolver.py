@@ -348,16 +348,12 @@ class TestEdgeCases:
 class TestPriorityRules:
     """When multiple intents match, priority rules ensure the correct one wins."""
 
-    def test_troubleshooting_overrides_generic(
-        self, resolver: IntentResolver
-    ) -> None:
+    def test_troubleshooting_overrides_generic(self, resolver: IntentResolver) -> None:
         # "why" + generic keywords -> troubleshooting wins
         result = resolver.resolve("why is the system slow")
         assert result.intent == Intent.TROUBLESHOOTING
 
-    def test_configuration_overrides_security(
-        self, resolver: IntentResolver
-    ) -> None:
+    def test_configuration_overrides_security(self, resolver: IntentResolver) -> None:
         # When "configuration" is mentioned explicitly, configuration intent wins
         result = resolver.resolve("review ssh configuration")
         assert result.intent == Intent.CONFIGURATION_ASSESSMENT
@@ -370,9 +366,7 @@ class TestPriorityRules:
         result = resolver.resolve("raid health")
         assert result.intent == Intent.STORAGE_ASSESSMENT
 
-    def test_application_discovery_for_app_name(
-        self, resolver: IntentResolver
-    ) -> None:
+    def test_application_discovery_for_app_name(self, resolver: IntentResolver) -> None:
         # "Is Prometheus running?" -> app discovery has 2 matches
         # (prometheus, running) vs service has 1 (running)
         result = resolver.resolve("Is Prometheus running?")
@@ -385,9 +379,7 @@ class TestPriorityRules:
         result = resolver.resolve("Are there any problems?")
         assert result.intent == Intent.MONITORING_ASSESSMENT
 
-    def test_service_wins_for_service_keyword(
-        self, resolver: IntentResolver
-    ) -> None:
+    def test_service_wins_for_service_keyword(self, resolver: IntentResolver) -> None:
         # "check docker service" -> service keyword wins
         result = resolver.resolve("check docker service")
         assert result.intent == Intent.SERVICE_ASSESSMENT
@@ -411,15 +403,11 @@ class TestInvestigationRequest:
         result = resolver.resolve("check disk")
         assert result.evidence == {}
 
-    def execution_plan_unset_after_resolver(
-        self, resolver: IntentResolver
-    ) -> None:
+    def execution_plan_unset_after_resolver(self, resolver: IntentResolver) -> None:
         result = resolver.resolve("check disk")
         assert result.execution_plan is None
 
-    def execution_graph_unset_after_resolver(
-        self, resolver: IntentResolver
-    ) -> None:
+    def execution_graph_unset_after_resolver(self, resolver: IntentResolver) -> None:
         result = resolver.resolve("check disk")
         assert result.execution_graph is None
 
@@ -461,15 +449,21 @@ class TestConfidence:
 
 
 class TestHeuristicPromotion:
-    def test_cpu_and_memory_promotes_to_performance(self, resolver: IntentResolver) -> None:
+    def test_cpu_and_memory_promotes_to_performance(
+        self, resolver: IntentResolver
+    ) -> None:
         result = resolver.resolve("Check CPU and memory")
         assert result.intent == Intent.PERFORMANCE_ASSESSMENT
 
-    def test_cpu_memory_disk_promotes_to_performance(self, resolver: IntentResolver) -> None:
+    def test_cpu_memory_disk_promotes_to_performance(
+        self, resolver: IntentResolver
+    ) -> None:
         result = resolver.resolve("check cpu memory and disk")
         assert result.intent == Intent.PERFORMANCE_ASSESSMENT
 
-    def test_single_specific_intent_not_promoted(self, resolver: IntentResolver) -> None:
+    def test_single_specific_intent_not_promoted(
+        self, resolver: IntentResolver
+    ) -> None:
         result = resolver.resolve("check cpu usage")
         assert result.intent == Intent.CPU_ASSESSMENT
 
@@ -483,6 +477,8 @@ class TestHeuristicPromotion:
         result = resolver.resolve("check ram and cpu")
         assert result.intent == Intent.PERFORMANCE_ASSESSMENT
 
-    def test_specific_troubleshooting_not_promoted(self, resolver: IntentResolver) -> None:
+    def test_specific_troubleshooting_not_promoted(
+        self, resolver: IntentResolver
+    ) -> None:
         result = resolver.resolve("cpu is slow")
         assert result.intent == Intent.PERFORMANCE_ASSESSMENT

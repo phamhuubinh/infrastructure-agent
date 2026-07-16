@@ -103,8 +103,18 @@ def test_execute_returns_host_groups(mock_zabbix) -> None:
 
 def test_search_hosts_uses_server_side_search(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"hostid": "10644", "host": "Switch T3_Cisco Core", "name": "Switch T3_Cisco Core", "status": "0"},
-        {"hostid": "10649", "host": "Switch T3_Technical", "name": "Switch T3_Technical", "status": "0"},
+        {
+            "hostid": "10644",
+            "host": "Switch T3_Cisco Core",
+            "name": "Switch T3_Cisco Core",
+            "status": "0",
+        },
+        {
+            "hostid": "10649",
+            "host": "Switch T3_Technical",
+            "name": "Switch T3_Technical",
+            "status": "0",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "search_hosts", "query": "Switch T3"})
@@ -129,7 +139,12 @@ def test_search_hosts_returns_empty_when_no_match(mock_zabbix) -> None:
 
 def test_search_hosts_handles_ip_query(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"hostid": "10643", "host": "Firewall_Pfsense", "name": "Firewall_Pfsense", "status": "0"},
+        {
+            "hostid": "10643",
+            "host": "Firewall_Pfsense",
+            "name": "Firewall_Pfsense",
+            "status": "0",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "search_hosts", "query": "192.168.10.248"})
@@ -154,7 +169,14 @@ def test_execute_returns_templates(mock_zabbix) -> None:
 
 def test_execute_returns_items(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%", "value_type": "0"},
+        {
+            "itemid": "1",
+            "name": "CPU utilization",
+            "key_": "system.cpu.util",
+            "lastvalue": "15",
+            "units": "%",
+            "value_type": "0",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_items"})
@@ -168,7 +190,13 @@ def test_execute_returns_items(mock_zabbix) -> None:
 
 def test_get_items_filters_by_host_id(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"itemid": "10", "name": "Uptime", "key_": "system.uptime", "lastvalue": "3600", "units": "s"},
+        {
+            "itemid": "10",
+            "name": "Uptime",
+            "key_": "system.uptime",
+            "lastvalue": "3600",
+            "units": "s",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_items", "hostid": "10644"})
@@ -178,7 +206,14 @@ def test_get_items_filters_by_host_id(mock_zabbix) -> None:
 
 def test_execute_returns_triggers(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"triggerid": "1", "description": "High CPU", "priority": "4", "status": "0", "value": "1", "hosts": []},
+        {
+            "triggerid": "1",
+            "description": "High CPU",
+            "priority": "4",
+            "status": "0",
+            "value": "1",
+            "hosts": [],
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_triggers"})
@@ -192,7 +227,13 @@ def test_execute_returns_triggers(mock_zabbix) -> None:
 
 def test_execute_returns_events(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "3", "value": "1"},
+        {
+            "eventid": "1",
+            "name": "CPU overload",
+            "clock": "1700000000",
+            "severity": "3",
+            "value": "1",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_events"})
@@ -216,13 +257,25 @@ def test_execute_returns_problems(mock_zabbix) -> None:
 
 def test_execute_returns_users(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"userid": "1", "alias": "Admin", "name": "Admin", "surname": "User", "roleid": "3"},
+        {
+            "userid": "1",
+            "alias": "Admin",
+            "name": "Admin",
+            "surname": "User",
+            "roleid": "3",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_users"})
     assert result.success is True
     assert result.data["users"] == [
-        {"userid": "1", "alias": "Admin", "name": "Admin", "surname": "User", "roleid": "3"},
+        {
+            "userid": "1",
+            "alias": "Admin",
+            "name": "Admin",
+            "surname": "User",
+            "roleid": "3",
+        },
     ]
 
 
@@ -247,7 +300,10 @@ def test_get_host_with_host_name_filter(mock_zabbix) -> None:
 
 def test_handle_auth_error(mock_zabbix) -> None:
     mock_zabbix.handle = lambda body: json.dumps(
-        {"jsonrpc": "2.0", "error": {"message": "Not authorised", "data": "invalid token"}}
+        {
+            "jsonrpc": "2.0",
+            "error": {"message": "Not authorised", "data": "invalid token"},
+        }
     ).encode("utf-8")
 
     tool = ZabbixTool(url="http://localhost/zabbix", token="bad-token")
@@ -294,8 +350,20 @@ def test_returns_empty_list_for_empty_result(mock_zabbix) -> None:
 
 def test_get_problem_timeline_returns_problems_sorted(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"eventid": "3", "name": "P3", "clock": "1700000000", "severity": "3", "acknowledged": "0"},
-        {"eventid": "2", "name": "P2", "clock": "1600000000", "severity": "2", "acknowledged": "0"},
+        {
+            "eventid": "3",
+            "name": "P3",
+            "clock": "1700000000",
+            "severity": "3",
+            "acknowledged": "0",
+        },
+        {
+            "eventid": "2",
+            "name": "P2",
+            "clock": "1600000000",
+            "severity": "2",
+            "acknowledged": "0",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_problem_timeline", "limit": "50"})
@@ -328,7 +396,12 @@ def test_get_host_interfaces_returns_interfaces(mock_zabbix) -> None:
 
 def test_get_maintenance_status_returns_maintenances(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"maintenanceid": "1", "name": "Scheduled", "active_since": "1700000000", "active_till": "1700100000"},
+        {
+            "maintenanceid": "1",
+            "name": "Scheduled",
+            "active_since": "1700000000",
+            "active_till": "1700100000",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_maintenance_status"})
@@ -339,7 +412,13 @@ def test_get_maintenance_status_returns_maintenances(mock_zabbix) -> None:
 
 def test_get_event_summary_returns_events(mock_zabbix) -> None:
     mock_zabbix._result = [
-        {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "4", "value": "1"},
+        {
+            "eventid": "1",
+            "name": "CPU overload",
+            "clock": "1700000000",
+            "severity": "4",
+            "value": "1",
+        },
     ]
     tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_event_summary", "limit": "100"})

@@ -8,6 +8,7 @@ into this service's own query_pipeline (retrieval/fusion/rerank) and
 llm_client (grading/generation) — LangGraph only owns the control flow
 (loop, branch, retry), not retrieval or generation logic itself.
 """
+
 from __future__ import annotations
 
 from typing import TypedDict
@@ -38,7 +39,9 @@ class RagAgentState(TypedDict):
 
 
 class RagLangGraphAgent:
-    def __init__(self, query_pipeline: QueryPipeline, llm_client: LlmClient, max_retries: int = 1) -> None:
+    def __init__(
+        self, query_pipeline: QueryPipeline, llm_client: LlmClient, max_retries: int = 1
+    ) -> None:
         self._query_pipeline = query_pipeline
         self._llm = llm_client
         self._max_retries = max_retries
@@ -90,7 +93,9 @@ class RagLangGraphAgent:
     def _grade_node(self, state: RagAgentState) -> dict:
         context = "\n\n".join(state["context_chunks"])
         prompt = _GRADE_PROMPT.format(query=state["query"], context=context)
-        grade = self._llm.complete(prompt, temperature=0.0, max_tokens=5).strip().lower()
+        grade = (
+            self._llm.complete(prompt, temperature=0.0, max_tokens=5).strip().lower()
+        )
         return {"grade": grade}
 
     def _should_rewrite(self, state: RagAgentState) -> str:

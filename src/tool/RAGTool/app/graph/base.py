@@ -1,5 +1,6 @@
 """Graph-based retrieval interfaces (entity/relationship graph over the
 corpus, queried alongside vector+sparse retrieval for multi-hop questions)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,5 +21,4 @@ class GraphIndex(Protocol):
         """Extract entities/relationships from a document and add to the graph index."""
         ...
 
-    def search(self, query: str, top_k: int = 10) -> list[GraphSearchResult]:
-        ...
+    def search(self, query: str, top_k: int = 10) -> list[GraphSearchResult]: ...

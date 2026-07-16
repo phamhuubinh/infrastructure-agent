@@ -6,6 +6,7 @@ boots even with nothing configured (using the hash embedding fallback +
 in-memory vector store + no-op reranker/OCR). Point every *_PROVIDER env
 var at "real" and fill in the matching URL/model vars to go to production.
 """
+
 from __future__ import annotations
 
 import os
@@ -61,7 +62,9 @@ def build_embedder(config: RagServiceConfig):
 
         return HashEmbeddingProvider()
     if config.embedding_provider == "openai_compatible":
-        from app.embedding.openai_compatible_provider import OpenAICompatibleEmbeddingProvider
+        from app.embedding.openai_compatible_provider import (
+            OpenAICompatibleEmbeddingProvider,
+        )
 
         return OpenAICompatibleEmbeddingProvider(
             base_url=config.embedding_base_url,
@@ -120,4 +123,6 @@ def build_llm_client(config: RagServiceConfig):
         return None
     from app.serving.llm_client import LlmClient
 
-    return LlmClient(base_url=config.llm_base_url, model=config.llm_model, api_key=config.llm_api_key)
+    return LlmClient(
+        base_url=config.llm_base_url, model=config.llm_model, api_key=config.llm_api_key
+    )

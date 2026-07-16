@@ -76,7 +76,9 @@ def test_get_prompt_with_investigation_skips_failed_evidence() -> None:
 
 
 @mock.patch("src.pipeline.assessment_adapter.AssessmentAdapter")
-def test_get_prompt_investigation_fallback_on_error(mock_adapter_cls: mock.Mock) -> None:
+def test_get_prompt_investigation_fallback_on_error(
+    mock_adapter_cls: mock.Mock,
+) -> None:
     from src.pipeline.investigation_request import InvestigationRequest
 
     mock_instance = mock.Mock()

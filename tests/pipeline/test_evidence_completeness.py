@@ -14,8 +14,18 @@ class TestEvidenceCompleteness:
             EvidenceRequirement(name="Memory"),
         ]
         req.evidence = [
-            EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=True, data={"cores": 4}),
-            EvidencePackage(capability_name="Memory Information", evidence_name="Memory", success=True, data={"total_kb": 8192}),
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                success=True,
+                data={"cores": 4},
+            ),
+            EvidencePackage(
+                capability_name="Memory Information",
+                evidence_name="Memory",
+                success=True,
+                data={"total_kb": 8192},
+            ),
         ]
         checker = EvidenceCompleteness()
         checker.check(req)
@@ -30,7 +40,12 @@ class TestEvidenceCompleteness:
             EvidenceRequirement(name="Disk"),
         ]
         req.evidence = [
-            EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=True, data={"cores": 4}),
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                success=True,
+                data={"cores": 4},
+            ),
         ]
         checker = EvidenceCompleteness()
         checker.check(req)
@@ -44,7 +59,12 @@ class TestEvidenceCompleteness:
             EvidenceRequirement(name="CPU"),
         ]
         req.evidence = [
-            EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=False, error="Failed"),
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                success=False,
+                error="Failed",
+            ),
         ]
         checker = EvidenceCompleteness()
         checker.check(req)
@@ -68,7 +88,12 @@ class TestEvidenceCompleteness:
             EvidenceRequirement(name="Docker", required=False),
         ]
         req.evidence = [
-            EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=True, data={"cores": 4}),
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                success=True,
+                data={"cores": 4},
+            ),
         ]
         checker = EvidenceCompleteness()
         checker.check(req)
@@ -85,7 +110,12 @@ class TestEvidenceCompleteness:
             EvidenceRequirement(name="Docker", required=False),
         ]
         req.evidence = [
-            EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=True, data={"cores": 4}),
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                success=True,
+                data={"cores": 4},
+            ),
         ]
         checker = EvidenceCompleteness()
         checker.check(req)

@@ -6,6 +6,7 @@ ingestion rather than periodic batch reindexing.
 
 Requires `pip install lightrag-hku`. Written against LightRAG's real API.
 """
+
 from __future__ import annotations
 
 from app.graph.base import GraphSearchResult
@@ -14,7 +15,9 @@ from app.graph.base import GraphSearchResult
 class LightRagProvider:
     name = "lightrag"
 
-    def __init__(self, working_dir: str, llm_model_func=None, embedding_func=None) -> None:
+    def __init__(
+        self, working_dir: str, llm_model_func=None, embedding_func=None
+    ) -> None:
         self._working_dir = working_dir
         self._llm_model_func = llm_model_func
         self._embedding_func = embedding_func

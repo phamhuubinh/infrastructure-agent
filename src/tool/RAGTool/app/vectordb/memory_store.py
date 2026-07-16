@@ -4,6 +4,7 @@ Useful for local dev, unit tests, and small collections. Swap for
 `QdrantVectorStore` in production (same interface). Optionally persists to
 a JSON file so a local dev instance survives restarts.
 """
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,9 @@ class InMemoryVectorStore:
             bucket[record.id] = record
         self._save()
 
-    def search(self, collection: str, query_vector: list[float], top_k: int = 10) -> list[ScoredRecord]:
+    def search(
+        self, collection: str, query_vector: list[float], top_k: int = 10
+    ) -> list[ScoredRecord]:
         bucket = self._collections.get(collection, {})
         if not bucket:
             return []
@@ -42,7 +45,9 @@ class InMemoryVectorStore:
             vec = np.asarray(record.vector, dtype=np.float64)
             denom = (np.linalg.norm(vec) or 1e-9) * query_norm
             score = float(np.dot(vec, query) / denom)
-            scored.append(ScoredRecord(id=record.id, score=score, payload=record.payload))
+            scored.append(
+                ScoredRecord(id=record.id, score=score, payload=record.payload)
+            )
 
         scored.sort(key=lambda r: r.score, reverse=True)
         return scored[:top_k]
@@ -69,6 +74,8 @@ class InMemoryVectorStore:
         data = json.loads(self._persist_path.read_text())
         for coll, records in data.items():
             self._collections[coll] = {
-                r["id"]: VectorRecord(id=r["id"], vector=r["vector"], payload=r["payload"])
+                r["id"]: VectorRecord(
+                    id=r["id"], vector=r["vector"], payload=r["payload"]
+                )
                 for r in records
             }

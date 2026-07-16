@@ -9,6 +9,7 @@ calls to judge faithfulness/relevancy, so it's for CI/regression testing
 of the pipeline (mirrors the "benchmark-driven development" rule already
 in this project's docs/ai/07_DEVELOPMENT_RULES.md).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

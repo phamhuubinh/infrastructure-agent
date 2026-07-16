@@ -4,6 +4,7 @@ Returns empty text and lets the pipeline record a warning rather than
 crash. This keeps ingestion working end-to-end (with a visible gap) on a
 machine that hasn't installed PaddleOCR yet.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

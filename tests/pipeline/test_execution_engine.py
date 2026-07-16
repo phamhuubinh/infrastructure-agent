@@ -45,7 +45,9 @@ def _engine(
     actual tool dispatch.
     """
     kt = knowledge_tool or _real_kt()
-    mock.patch.object(kt, "execute", return_value=ToolResult(success=True, data={})).start()
+    mock.patch.object(
+        kt, "execute", return_value=ToolResult(success=True, data={})
+    ).start()
     return ExecutionEngine(
         intent_resolver=intent_resolver or mock.Mock(spec=IntentResolver),
         target_resolver=target_resolver or mock.Mock(spec=TargetResolver),
@@ -92,7 +94,9 @@ class TestFullPipeline:
         builder = mock.Mock(spec=ExecutionGraphBuilder)
         merge = mock.Mock(spec=EvidenceMerge)
         kt = _real_kt()
-        mock.patch.object(kt, "execute", return_value=ToolResult(success=True, data={"os": "Linux"})).start()
+        mock.patch.object(
+            kt, "execute", return_value=ToolResult(success=True, data={"os": "Linux"})
+        ).start()
 
         builder.build.return_value = ExecutionGraph()
 
@@ -311,8 +315,9 @@ class TestTargetHandling:
 class TestErrorPropagation:
     def test_execution_step_failure_in_results(self) -> None:
         kt = _real_kt()
-        mock.patch.object(kt, "execute",
-                          return_value=ToolResult(success=False, error="oops")).start()
+        mock.patch.object(
+            kt, "execute", return_value=ToolResult(success=False, error="oops")
+        ).start()
 
         builder = mock.Mock(spec=ExecutionGraphBuilder)
         builder.build.return_value = ExecutionGraph()
@@ -331,8 +336,9 @@ class TestErrorPropagation:
 
     def test_merge_still_called_on_failure(self) -> None:
         kt = _real_kt()
-        mock.patch.object(kt, "execute",
-                          return_value=ToolResult(success=False, error="fail")).start()
+        mock.patch.object(
+            kt, "execute", return_value=ToolResult(success=False, error="fail")
+        ).start()
 
         builder = mock.Mock(spec=ExecutionGraphBuilder)
         builder.build.return_value = ExecutionGraph()

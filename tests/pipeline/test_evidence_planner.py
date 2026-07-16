@@ -358,7 +358,5 @@ class TestEvidenceRequirement:
 
     def test_repr(self) -> None:
         req = EvidenceRequirement(name="CPU", required=True, category="hardware")
-        expected = (
-            "EvidenceRequirement(name='CPU', required=True, category='hardware')"
-        )
+        expected = "EvidenceRequirement(name='CPU', required=True, category='hardware')"
         assert repr(req) == expected

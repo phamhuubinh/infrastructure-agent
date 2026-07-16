@@ -160,15 +160,25 @@ class TestConventionMapping:
                     used_tags.add(tag)
 
         mapped_tags = set(_COVERS_TO_OPERATIONAL)
-        unmapped = used_tags - mapped_tags - {
-            # Known tags without pipeline equivalent (infrastructure-only)
-            "system-time", "system-logs",
-            "tls-certificates",
-            "monitoring-folders", "monitoring-alerts",
-            "zabbix-groups", "zabbix-templates", "zabbix-items",
-            "zabbix-users", "zabbix-interfaces", "zabbix-maintenance",
-            "application-discovery",
-        }
+        unmapped = (
+            used_tags
+            - mapped_tags
+            - {
+                # Known tags without pipeline equivalent (infrastructure-only)
+                "system-time",
+                "system-logs",
+                "tls-certificates",
+                "monitoring-folders",
+                "monitoring-alerts",
+                "zabbix-groups",
+                "zabbix-templates",
+                "zabbix-items",
+                "zabbix-users",
+                "zabbix-interfaces",
+                "zabbix-maintenance",
+                "application-discovery",
+            }
+        )
         assert not unmapped, f"Unmapped covers tags found: {unmapped}"
 
 
@@ -186,10 +196,10 @@ class TestExecutionRuntimeIntegration:
         runtime = ExecutionRuntime(knowledge_tool=kt, router=router)
 
         step = ExecutionStep(
-            capability=CapabilityReference(name="System Information", evidence_name="System Information"),
+            capability=CapabilityReference(
+                name="System Information", evidence_name="System Information"
+            ),
         )
-        graph = ExecutionGraph(nodes=(
-            ExecutionNode(execution_step=step),
-        ))
+        graph = ExecutionGraph(nodes=(ExecutionNode(execution_step=step),))
         results, _ = runtime.execute(graph)
         assert "System Information" in results

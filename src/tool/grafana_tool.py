@@ -22,7 +22,9 @@ class GrafanaProvider:
     def get(self, path: str) -> object:
         try:
             req = request.Request(
-                url=f"{self._url}{path}", headers=self._headers, method="GET",
+                url=f"{self._url}{path}",
+                headers=self._headers,
+                method="GET",
             )
             with request.urlopen(req, timeout=self._timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
@@ -62,6 +64,7 @@ def _datasource_domain(ds_type: str) -> str:
 # QUERY TYPE DETECTION (deterministic — pattern matching)
 # ============================================================
 
+
 def _detect_query_language(target: dict[str, object]) -> str:
     expr = target.get("expr", "")
     raw_query = target.get("rawQuery", "")
@@ -90,9 +93,21 @@ def _extract_metrics(target: dict[str, object]) -> list[str]:
     expr = target.get("expr")
     if isinstance(expr, str) and expr.strip():
         import re
-        for m in re.findall(r'[a-zA-Z_][a-zA-Z0-9_:]+(?:\{[^}]*\})?', expr):
+
+        for m in re.findall(r"[a-zA-Z_][a-zA-Z0-9_:]+(?:\{[^}]*\})?", expr):
             metric_name = m.split("{")[0]
-            if metric_name not in ("and", "or", "unless", "by", "without", "on", "ignoring", "group_left", "group_right", "offset"):
+            if metric_name not in (
+                "and",
+                "or",
+                "unless",
+                "by",
+                "without",
+                "on",
+                "ignoring",
+                "group_left",
+                "group_right",
+                "offset",
+            ):
                 metrics.append(m)
     raw_query = target.get("rawQuery")
     if isinstance(raw_query, str) and raw_query.strip():
@@ -106,6 +121,7 @@ def _extract_metrics(target: dict[str, object]) -> list[str]:
 # ============================================================
 # QUERY EVIDENCE
 # ============================================================
+
 
 def _format_query(target: dict[str, object]) -> dict[str, object]:
     ds = target.get("datasource", {})
@@ -136,6 +152,7 @@ def _format_query(target: dict[str, object]) -> dict[str, object]:
 # FIELD CONFIG EVIDENCE
 # ============================================================
 
+
 def _format_field_config(fc: object) -> dict[str, object]:
     if not isinstance(fc, dict):
         return {}
@@ -161,7 +178,11 @@ def _format_field_config(fc: object) -> dict[str, object]:
         "thresholds": thresholds if isinstance(thresholds, dict) else {},
         "mappings": mappings if isinstance(mappings, list) else [],
         "color_mode": color.get("mode", "") if isinstance(color, dict) else "",
-        "custom_options": {k: v for k, v in custom.items() if not isinstance(v, (dict, list)) or len(str(v)) < 200},
+        "custom_options": {
+            k: v
+            for k, v in custom.items()
+            if not isinstance(v, (dict, list)) or len(str(v)) < 200
+        },
         "override_count": len(overrides),
     }
 
@@ -169,6 +190,7 @@ def _format_field_config(fc: object) -> dict[str, object]:
 # ============================================================
 # TRANSFORMATIONS
 # ============================================================
+
 
 def _format_transformations(trans: object) -> list[dict[str, object]]:
     if not isinstance(trans, list):
@@ -179,16 +201,21 @@ def _format_transformations(trans: object) -> list[dict[str, object]]:
             continue
         identity = t.get("id", "")
         options = t.get("options", {})
-        result.append({
-            "id": identity,
-            "options_summary": str(options)[:300] if isinstance(options, dict) else str(options)[:300],
-        })
+        result.append(
+            {
+                "id": identity,
+                "options_summary": str(options)[:300]
+                if isinstance(options, dict)
+                else str(options)[:300],
+            }
+        )
     return result
 
 
 # ============================================================
 # PANEL EVIDENCE (recursive — supports nested rows/panels)
 # ============================================================
+
 
 def _format_panel(p: dict[str, object]) -> dict[str, object]:
     ds = p.get("datasource")
@@ -198,7 +225,11 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
         ds_type = ds.get("type", "")
         ds_uid = ds.get("uid", "")
     targets_raw = p.get("targets", [])
-    targets = [_format_query(t) for t in targets_raw if isinstance(t, dict)] if isinstance(targets_raw, list) else []
+    targets = (
+        [_format_query(t) for t in targets_raw if isinstance(t, dict)]
+        if isinstance(targets_raw, list)
+        else []
+    )
     all_metrics: list[str] = []
     for t in targets:
         all_metrics.extend(t.get("metrics", []))
@@ -230,7 +261,9 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
             "w": grid_pos.get("w"),
             "x": grid_pos.get("x"),
             "y": grid_pos.get("y"),
-        } if isinstance(grid_pos, dict) else {},
+        }
+        if isinstance(grid_pos, dict)
+        else {},
         "max_data_points": p.get("maxDataPoints"),
         "interval": p.get("interval", ""),
         "time_shift": p.get("timeShift", ""),
@@ -239,7 +272,9 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
         "library_panel": {
             "uid": lib_panel.get("uid", ""),
             "name": lib_panel.get("name", ""),
-        } if isinstance(lib_panel, dict) else {},
+        }
+        if isinstance(lib_panel, dict)
+        else {},
         "queries": targets,
         "metric_count": len(all_metrics),
         "metrics": all_metrics[:50],
@@ -249,7 +284,9 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
     }
     nested = p.get("panels")
     if isinstance(nested, list) and nested:
-        result["nested_panels"] = [_format_panel(sp) for sp in nested if isinstance(sp, dict)]
+        result["nested_panels"] = [
+            _format_panel(sp) for sp in nested if isinstance(sp, dict)
+        ]
     collapsed = p.get("collapsed", False)
     if collapsed:
         result["collapsed"] = True
@@ -260,7 +297,10 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
 # PANEL SIGNAL MAPPING (deterministic — no reasoning)
 # ============================================================
 
-def _panel_signals(viz_type: str, metrics: list[str], field_config: dict[str, object]) -> list[str]:
+
+def _panel_signals(
+    viz_type: str, metrics: list[str], field_config: dict[str, object]
+) -> list[str]:
     signals: list[str] = []
     unit = field_config.get("unit", "")
     full_text = " ".join(metrics).lower() + " " + unit.lower()
@@ -270,7 +310,12 @@ def _panel_signals(viz_type: str, metrics: list[str], field_config: dict[str, ob
         signals.append("Memory Utilization")
     if "disk" in full_text or "fs" in full_text or "filesystem" in full_text:
         signals.append("Disk Capacity")
-    if "network" in full_text or "net." in full_text or "traffic" in full_text or "throughput" in full_text:
+    if (
+        "network" in full_text
+        or "net." in full_text
+        or "traffic" in full_text
+        or "throughput" in full_text
+    ):
         signals.append("Network Throughput")
     if "latency" in full_text or "ping" in full_text or "response_time" in full_text:
         signals.append("Latency")
@@ -290,6 +335,7 @@ def _panel_signals(viz_type: str, metrics: list[str], field_config: dict[str, ob
 # ============================================================
 # VISUALIZATION CATEGORY
 # ============================================================
+
 
 def _visualization_category(viz_type: str) -> str:
     cat_map: dict[str, str] = {
@@ -324,7 +370,10 @@ def _visualization_category(viz_type: str) -> str:
 # DASHBOARD EVIDENCE (full recursive extraction)
 # ============================================================
 
-def _extract_panels_recursive(items: list[dict[str, object]]) -> list[dict[str, object]]:
+
+def _extract_panels_recursive(
+    items: list[dict[str, object]],
+) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for item in items:
         result.append(_format_panel(item))
@@ -383,24 +432,37 @@ def _dashboard_details(api: GrafanaProvider, uid: str = "") -> dict[str, object]
         "live_now": dashboard.get("liveNow", False),
         "time_from": time.get("from", ""),
         "time_to": time.get("to", ""),
-        "links": [{"title": link.get("title", ""), "type": link.get("type", ""), "url": link.get("url", "")}
-                   for link in links if isinstance(link, dict)],
+        "links": [
+            {
+                "title": link.get("title", ""),
+                "type": link.get("type", ""),
+                "url": link.get("url", ""),
+            }
+            for link in links
+            if isinstance(link, dict)
+        ],
         "variables": [
             {
-                "name": v.get("name", ""), "type": v.get("type", ""),
-                "query": v.get("query", ""), "definition": v.get("definition", ""),
+                "name": v.get("name", ""),
+                "type": v.get("type", ""),
+                "query": v.get("query", ""),
+                "definition": v.get("definition", ""),
                 "datasource": v.get("datasource", ""),
                 "include_all": v.get("includeAll", False),
                 "multi": v.get("multi", False),
             }
-            for v in variable_list if isinstance(v, dict)
+            for v in variable_list
+            if isinstance(v, dict)
         ],
         "annotations_definitions": [
             {
-                "name": a.get("name", ""), "datasource": a.get("datasource", {}).get("uid", ""),
-                "enable": a.get("enable", True), "iconColor": a.get("iconColor", ""),
+                "name": a.get("name", ""),
+                "datasource": a.get("datasource", {}).get("uid", ""),
+                "enable": a.get("enable", True),
+                "iconColor": a.get("iconColor", ""),
             }
-            for a in annotation_list if isinstance(a, dict)
+            for a in annotation_list
+            if isinstance(a, dict)
         ],
         "total_panels": len(all_panels),
         "panels": all_panels,
@@ -415,6 +477,7 @@ def _dashboard_details(api: GrafanaProvider, uid: str = "") -> dict[str, object]
 # ============================================================
 # EXISTING CAPABILITIES (unchanged except datasources extended)
 # ============================================================
+
 
 def _format_dashboard(d: dict[str, object]) -> dict[str, object]:
     return {
@@ -482,7 +545,8 @@ def _get_folders(api: GrafanaProvider) -> dict[str, object]:
         return {"folders": [], "total": 0}
     folders = [
         {"uid": f.get("uid", ""), "title": f.get("title", ""), "url": f.get("url", "")}
-        for f in result if isinstance(f, dict)
+        for f in result
+        if isinstance(f, dict)
     ]
     return {"folders": folders, "total": len(folders)}
 
@@ -493,8 +557,10 @@ def _get_datasources(api: GrafanaProvider) -> dict[str, object]:
         return {"datasources": [], "total": 0}
     ds = [
         {
-            "name": d.get("name", ""), "type": d.get("type", ""),
-            "url": d.get("url", ""), "is_default": d.get("isDefault", False),
+            "name": d.get("name", ""),
+            "type": d.get("type", ""),
+            "url": d.get("url", ""),
+            "is_default": d.get("isDefault", False),
             "uid": d.get("uid", ""),
             "database": d.get("database", ""),
             "user": d.get("user", ""),
@@ -502,7 +568,8 @@ def _get_datasources(api: GrafanaProvider) -> dict[str, object]:
             "basic_auth": d.get("basicAuth", False),
             "domain": _datasource_domain(d.get("type", "")),
         }
-        for d in result if isinstance(d, dict)
+        for d in result
+        if isinstance(d, dict)
     ]
     return {"datasources": ds, "total": len(ds)}
 
@@ -515,12 +582,15 @@ def _alert_rules(api: GrafanaProvider) -> dict[str, object]:
     for r in result:
         if not isinstance(r, dict):
             continue
-        rules.append({
-            "uid": r.get("uid", ""), "title": r.get("title", ""),
-            "folder": r.get("folderUID", ""),
-            "interval": r.get("intervalSeconds"),
-            "for": r.get("for"),
-        })
+        rules.append(
+            {
+                "uid": r.get("uid", ""),
+                "title": r.get("title", ""),
+                "folder": r.get("folderUID", ""),
+                "interval": r.get("intervalSeconds"),
+                "for": r.get("for"),
+            }
+        )
     return {"alert_rules": rules, "total": len(rules)}
 
 
@@ -530,13 +600,15 @@ def _get_annotations(api: GrafanaProvider, limit: int = 50) -> dict[str, object]
         return {"annotations": [], "total": 0}
     annotations = [
         {
-            "id": a.get("id"), "text": a.get("text", ""),
+            "id": a.get("id"),
+            "text": a.get("text", ""),
             "dashboard_uid": a.get("dashboardUID", ""),
             "panel_id": a.get("panelId"),
             "created": a.get("created"),
             "updated": a.get("updated"),
         }
-        for a in result if isinstance(a, dict)
+        for a in result
+        if isinstance(a, dict)
     ]
     return {"annotations": annotations, "total": len(annotations)}
 
@@ -547,54 +619,84 @@ def _get_annotations(api: GrafanaProvider, limit: int = 50) -> dict[str, object]
 
 _CAPABILITIES: dict[str, Capability] = {
     "health": Capability(
-        name="health", handler=_get_health,
-        category="monitoring", intents=("monitor", "health"),
-        related=("version",), covers=("monitoring-health",),
+        name="health",
+        handler=_get_health,
+        category="monitoring",
+        intents=("monitor", "health"),
+        related=("version",),
+        covers=("monitoring-health",),
     ),
     "version": Capability(
-        name="version", handler=_get_version,
-        category="monitoring", intents=("monitor", "inventory"),
-        related=("dashboards",), covers=("monitoring-version",),
+        name="version",
+        handler=_get_version,
+        category="monitoring",
+        intents=("monitor", "inventory"),
+        related=("dashboards",),
+        covers=("monitoring-version",),
     ),
     "dashboards": Capability(
-        name="dashboards", handler=_get_dashboards,
-        category="monitoring", intents=("monitor", "inventory", "visualization"),
-        related=("dashboard_search", "dashboard_summary"), covers=("dashboards",),
+        name="dashboards",
+        handler=_get_dashboards,
+        category="monitoring",
+        intents=("monitor", "inventory", "visualization"),
+        related=("dashboard_search", "dashboard_summary"),
+        covers=("dashboards",),
     ),
     "dashboard_search": Capability(
-        name="dashboard_search", handler=_dashboard_search,
-        category="monitoring", intents=("monitor", "visualization", "inventory"),
-        related=("dashboards",), covers=("dashboards",),
+        name="dashboard_search",
+        handler=_dashboard_search,
+        category="monitoring",
+        intents=("monitor", "visualization", "inventory"),
+        related=("dashboards",),
+        covers=("dashboards",),
     ),
     "dashboard_summary": Capability(
-        name="dashboard_summary", handler=_dashboard_summary,
-        category="monitoring", intents=("monitor", "inventory", "overview"),
-        related=("dashboards",), covers=("dashboards",),
+        name="dashboard_summary",
+        handler=_dashboard_summary,
+        category="monitoring",
+        intents=("monitor", "inventory", "overview"),
+        related=("dashboards",),
+        covers=("dashboards",),
     ),
     "dashboard_details": Capability(
-        name="dashboard_details", handler=_dashboard_details,
-        category="monitoring", intents=("monitor", "visualization", "investigation"),
-        related=("dashboards",), covers=("dashboards", "panels", "queries"),
+        name="dashboard_details",
+        handler=_dashboard_details,
+        category="monitoring",
+        intents=("monitor", "visualization", "investigation"),
+        related=("dashboards",),
+        covers=("dashboards", "panels", "queries"),
     ),
     "folders": Capability(
-        name="folders", handler=_get_folders,
-        category="monitoring", intents=("monitor", "inventory"),
-        related=("dashboards",), covers=("monitoring-folders",),
+        name="folders",
+        handler=_get_folders,
+        category="monitoring",
+        intents=("monitor", "inventory"),
+        related=("dashboards",),
+        covers=("monitoring-folders",),
     ),
     "datasources": Capability(
-        name="datasources", handler=_get_datasources,
-        category="monitoring", intents=("monitor", "inventory", "connectivity"),
-        related=("dashboards",), covers=("datasources",),
+        name="datasources",
+        handler=_get_datasources,
+        category="monitoring",
+        intents=("monitor", "inventory", "connectivity"),
+        related=("dashboards",),
+        covers=("datasources",),
     ),
     "alert_rules": Capability(
-        name="alert_rules", handler=_alert_rules,
-        category="monitoring", intents=("monitor", "alerts", "notification"),
-        related=("health", "dashboards"), covers=("monitoring-alerts",),
+        name="alert_rules",
+        handler=_alert_rules,
+        category="monitoring",
+        intents=("monitor", "alerts", "notification"),
+        related=("health", "dashboards"),
+        covers=("monitoring-alerts",),
     ),
     "annotations": Capability(
-        name="annotations", handler=_get_annotations,
-        category="monitoring", intents=("monitor", "events", "timeline"),
-        related=("dashboards",), covers=("monitoring-annotations",),
+        name="annotations",
+        handler=_get_annotations,
+        category="monitoring",
+        intents=("monitor", "events", "timeline"),
+        related=("dashboards",),
+        covers=("monitoring-annotations",),
     ),
 }
 
@@ -613,7 +715,10 @@ class GrafanaTool(Tool):
         cap = _CAPABILITIES.get(action)
         if cap is None:
             available = ", ".join(sorted(_CAPABILITIES))
-            return ToolResult(success=False, error=f"Unknown action: '{action}'. Available actions: {available}.")
+            return ToolResult(
+                success=False,
+                error=f"Unknown action: '{action}'. Available actions: {available}.",
+            )
 
         handler = cap.handler if isinstance(cap, Capability) else cap
 
@@ -644,6 +749,7 @@ class GrafanaTool(Tool):
         user_request: str,
     ) -> str:
         from src.shared.secrets import get_tool_config
+
         config = get_tool_config("grafana")
         if not config:
             return ""
@@ -655,7 +761,7 @@ class GrafanaTool(Tool):
         dashboards = []
         query_params = {}
         for pkg in evidence_list:
-            if not hasattr(pkg, 'success') or not pkg.success:
+            if not hasattr(pkg, "success") or not pkg.success:
                 continue
             if pkg.evidence_name in ("Dashboards", "Dashboard Discovery"):
                 data = pkg.data
@@ -665,7 +771,9 @@ class GrafanaTool(Tool):
                         for item in items[:5]:
                             if isinstance(item, dict):
                                 uid = item.get("uid") or ""
-                                title = item.get("title") or item.get("name") or "Dashboard"
+                                title = (
+                                    item.get("title") or item.get("name") or "Dashboard"
+                                )
                                 if uid:
                                     dashboards.append((title, uid))
                     raw_params = data.get("query_params") or {}

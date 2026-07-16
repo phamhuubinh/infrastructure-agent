@@ -22,7 +22,9 @@ class TestAssessmentRequest:
         assert req.missing_evidence == ()
 
     def test_with_evidence(self) -> None:
-        ev = EvidencePackage(capability_name="CPU Information", evidence_name="CPU", success=True)
+        ev = EvidencePackage(
+            capability_name="CPU Information", evidence_name="CPU", success=True
+        )
         req = AssessmentRequest(
             raw_request="check server",
             intent="MACHINE_ASSESSMENT",
@@ -44,7 +46,12 @@ class TestAssessmentAdapter:
             intent=Intent.MACHINE_ASSESSMENT,
         )
         inv.evidence = [
-            EvidencePackage(capability_name="CPU", evidence_name="CPU", success=True, data={"cores": 4}),
+            EvidencePackage(
+                capability_name="CPU",
+                evidence_name="CPU",
+                success=True,
+                data={"cores": 4},
+            ),
         ]
         inv.evidence_complete = True
         inv.missing_evidence = ()

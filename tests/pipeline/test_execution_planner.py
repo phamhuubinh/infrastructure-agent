@@ -55,11 +55,13 @@ class TestEmptyPlan:
 
 class TestOrder:
     def test_preserves_insertion_order(self, planner: ExecutionPlanner) -> None:
-        req = _request([
-            _ref("Service Status"),
-            _ref("CPU Information"),
-            _ref("System Information"),
-        ])
+        req = _request(
+            [
+                _ref("Service Status"),
+                _ref("CPU Information"),
+                _ref("System Information"),
+            ]
+        )
         planner.plan(req)
         assert _step_names(req.execution_plan) == [
             "Service Status",
@@ -86,42 +88,54 @@ class TestOrder:
 
 
 class TestDuplicateRemoval:
-    def test_identical_capabilities_deduplicated(self, planner: ExecutionPlanner) -> None:
-        req = _request([
-            _ref("CPU Information"),
-            _ref("CPU Information"),
-        ])
+    def test_identical_capabilities_deduplicated(
+        self, planner: ExecutionPlanner
+    ) -> None:
+        req = _request(
+            [
+                _ref("CPU Information"),
+                _ref("CPU Information"),
+            ]
+        )
         planner.plan(req)
         assert _step_names(req.execution_plan) == ["CPU Information"]
         assert len(req.execution_plan.steps) == 1
 
     def test_identical_capability_three_times(self, planner: ExecutionPlanner) -> None:
-        req = _request([
-            _ref("CPU Information"),
-            _ref("CPU Information"),
-            _ref("CPU Information"),
-        ])
+        req = _request(
+            [
+                _ref("CPU Information"),
+                _ref("CPU Information"),
+                _ref("CPU Information"),
+            ]
+        )
         planner.plan(req)
         assert _step_names(req.execution_plan) == ["CPU Information"]
         assert len(req.execution_plan.steps) == 1
 
     def test_first_occurrence_preserved(self, planner: ExecutionPlanner) -> None:
-        req = _request([
-            _ref("CPU Information", evidence="CPU"),
-            _ref("CPU Information", evidence="CPU Usage"),
-        ])
+        req = _request(
+            [
+                _ref("CPU Information", evidence="CPU"),
+                _ref("CPU Information", evidence="CPU Usage"),
+            ]
+        )
         planner.plan(req)
         assert len(req.execution_plan.steps) == 1
         assert req.execution_plan.steps[0].capability.evidence_name == "CPU"
 
-    def test_multiple_capabilities_with_duplicates(self, planner: ExecutionPlanner) -> None:
-        req = _request([
-            _ref("CPU Information"),
-            _ref("Service Status"),
-            _ref("CPU Information"),
-            _ref("Package Discovery"),
-            _ref("Service Status"),
-        ])
+    def test_multiple_capabilities_with_duplicates(
+        self, planner: ExecutionPlanner
+    ) -> None:
+        req = _request(
+            [
+                _ref("CPU Information"),
+                _ref("Service Status"),
+                _ref("CPU Information"),
+                _ref("Package Discovery"),
+                _ref("Service Status"),
+            ]
+        )
         planner.plan(req)
         assert _step_names(req.execution_plan) == [
             "CPU Information",
@@ -243,8 +257,14 @@ class TestFullPipelineEvidenceToPlan:
         from src.pipeline.capability_library import CAPABILITY_BY_EVIDENCE
 
         evidence_names = [
-            "System Information", "CPU", "Memory", "Swap",
-            "Storage", "Filesystem", "Network", "Services",
+            "System Information",
+            "CPU",
+            "Memory",
+            "Swap",
+            "Storage",
+            "Filesystem",
+            "Network",
+            "Services",
         ]
         refs: list[CapabilityReference] = []
         for ev_name in evidence_names:

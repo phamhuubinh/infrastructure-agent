@@ -28,7 +28,9 @@ class TargetStore:
         entries: dict[str, dict[str, object]] = data.get("targets", data)
         targets: dict[str, ExecutionBackend] = {}
         for name, cfg in entries.items():
-            backend_type = cfg.get("backend", "local") if isinstance(cfg, dict) else "local"
+            backend_type = (
+                cfg.get("backend", "local") if isinstance(cfg, dict) else "local"
+            )
             if not isinstance(cfg, dict):
                 targets[name] = LocalExecutionBackend()
             elif backend_type == "ssh":

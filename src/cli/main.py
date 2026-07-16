@@ -179,7 +179,9 @@ def _run_agent(args: argparse.Namespace) -> None:
             if _last_request is None:
                 print("  No previous request.")
                 continue
-            print(f"  Intent: {_last_request.intent.name if _last_request.intent else 'N/A'}")
+            print(
+                f"  Intent: {_last_request.intent.name if _last_request.intent else 'N/A'}"
+            )
             continue
 
         if raw_input.lower() == "/target":
@@ -198,7 +200,10 @@ def _run_agent(args: argparse.Namespace) -> None:
         print("  [Sending...]")
         sys.stdout.flush()
         import signal as _sig
-        _old_sigint = _sig.signal(_sig.SIGINT, lambda *_: (_sig.default_int_handler(), None))
+
+        _old_sigint = _sig.signal(
+            _sig.SIGINT, lambda *_: (_sig.default_int_handler(), None)
+        )
         try:
             result = agent.run_with_steps(raw_input)
             _last_request = result.get("investigation")
@@ -257,7 +262,9 @@ def main() -> None:
     subparsers.add_parser("help", help=argparse.SUPPRESS, add_help=False)
 
     session_parser = subparsers.add_parser("session", help=argparse.SUPPRESS)
-    session_sub = session_parser.add_subparsers(dest="session_action", help=argparse.SUPPRESS)
+    session_sub = session_parser.add_subparsers(
+        dest="session_action", help=argparse.SUPPRESS
+    )
     session_sub.add_parser("list", help=argparse.SUPPRESS)
     del_parser = session_sub.add_parser("delete", help=argparse.SUPPRESS)
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
@@ -265,30 +272,67 @@ def main() -> None:
     session_sub.add_parser("clean", help=argparse.SUPPRESS)
 
     run_parser = subparsers.add_parser("run", help=argparse.SUPPRESS)
-    run_parser.add_argument("--server", type=str, default="sv1", help="Model server name (default: sv1)")
-    run_parser.add_argument("--model", type=str, default=None, help="Override model name")
-    run_parser.add_argument("--target-file", type=str, default="targets.json", help="Target config file (default: targets.json)")
-    run_parser.add_argument("--verbose", action="store_true", help="Show detailed debug output")
-    run_parser.add_argument("--status", action="store_true", help="Show one-line per-iteration status")
+    run_parser.add_argument(
+        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+    )
+    run_parser.add_argument(
+        "--model", type=str, default=None, help="Override model name"
+    )
+    run_parser.add_argument(
+        "--target-file",
+        type=str,
+        default="targets.json",
+        help="Target config file (default: targets.json)",
+    )
+    run_parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed debug output"
+    )
+    run_parser.add_argument(
+        "--status", action="store_true", help="Show one-line per-iteration status"
+    )
 
     resume_parser = subparsers.add_parser("resume", help=argparse.SUPPRESS)
     resume_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
-    resume_parser.add_argument("--server", type=str, default="sv1", help="Model server name (default: sv1)")
-    resume_parser.add_argument("--model", type=str, default=None, help="Override model name")
-    resume_parser.add_argument("--target-file", type=str, default="targets.json", help="Target config file (default: targets.json)")
+    resume_parser.add_argument(
+        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+    )
+    resume_parser.add_argument(
+        "--model", type=str, default=None, help="Override model name"
+    )
+    resume_parser.add_argument(
+        "--target-file",
+        type=str,
+        default="targets.json",
+        help="Target config file (default: targets.json)",
+    )
 
     web_parser = subparsers.add_parser("web", help=argparse.SUPPRESS)
-    web_parser.add_argument("--port", type=int, default=61888, help="Web UI port (default: 61888)")
-    web_parser.add_argument("--server", type=str, default="sv1", help="Model server name (default: sv1)")
-    web_parser.add_argument("--model", type=str, default=None, help="Override model name")
-    web_parser.add_argument("--target-file", type=str, default="targets.json", help="Target config file (default: targets.json)")
+    web_parser.add_argument(
+        "--port", type=int, default=61888, help="Web UI port (default: 61888)"
+    )
+    web_parser.add_argument(
+        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+    )
+    web_parser.add_argument(
+        "--model", type=str, default=None, help="Override model name"
+    )
+    web_parser.add_argument(
+        "--target-file",
+        type=str,
+        default="targets.json",
+        help="Target config file (default: targets.json)",
+    )
 
     subparsers.add_parser("log", help=argparse.SUPPRESS)
 
     add_parser = subparsers.add_parser("add-target", help=argparse.SUPPRESS)
     add_parser.add_argument("spec", type=str, help=argparse.SUPPRESS)
-    add_parser.add_argument("--ssh-user", type=str, default="root", help=argparse.SUPPRESS)
-    add_parser.add_argument("--ssh-identity-file", type=str, default=None, help=argparse.SUPPRESS)
+    add_parser.add_argument(
+        "--ssh-user", type=str, default="root", help=argparse.SUPPRESS
+    )
+    add_parser.add_argument(
+        "--ssh-identity-file", type=str, default=None, help=argparse.SUPPRESS
+    )
 
     rem_parser = subparsers.add_parser("remove-target", help=argparse.SUPPRESS)
     rem_parser.add_argument("name", type=str, help=argparse.SUPPRESS)
@@ -320,6 +364,7 @@ def main() -> None:
 
         if args.session_action == "clean":
             import shutil
+
             if os.path.exists(sessions_dir):
                 shutil.rmtree(sessions_dir)
                 print("All sessions deleted.")
@@ -333,7 +378,9 @@ def main() -> None:
         print("-" * 100)
         for s in sessions:
             preview = s["preview"][:50]
-            print(f"{s['id']:<24} {s['source']:<10} {s['turns']:<6} {s['updated'][:19]:<20} {preview}")
+            print(
+                f"{s['id']:<24} {s['source']:<10} {s['turns']:<6} {s['updated'][:19]:<20} {preview}"
+            )
         return
 
     if args.command == "resume":

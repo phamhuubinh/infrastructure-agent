@@ -47,7 +47,10 @@ def test_list_sessions_with_summary(tmp_path: Path) -> None:
         "title": "Disk Check",
         "source": "web",
         "updated_at": "2026-07-17T13:00:00",
-        "messages": [{"role": "user", "content": "check disk"}, {"role": "assistant", "content": "ok"}],
+        "messages": [
+            {"role": "user", "content": "check disk"},
+            {"role": "assistant", "content": "ok"},
+        ],
         "summary": "Disk is healthy",
     }
     f = tmp_path / "sess-002.json"
@@ -82,7 +85,10 @@ def test_list_sessions_preview_empty_when_no_messages(tmp_path: Path) -> None:
 
 def test_list_sessions_preview_truncated(tmp_path: Path) -> None:
     long_content = "x" * 200
-    session_data = {"session_id": "sess-005", "messages": [{"role": "user", "content": long_content}]}
+    session_data = {
+        "session_id": "sess-005",
+        "messages": [{"role": "user", "content": long_content}],
+    }
     (tmp_path / "sess-005.json").write_text(json.dumps(session_data))
 
     result = list_sessions(str(tmp_path))
@@ -92,7 +98,10 @@ def test_list_sessions_preview_truncated(tmp_path: Path) -> None:
 
 def test_list_sessions_limits_to_50(tmp_path: Path) -> None:
     for i in range(60):
-        data = {"session_id": f"sess-{i:03d}", "messages": [{"role": "user", "content": "hi"}]}
+        data = {
+            "session_id": f"sess-{i:03d}",
+            "messages": [{"role": "user", "content": "hi"}],
+        }
         (tmp_path / f"sess-{i:03d}.json").write_text(json.dumps(data))
 
     result = list_sessions(str(tmp_path))
@@ -170,7 +179,10 @@ def test_add_classifier_turn(tmp_path: Path) -> None:
     store.add_classifier_turn("check health", "health_check")
     assert len(store.history) == 2
     assert store.history[0] == {"role": "user", "content": "check health"}
-    assert store.history[1] == {"role": "assistant", "content": "[classified as health_check]"}
+    assert store.history[1] == {
+        "role": "assistant",
+        "content": "[classified as health_check]",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -184,8 +196,14 @@ def test_history_includes_summary_when_present(tmp_path: Path) -> None:
     store.add_turn("check", "ok")
     history = store.history
     assert len(history) == 3
-    assert history[0] == {"role": "system", "content": "Previous conversation summary: Server is healthy"}
-    assert history[1:] == [{"role": "user", "content": "check"}, {"role": "assistant", "content": "ok"}]
+    assert history[0] == {
+        "role": "system",
+        "content": "Previous conversation summary: Server is healthy",
+    }
+    assert history[1:] == [
+        {"role": "user", "content": "check"},
+        {"role": "assistant", "content": "ok"},
+    ]
 
 
 # ---------------------------------------------------------------------------

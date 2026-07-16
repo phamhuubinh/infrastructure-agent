@@ -21,7 +21,13 @@ def _make_result(
 ) -> dict:
     return {
         "benchmark": benchmark,
-        "scores": {"total": total, "reasoning": 1.0, "efficiency": 1.0, "evidence": 1.0, "safety": 1.0},
+        "scores": {
+            "total": total,
+            "reasoning": 1.0,
+            "efficiency": 1.0,
+            "evidence": 1.0,
+            "safety": 1.0,
+        },
         "assessment_metrics": {
             "overall": assessment_overall,
             "evidence_coverage": evidence_coverage,
@@ -34,7 +40,12 @@ def _make_result(
 
 
 def _make_meta(model: str, server: str = "") -> dict:
-    return {"model": model, "server": server, "provider": "", "benchmark_version": "1.0"}
+    return {
+        "model": model,
+        "server": server,
+        "provider": "",
+        "benchmark_version": "1.0",
+    }
 
 
 class TestNextRunId:
@@ -122,7 +133,9 @@ class TestDetectRegressions:
 
         with mock.patch("benchmark.registry.load_history", return_value=history):
             regressions = detect_regressions(new)
-            assessment_regs = [r for r in regressions if r["metric"] == "assessment_overall"]
+            assessment_regs = [
+                r for r in regressions if r["metric"] == "assessment_overall"
+            ]
             assert len(assessment_regs) == 1
 
     def test_mismatched_model_skips_regression(self) -> None:
@@ -197,7 +210,9 @@ class TestDetectRegressions:
 class TestSaveResults:
     @mock.patch("benchmark.registry.load_history", return_value={})
     @mock.patch("benchmark.registry.Path.write_text")
-    def test_save_creates_entry(self, mock_write: mock.Mock, mock_load: mock.Mock) -> None:
+    def test_save_creates_entry(
+        self, mock_write: mock.Mock, mock_load: mock.Mock
+    ) -> None:
         results = [_make_result("test_bm", total=0.95)]
         history = save_results(results)
         assert "1" in history

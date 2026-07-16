@@ -99,6 +99,7 @@ def test_build_assessment_adapter_returns_adapter() -> None:
         with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
             adapter = _build_assessment_adapter("sv1")
             from src.model.llm_assessment_adapter import LLMAssessmentAdapter
+
             assert isinstance(adapter, LLMAssessmentAdapter)
 
 
@@ -199,6 +200,7 @@ def test_register_single_tool_zabbix() -> None:
     assert "zabbix1" in registry.target_names()
     tool = registry.get_tool("zabbix1")
     from src.tool.zabbix_tool import ZabbixTool
+
     assert isinstance(tool, ZabbixTool)
 
 
@@ -223,6 +225,7 @@ def test_register_single_tool_grafana() -> None:
     assert "grafana1" in registry.target_names()
     tool = registry.get_tool("grafana1")
     from src.tool.grafana_tool import GrafanaTool
+
     assert isinstance(tool, GrafanaTool)
 
 

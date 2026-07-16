@@ -2,6 +2,7 @@
 has zero external dependency (no `rank_bm25` needed) and works fully
 offline. This is real, runnable, unit-tested code, not a stub.
 """
+
 from __future__ import annotations
 
 import math
@@ -101,7 +102,11 @@ class BM25Index:
                 scores[idx] += idf * (freq * (self._k1 + 1)) / denom
 
         ranked = sorted(
-            (BM25Hit(id=self._doc_ids[i], score=s) for i, s in enumerate(scores) if s > 0),
+            (
+                BM25Hit(id=self._doc_ids[i], score=s)
+                for i, s in enumerate(scores)
+                if s > 0
+            ),
             key=lambda h: h.score,
             reverse=True,
         )

@@ -305,26 +305,28 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
-_PHRASES: frozenset[str] = frozenset({
-    "not working",
-    "not responding",
-    "io wait",
-    "load average",
-    "ip address",
-    "cấu hình",
-    "open port",
-    "open ports",
-    "memory leak",
-    "packet loss",
-    "kết nối mạng",
-    "băng thông",
-    "sự cố",
-    "vấn đề",
-    "nghiêm trọng",
-    "ưu tiên",
-    "ssh service",
-    "time series",
-})
+_PHRASES: frozenset[str] = frozenset(
+    {
+        "not working",
+        "not responding",
+        "io wait",
+        "load average",
+        "ip address",
+        "cấu hình",
+        "open port",
+        "open ports",
+        "memory leak",
+        "packet loss",
+        "kết nối mạng",
+        "băng thông",
+        "sự cố",
+        "vấn đề",
+        "nghiêm trọng",
+        "ưu tiên",
+        "ssh service",
+        "time series",
+    }
+)
 
 
 def _matched_groups(
@@ -367,15 +369,24 @@ def _resolve_intent(
     # DISK, NETWORK, PROCESS, FILESYSTEM, STORAGE) are tied, the user
     # likely wants a broader assessment (PERFORMANCE, MACHINE, etc.).
     # Promote to PERFORMANCE_ASSESSMENT if it is also a candidate.
-    _specific = frozenset({
-        Intent.CPU_ASSESSMENT, Intent.MEMORY_ASSESSMENT, Intent.DISK_ASSESSMENT,
-        Intent.NETWORK_ASSESSMENT_SINGLE, Intent.PROCESS_ASSESSMENT,
-        Intent.FILESYSTEM_ASSESSMENT, Intent.STORAGE_ASSESSMENT,
-    })
+    _specific = frozenset(
+        {
+            Intent.CPU_ASSESSMENT,
+            Intent.MEMORY_ASSESSMENT,
+            Intent.DISK_ASSESSMENT,
+            Intent.NETWORK_ASSESSMENT_SINGLE,
+            Intent.PROCESS_ASSESSMENT,
+            Intent.FILESYSTEM_ASSESSMENT,
+            Intent.STORAGE_ASSESSMENT,
+        }
+    )
     specific_candidates = [(i, c, m) for i, c, m in candidates if i in _specific]
     if len(specific_candidates) >= 2:
         # Check whether PERFORMANCE_ASSESSMENT is also a candidate
-        perf = next(((i, c, m) for i, c, m in candidates if i == Intent.PERFORMANCE_ASSESSMENT), None)
+        perf = next(
+            ((i, c, m) for i, c, m in candidates if i == Intent.PERFORMANCE_ASSESSMENT),
+            None,
+        )
         if perf is not None and perf[1] >= 2:
             return (perf[0], _confidence_from_count(perf[1]), perf[2])
 

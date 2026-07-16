@@ -4,6 +4,7 @@ exposes (`python -m vllm.entrypoints.openai.api_server ...`). This one
 client is reused by HyDE (query expansion), RAPTOR (cluster summarization),
 and the final answer-generation step in the query pipeline.
 """
+
 from __future__ import annotations
 
 import requests
@@ -22,7 +23,9 @@ class LlmClient:
         self._api_key = api_key
         self._timeout = timeout
 
-    def complete(self, prompt: str, temperature: float = 0.2, max_tokens: int = 512) -> str:
+    def complete(
+        self, prompt: str, temperature: float = 0.2, max_tokens: int = 512
+    ) -> str:
         return self.chat([{"role": "user", "content": prompt}], temperature, max_tokens)
 
     def chat(

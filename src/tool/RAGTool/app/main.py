@@ -12,6 +12,7 @@ code change needed to go from the offline-testable default stack
 (hash embedding + in-memory store + no-op rerank) to production
 (Qwen3/BGE-M3 + Qdrant + BGE-reranker-v2 + vLLM).
 """
+
 from __future__ import annotations
 
 import shutil
@@ -33,7 +34,12 @@ from app.config import (
 from app.parsers.router import ParserRouter
 from app.pipeline.ingest_pipeline import IngestPipeline
 from app.pipeline.query_pipeline import QueryPipeline
-from app.schemas import IngestResponse, QueryRequest, QueryResponse, RetrievedChunkResponse
+from app.schemas import (
+    IngestResponse,
+    QueryRequest,
+    QueryResponse,
+    RetrievedChunkResponse,
+)
 from app.sparse.bm25_index import BM25Index
 
 app = FastAPI(title="RAG Service", version="0.1.0")
@@ -112,7 +118,9 @@ def query(body: QueryRequest):
     return QueryResponse(
         answer=result.answer,
         retrieved=[
-            RetrievedChunkResponse(id=c.id, text=c.text, score=c.score, payload=c.payload)
+            RetrievedChunkResponse(
+                id=c.id, text=c.text, score=c.score, payload=c.payload
+            )
             for c in result.retrieved[: body.top_k]
         ],
     )

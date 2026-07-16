@@ -3,6 +3,7 @@ result lists into one ranking, using rank position only (not raw scores,
 which aren't comparable across the two systems). Standard formula:
 score(d) = sum over each ranking r containing d of 1 / (k + rank_r(d))
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

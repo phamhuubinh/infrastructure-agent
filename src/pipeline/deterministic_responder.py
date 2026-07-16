@@ -13,10 +13,17 @@ class DeterministicResponder:
     def try_response(self, investigation: InvestigationRequest) -> str | None:
         raw = investigation.raw_request.lower()
         is_service_status = any(
-            kw in raw for kw in ("status", "trạng thái", "chạy", "die", "down", "disabled", "enabled")
-        ) and any(
-            kw in raw for kw in ("service", "dịch vụ", "sshd", "nginx")
-        )
+            kw in raw
+            for kw in (
+                "status",
+                "trạng thái",
+                "chạy",
+                "die",
+                "down",
+                "disabled",
+                "enabled",
+            )
+        ) and any(kw in raw for kw in ("service", "dịch vụ", "sshd", "nginx"))
 
         for pkg in investigation.evidence:
             if not pkg.success or not isinstance(pkg.data, dict):
@@ -36,10 +43,7 @@ class DeterministicResponder:
 
     def _check_zombie_processes(self, data: dict) -> str | None:
         zombies = (
-            data.get("zombie_count")
-            or data.get("zombie")
-            or data.get("zombies")
-            or 0
+            data.get("zombie_count") or data.get("zombie") or data.get("zombies") or 0
         )
         if not isinstance(zombies, (int, float)) or zombies <= 0:
             return None
@@ -62,11 +66,7 @@ class DeterministicResponder:
         )
 
     def _check_service_status(self, data: dict) -> str | None:
-        failed_svcs = (
-            data.get("failed")
-            or data.get("failed_services")
-            or []
-        )
+        failed_svcs = data.get("failed") or data.get("failed_services") or []
         if isinstance(failed_svcs, list) and failed_svcs:
             f_list = [str(s) for s in failed_svcs[:10]]
             summary = ", ".join(f_list)

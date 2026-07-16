@@ -16,8 +16,7 @@ class ExecutionBackend(ABC):
         self,
         command: list[str],
         timeout: int = 5,
-    ) -> tuple[bool, str]:
-        ...
+    ) -> tuple[bool, str]: ...
 
 
 class LocalExecutionBackend(ExecutionBackend):
@@ -40,16 +39,37 @@ class LocalExecutionBackend(ExecutionBackend):
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            error("exec", command=cmd_str, status="failed", error=str(exc), host="localhost", message="Failed")
+            error(
+                "exec",
+                command=cmd_str,
+                status="failed",
+                error=str(exc),
+                host="localhost",
+                message="Failed",
+            )
             return False, ""
 
         if completed.returncode != 0:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            error("exec", command=cmd_str, status="failed", returncode=completed.returncode, host="localhost", message="Failed")
+            error(
+                "exec",
+                command=cmd_str,
+                status="failed",
+                returncode=completed.returncode,
+                host="localhost",
+                message="Failed",
+            )
             return False, ""
 
         _dur = int((_time.monotonic() - _t0) * 1000)
-        info("exec", command=cmd_str, status="success", duration_ms=_dur, host="localhost", message="Completed")
+        info(
+            "exec",
+            command=cmd_str,
+            status="success",
+            duration_ms=_dur,
+            host="localhost",
+            message="Completed",
+        )
         return True, completed.stdout.strip()
 
 
@@ -74,16 +94,21 @@ class SSHExecutionBackend(ExecutionBackend):
     ) -> list[str]:
         parts: list[str] = [
             "ssh",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=10",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
             # Intentional: trusted local network only.
             # StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null
             # avoids interactive prompts on first connection and host key
             # rotation without manual cleanup. Not suitable for internet-facing
             # deployments — see ADR in docs/ai/09_ARCHITECTURE_DECISIONS.md.
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-p", str(self._port),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-p",
+            str(self._port),
         ]
         if self._identity_file is not None:
             parts.extend(["-i", self._identity_file])
@@ -110,18 +135,49 @@ class SSHExecutionBackend(ExecutionBackend):
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            error("exec", command=cmd_str, status="failed", error=str(exc), host=host, message="Failed")
+            error(
+                "exec",
+                command=cmd_str,
+                status="failed",
+                error=str(exc),
+                host=host,
+                message="Failed",
+            )
             return False, ""
 
         if completed.returncode != 0:
             _dur = int((_time.monotonic() - _t0) * 1000)
             err_msg = completed.stderr.strip() or completed.stdout.strip()
             if "password" in completed.stderr.lower():
-                error("exec", command=cmd_str, status="failed", error="SSH authentication failed (password prompted)", host=host, message="Failed")
-                return False, "SSH authentication failed (password prompted). Use SSH key authentication."
-            error("exec", command=cmd_str, status="failed", error=err_msg, host=host, message="Failed")
+                error(
+                    "exec",
+                    command=cmd_str,
+                    status="failed",
+                    error="SSH authentication failed (password prompted)",
+                    host=host,
+                    message="Failed",
+                )
+                return (
+                    False,
+                    "SSH authentication failed (password prompted). Use SSH key authentication.",
+                )
+            error(
+                "exec",
+                command=cmd_str,
+                status="failed",
+                error=err_msg,
+                host=host,
+                message="Failed",
+            )
             return False, err_msg
 
         _dur = int((_time.monotonic() - _t0) * 1000)
-        info("exec", command=cmd_str, status="success", duration_ms=_dur, host=host, message="Completed")
+        info(
+            "exec",
+            command=cmd_str,
+            status="success",
+            duration_ms=_dur,
+            host=host,
+            message="Completed",
+        )
         return True, completed.stdout.strip()

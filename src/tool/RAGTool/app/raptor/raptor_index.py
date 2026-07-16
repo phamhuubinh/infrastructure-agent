@@ -15,6 +15,7 @@ any LLM client (see app/serving/llm_client.py) — until one is configured,
 a simple extractive fallback (first N sentences of each member, joined) is
 used so the tree still builds and is testable end-to-end offline.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -73,7 +74,9 @@ class RaptorIndex:
         level = 0
         while len(current_level_nodes) > 1 and level < self._max_levels:
             level += 1
-            current_level_nodes = self._cluster_and_summarize(current_level_nodes, level)
+            current_level_nodes = self._cluster_and_summarize(
+                current_level_nodes, level
+            )
             if len(current_level_nodes) <= 1:
                 for node in current_level_nodes:
                     self.nodes[node.id] = node
@@ -81,7 +84,9 @@ class RaptorIndex:
 
         return list(self.nodes.values())
 
-    def _cluster_and_summarize(self, nodes: list[RaptorNode], level: int) -> list[RaptorNode]:
+    def _cluster_and_summarize(
+        self, nodes: list[RaptorNode], level: int
+    ) -> list[RaptorNode]:
         n_clusters = max(1, len(nodes) // self._max_cluster_size)
         if n_clusters <= 1 or len(nodes) <= self._max_cluster_size:
             summary_node = self._summarize_cluster(nodes, level)
@@ -103,7 +108,9 @@ class RaptorIndex:
             summary_nodes.append(summary_node)
         return summary_nodes
 
-    def _summarize_cluster(self, cluster_nodes: list[RaptorNode], level: int) -> RaptorNode:
+    def _summarize_cluster(
+        self, cluster_nodes: list[RaptorNode], level: int
+    ) -> RaptorNode:
         texts = [n.text for n in cluster_nodes]
         summary_text = self._summarize(texts)
         summary_embedding = self._embedder.embed([summary_text])[0]
