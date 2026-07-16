@@ -41,3 +41,6 @@ servers.json
 
 # Benchmark output files
 benchmark_results_*
+
+# Docker Compose env (contains secrets)
+docker-compose.env
