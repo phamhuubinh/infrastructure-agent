@@ -98,7 +98,50 @@ test_failed_count() {
 }
 
 # ---------------------------------------------------------------------------
-# 16-step workflow for one task (mirrors the flowchart exactly)
+# Error classifiers
+# ---------------------------------------------------------------------------
+classify_error() {
+  local log_file="$1"
+  # Code error
+  if grep -q "FAILED\|AssertionError\|SyntaxError\|NameError\|TypeError\|ModuleNotFoundError\|ImportError" "$log_file" 2>/dev/null; then
+    echo "CODE"
+    return
+  fi
+  # Environment error
+  if grep -qi "docker.*not found\|command not found.*docker\|Cannot connect to the Docker\|postgres.*connection\|could not connect.*server\|psql.*not found" "$log_file" 2>/dev/null; then
+    echo "ENVIRONMENT"
+    return
+  fi
+  # External dependency / permission
+  if grep -qi "Permission denied\|Access denied\|401\|403\|api_key.*required\|missing.*token\|secret.*not found\|no.*such.*file.*config" "$log_file" 2>/dev/null; then
+    echo "BLOCKED"
+    return
+  fi
+  # Default: code error
+  echo "CODE"
+}
+
+repair_environment() {
+  log "ENV" "attempting environment repair..."
+  # Docker
+  if ! command -v docker &>/dev/null; then
+    log "ENV" "docker not found — attempting install"
+    sudo apt-get update -qq && sudo apt-get install -y -qq docker.io 2>&1 | tail -3 || true
+  fi
+  # PostgreSQL
+  if ! command -v psql &>/dev/null; then
+    log "ENV" "postgresql not found — attempting install"
+    sudo apt-get install -y -qq postgresql postgresql-client 2>&1 | tail -3 || true
+  fi
+  # Ensure postgres running
+  if command -v pg_isready &>/dev/null; then
+    pg_isready -q || sudo service postgresql start 2>&1 || true
+  fi
+  log "ENV" "repair done"
+}
+
+# ---------------------------------------------------------------------------
+# 16-step workflow for one task
 # ---------------------------------------------------------------------------
 execute_task() {
   local task_json="$1"
@@ -107,19 +150,15 @@ execute_task() {
 
   log "TASK" "[#$task_id] === START $task_desc ==="
 
-  # Step 1-3: Read repo + docs + build backlog (done before loop)
-
-  # Step 4: Pick highest priority task (done by get_next_task)
-
-  # Step 5: Analyze & Step 6: Plan (via opencode prompt — agent reads code)
-
+  local log_file="/tmp/orion_task_${task_id}.log"
   local max_attempts=10
   local attempt=1
+
   while [ "$attempt" -le "$max_attempts" ]; do
     log "TASK" "[#$task_id] attempt $attempt/$max_attempts"
 
     # Step 7: Implement
-    cd "$REPO_ROOT" && opencode run "$(build_prompt "$task_json")" --auto --no-replay 2>&1 | tee -a "$SESSION_LOG" || true
+    cd "$REPO_ROOT" && timeout 600 opencode run "$(build_prompt "$task_json")" --auto --no-replay 2>&1 | tee "$log_file" || true
 
     # Step 8: Self review
     if ! git diff --quiet; then
@@ -128,53 +167,64 @@ execute_task() {
       log "REVIEW" "[#$task_id] no changes"
     fi
 
-    # Step 9: Formatter
+    # Step 9: Format
     log "FORMAT" "[#$task_id] ruff format..."
-    ruff format src/ tests/ 2>&1 | tee -a "$SESSION_LOG" || true
+    ruff format src/ tests/ 2>&1 | tee -a "$log_file" || true
 
     # Step 10: Lint
     log "LINT" "[#$task_id] ruff check..."
-    if ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501 2>&1 | tee -a "$SESSION_LOG"; then
+    if ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501 2>&1 | tee -a "$log_file"; then
       log "LINT" "[#$task_id] PASS"
     else
       log "LINT" "[#$task_id] FAIL"
-      log "TASK" "[#$task_id] analyzing failure and fixing..."
-      # Step 15: Fix and test again (loop)
+      local err_type; err_type=$(classify_error "$log_file")
+      case "$err_type" in
+        CODE)    log "TASK" "[#$task_id] code error — retrying" ;;
+        ENVIRONMENT) repair_environment; log "TASK" "[#$task_id] environment repaired — retrying" ;;
+        BLOCKED) log "TASK" "[#$task_id] BLOCKED (external dependency)"; break ;;
+      esac
       attempt=$((attempt + 1))
       continue
     fi
 
     # Step 11: Unit tests
     log "TEST" "[#$task_id] unit tests..."
-    if python3 -m pytest tests/ -q --tb=short -x 2>&1 | tee -a "$SESSION_LOG"; then
+    if python3 -m pytest tests/ -q --tb=short -x 2>&1 | tee -a "$log_file"; then
       log "TEST" "[#$task_id] PASS"
     else
       log "TEST" "[#$task_id] FAIL"
-      log "TASK" "[#$task_id] analyzing failure and fixing..."
+      local err_type; err_type=$(classify_error "$log_file")
+      case "$err_type" in
+        CODE)    log "TASK" "[#$task_id] code error — retrying" ;;
+        ENVIRONMENT) repair_environment; log "TASK" "[#$task_id] environment repaired — retrying" ;;
+        BLOCKED) log "TASK" "[#$task_id] BLOCKED (external dependency)"; break ;;
+      esac
       attempt=$((attempt + 1))
       continue
     fi
 
-    # Step 12: Integration tests (full suite)
-    log "TEST" "[#$task_id] integration tests (full suite)..."
-    if python3 -m pytest tests/ -q --tb=short 2>&1 | tee -a "$SESSION_LOG"; then
+    # Step 12: Full regression suite
+    log "TEST" "[#$task_id] regression (full suite)..."
+    if python3 -m pytest tests/ -q --tb=short 2>&1 | tee -a "$log_file"; then
       log "TEST" "[#$task_id] ALL PASS"
     else
       log "TEST" "[#$task_id] FAIL"
-      log "TASK" "[#$task_id] analyzing failure and fixing..."
+      local err_type; err_type=$(classify_error "$log_file")
+      case "$err_type" in
+        CODE)    log "TASK" "[#$task_id] code error — retrying" ;;
+        ENVIRONMENT) repair_environment; log "TASK" "[#$task_id] environment repaired — retrying" ;;
+        BLOCKED) log "TASK" "[#$task_id] BLOCKED (external dependency)"; break ;;
+      esac
       attempt=$((attempt + 1))
       continue
     fi
 
-    # Step 13: All pass → exit loop
+    # All pass
     log "TASK" "[#$task_id] all checks passed after $attempt attempts"
     break
   done
 
   if [ "$attempt" -le "$max_attempts" ]; then
-    # Step 14: Update documentation (handled by opencode)
-    # Step 15: Commit (handled by opencode)
-    # Step 16: Update state (handled below)
     log "TASK" "[#$task_id] DONE"
     return 0
   else
