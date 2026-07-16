@@ -12,7 +12,8 @@
       "priority": "P0",
       "category": "testing",
       "description": "Write unit tests for src/pipeline/execution_engine.py — full pipeline integration",
-      "status": "pending"
+      "status": "completed",
+      "summary": "10 tests created and passing. Covers: full happy path, request identity across stages, graph building from plan, empty plan, empty graph skip, merge called with results, evidence_complete metrics propagation, target used in execution, error propagation, and merge on failure."
     },
     {
       "id": 5,
@@ -46,28 +47,28 @@
       "id": 9,
       "priority": "P1",
       "category": "code-quality",
-      "description": "Fix all PTH118 os.path.join() calls — replace with Path / operator across src/",
+      "description": "Fix all PTH118 os.path.join() calls \u2014 replace with Path / operator across src/",
       "status": "pending"
     },
     {
       "id": 10,
       "priority": "P1",
       "category": "observability",
-      "description": "Fix silent exception swallowing — add logging before pass in logger.py, app.py, deterministic_agent.py, conversation_store.py",
+      "description": "Fix silent exception swallowing \u2014 add logging before pass in logger.py, app.py, deterministic_agent.py, conversation_store.py",
       "status": "pending"
     },
     {
       "id": 11,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix stale project state doc 08_PROJECT_STATE.md — benchmark runner now exists",
+      "description": "Fix stale project state doc 08_PROJECT_STATE.md \u2014 benchmark runner now exists",
       "status": "pending"
     },
     {
       "id": 12,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix stale file path in 02_CURRENT_ARCHITECTURE.md — src/cli.py -> src/cli/main.py",
+      "description": "Fix stale file path in 02_CURRENT_ARCHITECTURE.md \u2014 src/cli.py -> src/cli/main.py",
       "status": "pending"
     },
     {
@@ -102,7 +103,7 @@
       "id": 24,
       "priority": "P1",
       "category": "enhancement",
-      "description": "Implement early completion in ExecutionRuntime — stop executing once sufficient evidence collected (05_EXECUTION_PIPELINE.md line 60)",
+      "description": "Implement early completion in ExecutionRuntime \u2014 stop executing once sufficient evidence collected (05_EXECUTION_PIPELINE.md line 60)",
       "status": "pending"
     },
     {
@@ -116,56 +117,56 @@
       "id": 26,
       "priority": "P1",
       "category": "dependencies",
-      "description": "Fix pyproject.toml dep issue — fastapi/uvicorn/pydantic are runtime deps not optional; remove unused requests/numpy",
+      "description": "Fix pyproject.toml dep issue \u2014 fastapi/uvicorn/pydantic are runtime deps not optional; remove unused requests/numpy",
       "status": "pending"
     },
     {
       "id": 27,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix 08_PROJECT_STATE.md claim about RAGTool — RAGTool exists at src/tool/RAGTool/",
+      "description": "Fix 08_PROJECT_STATE.md claim about RAGTool \u2014 RAGTool exists at src/tool/RAGTool/",
       "status": "pending"
     },
     {
       "id": 28,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix 02_CURRENT_ARCHITECTURE.md line 59-61 — claims no tests/benchmark but both exist",
+      "description": "Fix 02_CURRENT_ARCHITECTURE.md line 59-61 \u2014 claims no tests/benchmark but both exist",
       "status": "pending"
     },
     {
       "id": 17,
       "priority": "P2",
       "category": "documentation",
-      "description": "Fix stale doc references in source code — evidence_planner.py:9, capability_library.py:6 reference nonexistent docs",
+      "description": "Fix stale doc references in source code \u2014 evidence_planner.py:9, capability_library.py:6 reference nonexistent docs",
       "status": "pending"
     },
     {
       "id": 18,
       "priority": "P2",
       "category": "ci",
-      "description": "Create .github/workflows/ci.yml — claimed in CHANGELOG but missing",
+      "description": "Create .github/workflows/ci.yml \u2014 claimed in CHANGELOG but missing",
       "status": "pending"
     },
     {
       "id": 19,
       "priority": "P2",
       "category": "security",
-      "description": "Fix tools.json/servers.json gitignore inconsistency — both listed in .gitignore but both committed",
+      "description": "Fix tools.json/servers.json gitignore inconsistency \u2014 both listed in .gitignore but both committed",
       "status": "pending"
     },
     {
       "id": 21,
       "priority": "P2",
       "category": "cleanup",
-      "description": "Remove ui/AGENTS.md and ui/.lovable/ — Lovable branding not fully cleaned up",
+      "description": "Remove ui/AGENTS.md and ui/.lovable/ \u2014 Lovable branding not fully cleaned up",
       "status": "pending"
     },
     {
       "id": 22,
       "priority": "P2",
       "category": "refactor",
-      "description": "Initialize _INTENT_PROMPTS at module level in prompt_builder_v2.py — replace lazy-init pattern",
+      "description": "Initialize _INTENT_PROMPTS at module level in prompt_builder_v2.py \u2014 replace lazy-init pattern",
       "status": "pending"
     },
     {
@@ -193,7 +194,98 @@
       "id": 20,
       "priority": "P2",
       "category": "dependencies",
-      "description": "Remove unused dependencies from pyproject.toml — numpy, requests",
+      "description": "Remove unused dependencies from pyproject.toml \u2014 numpy, requests",
+      "status": "pending"
+    },
+    {
+      "id": 31,
+      "priority": "P0",
+      "category": "infrastructure",
+      "description": "WP1: Deploy AI Platform on public VM \u2014 HTTPS termination, reverse proxy, Docker Compose, PostgreSQL",
+      "status": "pending"
+    },
+    {
+      "id": 32,
+      "priority": "P1",
+      "category": "infrastructure",
+      "description": "WP1: Create Docker Compose for API/Web UI/PostgreSQL services",
+      "status": "pending"
+    },
+    {
+      "id": 33,
+      "priority": "P1",
+      "category": "infrastructure",
+      "description": "WP1: Set up reverse proxy (nginx/caddy) in front of API",
+      "status": "pending"
+    },
+    {
+      "id": 34,
+      "priority": "P1",
+      "category": "infrastructure",
+      "description": "WP1: Configure HTTPS with Let's Encrypt",
+      "status": "pending"
+    },
+    {
+      "id": 35,
+      "priority": "P1",
+      "category": "infrastructure",
+      "description": "WP1: Provision PostgreSQL database for platform state",
+      "status": "pending"
+    },
+    {
+      "id": 36,
+      "priority": "P1",
+      "category": "testing",
+      "description": "WP1: Verify Web UI reachable over HTTPS on VM",
+      "status": "pending"
+    },
+    {
+      "id": 37,
+      "priority": "P2",
+      "category": "integration",
+      "description": "WP2: Integrate Dify as conversational/orchestration layer",
+      "status": "pending"
+    },
+    {
+      "id": 38,
+      "priority": "P2",
+      "category": "integration",
+      "description": "WP2: Introduce Knowledge Base",
+      "status": "pending"
+    },
+    {
+      "id": 39,
+      "priority": "P2",
+      "category": "infrastructure",
+      "description": "WP3: Implement Document Service \u2014 upload, preview, download",
+      "status": "pending"
+    },
+    {
+      "id": 40,
+      "priority": "P2",
+      "category": "infrastructure",
+      "description": "WP3: Record document history in PostgreSQL",
+      "status": "pending"
+    },
+    {
+      "id": 41,
+      "priority": "P1",
+      "category": "migration",
+      "description": "WP4: Migrate Agent to run as platform capability via API",
+      "status": "pending"
+    },
+    {
+      "id": 42,
+      "priority": "P1",
+      "category": "enhancement",
+      "description": "WP4: Implement Internet Tool \u2014 opt-in per request only",
+      "status": "pending"
+    },
+    {
+      "id": 43,
+      "priority": "P2",
+      "category": "frontend",
+      "description": "WP5: Ship Desktop App (Tauri or Electron) using same API",
       "status": "pending"
     }
   ],
@@ -216,8 +308,8 @@
     }
   ],
   "metrics": {
-    "tests_passed": 600,
-    "tests_total": 600,
-    "commits_made": 15
+    "tests_passed": 627,
+    "tests_total": 627,
+    "commits_made": 16
   }
 }
