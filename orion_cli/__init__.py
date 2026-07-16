@@ -5,4 +5,4 @@ _src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 if _src not in sys.path:
     sys.path.insert(0, os.path.dirname(_src))
 
-from src.cli import main
+from src.cli.main import main

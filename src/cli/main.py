@@ -2,16 +2,25 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time
-import webbrowser
 
+from src.agent.conversation_store import list_sessions
 from src.agent.runtime_factory import create_deterministic_agent
+from src.backend.app import run_web
+from src.shared.logger import info as _info
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
+
+
+_last_request = None
+
+
+# ============================================================
+# Target management
+# ============================================================
 
 
 def _add_target(args: argparse.Namespace) -> None:
@@ -63,192 +72,15 @@ def _list_targets(args: argparse.Namespace) -> None:
         print(name)
 
 
-_last_request = None
-
-
-_WEB_PROCESSES: list[subprocess.Popen] = []
-
-
-def _cleanup_web() -> None:
-    for p in _WEB_PROCESSES:
-        try:
-            p.terminate()
-            p.wait(timeout=2)
-        except Exception:
-            try:
-                p.kill()
-                p.wait(timeout=1)
-            except Exception:
-                pass
-    subprocess.run(["pkill", "-f", "vite"], capture_output=True)
-    _WEB_PROCESSES.clear()
-
-
-def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
-    import urllib.request
-    start = time.monotonic()
-    while time.monotonic() - start < timeout:
-        try:
-            urllib.request.urlopen(url, timeout=2)
-            return True
-        except Exception:
-            time.sleep(1)
-    return False
-
-
-def _run_web(args: argparse.Namespace) -> None:
-    import atexit
-    atexit.register(_cleanup_web)
-
-    try:
-        from fastapi import FastAPI
-        from fastapi.middleware.cors import CORSMiddleware
-        from fastapi.staticfiles import StaticFiles
-        import uvicorn
-    except ImportError:
-        print("Web UI requires: pip install fastapi uvicorn")
-        sys.exit(1)
-
-    import uuid as _uuid
-    from src.agent.runtime_factory import create_deterministic_agent
-    from src.agent.conversation_store import ConversationStore, list_sessions
-
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    ui_dir = os.path.join(project_root, "ui")
-    dist_dir = os.path.join(ui_dir, "dist")
-    client_dir = os.path.join(dist_dir, "client")
-    is_prod = os.path.isfile(os.path.join(dist_dir, "index.html")) or os.path.isfile(os.path.join(client_dir, "index.html"))
-
-    backend_port = args.port
-
-    from src.shared.logger import info as _info
-    _info("orion-web", message="orion-web started", port=backend_port)
-
-    app = FastAPI(title="Orion", version="1.0.0")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-    agent = create_deterministic_agent(
-        target_store_path=args.target_file,
-        server_name=args.server,
-        model=args.model,
-    )
-
-    _sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
-    _web_sessions: dict[str, ConversationStore] = {}
-
-    def _get_or_create_session(session_id: str | None) -> ConversationStore:
-        sid = session_id or _uuid.uuid4().hex[:12]
-        if sid not in _web_sessions:
-            cs = ConversationStore(session_id=sid, store_dir=_sessions_dir, source="web", summarize_fn=agent._assessment_model.assess_raw)
-            _web_sessions[sid] = cs
-            cs._save()
-        cs = _web_sessions[sid]
-        agent._conversation_store = cs
-        return cs
-
-    @app.get("/api/health")
-    def health():
-        return {"status": "ok", "version": "1.0.0"}
-
-    @app.get("/api/sessions")
-    def list_sessions_api():
-        return {"sessions": list_sessions(_sessions_dir)}
-
-    @app.delete("/api/sessions/{session_id}")
-    def delete_session(session_id: str):
-        path = os.path.join(_sessions_dir, f"{session_id}.json")
-        if not os.path.exists(path):
-            from fastapi import HTTPException
-            raise HTTPException(404, f"Session '{session_id}' not found")
-        os.remove(path)
-        _web_sessions.pop(session_id, None)
-        return {"status": "deleted", "session_id": session_id}
-
-    @app.patch("/api/sessions/{session_id}")
-    def rename_session(session_id: str, body: dict):
-        path = os.path.join(_sessions_dir, f"{session_id}.json")
-        if not os.path.exists(path):
-            from fastapi import HTTPException
-            raise HTTPException(404, f"Session '{session_id}' not found")
-        new_title = body.get("title", "").strip()
-        if not new_title:
-            from fastapi import HTTPException
-            raise HTTPException(400, "title is required")
-        data = json.loads(Path(path).read_text())
-        data["title"] = new_title
-        Path(path).write_text(json.dumps(data, indent=2))
-        return {"status": "renamed", "session_id": session_id, "title": new_title}
-
-    @app.post("/api/query")
-    def query(body: dict):
-        import json as _json
-
-        question = (body.get("question") or "").strip()
-        if not question:
-            from fastapi import HTTPException
-            raise HTTPException(400, "Question is required")
-
-        session_id = body.get("session_id")
-        session_cs = _get_or_create_session(session_id)
-
-        result = agent.run_with_steps(question)
-
-        return {
-            "steps": result["steps"],
-            "assessment": result["response"],
-        }
-
-    if is_prod:
-        static_root = client_dir if os.path.isfile(os.path.join(client_dir, "index.html")) else dist_dir
-        app.mount("/", StaticFiles(directory=static_root, html=True), name="frontend")
-
-        open_url = f"http://127.0.0.1:{backend_port}"
-        print("Starting Infrastructure Agent...", flush=True)
-        print(f"  Backend + Frontend: {open_url}", flush=True)
-        print(flush=True)
-        webbrowser.open(open_url)
-        uvicorn.run(app, host="127.0.0.1", port=backend_port)
-        return
-
-    # --- Development mode ---
-    print("Starting Infrastructure Agent...", flush=True)
-
-    frontend_port = 5173
-
-    vite_proc = subprocess.Popen(
-        ["npx", "vite", "dev", "--port", str(frontend_port)],
-        cwd=ui_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    _WEB_PROCESSES.append(vite_proc)
-
-    backend_url = f"http://127.0.0.1:{backend_port}"
-    open_url = f"http://127.0.0.1:{frontend_port}"
-
-    if not _wait_for_server(f"http://127.0.0.1:{frontend_port}/"):
-        print("ERROR: Frontend dev server did not start in time.", flush=True)
-        _cleanup_web()
-        sys.exit(1)
-    print("  ✓ Frontend started", flush=True)
-
-    print(f"  ✓ Backend starting on {backend_url}", flush=True)
-    print(f"  ✓ Opening browser at {open_url}", flush=True)
-    print(flush=True)
-    webbrowser.open(open_url)
-
-    try:
-        uvicorn.run(app, host="127.0.0.1", port=backend_port)
-    finally:
-        _info("orion-web", message="orion-web stopped")
-        _cleanup_web()
+# ============================================================
+# Log tail
+# ============================================================
 
 
 def _run_log() -> None:
     _log_path = os.path.join(os.path.expanduser("~"), ".orion", "orion.log")
     try:
-        print(f"Orion log (Ctrl+C to stop)")
-        import time as _lt
+        print("Orion log (Ctrl+C to stop)")
         _last_size = 0
         while True:
             try:
@@ -259,13 +91,19 @@ def _run_log() -> None:
                     _last_size = _f.tell()
             except FileNotFoundError:
                 pass
-            _lt.sleep(0.2)
+            time.sleep(0.2)
     except KeyboardInterrupt:
         print()
 
 
+# ============================================================
+# Agent REPL
+# ============================================================
+
+
 def _run_agent(args: argparse.Namespace) -> None:
-    from src.shared.logger import info as _info
+    global _last_request
+
     _info("orion", message="orion started")
 
     agent = create_deterministic_agent(
@@ -380,6 +218,11 @@ def _run_agent(args: argparse.Namespace) -> None:
     _info("orion", message="orion stopped")
 
 
+# ============================================================
+# Entry point
+# ============================================================
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Orion — Infrastructure Investigation Platform",
@@ -459,7 +302,6 @@ def main() -> None:
         return
 
     if args.command == "session":
-        from src.agent.conversation_store import list_sessions
         sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
 
         if args.session_action == "delete":
@@ -500,7 +342,12 @@ def main() -> None:
         return
 
     if args.command == "web":
-        _run_web(args)
+        run_web(
+            port=args.port,
+            target_store_path=args.target_file,
+            server_name=args.server,
+            model=args.model,
+        )
         return
 
     if args.command == "log":
