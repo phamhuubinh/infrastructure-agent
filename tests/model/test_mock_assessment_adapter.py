@@ -115,3 +115,50 @@ class TestMockAssessmentAdapter:
         assert (
             result == "I'm a mock assistant. I can help with infrastructure questions."
         )
+
+    def test_assess_raw_medium_confidence_returns_yes(self) -> None:
+        adapter = MockAssessmentAdapter()
+        result = adapter.assess_raw("cpu memory")
+        assert result == "yes"
+
+    def test_assess_includes_intent(self) -> None:
+        adapter = MockAssessmentAdapter()
+        req = AssessmentRequest(
+            raw_request="check disk",
+            intent="DISK_ASSESSMENT",
+        )
+        result = adapter.assess(req)
+        assert "DISK_ASSESSMENT" in result
+
+    def test_assess_with_no_evidence_tuple(self) -> None:
+        adapter = MockAssessmentAdapter()
+        req = AssessmentRequest(raw_request="test")
+        result = adapter.assess(req)
+        assert "Evidence collected: 0" in result
+        assert "Successful: 0" in result
+        assert "Failed: 0" in result
+
+    def test_assess_all_failed_evidence(self) -> None:
+        adapter = MockAssessmentAdapter()
+        req = AssessmentRequest(
+            raw_request="check all",
+            intent="MACHINE_ASSESSMENT",
+            evidence=(
+                EvidencePackage(
+                    capability_name="CPU",
+                    evidence_name="CPU",
+                    success=False,
+                    error="Timeout",
+                ),
+                EvidencePackage(
+                    capability_name="Memory",
+                    evidence_name="MEMORY",
+                    success=False,
+                    error="No access",
+                ),
+            ),
+        )
+        result = adapter.assess(req)
+        assert "Evidence collected: 2" in result
+        assert "Successful: 0" in result
+        assert "Failed: 2" in result
