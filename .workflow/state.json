@@ -1,0 +1,180 @@
+{
+  "backlog": [
+
+    {
+      "id": 4,
+      "priority": "P0",
+      "category": "build",
+      "description": "Create Makefile with targets: test, lint, typecheck, clean, build, benchmark, ci",
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "priority": "P0",
+      "category": "build",
+      "description": "Create GitHub Actions CI workflow .github/workflows/ci.yml",
+      "status": "pending"
+    },
+    {
+      "id": 6,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/agent/conversation_store.py",
+      "status": "pending"
+    },
+    {
+      "id": 7,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/agent/runtime_factory.py",
+      "status": "pending"
+    },
+    {
+      "id": 8,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/model/protocol/prompt_builder_v2.py",
+      "status": "pending"
+    },
+    {
+      "id": 9,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/pipeline/evidence_merge.py, evidence_completeness.py, evidence_package.py",
+      "status": "pending"
+    },
+    {
+      "id": 10,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/pipeline/execution_engine.py \u2014 full pipeline integration",
+      "status": "pending"
+    },
+    {
+      "id": 11,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/pipeline/execution_planner.py",
+      "status": "pending"
+    },
+    {
+      "id": 12,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/pipeline/assessment_adapter.py",
+      "status": "pending"
+    },
+    {
+      "id": 13,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/model/llm_assessment_adapter.py",
+      "status": "pending"
+    },
+    {
+      "id": 14,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/model/mock_assessment_adapter.py",
+      "status": "pending"
+    },
+    {
+      "id": 15,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write tests for src/tool/execution_backend.py",
+      "status": "pending"
+    },
+    {
+      "id": 16,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix F401 unused imports and F541 f-string without placeholders across src/",
+      "status": "pending"
+    },
+    {
+      "id": 17,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix PTH118 os.path.join() calls \u2014 replace with Path / operator across src/",
+      "status": "pending"
+    },
+    {
+      "id": 18,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix TC003 type-checking imports, SIM102/117, E402, RUF012",
+      "status": "pending"
+    },
+    {
+      "id": 19,
+      "priority": "P1",
+      "category": "documentation",
+      "description": "Add CHANGELOG.md, CONTRIBUTING.md, SECURITY.md",
+      "status": "pending"
+    },
+    {
+      "id": 20,
+      "priority": "P1",
+      "category": "observability",
+      "description": "Add __main__.py, version string, structured error codes ORION-XXX",
+      "status": "pending"
+    },
+    {
+      "id": 21,
+      "priority": "P1",
+      "category": "security",
+      "description": "Fix S110 bare except:pass \u2014 log exceptions instead of silencing",
+      "status": "pending"
+    },
+    {
+      "id": 22,
+      "priority": "P2",
+      "category": "maintainability",
+      "description": "Update 08_PROJECT_STATE.md to reflect current reality, add .editorconfig, CODEOWNERS",
+      "status": "pending"
+    },
+    {
+      "id": 23,
+      "priority": "P2",
+      "category": "testing",
+      "description": "Add benchmark regression test and end-to-end CLI --web test",
+      "status": "pending"
+    },
+    {
+      "id": 24,
+      "priority": "P3",
+      "category": "enhancement",
+      "description": "Add pytest config, .env.example, pre-commit-config.yaml, docker-compose.yml",
+      "status": "pending"
+    }
+  ],
+  "completed": [
+    {
+      "id": 1,
+      "priority": "P0",
+      "description": "Add servers.json to .gitignore",
+      "status": "completed"
+    },
+    {
+      "id": 2,
+      "priority": "P0",
+      "description": "Reconcile pyproject.toml dependencies",
+      "status": "completed"
+    },
+    {
+      "id": 3,
+      "priority": "P0",
+      "category": "compliance",
+      "description": "Remove empty scaffolding directories src/knowledge/, src/schema/, src/runtime/",
+      "status": "completed",
+      "completed_at": "2026-07-17T00:00:00Z",
+      "reason": "directories already removed in prior commits (6fe86bc etc.)"
+    }
+  ],
+  "metrics": {
+    "tests_passed": 567,
+    "tests_total": 567,
+    "commits_made": 0
+  }
+}
