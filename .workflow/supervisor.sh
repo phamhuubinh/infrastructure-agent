@@ -76,21 +76,112 @@ print(json.dumps(s))
 }
 
 # ---------------------------------------------------------------------------
-# Validation (fast smoke before task, full after task)
+# Validation — strict (exit on fail)
 # ---------------------------------------------------------------------------
-smoke() {
-  log "SMOKE" "imports + resolver tests..."
-  python3 -c "import src.shared.secrets, src.model.llm_client, src.pipeline.target_resolver; print('ok')" 2>/dev/null || true
-  timeout 30 python3 -m pytest tests/pipeline/test_target_resolver.py tests/pipeline/test_intent_resolver.py -q --tb=short 2>&1 | tail -3 || true
+format_check() {
+  log "FORMAT" "ruff format check..."
+  ruff format --check src/ tests/ 2>&1 | tee -a "$SESSION_LOG"
 }
 
-full_test() {
+lint_strict() {
+  log "LINT" "ruff strict check..."
+  ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501 2>&1 | tee -a "$SESSION_LOG"
+}
+
+test_full() {
   log "TEST" "full suite..."
-  timeout 600 python3 -m pytest tests/ -q --tb=short 2>&1 | tail -3 || true
+  python3 -m pytest tests/ -q --tb=short -x 2>&1 | tee -a "$SESSION_LOG"
 }
 
-lint_check() { bash "$SCRIPT_DIR/commands/lint.sh" 2>&1 | tail -3 || true; }
-typecheck() { bash "$SCRIPT_DIR/commands/typecheck.sh" 2>&1 | tail -3 || true; }
+test_failed_count() {
+  python3 -m pytest tests/ --collect-only -q 2>&1 | tail -1 | grep -oP '^\d+' || echo "0"
+}
+
+# ---------------------------------------------------------------------------
+# 16-step workflow for one task (mirrors the flowchart exactly)
+# ---------------------------------------------------------------------------
+execute_task() {
+  local task_json="$1"
+  local task_id; task_id=$(echo "$task_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id','?'))")
+  local task_desc; task_desc=$(echo "$task_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('description','?')[:80])")
+
+  log "TASK" "[#$task_id] === START $task_desc ==="
+
+  # Step 1-3: Read repo + docs + build backlog (done before loop)
+
+  # Step 4: Pick highest priority task (done by get_next_task)
+
+  # Step 5: Analyze & Step 6: Plan (via opencode prompt — agent reads code)
+
+  local max_attempts=10
+  local attempt=1
+  while [ "$attempt" -le "$max_attempts" ]; do
+    log "TASK" "[#$task_id] attempt $attempt/$max_attempts"
+
+    # Step 7: Implement
+    cd "$REPO_ROOT" && opencode run "$(build_prompt "$task_json")" --auto --no-replay 2>&1 | tee -a "$SESSION_LOG" || true
+
+    # Step 8: Self review
+    if ! git diff --quiet; then
+      log "REVIEW" "[#$task_id] changes detected"
+    else
+      log "REVIEW" "[#$task_id] no changes"
+    fi
+
+    # Step 9: Formatter
+    log "FORMAT" "[#$task_id] ruff format..."
+    ruff format src/ tests/ 2>&1 | tee -a "$SESSION_LOG" || true
+
+    # Step 10: Lint
+    log "LINT" "[#$task_id] ruff check..."
+    if ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501 2>&1 | tee -a "$SESSION_LOG"; then
+      log "LINT" "[#$task_id] PASS"
+    else
+      log "LINT" "[#$task_id] FAIL"
+      log "TASK" "[#$task_id] analyzing failure and fixing..."
+      # Step 15: Fix and test again (loop)
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    # Step 11: Unit tests
+    log "TEST" "[#$task_id] unit tests..."
+    if python3 -m pytest tests/ -q --tb=short -x 2>&1 | tee -a "$SESSION_LOG"; then
+      log "TEST" "[#$task_id] PASS"
+    else
+      log "TEST" "[#$task_id] FAIL"
+      log "TASK" "[#$task_id] analyzing failure and fixing..."
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    # Step 12: Integration tests (full suite)
+    log "TEST" "[#$task_id] integration tests (full suite)..."
+    if python3 -m pytest tests/ -q --tb=short 2>&1 | tee -a "$SESSION_LOG"; then
+      log "TEST" "[#$task_id] ALL PASS"
+    else
+      log "TEST" "[#$task_id] FAIL"
+      log "TASK" "[#$task_id] analyzing failure and fixing..."
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    # Step 13: All pass → exit loop
+    log "TASK" "[#$task_id] all checks passed after $attempt attempts"
+    break
+  done
+
+  if [ "$attempt" -le "$max_attempts" ]; then
+    # Step 14: Update documentation (handled by opencode)
+    # Step 15: Commit (handled by opencode)
+    # Step 16: Update state (handled below)
+    log "TASK" "[#$task_id] DONE"
+    return 0
+  else
+    log "TASK" "[#$task_id] BLOCKED after $max_attempts attempts"
+    return 1
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Build task prompt for OpenCode
@@ -100,65 +191,57 @@ build_prompt() {
   echo "$task_json" | python3 -c "
 import sys, json
 t = json.load(sys.stdin)
-print(f'''You are in an autonomous development session for Orion at /home/binh/Orion_agent.
+print(f'''You are implementing task #{t.get('id')} in Orion (Infrastructure Investigation Platform).
 
-CURRENT TASK #{t.get('id')} [{t.get('priority','?')}]
-{t.get('description','')}
+TASK: {t.get('description','')}
 
-WHAT TO DO:
+16-STEP WORKFLOW — follow exactly:
 1. Read repo state (git log, status)
-2. Read relevant source files
-3. Implement the fix
-4. Run: bash .workflow/commands/run-tests.sh
-5. Review git diff
-6. Commit with a clear message (git add -A && git commit -m \"...\")
-7. Update .workflow/state.json: move this task to completed
-8. Exit
+2. Read docs and source files to understand architecture
+3. Read relevant code for this task
+4. Plan implementation
+5. Implement
+6. Self-review
+7. Format: ruff format src/ tests/
+8. Lint: ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501
+9. Unit test: python3 -m pytest tests/ -q --tb=short -x
+10. Integration test (if applicable)
+11. Regression test: full suite
+12. If any step fails → fix and re-run
+13. Update documentation if needed
+14. Git commit: git add -A && git commit -m \"...\"
+15. Update .workflow/state.json: mark task as completed
+16. Move to next task
 
 RULES:
 - Exactly ONE commit per task
 - Never mix unrelated changes
-- If task is already done, just mark it completed
-- If task cannot be done, mark it completed with reason
-- Always run tests before committing
+- Never leave tests broken
+- If blocked after 3 attempts, mark blocked and move on
 ''')
 "
 }
 
 # ---------------------------------------------------------------------------
-# Run one iteration
+# Run one iteration (16-step)
 # ---------------------------------------------------------------------------
 run_iteration() {
   local task_json; task_json=$(get_next_task)
   if [ "$task_json" = "null" ]; then
-    return 1  # no work
+    return 1
   fi
 
   local task_id; task_id=$(echo "$task_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id','?'))")
-  local task_desc; task_desc=$(echo "$task_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('description','?')[:80])")
 
-  log "TASK" "[#$task_id] $task_desc"
+  log "TASK" "[#$task_id] starting"
   mark_started "$task_id"
 
-  # Smoke check before OpenCode
-  smoke
-
-  # Launch OpenCode — autonomous mode
-  local prompt; prompt=$(build_prompt "$task_json")
-  log "OPENCODE" "launching..."
-  cd "$REPO_ROOT" && opencode run "$prompt" --auto --no-replay 2>&1 | tee -a "$SESSION_LOG" || true
-
-  # Post OpenCode: run validation (non-blocking, detached)
-  log "TASK" "[#$task_id] post-run validation..."
-  (
-    lint_check
-    typecheck
-    # Full test runs detached — does not block the daemon loop
-    timeout 600 bash "$SCRIPT_DIR/commands/run-tests.sh" > /tmp/orion_full_test.log 2>&1 || true
-    log "TEST" "detached test run finished"
-  ) &
-
-  log "TASK" "[#$task_id] done"
+  if execute_task "$task_json"; then
+    # Step 14: Git commit (already done by opencode)
+    log "TASK" "[#$task_id] completed successfully"
+  else
+    log "TASK" "[#$task_id] BLOCKED — max attempts exceeded"
+  fi
   return 0
 }
 

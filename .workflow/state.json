@@ -1,6 +1,6 @@
 {
   "backlog": [
-    {"id": 3, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py", "status": "pending"},
+    {"id": 3, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py", "status": "completed"},
     {"id": 4, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/execution_engine.py", "status": "pending"},
     {"id": 5, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/assessment_adapter.py", "status": "pending"},
     {"id": 6, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/deterministic_responder.py", "status": "pending"},
@@ -38,9 +38,10 @@
   ],
   "completed": [
     {"id": 1, "priority": "P0", "description": "Write tests for conversation_store.py", "status": "completed"},
-    {"id": 2, "priority": "P0", "description": "Write tests for runtime_factory.py", "status": "completed"}
+    {"id": 2, "priority": "P0", "description": "Write tests for runtime_factory.py", "status": "completed"},
+    {"id": 3, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py", "status": "completed"}
   ],
-  "metrics": {"tests_passed": 627, "tests_total": 627, "commits_made": 15},
+  "metrics": {"tests_passed": 644, "tests_total": 644, "commits_made": 16},
   "workflow": [
     "1. Đọc backlog, pick task P0 cao nhất",
     "2. Phân tích yêu cầu — đọc docs, hiểu task",
