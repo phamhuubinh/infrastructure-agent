@@ -79,6 +79,7 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 def _run_log() -> None:
     from pathlib import Path
+
     _log_path = str(Path.home() / ".orion" / "orion.log")
     try:
         print("Orion log (Ctrl+C to stop)")
@@ -348,6 +349,7 @@ def main() -> None:
 
     if args.command == "session":
         from pathlib import Path
+
         sessions_dir = str(Path.home() / ".orion" / "sessions")
 
         if args.session_action == "delete":

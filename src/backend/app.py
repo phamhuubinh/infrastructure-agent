@@ -185,13 +185,13 @@ def run_web(
         model=model,
     )
 
-    is_prod = (Path(dist_dir) / "index.html").is_file() or (Path(client_dir) / "index.html").is_file()
+    is_prod = (Path(dist_dir) / "index.html").is_file() or (
+        Path(client_dir) / "index.html"
+    ).is_file()
 
     if is_prod:
         static_root = (
-            client_dir
-            if (Path(client_dir) / "index.html").is_file()
-            else dist_dir
+            client_dir if (Path(client_dir) / "index.html").is_file() else dist_dir
         )
         app.mount("/", StaticFiles(directory=static_root, html=True), name="frontend")
 

@@ -31,13 +31,13 @@ Produce only the new merged summary, nothing else."""
 
 
 def list_sessions(store_dir: str | None = None) -> list[dict]:
-    store_path = Path(
-        store_dir or Path.home() / ".orion" / "sessions"
-    )
+    store_path = Path(store_dir or Path.home() / ".orion" / "sessions")
     sessions = []
     if not store_path.exists():
         return sessions
-    for f in sorted(store_path.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+    for f in sorted(
+        store_path.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+    )[:50]:
         try:
             data = json.loads(f.read_text())
             msgs = data.get("messages", [])
@@ -69,9 +69,7 @@ class ConversationStore:
     ) -> None:
         self._session_id = session_id
         self._source = source
-        self._store_dir = Path(
-            store_dir or Path.home() / ".orion" / "sessions"
-        )
+        self._store_dir = Path(store_dir or Path.home() / ".orion" / "sessions")
         self._store_dir.mkdir(parents=True, exist_ok=True)
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
