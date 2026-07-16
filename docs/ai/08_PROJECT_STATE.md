@@ -17,7 +17,8 @@
 - Chat interface with routing: keyword match + model classify to distinguish infrastructure queries from general chat.
 - Fuzzy target name matching for typo-tolerant server resolution.
 - Ctrl+C cancel support without crash.
-- Benchmark framework (`benchmark/`) with dataset, scoring, and reporting.
+- Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
+- RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
 - Test directory (`tests/`) with pipeline and tool tests.
 
 ## Cleanup completed (stabilization phase)
@@ -36,7 +37,6 @@
 - **Authentication / accounts** — no login, no sessions.
 - **Remote hosting** — no HTTPS, no reverse proxy, no Docker Compose deployment.
 - **Dify integration** — not connected.
-- **RAG** — not implemented.
 - **Document Service** — not implemented.
 - **Desktop App** — not implemented.
 - **Internet Tool** — planned for WP4, opt-in-only when built (see `04_ROADMAP.md`).
