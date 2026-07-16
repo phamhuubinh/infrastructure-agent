@@ -1,1 +1,157 @@
-{"backlog": [{"id": 4, "priority": "P0", "category": "build", "description": "Create Makefile with targets: test, lint, typecheck, clean, build, benchmark, ci", "status": "completed", "completed_at": "2026-07-17T02:55:00Z"}, {"id": 5, "priority": "P0", "category": "build", "description": "Create GitHub Actions CI workflow .github/workflows/ci.yml", "status": "pending"}, {"id": 1, "priority": "P0", "category": "testing", "description": "Write unit tests for src/agent/conversation_store.py", "status": "in_progress", "started_at": "2026-07-16T19:54:33Z"}, {"id": 2, "priority": "P0", "category": "testing", "description": "Write unit tests for src/agent/runtime_factory.py", "status": "in_progress", "started_at": "2026-07-16T19:59:36Z"}, {"id": 3, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py", "status": "pending"}, {"id": 6, "priority": "P0", "category": "testing", "description": "Write unit tests for src/pipeline/deterministic_responder.py", "status": "pending"}, {"id": 7, "priority": "P0", "category": "testing", "description": "Write unit tests for src/tool/execution_backend.py (LocalExecutionBackend, SSHExecutionBackend)", "status": "pending"}, {"id": 8, "priority": "P0", "category": "testing", "description": "Write unit tests for src/model/mock_assessment_adapter.py", "status": "pending"}, {"id": 9, "priority": "P1", "category": "code-quality", "description": "Fix all PTH118 os.path.join() calls \u2014 replace with Path / operator across src/", "status": "pending"}, {"id": 10, "priority": "P1", "category": "code-quality", "description": "Fix I001 unsorted imports across all src/ files", "status": "pending"}, {"id": 11, "priority": "P1", "category": "code-quality", "description": "Fix F841 unused variables in linux_tool.py and grafana_tool.py", "status": "pending"}, {"id": 12, "priority": "P1", "category": "code-quality", "description": "Fix Q000 single quotes vs double quotes across src/", "status": "pending"}, {"id": 13, "priority": "P1", "category": "code-quality", "description": "Fix PLC0415 late imports moved to top-level, SIM108 ternary, PLR1714 merge comparisons across src/", "status": "pending"}, {"id": 14, "priority": "P1", "category": "code-quality", "description": "Fix TC001/TC003 type-checking imports across src/ files", "status": "pending"}, {"id": 15, "priority": "P1", "category": "code-quality", "description": "Fix TRY003/EM101/EM102 exception style rules across src/", "status": "pending"}, {"id": 16, "priority": "P1", "category": "observability", "description": "Add __main__.py, version string, structured error codes ORION-XXX", "status": "pending"}, {"id": 17, "priority": "P2", "category": "documentation", "description": "Review docs/ai/03_PLATFORM_ARCHITECTURE.md and docs/ai/04_ROADMAP.md for accuracy with 08_PROJECT_STATE.md", "status": "pending"}, {"id": 18, "priority": "P2", "category": "maintainability", "description": "Add CODEOWNERS file for repository governance", "status": "pending"}, {"id": 19, "priority": "P2", "category": "testing", "description": "Add benchmark regression test and end-to-end CLI --web test", "status": "pending"}, {"id": 20, "priority": "P2", "category": "testing", "description": "Add pytest configuration in pyproject.toml", "status": "pending"}, {"id": 21, "priority": "P3", "category": "enhancement", "description": "Add .env.example, pre-commit-config.yaml", "status": "pending"}], "completed": [], "metrics": {"tests_passed": 567, "tests_total": 567, "commits_made": 0}}
+{
+  "backlog": [
+    {
+      "id": 1,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/agent/conversation_store.py",
+      "status": "pending"
+    },
+    {
+      "id": 2,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/agent/runtime_factory.py",
+      "status": "pending"
+    },
+    {
+      "id": 3,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py",
+      "status": "pending"
+    },
+    {
+      "id": 4,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/pipeline/execution_engine.py — full pipeline integration",
+      "status": "pending"
+    },
+    {
+      "id": 5,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/pipeline/assessment_adapter.py",
+      "status": "pending"
+    },
+    {
+      "id": 6,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/pipeline/deterministic_responder.py",
+      "status": "pending"
+    },
+    {
+      "id": 7,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/tool/execution_backend.py (LocalExecutionBackend, SSHExecutionBackend)",
+      "status": "pending"
+    },
+    {
+      "id": 8,
+      "priority": "P0",
+      "category": "testing",
+      "description": "Write unit tests for src/model/mock_assessment_adapter.py",
+      "status": "pending"
+    },
+    {
+      "id": 9,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix all PTH118 os.path.join() calls — replace with Path / operator across src/",
+      "status": "pending"
+    },
+    {
+      "id": 10,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix I001 unsorted imports across all src/ files",
+      "status": "pending"
+    },
+    {
+      "id": 11,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix F841 unused variables in linux_tool.py and grafana_tool.py",
+      "status": "pending"
+    },
+    {
+      "id": 12,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix Q000 single quotes vs double quotes across src/",
+      "status": "pending"
+    },
+    {
+      "id": 13,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix PLC0415 late imports, SIM108 ternary, PLR1714 merge comparisons across src/",
+      "status": "pending"
+    },
+    {
+      "id": 14,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix TC001/TC003 type-checking imports across src/ files",
+      "status": "pending"
+    },
+    {
+      "id": 15,
+      "priority": "P1",
+      "category": "code-quality",
+      "description": "Fix TRY003/EM101/EM102 exception style rules across src/",
+      "status": "pending"
+    },
+    {
+      "id": 16,
+      "priority": "P1",
+      "category": "observability",
+      "description": "Add __main__.py, version string, structured error codes ORION-XXX",
+      "status": "pending"
+    },
+    {
+      "id": 17,
+      "priority": "P2",
+      "category": "documentation",
+      "description": "Review docs/ai/03_PLATFORM_ARCHITECTURE.md and docs/ai/04_ROADMAP.md for accuracy with 08_PROJECT_STATE.md",
+      "status": "pending"
+    },
+    {
+      "id": 18,
+      "priority": "P2",
+      "category": "maintainability",
+      "description": "Add CODEOWNERS file for repository governance",
+      "status": "pending"
+    },
+    {
+      "id": 19,
+      "priority": "P2",
+      "category": "testing",
+      "description": "Add benchmark regression test and end-to-end CLI --web test",
+      "status": "pending"
+    },
+    {
+      "id": 20,
+      "priority": "P2",
+      "category": "testing",
+      "description": "Add pytest configuration in pyproject.toml",
+      "status": "pending"
+    },
+    {
+      "id": 21,
+      "priority": "P3",
+      "category": "enhancement",
+      "description": "Add .env.example, pre-commit-config.yaml",
+      "status": "pending"
+    }
+  ],
+  "completed": [],
+  "metrics": {
+    "tests_passed": 567,
+    "tests_total": 567,
+    "commits_made": 0
+  }
+}
