@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.agent.conversation_store import ConversationStore
 from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.shared.logger import warning as _warning
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
@@ -332,5 +333,5 @@ class DeterministicAgent:
                     if links:
                         parts.append(links)
             except Exception:
-                pass
+                _warning("agent", message=f"failed to build links for tool {name}")
         return "\n\n".join(parts)

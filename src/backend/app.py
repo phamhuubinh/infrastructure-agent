@@ -26,7 +26,7 @@ def cleanup_web() -> None:
                 p.kill()
                 p.wait(timeout=1)
             except Exception:
-                pass
+                _info("cleanup", message="failed to kill web process")
     subprocess.run(["pkill", "-f", "vite"], capture_output=True)
     _WEB_PROCESSES.clear()
 

@@ -92,7 +92,7 @@ def _run_log() -> None:
                         print(_line, end="", flush=True)
                     _last_size = _f.tell()
             except FileNotFoundError:
-                pass
+                _info("cli", message="log file not found, retrying")
             time.sleep(0.2)
     except KeyboardInterrupt:
         print()

@@ -322,7 +322,7 @@ def create_deterministic_agent(
             base_url = str(cfg.get("base_url", "unknown"))
             resolved_model = str(cfg.get("model", "unknown"))
         except Exception:
-            pass
+            _warn(f"failed to load server config for '{server_name}', using defaults")
         _info(
             "llm",
             provider=base_url,

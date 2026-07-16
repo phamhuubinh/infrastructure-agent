@@ -55,7 +55,7 @@ def list_sessions(store_dir: str | None = None) -> list[dict]:
                 }
             )
         except Exception:
-            pass
+            info("conversation", message=f"failed to load session {f.name}")
     return sessions
 
 
@@ -99,7 +99,7 @@ class ConversationStore:
         try:
             self._save()
         except OSError:
-            pass
+            info("conversation", message=f"failed to save session {self._session_id}")
         self._check_compress()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
@@ -109,7 +109,10 @@ class ConversationStore:
         try:
             self._save()
         except OSError:
-            pass
+            info(
+                "conversation",
+                message=f"failed to save classifier session {self._session_id}",
+            )
         self._check_compress()
 
     def summarize(self) -> None:

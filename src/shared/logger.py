@@ -32,7 +32,13 @@ def _write(line: str) -> None:
             with open(path, "a") as f:
                 f.write(line + "\n")
     except Exception:
-        pass
+        import traceback
+
+        print(
+            f"[logger] failed to write to {path}:",
+            traceback.format_exc(),
+            file=sys.stderr,
+        )
 
 
 def _now() -> str:
