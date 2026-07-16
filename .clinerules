@@ -4,9 +4,11 @@ Always understand the project before making changes.
 
 Read in this order:
 
-1. README.md
-2. docs/**
-3. src/**
+1. .workflow/README.md
+2. .workflow/state.json
+3. README.md
+4. docs/**
+5. src/**
 
 Ignore:
 
@@ -23,3 +25,9 @@ Rules:
 - Never create duplicate implementations.
 - Reuse existing abstractions.
 - Explain why before changing code.
+- After every change, run: bash .workflow/commands/run-tests.sh
+- Before committing, run: bash .workflow/commands/lint.sh
+- Review the complete git diff before every commit.
+- Create exactly ONE atomic commit per logical task.
+- Never mix unrelated changes into the same commit.
+- When a task is complete, update .workflow/state.json to mark it done.

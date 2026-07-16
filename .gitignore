@@ -29,3 +29,12 @@ config/secrets.local.json
 
 # Tool config with secrets removed — never commit token/url here
 tools.json
+
+# Workflow artifacts (state, backups, logs)
+.workflow/state.json
+.workflow/session.log
+.workflow/backups/
+.workflow/*.tmp
+
+# Benchmark output files
+benchmark_results_*
