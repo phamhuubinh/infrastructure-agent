@@ -2,7 +2,7 @@
 This describes the system **as it runs today**: local process, single user, no database, no auth, no network exposure other than outbound calls to targets/Grafana/Zabbix/LLM.
 ## Runtime shape
 ```
-CLI (src/cli.py)
+CLI (src/cli/main.py)
    │
    ├── local mode:  runs the pipeline directly in-process
    └── --web mode:  starts a backend API process + Vite dev server (ui/)
@@ -58,5 +58,5 @@ Credential handling for Grafana/Zabbix tokens: see `07_DEVELOPMENT_RULES.md` and
 - No database (state is in-memory + one local JSON file for targets).
 - No authentication / accounts.
 - No remote hosting, no HTTPS termination, no reverse proxy.
-- No automated tests, no benchmark runner (`08_PROJECT_STATE.md` is explicit about this — do not assume otherwise).
+- No automated tests, no benchmark runner (`08_PROJECT_STATE.md` is explicit about this — do not assume otherwise). (Update: `tests/benchmark/` now exists.)
 These are not bugs. They are the current, intentional boundary of the project. `03_PLATFORM_ARCHITECTURE.md` describes what replaces this boundary, and `04_ROADMAP.md` describes the order in which that happens.
