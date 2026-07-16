@@ -36,6 +36,7 @@ export function RichInput({
         onKeyDown={handleKeyDown}
         placeholder="Hỏi về hạ tầng…"
         rows={2}
+        aria-label="Chat input"
         className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
       />
       <div className="flex items-center gap-1 px-2 pb-2">

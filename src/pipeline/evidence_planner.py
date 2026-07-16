@@ -18,8 +18,8 @@ from src.pipeline.investigation_request import InvestigationRequest
 
 _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
     Intent.CPU_ASSESSMENT: (
-        ("CPU Hardware", "CPU Runtime"),
-        ("Processes",),
+        ("CPU Hardware",),
+        ("CPU Usage", "Processes"),
     ),
     Intent.MEMORY_ASSESSMENT: (
         ("Memory",),
@@ -173,7 +173,7 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
         (
             "CPU",
             "Memory",
-            "Disk",
+            "Disk Usage",
             "Network",
         ),
     ),

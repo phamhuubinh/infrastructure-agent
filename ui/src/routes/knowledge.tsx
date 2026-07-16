@@ -4,10 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/knowledge")({
   head: () => ({
-    meta: [
-      { title: "Kiến thức — Orion" },
-      { name: "description", content: "Knowledge sources." },
-    ],
+    meta: [{ title: "Kiến thức — Orion" }, { name: "description", content: "Knowledge sources." }],
   }),
   component: KnowledgePage,
 });

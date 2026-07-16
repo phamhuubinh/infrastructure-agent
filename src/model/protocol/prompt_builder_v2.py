@@ -7,255 +7,175 @@ from src.pipeline.assessment_request import AssessmentRequest
 
 
 def _normalize_evidence(data: Any) -> Any:
-    """Normalize evidence data to reduce prompt size.
-
-    Preserves key summaries while trimming verbose/multi-line raw output.
-    """
     if isinstance(data, dict):
         normalized: dict[str, Any] = {}
         for key, value in data.items():
             if isinstance(value, list):
-                # Truncate long lists to first 10 + a summary count
-                if len(value) > 10:
-                    normalized[key] = value[:10] + [f"... ({len(value)} total)"]
+                if len(value) > 5:
+                    normalized[key] = value[:5] + [f"...+{len(value)-5}"]
                 else:
                     normalized[key] = value
-            elif isinstance(value, str) and len(value) > 500:
-                normalized[key] = value[:500] + "..."
+            elif isinstance(value, str) and len(value) > 300:
+                normalized[key] = value[:300] + "..."
             elif isinstance(value, dict):
                 normalized[key] = _normalize_evidence(value)
             else:
                 normalized[key] = value
         return normalized
     elif isinstance(data, list):
-        if len(data) > 10:
-            return data[:10] + [f"... ({len(data)} total)"]
+        if len(data) > 5:
+            return data[:5] + [f"...+{len(data)-5}"]
         return data
-    elif isinstance(data, str) and len(data) > 500:
-        return data[:500] + "..."
+    elif isinstance(data, str) and len(data) > 300:
+        return data[:300] + "..."
     return data
 
 
 def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
-    """Build a compact text summary for common evidence types.
-
-    Returns None if no summarization rule applies (falls back to JSON).
-    """
     if not isinstance(pkg_data, dict):
         return ""
 
-    # CPU summarization
-    if evidence_name in ("CPU", "CPU Runtime", "CPU Usage"):
+    if evidence_name in ("CPU", "CPU Runtime", "CPU Usage", "CPU Information"):
         parts = []
-        for key in ("cpu_percent", "usage_percent", "cpu_usage_percent",
-                     "idle_percent", "load_1", "load_5", "load_15",
-                     "model", "cores", "threads", "count"):
-            if key in pkg_data:
-                parts.append(f"{key}={pkg_data[key]}")
+        for k in ("model", "cores", "usage_percent", "user", "system", "idle", "iowait", "load_1min", "load_5min", "load_15min"):
+            v = pkg_data.get(k)
+            if v is not None:
+                parts.append(f"{k}={v}")
         if parts:
-            return f"CPU: {', '.join(parts)}"
+            return "CPU: " + ", ".join(parts)
+        usage = pkg_data.get("usage", {})
+        if isinstance(usage, dict):
+            for k in ("user", "system", "idle", "iowait"):
+                v = usage.get(k)
+                if v is not None and not isinstance(v, str):
+                    parts.append(f"{k}={v}%")
+        load = pkg_data.get("load", {})
+        if isinstance(load, dict):
+            parts.append(f"load={load.get('1min','?')}/{load.get('5min','?')}/{load.get('15min','?')}")
+        model = pkg_data.get("model", "")
+        cores = pkg_data.get("cores", 0)
+        if model or cores:
+            parts.insert(0, f"{cores}c {model.split()[0] if model else '?'}")
+        return "CPU: " + ", ".join(parts) if parts else ""
 
-    # Memory summarization
     if evidence_name in ("Memory", "Memory Usage", "Memory Information"):
         parts = []
-        for key in ("total_gb", "used_gb", "available_gb", "usage_percent",
-                     "total", "used", "available", "usage", "used_pct"):
-            if key in pkg_data:
-                parts.append(f"{key}={pkg_data[key]}")
+        for k in ("total_kb", "used_kb", "available_kb", "usage_percent"):
+            v = pkg_data.get(k)
+            if v is not None:
+                parts.append(f"{k}={v}")
         if parts:
-            return f"Memory: {', '.join(parts)}"
+            return "Memory: " + ", ".join(parts)
+        # fallback: try other key names
+        for k in ("total", "used", "available", "usage", "used_pct"):
+            v = pkg_data.get(k)
+            if v is not None:
+                parts.append(f"{k}={v}")
+        return "Memory: " + ", ".join(parts) if parts else ""
 
-    # Storage / Filesystem summarization
     if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
+        mounts = pkg_data.get("mounts") or pkg_data.get("disks") or pkg_data.get("filesystems") or []
+        if not isinstance(mounts, list):
+            return ""
         lines = []
-        mounts = pkg_data.get("mounts") or pkg_data.get("filesystems") or pkg_data.get("partitions") or []
-        if isinstance(mounts, list):
-            for m in mounts[:10]:
-                if isinstance(m, dict):
-                    mp = m.get("mount") or m.get("mountpoint") or m.get("name") or "?"
-                    size = m.get("size_gb") or m.get("total_gb") or ""
-                    used = m.get("used_gb") or m.get("used_pct") or ""
-                    lines.append(f"{mp}: {used}{'%' if used and not 'GB' in str(used) else ''}")
-            if len(mounts) > 10:
-                lines.append(f"... ({len(mounts)} total)")
-        if lines:
-            return "Filesystems:\n  " + "\n  ".join(lines)
-        return ""
+        for m in mounts[:8]:
+            if isinstance(m, dict):
+                mp = m.get("mountpoint") or m.get("target") or m.get("name") or "?"
+                used = m.get("use_percent") or m.get("used_pct") or ""
+                size = m.get("size_bytes") or m.get("total") or 0
+                if isinstance(size, (int, float)) and size > 0:
+                    size_gb = round(size / (1024**3), 1)
+                    lines.append(f"{mp} {used} ({size_gb}GB)")
+                else:
+                    lines.append(f"{mp} {used}")
+        if len(mounts) > 8:
+            lines.append(f"...+{len(mounts)-8}")
+        return "Disks:\n" + "\n".join(lines) if lines else ""
 
-    # Services summarization
     if evidence_name in ("Services", "Service Status"):
-        lines = []
-        svcs = pkg_data.get("services") or pkg_data.get("service_list") or []
-        failed = pkg_data.get("failed") or pkg_data.get("failed_services")
-        total = pkg_data.get("total") or pkg_data.get("service_count") or len(svcs)
-        lines.append(f"Total: {total}")
-        if failed:
-            f_list = failed if isinstance(failed, list) else []
-            if f_list:
-                lines.append(f"Failed: {len(f_list)} - {', '.join(f_list[:5])}")
-                if len(f_list) > 5:
-                    lines.append(f"  ... and {len(f_list) - 5} more")
-        if isinstance(svcs, list):
-            for s in svcs[:10]:
-                if isinstance(s, dict):
-                    name = s.get("name") or s.get("unit") or "?"
-                    state = s.get("state") or s.get("active") or s.get("status") or "?"
-                    lines.append(f"  {name}: {state}")
-            if len(svcs) > 10:
-                lines.append(f"  ... ({len(svcs)} services total)")
-        if lines:
-            return "Services:\n" + "\n".join(lines)
-        return ""
+        total = pkg_data.get("total", 0)
+        failed_list = pkg_data.get("failed_services") or []
+        running = pkg_data.get("running", 0)
+        parts = [f"total={total}", f"running={running}"]
+        if failed_list:
+            parts.append(f"failed={len(failed_list)}:{','.join(str(s)[:15] for s in failed_list[:3])}")
+        return "Services: " + ", ".join(parts)
 
-    # Network summarization
     if evidence_name == "Network":
-        lines = []
-        interfaces = pkg_data.get("interfaces") or pkg_data.get("interface_list") or []
-        if isinstance(interfaces, list):
-            for iface in interfaces[:10]:
-                if isinstance(iface, dict):
-                    name = iface.get("name") or iface.get("interface") or "?"
-                    ip = iface.get("ip") or iface.get("ip_address") or iface.get("addr") or ""
-                    state = iface.get("state") or iface.get("operstate") or iface.get("status") or ""
-                    lines.append(f"  {name}: {ip} ({state})")
-            if len(interfaces) > 10:
-                lines.append(f"  ... ({len(interfaces)} total)")
-        if lines:
-            return "Network:\n" + "\n".join(lines)
-        return ""
+        ifaces = pkg_data.get("interfaces") or []
+        if not isinstance(ifaces, list):
+            return ""
+        parts = []
+        for iface in ifaces[:6]:
+            if isinstance(iface, dict):
+                name = iface.get("name", "?")
+                addr = iface.get("address", iface.get("addr", iface.get("ip", "")))
+                parts.append(f"{name}={addr}")
+        if len(ifaces) > 6:
+            parts.append(f"...+{len(ifaces)-6}")
+        routes = pkg_data.get("routes", [])
+        if routes:
+            parts.append(f"routes={len(routes)}")
+        return "Net: " + ", ".join(parts)
 
     return ""
 
 
-CPU_PROMPT = """You are performing a CPU assessment only.
-
-Scope: You MUST NOT assess Memory, Disk, Network, GPU, Docker, or Services. Only discuss CPU evidence and CPU-related processes.
-
-Structure:
-1. Summary (1-2 sentences)
-2. CPU Hardware (model, cores, threads)
-3. CPU Runtime (usage%, idle%, user%, system%, iowait%, load averages)
-4. Top CPU Consumers (if processes provided)
-5. Conclusion (only if evidence shows a problem; otherwise state no action needed)
-
-Rules:
-- Base every statement ONLY on evidence provided.
-- Do NOT mention Risks or Recommendations unless there is a clear problem.
-- Do NOT suggest baselines, historical data, or missing metrics.
-- CRITICAL: Respond in plain Markdown text. NEVER wrap your response in JSON, a code block, or triple backticks. Output raw Markdown only.
-- A linkdown docker0 interface is normal if Docker is not in use. Label it "Inactive", not "Degraded"."""
+_OUTPUT_RULE = "Respond in plain Markdown. NEVER wrap in JSON or code blocks."
 
 
-MEMORY_PROMPT = """You are performing a Memory assessment only.
+CPU_PROMPT = f"""Assess CPU. Scope: CPU only (no memory/disk/network).
 
-Scope: You MUST NOT assess CPU, Disk, Network, GPU, Docker, or Services. Only discuss Memory and Swap evidence.
+Structure: Summary, Hardware (model/cores), Runtime (usage/idle/iowait/load), Top Consumers, Conclusion.
 
-Structure:
-1. Summary (1-2 sentences)
-2. Memory Utilization (total, used, available, usage%)
-3. Swap (if available)
-4. Top Memory Consumers (if processes provided)
-5. Conclusion (only if evidence shows a problem)
-
-Rules:
-- Base every statement ONLY on evidence provided.
-- Do NOT mention Risks or Recommendations unless there is a clear problem.
-- CRITICAL: Respond in plain Markdown text. NEVER wrap your response in JSON, a code block, or triple backticks. Output raw Markdown only.
-- A linkdown docker0 interface is normal if Docker is not in use. Label it "Inactive", not "Degraded"."""
+Rules: Base on evidence. No baselines. {_OUTPUT_RULE}"""
 
 
-DISK_PROMPT = """You are performing a Disk assessment only.
+MEMORY_PROMPT = f"""Assess Memory. Scope: memory + swap only.
 
-Scope: You MUST NOT assess CPU, Memory, Network, GPU, Docker, or Services. Only discuss filesystems, mounts, capacity, and disk health.
+Structure: Summary, Utilization (total/used/available/%), Swap, Top Consumers, Conclusion.
 
-Structure:
-1. Summary (1-2 sentences)
-2. Filesystem Usage (per mount: size, used, available, usage%)
-3. Mount Points
-4. Disk Health (only if evidence like SMART available)
-5. Conclusion (only if evidence shows a problem)
-
-Rules:
-- Base every statement ONLY on evidence provided.
-- Do NOT mention Risks or Recommendations unless there is a clear problem.
-- CRITICAL: Respond in plain Markdown text. NEVER wrap your response in JSON, a code block, or triple backticks. Output raw Markdown only.
-- A linkdown docker0 interface is normal if Docker is not in use. Label it "Inactive", not "Degraded"."""
+Rules: Base on evidence. {_OUTPUT_RULE}"""
 
 
-NETWORK_SINGLE_PROMPT = """You are performing a Network assessment only.
+DISK_PROMPT = f"""Assess Disk. Scope: filesystems, mounts, capacity, disk health only.
 
-Scope: You MUST NOT assess CPU, Memory, Disk, GPU, Docker, or Services. Only discuss network interfaces, routing, and connectivity.
+Structure: Summary, Filesystem Usage, Mount Points, Disk Health, Conclusion.
 
-Structure:
-1. Summary (1-2 sentences)
-2. Interfaces (name, IP, status)
-3. Routing
-4. Connectivity
-5. Conclusion
-
-Rules:
-- Base every statement ONLY on evidence provided.
-- CRITICAL: Respond in plain Markdown text. NEVER wrap your response in JSON or a code block.
-- A linkdown docker0 interface is normal if Docker is not in use. Label it "Inactive", not "Degraded".
-- Only flag a risk if evidence shows expected functionality is broken."""
+Rules: Base on evidence. {_OUTPUT_RULE}"""
 
 
-PROCESS_PROMPT = """You are performing a Process assessment only.
+NETWORK_SINGLE_PROMPT = f"""Assess Network. Scope: interfaces, routing, connectivity only.
 
-Scope: You MUST NOT assess CPU, Memory usage trends, Disk, or Network. Only discuss running processes, top consumers, and process health.
+Structure: Summary, Interfaces, Routing, Connectivity, Conclusion.
 
-Structure:
-1. Summary (1-2 sentences)
-2. Running Processes (total count, zombie count)
-3. Top CPU Consumers
-4. Top Memory Consumers
-5. Process Health
-6. Conclusion
-
-Rules:
-- Base every statement ONLY on evidence provided."""
+Rules: Base on evidence. {_OUTPUT_RULE}"""
 
 
-COMPACT_PROMPT = """You are an infrastructure assessment engine. Interpret collected evidence and produce an operational assessment.
+PROCESS_PROMPT = """Assess Processes. Scope: running processes, top consumers, process health only.
 
-All evidence has been collected by the deterministic pipeline — you receive completed evidence only.
+Structure: Summary, Running (total/zombie), Top CPU, Top Memory, Health, Conclusion.
 
-Structure your response with these sections:
-1. Summary
-2. Assessment per subsystem
-3. Risks
-4. Unknowns
-5. Recommendations
-
-Rules:
-- Base every statement on evidence.
-- If evidence is missing, say so. Never assume healthy without evidence.
-- Be concise. Prefer structured output."""
+Rules: Base on evidence."""
 
 
-MINIMAL_PROMPT = """You are an infrastructure assessment engine. Interpret the evidence below and produce a structured operational assessment.
+COMPACT_PROMPT = f"""You are an infrastructure assessment engine. Assess collected evidence.
 
-Response sections: Summary, Assessment, Risks, Unknowns, Recommendations.
+Structure: Summary, Assessment per subsystem, Risks, Unknowns, Recommendations.
 
-Be concise. Base everything on evidence."""
+Rules: Base on evidence. Say if evidence missing. Be concise. {_OUTPUT_RULE}"""
 
 
-STRUCTURED_PROMPT = """You are an infrastructure assessment engine. Produce a structured assessment from the collected evidence.
+MINIMAL_PROMPT = f"""Assess infrastructure evidence.
 
-Respond in exactly this JSON format:
-{
-  "summary": "...",
-  "assessments": {"subsystem": {"status": "OK|WARNING|CRITICAL|UNKNOWN", "evidence": "..."}},
-  "risks": [{"risk": "...", "severity": "low|medium|high", "evidence": "..."}],
-  "unknowns": ["..."],
-  "recommendations": ["..."]
-}"""
+Sections: Summary, Assessment, Risks, Unknowns, Recommendations.
+
+Be concise. Base on evidence. {_OUTPUT_RULE}"""
 
 
 PROMPT_VERSIONS = {
     "compact": COMPACT_PROMPT,
     "minimal": MINIMAL_PROMPT,
-    "structured": STRUCTURED_PROMPT,
 }
 
 _INTENT_PROMPTS = {}
@@ -285,6 +205,23 @@ def set_prompt_version(version: str) -> None:
     _ACTIVE_PROMPT = PROMPT_VERSIONS[version]
 
 
+def _resolve_intent_prompt(intent_str: str) -> str:
+    """Resolve intent prompt from a string intent name.
+
+    Converts the string to an Intent enum for lookup; falls back
+    to the default compact prompt when no specific prompt exists.
+    """
+    if not _INTENT_PROMPTS:
+        _init_intent_prompts()
+
+    try:
+        from src.pipeline.intent_resolver import Intent
+        intent_enum = Intent[intent_str]
+        return _INTENT_PROMPTS.get(intent_enum, _ACTIVE_PROMPT)
+    except (KeyError, ValueError):
+        return _ACTIVE_PROMPT
+
+
 def build_assessment_prompt(
     assessment_request: AssessmentRequest,
 ) -> str:
@@ -299,17 +236,13 @@ def build_assessment_prompt(
     Returns:
         A prompt string for the model.
     """
-    if not _INTENT_PROMPTS:
-        _init_intent_prompts()
-
-    intent_name = assessment_request.intent
-    instruction = _INTENT_PROMPTS.get(intent_name, _ACTIVE_PROMPT)
+    instruction = _resolve_intent_prompt(assessment_request.intent)
 
     lines: list[str] = [
         instruction,
         "",
         f"User request: {assessment_request.raw_request}",
-        f"Investigation intent: {intent_name}",
+        f"Investigation intent: {assessment_request.intent}",
         f"Evidence complete: {assessment_request.evidence_complete}",
     ]
     if assessment_request.missing_evidence:
@@ -329,16 +262,15 @@ def build_assessment_prompt(
         else:
             # Normalize + serialize as JSON (with truncation).
             normalized = _normalize_evidence(pkg.data)
-            json_str = json.dumps(normalized, indent=2)
-            if len(json_str) > 3000:
-                json_str = json_str[:3000] + "\n  ... (truncated)"
+            json_str = json.dumps(normalized, indent=1)
+            if len(json_str) > 2000:
+                json_str = json_str[:2000] + "\n ..."
             lines.append(json_str)
 
         lines.append("")
 
-    lines.append("--- End of evidence ---")
+    lines.append("--- End ---")
     lines.append("")
-    lines.append("Now produce your assessment in plain Markdown text.")
-    lines.append("CRITICAL: Start your response with the first line of the assessment directly. Do NOT wrap in JSON, code blocks, or backticks.")
+    lines.append("Assess in Markdown. No JSON/code blocks.")
 
     return "\n".join(lines)

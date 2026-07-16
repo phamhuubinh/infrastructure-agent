@@ -4,10 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/targets")({
   head: () => ({
-    meta: [
-      { title: "Mục tiêu — Orion" },
-      { name: "description", content: "Managed targets." },
-    ],
+    meta: [{ title: "Mục tiêu — Orion" }, { name: "description", content: "Managed targets." }],
   }),
   component: TargetsPage,
 });

@@ -7,7 +7,13 @@ name = "orion"
 version = "0.1.0"
 description = "Orion — Infrastructure investigation platform with AI-powered assessment."
 authors = [{name = "Orion"}]
-dependencies = []
+dependencies = [
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "pydantic>=2.0",
+    "requests>=2.31",
+    "numpy>=1.24",
+]
 
 [project.scripts]
 orion = "orion_cli:main"

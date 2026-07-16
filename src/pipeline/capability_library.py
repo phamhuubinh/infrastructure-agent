@@ -125,6 +125,21 @@ CAPABILITY_BY_EVIDENCE: dict[str, str] = {
     "GPU Information": "GPU Information",
 
     # ------------------------------------------------------------------
+    # Additional tool-level operational capabilities
+    # ------------------------------------------------------------------
+    "Monitoring Health": "Monitoring Health",
+    "Monitoring Version": "Monitoring Version",
+    "Dashboard Panel Discovery": "Dashboard Panel Discovery",
+    "Dashboard Query Discovery": "Dashboard Query Discovery",
+    "Monitoring Annotation Discovery": "Monitoring Annotation Discovery",
+    "User Discovery": "User Discovery",
+    "Hardware Inventory": "Hardware Inventory",
+    "System Uptime": "System Uptime",
+    "System Boot Time": "System Boot Time",
+    "Kernel Module Discovery": "Kernel Module Discovery",
+    "System Locale Discovery": "System Locale Discovery",
+
+    # ------------------------------------------------------------------
     # Troubleshooting — no fixed mapping; evidence depends on the problem
     # ------------------------------------------------------------------
 }

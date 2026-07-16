@@ -46,12 +46,15 @@ class LLMClient:
     def last_usage(self) -> dict[str, int] | None:
         return self._last_usage
 
-    def generate(self, prompt: str, request_id: str | None = None) -> str:
+    def generate(self, prompt: str, request_id: str | None = None, system_prompt: str | None = None) -> str:
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": self._model,
-            "messages": [
-                {"role": "user", "content": prompt},
-            ],
+            "messages": messages,
             "temperature": self._temperature,
             "max_tokens": self._max_tokens,
             "stream": False,

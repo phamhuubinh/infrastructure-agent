@@ -1,12 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  Share2,
-  Sparkles,
-  Send,
-  AlertCircle,
-  Square,
-} from "lucide-react";
+import { Share2, Sparkles, Send, AlertCircle, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContextPanel } from "@/components/ContextPanel";
@@ -49,15 +43,12 @@ function ChatPage() {
         <div className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
           <div className="min-w-0 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium truncate">
-              {session?.title || "Orion"}
-            </span>
+            <span className="text-sm font-medium truncate">{session?.title || "Orion"}</span>
           </div>
           <div className="ml-auto flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Share">
               <Share2 className="h-4 w-4" />
             </Button>
-
           </div>
         </div>
 
@@ -75,9 +66,7 @@ function ChatPage() {
           <div className="mx-auto max-w-3xl w-full">
             <ChatInput />
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>
-                Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.
-              </span>
+              <span>Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.</span>
             </div>
           </div>
         </div>
@@ -463,5 +452,3 @@ function ChatInput() {
     </div>
   );
 }
-
-

@@ -21,7 +21,7 @@ class TestLLMClient:
         assert client._base_url == "http://localhost:8000"
         assert client._model == "gpt-4"
         assert client._api_key is None
-        assert client._timeout == 60
+        assert client._timeout == 180
         assert client._temperature == 0.0
         assert client._max_tokens == 2048
 

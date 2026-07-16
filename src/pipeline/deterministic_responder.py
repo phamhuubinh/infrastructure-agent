@@ -13,7 +13,7 @@ class DeterministicResponder:
     def try_response(self, investigation: InvestigationRequest) -> str | None:
         raw = investigation.raw_request.lower()
         is_service_status = any(
-            kw in raw for kw in ("status", "trạng thái", "chạy", "die", "down")
+            kw in raw for kw in ("status", "trạng thái", "chạy", "die", "down", "disabled", "enabled")
         ) and any(
             kw in raw for kw in ("service", "dịch vụ", "sshd", "nginx")
         )
@@ -81,9 +81,29 @@ class DeterministicResponder:
             )
 
         all_svcs = data.get("services") or data.get("service_list") or []
-        total = data.get("total") or data.get("service_count") or len(all_svcs)
+        total = data.get("total") or data.get("service_count")
+        if total is None:
+            total = len(all_svcs)
+        if isinstance(total, (int, float)) and total > 0:
+            return (
+                f"## Service Status\n\n"
+                f"All **{int(total)} services** are running normally. "
+                f"No failed or degraded services detected."
+            )
+
+        disabled = data.get("disabled") or data.get("disabled_services") or []
+        if isinstance(disabled, list) and disabled:
+            d_list = [str(s) for s in disabled[:10]]
+            summary = ", ".join(d_list)
+            if len(disabled) > 10:
+                summary += f" (+{len(disabled) - 10} more)"
+            return (
+                f"## Disabled Services\n\n"
+                f"The following **{len(disabled)} service{'s' if len(disabled) > 1 else ''}** "
+                f"{'are' if len(disabled) > 1 else 'is'} disabled: {summary}"
+            )
+
         return (
             f"## Service Status\n\n"
-            f"All **{total} services** are running normally. "
-            f"No failed or degraded services detected."
+            f"No service status data available. Could not determine service state."
         )

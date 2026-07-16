@@ -120,22 +120,23 @@ def _run_benchmarks(
 ) -> list[dict[str, Any]]:
     from src.agent.runtime_factory import create_deterministic_agent
 
-    agent = create_deterministic_agent(
-        server_name=server_name,
-        model=model,
-    )
-
     benchmarks = [b for b in BENCHMARKS if domain is None or b.domain == domain]
 
     results: list[dict[str, Any]] = []
 
     for bm in benchmarks:
+        agent = create_deterministic_agent(
+            server_name=server_name,
+            model=model,
+        )
         print(f"  [{bm.domain}] {bm.name}... ", end="", flush=True)
         try:
             import time
 
             t0 = time.perf_counter()
-            response = agent.run(bm.request)
+            result_with_steps = agent.run_with_steps(bm.request)
+            response = result_with_steps["response"]
+            investigation = result_with_steps.get("investigation")
             elapsed = time.perf_counter() - t0
             errors: list[str] = []
 
@@ -160,7 +161,7 @@ def _run_benchmarks(
                     recommendations=tuple(bm.expected_recommendations),
                     sections=tuple(bm.expected_sections),
                 )
-                prompt = _get_prompt(bm.request)
+                prompt = _get_prompt(bm.request, investigation)
                 metrics = evaluate_assessment(
                     response=response,
                     expected=expected,
@@ -195,11 +196,19 @@ def _run_benchmarks(
     return results
 
 
-def _get_prompt(request: str) -> str:
-    from src.pipeline.assessment_adapter import AssessmentAdapter
-    from src.pipeline.assessment_request import AssessmentRequest
+def _get_prompt(request: str, investigation: object = None) -> str:
     from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
+    from src.pipeline.assessment_adapter import AssessmentAdapter
 
+    if investigation is not None:
+        try:
+            adapter = AssessmentAdapter()
+            req = adapter.build(investigation)
+            return build_assessment_prompt(req)
+        except Exception:
+            pass
+
+    from src.pipeline.assessment_request import AssessmentRequest
     req = AssessmentRequest(raw_request=request)
     return build_assessment_prompt(req)
 

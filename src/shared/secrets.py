@@ -4,7 +4,11 @@ import json
 from pathlib import Path
 
 
-SECRETS_PATH = Path("config/secrets.local.json")
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+SECRETS_PATH = _project_root() / "config" / "secrets.local.json"
 
 
 def get_tool_config(tool_name: str) -> dict[str, str] | None:

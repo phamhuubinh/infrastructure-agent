@@ -61,14 +61,14 @@ def test_uses_default_url_and_token() -> None:
 
 def test_sends_bearer_token_in_every_request(mock_grafana) -> None:
     mock_grafana._result = {"database": "ok"}
-    tool = GrafanaTool(token="my-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="my-token")
     tool.execute({"action": "health"})
     assert mock_grafana.last_auth == "my-token"
 
 
 def test_execute_returns_health(mock_grafana) -> None:
     mock_grafana._result = {"database": "ok", "version": "11.0.0"}
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "health"})
     assert result.success is True
     data = result.data
@@ -80,7 +80,7 @@ def test_execute_returns_health(mock_grafana) -> None:
 
 def test_execute_returns_version(mock_grafana) -> None:
     mock_grafana._result = {"version": "11.0.0"}
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "version"})
     assert result.success is True
     assert result.data == {"version": "11.0.0"}
@@ -94,7 +94,7 @@ def test_execute_returns_dashboards(mock_grafana) -> None:
             "url": "/d/abc123",
         },
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboards"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -109,10 +109,10 @@ def test_execute_returns_dashboards(mock_grafana) -> None:
 
 def test_dashboard_search_passes_query(mock_grafana) -> None:
     mock_grafana._result = []
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_search", "query": "CPU"})
     assert result.success is True
-    assert result.data["total"] == 0
+    assert result.data == {"dashboards": [], "total": 0}
 
 
 def test_dashboard_summary_returns_aggregated_counts(mock_grafana) -> None:
@@ -120,7 +120,7 @@ def test_dashboard_summary_returns_aggregated_counts(mock_grafana) -> None:
         {"title": "A", "uid": "1", "tags": ["prod"]},
         {"title": "B", "uid": "2", "tags": ["prod", "critical"]},
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_summary"})
     assert result.success is True
     assert result.data["total"] == 2
@@ -131,7 +131,7 @@ def test_dashboard_summary_returns_aggregated_counts(mock_grafana) -> None:
 
 def test_dashboard_summary_handles_empty(mock_grafana) -> None:
     mock_grafana._result = []
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_summary"})
     assert result.success is True
     assert result.data["total"] == 0
@@ -141,7 +141,7 @@ def test_execute_returns_folders(mock_grafana) -> None:
     mock_grafana._result = [
         {"uid": "f1", "title": "Servers", "url": "/dashboards/f/Servers"},
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "folders"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -152,7 +152,7 @@ def test_execute_returns_datasources(mock_grafana) -> None:
     mock_grafana._result = [
         {"name": "Prometheus", "type": "prometheus", "url": "http://prom:9090", "isDefault": True},
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "datasources"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -162,7 +162,7 @@ def test_execute_returns_datasources(mock_grafana) -> None:
 
 def test_dashboard_details_requires_uid(mock_grafana) -> None:
     mock_grafana._result = {}
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_details"})
     assert result.success is True
     assert "Missing uid" in str(result.data)
@@ -179,7 +179,7 @@ def test_dashboard_details_returns_panels(mock_grafana) -> None:
             ],
         },
     }
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_details", "uid": "abc123"})
     assert result.success is True
     assert result.data["uid"] == "abc123"
@@ -196,7 +196,7 @@ def test_dashboard_details_returns_panels(mock_grafana) -> None:
 
 def test_dashboard_details_handles_missing_dashboard(mock_grafana) -> None:
     mock_grafana._result = {"dashboard": None}
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboard_details", "uid": "missing"})
     assert result.success is True
     assert "Dashboard payload missing" in str(result.data)
@@ -204,7 +204,7 @@ def test_dashboard_details_handles_missing_dashboard(mock_grafana) -> None:
 
 def test_dashboard_details_calls_dashboard_api(mock_grafana) -> None:
     mock_grafana._result = {"dashboard": {"title": "T", "panels": []}}
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     tool.execute({"action": "dashboard_details", "uid": "my-uid"})
     assert any("api/dashboards/uid/my-uid" in c["url"] for c in mock_grafana.calls)
 
@@ -213,7 +213,7 @@ def test_execute_returns_alert_rules(mock_grafana) -> None:
     mock_grafana._result = [
         {"uid": "r1", "title": "CPU > 90%", "folderUID": "f1", "intervalSeconds": 60},
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "alert_rules"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -227,7 +227,7 @@ def test_execute_returns_annotations(mock_grafana) -> None:
             "created": 1700000000, "updated": 1700000000,
         },
     ]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "annotations"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -235,7 +235,7 @@ def test_execute_returns_annotations(mock_grafana) -> None:
 
 
 def test_reports_unknown_action() -> None:
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "does_not_exist"})
     assert result.success is False
     assert "Unknown action" in result.error
@@ -243,7 +243,7 @@ def test_reports_unknown_action() -> None:
 
 
 def test_raises_on_missing_action() -> None:
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({})
     assert result.success is False
     assert "Missing action" in result.error
@@ -255,14 +255,14 @@ def test_handle_connection_error(monkeypatch) -> None:
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "health"})
     assert result.success is False
 
 
 def test_returns_empty_list_for_empty_result(mock_grafana) -> None:
     mock_grafana._result = []
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "dashboards"})
     assert result.success is True
     assert result.data.get("dashboards") == []
@@ -271,7 +271,7 @@ def test_returns_empty_list_for_empty_result(mock_grafana) -> None:
 
 def test_passes_extra_arguments_to_handler(mock_grafana) -> None:
     mock_grafana._result = [{"id": 1, "text": "note"}]
-    tool = GrafanaTool(token="test-token")
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
     result = tool.execute({"action": "annotations", "limit": 100})
     assert result.success is True
     assert mock_grafana.calls[0]["url"].endswith("limit=100")

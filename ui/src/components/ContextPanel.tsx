@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   FileText,
   Braces,
@@ -132,7 +132,7 @@ export function ContextPanel({ session }: { session: Session }) {
                   const preview = msg.steps?.[0]?.intent || msg.content?.slice(0, 60);
                   return (
                     <button
-                      key={i}
+                      key={msg.content.slice(0, 30) + msg.role + i}
                       onClick={() => setSelectedIdx(i)}
                       className={cn(
                         "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors",
@@ -145,9 +145,7 @@ export function ContextPanel({ session }: { session: Session }) {
                       <span className="text-[11px] truncate flex-1">
                         {preview || `Response ${i + 1}`}
                       </span>
-                      {isActive && (
-                        <ChevronRight className="h-3 w-3 shrink-0" />
-                      )}
+                      {isActive && <ChevronRight className="h-3 w-3 shrink-0" />}
                     </button>
                   );
                 })}
@@ -173,7 +171,7 @@ export function ContextPanel({ session }: { session: Session }) {
             <div className="flex-1 overflow-y-auto p-4">
               <TabsContent value="overview" className="mt-0 space-y-3">
                 {steps.map((step, i) => (
-                  <PipelineStepCard key={i} step={step} index={i} />
+                  <PipelineStepCard key={step.type + i} step={step} index={i} />
                 ))}
               </TabsContent>
 
@@ -196,7 +194,7 @@ export function ContextPanel({ session }: { session: Session }) {
               <TabsContent value="logs" className="mt-0 space-y-1">
                 {steps.map((step, i) => (
                   <div
-                    key={i}
+                    key={step.type + i}
                     className="grid grid-cols-[auto_1fr] gap-2 text-mono text-[11.5px] px-1 py-1 rounded hover:bg-surface-2"
                   >
                     <span
@@ -228,12 +226,11 @@ export function ContextPanel({ session }: { session: Session }) {
 
 function PipelineStepCard({ step, index }: { step: Step; index: number }) {
   const [open, setOpen] = useState(step.type === "assessment");
-  const cfg =
-    stepLabels[step.type] || {
-      icon: Activity,
-      label: "Step",
-      color: "text-muted-foreground",
-    };
+  const cfg = stepLabels[step.type] || {
+    icon: Activity,
+    label: "Step",
+    color: "text-muted-foreground",
+  };
 
   return (
     <div className="rounded-lg border border-border bg-surface-2/40 overflow-hidden">
@@ -432,6 +429,14 @@ function Metric({
 function EvidenceDetail({ step }: { step: Step }) {
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
 
+  const stepRef = useRef(step);
+  useEffect(() => {
+    if (stepRef.current !== step) {
+      setSelectedItem(null);
+      stepRef.current = step;
+    }
+  }, [step]);
+
   return (
     <div className="space-y-3">
       {step.runtime_metrics && (
@@ -485,7 +490,7 @@ function EvidenceDetail({ step }: { step: Step }) {
       {step.items && step.items.length > 0 && (
         <div className="space-y-1">
           {step.items.map((item, i) => (
-            <div key={i}>
+            <div key={(item as any).capability + "_" + (item as any).evidence || i}>
               <button
                 onClick={() => setSelectedItem(selectedItem === i ? null : i)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/40 transition-colors text-left"

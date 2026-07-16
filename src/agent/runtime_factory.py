@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import json
 import sys
-import os
 from pathlib import Path
 from typing import Any
 
-from src.shared.logger import info, warning, error, debug
+from src.shared.logger import info
 from src.agent.conversation_store import ConversationStore
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
-from src.model.mock_assessment_adapter import MockAssessmentAdapter
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_planner import EvidencePlanner
@@ -97,7 +95,7 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
     Returns an empty dict if tools.json does not exist.
     Warnings are emitted via _warn() for invalid JSON or read errors.
     """
-    config_path = Path("tools.json")
+    config_path = _project_root() / "tools.json"
     if not config_path.exists():
         return {}
     try:

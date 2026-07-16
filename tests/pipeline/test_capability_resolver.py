@@ -356,7 +356,8 @@ class TestLibraryCoverage:
     corresponding entry in the capability library."""
 
     _ALL_EVIDENCE_NAMES = {
-        "System Information", "CPU", "Memory", "Swap",
+        "System Information", "CPU", "CPU Hardware", "CPU Runtime",
+        "Memory", "Swap",
         "Storage", "Filesystem", "Network", "Services",
         "Processes", "Time Synchronization", "Recent Logs",
         "Docker", "Security Status",
@@ -365,7 +366,10 @@ class TestLibraryCoverage:
         "Service Status", "Service Configuration", "Service Logs",
         "Dependencies",
         "Active Problems", "Triggers", "Alert Severity", "Host Status",
-        "Dashboards", "Data Sources", "Event History",
+        "Host Groups", "Templates",
+        "Dashboards", "Dashboard Folders", "Data Sources",
+        "Alert Rules", "Event History", "Users", "Maintenance Status",
+        "Host Interfaces", "Items", "Alerts",
         "SSH Configuration", "Firewall", "Secure Boot",
         "AppArmor", "SELinux", "Recent Logins", "Certificates",
         "CPU Usage", "Memory Usage", "Disk Usage", "Load Average",
@@ -378,6 +382,17 @@ class TestLibraryCoverage:
             "Firewall Status",
             "Block Device Information",
             "GPU Information",
+            "Monitoring Health",
+            "Monitoring Version",
+            "Dashboard Panel Discovery",
+            "Dashboard Query Discovery",
+            "Monitoring Annotation Discovery",
+            "User Discovery",
+            "Hardware Inventory",
+            "System Uptime",
+            "System Boot Time",
+            "Kernel Module Discovery",
+            "System Locale Discovery",
         }
 
     def test_all_evidence_names_have_mappings(self) -> None:

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import signal
 import time as _time
-
 from dataclasses import dataclass
 from dataclasses import field
+from threading import Timer
 
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph
 from src.pipeline.execution_graph import ExecutionNode
 from src.shared.execution.tool_result import ToolResult
+from src.shared.logger import error
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -36,6 +38,7 @@ class RuntimeMetrics:
     parallel_ratio: float = 0.0
     tool_calls: int = 0
     evidence_complete: bool = False
+    timed_out: bool = False
 
 
 class ExecutionRuntime:
@@ -69,6 +72,7 @@ class ExecutionRuntime:
         self,
         graph: ExecutionGraph,
         target: str = "localhost",
+        overall_timeout: float = 120.0,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -76,10 +80,18 @@ class ExecutionRuntime:
         Independent nodes may execute in parallel.
         Failed nodes are recorded but do not terminate execution.
 
+        If `overall_timeout` is exceeded, partial results are returned
+        and the timeout is recorded in metrics. A SIGALRM-based timeout
+        interrupts blocking tool calls without killing the process.
+
         Returns both results and runtime metrics.
 
         Args:
             graph: The execution graph to execute.
+            target: The investigation target name.
+            overall_timeout: Maximum wall-clock seconds for the entire
+                             execution loop. Partial results returned on
+                             timeout. 0 or negative means no timeout.
 
         Returns:
             A tuple of (results dict, RuntimeMetrics).
@@ -101,7 +113,20 @@ class ExecutionRuntime:
 
         import concurrent.futures
 
+        _timeout_deadline = _time.perf_counter() + overall_timeout if overall_timeout > 0 else float("inf")
+
         while remaining:
+            if _time.perf_counter() > _timeout_deadline:
+                for node in remaining:
+                    cap_name = node.execution_step.capability.name
+                    if cap_name not in results:
+                        results[cap_name] = ToolResult(
+                            success=False,
+                            error=f"Execution timed out after {overall_timeout}s",
+                        )
+                metrics.timed_out = True
+                break
+
             ready: list[ExecutionNode] = []
             still_remaining: list[ExecutionNode] = []
 
@@ -137,11 +162,32 @@ class ExecutionRuntime:
             if len(ready) == 1:
                 node = ready[0]
                 cap_name = node.execution_step.capability.name
-                result = self._execute_node(node, target=target)
-                metrics.tool_calls += 1
-                results[cap_name] = result
-                if result.success:
-                    completed.add(cap_name)
+                remaining_timeout = max(_timeout_deadline - _time.perf_counter(), 0)
+                if remaining_timeout <= 0:
+                    results[cap_name] = ToolResult(
+                        success=False,
+                        error=f"Execution timed out after {overall_timeout}s",
+                    )
+                    metrics.timed_out = True
+                else:
+                    import concurrent.futures as _cf
+                    executor = _cf.ThreadPoolExecutor(max_workers=1)
+                    try:
+                        fut = executor.submit(self._execute_node, node, target=target)
+                        try:
+                            result = fut.result(timeout=remaining_timeout)
+                            metrics.tool_calls += 1
+                            results[cap_name] = result
+                            if result.success:
+                                completed.add(cap_name)
+                        except _cf.TimeoutError:
+                            metrics.timed_out = True
+                            results[cap_name] = ToolResult(
+                                success=False,
+                                error=f"Execution timed out after {overall_timeout}s",
+                            )
+                    finally:
+                        executor.shutdown(wait=False)
             else:
                 with concurrent.futures.ThreadPoolExecutor(
                     max_workers=len(ready),
@@ -152,19 +198,32 @@ class ExecutionRuntime:
                         future_map[future] = node
                         metrics.tool_calls += 1
 
-                    for future in concurrent.futures.as_completed(future_map):
-                        node = future_map[future]
-                        cap_name = node.execution_step.capability.name
-                        try:
-                            result = future.result()
-                        except Exception as exc:
-                            result = ToolResult(
-                                success=False,
-                                error=f"Execution runtime error: {exc}",
-                            )
-                        results[cap_name] = result
-                        if result.success:
-                            completed.add(cap_name)
+                    parallel_timeout = max(_timeout_deadline - _time.perf_counter(), 1.0)
+                    try:
+                        for future in concurrent.futures.as_completed(future_map, timeout=parallel_timeout):
+                            node = future_map[future]
+                            cap_name = node.execution_step.capability.name
+                            try:
+                                result = future.result()
+                            except Exception as exc:
+                                result = ToolResult(
+                                    success=False,
+                                    error=f"Execution runtime error: {exc}",
+                                )
+                            results[cap_name] = result
+                            if result.success:
+                                completed.add(cap_name)
+                    except concurrent.futures.TimeoutError:
+                        for fut, nd in future_map.items():
+                            if not fut.done():
+                                fut.cancel()
+                                cname = nd.execution_step.capability.name
+                                if cname not in results:
+                                    results[cname] = ToolResult(
+                                        success=False,
+                                        error=f"Execution timed out after {overall_timeout}s",
+                                    )
+                        metrics.timed_out = True
 
         metrics.execution_duration = _time.perf_counter() - t0
         metrics.successful_nodes = sum(

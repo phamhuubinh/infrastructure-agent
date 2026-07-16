@@ -170,10 +170,13 @@ class TestFullPipelineGraph:
         from src.pipeline.evidence_planner import EvidencePlanner
         from src.pipeline.capability_resolver import CapabilityResolver
         from src.pipeline.execution_planner import ExecutionPlanner
+        from src.tool.target_registry import TargetRegistry
 
         resolver = IntentResolver()
         request = resolver.resolve("check the server health")
-        TargetResolver().resolve(request)
+        registry = TargetRegistry()
+        registry.add("server01")
+        TargetResolver(target_registry=registry).resolve(request)
         EvidencePlanner().plan(request)
         CapabilityResolver().resolve(request)
         ExecutionPlanner().plan(request)
@@ -202,11 +205,12 @@ class TestFullPipelineGraph:
 
         registry = TargetRegistry()
         registry.add("localhost")
+        registry.add("server01")
         kt = KnowledgeTool(target_registry=registry)
 
         engine = ExecutionEngine(
             intent_resolver=IntentResolver(),
-            target_resolver=TargetResolver(),
+            target_resolver=TargetResolver(target_registry=registry),
             evidence_planner=EvidencePlanner(),
             capability_resolver=CapabilityResolver(),
             execution_planner=ExecutionPlanner(),

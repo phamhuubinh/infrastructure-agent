@@ -226,6 +226,35 @@ class TestMockedExecution:
         assert results["System Information"].success is False
         assert results["System Information"].error == "mock error"
 
+    def test_timeout_returns_partial_results(self) -> None:
+        """When a single node exceeds overall_timeout, partial results returned."""
+        slow_result = ToolResult(success=False, error="timed out")
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        import time as _time
+
+        def _slow(_args):
+            _time.sleep(10)
+            return ToolResult(success=True)
+
+        mock_kt.execute.side_effect = _slow
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+        step = _step("System Information")
+        graph = _graph_from_steps([step])
+
+        t0 = _time.perf_counter()
+        results, metrics = runtime.execute(graph, overall_timeout=0.5)
+        elapsed = _time.perf_counter() - t0
+
+        assert elapsed < 3.0, f"Took too long: {elapsed:.1f}s"
+        assert metrics.timed_out
+        assert "System Information" in results
+        assert results["System Information"].success is False
+        assert "timed out" in (results["System Information"].error or "").lower()
+
     def test_mock_executes_dependency_order(self) -> None:
         mock_kt = mock.Mock(spec=KnowledgeTool)
         mock_kt.execute.return_value = ToolResult(success=True, data={})

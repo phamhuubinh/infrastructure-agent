@@ -120,6 +120,14 @@ class ConversationStore:
             info("session", session=self._session_id, error=str(exc)[:80],
                  message="Summarization failed, keeping full history")
 
+    def set_summarize_fn(self, fn: Callable[[str], str]) -> None:
+        """Set the LLM summarization function.
+
+        This is the public API for setting the summarizer, replacing
+        direct access to the private _summarize_fn attribute.
+        """
+        self._summarize_fn = fn
+
     def set_summary(self, summary: str) -> None:
         self._summary = summary
 

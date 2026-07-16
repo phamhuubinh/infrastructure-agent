@@ -92,7 +92,11 @@ def create_app(
 
     @app.get("/api/check-model")
     def check_model():
-        return {"status": "ok"}
+        try:
+            ok = agent._assessment_model._client.health_check(timeout=5)
+            return {"status": "ok" if ok else "error"}
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:120]}
 
     @app.get("/api/sessions")
     def list_sessions_api():

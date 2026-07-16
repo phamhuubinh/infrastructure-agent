@@ -417,12 +417,18 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 }
             )
 
+    def _try_float(v: object) -> float:
+        try:
+            return float(v) if v is not None else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
     # Sort by memory descending, take top 5 for summary
-    sorted_procs = sorted(processes, key=lambda p: float(p.get("memory_percent", 0) or 0), reverse=True)
+    sorted_procs = sorted(processes, key=lambda p: _try_float(p.get("memory_percent", 0)), reverse=True)
     top_by_mem = sorted_procs[:5]
 
     # Sort by CPU descending
-    sorted_cpu = sorted(processes, key=lambda p: float(p.get("cpu_percent", 0) or 0), reverse=True)
+    sorted_cpu = sorted(processes, key=lambda p: _try_float(p.get("cpu_percent", 0)), reverse=True)
     top_by_cpu = sorted_cpu[:5]
 
     # Trim command to 40 chars max

@@ -36,15 +36,15 @@ class TestMachineAssessment:
             "Memory",
             "Swap",
             "Storage",
-            "Filesystem",
-            "Network",
-            "Services",
         ]
 
     def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.MACHINE_ASSESSMENT)
         planner.plan(req)
         names = _names(req.optional_evidence)
+        assert "Filesystem" in names
+        assert "Network" in names
+        assert "Services" in names
         assert "Processes" in names
         assert "Time Synchronization" in names
         assert "Recent Logs" in names
@@ -101,14 +101,14 @@ class TestServiceAssessment:
         planner.plan(req)
         assert _names(req.required_evidence) == [
             "Service Status",
-            "Service Configuration",
-            "Service Logs",
         ]
 
     def test_optional(self, planner: EvidencePlanner) -> None:
         req = _request(Intent.SERVICE_ASSESSMENT)
         planner.plan(req)
         assert _names(req.optional_evidence) == [
+            "Service Configuration",
+            "Service Logs",
             "Running Processes",
             "Listening Ports",
         ]
@@ -128,6 +128,8 @@ class TestMonitoringAssessment:
             "Triggers",
             "Alert Severity",
             "Host Status",
+            "Host Groups",
+            "Templates",
         ]
 
     def test_optional(self, planner: EvidencePlanner) -> None:
@@ -135,8 +137,12 @@ class TestMonitoringAssessment:
         planner.plan(req)
         assert _names(req.optional_evidence) == [
             "Dashboards",
+            "Dashboard Folders",
             "Data Sources",
+            "Alert Rules",
             "Event History",
+            "Users",
+            "Maintenance Status",
         ]
 
 
@@ -287,6 +293,7 @@ class TestTroubleshooting:
         names = [e.name for e in req.optional_evidence]
         assert "CPU" in names
         assert "Memory" in names
+        assert "Disk Usage" in names
 
 
 # ---------------------------------------------------------------------------

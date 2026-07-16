@@ -50,8 +50,8 @@ class DeterministicAgent:
         self._assessment_adapter = AssessmentAdapter()
         self._deterministic_responder = DeterministicResponder()
         self._conversation_store = conversation_store
-        if self._conversation_store and not self._conversation_store._summarize_fn:
-            self._conversation_store._summarize_fn = self._assessment_model.assess_raw
+        if self._conversation_store:
+            self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
     def run(self, user_request: str) -> str:
         """Run a full deterministic investigation and return assessment.

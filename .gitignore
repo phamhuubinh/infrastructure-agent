@@ -30,6 +30,9 @@ config/secrets.local.json
 # Tool config with secrets removed — never commit token/url here
 tools.json
 
+# Server config — contains real IPs and model config
+servers.json
+
 # Workflow artifacts (state, backups, logs)
 .workflow/state.json
 .workflow/session.log

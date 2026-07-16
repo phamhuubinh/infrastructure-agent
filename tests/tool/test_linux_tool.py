@@ -170,20 +170,8 @@ def test_get_services_parses_systemctl_output(monkeypatch) -> None:
     result = tool.execute({"action": "get_services"})
 
     assert result.success is True
-    assert result.data["services"] == [
-        {
-            "name": "ssh.service",
-            "load": "loaded",
-            "active": "active",
-            "sub": "running",
-        },
-        {
-            "name": "cron.service",
-            "load": "loaded",
-            "active": "active",
-            "sub": "running",
-        },
-    ]
+    assert result.data["total"] == 2
+    assert result.data["running"] == 2
 
 
 def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
@@ -197,7 +185,7 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_services"})
 
     assert result.success is True
-    assert result.data == {"services": [], "total": 0, "running": 0, "exited": 0, "failed": 0, "failed_services": []}
+    assert result.data == {"total": 0, "running": 0, "exited": 0, "failed": 0, "failed_services": []}
 
 
 def test_get_docker_reports_installed_version(monkeypatch) -> None:
@@ -280,10 +268,11 @@ def test_get_cpu_parses_model_and_cores(monkeypatch) -> None:
     result = tool.execute({"action": "get_cpu"})
 
     assert result.success is True
-    assert result.data == {
-        "model": "Intel(R) Core(TM) i7-9700",
-        "cores": 4,
-    }
+    assert result.data["model"] == "Intel(R) Core(TM) i7-9700"
+    assert result.data["cores"] == 4
+    assert "threads" in result.data
+    assert "usage" in result.data
+    assert "load" in result.data
 
 
 def test_get_cpu_returns_defaults_on_failure(monkeypatch) -> None:
@@ -297,7 +286,11 @@ def test_get_cpu_returns_defaults_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_cpu"})
 
     assert result.success is True
-    assert result.data == {"model": "unknown", "cores": 0}
+    assert result.data["model"] == "unknown"
+    assert result.data["cores"] == 0
+    assert "threads" in result.data
+    assert "usage" in result.data
+    assert "load" in result.data
 
 
 def test_get_memory_parses_meminfo(monkeypatch) -> None:
@@ -458,7 +451,7 @@ def test_get_dns_returns_empty_list_on_failure(monkeypatch) -> None:
 def test_get_process_parses_ps_output(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command[0] == "ps":
-            return True, "1 /sbin/init 0.0 0.1\n42 /usr/sbin/sshd 0.1 0.2\n"
+            return True, "1 0.0 0.1 /sbin/init\n42 0.1 0.2 /usr/sbin/sshd\n"
         return False, ""
 
     monkeypatch.setattr(
@@ -472,6 +465,8 @@ def test_get_process_parses_ps_output(monkeypatch) -> None:
 
     assert result.success is True
     assert result.data["total"] == 2
+    assert "summary" in result.data
+    assert "zombie_count" in result.data
     assert len(result.data["top_memory"]) == 2
     assert len(result.data["top_cpu"]) == 2
 
@@ -490,6 +485,8 @@ def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
     assert result.data["total"] == 0
     assert result.data["top_memory"] == []
     assert result.data["top_cpu"] == []
+    assert "summary" in result.data
+    assert "zombie_count" in result.data
 
 
 def test_get_user_parses_etc_passwd(monkeypatch) -> None:

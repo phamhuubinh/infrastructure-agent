@@ -172,7 +172,7 @@ def _run_agent(args: argparse.Namespace) -> None:
             print(f"  Complete: {_last_request.evidence_complete}")
             for pkg in _last_request.evidence:
                 status = "✓" if pkg.success else "✗"
-                print(f"    {status} {pkg.capability_name}")
+                print(f"    {status} {pkg.evidence_name}")
             continue
 
         if raw_input.lower() == "/intent":

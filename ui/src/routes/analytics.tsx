@@ -4,10 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({
-    meta: [
-      { title: "Phân tích — Orion" },
-      { name: "description", content: "Usage analytics." },
-    ],
+    meta: [{ title: "Phân tích — Orion" }, { name: "description", content: "Usage analytics." }],
   }),
   component: AnalyticsPage,
 });

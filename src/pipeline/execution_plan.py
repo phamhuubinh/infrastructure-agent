@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+from types import MappingProxyType
 
 from src.pipeline.capability_reference import CapabilityReference
 
@@ -26,12 +27,16 @@ class ExecutionStep:
     Attributes:
         capability: The capability to execute.
         step_id: Optional unique identifier for this step.
-        metadata: Optional dictionary for future extension.
+        metadata: Immutable mapping for future extension.
     """
 
     capability: CapabilityReference
     step_id: str = ""
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: MappingProxyType = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.metadata, MappingProxyType):
+            object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
 @dataclass(frozen=True, slots=True)

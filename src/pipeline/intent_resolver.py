@@ -154,7 +154,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("event", "events"),
         ("severity",),
         ("alarm", "alarms"),
-        ("down",),
+        ("down", "downed"),
         ("priorit", "priority", "ưu tiên"),
         ("sự cố", "sự-cố"),
         ("vấn đề",),
@@ -363,6 +363,22 @@ def _resolve_intent(
         return (intent, _confidence_from_count(count), matched)
 
     # Multiple intents matched.
+    # Heuristic: if two or more specific sub-system intents (CPU, MEMORY,
+    # DISK, NETWORK, PROCESS, FILESYSTEM, STORAGE) are tied, the user
+    # likely wants a broader assessment (PERFORMANCE, MACHINE, etc.).
+    # Promote to PERFORMANCE_ASSESSMENT if it is also a candidate.
+    _specific = frozenset({
+        Intent.CPU_ASSESSMENT, Intent.MEMORY_ASSESSMENT, Intent.DISK_ASSESSMENT,
+        Intent.NETWORK_ASSESSMENT_SINGLE, Intent.PROCESS_ASSESSMENT,
+        Intent.FILESYSTEM_ASSESSMENT, Intent.STORAGE_ASSESSMENT,
+    })
+    specific_candidates = [(i, c, m) for i, c, m in candidates if i in _specific]
+    if len(specific_candidates) >= 2:
+        # Check whether PERFORMANCE_ASSESSMENT is also a candidate
+        perf = next(((i, c, m) for i, c, m in candidates if i == Intent.PERFORMANCE_ASSESSMENT), None)
+        if perf is not None and perf[1] >= 2:
+            return (perf[0], _confidence_from_count(perf[1]), perf[2])
+
     # Find the highest match count among candidates.
     max_count = max(c[1] for c in candidates)
     # Filter to candidates with that maximum count.

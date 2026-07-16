@@ -47,7 +47,7 @@ class TestApplicationDiscovery:
         "request_text",
         [
             "Is Graylog installed?",
-            "Does this server have Docker?",
+            "What version of Docker is installed?",
             "Is Prometheus running?",
             "Is Nginx installed?",
             "check if redis is installed",
@@ -137,14 +137,10 @@ class TestPerformanceAssessment:
     @pytest.mark.parametrize(
         "request_text",
         [
-            "Check CPU usage",
-            "Check memory usage",
             "Review performance",
             "server is slow",
             "system load",
             "memory bottleneck",
-            "cpu utilization",
-            "iowait high",
             "check throughput",
             "system saturation",
         ],
@@ -155,17 +151,75 @@ class TestPerformanceAssessment:
         assert result.matched_keywords
 
 
-class TestStorageAssessment:
+class TestCpuAssessment:
     @pytest.mark.parametrize(
         "request_text",
         [
+            "Check CPU usage",
+            "cpu utilization",
+            "check cpu cores",
+        ],
+    )
+    def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
+        result = resolver.resolve(request_text)
+        assert result.intent == Intent.CPU_ASSESSMENT
+        assert result.matched_keywords
+
+
+class TestMemoryAssessment:
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "Check memory usage",
+            "memory leak",
+            "ram status",
+        ],
+    )
+    def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
+        result = resolver.resolve(request_text)
+        assert result.intent == Intent.MEMORY_ASSESSMENT
+        assert result.matched_keywords
+
+
+class TestDiskAssessment:
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "iowait high",
+            "check disk io",
+            "disk space",
             "Check disk usage",
             "Review filesystem",
             "Is storage healthy?",
             "Any storage problems?",
+        ],
+    )
+    def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
+        result = resolver.resolve(request_text)
+        assert result.intent == Intent.DISK_ASSESSMENT
+        assert result.matched_keywords
+
+
+class TestFilesystemAssessment:
+    @pytest.mark.parametrize(
+        "request_text",
+        [
             "check mount points",
-            "disk partition",
             "inode usage",
+            "check mounts",
+        ],
+    )
+    def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
+        result = resolver.resolve(request_text)
+        assert result.intent == Intent.FILESYSTEM_ASSESSMENT
+        assert result.matched_keywords
+
+
+class TestStorageAssessment:
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "disk partition",
             "lvm status",
             "raid health",
             "smart status",
@@ -182,22 +236,36 @@ class TestNetworkAssessment:
     @pytest.mark.parametrize(
         "request_text",
         [
-            "Check networking",
             "Review interfaces",
             "Are there connection problems?",
             "Review ports",
             "ip address",
             "check gateway",
             "dns resolution",
-            "network latency",
-            "ping test",
-            "bandwidth check",
             "vlan info",
+            "show routing table",
+            "check default gateway",
         ],
     )
     def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
         result = resolver.resolve(request_text)
         assert result.intent == Intent.NETWORK_ASSESSMENT
+        assert result.matched_keywords
+
+
+class TestNetworkAssessmentSingle:
+    @pytest.mark.parametrize(
+        "request_text",
+        [
+            "Check networking",
+            "network latency",
+            "ping test",
+            "bandwidth check",
+        ],
+    )
+    def test_matches(self, resolver: IntentResolver, request_text: str) -> None:
+        result = resolver.resolve(request_text)
+        assert result.intent == Intent.NETWORK_ASSESSMENT_SINGLE
         assert result.matched_keywords
 
 
@@ -297,9 +365,9 @@ class TestPriorityRules:
     def test_specific_trumps_generic_on_match_count(
         self, resolver: IntentResolver
     ) -> None:
-        # "storage healthy" -> storage (1 match) vs machine (1 match, healthy)
-        # storage priority (28) < machine (5), so storage wins on priority
-        result = resolver.resolve("Is storage healthy?")
+        # "raid health" -> storage (1 match) vs machine (1 match, health)
+        # storage priority (28) > machine (5), so storage wins on priority
+        result = resolver.resolve("raid health")
         assert result.intent == Intent.STORAGE_ASSESSMENT
 
     def test_application_discovery_for_app_name(
@@ -385,3 +453,36 @@ class TestConfidence:
     def test_low_for_one_keyword(self, resolver: IntentResolver) -> None:
         result = resolver.resolve("server")
         assert result.confidence == Confidence.LOW
+
+
+# ---------------------------------------------------------------------------
+# Heuristic promotion: CPU + Memory -> PERFORMANCE
+# ---------------------------------------------------------------------------
+
+
+class TestHeuristicPromotion:
+    def test_cpu_and_memory_promotes_to_performance(self, resolver: IntentResolver) -> None:
+        result = resolver.resolve("Check CPU and memory")
+        assert result.intent == Intent.PERFORMANCE_ASSESSMENT
+
+    def test_cpu_memory_disk_promotes_to_performance(self, resolver: IntentResolver) -> None:
+        result = resolver.resolve("check cpu memory and disk")
+        assert result.intent == Intent.PERFORMANCE_ASSESSMENT
+
+    def test_single_specific_intent_not_promoted(self, resolver: IntentResolver) -> None:
+        result = resolver.resolve("check cpu usage")
+        assert result.intent == Intent.CPU_ASSESSMENT
+
+    def test_cpu_and_memory_with_additional_network(
+        self, resolver: IntentResolver
+    ) -> None:
+        result = resolver.resolve("check cpu memory and network")
+        assert result.intent == Intent.PERFORMANCE_ASSESSMENT
+
+    def test_ram_and_cpu_together_promotes(self, resolver: IntentResolver) -> None:
+        result = resolver.resolve("check ram and cpu")
+        assert result.intent == Intent.PERFORMANCE_ASSESSMENT
+
+    def test_specific_troubleshooting_not_promoted(self, resolver: IntentResolver) -> None:
+        result = resolver.resolve("cpu is slow")
+        assert result.intent == Intent.PERFORMANCE_ASSESSMENT

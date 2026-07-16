@@ -449,7 +449,7 @@ def _get_dashboards(api: GrafanaProvider) -> dict[str, object]:
 
 
 def _dashboard_search(api: GrafanaProvider, query: str = "") -> dict[str, object]:
-    params = f"?query={parse.quote(query)}" if query else ""
+    params = f"?query={urllib_parse.quote(query)}" if query else ""
     result = api.get(f"/api/search{params}")
     if not isinstance(result, list):
         return {"dashboards": [], "total": 0}

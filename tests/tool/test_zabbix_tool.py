@@ -61,7 +61,7 @@ def mock_zabbix(monkeypatch) -> _MockZabbix:
 
 def test_sends_auth_token_in_every_request(mock_zabbix) -> None:
     mock_zabbix._result = []
-    tool = ZabbixTool(token="my-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="my-token")
     tool.execute({"action": "get_hosts"})
 
     assert mock_zabbix.last_auth == "my-token"
@@ -69,7 +69,7 @@ def test_sends_auth_token_in_every_request(mock_zabbix) -> None:
 
 def test_execute_returns_api_version(mock_zabbix) -> None:
     mock_zabbix._result = "7.0.0"
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_api_version"})
     assert result.success is True
     assert result.data == {"version": "7.0.0"}
@@ -79,7 +79,7 @@ def test_execute_returns_hosts(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"hostid": "1", "host": "server01", "name": "Server 01", "status": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is True
     assert result.data["total_hosts"] == 1
@@ -95,7 +95,7 @@ def test_execute_returns_hosts(mock_zabbix) -> None:
 
 def test_execute_returns_host_groups(mock_zabbix) -> None:
     mock_zabbix._result = [{"groupid": "1", "name": "Linux servers"}]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_host_groups"})
     assert result.success is True
     assert result.data["groups"] == [{"groupid": "1", "name": "Linux servers"}]
@@ -106,7 +106,7 @@ def test_search_hosts_uses_server_side_search(mock_zabbix) -> None:
         {"hostid": "10644", "host": "Switch T3_Cisco Core", "name": "Switch T3_Cisco Core", "status": "0"},
         {"hostid": "10649", "host": "Switch T3_Technical", "name": "Switch T3_Technical", "status": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "search_hosts", "query": "Switch T3"})
 
     assert result.success is True
@@ -120,7 +120,7 @@ def test_search_hosts_uses_server_side_search(mock_zabbix) -> None:
 
 def test_search_hosts_returns_empty_when_no_match(mock_zabbix) -> None:
     mock_zabbix._result = []
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "search_hosts", "query": "NonExistent"})
 
     assert result.success is True
@@ -131,7 +131,7 @@ def test_search_hosts_handles_ip_query(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"hostid": "10643", "host": "Firewall_Pfsense", "name": "Firewall_Pfsense", "status": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "search_hosts", "query": "192.168.10.248"})
 
     assert result.success is True
@@ -142,7 +142,7 @@ def test_execute_returns_templates(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"templateid": "1", "host": "Template OS Linux", "name": "Template OS Linux"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_templates"})
     assert result.success is True
     assert result.data["total"] == 1
@@ -156,7 +156,7 @@ def test_execute_returns_items(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%", "value_type": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_items"})
     assert result.success is True
     assert result.data["total_items"] == 1
@@ -170,7 +170,7 @@ def test_get_items_filters_by_host_id(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"itemid": "10", "name": "Uptime", "key_": "system.uptime", "lastvalue": "3600", "units": "s"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_items", "hostid": "10644"})
     assert result.success is True
     assert mock_zabbix.calls[0]["params"].get("hostids") == "10644"
@@ -180,7 +180,7 @@ def test_execute_returns_triggers(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"triggerid": "1", "description": "High CPU", "priority": "4", "status": "0", "value": "1", "hosts": []},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_triggers"})
     assert result.success is True
     assert len(result.data["triggers"]) == 1
@@ -194,7 +194,7 @@ def test_execute_returns_events(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "3", "value": "1"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_events"})
     assert result.success is True
     assert result.data["total_events"] == 1
@@ -206,7 +206,7 @@ def test_execute_returns_problems(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"eventid": "1", "name": "Disk full", "clock": "1700000000", "severity": "3"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_problems"})
     assert result.success is True
     assert result.data["total_problems"] == 1
@@ -218,7 +218,7 @@ def test_execute_returns_users(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"userid": "1", "alias": "Admin", "name": "Admin", "surname": "User", "roleid": "3"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_users"})
     assert result.success is True
     assert result.data["users"] == [
@@ -230,7 +230,7 @@ def test_get_host_with_host_name_filter(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"hostid": "2", "host": "web01", "name": "Web Server 01", "status": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_host", "host": "web01"})
 
     assert result.success is True
@@ -250,7 +250,7 @@ def test_handle_auth_error(mock_zabbix) -> None:
         {"jsonrpc": "2.0", "error": {"message": "Not authorised", "data": "invalid token"}}
     ).encode("utf-8")
 
-    tool = ZabbixTool(token="bad-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="bad-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is False
     assert "Not authorised" in result.error
@@ -262,14 +262,14 @@ def test_handle_connection_error(monkeypatch) -> None:
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is False
     assert "Connection refused" in result.error or "Zabbix" in result.error
 
 
 def test_reports_unknown_action() -> None:
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "does_not_exist"})
     assert result.success is False
     assert "Unknown action" in result.error
@@ -277,7 +277,7 @@ def test_reports_unknown_action() -> None:
 
 
 def test_raises_on_missing_action() -> None:
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({})
     assert result.success is False
     assert "Missing action" in result.error
@@ -285,7 +285,7 @@ def test_raises_on_missing_action() -> None:
 
 def test_returns_empty_list_for_empty_result(mock_zabbix) -> None:
     mock_zabbix._result = []
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_hosts"})
     assert result.success is True
     assert result.data.get("hosts") == []
@@ -297,7 +297,7 @@ def test_get_problem_timeline_returns_problems_sorted(mock_zabbix) -> None:
         {"eventid": "3", "name": "P3", "clock": "1700000000", "severity": "3", "acknowledged": "0"},
         {"eventid": "2", "name": "P2", "clock": "1600000000", "severity": "2", "acknowledged": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_problem_timeline", "limit": "50"})
 
     assert result.success is True
@@ -308,7 +308,7 @@ def test_get_host_inventory_returns_hosts(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"hostid": "1", "host": "s1", "name": "Server 1", "status": "0"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_host_inventory"})
 
     assert result.success is True
@@ -319,7 +319,7 @@ def test_get_host_interfaces_returns_interfaces(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"interfaceid": "1", "ip": "10.0.0.1", "port": "161", "type": "2"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_host_interfaces", "hostid": "10644"})
 
     assert result.success is True
@@ -330,7 +330,7 @@ def test_get_maintenance_status_returns_maintenances(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"maintenanceid": "1", "name": "Scheduled", "active_since": "1700000000", "active_till": "1700100000"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_maintenance_status"})
 
     assert result.success is True
@@ -341,7 +341,7 @@ def test_get_event_summary_returns_events(mock_zabbix) -> None:
     mock_zabbix._result = [
         {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "4", "value": "1"},
     ]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_event_summary", "limit": "100"})
 
     assert result.success is True
@@ -351,7 +351,7 @@ def test_get_event_summary_returns_events(mock_zabbix) -> None:
 
 def test_passes_extra_arguments_to_handler(mock_zabbix) -> None:
     mock_zabbix._result = [{"hostid": "3", "host": "db01"}]
-    tool = ZabbixTool(token="test-token")
+    tool = ZabbixTool(url="http://localhost/zabbix", token="test-token")
     result = tool.execute({"action": "get_host", "host": "db01"})
     assert result.success is True
     assert result.data["hosts"][0]["host"] == "db01"

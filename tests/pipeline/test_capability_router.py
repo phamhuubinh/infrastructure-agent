@@ -17,7 +17,7 @@ def _build_router() -> tuple[CapabilityRouter, KnowledgeTool]:
     )
     registry.register_tool(
         name="grafana",
-        tool=GrafanaTool(),
+        tool=GrafanaTool(url="http://localhost:3000", token="test"),
     )
     kt = KnowledgeTool(target_registry=registry)
     router = CapabilityRouter()
@@ -148,7 +148,7 @@ class TestConventionMapping:
         """Every covers tag used in tools should have a mapping entry.
         This test scans all registered tool capabilities and checks
         that every covers tag is accounted for."""
-        from src.pipeline.capability_router import _COVERS_TO_OPERATIONAL
+        from src.tool.knowledge_tool import _COVERS_TO_OPERATIONAL
         from src.tool.grafana_tool import _CAPABILITIES as G
         from src.tool.linux_tool import _CAPABILITIES as L
         from src.tool.zabbix_tool import _CAPABILITIES as Z
@@ -162,14 +162,12 @@ class TestConventionMapping:
         mapped_tags = set(_COVERS_TO_OPERATIONAL)
         unmapped = used_tags - mapped_tags - {
             # Known tags without pipeline equivalent (infrastructure-only)
-            "hardware", "kernel-modules", "system-locale", "system-environment",
-            "users", "uptime", "boot-time", "system-time", "system-logs",
-            "tls-certificates", "monitoring-version", "monitoring-health",
-            "monitoring-folders", "monitoring-alerts", "monitoring-annotations",
+            "system-time", "system-logs",
+            "tls-certificates",
+            "monitoring-folders", "monitoring-alerts",
             "zabbix-groups", "zabbix-templates", "zabbix-items",
             "zabbix-users", "zabbix-interfaces", "zabbix-maintenance",
             "application-discovery",
-            "panels", "queries",
         }
         assert not unmapped, f"Unmapped covers tags found: {unmapped}"
 

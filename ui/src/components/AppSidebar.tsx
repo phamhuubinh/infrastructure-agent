@@ -14,7 +14,7 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,9 +50,13 @@ export function AppSidebar() {
   const [query, setQuery] = useState("");
   const { sessions, currentSessionId, createSession, switchSession } = useChat();
 
-  const filtered = query
-    ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
-    : sessions;
+  const filtered = useMemo(
+    () =>
+      query
+        ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
+        : sessions,
+    [sessions, query],
+  );
 
   return (
     <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -183,6 +187,13 @@ function ChatRow({
   const [renaming, setRenaming] = useState(false);
   const [editValue, setEditValue] = useState(title);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const prevTitleRef = useRef(title);
+  useEffect(() => {
+    if (prevTitleRef.current !== title) {
+      setEditValue(title);
+      prevTitleRef.current = title;
+    }
+  }, [title]);
 
   function handleRename() {
     const trimmed = editValue.trim();

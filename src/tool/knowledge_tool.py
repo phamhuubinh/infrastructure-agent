@@ -83,6 +83,25 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "monitoring-folders": "Dashboard Folder Discovery",
     "datasources": "Data Source Discovery",
     "monitoring-alerts": "Alert Rule Discovery",
+
+    # Grafana — additional covers tags
+    "monitoring-health": "Monitoring Health",
+    "monitoring-version": "Monitoring Version",
+    "panels": "Dashboard Panel Discovery",
+    "queries": "Dashboard Query Discovery",
+    "monitoring-annotations": "Monitoring Annotation Discovery",
+
+    # Linux — additional covers tags
+    "users": "User Discovery",
+    "hardware": "Hardware Inventory",
+    "uptime": "System Uptime",
+    "boot-time": "System Boot Time",
+    "kernel-modules": "Kernel Module Discovery",
+    "system-locale": "System Locale Discovery",
+    "system-environment": "Environment Variable Discovery",
+    "tls-certificates": "Certificate Discovery",
+    "application-discovery": "Service Discovery",
+    "monitoring-version": "Monitoring Version",
 }
 
 
@@ -185,6 +204,12 @@ class KnowledgeTool(Tool):
 
         The handler field (implementation function) is intentionally
         excluded — it is an internal implementation detail of each tool.
+
+        When a capability has multiple covers tags, each tag that resolves
+        to an operational name produces a separate entry. This ensures
+        multi-role capabilities (e.g., a trigger function that covers both
+        "Alert Triggers" and "Alert Severity Assessment") register routes
+        for all their operational names.
         """
         result: dict[str, list[dict[str, object]]] = {}
         for name in self._registry.target_names():
@@ -196,21 +221,29 @@ class KnowledgeTool(Tool):
             entries: list[dict[str, object]] = []
             for cap_name, value in raw.items():
                 if isinstance(value, Capability):
-                    op_name = value.operational_name
-                    if not op_name and value.covers:
+                    if value.operational_name:
+                        entries.append({
+                            "name": cap_name,
+                            "category": value.category,
+                            "intents": list(value.intents),
+                            "related": list(value.related),
+                            "covers": list(value.covers),
+                            "operational_name": value.operational_name,
+                        })
+                    elif value.covers:
                         for tag in value.covers:
                             resolved = _COVERS_TO_OPERATIONAL.get(tag)
                             if resolved:
-                                op_name = resolved
-                                break
-                    entries.append({
-                        "name": cap_name,
-                        "category": value.category,
-                        "intents": list(value.intents),
-                        "related": list(value.related),
-                        "covers": list(value.covers),
-                        "operational_name": op_name,
-                    })
+                                entries.append({
+                                    "name": cap_name,
+                                    "category": value.category,
+                                    "intents": list(value.intents),
+                                    "related": list(value.related),
+                                    "covers": [tag],
+                                    "operational_name": resolved,
+                                })
+                    else:
+                        entries.append({"name": cap_name})
                 else:
                     entries.append({"name": cap_name})
             if entries:
