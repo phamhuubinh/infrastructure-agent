@@ -66,7 +66,7 @@ def create_app(
         model=model,
     )
 
-    sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+    sessions_dir = str(Path.home() / ".orion" / "sessions")
     web_sessions: dict[str, ConversationStore] = {}
 
     def _get_or_create_session(session_id: str | None) -> ConversationStore:
@@ -107,19 +107,19 @@ def create_app(
 
     @app.delete("/api/sessions/{session_id}")
     def delete_session(session_id: str):
-        path = os.path.join(sessions_dir, f"{session_id}.json")
-        if not os.path.exists(path):
+        path = Path(sessions_dir) / f"{session_id}.json"
+        if not path.exists():
             from fastapi import HTTPException
 
             raise HTTPException(404, f"Session '{session_id}' not found")
-        os.remove(path)
+        path.unlink()
         web_sessions.pop(session_id, None)
         return {"status": "deleted", "session_id": session_id}
 
     @app.patch("/api/sessions/{session_id}")
     def rename_session(session_id: str, body: dict):
-        path = os.path.join(sessions_dir, f"{session_id}.json")
-        if not os.path.exists(path):
+        path = Path(sessions_dir) / f"{session_id}.json"
+        if not path.exists():
             from fastapi import HTTPException
 
             raise HTTPException(404, f"Session '{session_id}' not found")
@@ -128,9 +128,9 @@ def create_app(
             from fastapi import HTTPException
 
             raise HTTPException(400, "title is required")
-        data = json.loads(Path(path).read_text())
+        data = json.loads(path.read_text())
         data["title"] = new_title
-        Path(path).write_text(json.dumps(data, indent=2))
+        path.write_text(json.dumps(data, indent=2))
         return {"status": "renamed", "session_id": session_id, "title": new_title}
 
     @app.post("/api/query")
@@ -172,10 +172,10 @@ def run_web(
 
     atexit.register(cleanup_web)
 
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    ui_dir = os.path.join(project_root, "ui")
-    dist_dir = os.path.join(ui_dir, "dist")
-    client_dir = os.path.join(dist_dir, "client")
+    project_root = Path(__file__).resolve().parent.parent.parent
+    ui_dir = project_root / "ui"
+    dist_dir = ui_dir / "dist"
+    client_dir = dist_dir / "client"
 
     _info("orion-web", message="orion-web started", port=port)
 
@@ -185,14 +185,12 @@ def run_web(
         model=model,
     )
 
-    is_prod = os.path.isfile(os.path.join(dist_dir, "index.html")) or os.path.isfile(
-        os.path.join(client_dir, "index.html")
-    )
+    is_prod = (Path(dist_dir) / "index.html").is_file() or (Path(client_dir) / "index.html").is_file()
 
     if is_prod:
         static_root = (
             client_dir
-            if os.path.isfile(os.path.join(client_dir, "index.html"))
+            if (Path(client_dir) / "index.html").is_file()
             else dist_dir
         )
         app.mount("/", StaticFiles(directory=static_root, html=True), name="frontend")

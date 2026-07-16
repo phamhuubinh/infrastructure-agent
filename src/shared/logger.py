@@ -11,7 +11,8 @@ _file_lock = threading.Lock()
 
 
 def _log_dir() -> str:
-    d = os.path.join(os.path.expanduser("~"), ".orion")
+    from pathlib import Path
+    d = str(Path.home() / ".orion")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -22,7 +23,8 @@ def set_enabled(v: bool) -> None:
 
 
 def _write(line: str) -> None:
-    path = os.path.join(_log_dir(), "orion.log")
+    from pathlib import Path
+    path = str(Path(_log_dir()) / "orion.log")
     try:
         with _file_lock:
             with open(path, "a") as f:

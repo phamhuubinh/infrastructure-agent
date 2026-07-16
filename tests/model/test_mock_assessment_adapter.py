@@ -162,3 +162,41 @@ class TestMockAssessmentAdapter:
         assert "Evidence collected: 2" in result
         assert "Successful: 0" in result
         assert "Failed: 2" in result
+
+    def test_assess_raw_whitespace_only(self) -> None:
+        adapter = MockAssessmentAdapter()
+        result = adapter.assess_raw("   ")
+        assert (
+            result == "I'm a mock assistant. I can help with infrastructure questions."
+        )
+
+    def test_assess_raw_mixed_case(self) -> None:
+        adapter = MockAssessmentAdapter()
+        result = adapter.assess_raw("CHECK SERVER CPU MEMORY DISK HEALTH")
+        assert result == "yes"
+
+    def test_assess_with_empty_evidence_data(self) -> None:
+        adapter = MockAssessmentAdapter()
+        req = AssessmentRequest(
+            raw_request="check",
+            intent="CPU_ASSESSMENT",
+            evidence=(
+                EvidencePackage(
+                    capability_name="CPU Info",
+                    evidence_name="CPU",
+                    success=True,
+                    data={},
+                ),
+            ),
+        )
+        result = adapter.assess(req)
+        assert "Evidence collected: 1" in result
+        assert "Successful: 1" in result
+        assert "Failed: 0" in result
+
+    def test_assess_raw_knowledge_query_returns_low_confidence(self) -> None:
+        adapter = MockAssessmentAdapter()
+        result = adapter.assess_raw("what is kubernetes")
+        assert (
+            result == "I'm a mock assistant. I can help with infrastructure questions."
+        )

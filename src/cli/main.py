@@ -78,7 +78,8 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_log() -> None:
-    _log_path = os.path.join(os.path.expanduser("~"), ".orion", "orion.log")
+    from pathlib import Path
+    _log_path = str(Path.home() / ".orion" / "orion.log")
     try:
         print("Orion log (Ctrl+C to stop)")
         _last_size = 0
@@ -346,10 +347,11 @@ def main() -> None:
         return
 
     if args.command == "session":
-        sessions_dir = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+        from pathlib import Path
+        sessions_dir = str(Path.home() / ".orion" / "sessions")
 
         if args.session_action == "delete":
-            path = os.path.join(sessions_dir, f"{args.id}.json")
+            path = Path(sessions_dir) / f"{args.id}.json"
             if not os.path.exists(path):
                 print(f"Session '{args.id}' not found.")
                 return
