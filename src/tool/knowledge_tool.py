@@ -4,9 +4,86 @@ import inspect
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
-from src.tool.linux_tool import LinuxTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
+
+
+# ---------------------------------------------------------------------------
+# Convention mapping: covers tag → operational capability name
+# ---------------------------------------------------------------------------
+# Single source of truth for mapping tool covers tags to operational
+# pipeline capability names. Defined here because KnowledgeTool is the
+# single aggregation point for tool metadata. All consumers
+# (CapabilityRouter, etc.) should query this via KnowledgeTool.
+#
+# When a new operational capability is added, add an entry here.
+# When a new tool covers tag maps to an existing operational name,
+# no change needed.
+
+_COVERS_TO_OPERATIONAL: dict[str, str] = {
+    "system-identity": "System Information",
+    "cpu": "CPU Information",
+    "cpu_usage": "CPU Utilization",
+    "memory": "Memory Information",
+    "memory_usage": "Memory Utilization",
+    "swap": "Swap Information",
+    "storage": "Storage Information",
+    "storage_performance": "Storage Performance Assessment",
+    "filesystem": "Filesystem Information",
+    "disk_usage": "Disk Utilization",
+    "mount": "Mount Point Discovery",
+    "filesystem_discovery": "Filesystem Discovery",
+    "smart": "SMART Health Assessment",
+    "raid": "RAID Health Assessment",
+    "network": "Network Information",
+    "interface": "Network Interface Discovery",
+    "ip": "IP Configuration Assessment",
+    "gateway": "Default Gateway Discovery",
+    "dns": "DNS Configuration Assessment",
+    "routing": "Routing Table Assessment",
+    "listening-ports": "Port Discovery",
+    "network_usage": "Network Utilization",
+    "services": "Service Status",
+    "service_config": "Service Configuration Inspection",
+    "service_logs": "Service Log Discovery",
+    "dependencies": "Dependency Discovery",
+    "processes": "Process Discovery",
+    "packages": "Package Discovery",
+    "service_discovery": "Service Discovery",
+    "container": "Container Discovery",
+    "config": "Configuration Inspection",
+    "load": "System Load Assessment",
+    "system-time": "Time Synchronization",
+    "system-logs": "Log Discovery",
+    "io": "I/O Performance Assessment",
+    "env": "Environment Variable Discovery",
+    "secure-boot": "Secure Boot Status",
+    "apparmor": "AppArmor Status",
+    "selinux": "SELinux Status",
+    "ssh": "SSH Configuration Inspection",
+    "firewall": "Firewall Inspection",
+    "sessions": "Recent Login Discovery",
+    "certificates": "Certificate Discovery",
+    "gpu": "GPU Information",
+    "block_device": "Block Device Information",
+    "firewall_status": "Firewall Status",
+    "open_ports": "Listening Ports",
+    "zabbix-problems": "Monitoring Problems",
+    "zabbix-triggers": "Alert Triggers",
+    "alert_severity": "Alert Severity Assessment",
+    "zabbix-hosts": "Host Status Assessment",
+    "zabbix-groups": "Host Group Discovery",
+    "zabbix-templates": "Template Discovery",
+    "zabbix-users": "Monitoring User Discovery",
+    "zabbix-maintenance": "Maintenance Status Discovery",
+    "zabbix-events": "Event History Discovery",
+    "zabbix-interfaces": "Host Interface Discovery",
+    "zabbix-items": "Item Discovery",
+    "dashboards": "Dashboard Discovery",
+    "monitoring-folders": "Dashboard Folder Discovery",
+    "datasources": "Data Source Discovery",
+    "monitoring-alerts": "Alert Rule Discovery",
+}
 
 
 def _tool_capabilities(tool: Tool) -> list[str]:
@@ -48,6 +125,11 @@ class KnowledgeTool(Tool):
             target_registry = TargetRegistry()
             target_registry.add("localhost")
         self._registry = target_registry
+
+    @staticmethod
+    def get_operational_name(covers_tag: str) -> str | None:
+        """Resolve a covers tag to an operational capability name."""
+        return _COVERS_TO_OPERATIONAL.get(covers_tag)
 
     def get_capabilities(self) -> dict[str, list[str]]:
         """Return mapping from target name to list of capability names.
@@ -114,12 +196,20 @@ class KnowledgeTool(Tool):
             entries: list[dict[str, object]] = []
             for cap_name, value in raw.items():
                 if isinstance(value, Capability):
+                    op_name = value.operational_name
+                    if not op_name and value.covers:
+                        for tag in value.covers:
+                            resolved = _COVERS_TO_OPERATIONAL.get(tag)
+                            if resolved:
+                                op_name = resolved
+                                break
                     entries.append({
                         "name": cap_name,
                         "category": value.category,
                         "intents": list(value.intents),
                         "related": list(value.related),
                         "covers": list(value.covers),
+                        "operational_name": op_name,
                     })
                 else:
                     entries.append({"name": cap_name})

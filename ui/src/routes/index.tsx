@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Share2,
-  PanelRight,
   Sparkles,
   Send,
   AlertCircle,
@@ -12,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContextPanel } from "@/components/ContextPanel";
 import { cn } from "@/lib/utils";
-import { useChat, type Message } from "@/lib/chat-store";
+import { useChat, type Step, type Message } from "@/lib/chat-store";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -192,11 +191,7 @@ function Conversation({ messages }: { messages: Message[] }) {
   );
 }
 
-type ChatInputProps = {
-  onSubmit?: (text: string) => void;
-};
-
-function ChatInput(_props: ChatInputProps) {
+function ChatInput() {
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
@@ -247,9 +242,12 @@ function ChatInput(_props: ChatInputProps) {
     resetIdleTimer();
     idleTimerRef.current = window.setTimeout(async () => {
       try {
+        const healthController = new AbortController();
+        const healthTimer = setTimeout(() => healthController.abort(), 5000);
         const healthRes = await fetch(`${API_URL}/api/check-model`, {
-          signal: AbortSignal.timeout(5000),
+          signal: healthController.signal,
         });
+        clearTimeout(healthTimer);
         if (healthRes.ok) {
           setPipelineStatus("Model đang xử lý, vui lòng đợi...");
           startIdleTimer();

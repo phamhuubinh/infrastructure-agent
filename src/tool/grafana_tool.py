@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Callable
-from urllib import error as urlerror, parse, request
+from urllib import error as urlerror, parse as urllib_parse, request
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
@@ -637,3 +637,68 @@ class GrafanaTool(Tool):
             return ToolResult(success=False, error=f"GrafanaTool error: {exc}")
 
         return ToolResult(success=True, data=data)
+
+    def build_links(
+        self,
+        evidence_list: list,
+        user_request: str,
+    ) -> str:
+        from src.shared.secrets import get_tool_config
+        config = get_tool_config("grafana")
+        if not config:
+            return ""
+
+        grafana_url = config.get("url", "").rstrip("/")
+        if not grafana_url:
+            return ""
+
+        dashboards = []
+        query_params = {}
+        for pkg in evidence_list:
+            if not hasattr(pkg, 'success') or not pkg.success:
+                continue
+            if pkg.evidence_name in ("Dashboards", "Dashboard Discovery"):
+                data = pkg.data
+                if isinstance(data, dict):
+                    items = data.get("dashboards") or data.get("items") or []
+                    if isinstance(items, list):
+                        for item in items[:5]:
+                            if isinstance(item, dict):
+                                uid = item.get("uid") or ""
+                                title = item.get("title") or item.get("name") or "Dashboard"
+                                if uid:
+                                    dashboards.append((title, uid))
+                    raw_params = data.get("query_params") or {}
+                    if isinstance(raw_params, dict):
+                        query_params.update(raw_params)
+        if not dashboards:
+            return ""
+
+        raw = user_request.lower()
+        is_cpu = "cpu" in raw
+        is_mem = any(kw in raw for kw in ("memory", "ram"))
+        is_net = any(kw in raw for kw in ("network", "traffic"))
+        is_disk = any(kw in raw for kw in ("disk", "storage"))
+
+        lines = ["**Grafana Dashboards:**"]
+        for title, uid in dashboards:
+            base_url = f"{grafana_url}/d/{uid}"
+            params = {}
+            if is_cpu:
+                params["var-signal"] = "CPU"
+            elif is_mem:
+                params["var-signal"] = "Memory"
+            elif is_net:
+                params["var-signal"] = "Network"
+            elif is_disk:
+                params["var-signal"] = "Disk"
+
+            raw_params = query_params
+            if isinstance(raw_params, dict):
+                params.update(raw_params)
+
+            qs = urllib_parse.urlencode(params) if params else ""
+            url = f"{base_url}?{qs}" if qs else base_url
+            lines.append(f"- [{title}]({url})")
+
+        return "\n".join(lines)

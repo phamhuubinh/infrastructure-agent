@@ -12,3 +12,4 @@ class Capability:
     intents: tuple[str, ...] = ()
     related: tuple[str, ...] = ()
     covers: tuple[str, ...] = ()
+    operational_name: str = ""

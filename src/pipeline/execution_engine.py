@@ -32,6 +32,10 @@ class ExecutionEngine:
     Never performs reasoning or assessment.
     """
 
+    @property
+    def knowledge_tool(self) -> KnowledgeTool:
+        return self._knowledge_tool
+
     def __init__(
         self,
         intent_resolver: IntentResolver,

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_package import EvidencePackage
@@ -16,12 +14,9 @@ class TestBuildAssessmentPrompt:
             evidence_complete=False,
         )
         prompt = build_assessment_prompt(req)
-        data = json.loads(prompt)
-        assert data["user_request"] == "check the server health"
-        assert data["investigation_intent"] == "MACHINE_ASSESSMENT"
-        assert data["evidence_completeness"]["complete"] is False
-        assert "role" in data
-        assert "instruction" in data
+        assert "check the server health" in prompt
+        assert "MACHINE_ASSESSMENT" in prompt
+        assert "Evidence complete: False" in prompt
 
     def test_with_evidence(self) -> None:
         ev1 = EvidencePackage(
@@ -44,38 +39,31 @@ class TestBuildAssessmentPrompt:
             missing_evidence=("Memory",),
         )
         prompt = build_assessment_prompt(req)
-        data = json.loads(prompt)
 
-        assert len(data["evidence"]) == 2
-        assert data["evidence"][0]["capability"] == "CPU Information"
-        assert data["evidence"][0]["success"] is True
-        assert data["evidence"][0]["data"]["cores"] == 4
-
-        assert data["evidence"][1]["success"] is False
-        assert "error" in data["evidence"][1]
-        assert data["evidence_completeness"]["missing"] == ["Memory"]
+        assert "CPU Information" in prompt
+        assert "Memory" in prompt
+        assert "Missing evidence: Memory" in prompt
+        # Failed evidence should not appear in content
+        assert "Failed to collect" not in prompt
 
     def test_empty_evidence(self) -> None:
         req = AssessmentRequest(raw_request="test")
         prompt = build_assessment_prompt(req)
-        data = json.loads(prompt)
-        assert data["evidence"] == []
+        assert "test" in prompt
+        assert "--- Evidence ---" in prompt
 
     def test_no_intent(self) -> None:
         req = AssessmentRequest(raw_request="test")
         prompt = build_assessment_prompt(req)
-        data = json.loads(prompt)
-        assert data["investigation_intent"] == ""
+        assert "test" in prompt
 
-    def test_prompt_is_json(self) -> None:
+    def test_prompt_is_string(self) -> None:
         req = AssessmentRequest(raw_request="check")
         prompt = build_assessment_prompt(req)
-        # Must be valid JSON
-        data = json.loads(prompt)
-        assert isinstance(data, dict)
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
 
     def test_prompt_does_not_include_tool_info(self) -> None:
-        """The new prompt should not include tool routing or capability lists."""
         req = AssessmentRequest(raw_request="check server")
         prompt = build_assessment_prompt(req)
         assert "available_resources" not in prompt
@@ -87,7 +75,6 @@ class TestBuildAssessmentPrompt:
         assert "child_tool" not in prompt.lower()
 
     def test_prompt_size(self) -> None:
-        """The new prompt should be significantly smaller than the ReAct prompt."""
         req = AssessmentRequest(
             raw_request="check the server health",
             intent="MACHINE_ASSESSMENT",
@@ -97,5 +84,4 @@ class TestBuildAssessmentPrompt:
             ),
         )
         prompt = build_assessment_prompt(req)
-        # Should be well under 5KB for a small investigation
         assert len(prompt) < 5000, f"Prompt too large: {len(prompt)} bytes"

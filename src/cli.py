@@ -182,8 +182,6 @@ def _run_web(args: argparse.Namespace) -> None:
 
     @app.post("/api/query")
     def query(body: dict):
-        from src.model.llm_assessment_adapter import LLMAssessmentAdapter
-        from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
         import json as _json
 
         question = (body.get("question") or "").strip()
@@ -192,111 +190,13 @@ def _run_web(args: argparse.Namespace) -> None:
             raise HTTPException(400, "Question is required")
 
         session_id = body.get("session_id")
-        _get_or_create_session(session_id)
+        session_cs = _get_or_create_session(session_id)
 
-        def _safe_data(val: object) -> object:
-            """Recursively sanitize data for JSON serialization."""
-            if val is None or isinstance(val, (bool, int, float, str)):
-                return val
-            if isinstance(val, (list, tuple)):
-                return [_safe_data(v) for v in val]
-            if isinstance(val, dict):
-                return {str(k): _safe_data(v) for k, v in val.items()}
-            return str(val)
-
-        # Step 1: Resolve intent
-        investigation = agent.execute_pipeline_only(question)
-
-        steps: list[dict] = []
-
-        plan_steps = []
-        if investigation.execution_plan:
-            for step in investigation.execution_plan.steps:
-                plan_steps.append({
-                    "capability": step.capability.name,
-                    "evidence": step.capability.evidence_name,
-                })
-
-        steps.append({
-            "type": "intent",
-            "intent": investigation.intent.name if investigation.intent else "N/A",
-            "confidence": investigation.confidence.name if investigation.confidence else "N/A",
-            "target": investigation.target or "localhost",
-            "matched_keywords": list(investigation.matched_keywords),
-            "required_evidence": [e.name for e in investigation.required_evidence],
-            "optional_evidence": [e.name for e in investigation.optional_evidence],
-            "planned_capabilities": plan_steps,
-        })
-
-        # Step 2: Evidence collection
-        evidence_list = []
-        for pkg in investigation.evidence:
-            data_str = str(pkg.data) if pkg.data is not None else None
-            evidence_list.append({
-                "capability": pkg.capability_name,
-                "evidence": pkg.evidence_name,
-                "success": pkg.success,
-                "error": pkg.error if not pkg.success else None,
-                "data_preview": data_str[:500] if data_str else None,
-                "data": _safe_data(pkg.data),
-            })
-
-        metrics = investigation.runtime_metrics
-        steps.append({
-            "type": "evidence",
-            "collected": len(investigation.evidence),
-            "successful": sum(1 for p in investigation.evidence if p.success),
-            "failed": sum(1 for p in investigation.evidence if not p.success),
-            "items": evidence_list,
-            "complete": investigation.evidence_complete,
-            "missing_evidence": list(investigation.missing_evidence),
-            "runtime_metrics": {
-                "execution_duration": round(getattr(metrics, 'execution_duration', 0), 3) if metrics else 0,
-                "total_nodes": getattr(metrics, 'total_nodes', 0) if metrics else 0,
-                "successful_nodes": getattr(metrics, 'successful_nodes', 0) if metrics else 0,
-                "failed_nodes": getattr(metrics, 'failed_nodes', 0) if metrics else 0,
-                "parallel_ratio": round(getattr(metrics, 'parallel_ratio', 0), 2) if metrics else 0,
-                "tool_calls": getattr(metrics, 'tool_calls', 0) if metrics else 0,
-            },
-        })
-
-        # Step 3: Build prompt
-        from src.pipeline.assessment_adapter import AssessmentAdapter
-        adapter = AssessmentAdapter()
-        req = adapter.build(investigation)
-        prompt = build_assessment_prompt(req)
-
-        steps.append({
-            "type": "prompt",
-            "size": len(prompt),
-            "preview": prompt[:500],
-        })
-
-        # Step 4: LLM assessment (streaming)
-        import time as _time
-        llm_adapter = agent._assessment_model
-        result = llm_adapter.assess_with_result(req) if hasattr(llm_adapter, 'assess_with_result') else None
-
-        if result:
-            steps.append({
-                "type": "assessment",
-                "model": result.model,
-                "latency_ms": result.latency_ms,
-                "success": result.success,
-                "error": result.error,
-                "content": result.content,
-                "prompt_tokens": result.prompt_tokens,
-                "completion_tokens": result.completion_tokens,
-            })
-        else:
-            steps.append({
-                "type": "assessment",
-                "content": agent.run_with_request(question, investigation),
-            })
+        result = agent.run_with_steps(question)
 
         return {
-            "steps": steps,
-            "assessment": steps[-1].get("content", ""),
+            "steps": result["steps"],
+            "assessment": result["response"],
         }
 
     if is_prod:
@@ -463,12 +363,9 @@ def _run_agent(args: argparse.Namespace) -> None:
         import signal as _sig
         _old_sigint = _sig.signal(_sig.SIGINT, lambda *_: (_sig.default_int_handler(), None))
         try:
-            is_infra, _ = agent.classify(raw_input)
-            if is_infra:
-                _last_request = agent.execute_pipeline_only(raw_input)
-                answer = agent.run(raw_input)
-            else:
-                answer = agent.chat(raw_input)
+            result = agent.run_with_steps(raw_input)
+            _last_request = result.get("investigation")
+            answer = result["response"]
             print()
             print(answer)
         except KeyboardInterrupt:

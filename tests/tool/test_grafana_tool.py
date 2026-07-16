@@ -5,11 +5,7 @@ from urllib import request
 
 import pytest
 
-from src.tool.grafana_tool import (
-    GrafanaTool,
-    DEFAULT_GRAFANA_URL,
-    DEFAULT_GRAFANA_TOKEN,
-)
+from src.tool.grafana_tool import GrafanaTool
 
 
 class _MockGrafana:
@@ -58,9 +54,9 @@ def mock_grafana(monkeypatch) -> _MockGrafana:
 
 
 def test_uses_default_url_and_token() -> None:
-    tool = GrafanaTool()
-    assert tool._url == DEFAULT_GRAFANA_URL
-    assert tool._token == DEFAULT_GRAFANA_TOKEN
+    tool = GrafanaTool(url="http://localhost:3000", token="test-token")
+    assert tool._url == "http://localhost:3000"
+    assert tool._token == "test-token"
 
 
 def test_sends_bearer_token_in_every_request(mock_grafana) -> None:

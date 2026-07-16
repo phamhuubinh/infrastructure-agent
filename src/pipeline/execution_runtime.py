@@ -116,9 +116,8 @@ class ExecutionRuntime:
 
             if not ready:
                 still_remaining.clear()
-                ready = list(remaining)
-
-            remaining = still_remaining
+                ready = [remaining.pop(0)]
+                remaining = still_remaining
 
             if len(ready) > max_parallel_batch:
                 max_parallel_batch = len(ready)

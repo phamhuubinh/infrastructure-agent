@@ -21,3 +21,15 @@ class Tool(ABC):
         Implementations shall return exactly one ToolResult.
         """
         raise NotImplementedError
+
+    def build_links(
+        self,
+        evidence_list: list,
+        user_request: str,
+    ) -> str:
+        """Build tool-specific deep links from collected evidence.
+        
+        Optional hook for tools that can generate external URLs.
+        Returns an empty string by default.
+        """
+        return ""

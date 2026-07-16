@@ -53,7 +53,6 @@ class TargetResolver:
 
         # Step 1: Try explicit name matching from registry.
         known_names: list[str] = []
-        domain_tools = {"zabbix", "grafana", "prometheus"}
         if self._registry is not None:
             known_names = self._registry.target_names()
 
@@ -63,18 +62,12 @@ class TargetResolver:
             alias_target = self._ALIASES.get(word)
             if alias_target and alias_target in known_names:
                 request.target = alias_target
-                if alias_target.lower() not in domain_tools:
-                    from src.pipeline.intent_resolver import Intent
-                    request.intent = Intent.MACHINE_ASSESSMENT
                 return
 
         # Exact substring match (fast path).
         for name in sorted(known_names, key=len, reverse=True):
             if name.lower() in raw:
                 request.target = name
-                if name.lower() not in domain_tools:
-                    from src.pipeline.intent_resolver import Intent
-                    request.intent = Intent.MACHINE_ASSESSMENT
                 return
 
         # Fuzzy match for typos (slow path).
@@ -90,9 +83,6 @@ class TargetResolver:
                     best_name = name
         if best_name is not None and best_ratio >= 0.6:
             request.target = best_name
-            if best_name.lower() not in domain_tools:
-                from src.pipeline.intent_resolver import Intent
-                request.intent = Intent.MACHINE_ASSESSMENT
             return
 
         # Step 2: Intent + keyword-based defaults.
