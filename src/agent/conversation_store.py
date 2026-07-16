@@ -81,14 +81,20 @@ class ConversationStore:
         self._mem.append({"role": "user", "content": user})
         self._mem.append({"role": "assistant", "content": assistant})
         self._dirty = True
-        self._save()
+        try:
+            self._save()
+        except OSError:
+            pass
         self._check_compress()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
         self._mem.append({"role": "user", "content": user})
         self._mem.append({"role": "assistant", "content": f"[classified as {label}]"})
         self._dirty = True
-        self._save()
+        try:
+            self._save()
+        except OSError:
+            pass
         self._check_compress()
 
     def summarize(self) -> None:
