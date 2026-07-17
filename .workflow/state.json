@@ -216,7 +216,9 @@
       "priority": "P2",
       "category": "security",
       "description": "Fix tools.json/servers.json gitignore inconsistency",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-07-17T04:17:11Z",
+      "completed_at": "2026-07-17T13:45:00Z"
     },
     {
       "id": 21,
