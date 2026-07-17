@@ -200,9 +200,13 @@ def test_non_dict_entry_skipped(mock_load: mock.Mock) -> None:
 def test_supported_tool_types_defined() -> None:
     assert "zabbix" in _SUPPORTED_TOOL_TYPES
     assert "grafana" in _SUPPORTED_TOOL_TYPES
+    assert "internet" in _SUPPORTED_TOOL_TYPES
     for tool_type, required in _SUPPORTED_TOOL_TYPES.items():
-        assert "url" in required
-        assert "token" in required
+        if tool_type == "internet":
+            assert required == ()
+        else:
+            assert "url" in required
+            assert "token" in required
 
 
 # ---------------------------------------------------------------------------

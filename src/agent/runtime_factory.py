@@ -82,6 +82,7 @@ from src.shared.secrets import load_secrets
 _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
     "grafana": ("url", "token"),
+    "internet": (),
 }
 
 
@@ -182,6 +183,10 @@ def _register_single_tool(
             token=str(cfg["token"]),
             timeout=int(cfg.get("timeout", 10)),
         )
+    elif tool_type == "internet":
+        from src.tool.internet_tool import InternetTool
+
+        tool = InternetTool()
     else:
         return  # pragma: no cover — unreachable via _SUPPORTED_TOOL_TYPES check
 

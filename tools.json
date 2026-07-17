@@ -8,5 +8,9 @@
     "tool": "grafana",
     "timeout": 10,
     "target": "grafana"
+  },
+  "internet": {
+    "tool": "internet",
+    "target": "internet"
   }
 }
