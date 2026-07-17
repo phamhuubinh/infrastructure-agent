@@ -37,6 +37,7 @@ class RuntimeMetrics:
     tool_calls: int = 0
     evidence_complete: bool = False
     timed_out: bool = False
+    early_completed: bool = False
 
 
 class ExecutionRuntime:
@@ -60,6 +61,7 @@ class ExecutionRuntime:
     ) -> None:
         self._knowledge_tool = knowledge_tool
         self._router = router or CapabilityRouter()
+        self._evidence_name_by_cap: dict[str, str] = {}
 
     @property
     def router(self) -> CapabilityRouter:
