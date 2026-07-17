@@ -225,14 +225,17 @@
       "priority": "P2",
       "category": "cleanup",
       "description": "Remove ui/AGENTS.md and ui/.lovable/",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-07-17T04:58:35Z",
+      "completed_at": "2026-07-17T05:11:47Z"
     },
     {
       "id": 22,
       "priority": "P2",
       "category": "refactor",
       "description": "Initialize _INTENT_PROMPTS at module level in prompt_builder_v2.py",
-      "status": "pending"
+      "status": "in_progress",
+      "started_at": "2026-07-17T05:00:11Z"
     },
     {
       "id": 23,
