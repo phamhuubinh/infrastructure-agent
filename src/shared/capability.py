@@ -13,3 +13,7 @@ class Capability:
     related: tuple[str, ...] = ()
     covers: tuple[str, ...] = ()
     operational_name: str = ""
+    description: str = ""
+    supported_targets: tuple[str, ...] = ()
+    parameters: tuple[str, ...] = ()
+    estimated_cost: float = 0.0

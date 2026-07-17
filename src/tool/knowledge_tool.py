@@ -199,6 +199,10 @@ class KnowledgeTool(Tool):
         - intents: related investigation intents
         - related: related capability names (dependency hints)
         - covers: convention tags for operational capability routing
+        - description: human-readable description
+        - supported_targets: target types this capability supports
+        - parameters: parameter names accepted by this capability
+        - estimated_cost: estimated execution cost
 
         The handler field (implementation function) is intentionally
         excluded — it is an internal implementation detail of each tool.
@@ -209,6 +213,20 @@ class KnowledgeTool(Tool):
         "Alert Triggers" and "Alert Severity Assessment") register routes
         for all their operational names.
         """
+
+        def _base_entry(value: Capability) -> dict[str, object]:
+            return {
+                "name": cap_name,
+                "category": value.category,
+                "intents": list(value.intents),
+                "related": list(value.related),
+                "covers": list(value.covers) if value.covers else [],
+                "description": value.description,
+                "supported_targets": list(value.supported_targets),
+                "parameters": list(value.parameters),
+                "estimated_cost": value.estimated_cost,
+            }
+
         result: dict[str, list[dict[str, object]]] = {}
         for name in self._registry.target_names():
             tool = self._registry.get_tool(name)
@@ -220,32 +238,21 @@ class KnowledgeTool(Tool):
             for cap_name, value in raw.items():
                 if isinstance(value, Capability):
                     if value.operational_name:
-                        entries.append(
-                            {
-                                "name": cap_name,
-                                "category": value.category,
-                                "intents": list(value.intents),
-                                "related": list(value.related),
-                                "covers": list(value.covers),
-                                "operational_name": value.operational_name,
-                            }
-                        )
+                        entry = _base_entry(value)
+                        entry["operational_name"] = value.operational_name
+                        entries.append(entry)
                     elif value.covers:
                         for tag in value.covers:
                             resolved = _COVERS_TO_OPERATIONAL.get(tag)
                             if resolved:
-                                entries.append(
-                                    {
-                                        "name": cap_name,
-                                        "category": value.category,
-                                        "intents": list(value.intents),
-                                        "related": list(value.related),
-                                        "covers": [tag],
-                                        "operational_name": resolved,
-                                    }
-                                )
+                                entry = _base_entry(value)
+                                entry["covers"] = [tag]
+                                entry["operational_name"] = resolved
+                                entries.append(entry)
                     else:
-                        entries.append({"name": cap_name})
+                        entry = _base_entry(value)
+                        entry["operational_name"] = ""
+                        entries.append(entry)
                 else:
                     entries.append({"name": cap_name})
             if entries:

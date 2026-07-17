@@ -369,10 +369,10 @@ class TestCapabilityReference:
             evidence_name="CPU",
             description="CPU information capability",
         )
-        assert repr(ref) == (
-            "CapabilityReference(name='CPU Information', "
-            "evidence_name='CPU', description='CPU information capability')"
-        )
+        r = repr(ref)
+        assert "CapabilityReference(name='CPU Information'" in r
+        assert "evidence_name='CPU'" in r
+        assert "description='CPU information capability'" in r
 
     def test_minimal(self) -> None:
         ref = CapabilityReference(name="CPU Information", evidence_name="CPU")

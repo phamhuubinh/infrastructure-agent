@@ -237,6 +237,10 @@ def test_get_capability_metadata_structure() -> None:
     assert "intents" in sys_entry
     assert "related" in sys_entry
     assert "covers" in sys_entry
+    assert "description" in sys_entry
+    assert "supported_targets" in sys_entry
+    assert "parameters" in sys_entry
+    assert "estimated_cost" in sys_entry
     assert "handler" not in sys_entry
 
 

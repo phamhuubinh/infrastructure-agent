@@ -812,6 +812,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory"),
         ("get_hosts",),
         ("monitoring-version",),
+        description="Retrieve the Zabbix API version",
+        supported_targets=("zabbix",),
+        parameters=("source", "resource"),
+        estimated_cost=0.05,
     ),
     "get_hosts": Capability(
         "get_hosts",
@@ -820,6 +824,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory"),
         ("get_problems", "get_triggers"),
         ("zabbix-hosts",),
+        description="List all monitored hosts from Zabbix",
+        supported_targets=("zabbix",),
+        parameters=("source", "resource"),
+        estimated_cost=0.2,
     ),
     "get_host": Capability(
         "get_host",
@@ -828,6 +836,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory"),
         ("get_items",),
         ("zabbix-hosts",),
+        description="Retrieve details for a specific Zabbix host",
+        supported_targets=("zabbix",),
+        parameters=("source", "resource", "host_id"),
+        estimated_cost=0.1,
     ),
     "search_hosts": Capability(
         "search_hosts",

@@ -626,6 +626,10 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "health"),
         related=("version",),
         covers=("monitoring-health",),
+        description="Check if Grafana service is healthy and reachable",
+        supported_targets=("grafana",),
+        parameters=("source", "resource"),
+        estimated_cost=0.05,
     ),
     "version": Capability(
         name="version",
@@ -634,6 +638,10 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "inventory"),
         related=("dashboards",),
         covers=("monitoring-version",),
+        description="Get the Grafana server version",
+        supported_targets=("grafana",),
+        parameters=("source", "resource"),
+        estimated_cost=0.05,
     ),
     "dashboards": Capability(
         name="dashboards",
@@ -642,6 +650,10 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "inventory", "visualization"),
         related=("dashboard_search", "dashboard_summary"),
         covers=("dashboards",),
+        description="List all dashboards from Grafana",
+        supported_targets=("grafana",),
+        parameters=("source", "resource"),
+        estimated_cost=0.2,
     ),
     "dashboard_search": Capability(
         name="dashboard_search",

@@ -1233,6 +1233,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("identity", "inventory"),
         ("get_memory", "get_disk"),
         ("system-identity",),
+        description="Collect general system identity and hardware inventory",
+        supported_targets=("localhost",),
+        parameters=("source", "resource"),
+        estimated_cost=0.1,
     ),
     "get_network": Capability(
         "get_network",
@@ -1241,6 +1245,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("health", "connectivity"),
         ("get_dns", "get_listening_ports"),
         ("network", "interface", "ip", "gateway", "routing", "network_usage"),
+        description="Collect network interfaces, IP addresses, and routing info",
+        supported_targets=("localhost",),
+        parameters=("source", "resource"),
+        estimated_cost=0.2,
     ),
     "get_services": Capability(
         "get_services",
@@ -1249,6 +1257,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("services", "health"),
         ("get_service", "search_service", "get_listening_ports"),
         ("services", "dependencies"),
+        description="List all system services and their current status",
+        supported_targets=("localhost",),
+        parameters=("source", "resource"),
+        estimated_cost=0.2,
     ),
     "search_service": Capability(
         "search_service",
