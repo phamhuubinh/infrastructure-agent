@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 from src.shared.execution.tool_result import ToolResult
-from src.tool.internet_tool import InternetTool, _fetch_url, _web_fetch
+from src.tool.internet_tool import _CAPABILITIES, InternetTool, _fetch_url, _web_fetch
+
+_HTTP_OK = 200
+_HTTP_NOT_FOUND = 404
 
 
 def test_execute_returns_tool_result() -> None:
@@ -40,7 +44,7 @@ def test_web_fetch_unsupported_scheme() -> None:
 
 
 @patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_success_html(mock_urlopen) -> None:
+def test_web_fetch_success_html(mock_urlopen: MagicMock) -> None:
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.read.return_value = b"<html><body><p>Hello World</p></body></html>"
@@ -48,13 +52,13 @@ def test_web_fetch_success_html(mock_urlopen) -> None:
     mock_urlopen.return_value.__enter__.return_value = mock_resp
 
     result = _web_fetch(url="http://example.com")
-    assert result["status"] == 200
+    assert result["status"] == _HTTP_OK
     assert "Hello World" in str(result["data"])
     assert result["truncated"] is False
 
 
 @patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_success_json(mock_urlopen) -> None:
+def test_web_fetch_success_json(mock_urlopen: MagicMock) -> None:
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.read.return_value = b'{"key": "value", "number": 42}'
@@ -62,12 +66,12 @@ def test_web_fetch_success_json(mock_urlopen) -> None:
     mock_urlopen.return_value.__enter__.return_value = mock_resp
 
     result = _web_fetch(url="http://example.com/data.json")
-    assert result["status"] == 200
+    assert result["status"] == _HTTP_OK
     assert result["data"] == {"key": "value", "number": 42}
 
 
 @patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_truncated(mock_urlopen) -> None:
+def test_web_fetch_truncated(mock_urlopen: MagicMock) -> None:
     mock_resp = MagicMock()
     mock_resp.status = 200
     mock_resp.read.return_value = b"x" * 600000
@@ -75,14 +79,12 @@ def test_web_fetch_truncated(mock_urlopen) -> None:
     mock_urlopen.return_value.__enter__.return_value = mock_resp
 
     result = _web_fetch(url="http://example.com/bigfile")
-    assert result["status"] == 200
+    assert result["status"] == _HTTP_OK
     assert result["truncated"] is True
 
 
 @patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_http_error(mock_urlopen) -> None:
-    from urllib.error import HTTPError
-
+def test_web_fetch_http_error(mock_urlopen: MagicMock) -> None:
     mock_urlopen.side_effect = HTTPError(
         url="http://example.com/404",
         code=404,
@@ -92,7 +94,7 @@ def test_web_fetch_http_error(mock_urlopen) -> None:
     )
 
     result = _web_fetch(url="http://example.com/404")
-    assert result["status"] == 404
+    assert result["status"] == _HTTP_NOT_FOUND
     assert "error" in result
 
 
@@ -108,8 +110,6 @@ def test_execute_passes_timeout_parameter() -> None:
 
 
 def test_capabilities_registered() -> None:
-    from src.tool.internet_tool import _CAPABILITIES
-
     assert "web_fetch" in _CAPABILITIES
     cap = _CAPABILITIES["web_fetch"]
     assert cap.name == "web_fetch"
@@ -133,11 +133,11 @@ def test_web_fetch_timeout_setting() -> None:
         assert result.success is True
         assert result.data is not None
         data = dict(result.data) if isinstance(result.data, dict) else {}
-        assert data.get("status") == 200
+        assert data.get("status") == _HTTP_OK
 
 
 @patch("src.tool.internet_tool.request.urlopen")
-def test_fetch_url_rejects_exception(mock_urlopen) -> None:
+def test_fetch_url_rejects_exception(mock_urlopen: MagicMock) -> None:
     mock_urlopen.side_effect = OSError("connection refused")
     result = _fetch_url(url="http://example.com")
     assert "error" in result

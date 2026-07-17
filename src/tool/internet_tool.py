@@ -90,7 +90,7 @@ def _fetch_url(
                 try:
                     stripped.feed(body)
                     text = stripped.get_text()
-                except Exception:
+                except (ValueError, TypeError):
                     text = body[:10000]
                 result["data"] = text[:10000]
 
@@ -170,12 +170,11 @@ class InternetTool(Tool):
 
         try:
             sig = inspect.signature(handler)
-            filtered: dict[str, object] = {}
-            for k, v in extra.items():
-                if k in sig.parameters:
-                    filtered[k] = v
+            filtered: dict[str, object] = {
+                k: v for k, v in extra.items() if k in sig.parameters
+            }
             data = handler(**filtered)
-        except Exception as exc:
+        except (ValueError, TypeError, RuntimeError, OSError) as exc:
             return ToolResult(success=False, error=f"InternetTool error: {exc}")
 
         return ToolResult(success=True, data=data)
