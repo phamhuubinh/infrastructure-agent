@@ -79,7 +79,12 @@ class ExecutionEngine:
         # Execute the graph through the runtime.
         if graph.nodes:
             target = request.target or "localhost"
-            results, metrics = self._runtime.execute(graph, target=target)
+            required_evidence = {req.name for req in request.required_evidence}
+            results, metrics = self._runtime.execute(
+                graph,
+                target=target,
+                required_evidence_names=required_evidence,
+            )
         else:
             results, metrics = {}, RuntimeMetrics()
 

@@ -190,6 +190,168 @@ class TestKnowledgeToolIntegration:
 
 
 # ---------------------------------------------------------------------------
+# Early completion
+# ---------------------------------------------------------------------------
+
+
+class TestEarlyCompletion:
+    def test_no_required_evidence_all_execute(self) -> None:
+        """Without required_evidence_names, all nodes execute normally."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+        ]
+        graph = _graph_from_steps(steps)
+        results, metrics = runtime.execute(graph)
+
+        assert mock_kt.execute.call_count == 2
+        assert metrics.early_completed is False
+        assert len(results) == 2
+
+    def test_early_completion_skips_remaining(self) -> None:
+        """When all required evidence is collected, remaining nodes are skipped."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+            _step("Swap Information", "Swap"),
+            _step("Disk Usage", "Disk"),
+        ]
+        graph = _graph_from_steps(steps)
+
+        # Only need CPU and Memory — Swap and Disk should be skipped
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"CPU", "Memory"},
+        )
+
+        # First two should have executed
+        assert "CPU Information" in results
+        assert "Memory Information" in results
+        assert results["CPU Information"].success is True
+        assert results["Memory Information"].success is True
+
+        # Last two should be skipped
+        assert "Swap Information" in results
+        assert "Disk Usage" in results
+        assert results["Swap Information"].success is False
+        assert "Skipped" in (results["Swap Information"].error or "")
+        assert results["Disk Usage"].success is False
+        assert "Skipped" in (results["Disk Usage"].error or "")
+
+        assert metrics.early_completed is True
+
+    def test_early_completion_single_node_triggers(self) -> None:
+        """Single node that satisfies the only requirement triggers early completion."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("System Information", "System"),
+            _step("CPU Information", "CPU"),
+        ]
+        graph = _graph_from_steps(steps)
+
+        # Only need System — CPU should be skipped
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"System"},
+        )
+
+        assert "System Information" in results
+        assert results["System Information"].success is True
+        assert "CPU Information" in results
+        assert results["CPU Information"].success is False
+        assert "Skipped" in (results["CPU Information"].error or "")
+        assert metrics.early_completed is True
+        # Only System Information executed
+        assert mock_kt.execute.call_count == 1
+
+    def test_early_completion_with_dependencies(self) -> None:
+        """Early completion respects dependencies — dependent nodes also skipped."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        step_a = _step("System Information", "System")
+        step_b = _step("CPU Information", "CPU")
+        step_c = _step("Memory Information", "Memory")
+
+        # B and C depend on A
+        graph = _graph_from_steps(
+            [step_a, step_b, step_c],
+            deps={
+                "CPU Information": ("System Information",),
+                "Memory Information": ("System Information",),
+            },
+        )
+
+        # Only need System — A executes, B and C skipped
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"System"},
+        )
+
+        assert metrics.early_completed is True
+        assert results["System Information"].success is True
+        assert results["CPU Information"].success is False
+        assert results["Memory Information"].success is False
+        assert "Skipped" in (results["CPU Information"].error or "")
+        assert "Skipped" in (results["Memory Information"].error or "")
+
+    def test_early_completion_not_triggered_when_insufficient(self) -> None:
+        """When not all required evidence is collected, execution continues."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+        ]
+        graph = _graph_from_steps(steps)
+
+        # Need evidence that won't be produced by any node
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"CPU", "NonExistentEvidence"},
+        )
+
+        assert metrics.early_completed is False
+        # Both should have executed (neither produces "NonExistentEvidence")
+        assert mock_kt.execute.call_count == 2
+        assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
 # Mocked KnowledgeTool for precise control
 # ---------------------------------------------------------------------------
 

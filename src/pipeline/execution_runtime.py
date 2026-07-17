@@ -73,6 +73,7 @@ class ExecutionRuntime:
         graph: ExecutionGraph,
         target: str = "localhost",
         overall_timeout: float = 120.0,
+        required_evidence_names: set[str] | None = None,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -84,6 +85,11 @@ class ExecutionRuntime:
         and the timeout is recorded in metrics. A SIGALRM-based timeout
         interrupts blocking tool calls without killing the process.
 
+        When `required_evidence_names` is provided, execution stops early
+        once all required evidence has been successfully collected.
+        Remaining unexecuted nodes are skipped and the
+        ``early_completed`` metric is set to ``True``.
+
         Returns both results and runtime metrics.
 
         Args:
@@ -92,6 +98,10 @@ class ExecutionRuntime:
             overall_timeout: Maximum wall-clock seconds for the entire
                              execution loop. Partial results returned on
                              timeout. 0 or negative means no timeout.
+            required_evidence_names: Optional set of evidence names that
+                                     must be collected. When all are
+                                     satisfied, remaining nodes are
+                                     skipped (early completion).
 
         Returns:
             A tuple of (results dict, RuntimeMetrics).
@@ -111,6 +121,15 @@ class ExecutionRuntime:
         max_parallel_batch = 1
         total_nodes_in_parallel = 0
 
+        required_evidence_names = required_evidence_names or set()
+
+        # Map capability name → evidence name for early completion checks.
+        cap_to_evidence: dict[str, str] = {
+            n.execution_step.capability.name: n.execution_step.capability.evidence_name
+            for n in graph.nodes
+        }
+        collected_evidence: set[str] = set()
+
         import concurrent.futures
 
         _timeout_deadline = (
@@ -119,7 +138,34 @@ class ExecutionRuntime:
             else float("inf")
         )
 
+        def _check_early_completion() -> bool:
+            """Check if all required evidence is collected and skip remaining."""
+            if (
+                not required_evidence_names
+                or collected_evidence < required_evidence_names
+            ):
+                return False
+            for node in remaining:
+                cap_name = node.execution_step.capability.name
+                if cap_name not in results:
+                    results[cap_name] = ToolResult(
+                        success=False,
+                        error="Skipped: all required evidence already collected",
+                    )
+            metrics.early_completed = True
+            remaining.clear()
+            return True
+
+        def _record_success(cap_name: str) -> None:
+            completed.add(cap_name)
+            ev = cap_to_evidence.get(cap_name)
+            if ev:
+                collected_evidence.add(ev)
+
         while remaining:
+            if _check_early_completion():
+                break
+
             if _time.perf_counter() > _timeout_deadline:
                 for node in remaining:
                     cap_name = node.execution_step.capability.name
@@ -185,7 +231,7 @@ class ExecutionRuntime:
                             metrics.tool_calls += 1
                             results[cap_name] = result
                             if result.success:
-                                completed.add(cap_name)
+                                _record_success(cap_name)
                         except _cf.TimeoutError:
                             metrics.timed_out = True
                             results[cap_name] = ToolResult(
@@ -224,7 +270,7 @@ class ExecutionRuntime:
                                 )
                             results[cap_name] = result
                             if result.success:
-                                completed.add(cap_name)
+                                _record_success(cap_name)
                     except concurrent.futures.TimeoutError:
                         for fut, nd in future_map.items():
                             if not fut.done():

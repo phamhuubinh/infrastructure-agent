@@ -11,8 +11,6 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn>=0.20",
     "pydantic>=2.0",
-    "requests>=2.31",
-    "numpy>=1.24",
 ]
 
 [project.scripts]
@@ -25,5 +23,4 @@ where = ["src"]
 "" = "src"
 
 [project.optional-dependencies]
-web = ["fastapi>=0.100", "uvicorn>=0.20"]
 test = ["pytest>=7"]
