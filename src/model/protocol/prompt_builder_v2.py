@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.intent_resolver import Intent
 
 
 def _normalize_evidence(data: Any) -> Any:
@@ -198,21 +199,13 @@ PROMPT_VERSIONS = {
     "minimal": MINIMAL_PROMPT,
 }
 
-_INTENT_PROMPTS = {}
-
-
-def _init_intent_prompts():
-    from src.pipeline.intent_resolver import Intent
-
-    _INTENT_PROMPTS.update(
-        {
-            Intent.CPU_ASSESSMENT: CPU_PROMPT,
-            Intent.MEMORY_ASSESSMENT: MEMORY_PROMPT,
-            Intent.DISK_ASSESSMENT: DISK_PROMPT,
-            Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
-            Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
-        }
-    )
+_INTENT_PROMPTS: dict[Intent, str] = {
+    Intent.CPU_ASSESSMENT: CPU_PROMPT,
+    Intent.MEMORY_ASSESSMENT: MEMORY_PROMPT,
+    Intent.DISK_ASSESSMENT: DISK_PROMPT,
+    Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
+    Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
+}
 
 
 # Default prompt version used by the system.
@@ -236,12 +229,7 @@ def _resolve_intent_prompt(intent_str: str) -> str:
     Converts the string to an Intent enum for lookup; falls back
     to the default compact prompt when no specific prompt exists.
     """
-    if not _INTENT_PROMPTS:
-        _init_intent_prompts()
-
     try:
-        from src.pipeline.intent_resolver import Intent
-
         intent_enum = Intent[intent_str]
         return _INTENT_PROMPTS.get(intent_enum, _ACTIVE_PROMPT)
     except (KeyError, ValueError):
