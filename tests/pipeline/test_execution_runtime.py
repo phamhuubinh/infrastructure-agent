@@ -226,13 +226,20 @@ class TestEarlyCompletion:
         router.build_routes(real_kt)
         runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
 
+        # Swap and Disk depend on CPU and Memory, so they're in a second batch
         steps = [
             _step("CPU Information", "CPU"),
             _step("Memory Information", "Memory"),
             _step("Swap Information", "Swap"),
             _step("Disk Usage", "Disk"),
         ]
-        graph = _graph_from_steps(steps)
+        graph = _graph_from_steps(
+            steps,
+            deps={
+                "Swap Information": ("CPU Information", "Memory Information"),
+                "Disk Usage": ("CPU Information", "Memory Information"),
+            },
+        )
 
         # Only need CPU and Memory — Swap and Disk should be skipped
         results, metrics = runtime.execute(
@@ -266,11 +273,15 @@ class TestEarlyCompletion:
         router.build_routes(real_kt)
         runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
 
+        # CPU depends on System so they're in separate batches
         steps = [
             _step("System Information", "System"),
             _step("CPU Information", "CPU"),
         ]
-        graph = _graph_from_steps(steps)
+        graph = _graph_from_steps(
+            steps,
+            deps={"CPU Information": ("System Information",)},
+        )
 
         # Only need System — CPU should be skipped
         results, metrics = runtime.execute(
