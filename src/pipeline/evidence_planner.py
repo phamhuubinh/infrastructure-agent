@@ -5,7 +5,7 @@ from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 
 # ---------------------------------------------------------------------------
-# Evidence templates — source of truth: docs/ai/06_EVIDENCE_TEMPLATES.md
+# Evidence templates — source of truth: docs/ai/06_TOOL_AND_CAPABILITY_DESIGN.md
 # ---------------------------------------------------------------------------
 # Each template is defined as (required_names, optional_names) matching the
 # document's Required Evidence and Optional Evidence sections exactly.
@@ -201,8 +201,7 @@ class EvidencePlanner:
     def plan(self, request: InvestigationRequest) -> None:
         """Populate evidence requirements from the investigation intent.
 
-        Uses the deterministic templates defined in
-        docs/ai/06_EVIDENCE_TEMPLATES.md.
+        Uses the deterministic templates defined in this module.
 
         Args:
             request: The InvestigationRequest. Must have intent populated.

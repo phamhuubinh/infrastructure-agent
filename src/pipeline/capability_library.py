@@ -3,7 +3,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 # Capability Library — single source of truth
 # ---------------------------------------------------------------------------
-# Source of truth: docs/ai/07_CAPABILITY_GRAPH.md
+# Source of truth: docs/ai/06_TOOL_AND_CAPABILITY_DESIGN.md
 #
 # This library defines the mapping from evidence names (from Evidence
 # Templates) to operational capability names. Capability names describe
