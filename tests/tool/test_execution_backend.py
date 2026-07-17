@@ -217,7 +217,8 @@ class TestSSHExecutionBackend:
 
     def test_run_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(*args, **kwargs):
-            raise OSError("ssh: command not found")
+            msg = "ssh: command not found"
+            raise OSError(msg)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 

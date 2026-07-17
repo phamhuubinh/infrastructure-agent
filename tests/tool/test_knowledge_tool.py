@@ -63,9 +63,8 @@ def test_execute_reports_unknown_source(monkeypatch) -> None:
     tool = KnowledgeTool()
 
     def fail_if_called(self, arguments):
-        raise AssertionError(
-            "LinuxTool.execute must not be called for an unknown source."
-        )
+        msg = "LinuxTool.execute must not be called for an unknown source."
+        raise AssertionError(msg)
 
     monkeypatch.setattr(
         "src.tool.linux_tool.LinuxTool.execute",

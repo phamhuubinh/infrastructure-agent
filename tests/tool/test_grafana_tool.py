@@ -282,7 +282,8 @@ def test_raises_on_missing_action() -> None:
 
 def test_handle_connection_error(monkeypatch) -> None:
     def fake_urlopen(req, **kwargs):
-        raise OSError("Connection refused")
+        msg = "Connection refused"
+        raise OSError(msg)
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 

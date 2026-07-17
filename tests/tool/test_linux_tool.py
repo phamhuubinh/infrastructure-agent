@@ -1578,7 +1578,8 @@ def test_ssh_backend_returns_false_on_os_error(monkeypatch) -> None:
     from src.tool.execution_backend import SSHExecutionBackend
 
     def fake_os_error(popenargs, **kwargs):
-        raise OSError("ssh not found")
+        msg = "ssh not found"
+        raise OSError(msg)
 
     monkeypatch.setattr(
         "src.tool.execution_backend.subprocess.run",
