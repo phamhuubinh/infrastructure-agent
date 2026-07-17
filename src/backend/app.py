@@ -18,10 +18,18 @@ from src.backend.db import (
     _get_dsn,
     delete_session as db_delete_session,
     init_db,
+    init_documents_db,
     list_sessions_db,
     rename_session_db,
 )
 from src.backend.dify_client import DifyClient
+from src.backend.document_service import (
+    delete_file as doc_delete_file,
+    get_file as doc_get_file,
+    list_files as doc_list_files,
+    read_file_content as doc_read_file_content,
+    store_file as doc_store_file,
+)
 from src.shared.logger import info as _info
 
 _WEB_PROCESSES: list[subprocess.Popen] = []
@@ -81,6 +89,7 @@ def create_app(
     dsn = database_url or _get_dsn()
     if dsn:
         init_db(dsn)
+        init_documents_db(dsn)
         _info(
             "database",
             message="PostgreSQL session store initialized",
@@ -249,17 +258,13 @@ def create_app(
         except Exception as exc:
             return {"status": "error", "error": str(exc)[:200]}
 
-    dify_api_url = os.environ.get("DIFY_API_URL", "http://dify-api:5001")
-
     @app.get("/api/dify/health")
     def dify_health():
-        try:
-            import urllib.request
-
-            resp = urllib.request.urlopen(f"{dify_api_url}/health", timeout=5)
-            return {"status": "ok", "dify": resp.status == 200}
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:200]}
+        return (
+            _dify_client.health()
+            if _dify_client
+            else {"status": "error", "error": "Dify not initialized"}
+        )
 
     @app.post("/api/dify/chat")
     def dify_chat(body: dict):
@@ -272,63 +277,117 @@ def create_app(
         user = body.get("user", "orion-user")
         conversation_id = body.get("conversation_id", "")
 
-        try:
-            import urllib.request
+        if not _dify_client:
+            return {"status": "error", "error": "Dify not initialized"}
 
-            payload = json.dumps(
-                {
-                    "inputs": {},
-                    "query": question,
-                    "response_mode": "blocking",
-                    "conversation_id": conversation_id,
-                    "user": user,
-                }
-            ).encode("utf-8")
+        result = _dify_client.chat(
+            query=question,
+            user=user,
+            conversation_id=conversation_id,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
 
-            req = urllib.request.Request(
-                f"{dify_api_url}/v1/chat-messages",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return {
-                    "answer": data.get("answer", ""),
-                    "conversation_id": data.get("conversation_id", ""),
-                    "message_id": data.get("message_id", ""),
-                }
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:200]}
+        return {
+            "answer": result.get("answer", ""),
+            "conversation_id": result.get("conversation_id", ""),
+            "message_id": result.get("message_id", ""),
+        }
 
-    @app.post("/api/dify/knowledge/query")
-    def dify_knowledge_query(body: dict):
-        query_text = (body.get("query") or "").strip()
-        if not query_text:
+    @app.post("/api/dify/chat/stream")
+    def dify_chat_stream(body: dict):
+        question = (body.get("question") or "").strip()
+        if not question:
             from fastapi import HTTPException
 
-            raise HTTPException(400, "Query is required")
+            raise HTTPException(400, "Question is required")
 
-        try:
-            import urllib.request
+        if not _dify_client:
+            return {"status": "error", "error": "Dify not initialized"}
 
-            payload = json.dumps(
-                {
-                    "query": query_text,
-                    "top_k": body.get("top_k", 5),
-                }
-            ).encode("utf-8")
+        chunks = _dify_client.chat_stream(
+            query=question,
+            user=body.get("user", "orion-user"),
+            conversation_id=body.get("conversation_id", ""),
+        )
+        return {"chunks": chunks}
 
-            req = urllib.request.Request(
-                f"{dify_api_url}/v1/datasets/documents/retrieve",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:200]}
+    @app.get("/api/dify/conversations")
+    def dify_list_conversations(limit: int = 20, cursor: str = ""):
+        if not _dify_client:
+            return {"status": "error", "error": "Dify not initialized"}
+        return _dify_client.list_conversations(limit=limit, cursor=cursor)
+
+    @app.delete("/api/dify/conversations/{conversation_id}")
+    def dify_delete_conversation(conversation_id: str):
+        if not _dify_client:
+            return {"status": "error", "error": "Dify not initialized"}
+        result = _dify_client.delete_conversation(conversation_id=conversation_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "deleted", "conversation_id": conversation_id}
+
+    @app.post("/api/documents/upload")
+    def document_upload(body: dict):
+        content = (body.get("content") or "").encode("utf-8")
+        filename = (body.get("filename") or "untitled.txt").strip()
+        content_type = body.get("content_type")
+        session_id = body.get("session_id")
+        metadata = body.get("metadata")
+
+        result = doc_store_file(
+            dsn=dsn,
+            filename=filename,
+            content=content,
+            content_type=content_type,
+            session_id=session_id,
+            metadata=metadata,
+        )
+        return result
+
+    @app.get("/api/documents")
+    def document_list(session_id: str | None = None, limit: int = 50):
+        return {
+            "documents": doc_list_files(dsn=dsn, session_id=session_id, limit=limit)
+        }
+
+    @app.get("/api/documents/{doc_id}")
+    def document_get(doc_id: str):
+        doc = doc_get_file(dsn=dsn, doc_id=doc_id)
+        if doc is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(404, f"Document '{doc_id}' not found")
+        return doc
+
+    @app.get("/api/documents/{doc_id}/download")
+    def document_download(doc_id: str):
+        from fastapi.responses import Response
+
+        doc = doc_get_file(dsn=dsn, doc_id=doc_id)
+        if doc is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(404, f"Document '{doc_id}' not found")
+        content = doc_read_file_content(doc["storage_path"])
+        if content is None:
+            raise HTTPException(404, "File content not found on disk")
+        return Response(
+            content=content,
+            media_type=doc.get("content_type", "application/octet-stream"),
+            headers={
+                "Content-Disposition": f'attachment; filename="{doc["filename"]}"'
+            },
+        )
+
+    @app.delete("/api/documents/{doc_id}")
+    def document_delete(doc_id: str):
+        deleted = doc_delete_file(dsn=dsn, doc_id=doc_id)
+        if not deleted:
+            from fastapi import HTTPException
+
+            raise HTTPException(404, f"Document '{doc_id}' not found")
+        return {"status": "deleted", "doc_id": doc_id}
 
     return app, sessions_dir, web_sessions
 
