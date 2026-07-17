@@ -23,6 +23,7 @@ __pycache__/
 # UI dependencies
 ui/node_modules/
 ui/dist/
+desktop/node_modules/
 
 # Local secrets (credentials, API tokens)
 config/secrets.local.json

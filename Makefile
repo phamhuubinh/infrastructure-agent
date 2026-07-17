@@ -32,6 +32,12 @@ build:
 benchmark:
 	$(PYTHON) -m pytest tests/benchmark/ -q --tb=short
 
+desktop-install:
+	cd desktop && npm install
+
+desktop-start:
+	cd desktop && npx electron .
+
 ci: test lint typecheck
 
 install:

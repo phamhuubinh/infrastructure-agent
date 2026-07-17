@@ -22,6 +22,7 @@
 - Test directory (`tests/`) with pipeline and tool tests.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
+- Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start`.
 
 ## WP4: Platform capability migration (in progress)
 - Agent runs as a platform capability via the FastAPI API (`src/backend/api.py` as uvicorn entry point).
@@ -45,7 +46,7 @@
 - **Authentication / accounts** — no login, no sessions.
 - **Remote hosting** — no remote deployment yet.
 - **Document Service** — not implemented.
-- **Desktop App** — not implemented.
+- **Desktop App** — Electron wrapper implemented (`desktop/`). Serves the existing TanStack Start SSR UI via embedded Node.js server, proxies `/api` calls to the backend at `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 - **Internet Tool** — planned for WP4, opt-in-only when built (see `04_ROADMAP.md`).
 - **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
 
