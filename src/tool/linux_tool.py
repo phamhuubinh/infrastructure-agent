@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable
-
 import time as _time
+from collections.abc import Callable
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
-from src.shared.logger import info, error
+from src.shared.logger import error, info
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
@@ -1003,7 +1002,6 @@ def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 parts = line.replace(",", " ").split()
                 result: dict[str, object] = {}
                 for i, p in enumerate(parts):
-                    p_clean = p.strip("%")
                     if p == "us," or p == "us":
                         result["user"] = float(parts[i - 1]) if i > 0 else 0
                     elif p == "sy," or p == "sy":

@@ -3,7 +3,9 @@ from __future__ import annotations
 import inspect
 import json
 from collections.abc import Callable
-from urllib import error as urlerror, parse as urllib_parse, request
+from urllib import error as urlerror
+from urllib import parse as urllib_parse
+from urllib import request
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
@@ -235,8 +237,6 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
         all_metrics.extend(t.get("metrics", []))
     field_config = _format_field_config(p.get("fieldConfig", {}))
     transformations = _format_transformations(p.get("transformations", []))
-    options = p.get("options", {})
-    plugin_options = p.get("pluginOptions", {}) or p.get("options", {})
     grid_pos = p.get("gridPos", {})
     viz_type = p.get("type", "")
     viz_category = _visualization_category(viz_type)
