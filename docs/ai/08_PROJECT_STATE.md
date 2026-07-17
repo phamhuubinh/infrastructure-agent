@@ -21,6 +21,7 @@
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
 - Test directory (`tests/`) with pipeline and tool tests.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
+- Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 
 ## WP4: Platform capability migration (in progress)
 - Agent runs as a platform capability via the FastAPI API (`src/backend/api.py` as uvicorn entry point).
@@ -41,10 +42,8 @@
 - Updated README.md and HTML metadata.
 
 ## Not implemented (do not assume otherwise)
-- **Database** — no PostgreSQL, no persistence layer beyond the local targets JSON file.
 - **Authentication / accounts** — no login, no sessions.
 - **Remote hosting** — no remote deployment yet.
-- **Dify integration** — not connected.
 - **Document Service** — not implemented.
 - **Desktop App** — not implemented.
 - **Internet Tool** — planned for WP4, opt-in-only when built (see `04_ROADMAP.md`).

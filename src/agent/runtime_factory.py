@@ -83,6 +83,7 @@ _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
     "grafana": ("url", "token"),
     "internet": (),
+    "knowledge_base": (),
 }
 
 
@@ -187,6 +188,10 @@ def _register_single_tool(
         from src.tool.internet_tool import InternetTool
 
         tool = InternetTool()
+    elif tool_type == "knowledge_base":
+        from src.tool.knowledge_base_tool import KnowledgeBaseTool
+
+        tool = KnowledgeBaseTool()
     else:
         return  # pragma: no cover — unreachable via _SUPPORTED_TOOL_TYPES check
 

@@ -102,6 +102,12 @@ _COVERS_TO_OPERATIONAL: dict[str, str] = {
     "web-content": "Web Content Fetch",
     "internet": "Internet Resource Access",
     "url-fetch": "URL Fetch",
+    # Knowledge Base tool
+    "knowledge-base-health": "Knowledge Base Health",
+    "knowledge-base-ingest": "Knowledge Base Ingestion",
+    "knowledge-base-query": "Knowledge Base Query",
+    "documentation": "Documentation Lookup",
+    "runbook": "Runbook Lookup",
 }
 
 

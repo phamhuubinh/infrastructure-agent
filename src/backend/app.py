@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -20,6 +21,7 @@ from src.backend.db import (
     list_sessions_db,
     rename_session_db,
 )
+from src.backend.dify_client import DifyClient
 from src.shared.logger import info as _info
 
 _WEB_PROCESSES: list[subprocess.Popen] = []
@@ -84,6 +86,18 @@ def create_app(
             message="PostgreSQL session store initialized",
             dsn=dsn.split("@")[-1] if "@" in dsn else "default",
         )
+
+    _info("dify", message="Initializing Dify conversational layer")
+    _dify_client: DifyClient | None = None
+    try:
+        from src.backend.dify_setup import setup_dify
+
+        if setup_dify():
+            dify_api_url = os.environ.get("DIFY_API_URL", "http://dify-api:5001")
+            _dify_client = DifyClient(api_url=dify_api_url)
+            _info("dify", message="Dify conversational layer active")
+    except Exception:
+        _info("dify", message="Dify not available, skipping setup")
 
     sessions_dir = str(Path.home() / ".orion" / "sessions")
     web_sessions: dict[str, ConversationStore] = {}
@@ -198,6 +212,123 @@ def create_app(
             "steps": result["steps"],
             "assessment": result["response"],
         }
+
+    rag_service_url = os.environ.get("RAG_SERVICE_URL", "http://rag-service:8080")
+
+    @app.get("/api/knowledge/health")
+    def knowledge_health():
+        try:
+            import urllib.request
+
+            resp = urllib.request.urlopen(f"{rag_service_url}/health", timeout=5)
+            return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200]}
+
+    @app.post("/api/knowledge/query")
+    def knowledge_query(body: dict):
+        query_text = (body.get("query") or "").strip()
+        if not query_text:
+            from fastapi import HTTPException
+
+            raise HTTPException(400, "Query is required")
+        try:
+            import urllib.request
+
+            payload = json.dumps(
+                {"query": query_text, "top_k": body.get("top_k", 5)}
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                f"{rag_service_url}/query",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200]}
+
+    dify_api_url = os.environ.get("DIFY_API_URL", "http://dify-api:5001")
+
+    @app.get("/api/dify/health")
+    def dify_health():
+        try:
+            import urllib.request
+
+            resp = urllib.request.urlopen(f"{dify_api_url}/health", timeout=5)
+            return {"status": "ok", "dify": resp.status == 200}
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200]}
+
+    @app.post("/api/dify/chat")
+    def dify_chat(body: dict):
+        question = (body.get("question") or "").strip()
+        if not question:
+            from fastapi import HTTPException
+
+            raise HTTPException(400, "Question is required")
+
+        user = body.get("user", "orion-user")
+        conversation_id = body.get("conversation_id", "")
+
+        try:
+            import urllib.request
+
+            payload = json.dumps(
+                {
+                    "inputs": {},
+                    "query": question,
+                    "response_mode": "blocking",
+                    "conversation_id": conversation_id,
+                    "user": user,
+                }
+            ).encode("utf-8")
+
+            req = urllib.request.Request(
+                f"{dify_api_url}/v1/chat-messages",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return {
+                    "answer": data.get("answer", ""),
+                    "conversation_id": data.get("conversation_id", ""),
+                    "message_id": data.get("message_id", ""),
+                }
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200]}
+
+    @app.post("/api/dify/knowledge/query")
+    def dify_knowledge_query(body: dict):
+        query_text = (body.get("query") or "").strip()
+        if not query_text:
+            from fastapi import HTTPException
+
+            raise HTTPException(400, "Query is required")
+
+        try:
+            import urllib.request
+
+            payload = json.dumps(
+                {
+                    "query": query_text,
+                    "top_k": body.get("top_k", 5),
+                }
+            ).encode("utf-8")
+
+            req = urllib.request.Request(
+                f"{dify_api_url}/v1/datasets/documents/retrieve",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200]}
 
     return app, sessions_dir, web_sessions
 
