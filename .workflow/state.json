@@ -234,7 +234,7 @@
       "priority": "P2",
       "category": "refactor",
       "description": "Initialize _INTENT_PROMPTS at module level in prompt_builder_v2.py",
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-07-17T05:00:11Z"
     },
     {
