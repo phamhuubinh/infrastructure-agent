@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
 
-from src.agent.conversation_store import ConversationStore, list_sessions
+from src.agent.conversation_store import (
+    ConversationStore,
+    list_sessions as list_file_sessions,
+)
 from src.agent.runtime_factory import create_deterministic_agent
+from src.backend.db import (
+    PostgresConversationStore,
+    _get_dsn,
+    delete_session as db_delete_session,
+    init_db,
+    list_sessions_db,
+    rename_session_db,
+)
 from src.shared.logger import info as _info
 
 _WEB_PROCESSES: list[subprocess.Popen] = []
@@ -47,6 +57,7 @@ def create_app(
     target_store_path: str = "targets.json",
     server_name: str = "sv1",
     model: str | None = None,
+    database_url: str | None = None,
 ) -> tuple:
     """Create FastAPI app and return (app, sessions_dir, web_sessions).
 
@@ -65,20 +76,36 @@ def create_app(
         model=model,
     )
 
+    dsn = database_url or _get_dsn()
+    if dsn:
+        init_db(dsn)
+        _info(
+            "database",
+            message="PostgreSQL session store initialized",
+            dsn=dsn.split("@")[-1] if "@" in dsn else "default",
+        )
+
     sessions_dir = str(Path.home() / ".orion" / "sessions")
     web_sessions: dict[str, ConversationStore] = {}
 
     def _get_or_create_session(session_id: str | None) -> ConversationStore:
         sid = session_id or uuid.uuid4().hex[:12]
         if sid not in web_sessions:
-            cs = ConversationStore(
-                session_id=sid,
-                store_dir=sessions_dir,
-                source="web",
-                summarize_fn=agent._assessment_model.assess_raw,
-            )
+            if dsn:
+                cs = PostgresConversationStore(
+                    session_id=sid,
+                    dsn=dsn,
+                    source="api",
+                    summarize_fn=agent._assessment_model.assess_raw,
+                )
+            else:
+                cs = ConversationStore(
+                    session_id=sid,
+                    store_dir=sessions_dir,
+                    source="api",
+                    summarize_fn=agent._assessment_model.assess_raw,
+                )
             web_sessions[sid] = cs
-            cs._save()
         cs = web_sessions[sid]
         agent._conversation_store = cs
         return cs
@@ -102,10 +129,20 @@ def create_app(
 
     @app.get("/api/sessions")
     def list_sessions_api():
-        return {"sessions": list_sessions(sessions_dir)}
+        if dsn:
+            return {"sessions": list_sessions_db(dsn)}
+        return {"sessions": list_file_sessions(sessions_dir)}
 
     @app.delete("/api/sessions/{session_id}")
     def delete_session(session_id: str):
+        if dsn:
+            deleted = db_delete_session(dsn, session_id)
+            web_sessions.pop(session_id, None)
+            if not deleted:
+                from fastapi import HTTPException
+
+                raise HTTPException(404, f"Session '{session_id}' not found")
+            return {"status": "deleted", "session_id": session_id}
         path = Path(sessions_dir) / f"{session_id}.json"
         if not path.exists():
             from fastapi import HTTPException
@@ -117,6 +154,18 @@ def create_app(
 
     @app.patch("/api/sessions/{session_id}")
     def rename_session(session_id: str, body: dict):
+        if dsn:
+            new_title = body.get("title", "").strip()
+            if not new_title:
+                from fastapi import HTTPException
+
+                raise HTTPException(400, "title is required")
+            renamed = rename_session_db(dsn, session_id, new_title)
+            if not renamed:
+                from fastapi import HTTPException
+
+                raise HTTPException(404, f"Session '{session_id}' not found")
+            return {"status": "renamed", "session_id": session_id, "title": new_title}
         path = Path(sessions_dir) / f"{session_id}.json"
         if not path.exists():
             from fastapi import HTTPException
@@ -158,6 +207,7 @@ def run_web(
     target_store_path: str = "targets.json",
     server_name: str = "sv1",
     model: str | None = None,
+    database_url: str | None = None,
 ) -> None:
     import atexit
     import webbrowser
@@ -182,6 +232,7 @@ def run_web(
         target_store_path=target_store_path,
         server_name=server_name,
         model=model,
+        database_url=database_url,
     )
 
     is_prod = (Path(dist_dir) / "index.html").is_file() or (

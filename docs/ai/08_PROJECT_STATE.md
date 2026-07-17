@@ -22,6 +22,13 @@
 - Test directory (`tests/`) with pipeline and tool tests.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 
+## WP4: Platform capability migration (in progress)
+- Agent runs as a platform capability via the FastAPI API (`src/backend/api.py` as uvicorn entry point).
+- PostgreSQL session store (`src/backend/db.py`) with `PostgresConversationStore` replacing JSON file storage when `ORION_DATABASE_URL` is set.
+- `psycopg2-binary` dependency added to `pyproject.toml`.
+- Docker Compose API service configured with `ORION_DATABASE_URL` environment variable.
+- Fallback to JSON file storage when no database URL is configured (backward compatible).
+
 ## Cleanup completed (stabilization phase)
 - Removed dead code: `main.py`, `dump_assessment.py`, `api_server.py` (duplicate of `cli.py`).
 - Removed empty `__init__.py` files (PEP 420 namespace packages).

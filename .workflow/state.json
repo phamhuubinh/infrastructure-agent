@@ -181,7 +181,9 @@
       "priority": "P1",
       "category": "platform",
       "description": "WP4: Migrate Agent to run as platform capability via API (local)",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-07-17T03:02:46Z",
+      "completed_at": "2026-07-17T10:30:00Z"
     },
     {
       "id": 40,

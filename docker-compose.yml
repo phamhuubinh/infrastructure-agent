@@ -20,6 +20,8 @@ services:
     container_name: orion-api
     env_file:
       - docker-compose.env
+    environment:
+      ORION_DATABASE_URL: postgresql://orion:orion_dev@postgres:5432/orion
     volumes:
       - orion-sessions:/root/.orion/sessions
     depends_on:
