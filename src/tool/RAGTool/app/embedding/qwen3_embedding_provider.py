@@ -33,10 +33,11 @@ class Qwen3EmbeddingProvider:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as exc:
-                raise RuntimeError(
+                msg = (
                     "sentence-transformers is not installed "
                     "(`pip install sentence-transformers`)"
-                ) from exc
+                )
+                raise RuntimeError(msg) from exc
             self._model = SentenceTransformer(self._model_name, device=self._device)
             self.dimension = self._model.get_sentence_embedding_dimension()
         return self._model

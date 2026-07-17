@@ -29,9 +29,8 @@ class MarkerParser:
                 from marker.converters.pdf import PdfConverter
                 from marker.models import create_model_dict
             except ImportError as exc:
-                raise ParserError(
-                    "marker-pdf is not installed (`pip install marker-pdf`)"
-                ) from exc
+                msg = "marker-pdf is not installed (`pip install marker-pdf`)"
+                raise ParserError(msg) from exc
             self._converter = PdfConverter(artifact_dict=create_model_dict())
         return self._converter
 
@@ -44,7 +43,8 @@ class MarkerParser:
             rendered = converter(str(path))
             markdown_text, _, _images = text_from_rendered(rendered)
         except Exception as exc:
-            raise ParserError(f"marker failed to convert '{path}': {exc}") from exc
+            pargs_msg = f"marker failed to convert '{path}': {exc}"
+            raise ParserError(pargs_msg) from exc
 
         blocks = _markdown_to_blocks(markdown_text)
         return ParsedDocument(

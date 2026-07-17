@@ -31,7 +31,8 @@ class GrafanaProvider:
             with request.urlopen(req, timeout=self._timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except (OSError, urlerror.URLError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Grafana API request failed: {exc}") from exc
+            msg = f"Grafana API request failed: {exc}"
+            raise RuntimeError(msg) from exc
 
 
 # ============================================================

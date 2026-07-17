@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import signal
 import time as _time
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 from threading import Timer
 
 from src.pipeline.capability_router import CapabilityRouter
-from src.pipeline.execution_graph import ExecutionGraph
-from src.pipeline.execution_graph import ExecutionNode
+from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error
 from src.tool.knowledge_tool import KnowledgeTool
@@ -152,10 +150,11 @@ class ExecutionRuntime:
             # Circuit breaker: detect infinite loop — if nothing was completed
             # this iteration and no exception occurred, raise instead of looping forever.
             if not ready:
-                raise RuntimeError(
+                msg = (
                     f"Execution stuck: {len(remaining)} node(s) have unmet dependencies "
                     f"that will never be satisfied. Remaining: {[n.execution_step.capability.name for n in remaining[:10]]}"
                 )
+                raise RuntimeError(msg)
 
             if len(ready) > max_parallel_batch:
                 max_parallel_batch = len(ready)

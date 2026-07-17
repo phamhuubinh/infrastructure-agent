@@ -7,7 +7,6 @@ from src.shared.execution.tool_result import ToolResult
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
 
-
 # ---------------------------------------------------------------------------
 # Convention mapping: covers tag → operational capability name
 # ---------------------------------------------------------------------------
@@ -168,10 +167,12 @@ class KnowledgeTool(Tool):
         resource = arguments.get("resource")
 
         if not isinstance(source, str):
-            raise ValueError("Missing source.")
+            msg = "Missing source."
+            raise ValueError(msg)
 
         if not isinstance(resource, str):
-            raise ValueError("Missing resource.")
+            msg = "Missing resource."
+            raise ValueError(msg)
 
         try:
             child_tool = self._registry.get_tool(source)

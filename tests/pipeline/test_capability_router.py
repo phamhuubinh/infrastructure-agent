@@ -148,8 +148,8 @@ class TestConventionMapping:
         """Every covers tag used in tools should have a mapping entry.
         This test scans all registered tool capabilities and checks
         that every covers tag is accounted for."""
-        from src.tool.knowledge_tool import _COVERS_TO_OPERATIONAL
         from src.tool.grafana_tool import _CAPABILITIES as G
+        from src.tool.knowledge_tool import _COVERS_TO_OPERATIONAL
         from src.tool.linux_tool import _CAPABILITIES as L
         from src.tool.zabbix_tool import _CAPABILITIES as Z
 
@@ -186,11 +186,10 @@ class TestExecutionRuntimeIntegration:
     """Verify ExecutionRuntime works with metadata-driven router."""
 
     def test_runtime_receives_routes(self) -> None:
-        from src.pipeline.execution_runtime import ExecutionRuntime
         from src.pipeline.capability_reference import CapabilityReference
-        from src.pipeline.execution_graph import ExecutionGraph
-        from src.pipeline.execution_graph import ExecutionNode
+        from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
         from src.pipeline.execution_plan import ExecutionStep
+        from src.pipeline.execution_runtime import ExecutionRuntime
 
         router, kt = _build_router()
         runtime = ExecutionRuntime(knowledge_tool=kt, router=router)

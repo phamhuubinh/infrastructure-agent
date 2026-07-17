@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from src.pipeline.capability_reference import CapabilityReference
-from src.pipeline.execution_graph import ExecutionGraph
-from src.pipeline.execution_graph import ExecutionGraphBuilder
-from src.pipeline.execution_graph import ExecutionNode
-from src.pipeline.execution_plan import ExecutionPlan
-from src.pipeline.execution_plan import ExecutionStep
+from src.pipeline.execution_graph import (
+    ExecutionGraph,
+    ExecutionGraphBuilder,
+    ExecutionNode,
+)
+from src.pipeline.execution_plan import ExecutionPlan, ExecutionStep
 
 
 def _step(cap_name: str, evidence_name: str = "") -> ExecutionStep:
@@ -167,11 +168,11 @@ class TestFullPipelineGraph:
     """Verify the builder integrates with the full pipeline."""
 
     def test_machine_assessment_produces_graph(self) -> None:
+        from src.pipeline.capability_resolver import CapabilityResolver
+        from src.pipeline.evidence_planner import EvidencePlanner
+        from src.pipeline.execution_planner import ExecutionPlanner
         from src.pipeline.intent_resolver import IntentResolver
         from src.pipeline.target_resolver import TargetResolver
-        from src.pipeline.evidence_planner import EvidencePlanner
-        from src.pipeline.capability_resolver import CapabilityResolver
-        from src.pipeline.execution_planner import ExecutionPlanner
         from src.tool.target_registry import TargetRegistry
 
         resolver = IntentResolver()

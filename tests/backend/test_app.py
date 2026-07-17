@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from unittest import mock
 import json
+from unittest import mock
+
 from src.backend.app import create_app
 
 

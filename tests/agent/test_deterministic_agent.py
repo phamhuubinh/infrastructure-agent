@@ -5,8 +5,12 @@ from pathlib import Path
 from unittest import mock
 
 from src.agent.deterministic_agent import DeterministicAgent
-from src.agent.runtime_factory import create_deterministic_agent
-from src.agent.runtime_factory import _load_tools_config, _SUPPORTED_TOOL_TYPES, _warn
+from src.agent.runtime_factory import (
+    _SUPPORTED_TOOL_TYPES,
+    _load_tools_config,
+    _warn,
+    create_deterministic_agent,
+)
 
 
 def test_deterministic_agent_runs_pipeline() -> None:
@@ -273,9 +277,9 @@ def test_warn_called_on_missing_required_fields() -> None:
 def test_warn_called_on_duplicate_registration() -> None:
     """Duplicate tool name should trigger a warning."""
     from src.agent.runtime_factory import _register_single_tool
+    from src.shared.execution.tool_result import ToolResult
     from src.tool.target_registry import TargetRegistry
     from src.tool.tool import Tool
-    from src.shared.execution.tool_result import ToolResult
 
     # Register first tool with target name "zabbix"
     registry = TargetRegistry()
@@ -301,7 +305,6 @@ def test_warn_called_on_duplicate_registration() -> None:
 
 
 import pytest  # noqa: E402, F811
-
 
 # ---------------------------------------------------------------------------
 # ConversationStore summarization integration

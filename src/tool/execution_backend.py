@@ -5,7 +5,7 @@ import subprocess
 import time as _time
 from abc import ABC, abstractmethod
 
-from src.shared.logger import info, error
+from src.shared.logger import error, info
 
 
 class ExecutionBackend(ABC):

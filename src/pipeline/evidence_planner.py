@@ -4,7 +4,6 @@ from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 
-
 # ---------------------------------------------------------------------------
 # Evidence templates — source of truth: docs/ai/06_EVIDENCE_TEMPLATES.md
 # ---------------------------------------------------------------------------

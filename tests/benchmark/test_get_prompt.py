@@ -4,7 +4,6 @@ from unittest import mock
 
 from benchmark.__main__ import _get_prompt
 
-
 _END_MARKER = "--- End ---"
 _EV_START = "--- Evidence ---"
 
@@ -18,8 +17,8 @@ def test_get_prompt_without_investigation_fallback() -> None:
 
 
 def test_get_prompt_with_investigation_includes_evidence() -> None:
-    from src.pipeline.investigation_request import InvestigationRequest
     from src.pipeline.evidence_package import EvidencePackage
+    from src.pipeline.investigation_request import InvestigationRequest
 
     packages = [
         EvidencePackage(
@@ -51,8 +50,8 @@ def test_get_prompt_with_investigation_includes_evidence() -> None:
 
 
 def test_get_prompt_with_investigation_skips_failed_evidence() -> None:
-    from src.pipeline.investigation_request import InvestigationRequest
     from src.pipeline.evidence_package import EvidencePackage
+    from src.pipeline.investigation_request import InvestigationRequest
 
     packages = [
         EvidencePackage(

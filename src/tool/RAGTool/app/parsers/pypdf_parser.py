@@ -24,12 +24,14 @@ class PyPdfParser:
         try:
             from pypdf import PdfReader
         except ImportError as exc:  # pragma: no cover - dependency always expected
-            raise ParserError(f"pypdf not installed: {exc}") from exc
+            pargs_msg = f"pypdf not installed: {exc}"
+            raise ParserError(pargs_msg) from exc
 
         try:
             reader = PdfReader(str(path))
         except Exception as exc:
-            raise ParserError(f"pypdf failed to open '{path}': {exc}") from exc
+            pargs_msg = f"pypdf failed to open '{path}': {exc}"
+            raise ParserError(pargs_msg) from exc
 
         blocks: list[ParsedBlock] = []
         warnings: list[str] = []

@@ -7,7 +7,6 @@ from unittest import mock
 
 from src.agent.conversation_store import ConversationStore, list_sessions
 
-
 # ---------------------------------------------------------------------------
 # list_sessions
 # ---------------------------------------------------------------------------
@@ -285,7 +284,8 @@ def test_summarize_handles_exception(tmp_path: Path) -> None:
     store.add_turn("q4", "a4")
 
     def failing_fn(prompt: str) -> str:
-        raise RuntimeError("LLM unavailable")
+        msg = "LLM unavailable"
+        raise RuntimeError(msg)
 
     store.set_summarize_fn(failing_fn)
     store.summarize()

@@ -17,7 +17,6 @@ from src.agent.runtime_factory import (
 )
 from src.tool.target_registry import TargetRegistry
 
-
 # ---------------------------------------------------------------------------
 # _project_root
 # ---------------------------------------------------------------------------

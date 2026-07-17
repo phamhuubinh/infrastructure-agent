@@ -9,7 +9,6 @@ from src.tool.execution_backend import (
     SSHExecutionBackend,
 )
 
-
 DEFAULT_TARGETS: dict[str, ExecutionBackend] = {
     "localhost": LocalExecutionBackend(),
 }

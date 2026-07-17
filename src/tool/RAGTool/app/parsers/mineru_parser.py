@@ -31,9 +31,8 @@ class MinerUParser:
             from magic_pdf.data.dataset import PymuDocDataset
             from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
         except ImportError as exc:
-            raise ParserError(
-                "MinerU (magic-pdf) is not installed (`pip install magic-pdf[full]`)"
-            ) from exc
+            msg = "MinerU (magic-pdf) is not installed (`pip install magic-pdf[full]`)"
+            raise ParserError(msg) from exc
 
         with TemporaryDirectory() as tmp:
             try:
@@ -50,7 +49,8 @@ class MinerUParser:
                 )
                 content_list = json.loads(Path(tmp, "content_list.json").read_text())
             except Exception as exc:
-                raise ParserError(f"MinerU failed to convert '{path}': {exc}") from exc
+                pargs_msg = f"MinerU failed to convert '{path}': {exc}"
+                raise ParserError(pargs_msg) from exc
 
         blocks: list[ParsedBlock] = []
         for item in content_list:

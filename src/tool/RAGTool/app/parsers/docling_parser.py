@@ -30,9 +30,8 @@ class DoclingParser:
             try:
                 from docling.document_converter import DocumentConverter
             except ImportError as exc:
-                raise ParserError(
-                    "docling is not installed (`pip install docling`)"
-                ) from exc
+                msg = "docling is not installed (`pip install docling`)"
+                raise ParserError(msg) from exc
             self._converter = DocumentConverter()
         return self._converter
 
@@ -42,7 +41,8 @@ class DoclingParser:
         try:
             result = converter.convert(str(path))
         except Exception as exc:
-            raise ParserError(f"docling failed to convert '{path}': {exc}") from exc
+            pargs_msg = f"docling failed to convert '{path}': {exc}"
+            raise ParserError(pargs_msg) from exc
 
         doc = result.document
         blocks: list[ParsedBlock] = []

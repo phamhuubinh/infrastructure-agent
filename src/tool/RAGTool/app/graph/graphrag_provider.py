@@ -42,9 +42,8 @@ class MicrosoftGraphRagProvider:
             from graphrag.api import build_index
             from graphrag.config.load_config import load_config
         except ImportError as exc:
-            raise RuntimeError(
-                "graphrag is not installed (`pip install graphrag`)"
-            ) from exc
+            msg = "graphrag is not installed (`pip install graphrag`)"
+            raise RuntimeError(msg) from exc
 
         config = load_config(self._workspace_dir)
         asyncio.run(build_index(config=config))
@@ -52,14 +51,13 @@ class MicrosoftGraphRagProvider:
     def search(self, query: str, top_k: int = 10) -> list[GraphSearchResult]:
         try:
             import asyncio
-            import pandas as pd
 
+            import pandas as pd
             from graphrag.api import global_search
             from graphrag.config.load_config import load_config
         except ImportError as exc:
-            raise RuntimeError(
-                "graphrag is not installed (`pip install graphrag`)"
-            ) from exc
+            msg = "graphrag is not installed (`pip install graphrag`)"
+            raise RuntimeError(msg) from exc
 
         config = load_config(self._workspace_dir)
         output_dir = self._workspace_dir / "output"

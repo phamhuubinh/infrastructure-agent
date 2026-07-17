@@ -9,7 +9,6 @@ from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.tool import Tool
 
-
 SEVERITY_LABELS = {
     "0": "ok",
     "1": "info",
@@ -56,17 +55,20 @@ class _ZabbixAPI:
             with request.urlopen(req, timeout=self._timeout) as resp:
                 data: dict[str, object] = json.loads(resp.read().decode("utf-8"))
         except (OSError, urlerror.URLError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Zabbix API request failed: {exc}") from exc
+            msg = f"Zabbix API request failed: {exc}"
+            raise RuntimeError(msg) from exc
 
         error = data.get("error")
         if error is not None:
             msg = error.get("message", "unknown")
             detail = error.get("data", "")
-            raise RuntimeError(f"Zabbix API error: {msg} - {detail}")
+            err_msg = f"Zabbix API error: {msg} - {detail}"
+            raise RuntimeError(err_msg)
 
         result = data.get("result")
         if result is None:
-            raise RuntimeError("Zabbix API returned no result.")
+            msg = "Zabbix API returned no result."
+            raise RuntimeError(msg)
         return result
 
 

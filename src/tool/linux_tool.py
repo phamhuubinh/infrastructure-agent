@@ -1609,7 +1609,8 @@ class LinuxTool(Tool):
         request_id = arguments.get("request_id")
 
         if not isinstance(action, str):
-            raise ValueError("Missing action.")
+            msg = "Missing action."
+            raise ValueError(msg)
 
         host = getattr(self._backend, "_host", "localhost")
 

@@ -43,9 +43,8 @@ class RagasEvaluator:
                 faithfulness,
             )
         except ImportError as exc:
-            raise RuntimeError(
-                "ragas is not installed (`pip install ragas datasets`)"
-            ) from exc
+            msg = "ragas is not installed (`pip install ragas datasets`)"
+            raise RuntimeError(msg) from exc
 
         data = {
             "question": [c.question for c in cases],

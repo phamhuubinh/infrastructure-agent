@@ -51,9 +51,8 @@ class RagLangGraphAgent:
         try:
             from langgraph.graph import END, StateGraph
         except ImportError as exc:
-            raise RuntimeError(
-                "langgraph is not installed (`pip install langgraph langchain-core`)"
-            ) from exc
+            msg = "langgraph is not installed (`pip install langgraph langchain-core`)"
+            raise RuntimeError(msg) from exc
 
         graph = StateGraph(RagAgentState)
         graph.add_node("retrieve", self._retrieve_node)

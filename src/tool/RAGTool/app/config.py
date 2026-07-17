@@ -79,7 +79,8 @@ def build_embedder(config: RagServiceConfig):
         from app.embedding.bge_m3_embedding_provider import BgeM3EmbeddingProvider
 
         return BgeM3EmbeddingProvider()
-    raise ValueError(f"Unknown embedding provider: {config.embedding_provider}")
+    msg = f"Unknown embedding provider: {config.embedding_provider}"
+    raise ValueError(msg)
 
 
 def build_vector_store(config: RagServiceConfig):
@@ -91,7 +92,8 @@ def build_vector_store(config: RagServiceConfig):
         from app.vectordb.qdrant_store import QdrantVectorStore
 
         return QdrantVectorStore(url=config.qdrant_url)
-    raise ValueError(f"Unknown vector store: {config.vector_store}")
+    msg = f"Unknown vector store: {config.vector_store}"
+    raise ValueError(msg)
 
 
 def build_reranker(config: RagServiceConfig):
@@ -103,7 +105,8 @@ def build_reranker(config: RagServiceConfig):
         from app.rerank.bge_reranker_provider import BgeRerankerV2Provider
 
         return BgeRerankerV2Provider()
-    raise ValueError(f"Unknown reranker: {config.reranker}")
+    msg = f"Unknown reranker: {config.reranker}"
+    raise ValueError(msg)
 
 
 def build_ocr_provider(config: RagServiceConfig):
@@ -115,7 +118,8 @@ def build_ocr_provider(config: RagServiceConfig):
         from app.ocr.paddleocr_provider import PaddleOcrProvider
 
         return PaddleOcrProvider()
-    raise ValueError(f"Unknown OCR provider: {config.ocr_provider}")
+    msg = f"Unknown OCR provider: {config.ocr_provider}"
+    raise ValueError(msg)
 
 
 def build_llm_client(config: RagServiceConfig):

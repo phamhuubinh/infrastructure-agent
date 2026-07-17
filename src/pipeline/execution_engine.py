@@ -3,12 +3,10 @@ from __future__ import annotations
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_completeness import EvidenceCompleteness
 from src.pipeline.evidence_merge import EvidenceMerge
-from src.pipeline.execution_graph import ExecutionGraph
-from src.pipeline.execution_graph import ExecutionGraphBuilder
-from src.pipeline.execution_planner import ExecutionPlanner
-from src.pipeline.execution_runtime import ExecutionRuntime
-from src.pipeline.execution_runtime import RuntimeMetrics
 from src.pipeline.evidence_planner import EvidencePlanner
+from src.pipeline.execution_graph import ExecutionGraph, ExecutionGraphBuilder
+from src.pipeline.execution_planner import ExecutionPlanner
+from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.target_resolver import TargetResolver

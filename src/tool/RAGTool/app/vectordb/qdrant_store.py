@@ -20,9 +20,8 @@ class QdrantVectorStore:
         try:
             from qdrant_client import QdrantClient
         except ImportError as exc:
-            raise RuntimeError(
-                "qdrant-client is not installed (`pip install qdrant-client`)"
-            ) from exc
+            msg = "qdrant-client is not installed (`pip install qdrant-client`)"
+            raise RuntimeError(msg) from exc
         self._client = QdrantClient(url=url, api_key=api_key)
         self._known_collections: set[str] = set()
 

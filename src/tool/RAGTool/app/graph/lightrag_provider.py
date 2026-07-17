@@ -29,9 +29,8 @@ class LightRagProvider:
                 from lightrag import LightRAG
                 from lightrag.kg.shared_storage import initialize_pipeline_status
             except ImportError as exc:
-                raise RuntimeError(
-                    "lightrag-hku is not installed (`pip install lightrag-hku`)"
-                ) from exc
+                msg = "lightrag-hku is not installed (`pip install lightrag-hku`)"
+                raise RuntimeError(msg) from exc
 
             self._rag = LightRAG(
                 working_dir=self._working_dir,

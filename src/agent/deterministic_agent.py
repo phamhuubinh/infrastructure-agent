@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from src.agent.conversation_store import ConversationStore
 from src.model.assessment_model_adapter import AssessmentModelAdapter
-from src.shared.logger import warning as _warning
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
+from src.pipeline.intent_resolver import Confidence, Intent
 from src.pipeline.investigation_request import InvestigationRequest
-from src.pipeline.intent_resolver import Confidence
-from src.pipeline.intent_resolver import Intent
+from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
 
 

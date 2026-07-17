@@ -29,9 +29,8 @@ class BgeRerankerV2Provider:
             try:
                 from FlagEmbedding import FlagReranker
             except ImportError as exc:
-                raise RuntimeError(
-                    "FlagEmbedding is not installed (`pip install FlagEmbedding`)"
-                ) from exc
+                msg = "FlagEmbedding is not installed (`pip install FlagEmbedding`)"
+                raise RuntimeError(msg) from exc
             self._model = FlagReranker(
                 self._model_name, use_fp16=self._use_fp16, device=self._device
             )

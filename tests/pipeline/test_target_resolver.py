@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.pipeline.target_resolver import TargetResolver, UnknownTargetError
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.target_resolver import TargetResolver, UnknownTargetError
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 

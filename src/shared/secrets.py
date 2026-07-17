@@ -38,21 +38,18 @@ def load_secrets() -> dict[str, dict[str, str]]:
         ValueError: if the file contains invalid JSON.
     """
     if not SECRETS_PATH.exists():
-        raise FileNotFoundError(
-            "Thiếu config/secrets.local.json, xem README để biết cấu trúc file"
-        )
+        msg = "Thiếu config/secrets.local.json, xem README để biết cấu trúc file"
+        raise FileNotFoundError(msg)
 
     try:
         raw = SECRETS_PATH.read_text()
         data: dict[str, dict[str, str]] = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"config/secrets.local.json chứa JSON không hợp lệ: {exc}"
-        ) from exc
+        msg = f"config/secrets.local.json chứa JSON không hợp lệ: {exc}"
+        raise ValueError(msg) from exc
 
     if not isinstance(data, dict):
-        raise ValueError(
-            "config/secrets.local.json phải là một JSON object ở cấp cao nhất"
-        )
+        msg = "config/secrets.local.json phải là một JSON object ở cấp cao nhất"
+        raise ValueError(msg)
 
     return data

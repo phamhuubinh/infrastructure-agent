@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from src.pipeline.capability_reference import CapabilityReference

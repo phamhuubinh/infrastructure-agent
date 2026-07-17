@@ -43,7 +43,8 @@ class TargetRegistry:
         A LinuxTool is automatically created for this target.
         """
         if name in self._backends:
-            raise ValueError(f"Target '{name}' is already registered.")
+            msg = f"Target '{name}' is already registered."
+            raise ValueError(msg)
 
         backend = backend or LocalExecutionBackend()
         self._backends[name] = backend
@@ -56,7 +57,8 @@ class TargetRegistry:
         name: str,
     ) -> None:
         if name not in self._backends:
-            raise KeyError(f"Unknown target: '{name}'.")
+            msg = f"Unknown target: '{name}'."
+            raise KeyError(msg)
 
         del self._backends[name]
 
@@ -74,12 +76,14 @@ class TargetRegistry:
         and target backends to prevent ambiguity in KnowledgeTool dispatch.
         """
         if name in self._domain_tools:
-            raise ValueError(f"Domain tool '{name}' is already registered.")
+            msg = f"Domain tool '{name}' is already registered."
+            raise ValueError(msg)
         if name in self._backends:
-            raise ValueError(
+            msg = (
                 f"Domain tool '{name}' conflicts with an existing "
                 f"target backend. Choose a different name."
             )
+            raise ValueError(msg)
         self._domain_tools[name] = tool
 
     register_tool = register_domain_tool  # backward compatibility alias
@@ -101,7 +105,8 @@ class TargetRegistry:
         if backend is not None:
             return LinuxTool(backend=backend)
 
-        raise KeyError(f"Unknown target or domain tool: '{name}'.")
+        msg = f"Unknown target or domain tool: '{name}'."
+        raise KeyError(msg)
 
     def target_names(self) -> list[str]:
         return sorted(set(self._backends) | set(self._domain_tools))

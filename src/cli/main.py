@@ -14,7 +14,6 @@ from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
-
 _last_request = None
 
 

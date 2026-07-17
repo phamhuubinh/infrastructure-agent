@@ -9,7 +9,6 @@ from typing import Any
 
 from src.shared.logger import info
 
-
 _SUMMARIZE_SYSTEM_PROMPT = """You are a conversation summarizer for an infrastructure monitoring assistant.
 
 Summarize the key technical details from the conversation history below. Focus on:

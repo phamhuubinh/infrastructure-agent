@@ -58,7 +58,8 @@ class ParserRouter:
     def parse(self, path: Path) -> ParsedDocument:
         path = Path(path)
         if not path.exists():
-            raise ParserError(f"File not found: {path}")
+            pargs_msg = f"File not found: {path}"
+            raise ParserError(pargs_msg)
 
         chain = self._order_for(path)
         errors: list[str] = []
@@ -83,9 +84,8 @@ class ParserRouter:
                 errors.append(f"{parser.name}: {exc}")
                 continue
 
-        raise ParserError(
-            f"All parsers failed for '{path}': {'; '.join(errors) or 'no applicable parser'}"
-        )
+        pargs_msg = f"All parsers failed for '{path}': {'; '.join(errors) or 'no applicable parser'}"
+        raise ParserError(pargs_msg)
 
     def _order_for(self, path: Path) -> list[DocumentParser]:
         """MinerU jumps ahead of Marker for documents that look scientific."""

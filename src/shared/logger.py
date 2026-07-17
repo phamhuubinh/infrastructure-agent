@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import sys
-import time
 import os
+import sys
 import threading
+import time
 
 _lock = threading.Lock()
 _enabled = False

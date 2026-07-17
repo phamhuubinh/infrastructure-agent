@@ -222,10 +222,11 @@ _ACTIVE_PROMPT = COMPACT_PROMPT
 def set_prompt_version(version: str) -> None:
     global _ACTIVE_PROMPT
     if version not in PROMPT_VERSIONS:
-        raise ValueError(
+        msg = (
             f"Unknown prompt version '{version}'. "
             f"Available: {', '.join(PROMPT_VERSIONS)}"
         )
+        raise ValueError(msg)
     _ACTIVE_PROMPT = PROMPT_VERSIONS[version]
 
 

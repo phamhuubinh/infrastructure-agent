@@ -12,7 +12,6 @@ from src.agent.conversation_store import ConversationStore, list_sessions
 from src.agent.runtime_factory import create_deterministic_agent
 from src.shared.logger import info as _info
 
-
 _WEB_PROCESSES: list[subprocess.Popen] = []
 
 
@@ -164,8 +163,8 @@ def run_web(
     import webbrowser
 
     try:
-        from fastapi.staticfiles import StaticFiles
         import uvicorn
+        from fastapi.staticfiles import StaticFiles
     except ImportError:
         print("Web UI requires: pip install fastapi uvicorn")
         sys.exit(1)

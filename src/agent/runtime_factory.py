@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from src.shared.logger import info
 from src.agent.conversation_store import ConversationStore
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
@@ -19,10 +18,10 @@ from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.target_resolver import TargetResolver
+from src.shared.logger import info
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
-
 
 # ---------------------------------------------------------------------------
 # Model server configuration (servers.json)
@@ -49,9 +48,8 @@ def _load_server_config(
     cfg = servers.get(server_name)
     if cfg is None:
         available = ", ".join(sorted(servers))
-        raise RuntimeError(
-            f"Server {server_name!r} not found. Available servers: {available}"
-        )
+        msg = f"Server {server_name!r} not found. Available servers: {available}"
+        raise RuntimeError(msg)
     return dict(cfg)
 
 

@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 
 from src.pipeline.capability_reference import CapabilityReference
-from src.pipeline.execution_plan import ExecutionPlan
-from src.pipeline.execution_plan import ExecutionStep
+from src.pipeline.execution_plan import ExecutionPlan, ExecutionStep
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest

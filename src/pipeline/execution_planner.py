@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from src.pipeline.capability_reference import CapabilityReference
-from src.pipeline.execution_plan import ExecutionPlan
-from src.pipeline.execution_plan import ExecutionStep
+from src.pipeline.execution_plan import ExecutionPlan, ExecutionStep
 from src.pipeline.investigation_request import InvestigationRequest
 
 

@@ -5,7 +5,8 @@ import time
 from urllib import error as urlerror
 from urllib import request
 
-from src.shared.logger import info, error as log_error, debug
+from src.shared.logger import debug, info
+from src.shared.logger import error as log_error
 
 
 def _extract_provider(base_url: str, model: str = "") -> str:
@@ -106,7 +107,8 @@ class LLMClient:
                 error="Cancelled",
                 elapsed_ms=elapsed_ms,
             )
-            raise RuntimeError("Cancelled")
+            msg = "Cancelled"
+            raise RuntimeError(msg)
         except urlerror.HTTPError as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             log_error(
@@ -119,11 +121,12 @@ class LLMClient:
                 status=exc.code,
                 elapsed_ms=elapsed_ms,
             )
-            raise RuntimeError(
+            msg = (
                 f"LLM API returned HTTP {exc.code} at "
                 f"{self._base_url}/v1/chat/completions "
                 f"(model={self._model}): {exc.reason}"
-            ) from exc
+            )
+            raise RuntimeError(msg) from exc
         except (OSError, json.JSONDecodeError) as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             log_error(
@@ -135,9 +138,10 @@ class LLMClient:
                 error=str(exc),
                 elapsed_ms=elapsed_ms,
             )
-            raise RuntimeError(
+            msg = (
                 f"LLM API request failed at {self._base_url}/v1/chat/completions: {exc}"
-            ) from exc
+            )
+            raise RuntimeError(msg) from exc
 
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 
@@ -152,21 +156,23 @@ class LLMClient:
                 error="no_choices",
                 elapsed_ms=elapsed_ms,
             )
-            raise RuntimeError(
-                f"LLM API returned no choices at {self._base_url}/v1/chat/completions"
-            )
+            msg = f"LLM API returned no choices at {self._base_url}/v1/chat/completions"
+            raise RuntimeError(msg)
 
         first = choices[0]
         if not isinstance(first, dict):
-            raise RuntimeError("LLM API returned unexpected response format")
+            msg = "LLM API returned unexpected response format"
+            raise RuntimeError(msg)
 
         message = first.get("message")
         if not isinstance(message, dict):
-            raise RuntimeError("LLM API returned no message in choice")
+            msg = "LLM API returned no message in choice"
+            raise RuntimeError(msg)
 
         content = message.get("content")
         if not isinstance(content, str):
-            raise RuntimeError("LLM API returned no content in message")
+            msg = "LLM API returned no content in message"
+            raise RuntimeError(msg)
 
         raw_usage = data.get("usage")
         if isinstance(raw_usage, dict):
