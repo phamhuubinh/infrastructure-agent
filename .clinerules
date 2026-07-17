@@ -4,11 +4,12 @@ Always understand the project before making changes.
 
 Read in this order:
 
-1. .workflow/README.md
-2. .workflow/state.json
-3. README.md
-4. docs/**
-5. src/**
+1. docs/ai/00_BOOTSTRAP.md — defines the reading order for all docs/ai/ files
+2. .workflow/README.md
+3. .workflow/state.json
+4. README.md
+5. docs/**
+6. src/**
 
 Ignore:
 
