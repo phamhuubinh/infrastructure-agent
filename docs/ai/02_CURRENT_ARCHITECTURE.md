@@ -57,6 +57,6 @@ Credential handling for Grafana/Zabbix tokens: see `07_DEVELOPMENT_RULES.md` and
 ## What is intentionally out of scope right now
 - No database (state is in-memory + one local JSON file for targets).
 - No authentication / accounts.
-- No remote hosting, no HTTPS termination, no reverse proxy.
+- No remote hosting.
 - No automated tests, no benchmark runner (`08_PROJECT_STATE.md` is explicit about this — do not assume otherwise). (Update: `tests/benchmark/` now exists.)
 These are not bugs. They are the current, intentional boundary of the project. `03_PLATFORM_ARCHITECTURE.md` describes what replaces this boundary, and `04_ROADMAP.md` describes the order in which that happens.

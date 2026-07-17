@@ -2,7 +2,7 @@
 > Source of truth for "what actually exists." If this file and any other doc disagree, this file wins (see `00_BOOTSTRAP.md`). Update this file whenever status changes — do not let it drift from reality (`07_DEVELOPMENT_RULES.md`, rule 25).
 
 ## Phase
-**Local MVP.** Single-user, single-machine, no network exposure beyond outbound calls to targets/Grafana/Zabbix/LLM APIs. The platform direction in `03_PLATFORM_ARCHITECTURE.md` / `04_ROADMAP.md` has not started (WP1 has not begun — no public VM yet).
+**Local MVP with Docker Compose.** Single-user, single-machine, no network exposure beyond outbound calls to targets/Grafana/Zabbix/LLM APIs. WP1 local infrastructure (Docker Compose, nginx reverse proxy, PostgreSQL, self-signed HTTPS) is in place.
 
 ## Implemented
 - Deterministic pipeline: Intent Resolution → Target Resolution → Evidence Planning → Execution Graph → Execution Runtime (`src/pipeline/*`).
@@ -20,6 +20,7 @@
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
 - Test directory (`tests/`) with pipeline and tool tests.
+- Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 
 ## Cleanup completed (stabilization phase)
 - Removed dead code: `main.py`, `dump_assessment.py`, `api_server.py` (duplicate of `cli.py`).
@@ -35,7 +36,7 @@
 ## Not implemented (do not assume otherwise)
 - **Database** — no PostgreSQL, no persistence layer beyond the local targets JSON file.
 - **Authentication / accounts** — no login, no sessions.
-- **Remote hosting** — no HTTPS, no reverse proxy, no Docker Compose deployment.
+- **Remote hosting** — no remote deployment yet.
 - **Dify integration** — not connected.
 - **Document Service** — not implemented.
 - **Desktop App** — not implemented.

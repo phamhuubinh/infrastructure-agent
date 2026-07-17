@@ -4,8 +4,10 @@ services:
     container_name: orion-reverse-proxy
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./docker/nginx-reverse-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
     depends_on:
       - api
       - ui

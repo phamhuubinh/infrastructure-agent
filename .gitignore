@@ -44,3 +44,6 @@ benchmark_results_*
 
 # Docker Compose env (contains secrets)
 docker-compose.env
+
+# Generated self-signed TLS certs for local HTTPS
+certs/
