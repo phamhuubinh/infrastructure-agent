@@ -163,8 +163,9 @@
       "priority": "P1",
       "category": "platform",
       "description": "WP1: Configure HTTPS with self-signed cert for local",
-      "status": "in_progress",
-      "started_at": "2026-07-17T02:28:11Z"
+      "status": "completed",
+      "started_at": "2026-07-17T02:28:11Z",
+      "completed_at": "2026-07-17T09:50:00Z"
     },
     {
       "id": 34,
