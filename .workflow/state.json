@@ -56,7 +56,7 @@
       "id": 9,
       "priority": "P1",
       "category": "code-quality",
-      "description": "Fix PTH118 os.path.join() \u2014 replace with Path / operator across src/",
+      "description": "Fix PTH118 os.path.join() — replace with Path / operator across src/",
       "status": "completed",
       "started_at": "2026-07-16T22:49:57Z",
       "completed_at": "2026-07-16T22:50:00Z"
@@ -65,7 +65,7 @@
       "id": 10,
       "priority": "P1",
       "category": "observability",
-      "description": "Fix silent exception swallowing \u2014 add logging before pass",
+      "description": "Fix silent exception swallowing — add logging before pass",
       "status": "completed",
       "started_at": "2026-07-16T23:08:09Z",
       "completed_at": "2026-07-17T06:50:00Z"
@@ -74,7 +74,7 @@
       "id": 11,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix 08_PROJECT_STATE.md \u2014 benchmark runner exists, RAGTool exists",
+      "description": "Fix 08_PROJECT_STATE.md — benchmark runner exists, RAGTool exists",
       "status": "completed",
       "started_at": "2026-07-16T23:32:48Z",
       "completed_at": "2026-07-17T06:35:00Z"
@@ -83,7 +83,7 @@
       "id": 12,
       "priority": "P1",
       "category": "documentation",
-      "description": "Fix 02_CURRENT_ARCHITECTURE.md \u2014 src/cli.py -> src/cli/main.py, tests/benchmark exist",
+      "description": "Fix 02_CURRENT_ARCHITECTURE.md — src/cli.py -> src/cli/main.py, tests/benchmark exist",
       "status": "completed",
       "started_at": "2026-07-16T23:50:31Z",
       "completed_at": "2026-07-17T07:00:00Z"
@@ -144,7 +144,7 @@
       "id": 26,
       "priority": "P1",
       "category": "dependencies",
-      "description": "Fix pyproject.toml \u2014 fastapi/uvicorn/pydantic as runtime deps, remove unused requests/numpy",
+      "description": "Fix pyproject.toml — fastapi/uvicorn/pydantic as runtime deps, remove unused requests/numpy",
       "status": "completed",
       "started_at": "2026-07-17T01:40:27Z",
       "completed_at": "2026-07-17T07:55:00Z"
@@ -189,7 +189,7 @@
       "id": 40,
       "priority": "P1",
       "category": "platform",
-      "description": "WP4: Implement Internet Tool \u2014 opt-in per request only (local)",
+      "description": "WP4: Implement Internet Tool — opt-in per request only (local)",
       "status": "completed",
       "started_at": "2026-07-17T03:34:33Z"
     },
@@ -197,7 +197,7 @@
       "id": 17,
       "priority": "P2",
       "category": "documentation",
-      "description": "Fix stale doc refs in code \u2014 evidence_planner.py:9, capability_library.py:6",
+      "description": "Fix stale doc refs in code — evidence_planner.py:9, capability_library.py:6",
       "status": "completed",
       "started_at": "2026-07-17T03:42:04Z",
       "completed_at": "2026-07-17T03:52:44Z"
@@ -242,7 +242,9 @@
       "priority": "P2",
       "category": "documentation",
       "description": "Document .workflow directory in README",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-07-17T05:22:37Z",
+      "completed_at": "2026-07-17T05:32:03Z"
     },
     {
       "id": 30,
@@ -269,7 +271,7 @@
       "id": 37,
       "priority": "P2",
       "category": "platform",
-      "description": "WP3: Implement Document Service \u2014 upload, preview, download (local)",
+      "description": "WP3: Implement Document Service — upload, preview, download (local)",
       "status": "pending"
     },
     {
@@ -328,21 +330,21 @@
     "commits_made": 19
   },
   "workflow": [
-    "1. \u0110\u1ecdc backlog, pick task P0 cao nh\u1ea5t",
-    "2. Ph\u00e2n t\u00edch y\u00eau c\u1ea7u \u2014 \u0111\u1ecdc docs, hi\u1ec3u task",
-    "3. \u0110\u1ecdc code li\u00ean quan \u2014 hi\u1ec3u ki\u1ebfn tr\u00fac",
-    "4. L\u1eadp k\u1ebf ho\u1ea1ch implement",
+    "1. Đọc backlog, pick task P0 cao nhất",
+    "2. Phân tích yêu cầu — đọc docs, hiểu task",
+    "3. Đọc code liên quan — hiểu kiến trúc",
+    "4. Lập kế hoạch implement",
     "5. Implement",
-    "6. Self review \u2014 check code, check architecture",
+    "6. Self review — check code, check architecture",
     "7. Format code",
-    "8. Lint \u2014 ruff check, fix n\u1ebfu fail",
-    "9. Unit test \u2014 ch\u1ea1y pytest, fix n\u1ebfu fail",
-    "10. Integration test \u2014 ch\u1ea1y all tests, fix n\u1ebfu fail",
-    "11. Regression test \u2014 ch\u1ea1y full suite, fix n\u1ebfu fail",
-    "12. N\u1ebfu c\u00f3 l\u1ed7i \u2192 quay l\u1ea1i b\u01b0\u1edbc 5, loop \u0111\u1ebfn khi pass h\u1ebft",
-    "13. Update documentation n\u1ebfu c\u1ea7n",
+    "8. Lint — ruff check, fix nếu fail",
+    "9. Unit test — chạy pytest, fix nếu fail",
+    "10. Integration test — chạy all tests, fix nếu fail",
+    "11. Regression test — chạy full suite, fix nếu fail",
+    "12. Nếu có lỗi → quay lại bước 5, loop đến khi pass hết",
+    "13. Update documentation nếu cần",
     "14. Git commit",
-    "15. Update state.json \u2014 mark completed",
-    "16. M\u1edf task ti\u1ebfp theo \u2014 quay l\u1ea1i b\u01b0\u1edbc 1"
+    "15. Update state.json — mark completed",
+    "16. Mở task tiếp theo — quay lại bước 1"
   ]
 }

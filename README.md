@@ -116,3 +116,25 @@ The `docs/` directory is the **Source of Truth** for architectural and design do
 - `docs/ai/09_ARCHITECTURE_DECISIONS.md` — the ADR log
 
 `docs/adr/` holds longer-form narrative architecture decision records referenced from `docs/ai/09_ARCHITECTURE_DECISIONS.md`.
+
+## Autonomous Development Workflow
+
+The `.workflow/` directory contains the autonomous development supervisor:
+
+```
+.workflow/
+├── supervisor.sh       # Entry point — orchestrates the entire workflow
+├── state.json          # Persistent backlog & session state
+├── session.log         # Structured log of all iterations
+├── progress_report.md  # Sprint history and progress summary
+├── daemon.pid          # PID file for supervisor daemon
+├── commands/           # Reusable task scripts
+│   ├── run-tests.sh    # Run all tests
+│   ├── lint.sh         # Run linter
+│   ├── typecheck.sh    # Run type checker
+│   └── benchmark.sh    # Run benchmarks
+├── backups/            # State backup snapshots
+└── README.md           # Full workflow documentation
+```
+
+Each task produces one atomic git commit, test results, lint/typecheck results, and an updated `state.json`. Use `./.workflow/supervisor.sh` to start the autonomous loop.
