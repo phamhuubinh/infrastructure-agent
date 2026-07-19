@@ -1,84 +1,36 @@
-# Orion Backlog
+# Orion — Kế hoạch Dọn dẹp & Tái cấu trúc (Blueprint)
 
-Generated: 2026-07-17
-Source: Phase 0 exhaustive discovery — all 10 docs/ai/ files verified against source code.
-
----
-
-## Priority Legend
-- **P0**: Must-do — missing tests, blocking coverage gaps, broken features
-- **P1**: Important — stale docs, silent exception swallowing, dependency issues, missing features
-- **P2**: Quality — minor refactors, cleanup, documentation improvements
+> Kế hoạch từng bước cho người không biết code.
+> Mỗi Phase là một nhóm công việc. Mỗi Task làm xong là dừng, kiểm tra, rồi mới sang task tiếp theo.
 
 ---
 
-## P0 Tasks (6 remaining)
+## Phase 0: Chẩn đoán & Chuẩn bị (1-2 ngày)
 
-### T-003 — Write unit tests for src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Dedicated test file exists, all tests pass.
+### Task 0.1 — Kiểm tra xem code có chạy được không
+**Mục tiêu:** Biết chắc rằng dự án đang ở trạng thái "chạy được" trước khi động vào.
+**Người không code có thể kiểm tra bằng cách:**
+- Chạy `make test` — nếu không có lỗi đỏ là ổn
+- Chạy `make lint` — nếu không có lỗi là ổn
+**Nếu có lỗi:** Ghi lại lỗi, báo cho người code sửa trước.
 
-### T-004 — Write unit tests for src/pipeline/execution_engine.py — full pipeline integration
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Test file exists covering execute() happy path and edge cases, all tests pass.
+**Kết quả kiểm tra (2026-07-19):**
+- `make lint`: **FAILED** — 1847 lỗi (hầu hết là type annotation, unused import, formatting)
+- `make test`: **FAILED** — 1 test failure:
+  - `tests/backend/test_app.py::test_dify_knowledge_query_returns_results` — gọi sai URL path `/api/dify/knowledge/query`, route thực tế là `/api/knowledge/query`. Cùng lỗi ở test_dify_knowledge_missing_query và test_dify_knowledge_handles_error (dòng 163, 175, 186).
+- Hướng xử lý: Sửa URL path trong test, sau đó chạy `ruff check --fix` và `ruff format` để xử lý các lỗi lint cơ bản.
 
-### T-005 — Write unit tests for src/pipeline/assessment_adapter.py
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Dedicated test file exists, all tests pass.
+### Task 0.2 — Sao lưu toàn bộ dự án
+**Mục tiêu:** Có bản backup phòng khi làm hỏng.
+**Cách làm:**
+```bash
+cd ~/Orion_agent && tar czf ~/orion_backup_before_cleanup.tar.gz .
+```
+File backup này để ở `~/` không đụng vào nữa.
 
-### T-006 — Write unit tests for src/pipeline/deterministic_responder.py
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Test file exists covering all response paths, all tests pass.
-
-### T-007 — Write unit tests for src/tool/execution_backend.py
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Test file exists covering LocalExecutionBackend and SSHExecutionBackend, all tests pass.
-
-### T-008 — Write unit tests for src/model/mock_assessment_adapter.py
-- **Source:** docs/ai/08_PROJECT_STATE.md, backlog
-- **DoD:** Test file exists, all tests pass.
-
----
-
-## P1 Tasks (11)
-
-| ID | Category | Description | Source |
-|----|----------|-------------|--------|
-| T-009 | code-quality | Fix PTH118 os.path.join() — replace with Path / operator (17 occurrences) | Ruff |
-| T-010 | observability | Fix silent exception swallowing — add logging before pass in 4 files | Phase 0 |
-| T-011 | documentation | Fix 08_PROJECT_STATE.md — benchmark runner now exists | docs/ai/08 |
-| T-012 | documentation | Fix 02_CURRENT_ARCHITECTURE.md — src/cli.py -> src/cli/main.py | docs/ai/02 |
-| T-013 | code-quality | Fix I001 unsorted imports across all src/ files | Ruff |
-| T-014 | code-quality | Fix F841 unused variables in linux_tool.py, grafana_tool.py | Ruff |
-| T-015 | code-quality | Fix TRY003/EM101/EM102 exception style rules | Ruff |
-| T-016 | code-quality | Fix Q000 single quotes vs double quotes across src/ | Ruff |
-| T-024 | enhancement | Implement early completion in ExecutionRuntime (05_EXECUTION_PIPELINE.md line 60) | docs/ai/05 |
-| T-025 | metadata | Add missing capability metadata fields (description, supported targets, parameters, estimated cost) | docs/ai/06 |
-| T-026 | dependencies | Fix pyproject.toml — fastapi/uvicorn/pydantic are runtime deps, remove unused requests/numpy | docs/ai/07 rule 15 |
-| T-027 | documentation | Fix 08_PROJECT_STATE.md claim about RAGTool — it exists at src/tool/RAGTool/ | docs/ai/08 |
-| T-028 | documentation | Fix 02_CURRENT_ARCHITECTURE.md line 59-61 — tests and benchmark exist | docs/ai/02 |
-
----
-
-## P2 Tasks (12)
-
-| ID | Category | Description | Source |
-|----|----------|-------------|--------|
-| T-017 | documentation | Fix stale doc refs in code — evidence_planner.py:9, capability_library.py:6 | Code comments |
-| T-018 | ci | Create .github/workflows/ci.yml | CHANGELOG |
-| T-019 | security | Fix tools.json/servers.json gitignore inconsistency | .gitignore |
-| T-021 | cleanup | Remove ui/AGENTS.md and ui/.lovable/ | 08_PROJECT_STATE.md |
-| T-022 | refactor | Initialize _INTENT_PROMPTS at module level in prompt_builder_v2.py | Phase 0 |
-| T-023 | documentation | Document .workflow directory in README | Phase 0 |
-| T-029 | enhancement | Add intra-execution caching to avoid duplicate infra access | docs/ai/06 |
-| T-030 | cleanup | Update .clinerules to follow reading order from 00_BOOTSTRAP.md | docs/ai/00 |
-| T-020 | dependencies | Remove unused numpy/requests from pyproject.toml | Phase 0 |
-
----
-
-## Summary
-- **P0: 6 remaining** (T-003 to T-008) — all testing coverage
-- **P1: 13** (T-009 to T-016 + T-024 to T-028) — code quality, docs, dep fix
-- **P2: 9** (T-017 to T-023 + T-029, T-030) — cleanup, refactor, CI
-- **Total remaining: 28**
-- **Completed: 2** (T-001, T-002)
+### Task 0.3 — Xóa file rác
+**Mục tiêu:** Dự án sạch sẽ, không có file thừa.
+**Cần xóa:**
+- `report.json`, `report_v2.json`, `report_acceptance.json` — báo cáo benchmark cũ
+- `run_tests.py`, `run_tests_v2.py`, `run_acceptance.py` — script chạy test cũ (đã có `make test`)
+- `orion.egg-info/` — thư mục build cũ
