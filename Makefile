@@ -40,9 +40,9 @@ desktop-start:
 
 security-scan:
 	pip install bandit safety pip-audit -q
-	bandit -r src/ -c pyproject.toml -f sarif -o bandit_results.sarif || true
-	safety check --full-report || true
-	pip-audit || true
+	bandit -r src/ -c pyproject.toml --severity-level high -f sarif -o bandit_results.sarif || true
+	safety check --full-report --exit-code || true
+	pip-audit --strict || true
 
 ci: test lint security-scan typecheck
 

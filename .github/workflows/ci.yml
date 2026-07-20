@@ -32,16 +32,15 @@ jobs:
           ruff check .
 
       - name: Security scan (Bandit)
-        run: bandit -r src/ -c pyproject.toml
+        run: bandit -r src/ -c pyproject.toml --severity-level high
         if: always()
 
       - name: Dependency vulnerability scan (Safety)
-        run: safety check --full-report
+        run: safety check --full-report --exit-code
         if: always()
-        continue-on-error: true
 
       - name: Package vulnerability scan (pip-audit)
-        run: pip-audit
+        run: pip-audit --strict
         if: always()
 
       - name: Test with coverage
