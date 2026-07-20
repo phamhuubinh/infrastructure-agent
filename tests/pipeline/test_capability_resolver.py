@@ -351,6 +351,32 @@ class TestEdgeCases:
         assert req.capability_references[0].evidence_name == "CPU"
         assert req.capability_references[0].name == "CPU Information"
 
+    def test_duplicate_evidence_different_names_same_capability(
+        self, resolver: CapabilityResolver
+    ) -> None:
+        """Regression: 'Configuration Files' appears in multiple assessment
+        categories. When both are required, only one CapabilityReference
+        should be produced, and its evidence_name should be the first
+        occurrence."""
+        req = _with_evidence(["Configuration Files", "Configuration Files"])
+        resolver.resolve(req)
+        assert len(req.capability_references) == 1
+        assert req.capability_references[0].name == "Configuration Inspection"
+        assert req.capability_references[0].evidence_name == "Configuration Files"
+
+    def test_evidence_name_is_first_occurrence(
+        self, resolver: CapabilityResolver
+    ) -> None:
+        """Regression: when multiple evidence items map to the same capability,
+        the evidence_name on the CapabilityReference should be the first
+        occurrence's evidence name."""
+        req = _with_evidence(["Services", "Service Status"])
+        resolver.resolve(req)
+        assert len(req.capability_references) == 1
+        assert req.capability_references[0].name == "Service Status"
+        # 'Services' comes first in the list, so evidence_name should be 'Services'
+        assert req.capability_references[0].evidence_name == "Services"
+
 
 # ---------------------------------------------------------------------------
 # CapabilityReference properties

@@ -164,6 +164,70 @@ class TestGraphProperties:
             g.nodes = ()  # type: ignore[misc]
 
 
+class TestRuntimeExecutionEdgeCases:
+    """Additional execution graph processing behaviors (regression tests)."""
+
+    def test_graph_with_single_node_no_deps(self) -> None:
+        """Single node with no dependencies still builds correctly."""
+        step = _step("CPU Information")
+        graph = ExecutionGraphBuilder().build(_plan([step]))
+        assert len(graph.nodes) == 1
+        assert graph.nodes[0].depends_on == ()
+
+    def test_graph_preserves_all_metadata(self) -> None:
+        """Regression: all step metadata must survive graph building."""
+        step = ExecutionStep(
+            capability=CapabilityReference(
+                name="CPU Information",
+                evidence_name="CPU",
+                description="Check CPU info",
+                supported_targets=("linux",),
+                parameters=("source",),
+                estimated_cost=0.5,
+            ),
+            step_id="cpu-1",
+            metadata={"domain": "linux", "timeout": 30},
+        )
+        graph = ExecutionGraphBuilder().build(_plan([step]))
+        node = graph.nodes[0]
+        cap = node.execution_step.capability
+        assert cap.name == "CPU Information"
+        assert cap.evidence_name == "CPU"
+        assert cap.description == "Check CPU info"
+        assert cap.supported_targets == ("linux",)
+        assert cap.parameters == ("source",)
+        assert cap.estimated_cost == 0.5
+        assert node.execution_step.step_id == "cpu-1"
+        assert node.execution_step.metadata == {"domain": "linux", "timeout": 30}
+
+    def test_multiple_steps_no_deps_all_independent(self) -> None:
+        """All nodes in graph with no deps should be independent."""
+        steps = [
+            _step("A"),
+            _step("B"),
+            _step("C"),
+            _step("D"),
+        ]
+        graph = ExecutionGraphBuilder().build(_plan(steps))
+        for node in graph.nodes:
+            assert node.depends_on == ()
+
+    def test_frozen_node_prevents_mutation(self) -> None:
+        """Regression: ExecutionNode must remain frozen."""
+        step = _step("CPU Information")
+        node = ExecutionNode(execution_step=step)
+        with pytest.raises(AttributeError):
+            node.execution_step = step  # type: ignore[misc]
+
+    def test_frozen_graph_prevents_mutation(self) -> None:
+        """Regression: ExecutionGraph must remain frozen."""
+        step = _step("CPU Information")
+        node = ExecutionNode(execution_step=step)
+        g = ExecutionGraph(nodes=(node,))
+        with pytest.raises(AttributeError):
+            g.nodes = ()  # type: ignore[misc]
+
+
 class TestFullPipelineGraph:
     """Verify the builder integrates with the full pipeline."""
 

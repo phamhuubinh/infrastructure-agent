@@ -147,3 +147,63 @@ class TestEvidenceMerge:
         assert req.evidence is not None
         assert isinstance(req.evidence, list)
         assert all(isinstance(p, EvidencePackage) for p in req.evidence)
+
+    def test_capability_name_not_in_references_uses_fallback(self) -> None:
+        """Regression: when a result's capability name does not appear in
+        capability_references, evidence_name falls back to the capability name."""
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = [
+            CapabilityReference(name="CPU Information", evidence_name="CPU"),
+        ]
+        results = {
+            "ExtraCapability": ToolResult(success=True, data={"extra": True}),
+        }
+        EvidenceMerge().merge(req, results)
+        assert len(req.evidence) == 1
+        assert req.evidence[0].capability_name == "ExtraCapability"
+        assert req.evidence[0].evidence_name == "ExtraCapability"
+
+    def test_seen_capability_name_not_duplicated(self) -> None:
+        """Regression: EvidenceMerge uses a seen set to prevent duplicate
+        packages for the same capability name."""
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = [
+            CapabilityReference(name="CPU Information", evidence_name="CPU"),
+        ]
+        # Only one entry per cap name — dict naturally deduplicates
+        results = {
+            "CPU Information": ToolResult(success=True, data={"cores": 4}),
+        }
+        EvidenceMerge().merge(req, results)
+        assert len(req.evidence) == 1
+        assert req.evidence[0].capability_name == "CPU Information"
+
+    def test_results_without_references_still_merged(self) -> None:
+        """Regression: results that don't correspond to any capability reference
+        should still be merged (fallback to capability name as evidence name)."""
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = []
+        results = {
+            "SomeCapability": ToolResult(success=True, data={"val": 1}),
+        }
+        EvidenceMerge().merge(req, results)
+        assert len(req.evidence) == 1
+        assert req.evidence[0].capability_name == "SomeCapability"
+        assert req.evidence[0].evidence_name == "SomeCapability"
+
+    def test_success_result_data_preserved_none_on_failure(self) -> None:
+        """Regression: ensure successful results carry data and
+        failed results carry None data."""
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = [
+            CapabilityReference(name="A", evidence_name="EvA"),
+            CapabilityReference(name="B", evidence_name="EvB"),
+        ]
+        results = {
+            "A": ToolResult(success=True, data={"key": "val"}),
+            "B": ToolResult(success=False, error="broken"),
+        }
+        EvidenceMerge().merge(req, results)
+        pkgs = {p.capability_name: p for p in req.evidence}
+        assert pkgs["A"].data == {"key": "val"}
+        assert pkgs["B"].data is None

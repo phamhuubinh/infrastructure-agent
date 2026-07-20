@@ -361,6 +361,189 @@ class TestEarlyCompletion:
         assert mock_kt.execute.call_count == 2
         assert len(results) == 2
 
+    def test_early_completion_when_collected_equals_required(self) -> None:
+        """Regression: equal sets must trigger early completion.
+
+        Previously the code used the < operator (proper subset), which
+        returned False when collected_evidence == required_evidence_names.
+        Fixed by using issuperset()."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("System Information", "System"),
+            _step("CPU Information", "CPU"),
+        ]
+        graph = _graph_from_steps(
+            steps,
+            deps={"CPU Information": ("System Information",)},
+        )
+
+        # Required matches exactly what the first batch collects
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"System"},
+        )
+
+        assert metrics.early_completed is True
+        assert results["System Information"].success is True
+        assert "Skipped" in (results["CPU Information"].error or "")
+        assert mock_kt.execute.call_count == 1
+
+    def test_early_completion_multiple_evidence_exact_match(self) -> None:
+        """Regression: when multiple evidence items are collected and the set
+        exactly matches required_evidence_names, early completion triggers."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+            _step("Swap Information", "Swap"),
+        ]
+        graph = _graph_from_steps(
+            steps,
+            deps={"Swap Information": ("CPU Information", "Memory Information")},
+        )
+
+        # Both CPU and Memory are required, and both appear in first batch
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"CPU", "Memory"},
+        )
+
+        assert metrics.early_completed is True
+        assert results["CPU Information"].success is True
+        assert results["Memory Information"].success is True
+        assert "Skipped" in (results["Swap Information"].error or "")
+        assert mock_kt.execute.call_count == 2
+
+    def test_early_completion_after_parallel_batch_exact_match(self) -> None:
+        """Regression: early completion triggers after parallel batch when
+        collected evidence exactly matches required set, skipping dependents."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        # CPU and Memory are independent (parallel), Swap depends on both
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+            _step("Swap Information", "Swap"),
+        ]
+        graph = _graph_from_steps(
+            steps,
+            deps={"Swap Information": ("CPU Information", "Memory Information")},
+        )
+
+        # CPU and Memory run in parallel, then Swap should be skipped
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"CPU", "Memory"},
+        )
+
+        assert metrics.early_completed is True
+        assert results["CPU Information"].success is True
+        assert results["Memory Information"].success is True
+        assert "Skipped" in (results["Swap Information"].error or "")
+        assert mock_kt.execute.call_count == 2
+
+    def test_early_completion_superset_also_triggers(self) -> None:
+        """When collected evidence is a superset of required, early completion
+        must also trigger."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+            _step("Swap Information", "Swap"),
+        ]
+        graph = _graph_from_steps(
+            steps,
+            deps={"Swap Information": ("CPU Information", "Memory Information")},
+        )
+
+        # Only need CPU, but we collect more — superset should still trigger
+        results, metrics = runtime.execute(
+            graph,
+            required_evidence_names={"CPU"},
+        )
+
+        assert metrics.early_completed is True
+        assert results["CPU Information"].success is True
+        assert results["Memory Information"].success is True
+        assert "Skipped" in (results["Swap Information"].error or "")
+        # Only first batch executed
+        assert mock_kt.execute.call_count == 2
+
+    def test_unmet_dependency_does_not_loop(self) -> None:
+        """Regression: a node with an unmet dependency does not cause an
+        infinite loop. The runtime handles this by force-executing the node.
+
+        Previously this caused an infinite loop. Fixed by the fallback
+        in _get_ready_nodes that forces the first remaining node."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        step_b = _step("CPU Information", "CPU")
+        graph = _graph_from_steps(
+            [step_b],
+            deps={"CPU Information": ("NonExistentCap",)},
+        )
+
+        # Should not hang — completes with a result
+        results, metrics = runtime.execute(graph, overall_timeout=5.0)
+        assert "CPU Information" in results
+        assert metrics.early_completed is False
+        assert metrics.timed_out is False
+
+    def test_early_completion_empty_required_executes_all(self) -> None:
+        """When required_evidence_names is empty (not None), all nodes execute."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        steps = [
+            _step("CPU Information", "CPU"),
+            _step("Memory Information", "Memory"),
+        ]
+        graph = _graph_from_steps(steps)
+
+        results, metrics = runtime.execute(graph, required_evidence_names=set())
+
+        assert metrics.early_completed is False
+        assert len(results) == 2
+        assert mock_kt.execute.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # Mocked KnowledgeTool for precise control
