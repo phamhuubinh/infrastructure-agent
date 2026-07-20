@@ -15,6 +15,7 @@ from src.agent.conversation_store import (
     list_sessions as list_file_sessions,
 )
 from src.agent.runtime_factory import create_deterministic_agent
+from src.backend.auth import APIKeyMiddleware
 from src.backend.db import (
     PostgresConversationStore,
     _get_dsn,
@@ -26,7 +27,6 @@ from src.backend.db import (
 from src.backend.db import (
     delete_session as db_delete_session,
 )
-from src.backend.dify_client import DifyClient
 from src.backend.document_service import (
     delete_file as doc_delete_file,
 )
@@ -108,18 +108,6 @@ def create_app(
             dsn=dsn.split("@")[-1] if "@" in dsn else "default",
         )
 
-    _info("dify", message="Initializing Dify conversational layer")
-    _dify_client: DifyClient | None = None
-    try:
-        from src.backend.dify_setup import setup_dify
-
-        if setup_dify():
-            dify_api_url = os.environ.get("DIFY_API_URL", "http://dify-api:5001")
-            _dify_client = DifyClient(api_url=dify_api_url)
-            _info("dify", message="Dify conversational layer active")
-    except Exception:
-        _info("dify", message="Dify not available, skipping setup")
-
     sessions_dir = str(Path.home() / ".orion" / "sessions")
     web_sessions: dict[str, ConversationStore] = {}
 
@@ -149,6 +137,7 @@ def create_app(
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
+    app.add_middleware(APIKeyMiddleware)
 
     @app.get("/api/health")
     def health():
@@ -269,75 +258,6 @@ def create_app(
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as exc:
             return {"status": "error", "error": str(exc)[:200]}
-
-    @app.get("/api/dify/health")
-    def dify_health():
-        return (
-            _dify_client.health()
-            if _dify_client
-            else {"status": "error", "error": "Dify not initialized"}
-        )
-
-    @app.post("/api/dify/chat")
-    def dify_chat(body: dict):
-        question = (body.get("question") or "").strip()
-        if not question:
-            from fastapi import HTTPException
-
-            raise HTTPException(400, "Question is required")
-
-        user = body.get("user", "orion-user")
-        conversation_id = body.get("conversation_id", "")
-
-        if not _dify_client:
-            return {"status": "error", "error": "Dify not initialized"}
-
-        result = _dify_client.chat(
-            query=question,
-            user=user,
-            conversation_id=conversation_id,
-        )
-        if "error" in result:
-            return {"status": "error", "error": result["error"]}
-
-        return {
-            "answer": result.get("answer", ""),
-            "conversation_id": result.get("conversation_id", ""),
-            "message_id": result.get("message_id", ""),
-        }
-
-    @app.post("/api/dify/chat/stream")
-    def dify_chat_stream(body: dict):
-        question = (body.get("question") or "").strip()
-        if not question:
-            from fastapi import HTTPException
-
-            raise HTTPException(400, "Question is required")
-
-        if not _dify_client:
-            return {"status": "error", "error": "Dify not initialized"}
-
-        chunks = _dify_client.chat_stream(
-            query=question,
-            user=body.get("user", "orion-user"),
-            conversation_id=body.get("conversation_id", ""),
-        )
-        return {"chunks": chunks}
-
-    @app.get("/api/dify/conversations")
-    def dify_list_conversations(limit: int = 20, cursor: str = ""):
-        if not _dify_client:
-            return {"status": "error", "error": "Dify not initialized"}
-        return _dify_client.list_conversations(limit=limit, cursor=cursor)
-
-    @app.delete("/api/dify/conversations/{conversation_id}")
-    def dify_delete_conversation(conversation_id: str):
-        if not _dify_client:
-            return {"status": "error", "error": "Dify not initialized"}
-        result = _dify_client.delete_conversation(conversation_id=conversation_id)
-        if "error" in result:
-            return {"status": "error", "error": result["error"]}
-        return {"status": "deleted", "conversation_id": conversation_id}
 
     @app.post("/api/documents/upload")
     def document_upload(body: dict):

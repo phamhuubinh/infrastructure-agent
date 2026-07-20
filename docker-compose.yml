@@ -29,6 +29,7 @@ services:
       DIFY_WEB_URL: http://dify-web:3000
     volumes:
       - orion-sessions:/root/.orion/sessions
+      - ./servers.json:/app/servers.json:ro
     depends_on:
       - postgres
       - rag-service

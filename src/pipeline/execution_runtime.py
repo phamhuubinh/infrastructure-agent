@@ -128,7 +128,9 @@ class ExecutionRuntime:
         collected_evidence: set[str] = set()
 
         import concurrent.futures
+        import threading
 
+        _lock = threading.Lock()
         _timeout_deadline = (
             _time.perf_counter() + overall_timeout
             if overall_timeout > 0
@@ -137,10 +139,11 @@ class ExecutionRuntime:
 
         def _check_early_completion() -> bool:
             """Check if all required evidence is collected and skip remaining."""
-            if not required_evidence_names or not collected_evidence.issuperset(
-                required_evidence_names
-            ):
-                return False
+            with _lock:
+                if not required_evidence_names or not collected_evidence.issuperset(
+                    required_evidence_names
+                ):
+                    return False
             for node in remaining:
                 cap_name = node.execution_step.capability.name
                 if cap_name not in results:
@@ -153,10 +156,11 @@ class ExecutionRuntime:
             return True
 
         def _record_success(cap_name: str) -> None:
-            completed.add(cap_name)
-            ev = cap_to_evidence.get(cap_name)
-            if ev:
-                collected_evidence.add(ev)
+            with _lock:
+                completed.add(cap_name)
+                ev = cap_to_evidence.get(cap_name)
+                if ev:
+                    collected_evidence.add(ev)
 
         while remaining:
             if _check_early_completion():

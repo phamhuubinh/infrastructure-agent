@@ -12,6 +12,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Context:** The LLM is best suited to interpreting evidence, not controlling execution.
 **Reason:** Separating investigation from assessment reduces token usage and improves consistency.
 **Consequence:** The model explains findings and generates recommendations. It never plans investigations, executes tools, or touches infrastructure directly.
+> Long-form ADR: `docs/adr/ADR-0002-llm-assessment-only.md`
 ## AD-003 — KnowledgeTool is the single runtime entry point
 **Decision:** `KnowledgeTool` is the only entry point for evidence collection.
 **Context:** The platform supports multiple infrastructure domains (Linux, Grafana, Zabbix today; more later).

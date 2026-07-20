@@ -7,12 +7,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[web]" 2>/dev/null || true
-
 COPY src/ src/
+
+RUN pip install --no-cache-dir -e ".[web]"
+
 COPY targets.json .
-COPY servers.json .
-COPY config/ config/
+
+# Generate a default servers.json for environments that don't supply it
+RUN printf '{"active_server":"local","servers":{"local":{"provider":"openai","base_url":"http://localhost:8000","model":"gpt-4","timeout":300}}}\n' > /app/servers.json
 
 EXPOSE 61888
 

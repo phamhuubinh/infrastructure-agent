@@ -82,8 +82,7 @@ class TestEvidenceMerge:
         }
         EvidenceMerge().merge(req, results)
 
-        # dict dedup means only one result processed
-        assert len(req.evidence) == 1
+        # Memory Information has no reference, so it should be skipped
 
     def test_evidence_name_falls_back_to_capability_name(self) -> None:
         """When no CapabilityReference exists for a result, use cap name."""

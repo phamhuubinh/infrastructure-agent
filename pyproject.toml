@@ -25,6 +25,7 @@ where = ["src"]
 
 [project.optional-dependencies]
 test = ["pytest>=7"]
+web = ["fastapi>=0.100", "uvicorn>=0.20"]
 
 [tool.ruff]
 line-length = 88
