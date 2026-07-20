@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -70,6 +70,7 @@ class ConversationStore:
         self._source = source
         self._store_dir = Path(store_dir or Path.home() / ".orion" / "sessions")
         self._store_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
         self._dirty = False
@@ -82,66 +83,68 @@ class ConversationStore:
 
     @property
     def history(self) -> list[dict[str, str]]:
-        if self._summary:
-            return [
-                {
-                    "role": "system",
-                    "content": f"Previous conversation summary: {self._summary}",
-                }
-            ] + self._mem
-        return list(self._mem)
+        with self._lock:
+            if self._summary:
+                return [
+                    {
+                        "role": "system",
+                        "content": f"Previous conversation summary: {self._summary}",
+                    }
+                ] + self._mem
+            return list(self._mem)
 
     def add_turn(self, user: str, assistant: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": assistant})
-        self._dirty = True
-        try:
-            self._save()
-        except OSError:
-            info("conversation", message=f"failed to save session {self._session_id}")
-        self._check_compress()
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append({"role": "assistant", "content": assistant})
+            self._dirty = True
+            try:
+                self._save()
+            except OSError:
+                info(
+                    "conversation",
+                    message=f"failed to save session {self._session_id}",
+                )
+            self._check_compress()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": f"[classified as {label}]"})
-        self._dirty = True
-        try:
-            self._save()
-        except OSError:
-            info(
-                "conversation",
-                message=f"failed to save classifier session {self._session_id}",
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append(
+                {"role": "assistant", "content": f"[classified as {label}]"}
             )
-        self._check_compress()
+            self._dirty = True
+            try:
+                self._save()
+            except OSError:
+                info(
+                    "conversation",
+                    message=f"failed to save classifier session {self._session_id}",
+                )
+            self._check_compress()
 
     def summarize(self) -> None:
-        all_turns = list(self._mem)
-        if not all_turns:
-            return
+        with self._lock:
+            all_turns = list(self._mem)
+            previous_summary = self._summary
+            summarize_fn = self._summarize_fn
+            if not all_turns:
+                return
 
         new_turns_text = "\n".join(
             f"{m['role']}: {m['content'][:500]}" for m in all_turns
         )
 
         prompt = _SUMMARIZE_SYSTEM_PROMPT.format(
-            previous_summary=self._summary or "None",
+            previous_summary=previous_summary or "None",
             new_turns=new_turns_text,
         )
 
         try:
-            if self._summarize_fn:
-                new_summary = self._summarize_fn(prompt).strip()
-                if new_summary:
-                    self._summary = new_summary
-                    self._mem = []
-                    self._dirty = True
-                    self._save()
-                    info(
-                        "session",
-                        session=self._session_id,
-                        summary_length=len(self._summary),
-                        message="Conversation summarized via LLM",
-                    )
+            if summarize_fn:
+                new_summary = summarize_fn(prompt).strip()
+            else:
+                new_summary = ""
         except Exception as exc:
             info(
                 "session",
@@ -149,21 +152,37 @@ class ConversationStore:
                 error=str(exc)[:80],
                 message="Summarization failed, keeping full history",
             )
+            return
+
+        if not new_summary:
+            return
+
+        with self._lock:
+            len_before = len(all_turns)
+            # Keep only turns that arrived after the snapshot was taken
+            self._mem = self._mem[len_before:]
+            self._summary = new_summary
+            self._dirty = True
+            self._save()
+            info(
+                "session",
+                session=self._session_id,
+                summary_length=len(self._summary),
+                message="Conversation summarized via LLM",
+            )
 
     def set_summarize_fn(self, fn: Callable[[str], str]) -> None:
-        """Set the LLM summarization function.
-
-        This is the public API for setting the summarizer, replacing
-        direct access to the private _summarize_fn attribute.
-        """
-        self._summarize_fn = fn
+        with self._lock:
+            self._summarize_fn = fn
 
     def set_summary(self, summary: str) -> None:
-        self._summary = summary
+        with self._lock:
+            self._summary = summary
 
     @property
     def summary(self) -> str | None:
-        return self._summary
+        with self._lock:
+            return self._summary
 
     def _check_compress(self) -> None:
         turn_count = len([m for m in self._mem if m["role"] == "user"])
@@ -175,46 +194,48 @@ class ConversationStore:
         return self._store_dir / f"{self._session_id}.json"
 
     def _load(self) -> None:
-        path = self.store_path
-        if not path.exists():
-            return
-        try:
-            data = json.loads(path.read_text())
-            self._mem = data.get("messages", [])
-            self._summary = data.get("summary")
-            info(
-                "session",
-                session=self._session_id,
-                messages=len(self._mem),
-                has_summary=self._summary is not None,
-                message="Session loaded from disk",
-            )
-        except (json.JSONDecodeError, OSError) as exc:
-            info(
-                "session",
-                session=self._session_id,
-                error=str(exc)[:60],
-                message="Failed to load session, starting fresh",
-            )
+        with self._lock:
+            path = self.store_path
+            if not path.exists():
+                return
+            try:
+                data = json.loads(path.read_text())
+                self._mem = data.get("messages", [])
+                self._summary = data.get("summary")
+                info(
+                    "session",
+                    session=self._session_id,
+                    messages=len(self._mem),
+                    has_summary=self._summary is not None,
+                    message="Session loaded from disk",
+                )
+            except (json.JSONDecodeError, OSError) as exc:
+                info(
+                    "session",
+                    session=self._session_id,
+                    error=str(exc)[:60],
+                    message="Failed to load session, starting fresh",
+                )
 
     def _save(self) -> None:
-        if not self._dirty:
-            return
-        try:
-            data: dict[str, Any] = {
-                "session_id": self._session_id,
-                "source": self._source,
-                "updated_at": datetime.now().isoformat(),
-                "messages": self._mem,
-            }
-            if self._summary:
-                data["summary"] = self._summary
-            self.store_path.write_text(json.dumps(data, indent=2))
-            self._dirty = False
-        except OSError as exc:
-            info(
-                "session",
-                session=self._session_id,
-                error=str(exc)[:60],
-                message="Failed to save session",
-            )
+        with self._lock:
+            if not self._dirty:
+                return
+            try:
+                data: dict[str, Any] = {
+                    "session_id": self._session_id,
+                    "source": self._source,
+                    "updated_at": datetime.now().isoformat(),
+                    "messages": self._mem,
+                }
+                if self._summary:
+                    data["summary"] = self._summary
+                self.store_path.write_text(json.dumps(data, indent=2))
+                self._dirty = False
+            except OSError as exc:
+                info(
+                    "session",
+                    session=self._session_id,
+                    error=str(exc)[:60],
+                    message="Failed to save session",
+                )
