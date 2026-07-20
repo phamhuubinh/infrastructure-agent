@@ -704,7 +704,8 @@
         "Fail nếu build lỗi"
       ],
       "files": [
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "docker/Dockerfile.ui"
       ],
       "acceptance_criteria": [],
       "roadmap": null,
