@@ -23,7 +23,7 @@ services:
     env_file:
       - docker-compose.env
     environment:
-      ORION_DATABASE_URL: postgresql://orion:orion_dev@postgres:5432/orion
+      ORION_DATABASE_URL: postgresql://orion:${POSTGRES_PASSWORD:-CHANGEME}@postgres:5432/orion
       RAG_SERVICE_URL: http://rag-service:8080
       DIFY_API_URL: http://dify-api:5001
       DIFY_WEB_URL: http://dify-web:3000
@@ -72,13 +72,13 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER:-orion}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-orion_dev}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGEME}
       DB_DATABASE: ${POSTGRES_DB:-orion}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-orion_redis}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGEME}
       SECRET_KEY: ${DIFY_SECRET_KEY:-orion-dify-secret-change-in-prod}
-      INIT_PASSWORD: ${DIFY_INIT_PASSWORD:-orion_dify}
+      INIT_PASSWORD: ${DIFY_INIT_PASSWORD:-CHANGEME}
       LOG_LEVEL: INFO
       CONSOLE_TYPE: disabled
       STORAGE_TYPE: local
@@ -118,7 +118,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: orion-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-orion_redis}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-CHANGEME}
     volumes:
       - redis-data:/data
     restart: unless-stopped

@@ -40,7 +40,7 @@
   "messages": "line one\n",
   "timedatectl": "Local time: Tue 2026-07-07 10:00:00 UTC\nTime zone: UTC (UTC, +0000)\nSystem clock synchronized: yes\n",
   "locale": "LANG=en_US.UTF-8\nLC_TIME=\"en_US.UTF-8\"\n",
-  "env": "PATH=/usr/bin\nSECRET_TOKEN=super-secret-value\n",
+  "env": "PATH=/usr/bin\nSECRET_TOKEN=<redacted>\n",
   "who": "alice    pts/0        2026-07-07 10:00\n",
   "lsmod": "Module                  Size  Used by\nnf_tables              200000  1\n",
   "lxd_version": "5.21.2",

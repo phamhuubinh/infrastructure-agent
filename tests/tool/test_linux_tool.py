@@ -1266,7 +1266,7 @@ def test_get_locale_returns_empty_dict_on_failure(monkeypatch) -> None:
 def test_get_environment_returns_names_not_values(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command == ["env"]:
-            return True, "PATH=/usr/bin\nSECRET_TOKEN=super-secret-value\n"
+            return True, "PATH=/usr/bin\nSECRET_TOKEN=<redacted>\n"
         return False, ""
 
     monkeypatch.setattr(
@@ -1280,7 +1280,7 @@ def test_get_environment_returns_names_not_values(monkeypatch) -> None:
 
     assert result.success is True
     assert result.data == {"variables": ["PATH", "SECRET_TOKEN"]}
-    assert "super-secret-value" not in str(result.data)
+    assert "<redacted>" not in str(result.data)
 
 
 def test_get_environment_returns_empty_list_on_failure(monkeypatch) -> None:

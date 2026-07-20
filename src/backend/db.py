@@ -13,7 +13,7 @@ def _get_dsn() -> str | None:
     if dsn:
         return dsn
     pg_user = os.environ.get("POSTGRES_USER", "orion")
-    pg_pass = os.environ.get("POSTGRES_PASSWORD", "orion_dev")
+    pg_pass = os.environ.get("POSTGRES_PASSWORD", "CHANGEME")
     pg_host = os.environ.get("POSTGRES_HOST", "postgres")
     pg_db = os.environ.get("POSTGRES_DB", "orion")
     if pg_host:
