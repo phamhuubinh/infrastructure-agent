@@ -9,7 +9,7 @@ from __future__ import annotations
 # strings.
 #
 # Adding a new operational capability:
-#   1. Add the name to _ALL_OPERATIONAL below.
+#   1. Add the name to _ADDITIONAL_OPERATIONAL below.
 #   2. If it maps from an evidence requirement, add an entry in
 #      CAPABILITY_BY_EVIDENCE.
 #   3. Add the covers-tag → operational-name mapping in COVERS_TO_OPERATIONAL.

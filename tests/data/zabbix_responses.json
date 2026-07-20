@@ -1,0 +1,57 @@
+{
+  "api_version": "7.0.0",
+  "hosts": [
+    {"hostid": "1", "host": "server01", "name": "Server 01", "status": "0"}
+  ],
+  "host_groups": [{"groupid": "1", "name": "Linux servers"}],
+  "search_hosts_switch": [
+    {"hostid": "10644", "host": "Switch T3_Cisco Core", "name": "Switch T3_Cisco Core", "status": "0"},
+    {"hostid": "10649", "host": "Switch T3_Technical", "name": "Switch T3_Technical", "status": "0"}
+  ],
+  "search_hosts_ip": [
+    {"hostid": "10643", "host": "Firewall_Pfsense", "name": "Firewall_Pfsense", "status": "0"}
+  ],
+  "templates": [
+    {"templateid": "1", "host": "Template OS Linux", "name": "Template OS Linux"}
+  ],
+  "items": [
+    {"itemid": "1", "name": "CPU utilization", "key_": "system.cpu.util", "lastvalue": "15", "units": "%", "value_type": "0"}
+  ],
+  "items_uptime": [
+    {"itemid": "10", "name": "Uptime", "key_": "system.uptime", "lastvalue": "3600", "units": "s"}
+  ],
+  "triggers": [
+    {"triggerid": "1", "description": "High CPU", "priority": "4", "status": "0", "value": "1", "hosts": []}
+  ],
+  "events": [
+    {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "3", "value": "1"}
+  ],
+  "problems": [
+    {"eventid": "1", "name": "Disk full", "clock": "1700000000", "severity": "3"}
+  ],
+  "users": [
+    {"userid": "1", "alias": "Admin", "name": "Admin", "surname": "User", "roleid": "3"}
+  ],
+  "host_single": [
+    {"hostid": "2", "host": "web01", "name": "Web Server 01", "status": "0"}
+  ],
+  "auth_error": {"jsonrpc": "2.0", "error": {"message": "Not authorised", "data": "invalid token"}},
+  "problem_timeline": [
+    {"eventid": "3", "name": "P3", "clock": "1700000000", "severity": "3", "acknowledged": "0"},
+    {"eventid": "2", "name": "P2", "clock": "1600000000", "severity": "2", "acknowledged": "0"}
+  ],
+  "host_inventory": [
+    {"hostid": "1", "host": "s1", "name": "Server 1", "status": "0"}
+  ],
+  "host_interfaces": [
+    {"interfaceid": "1", "ip": "10.0.0.1", "port": "161", "type": "2"}
+  ],
+  "maintenance_status": [
+    {"maintenanceid": "1", "name": "Scheduled", "active_since": "1700000000", "active_till": "1700100000"}
+  ],
+  "event_summary": [
+    {"eventid": "1", "name": "CPU overload", "clock": "1700000000", "severity": "4", "value": "1"}
+  ],
+  "host_single_call": [{"hostid": "3", "host": "db01"}],
+  "empty_list": []
+}

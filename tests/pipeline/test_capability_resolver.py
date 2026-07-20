@@ -5,6 +5,7 @@ import pytest
 from src.pipeline.capability_library import CAPABILITY_BY_EVIDENCE
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_resolver import CapabilityResolver
+from src.pipeline.evidence_planner import _TEMPLATES
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
