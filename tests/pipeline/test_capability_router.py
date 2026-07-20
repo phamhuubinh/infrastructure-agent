@@ -142,14 +142,14 @@ class TestEmptyRouter:
 
 
 class TestConventionMapping:
-    """Validate that the _COVERS_TO_OPERATIONAL mapping is consistent."""
+    """Validate that the COVERS_TO_OPERATIONAL mapping is complete."""
 
     def test_all_covers_tags_are_valid(self) -> None:
         """Every covers tag used in tools should have a mapping entry.
         This test scans all registered tool capabilities and checks
         that every covers tag is accounted for."""
+        from src.pipeline.capability_library import COVERS_TO_OPERATIONAL
         from src.tool.grafana_tool import _CAPABILITIES as G
-        from src.tool.knowledge_tool import _COVERS_TO_OPERATIONAL
         from src.tool.linux_tool import _CAPABILITIES as L
         from src.tool.zabbix_tool import _CAPABILITIES as Z
 
@@ -159,26 +159,8 @@ class TestConventionMapping:
                 for tag in cap.covers:
                     used_tags.add(tag)
 
-        mapped_tags = set(_COVERS_TO_OPERATIONAL)
-        unmapped = (
-            used_tags
-            - mapped_tags
-            - {
-                # Known tags without pipeline equivalent (infrastructure-only)
-                "system-time",
-                "system-logs",
-                "tls-certificates",
-                "monitoring-folders",
-                "monitoring-alerts",
-                "zabbix-groups",
-                "zabbix-templates",
-                "zabbix-items",
-                "zabbix-users",
-                "zabbix-interfaces",
-                "zabbix-maintenance",
-                "application-discovery",
-            }
-        )
+        mapped_tags = set(COVERS_TO_OPERATIONAL)
+        unmapped = used_tags - mapped_tags
         assert not unmapped, f"Unmapped covers tags found: {unmapped}"
 
 

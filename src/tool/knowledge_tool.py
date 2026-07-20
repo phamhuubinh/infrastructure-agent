@@ -2,113 +2,11 @@ from __future__ import annotations
 
 import inspect
 
+from src.pipeline.capability_library import COVERS_TO_OPERATIONAL
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
-
-# ---------------------------------------------------------------------------
-# Convention mapping: covers tag → operational capability name
-# ---------------------------------------------------------------------------
-# Single source of truth for mapping tool covers tags to operational
-# pipeline capability names. Defined here because KnowledgeTool is the
-# single aggregation point for tool metadata. All consumers
-# (CapabilityRouter, etc.) should query this via KnowledgeTool.
-#
-# When a new operational capability is added, add an entry here.
-# When a new tool covers tag maps to an existing operational name,
-# no change needed.
-
-_COVERS_TO_OPERATIONAL: dict[str, str] = {
-    "system-identity": "System Information",
-    "cpu": "CPU Information",
-    "cpu_usage": "CPU Utilization",
-    "memory": "Memory Information",
-    "memory_usage": "Memory Utilization",
-    "swap": "Swap Information",
-    "storage": "Storage Information",
-    "storage_performance": "Storage Performance Assessment",
-    "filesystem": "Filesystem Information",
-    "disk_usage": "Disk Utilization",
-    "mount": "Mount Point Discovery",
-    "filesystem_discovery": "Filesystem Discovery",
-    "smart": "SMART Health Assessment",
-    "raid": "RAID Health Assessment",
-    "network": "Network Information",
-    "interface": "Network Interface Discovery",
-    "ip": "IP Configuration Assessment",
-    "gateway": "Default Gateway Discovery",
-    "dns": "DNS Configuration Assessment",
-    "routing": "Routing Table Assessment",
-    "listening-ports": "Port Discovery",
-    "network_usage": "Network Utilization",
-    "services": "Service Status",
-    "service_config": "Service Configuration Inspection",
-    "service_logs": "Service Log Discovery",
-    "dependencies": "Dependency Discovery",
-    "processes": "Process Discovery",
-    "packages": "Package Discovery",
-    "service_discovery": "Service Discovery",
-    "container": "Container Discovery",
-    "config": "Configuration Inspection",
-    "load": "System Load Assessment",
-    "system-time": "Time Synchronization",
-    "system-logs": "Log Discovery",
-    "io": "I/O Performance Assessment",
-    "env": "Environment Variable Discovery",
-    "secure-boot": "Secure Boot Status",
-    "apparmor": "AppArmor Status",
-    "selinux": "SELinux Status",
-    "ssh": "SSH Configuration Inspection",
-    "firewall": "Firewall Inspection",
-    "sessions": "Recent Login Discovery",
-    "certificates": "Certificate Discovery",
-    "gpu": "GPU Information",
-    "block_device": "Block Device Information",
-    "firewall_status": "Firewall Status",
-    "open_ports": "Listening Ports",
-    "zabbix-problems": "Monitoring Problems",
-    "zabbix-triggers": "Alert Triggers",
-    "alert_severity": "Alert Severity Assessment",
-    "zabbix-hosts": "Host Status Assessment",
-    "zabbix-groups": "Host Group Discovery",
-    "zabbix-templates": "Template Discovery",
-    "zabbix-users": "Monitoring User Discovery",
-    "zabbix-maintenance": "Maintenance Status Discovery",
-    "zabbix-events": "Event History Discovery",
-    "zabbix-interfaces": "Host Interface Discovery",
-    "zabbix-items": "Item Discovery",
-    "dashboards": "Dashboard Discovery",
-    "monitoring-folders": "Dashboard Folder Discovery",
-    "datasources": "Data Source Discovery",
-    "monitoring-alerts": "Alert Rule Discovery",
-    # Grafana — additional covers tags
-    "monitoring-health": "Monitoring Health",
-    "monitoring-version": "Monitoring Version",
-    "panels": "Dashboard Panel Discovery",
-    "queries": "Dashboard Query Discovery",
-    "monitoring-annotations": "Monitoring Annotation Discovery",
-    # Linux — additional covers tags
-    "users": "User Discovery",
-    "hardware": "Hardware Inventory",
-    "uptime": "System Uptime",
-    "boot-time": "System Boot Time",
-    "kernel-modules": "Kernel Module Discovery",
-    "system-locale": "System Locale Discovery",
-    "system-environment": "Environment Variable Discovery",
-    "tls-certificates": "Certificate Discovery",
-    "application-discovery": "Service Discovery",
-    # Internet tool
-    "web-content": "Web Content Fetch",
-    "internet": "Internet Resource Access",
-    "url-fetch": "URL Fetch",
-    # Knowledge Base tool
-    "knowledge-base-health": "Knowledge Base Health",
-    "knowledge-base-ingest": "Knowledge Base Ingestion",
-    "knowledge-base-query": "Knowledge Base Query",
-    "documentation": "Documentation Lookup",
-    "runbook": "Runbook Lookup",
-}
 
 
 def _tool_capabilities(tool: Tool) -> list[str]:
@@ -154,7 +52,7 @@ class KnowledgeTool(Tool):
     @staticmethod
     def get_operational_name(covers_tag: str) -> str | None:
         """Resolve a covers tag to an operational capability name."""
-        return _COVERS_TO_OPERATIONAL.get(covers_tag)
+        return COVERS_TO_OPERATIONAL.get(covers_tag)
 
     def get_capabilities(self) -> dict[str, list[str]]:
         """Return mapping from target name to list of capability names.
@@ -253,7 +151,7 @@ class KnowledgeTool(Tool):
                         entries.append(entry)
                     elif value.covers:
                         for tag in value.covers:
-                            resolved = _COVERS_TO_OPERATIONAL.get(tag)
+                            resolved = COVERS_TO_OPERATIONAL.get(tag)
                             if resolved:
                                 entry = _base_entry(value)
                                 entry["covers"] = [tag]

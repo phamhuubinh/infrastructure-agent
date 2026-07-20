@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.pipeline.capability_library import CAPABILITY_BY_EVIDENCE
+from src.pipeline.capability_library import VALID_OPERATIONAL_NAMES
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -41,7 +41,7 @@ class CapabilityRouter:
                 if not op_name:
                     continue
                 # Only register if this operational capability exists in the library
-                if op_name not in CAPABILITY_BY_EVIDENCE.values():
+                if op_name not in VALID_OPERATIONAL_NAMES:
                     continue
                 # Register route if not already registered (first source wins)
                 if op_name not in self._routes:
