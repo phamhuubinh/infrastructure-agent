@@ -10,6 +10,7 @@ from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.target_resolver import TargetResolver
+from src.shared.execution.tool_result import ToolResult
 from src.tool.knowledge_tool import KnowledgeTool
 
 

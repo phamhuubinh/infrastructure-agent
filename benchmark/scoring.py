@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from benchmark.dataset import (
-    Benchmark,
     CAPABILITY_CATEGORIES,
+    Benchmark,
     capabilities_in_category,
 )
 

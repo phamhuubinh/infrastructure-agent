@@ -96,7 +96,7 @@ class LLMClient:
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
                 data: dict[str, object] = json.loads(response.read().decode("utf-8"))
-        except KeyboardInterrupt:
+        except KeyboardInterrupt as ki_exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             log_error(
                 "llm",
@@ -108,7 +108,7 @@ class LLMClient:
                 elapsed_ms=elapsed_ms,
             )
             msg = "Cancelled"
-            raise RuntimeError(msg)
+            raise RuntimeError(msg) from ki_exc
         except urlerror.HTTPError as exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             log_error(

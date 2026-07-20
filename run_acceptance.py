@@ -255,7 +255,7 @@ def main():
         "results": results,
     }
     Path("report_acceptance.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    print(f"\n  Report: report_acceptance.json")
+    print("\n  Report: report_acceptance.json")
 
 
 if __name__ == "__main__":

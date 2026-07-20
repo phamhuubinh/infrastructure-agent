@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from unittest import mock
 
-from src.agent.deterministic_agent import DeterministicAgent
 from src.agent.runtime_factory import (
     _SUPPORTED_TOOL_TYPES,
     _load_tools_config,

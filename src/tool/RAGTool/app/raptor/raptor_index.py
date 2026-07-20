@@ -19,8 +19,8 @@ used so the tree still builds and is testable end-to-end offline.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import numpy as np
 from sklearn.mixture import GaussianMixture
@@ -66,7 +66,7 @@ class RaptorIndex:
         embeddings = self._embedder.embed(leaf_texts)
         current_level_nodes = [
             RaptorNode(id=str(uuid.uuid4()), text=text, level=0, embedding=emb)
-            for text, emb in zip(leaf_texts, embeddings)
+            for text, emb in zip(leaf_texts, embeddings, strict=False)
         ]
         for node in current_level_nodes:
             self.nodes[node.id] = node
@@ -98,7 +98,7 @@ class RaptorIndex:
         labels = gmm.fit_predict(vectors)
 
         clusters: dict[int, list[RaptorNode]] = {}
-        for label, node in zip(labels, nodes):
+        for label, node in zip(labels, nodes, strict=False):
             clusters.setdefault(int(label), []).append(node)
 
         summary_nodes = []

@@ -33,7 +33,6 @@ def _rag_ingest(filepath: str = "") -> dict[str, object]:
         return {"error": "Missing filepath parameter."}
 
     import email.message
-    from urllib.parse import urlencode
 
     boundary = "----OrionFormBoundary"
     filename = os.path.basename(filepath)
@@ -45,14 +44,14 @@ def _rag_ingest(filepath: str = "") -> dict[str, object]:
         return {"error": f"Cannot read file: {exc}"}
 
     body = b""
-    body += f"--{boundary}\r\n".encode("utf-8")
+    body += f"--{boundary}\r\n".encode()
     body += (
         f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-    ).encode("utf-8")
+    ).encode()
     body += b"Content-Type: application/octet-stream\r\n\r\n"
     body += file_data
     body += b"\r\n"
-    body += f"--{boundary}--\r\n".encode("utf-8")
+    body += f"--{boundary}--\r\n".encode()
 
     msg = email.message.Message()
     msg["Content-Type"] = f"multipart/form-data; boundary={boundary}"

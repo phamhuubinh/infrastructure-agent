@@ -1438,7 +1438,7 @@ def test_get_lxd_returns_empty_containers_on_invalid_json(monkeypatch) -> None:
 
 
 def test_linux_tool_accepts_ssh_backend(monkeypatch) -> None:
-    from src.tool.execution_backend import LocalExecutionBackend, SSHExecutionBackend
+    from src.tool.execution_backend import SSHExecutionBackend
 
     captured: list[tuple[list[str], int]] = []
 

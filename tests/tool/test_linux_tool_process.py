@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from unittest import mock
-
 from src.tool.execution_backend import ExecutionBackend
 from src.tool.linux_tool import LinuxTool
 

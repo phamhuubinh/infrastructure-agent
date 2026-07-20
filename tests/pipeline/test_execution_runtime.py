@@ -404,7 +404,7 @@ class TestMockedExecution:
 
     def test_timeout_returns_partial_results(self) -> None:
         """When a single node exceeds overall_timeout, partial results returned."""
-        slow_result = ToolResult(success=False, error="timed out")
+        ToolResult(success=False, error="timed out")
         mock_kt = mock.Mock(spec=KnowledgeTool)
         import time as _time
 

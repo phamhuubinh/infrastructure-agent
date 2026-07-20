@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from src.model.assessment_model_adapter import AssessmentModelAdapter
-from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
 
 

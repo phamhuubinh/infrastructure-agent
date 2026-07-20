@@ -2,24 +2,18 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
-import sys
 import time
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
-
-from benchmark.assessment_evaluator import AssessmentExpected
+from benchmark.assessment_evaluator import AssessmentExpected, metrics_to_dict
 from benchmark.assessment_evaluator import evaluate as evaluate_assessment
-from benchmark.assessment_evaluator import metrics_to_dict
 from benchmark.dataset import BENCHMARKS
 from benchmark.metadata import collect_benchmark_metadata
-from benchmark.registry import detect_regressions
-from benchmark.registry import save_results
+from benchmark.registry import detect_regressions, save_results
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
+from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
 
 
 def _timestamped_log_path() -> Path:
@@ -99,8 +93,8 @@ def _export_markdown(results: list[dict[str, Any]], path: Path) -> None:
         variance = sum((x - mean) ** 2 for x in scores) / n
         lines.append("## Summary Statistics")
         lines.append("")
-        lines.append(f"| Metric | Value |")
-        lines.append(f"|--------|-------|")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
         lines.append(f"| Count | {n} |")
         lines.append(f"| Mean | {mean:.4f} |")
         lines.append(f"| Median | {median:.4f} |")
@@ -227,7 +221,7 @@ def _aggregate_repeated(
     canonical = all_runs[0]
     metric_keys = ["evidence_coverage", "grounding", "completeness", "overall"]
 
-    for i, base in enumerate(canonical):
+    for _i, base in enumerate(canonical):
         bm_name = base["benchmark"]
         values: dict[str, list[float]] = {k: [] for k in metric_keys}
         for run in all_runs:

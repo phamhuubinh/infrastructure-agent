@@ -107,7 +107,7 @@ class DifyClient:
 
 
 def wait_for_dify(client: DifyClient, max_retries: int = _MAX_RETRIES) -> bool:
-    for attempt in range(1, max_retries + 1):
+    for _attempt in range(1, max_retries + 1):
         health = client.health()
         if health.get("status") == "ok":
             return True

@@ -39,7 +39,7 @@ class TestEvidencePackage:
         pkg = EvidencePackage(capability_name="A", evidence_name="B")
         try:
             pkg.capability_name = "C"  # type: ignore[misc]
-            assert False, "should have raised"
+            raise AssertionError("should have raised")
         except AttributeError:
             pass
 
@@ -59,6 +59,6 @@ class TestEvidencePackage:
         pkg = EvidencePackage(capability_name="CPU", evidence_name="CPU", data={"x": 1})
         try:
             hash(pkg)
-            assert False, "should have raised"
+            raise AssertionError("should have raised")
         except TypeError:
             pass

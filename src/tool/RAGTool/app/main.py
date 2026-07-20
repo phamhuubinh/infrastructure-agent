@@ -20,7 +20,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, UploadFile
 
 from app.chunking.hierarchical_semantic_chunker import HierarchicalSemanticChunker
 from app.config import (
@@ -86,7 +86,7 @@ def health():
 
 
 @app.post("/ingest", response_model=IngestResponse)
-async def ingest(file: UploadFile = File(...)):
+async def ingest(file: UploadFile):
     doc_id = str(uuid.uuid4())
     suffix = Path(file.filename or "upload").suffix
 

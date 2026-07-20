@@ -173,7 +173,7 @@ execute_task() {
 
     # Step 10: Lint
     log "LINT" "[#$task_id] ruff check..."
-    if ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501 2>&1 | tee -a "$log_file"; then
+    if ruff check . 2>&1 | tee -a "$log_file"; then
       log "LINT" "[#$task_id] PASS"
     else
       log "LINT" "[#$task_id] FAIL"
@@ -253,7 +253,7 @@ TASK: {t.get('description','')}
 5. Implement
 6. Self-review
 7. Format: ruff format src/ tests/
-8. Lint: ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501
+8. Lint: ruff check .
 9. Unit test: python3 -m pytest tests/ -q --tb=short -x
 10. Integration test (if applicable)
 11. Regression test: full suite

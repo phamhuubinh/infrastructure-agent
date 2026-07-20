@@ -78,7 +78,7 @@ class TestEvidenceMerge:
         ]
         results = {
             "CPU Information": ToolResult(success=True, data={"cores": 4}),
-            "CPU Information": ToolResult(success=True, data={"cores": 8}),
+            "Memory Information": ToolResult(success=True, data={"cores": 8}),
         }
         EvidenceMerge().merge(req, results)
 

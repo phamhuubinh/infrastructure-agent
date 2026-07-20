@@ -7,7 +7,6 @@ from src.pipeline.intent_resolver import (
     Intent,
     IntentResolver,
 )
-from src.pipeline.investigation_request import InvestigationRequest
 
 
 @pytest.fixture

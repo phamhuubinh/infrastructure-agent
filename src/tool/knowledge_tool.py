@@ -141,7 +141,7 @@ class KnowledgeTool(Tool):
             mod = inspect.getmodule(type(tool))
             if mod is None or not hasattr(mod, "_CAPABILITIES"):
                 continue
-            raw = getattr(mod, "_CAPABILITIES")
+            raw = mod._CAPABILITIES
             entries: list[dict[str, object]] = []
             for cap_name, value in raw.items():
                 if isinstance(value, Capability):

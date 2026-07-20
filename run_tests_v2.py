@@ -7,14 +7,13 @@ import os
 import re
 import sys
 import time
-import traceback
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.agent.runtime_factory import create_deterministic_agent
-from src.pipeline.intent_resolver import Intent, IntentResolver
+from src.pipeline.intent_resolver import IntentResolver
 from src.shared.logger import set_enabled
 
 set_enabled(True)
@@ -190,18 +189,6 @@ def evaluate_test(group: str, domain: str, question: str, response: str, elapsed
         return "FAIL", [f"Exception: {exception}"], intent_text
 
     # 2. Intent check
-    expected_intents = {
-        "CPU": {"cpu"},
-        "RAM": {"memory"},
-        "ổ cứng": {"disk"},
-        "disk": {"disk"},
-        "network": {"network"},
-        "toàn bộ máy": {"machine"},
-        "process": {"process"},
-        "service": {"service"},
-        "zombie": {"process"},
-        "hostname": {"system_info"},
-    }
 
     # 3. Unknown target check
     if "unknown target" in response.lower() or "not found" in response.lower():

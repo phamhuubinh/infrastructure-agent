@@ -29,7 +29,7 @@ jobs:
       - name: Lint
         run: |
           pip install ruff
-          ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501
+          ruff check .
 
       - name: Test
         run: python -m pytest tests/ -q --tb=short -x

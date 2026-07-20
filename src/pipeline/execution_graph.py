@@ -24,7 +24,7 @@ class ExecutionNode:
                     this node. Empty means no dependencies.
     """
 
-    execution_step: "ExecutionStep"
+    execution_step: ExecutionStep
     depends_on: tuple[str, ...] = ()
 
 
@@ -73,7 +73,7 @@ class ExecutionGraphBuilder:
     Output: ExecutionGraph (dependency graph with nodes)
     """
 
-    def build(self, plan: "ExecutionPlan") -> ExecutionGraph:
+    def build(self, plan: ExecutionPlan) -> ExecutionGraph:
         """Build an ExecutionGraph from an ExecutionPlan.
 
         Each execution step becomes one node.

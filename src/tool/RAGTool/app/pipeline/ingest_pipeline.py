@@ -88,7 +88,7 @@ class IngestPipeline:
                     **chunk.metadata,
                 },
             )
-            for chunk, vector in zip(chunks, vectors)
+            for chunk, vector in zip(chunks, vectors, strict=False)
         ]
         self._vector_store.upsert(self._collection, records)
 

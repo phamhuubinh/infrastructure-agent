@@ -1,8 +1,8 @@
-import sys
 import os
+import sys
 
 _src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
 if _src not in sys.path:
     sys.path.insert(0, os.path.dirname(_src))
 
-from src.cli.main import main
+from src.cli.main import main as main  # noqa: F401

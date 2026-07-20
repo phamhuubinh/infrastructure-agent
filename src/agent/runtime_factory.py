@@ -18,7 +18,6 @@ from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.target_resolver import TargetResolver
-from src.shared.logger import info
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore

@@ -11,13 +11,13 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.agent.runtime_factory import create_deterministic_agent
-from src.shared.logger import info, set_enabled
+from src.shared.logger import set_enabled
 
 set_enabled(True)
 
@@ -221,7 +221,7 @@ def main():
             elapsed = time.time() - t0
 
             # Read token log before and after
-            token_before = extract_token_usage(ORION_LOG)
+            extract_token_usage(ORION_LOG)
 
             print(f"  Response ({len(response)} chars, {elapsed:.2f}s)")
             print(f"  Preview: {response[:200]}...")
@@ -234,7 +234,7 @@ def main():
             status = "FAIL"
             failed += 1
 
-        token_after = extract_token_usage(ORION_LOG)
+        extract_token_usage(ORION_LOG)
 
         results.append({
             "index": idx,

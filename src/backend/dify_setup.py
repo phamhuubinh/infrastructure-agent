@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from urllib import error as urlerror
-from urllib import parse as urlparse
 from urllib import request
 
 from src.backend.dify_client import DifyClient, wait_for_dify
@@ -94,7 +92,7 @@ def _create_app(
     )
     app_id = result.get("id") or result.get("app_id")
     if app_id:
-        _info("dify-setup", message=f"App created", app_id=app_id)
+        _info("dify-setup", message="App created", app_id=app_id)
     else:
         _info(
             "dify-setup",

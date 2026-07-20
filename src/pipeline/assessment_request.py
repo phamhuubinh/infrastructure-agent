@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,6 +26,6 @@ class AssessmentRequest:
 
     raw_request: str
     intent: str = ""
-    evidence: tuple["EvidencePackage", ...] = ()
+    evidence: tuple[EvidencePackage, ...] = ()
     evidence_complete: bool = False
     missing_evidence: tuple[str, ...] = ()
