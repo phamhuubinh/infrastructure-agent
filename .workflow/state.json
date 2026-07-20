@@ -28,27 +28,27 @@
       "category": "Bug",
       "epic": "Core Architecture",
       "title": "Make ConversationStore Thread Safe",
-      "description": "ConversationStore sử dụng shared mutable state (`_mem`, `_dirty`, `_summary`) nhưng chưa có cơ chế đồng bộ khi nhiều request chạy đồng thời.",
+      "description": "ConversationStore s\u1eed d\u1ee5ng shared mutable state (`_mem`, `_dirty`, `_summary`) nh\u01b0ng ch\u01b0a c\u00f3 c\u01a1 ch\u1ebf \u0111\u1ed3ng b\u1ed9 khi nhi\u1ec1u request ch\u1ea1y \u0111\u1ed3ng th\u1eddi.",
       "status": "completed",
       "tasks": [
-        "Thêm `threading.Lock`",
+        "Th\u00eam `threading.Lock`",
         "Lock `add_turn()`",
         "Lock `summarize()`",
         "Lock `_load()`",
         "Lock `_save()`",
-        "Đảm bảo không tạo deadlock",
-        "Thêm concurrent unit test"
+        "\u0110\u1ea3m b\u1ea3o kh\u00f4ng t\u1ea1o deadlock",
+        "Th\u00eam concurrent unit test"
       ],
       "files": [
         "conversation_store.py"
       ],
       "acceptance_criteria": [
-        "Không còn race condition",
+        "Kh\u00f4ng c\u00f2n race condition",
         "Concurrent test pass",
-        "Không thay đổi API"
+        "Kh\u00f4ng thay \u0111\u1ed5i API"
       ],
       "roadmap": null,
-      "note": "reset after daemon restart — previous run was interrupted",
+      "note": "reset after daemon restart \u2014 previous run was interrupted",
       "started_at": "2026-07-20T09:20:44Z"
     },
     {
@@ -57,20 +57,20 @@
       "category": "Bug",
       "epic": "Core Architecture",
       "title": "Fix Execution Runtime Set Comparison",
-      "description": "Trong execution_runtime.py, hàm so sánh kết quả execution với expected đang dùng toán tử `==` để so sánh set. Cần thay bằng `set1 <= set2` hoặc `set1.issubset(set2)` vì thứ tự phần tử không quan trọng. Sau khi sửa, chạy pytest và benchmark để verify.",
+      "description": "Trong execution_runtime.py, h\u00e0m so s\u00e1nh k\u1ebft qu\u1ea3 execution v\u1edbi expected \u0111ang d\u00f9ng to\u00e1n t\u1eed `==` \u0111\u1ec3 so s\u00e1nh set. C\u1ea7n thay b\u1eb1ng `set1 <= set2` ho\u1eb7c `set1.issubset(set2)` v\u00ec th\u1ee9 t\u1ef1 ph\u1ea7n t\u1eed kh\u00f4ng quan tr\u1ecdng. Sau khi s\u1eeda, ch\u1ea1y pytest v\u00e0 benchmark \u0111\u1ec3 verify.",
       "status": "completed",
       "tasks": [
-        "Kiểm tra toàn bộ logic compare",
-        "Thay bằng `issubset()` hoặc `<=`",
-        "Thêm regression test",
-        "Chạy benchmark"
+        "Ki\u1ec3m tra to\u00e0n b\u1ed9 logic compare",
+        "Thay b\u1eb1ng `issubset()` ho\u1eb7c `<=`",
+        "Th\u00eam regression test",
+        "Ch\u1ea1y benchmark"
       ],
       "files": [
         "execution_runtime.py"
       ],
       "acceptance_criteria": [
-        "Early completion hoạt động đúng",
-        "Benchmark không thay đổi"
+        "Early completion ho\u1ea1t \u0111\u1ed9ng \u0111\u00fang",
+        "Benchmark kh\u00f4ng thay \u0111\u1ed5i"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T09:57:18Z"
@@ -81,20 +81,20 @@
       "category": "Bug",
       "epic": "Core Architecture",
       "title": "Make Execution Runtime Thread Safe",
-      "description": "Shared state trong ThreadPoolExecutor chưa đảm bảo thread-safe.",
+      "description": "Shared state trong ThreadPoolExecutor ch\u01b0a \u0111\u1ea3m b\u1ea3o thread-safe.",
       "status": "in_progress",
       "tasks": [
-        "Rà soát shared mutable state",
-        "Thêm lock nếu cần",
-        "Thay mutable object bằng immutable copy khi phù hợp",
-        "Thêm parallel execution test"
+        "R\u00e0 so\u00e1t shared mutable state",
+        "Th\u00eam lock n\u1ebfu c\u1ea7n",
+        "Thay mutable object b\u1eb1ng immutable copy khi ph\u00f9 h\u1ee3p",
+        "Th\u00eam parallel execution test"
       ],
       "files": [
         "execution_runtime.py"
       ],
       "acceptance_criteria": [
-        "Không còn race condition",
-        "Parallel execution ổn định"
+        "Kh\u00f4ng c\u00f2n race condition",
+        "Parallel execution \u1ed5n \u0111\u1ecbnh"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T12:35:21Z"
@@ -105,24 +105,24 @@
       "category": "Refactor",
       "epic": "Core Architecture",
       "title": "Refactor execute()",
-      "description": "`execute()` quá lớn, khó bảo trì.",
+      "description": "`execute()` qu\u00e1 l\u1edbn, kh\u00f3 b\u1ea3o tr\u00ec.",
       "status": "in_progress",
       "tasks": [
-        "Tách prepare phase",
-        "Tách planning phase",
-        "Tách execution phase",
-        "Tách merge phase",
-        "Tách assessment phase",
-        "Tách response phase",
-        "Giữ nguyên hành vi"
+        "T\u00e1ch prepare phase",
+        "T\u00e1ch planning phase",
+        "T\u00e1ch execution phase",
+        "T\u00e1ch merge phase",
+        "T\u00e1ch assessment phase",
+        "T\u00e1ch response phase",
+        "Gi\u1eef nguy\u00ean h\u00e0nh vi"
       ],
       "files": [
         "execution_runtime.py"
       ],
       "acceptance_criteria": [
-        "Hàm ngắn hơn",
-        "Cyclomatic complexity giảm",
-        "Benchmark không đổi"
+        "H\u00e0m ng\u1eafn h\u01a1n",
+        "Cyclomatic complexity gi\u1ea3m",
+        "Benchmark kh\u00f4ng \u0111\u1ed5i"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T12:52:06Z"
@@ -133,21 +133,21 @@
       "category": "Refactor",
       "epic": "Core Architecture",
       "title": "Refactor create_app()",
-      "description": "`create_app()` đang đảm nhận quá nhiều trách nhiệm.",
+      "description": "`create_app()` \u0111ang \u0111\u1ea3m nh\u1eadn qu\u00e1 nhi\u1ec1u tr\u00e1ch nhi\u1ec7m.",
       "status": "in_progress",
       "tasks": [
-        "Tách middleware registration",
-        "Tách router registration",
-        "Tách startup events",
-        "Tách shutdown events",
-        "Tách dependency wiring"
+        "T\u00e1ch middleware registration",
+        "T\u00e1ch router registration",
+        "T\u00e1ch startup events",
+        "T\u00e1ch shutdown events",
+        "T\u00e1ch dependency wiring"
       ],
       "files": [
         "app.py"
       ],
       "acceptance_criteria": [
-        "create_app() chỉ còn bootstrap",
-        "Không thay đổi API"
+        "create_app() ch\u1ec9 c\u00f2n bootstrap",
+        "Kh\u00f4ng thay \u0111\u1ed5i API"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T13:12:34Z"
@@ -158,20 +158,20 @@
       "category": "Performance",
       "epic": "Core Architecture",
       "title": "Optimize Evidence Serialization",
-      "description": "Không serialize toàn bộ evidence lớn lên frontend.",
+      "description": "Kh\u00f4ng serialize to\u00e0n b\u1ed9 evidence l\u1edbn l\u00ean frontend.",
       "status": "in_progress",
       "tasks": [
-        "Thêm `max_data_size`",
+        "Th\u00eam `max_data_size`",
         "Truncate preview",
-        "Chỉ gửi full payload khi cần",
-        "Test payload lớn"
+        "Ch\u1ec9 g\u1eedi full payload khi c\u1ea7n",
+        "Test payload l\u1edbn"
       ],
       "files": [
         "deterministic_agent.py"
       ],
       "acceptance_criteria": [
-        "Payload nhỏ hơn",
-        "Không mất dữ liệu"
+        "Payload nh\u1ecf h\u01a1n",
+        "Kh\u00f4ng m\u1ea5t d\u1eef li\u1ec7u"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T13:22:36Z"
@@ -182,19 +182,19 @@
       "category": "Refactor",
       "epic": "Core Architecture",
       "title": "Improve Safe Data Serialization",
-      "description": "`_safe_data()` chưa xử lý tốt dữ liệu lồng nhau.",
+      "description": "`_safe_data()` ch\u01b0a x\u1eed l\u00fd t\u1ed1t d\u1eef li\u1ec7u l\u1ed3ng nhau.",
       "status": "pending",
       "tasks": [
-        "Hỗ trợ nested object",
-        "Dùng serializer an toàn",
-        "Hỗ trợ object không JSON serializable",
-        "Thêm unit test"
+        "H\u1ed7 tr\u1ee3 nested object",
+        "D\u00f9ng serializer an to\u00e0n",
+        "H\u1ed7 tr\u1ee3 object kh\u00f4ng JSON serializable",
+        "Th\u00eam unit test"
       ],
       "files": [
         "deterministic_agent.py"
       ],
       "acceptance_criteria": [
-        "Không lỗi khi serialize object phức tạp"
+        "Kh\u00f4ng l\u1ed7i khi serialize object ph\u1ee9c t\u1ea1p"
       ],
       "roadmap": null
     },
@@ -204,18 +204,18 @@
       "category": "Enhancement",
       "epic": "Core Architecture",
       "title": "Add EvidencePlanner Fallback",
-      "description": "Intent không có template sẽ không thu thập evidence.",
+      "description": "Intent kh\u00f4ng c\u00f3 template s\u1ebd kh\u00f4ng thu th\u1eadp evidence.",
       "status": "pending",
       "tasks": [
-        "Thêm fallback",
-        "Dùng MACHINE_ASSESSMENT mặc định",
-        "Thêm test"
+        "Th\u00eam fallback",
+        "D\u00f9ng MACHINE_ASSESSMENT m\u1eb7c \u0111\u1ecbnh",
+        "Th\u00eam test"
       ],
       "files": [
         "evidence_planner.py"
       ],
       "acceptance_criteria": [
-        "Không còn empty evidence"
+        "Kh\u00f4ng c\u00f2n empty evidence"
       ],
       "roadmap": null
     },
@@ -228,10 +228,10 @@
       "description": "Make the conversation summary threshold configurable instead of being hardcoded. Replace the current hardcoded value of 4 turns with a configurable setting, read from configuration (default 6-8 turns), and add tests to verify the configuration is respected.",
       "status": "pending",
       "tasks": [
-        "Bỏ hardcode 4 turns",
-        "Đọc từ config",
-        "Default 6–8 turns",
-        "Thêm test"
+        "B\u1ecf hardcode 4 turns",
+        "\u0110\u1ecdc t\u1eeb config",
+        "Default 6\u20138 turns",
+        "Th\u00eam test"
       ],
       "files": [
         "conversation_store.py"
@@ -248,9 +248,9 @@
       "description": "Make the frontend port configurable instead of being hardcoded. Remove the hardcoded port 5173, read the port from environment variable, implement fallback logic if the port is busy, and ensure the application starts correctly on the configured port.",
       "status": "pending",
       "tasks": [
-        "Bỏ hardcode port 5173",
-        "Đọc từ environment",
-        "Fallback nếu port bận"
+        "B\u1ecf hardcode port 5173",
+        "\u0110\u1ecdc t\u1eeb environment",
+        "Fallback n\u1ebfu port b\u1eadn"
       ],
       "files": [
         "app.py"
@@ -267,14 +267,14 @@
       "description": "Remove all dead code from the codebase to improve maintainability. Identify and delete unused wrappers, redundant helpers, obsolete code, and duplicate utility functions across the project. Ensure no functionality is broken after removal.",
       "status": "pending",
       "tasks": [
-        "Xóa wrapper không dùng",
-        "Xóa helper dư",
-        "Xóa code obsolete",
-        "Xóa duplicate utility"
+        "X\u00f3a wrapper kh\u00f4ng d\u00f9ng",
+        "X\u00f3a helper d\u01b0",
+        "X\u00f3a code obsolete",
+        "X\u00f3a duplicate utility"
       ],
       "files": [],
       "acceptance_criteria": [
-        "Không còn dead code"
+        "Kh\u00f4ng c\u00f2n dead code"
       ],
       "roadmap": null
     },
@@ -287,10 +287,10 @@
       "description": "Standardize naming conventions across the entire project for consistency. Normalize methods using `_get_*`, `_read_*`, and `_load_*` prefixes, ensure naming patterns are consistent across all modules, and update all references to match the standardized naming.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa `_get_*`",
-        "Chuẩn hóa `_read_*`",
-        "Chuẩn hóa `_load_*`",
-        "Đồng bộ toàn project"
+        "Chu\u1ea9n h\u00f3a `_get_*`",
+        "Chu\u1ea9n h\u00f3a `_read_*`",
+        "Chu\u1ea9n h\u00f3a `_load_*`",
+        "\u0110\u1ed3ng b\u1ed9 to\u00e0n project"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -305,9 +305,9 @@
       "description": "Cache repeated reads from the /proc filesystem to reduce I/O overhead. Avoid reading /proc multiple times within the same request by implementing a caching layer, and add benchmarks to verify performance improvement.",
       "status": "pending",
       "tasks": [
-        "Cache dữ liệu `/proc`",
-        "Tránh đọc nhiều lần trong cùng request",
-        "Thêm benchmark"
+        "Cache d\u1eef li\u1ec7u `/proc`",
+        "Tr\u00e1nh \u0111\u1ecdc nhi\u1ec1u l\u1ea7n trong c\u00f9ng request",
+        "Th\u00eam benchmark"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -322,15 +322,15 @@
       "description": "Hide internal error details from API responses to prevent information leakage. Stop returning implementation details, available source information, and internal paths in error responses. Log the full error details server-side while returning only generic error messages to clients. Standardize the error response format.",
       "status": "pending",
       "tasks": [
-        "Không trả implementation detail",
-        "Không trả available source",
-        "Chỉ log phía server",
-        "Chuẩn hóa error response"
+        "Kh\u00f4ng tr\u1ea3 implementation detail",
+        "Kh\u00f4ng tr\u1ea3 available source",
+        "Ch\u1ec9 log ph\u00eda server",
+        "Chu\u1ea9n h\u00f3a error response"
       ],
       "files": [],
       "acceptance_criteria": [
-        "Client chỉ nhận generic error",
-        "Log vẫn đầy đủ để debug"
+        "Client ch\u1ec9 nh\u1eadn generic error",
+        "Log v\u1eabn \u0111\u1ea7y \u0111\u1ee7 \u0111\u1ec3 debug"
       ],
       "roadmap": null
     },
@@ -340,14 +340,14 @@
       "category": "Security",
       "epic": "Security",
       "title": "Move Docker Secrets Out of Repository",
-      "description": "Không lưu plaintext secret trong repository.",
+      "description": "Kh\u00f4ng l\u01b0u plaintext secret trong repository.",
       "status": "completed",
       "tasks": [
-        "Kiểm tra toàn bộ Docker secrets",
-        "Chuyển secret sang Docker Secrets hoặc env local",
-        "Thêm `docker-compose.env` vào `.gitignore`",
-        "Tạo `docker-compose.env.example`",
-        "Cập nhật tài liệu cài đặt"
+        "Ki\u1ec3m tra to\u00e0n b\u1ed9 Docker secrets",
+        "Chuy\u1ec3n secret sang Docker Secrets ho\u1eb7c env local",
+        "Th\u00eam `docker-compose.env` v\u00e0o `.gitignore`",
+        "T\u1ea1o `docker-compose.env.example`",
+        "C\u1eadp nh\u1eadt t\u00e0i li\u1ec7u c\u00e0i \u0111\u1eb7t"
       ],
       "files": [
         "docker-compose.env",
@@ -355,8 +355,8 @@
         "docker-compose.yml"
       ],
       "acceptance_criteria": [
-        "Repository không còn chứa secret thật",
-        "Có file example để developer cấu hình"
+        "Repository kh\u00f4ng c\u00f2n ch\u1ee9a secret th\u1eadt",
+        "C\u00f3 file example \u0111\u1ec3 developer c\u1ea5u h\u00ecnh"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T10:50:23Z"
@@ -367,12 +367,12 @@
       "category": "Security",
       "epic": "Security",
       "title": "Add API Authentication (Platform)",
-      "description": "Chuẩn bị API authentication cho production.",
+      "description": "Chu\u1ea9n b\u1ecb API authentication cho production.",
       "status": "in_progress",
       "tasks": [
-        "Tạo API Key middleware",
-        "Đọc key từ environment",
-        "Cho phép bypass `/health`",
+        "T\u1ea1o API Key middleware",
+        "\u0110\u1ecdc key t\u1eeb environment",
+        "Cho ph\u00e9p bypass `/health`",
         "Document API authentication"
       ],
       "files": [
@@ -388,12 +388,12 @@
       "category": "Security",
       "epic": "Security",
       "title": "Make SSH Host Key Checking Configurable",
-      "description": "Cho phép bật/tắt StrictHostKeyChecking bằng cấu hình.",
+      "description": "Cho ph\u00e9p b\u1eadt/t\u1eaft StrictHostKeyChecking b\u1eb1ng c\u1ea5u h\u00ecnh.",
       "status": "in_progress",
       "tasks": [
-        "Thêm config `strict_host_key_checking`",
-        "Hỗ trợ `known_hosts`",
-        "Giữ Local MVP mặc định như hiện tại",
+        "Th\u00eam config `strict_host_key_checking`",
+        "H\u1ed7 tr\u1ee3 `known_hosts`",
+        "Gi\u1eef Local MVP m\u1eb7c \u0111\u1ecbnh nh\u01b0 hi\u1ec7n t\u1ea1i",
         "Document behaviour"
       ],
       "files": [
@@ -409,21 +409,21 @@
       "category": "Security",
       "epic": "Security",
       "title": "Prevent SSRF",
-      "description": "Ngăn InternetTool truy cập private network.",
+      "description": "Ng\u0103n InternetTool truy c\u1eadp private network.",
       "status": "in_progress",
       "tasks": [
         "Block localhost",
         "Block private IP",
         "Block loopback",
         "Block link-local",
-        "Hỗ trợ allowlist domain",
-        "Thêm test"
+        "H\u1ed7 tr\u1ee3 allowlist domain",
+        "Th\u00eam test"
       ],
       "files": [
         "internet_tool.py"
       ],
       "acceptance_criteria": [
-        "Không fetch được private network"
+        "Kh\u00f4ng fetch \u0111\u01b0\u1ee3c private network"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T13:42:41Z"
@@ -437,10 +437,10 @@
       "description": "Sanitize error messages to prevent leaking sensitive information. Ensure stacktraces, internal paths, and available source information are not returned to clients. Standardize error response format across all endpoints.",
       "status": "pending",
       "tasks": [
-        "Không trả stacktrace",
-        "Không trả internal path",
-        "Không trả available source",
-        "Chuẩn hóa error response"
+        "Kh\u00f4ng tr\u1ea3 stacktrace",
+        "Kh\u00f4ng tr\u1ea3 internal path",
+        "Kh\u00f4ng tr\u1ea3 available source",
+        "Chu\u1ea9n h\u00f3a error response"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -455,11 +455,11 @@
       "description": "Validate uploaded files to prevent security vulnerabilities. Implement restrictions on file extensions, enforce file size limits, validate filenames for malicious patterns, reject path traversal attempts, and add unit tests for all validation logic.",
       "status": "pending",
       "tasks": [
-        "Giới hạn extension",
-        "Giới hạn file size",
+        "Gi\u1edbi h\u1ea1n extension",
+        "Gi\u1edbi h\u1ea1n file size",
         "Validate filename",
         "Reject path traversal",
-        "Thêm unit test"
+        "Th\u00eam unit test"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -477,7 +477,7 @@
         "Resolve absolute path",
         "Verify inside allowed directory",
         "Reject symbolic escape",
-        "Thêm regression test"
+        "Th\u00eam regression test"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -508,13 +508,13 @@
       "category": "Security",
       "epic": "Security",
       "title": "Remove Global Mutable Secret State",
-      "description": "Không lưu token trong global mutable variable.",
+      "description": "Kh\u00f4ng l\u01b0u token trong global mutable variable.",
       "status": "pending",
       "tasks": [
         "Refactor initialization",
-        "Đọc token từ config",
-        "Xóa global state",
-        "Thêm test"
+        "\u0110\u1ecdc token t\u1eeb config",
+        "X\u00f3a global state",
+        "Th\u00eam test"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -529,7 +529,7 @@
       "description": "Add rate limiting middleware for the platform deployment. Configure requests per minute limits, implement different rate limits per endpoint, log rejected requests for monitoring, and document the rate limiting configuration.",
       "status": "pending",
       "tasks": [
-        "Thêm middleware",
+        "Th\u00eam middleware",
         "Config requests/minute",
         "Different limit theo endpoint",
         "Log rejected request"
@@ -547,7 +547,7 @@
       "description": "Limit upload size to prevent resource exhaustion. Implement a MAX_UPLOAD_SIZE configuration, return HTTP 413 (Payload Too Large) when the limit is exceeded, and document the upload size limit.",
       "status": "pending",
       "tasks": [
-        "Thêm MAX_UPLOAD_SIZE",
+        "Th\u00eam MAX_UPLOAD_SIZE",
         "Return HTTP 413",
         "Document limit"
       ],
@@ -564,10 +564,10 @@
       "description": "Restrict local file access to only allow reading files within a designated document root directory. Resolve paths to absolute form, reject any path that attempts to escape the document root, and add tests to verify the restriction.",
       "status": "pending",
       "tasks": [
-        "Chỉ cho phép đọc trong document root",
+        "Ch\u1ec9 cho ph\u00e9p \u0111\u1ecdc trong document root",
         "Resolve path",
         "Reject path escape",
-        "Thêm test"
+        "Th\u00eam test"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -582,9 +582,9 @@
       "description": "Hide database credentials in logs to prevent credential leakage. Do not log full DSN strings, mask username and password portions, only log host and database name for debugging purposes.",
       "status": "pending",
       "tasks": [
-        "Không log DSN đầy đủ",
+        "Kh\u00f4ng log DSN \u0111\u1ea7y \u0111\u1ee7",
         "Mask username/password",
-        "Chỉ log host/database"
+        "Ch\u1ec9 log host/database"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -617,8 +617,8 @@
       "description": "Make the secrets path configurable via environment variable. Add an ORION_SECRETS_PATH configuration option, support custom secret file locations, and document the configuration so users can place secrets outside the repository.",
       "status": "pending",
       "tasks": [
-        "Thêm ORION_SECRETS_PATH",
-        "Hỗ trợ custom location",
+        "Th\u00eam ORION_SECRETS_PATH",
+        "H\u1ed7 tr\u1ee3 custom location",
         "Document configuration"
       ],
       "files": [],
@@ -660,7 +660,7 @@
       ],
       "files": [],
       "acceptance_criteria": [
-        "Toàn bộ security regression test pass"
+        "To\u00e0n b\u1ed9 security regression test pass"
       ],
       "roadmap": null
     },
@@ -670,12 +670,12 @@
       "category": "DevOps",
       "epic": "DevOps & CI/CD",
       "title": "Fix Docker Build Dependencies",
-      "description": "Đảm bảo Docker image luôn build thành công, không phụ thuộc cấu hình local.",
+      "description": "\u0110\u1ea3m b\u1ea3o Docker image lu\u00f4n build th\u00e0nh c\u00f4ng, kh\u00f4ng ph\u1ee5 thu\u1ed9c c\u1ea5u h\u00ecnh local.",
       "status": "in_progress",
       "tasks": [
-        "Kiểm tra `Dockerfile.api`",
-        "Kiểm tra optional dependency (`web`, `test`, ...)",
-        "Đồng bộ với `pyproject.toml`",
+        "Ki\u1ec3m tra `Dockerfile.api`",
+        "Ki\u1ec3m tra optional dependency (`web`, `test`, ...)",
+        "\u0110\u1ed3ng b\u1ed9 v\u1edbi `pyproject.toml`",
         "Verify `docker compose build`"
       ],
       "files": [
@@ -683,8 +683,8 @@
         "pyproject.toml"
       ],
       "acceptance_criteria": [
-        "Docker build thành công từ repository sạch",
-        "Không cần chỉnh tay"
+        "Docker build th\u00e0nh c\u00f4ng t\u1eeb repository s\u1ea1ch",
+        "Kh\u00f4ng c\u1ea7n ch\u1ec9nh tay"
       ],
       "roadmap": null,
       "started_at": "2026-07-20T11:35:20Z"
@@ -695,13 +695,13 @@
       "category": "DevOps",
       "epic": "DevOps & CI/CD",
       "title": "Build Docker Images In CI",
-      "description": "CI phải build được toàn bộ Docker image.",
+      "description": "CI ph\u1ea3i build \u0111\u01b0\u1ee3c to\u00e0n b\u1ed9 Docker image.",
       "status": "completed",
       "tasks": [
         "Build API image",
         "Build UI image",
         "Verify compose build",
-        "Fail nếu build lỗi"
+        "Fail n\u1ebfu build l\u1ed7i"
       ],
       "files": [
         ".github/workflows/ci.yml",
@@ -719,18 +719,23 @@
       "epic": "DevOps & CI/CD",
       "title": "Start Containers During CI",
       "description": "Start Docker containers during CI to verify they run correctly. Implement docker compose up in CI pipeline, wait for all services to be ready, run smoke tests to verify functionality, then tear down containers with docker compose down.",
-      "status": "pending",
+      "status": "completed",
       "tasks": [
         "docker compose up",
         "Wait services ready",
         "Run smoke test",
         "docker compose down"
       ],
-      "files": [],
-      "acceptance_criteria": [
-        "CI xác nhận container chạy được"
+      "files": [
+        ".github/workflows/ci.yml",
+        "docker-compose.ci.yml",
+        "tests/test_smoke_containers.py"
       ],
-      "roadmap": null
+      "acceptance_criteria": [
+        "CI x\u00e1c nh\u1eadn container ch\u1ea1y \u0111\u01b0\u1ee3c"
+      ],
+      "roadmap": null,
+      "completed_at": "2026-07-20T20:30:00Z"
     },
     {
       "id": 36,
@@ -738,13 +743,13 @@
       "category": "Backend",
       "epic": "DevOps & CI/CD",
       "title": "Add Health Endpoint",
-      "description": "Thêm endpoint kiểm tra trạng thái service.",
+      "description": "Th\u00eam endpoint ki\u1ec3m tra tr\u1ea1ng th\u00e1i service.",
       "status": "pending",
       "tasks": [
         "GET /health",
-        "Kiểm tra database",
-        "Kiểm tra dependencies",
-        "Trả JSON chuẩn"
+        "Ki\u1ec3m tra database",
+        "Ki\u1ec3m tra dependencies",
+        "Tr\u1ea3 JSON chu\u1ea9n"
       ],
       "files": [
         "app.py"
@@ -802,7 +807,7 @@
         "Bandit",
         "Safety",
         "pip audit",
-        "Fail CI nếu critical"
+        "Fail CI n\u1ebfu critical"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -856,7 +861,7 @@
         "npm ci",
         "npm test",
         "Upload results",
-        "Fail CI nếu test fail"
+        "Fail CI n\u1ebfu test fail"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1013,23 +1018,23 @@
       "category": "Test",
       "epic": "Testing & Quality Assurance",
       "title": "Increase Backend API Test Coverage",
-      "description": "Backend API hiện có ít integration test, chưa bao phủ đầy đủ endpoint mới.",
+      "description": "Backend API hi\u1ec7n c\u00f3 \u00edt integration test, ch\u01b0a bao ph\u1ee7 \u0111\u1ea7y \u0111\u1ee7 endpoint m\u1edbi.",
       "status": "pending",
       "tasks": [
-        "Kiểm tra coverage hiện tại",
-        "Thêm test cho document endpoints",
-        "Thêm test cho knowledge endpoints",
-        "Thêm test cho upload API",
-        "Thêm test cho error responses",
-        "Thêm test concurrent request"
+        "Ki\u1ec3m tra coverage hi\u1ec7n t\u1ea1i",
+        "Th\u00eam test cho document endpoints",
+        "Th\u00eam test cho knowledge endpoints",
+        "Th\u00eam test cho upload API",
+        "Th\u00eam test cho error responses",
+        "Th\u00eam test concurrent request"
       ],
       "files": [
         "tests/backend/",
         "app.py"
       ],
       "acceptance_criteria": [
-        "Tất cả endpoint chính đều có integration test",
-        "Không có endpoint mới thiếu test"
+        "T\u1ea5t c\u1ea3 endpoint ch\u00ednh \u0111\u1ec1u c\u00f3 integration test",
+        "Kh\u00f4ng c\u00f3 endpoint m\u1edbi thi\u1ebfu test"
       ],
       "roadmap": null
     },
@@ -1039,15 +1044,15 @@
       "category": "Test",
       "epic": "Testing & Quality Assurance",
       "title": "Create Shared Pytest Fixtures",
-      "description": "Tập trung toàn bộ fixture dùng chung vào `conftest.py`.",
+      "description": "T\u1eadp trung to\u00e0n b\u1ed9 fixture d\u00f9ng chung v\u00e0o `conftest.py`.",
       "status": "pending",
       "tasks": [
-        "Tạo `tests/conftest.py`",
+        "T\u1ea1o `tests/conftest.py`",
         "Shared mock LLM",
         "Shared mock KnowledgeTool",
         "Shared mock Agent",
         "Shared temporary workspace",
-        "Xóa fixture trùng lặp"
+        "X\u00f3a fixture tr\u00f9ng l\u1eb7p"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1059,13 +1064,13 @@
       "category": "Refactor",
       "epic": "Testing & Quality Assurance",
       "title": "Convert Benchmark To Dataset",
-      "description": "Không hardcode benchmark trong Python.",
+      "description": "Kh\u00f4ng hardcode benchmark trong Python.",
       "status": "pending",
       "tasks": [
-        "Tạo dataset JSON",
-        "Đọc benchmark từ dataset",
+        "T\u1ea1o dataset JSON",
+        "\u0110\u1ecdc benchmark t\u1eeb dataset",
         "pytest parametrize",
-        "Tách benchmark logic khỏi dữ liệu"
+        "T\u00e1ch benchmark logic kh\u1ecfi d\u1eef li\u1ec7u"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1211,10 +1216,10 @@
       "description": "Improve benchmark reports to provide better visibility. Aggregate benchmark results, display scores, show pass rates, and show execution times in an easy-to-read format.",
       "status": "pending",
       "tasks": [
-        "Tổng hợp benchmark",
-        "Hiển thị score",
-        "Hiển thị pass rate",
-        "Hiển thị execution time"
+        "T\u1ed5ng h\u1ee3p benchmark",
+        "Hi\u1ec3n th\u1ecb score",
+        "Hi\u1ec3n th\u1ecb pass rate",
+        "Hi\u1ec3n th\u1ecb execution time"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1284,10 +1289,10 @@
       "description": "Improve overall test coverage across the codebase. Set target coverage goals, ensure no new modules lack tests, integrate coverage reporting in CI, and track coverage by module.",
       "status": "pending",
       "tasks": [
-        "Đạt coverage mục tiêu",
-        "Không có module mới thiếu test",
+        "\u0110\u1ea1t coverage m\u1ee5c ti\u00eau",
+        "Kh\u00f4ng c\u00f3 module m\u1edbi thi\u1ebfu test",
         "Coverage report trong CI",
-        "Theo dõi coverage theo module"
+        "Theo d\u00f5i coverage theo module"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1302,10 +1307,10 @@
       "description": "Remove duplicate tests to reduce test maintenance burden. Find test cases that overlap, merge duplicate tests, standardize test naming conventions, and reorganize test folder structure.",
       "status": "pending",
       "tasks": [
-        "Tìm test trùng",
-        "Gộp test",
-        "Chuẩn hóa naming",
-        "Chuẩn hóa folder"
+        "T\u00ecm test tr\u00f9ng",
+        "G\u1ed9p test",
+        "Chu\u1ea9n h\u00f3a naming",
+        "Chu\u1ea9n h\u00f3a folder"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1320,10 +1325,10 @@
       "description": "Improve test documentation to help developers write better tests. Create guidelines for writing tests, mocking dependencies, running benchmarks, and maintaining regression tests.",
       "status": "pending",
       "tasks": [
-        "Viết test guideline",
-        "Viết mock guideline",
-        "Viết benchmark guideline",
-        "Viết regression guideline"
+        "Vi\u1ebft test guideline",
+        "Vi\u1ebft mock guideline",
+        "Vi\u1ebft benchmark guideline",
+        "Vi\u1ebft regression guideline"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1338,10 +1343,10 @@
       "description": "Implement continuous quality monitoring. Track benchmark results over time, monitor test coverage trends, track performance metrics, and watch for regressions across releases.",
       "status": "pending",
       "tasks": [
-        "Theo dõi benchmark",
-        "Theo dõi coverage",
-        "Theo dõi performance",
-        "Theo dõi regression"
+        "Theo d\u00f5i benchmark",
+        "Theo d\u00f5i coverage",
+        "Theo d\u00f5i performance",
+        "Theo d\u00f5i regression"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1353,14 +1358,14 @@
       "category": "Documentation",
       "epic": "Documentation & Project Governance",
       "title": "Create ADR-0002",
-      "description": "Tạo ADR mô tả quyết định chỉ sử dụng LLM cho Assessment Layer.",
+      "description": "T\u1ea1o ADR m\u00f4 t\u1ea3 quy\u1ebft \u0111\u1ecbnh ch\u1ec9 s\u1eed d\u1ee5ng LLM cho Assessment Layer.",
       "status": "in_progress",
       "tasks": [
-        "Tạo `ADR-0002`",
-        "Mô tả context",
-        "Mô tả decision",
-        "Mô tả consequence",
-        "Link từ Architecture Decisions"
+        "T\u1ea1o `ADR-0002`",
+        "M\u00f4 t\u1ea3 context",
+        "M\u00f4 t\u1ea3 decision",
+        "M\u00f4 t\u1ea3 consequence",
+        "Link t\u1eeb Architecture Decisions"
       ],
       "files": [
         "docs/adr/ADR-0002-llm-assessment.md",
@@ -1376,12 +1381,12 @@
       "category": "Documentation",
       "epic": "Documentation & Project Governance",
       "title": "Create ADR-0003",
-      "description": "Tạo ADR mô tả KnowledgeTool là entry point duy nhất.",
+      "description": "T\u1ea1o ADR m\u00f4 t\u1ea3 KnowledgeTool l\u00e0 entry point duy nh\u1ea5t.",
       "status": "in_progress",
       "tasks": [
-        "Tạo ADR",
-        "Giải thích rationale",
-        "Link từ Architecture Decisions"
+        "T\u1ea1o ADR",
+        "Gi\u1ea3i th\u00edch rationale",
+        "Link t\u1eeb Architecture Decisions"
       ],
       "files": [
         "docs/adr/ADR-0003-knowledge-tool.md"
@@ -1399,10 +1404,10 @@
       "description": "Synchronize all architecture decision records (ADRs) to ensure consistency. Check all ADR references across documentation, update cross-references between ADRs, fix broken links, and standardize ADR numbering.",
       "status": "pending",
       "tasks": [
-        "Kiểm tra toàn bộ ADR reference",
-        "Cập nhật cross reference",
-        "Xóa link hỏng",
-        "Chuẩn hóa numbering"
+        "Ki\u1ec3m tra to\u00e0n b\u1ed9 ADR reference",
+        "C\u1eadp nh\u1eadt cross reference",
+        "X\u00f3a link h\u1ecfng",
+        "Chu\u1ea9n h\u00f3a numbering"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1414,13 +1419,13 @@
       "category": "Documentation",
       "epic": "Documentation & Project Governance",
       "title": "Rewrite BACKLOG.md",
-      "description": "Chuẩn hóa backlog theo format thống nhất.",
+      "description": "Chu\u1ea9n h\u00f3a backlog theo format th\u1ed1ng nh\u1ea5t.",
       "status": "pending",
       "tasks": [
-        "Chuyển sang tiếng Anh",
-        "Nhóm theo Epic",
-        "Priority rõ ràng",
-        "Status rõ ràng"
+        "Chuy\u1ec3n sang ti\u1ebfng Anh",
+        "Nh\u00f3m theo Epic",
+        "Priority r\u00f5 r\u00e0ng",
+        "Status r\u00f5 r\u00e0ng"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1435,10 +1440,10 @@
       "description": "Create the initial CHANGELOG for release v0.1.0. Move items from Unreleased section to the first release, follow Keep a Changelog format, and synchronize version numbers across the project.",
       "status": "pending",
       "tasks": [
-        "Tạo release đầu tiên",
-        "Chuyển Unreleased",
+        "T\u1ea1o release \u0111\u1ea7u ti\u00ean",
+        "Chuy\u1ec3n Unreleased",
         "Theo Keep a Changelog",
-        "Đồng bộ version"
+        "\u0110\u1ed3ng b\u1ed9 version"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1527,10 +1532,10 @@
       "description": "Consolidate benchmark reports into a single structured format. Merge multiple benchmark reports, keep only the latest results, create a summary view, and archive old benchmark data.",
       "status": "pending",
       "tasks": [
-        "Gộp benchmark report",
+        "G\u1ed9p benchmark report",
         "Latest benchmark",
         "Summary benchmark",
-        "Archive benchmark cũ"
+        "Archive benchmark c\u0169"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1545,10 +1550,10 @@
       "description": "Standardize documentation structure across all project docs. Normalize heading levels, numbering schemes, table formats, and terminology usage for consistency.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa heading",
-        "Chuẩn hóa numbering",
-        "Chuẩn hóa table",
-        "Chuẩn hóa terminology"
+        "Chu\u1ea9n h\u00f3a heading",
+        "Chu\u1ea9n h\u00f3a numbering",
+        "Chu\u1ea9n h\u00f3a table",
+        "Chu\u1ea9n h\u00f3a terminology"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1599,10 +1604,10 @@
       "description": "Update the project state document to reflect current implementation status. Synchronize the implementation status with actual progress, update the roadmap, list completed work, and document known issues.",
       "status": "pending",
       "tasks": [
-        "Đồng bộ implementation",
-        "Đồng bộ roadmap",
-        "Đồng bộ completed work",
-        "Đồng bộ known issues"
+        "\u0110\u1ed3ng b\u1ed9 implementation",
+        "\u0110\u1ed3ng b\u1ed9 roadmap",
+        "\u0110\u1ed3ng b\u1ed9 completed work",
+        "\u0110\u1ed3ng b\u1ed9 known issues"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1673,11 +1678,11 @@
       "description": "Perform a comprehensive documentation consistency review. Check terminology usage across all docs, find and remove duplicate content, fix broken links, identify outdated documentation, and synchronize all documentation.",
       "status": "pending",
       "tasks": [
-        "Kiểm tra terminology",
-        "Kiểm tra duplicate",
-        "Kiểm tra broken links",
-        "Kiểm tra outdated docs",
-        "Đồng bộ toàn bộ tài liệu"
+        "Ki\u1ec3m tra terminology",
+        "Ki\u1ec3m tra duplicate",
+        "Ki\u1ec3m tra broken links",
+        "Ki\u1ec3m tra outdated docs",
+        "\u0110\u1ed3ng b\u1ed9 to\u00e0n b\u1ed9 t\u00e0i li\u1ec7u"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1689,18 +1694,18 @@
       "category": "Refactor",
       "epic": "Code Quality, Refactoring & Technical Debt",
       "title": "Replace Broad Exception Handling",
-      "description": "Giảm việc sử dụng `except Exception:` để tránh che giấu lỗi.",
+      "description": "Gi\u1ea3m vi\u1ec7c s\u1eed d\u1ee5ng `except Exception:` \u0111\u1ec3 tr\u00e1nh che gi\u1ea5u l\u1ed7i.",
       "status": "pending",
       "tasks": [
-        "Rà soát toàn bộ project",
-        "Thay bằng exception cụ thể",
-        "Bổ sung logging phù hợp",
-        "Không bắt `KeyboardInterrupt`",
-        "Không bắt `SystemExit`"
+        "R\u00e0 so\u00e1t to\u00e0n b\u1ed9 project",
+        "Thay b\u1eb1ng exception c\u1ee5 th\u1ec3",
+        "B\u1ed5 sung logging ph\u00f9 h\u1ee3p",
+        "Kh\u00f4ng b\u1eaft `KeyboardInterrupt`",
+        "Kh\u00f4ng b\u1eaft `SystemExit`"
       ],
       "files": [],
       "acceptance_criteria": [
-        "Không còn `except Exception:` không cần thiết."
+        "Kh\u00f4ng c\u00f2n `except Exception:` kh\u00f4ng c\u1ea7n thi\u1ebft."
       ],
       "roadmap": null
     },
@@ -1710,12 +1715,12 @@
       "category": "Performance",
       "epic": "Code Quality, Refactoring & Technical Debt",
       "title": "Introduce Database Connection Pool",
-      "description": "Không tạo connection mới cho mỗi request.",
+      "description": "Kh\u00f4ng t\u1ea1o connection m\u1edbi cho m\u1ed7i request.",
       "status": "pending",
       "tasks": [
-        "Thêm connection pool",
-        "Refactor toàn bộ nơi mở DB",
-        "Đóng pool đúng lifecycle",
+        "Th\u00eam connection pool",
+        "Refactor to\u00e0n b\u1ed9 n\u01a1i m\u1edf DB",
+        "\u0110\u00f3ng pool \u0111\u00fang lifecycle",
         "Benchmark"
       ],
       "files": [],
@@ -1728,13 +1733,13 @@
       "category": "Refactor",
       "epic": "Code Quality, Refactoring & Technical Debt",
       "title": "Remove Duplicate Tool Execution Logic",
-      "description": "Các Tool đang có nhiều đoạn execute giống nhau.",
+      "description": "C\u00e1c Tool \u0111ang c\u00f3 nhi\u1ec1u \u0111o\u1ea1n execute gi\u1ed1ng nhau.",
       "status": "pending",
       "tasks": [
-        "Tìm code trùng",
-        "Tạo base implementation",
-        "Refactor toàn bộ tool",
-        "Giữ backward compatibility"
+        "T\u00ecm code tr\u00f9ng",
+        "T\u1ea1o base implementation",
+        "Refactor to\u00e0n b\u1ed9 tool",
+        "Gi\u1eef backward compatibility"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1749,10 +1754,10 @@
       "description": "Standardize the Tool interface across all tool implementations. Normalize input parameters, output formats, error handling patterns, and metadata structure for consistent tool behavior.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa input",
-        "Chuẩn hóa output",
-        "Chuẩn hóa error",
-        "Chuẩn hóa metadata"
+        "Chu\u1ea9n h\u00f3a input",
+        "Chu\u1ea9n h\u00f3a output",
+        "Chu\u1ea9n h\u00f3a error",
+        "Chu\u1ea9n h\u00f3a metadata"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1788,9 +1793,9 @@
       "description": "Standardize the configuration system across the project. Audit all current configuration locations, consolidate into a single configuration source, eliminate duplicate config entries, and document all configuration options.",
       "status": "pending",
       "tasks": [
-        "Kiểm tra config hiện tại",
-        "Gom toàn bộ config",
-        "Xóa config trùng",
+        "Ki\u1ec3m tra config hi\u1ec7n t\u1ea1i",
+        "Gom to\u00e0n b\u1ed9 config",
+        "X\u00f3a config tr\u00f9ng",
         "Document config"
       ],
       "files": [],
@@ -1806,10 +1811,10 @@
       "description": "Improve logging consistency across the codebase. Standardize logger initialization, normalize log level usage, unify message format, and ensure structured logging is used consistently.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa logger",
-        "Chuẩn hóa log level",
-        "Chuẩn hóa message format",
-        "Chuẩn hóa structured log"
+        "Chu\u1ea9n h\u00f3a logger",
+        "Chu\u1ea9n h\u00f3a log level",
+        "Chu\u1ea9n h\u00f3a message format",
+        "Chu\u1ea9n h\u00f3a structured log"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1824,10 +1829,10 @@
       "description": "Improve the error handling strategy across the project. Standardize the exception hierarchy, normalize error codes, create consistent API error responses, and unify internal error handling patterns.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa exception hierarchy",
-        "Chuẩn hóa error code",
-        "Chuẩn hóa API error",
-        "Chuẩn hóa internal error"
+        "Chu\u1ea9n h\u00f3a exception hierarchy",
+        "Chu\u1ea9n h\u00f3a error code",
+        "Chu\u1ea9n h\u00f3a API error",
+        "Chu\u1ea9n h\u00f3a internal error"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1843,9 +1848,9 @@
       "status": "pending",
       "tasks": [
         "Profile runtime",
-        "Xóa bottleneck",
-        "Cache hợp lý",
-        "Benchmark lại"
+        "X\u00f3a bottleneck",
+        "Cache h\u1ee3p l\u00fd",
+        "Benchmark l\u1ea1i"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1861,8 +1866,8 @@
       "status": "pending",
       "tasks": [
         "Review capability flow",
-        "Đơn giản hóa logic",
-        "Xóa duplicate lookup",
+        "\u0110\u01a1n gi\u1ea3n h\u00f3a logic",
+        "X\u00f3a duplicate lookup",
         "Improve maintainability"
       ],
       "files": [],
@@ -1878,10 +1883,10 @@
       "description": "Standardize response models across all API endpoints. Normalize response schemas, serialization patterns, validation logic, and typing to ensure consistent API responses.",
       "status": "pending",
       "tasks": [
-        "Chuẩn hóa schema",
-        "Chuẩn hóa serialization",
-        "Chuẩn hóa validation",
-        "Chuẩn hóa typing"
+        "Chu\u1ea9n h\u00f3a schema",
+        "Chu\u1ea9n h\u00f3a serialization",
+        "Chu\u1ea9n h\u00f3a validation",
+        "Chu\u1ea9n h\u00f3a typing"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1915,8 +1920,8 @@
       "description": "Remove legacy compatibility code that is no longer needed. Find and remove compatibility layers for deprecated APIs, clean up unused imports, and remove obsolete helper functions.",
       "status": "pending",
       "tasks": [
-        "Tìm legacy code",
-        "Xóa compatibility layer không còn dùng",
+        "T\u00ecm legacy code",
+        "X\u00f3a compatibility layer kh\u00f4ng c\u00f2n d\u00f9ng",
         "Cleanup import",
         "Cleanup helper"
       ],
@@ -1934,9 +1939,9 @@
       "status": "pending",
       "tasks": [
         "Review folder structure",
-        "Di chuyển module nếu cần",
-        "Đồng bộ package",
-        "Xóa module thừa"
+        "Di chuy\u1ec3n module n\u1ebfu c\u1ea7n",
+        "\u0110\u1ed3ng b\u1ed9 package",
+        "X\u00f3a module th\u1eeba"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1951,10 +1956,10 @@
       "description": "Review and catalog technical debt across the codebase. Search for TODO, FIXME, and XXX comments, categorize each item, and create a plan to address them systematically.",
       "status": "pending",
       "tasks": [
-        "Rà soát TODO",
-        "Rà soát FIXME",
-        "Rà soát XXX",
-        "Lập kế hoạch xử lý"
+        "R\u00e0 so\u00e1t TODO",
+        "R\u00e0 so\u00e1t FIXME",
+        "R\u00e0 so\u00e1t XXX",
+        "L\u1eadp k\u1ebf ho\u1ea1ch x\u1eed l\u00fd"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -1969,10 +1974,10 @@
       "description": "Remove duplicate utility functions across the project. Identify functions that serve the same purpose, consolidate them into a common module, refactor all call sites to use the shared implementation, and delete the old code.",
       "status": "pending",
       "tasks": [
-        "Tìm utility trùng",
-        "Gom về common module",
+        "T\u00ecm utility tr\u00f9ng",
+        "Gom v\u1ec1 common module",
         "Refactor call site",
-        "Xóa code cũ"
+        "X\u00f3a code c\u0169"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -2003,17 +2008,17 @@
       "category": "Refactor",
       "epic": "Code Quality, Refactoring & Technical Debt",
       "title": "Final Architecture Cleanup",
-      "description": "Thực hiện đợt cleanup cuối sau khi toàn bộ backlog đã hoàn thành.",
+      "description": "Th\u1ef1c hi\u1ec7n \u0111\u1ee3t cleanup cu\u1ed1i sau khi to\u00e0n b\u1ed9 backlog \u0111\u00e3 ho\u00e0n th\u00e0nh.",
       "status": "pending",
       "tasks": [
-        "Rà soát dependency",
-        "Xóa dead code",
-        "Xóa duplicate",
+        "R\u00e0 so\u00e1t dependency",
+        "X\u00f3a dead code",
+        "X\u00f3a duplicate",
         "Verify architecture",
         "Update documentation",
-        "Chạy full benchmark",
-        "Chạy full regression test",
-        "Chuẩn bị release"
+        "Ch\u1ea1y full benchmark",
+        "Ch\u1ea1y full regression test",
+        "Chu\u1ea9n b\u1ecb release"
       ],
       "files": [],
       "acceptance_criteria": [],
@@ -2067,21 +2072,21 @@
     "commits_made": 19
   },
   "workflow": [
-    "1. Đọc backlog, pick task P0 cao nhất",
-    "2. Phân tích yêu cầu — đọc docs, hiểu task",
-    "3. Đọc code liên quan — hiểu kiến trúc",
-    "4. Lập kế hoạch implement",
+    "1. \u0110\u1ecdc backlog, pick task P0 cao nh\u1ea5t",
+    "2. Ph\u00e2n t\u00edch y\u00eau c\u1ea7u \u2014 \u0111\u1ecdc docs, hi\u1ec3u task",
+    "3. \u0110\u1ecdc code li\u00ean quan \u2014 hi\u1ec3u ki\u1ebfn tr\u00fac",
+    "4. L\u1eadp k\u1ebf ho\u1ea1ch implement",
     "5. Implement",
-    "6. Self review — check code, check architecture",
+    "6. Self review \u2014 check code, check architecture",
     "7. Format code",
-    "8. Lint — ruff check, fix nếu fail",
-    "9. Unit test — chạy pytest, fix nếu fail",
-    "10. Integration test — chạy all tests, fix nếu fail",
-    "11. Regression test — chạy full suite, fix nếu fail",
-    "12. Nếu có lỗi → quay lại bước 5, loop đến khi pass hết",
-    "13. Update documentation nếu cần",
+    "8. Lint \u2014 ruff check, fix n\u1ebfu fail",
+    "9. Unit test \u2014 ch\u1ea1y pytest, fix n\u1ebfu fail",
+    "10. Integration test \u2014 ch\u1ea1y all tests, fix n\u1ebfu fail",
+    "11. Regression test \u2014 ch\u1ea1y full suite, fix n\u1ebfu fail",
+    "12. N\u1ebfu c\u00f3 l\u1ed7i \u2192 quay l\u1ea1i b\u01b0\u1edbc 5, loop \u0111\u1ebfn khi pass h\u1ebft",
+    "13. Update documentation n\u1ebfu c\u1ea7n",
     "14. Git commit",
-    "15. Update state.json — mark completed",
-    "16. Mở task tiếp theo — quay lại bước 1"
+    "15. Update state.json \u2014 mark completed",
+    "16. M\u1edf task ti\u1ebfp theo \u2014 quay l\u1ea1i b\u01b0\u1edbc 1"
   ]
 }

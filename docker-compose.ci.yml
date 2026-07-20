@@ -1,0 +1,12 @@
+services:
+  api:
+    image: orion-api:ci
+    build: null
+
+  ui:
+    image: orion-ui:ci
+    build: null
+
+  rag-service:
+    image: orion-rag-service:ci
+    build: null
