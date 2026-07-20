@@ -65,3 +65,11 @@ jobs:
           file: docker/Dockerfile.ui
           load: true
           tags: orion-ui:ci
+
+      - name: Build RAG service image
+        uses: docker/build-push-action@v6
+        with:
+          context: src/tool/RAGTool
+          file: src/tool/RAGTool/Dockerfile
+          load: true
+          tags: orion-rag-service:ci
