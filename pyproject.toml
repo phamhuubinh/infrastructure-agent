@@ -24,8 +24,23 @@ where = ["src"]
 "" = "src"
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = ["pytest>=7", "pytest-cov>=5"]
 web = ["fastapi>=0.100", "uvicorn>=0.20"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/tool/RAGTool/*", "tests/*"]
+relative_files = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "raise AssertionError",
+]
 
 [tool.ruff]
 line-length = 88

@@ -31,8 +31,33 @@ jobs:
           pip install ruff
           ruff check .
 
-      - name: Test
-        run: python -m pytest tests/ -q --tb=short -x
+      - name: Test with coverage
+        run: python -m pytest tests/ -q --tb=short -x --cov=src --cov-report=xml --cov-report=html
+
+      - name: Upload coverage report (XML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: error
+
+      - name: Upload coverage report (HTML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-${{ matrix.python-version }}
+          path: htmlcov/
+          if-no-files-found: error
+
+      - name: Upload coverage to CodeCov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          file: coverage.xml
+          flags: unittests
+          name: codecov-orion
+          fail_ci_if_error: false
 
       - name: Archive benchmark results
         if: always()
