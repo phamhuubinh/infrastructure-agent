@@ -137,9 +137,8 @@ class ExecutionRuntime:
 
         def _check_early_completion() -> bool:
             """Check if all required evidence is collected and skip remaining."""
-            if (
-                not required_evidence_names
-                or collected_evidence < required_evidence_names
+            if not required_evidence_names or not collected_evidence.issuperset(
+                required_evidence_names
             ):
                 return False
             for node in remaining:
