@@ -103,8 +103,8 @@ services:
 
   rag-service:
     build:
-      context: .
-      dockerfile: src/tool/RAGTool/Dockerfile
+      context: src/tool/RAGTool
+      dockerfile: Dockerfile
     container_name: orion-rag-service
     environment:
       RAG_EMBEDDING_PROVIDER: hash
