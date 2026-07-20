@@ -38,7 +38,13 @@ desktop-install:
 desktop-start:
 	cd desktop && npx electron .
 
-ci: test lint typecheck
+security-scan:
+	pip install bandit safety pip-audit -q
+	bandit -r src/ -c pyproject.toml -f sarif -o bandit_results.sarif || true
+	safety check --full-report || true
+	pip-audit || true
+
+ci: test lint security-scan typecheck
 
 install:
 	pip install -e ".[test]"

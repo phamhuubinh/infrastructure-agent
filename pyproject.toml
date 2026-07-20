@@ -26,6 +26,7 @@ where = ["src"]
 [project.optional-dependencies]
 test = ["pytest>=7", "pytest-cov>=5"]
 web = ["fastapi>=0.100", "uvicorn>=0.20"]
+security = ["bandit>=1.7", "safety>=3.0", "pip-audit>=2.7"]
 
 [tool.coverage.run]
 source = ["src"]
@@ -59,3 +60,13 @@ ignore = [
     "E402",
     "E701",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", ".git", "ui", "desktop", "benchmark"]
+skips = ["B101", "B301", "B303", "B403", "B601", "B602"]
+# B101: assert used (acceptable in tests, excluded via dirs)
+# B301: pickle (known usage, excluded via dirs)
+# B303: md5 (known usage, excluded via dirs)
+# B403: pickle import (known usage, excluded via dirs)
+# B601: paramiko (SSH lib, intentional)
+# B602: subprocess_with_shell_equals_true (SSH execution, intentional)

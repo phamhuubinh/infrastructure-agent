@@ -26,8 +26,9 @@ Key principles:
 
 1. Run tests: `python -m pytest tests/ -q --tb=short`
 2. Run lint: `ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501`
-3. Update `docs/ai/08_PROJECT_STATE.md` if behavior changes
-4. Update `CHANGELOG.md` for user-facing changes
+3. Run security scan: `make security-scan` (requires `pip install -e ".[security]"`)
+4. Update `docs/ai/08_PROJECT_STATE.md` if behavior changes
+5. Update `CHANGELOG.md` for user-facing changes
 
 ## Commit Guidelines
 

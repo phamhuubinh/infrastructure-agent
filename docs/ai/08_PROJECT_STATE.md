@@ -31,6 +31,13 @@
 - Docker Compose API service configured with `ORION_DATABASE_URL` environment variable.
 - Fallback to JSON file storage when no database URL is configured (backward compatible).
 
+## Security scanning added to CI
+- **Bandit** static analysis runs on `src/` in CI, configured via `pyproject.toml` with known-issue skips.
+- **Safety** checks dependencies for known vulnerabilities (continues on error — advisory only).
+- **pip-audit** scans installed packages for known CVEs.
+- `make security-scan` target added; `make ci` now includes `security-scan`.
+- New optional dependency group `[security]` (`bandit>=1.7`, `safety>=3.0`, `pip-audit>=2.7`).
+
 ## Cleanup completed (stabilization phase)
 - Removed dead code: `main.py`, `dump_assessment.py`, `api_server.py` (duplicate of `cli.py`).
 - Removed empty `__init__.py` files (PEP 420 namespace packages).

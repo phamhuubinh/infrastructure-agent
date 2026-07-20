@@ -24,12 +24,25 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          pip install -e ".[test,security]"
 
       - name: Lint
         run: |
           pip install ruff
           ruff check .
+
+      - name: Security scan (Bandit)
+        run: bandit -r src/ -c pyproject.toml
+        if: always()
+
+      - name: Dependency vulnerability scan (Safety)
+        run: safety check --full-report
+        if: always()
+        continue-on-error: true
+
+      - name: Package vulnerability scan (pip-audit)
+        run: pip-audit
+        if: always()
 
       - name: Test with coverage
         run: python -m pytest tests/ -q --tb=short -x --cov=src --cov-report=xml --cov-report=html

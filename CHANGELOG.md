@@ -23,3 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Secrets moved from source code to gitignored config/secrets.local.json
 - See README.md for credential management
+
+### Added
+- Security scanning in CI: Bandit (static analysis), Safety (dependency check), pip-audit (package CVEs)
+- `make security-scan` target, integrated into `make ci`
+- New `[security]` optional dependency group in pyproject.toml
