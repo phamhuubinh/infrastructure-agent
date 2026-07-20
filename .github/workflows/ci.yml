@@ -41,3 +41,27 @@ jobs:
           name: benchmark-results-${{ matrix.python-version }}
           path: benchmark_results_*
           if-no-files-found: ignore
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          load: true
+          tags: orion-api:ci
+
+      - name: Build UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.ui
+          load: true
+          tags: orion-ui:ci
