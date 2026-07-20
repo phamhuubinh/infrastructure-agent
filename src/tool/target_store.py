@@ -38,6 +38,9 @@ class TargetStore:
                     user=str(cfg.get("user", "root")),
                     port=int(cfg.get("port", 22)),
                     identity_file=cfg.get("identity_file"),
+                    strict_host_key_checking=bool(
+                        cfg.get("strict_host_key_checking", False)
+                    ),
                 )
             else:
                 targets[name] = LocalExecutionBackend()
@@ -53,6 +56,7 @@ class TargetStore:
                     "port": backend._port,
                     "user": backend._user,
                     "identity_file": backend._identity_file,
+                    "strict_host_key_checking": backend._strict_host_key_checking,
                 }
             else:
                 data[name] = {"backend": "local"}

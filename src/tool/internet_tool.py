@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import ipaddress
 import json
 import re
+import socket
 from html.parser import HTMLParser
 from urllib import error as urlerror
 from urllib import parse as urllib_parse
@@ -14,6 +16,42 @@ from src.tool.tool import Tool
 
 _MAX_RESPONSE_BYTES = 512 * 1024  # 512 KB
 _DEFAULT_TIMEOUT = 15
+
+# RFC 1918, RFC 6890, RFC 3927, RFC 5735, RFC 4291
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fd00::/8"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def _is_private_address(host: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(addr in net for net in _PRIVATE_NETWORKS)
+
+
+def _resolve_host(hostname: str) -> str | None:
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except (socket.gaierror, OSError):
+        return None
+    seen: set[str] = set()
+    for info in infos:
+        ip_str = info[4][0]
+        if ip_str not in seen:
+            seen.add(ip_str)
+            if _is_private_address(ip_str):
+                return ip_str
+    return None
 
 
 class _HTMLStripper(HTMLParser):
@@ -130,6 +168,18 @@ def _web_fetch(
     if parsed.scheme not in ("http", "https"):
         return {
             "error": f"Unsupported scheme: '{parsed.scheme}'. Only http and https are allowed.",
+        }
+
+    hostname = parsed.hostname or ""
+    if _is_private_address(hostname):
+        return {
+            "error": f"Access to private address '{hostname}' is not allowed.",
+        }
+
+    private_ip = _resolve_host(hostname)
+    if private_ip is not None:
+        return {
+            "error": f"Access to private address '{private_ip}' is not allowed.",
         }
 
     return _fetch_url(url, timeout=timeout)

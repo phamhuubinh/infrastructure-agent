@@ -6,8 +6,9 @@ from unittest import mock
 from src.backend.app import create_app
 
 
-def test_health_endpoint() -> None:
-    app, _, _ = create_app()
+@mock.patch("src.backend.dependencies._get_dsn", return_value=None)
+def test_health_endpoint(mock_dsn: mock.MagicMock) -> None:
+    app, _, _ = create_app(database_url="")
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -16,24 +17,26 @@ def test_health_endpoint() -> None:
     assert resp.json()["status"] == "ok"
 
 
-def test_check_model_calls_health_check() -> None:
-    app, _, _ = create_app()
+@mock.patch("src.backend.dependencies._get_dsn", return_value=None)
+def test_check_model_calls_health_check(mock_dsn: mock.MagicMock) -> None:
+    app, _, _ = create_app(database_url="")
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
 
-    # LLM is online — should return ok
     resp = client.get("/api/check-model")
     data = resp.json()
     assert resp.status_code == 200
-    # status may be "ok" or "error" depending on LLM availability
     assert "status" in data
 
 
+@mock.patch("src.backend.dependencies._get_dsn", return_value=None)
 @mock.patch("src.model.llm_client.LLMClient.health_check")
-def test_check_model_returns_ok_when_llm_healthy(mock_health) -> None:
+def test_check_model_returns_ok_when_llm_healthy(
+    mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
+) -> None:
     mock_health.return_value = True
-    app, _, _ = create_app()
+    app, _, _ = create_app(database_url="")
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -42,10 +45,13 @@ def test_check_model_returns_ok_when_llm_healthy(mock_health) -> None:
     mock_health.assert_called_once()
 
 
+@mock.patch("src.backend.dependencies._get_dsn", return_value=None)
 @mock.patch("src.model.llm_client.LLMClient.health_check")
-def test_check_model_returns_error_when_llm_unhealthy(mock_health) -> None:
+def test_check_model_returns_error_when_llm_unhealthy(
+    mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
+) -> None:
     mock_health.side_effect = RuntimeError("LLM unreachable")
-    app, _, _ = create_app()
+    app, _, _ = create_app(database_url="")
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -55,13 +61,63 @@ def test_check_model_returns_error_when_llm_unhealthy(mock_health) -> None:
     assert "LLM unreachable" in data.get("error", "")
 
 
-def test_check_model_returns_valid_json() -> None:
-    app, _, _ = create_app()
+@mock.patch("src.backend.dependencies._get_dsn", return_value=None)
+def test_check_model_returns_valid_json(mock_dsn: mock.MagicMock) -> None:
+    app, _, _ = create_app(database_url="")
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
     resp = client.get("/api/check-model")
     assert resp.status_code == 200
-    # Response must be valid JSON
     data = json.loads(resp.text)
     assert isinstance(data, dict)
+
+
+def _make_status_app():
+    """Helper to create app for status tests with mocking."""
+    from src.backend.app import create_app
+
+    with (
+        mock.patch("src.backend.dependencies._get_dsn", return_value=None),
+        mock.patch("src.model.llm_client.LLMClient.health_check", return_value=True),
+        mock.patch("urllib.request.urlopen", side_effect=RuntimeError("no rag")),
+    ):
+        app, _, _ = create_app(database_url="")
+    return app
+
+
+def test_service_status_structure() -> None:
+    app = _make_status_app()
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "components" in data
+    assert "app" in data["components"]
+    assert "database" in data["components"]
+    assert "llm" in data["components"]
+    assert "rag" in data["components"]
+    assert "timestamp" in data
+
+
+def test_service_status_overall_ok() -> None:
+    app = _make_status_app()
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    resp = client.get("/api/status")
+    data = resp.json()
+    assert "status" in data
+
+
+def test_service_status_degraded() -> None:
+    app = _make_status_app()
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    resp = client.get("/api/status")
+    data = resp.json()
+    assert data["components"]["rag"]["status"] == "error"
+    assert data["status"] == "degraded"

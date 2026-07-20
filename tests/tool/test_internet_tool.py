@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import socket
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
 
 from src.shared.execution.tool_result import ToolResult
-from src.tool.internet_tool import _CAPABILITIES, InternetTool, _fetch_url, _web_fetch
+from src.tool.internet_tool import (
+    _CAPABILITIES,
+    InternetTool,
+    _fetch_url,
+    _is_private_address,
+    _resolve_host,
+    _web_fetch,
+)
 
 _HTTP_OK = 200
 _HTTP_NOT_FOUND = 404
@@ -142,3 +150,125 @@ def test_fetch_url_rejects_exception(mock_urlopen: MagicMock) -> None:
     result = _fetch_url(url="http://example.com")
     assert "error" in result
     assert "connection refused" in str(result["error"]).lower()
+
+
+# --- SSRF prevention tests ---
+
+
+def test_is_private_address_loopback() -> None:
+    assert _is_private_address("127.0.0.1") is True
+    assert _is_private_address("127.255.255.255") is True
+
+
+def test_is_private_address_rfc1918() -> None:
+    assert _is_private_address("10.0.0.1") is True
+    assert _is_private_address("10.255.255.255") is True
+    assert _is_private_address("172.16.0.1") is True
+    assert _is_private_address("172.31.255.255") is True
+    assert _is_private_address("192.168.0.1") is True
+    assert _is_private_address("192.168.255.255") is True
+
+
+def test_is_private_address_link_local() -> None:
+    assert _is_private_address("169.254.1.1") is True
+
+
+def test_is_private_address_current_network() -> None:
+    assert _is_private_address("0.0.0.0") is True
+
+
+def test_is_private_address_ipv6() -> None:
+    assert _is_private_address("::1") is True
+    assert _is_private_address("fd00::1") is True
+    assert _is_private_address("fe80::1") is True
+
+
+def test_is_private_address_public() -> None:
+    assert _is_private_address("8.8.8.8") is False
+    assert _is_private_address("172.14.255.255") is False
+    assert _is_private_address("172.32.0.1") is False
+    assert _is_private_address("192.167.255.255") is False
+    assert _is_private_address("1.1.1.1") is False
+
+
+def test_is_private_address_non_ip() -> None:
+    assert _is_private_address("example.com") is False
+    assert _is_private_address("") is False
+    assert _is_private_address("not-an-ip") is False
+
+
+def test_web_fetch_blocks_loopback_ip() -> None:
+    result = _web_fetch(url="http://127.0.0.1/")
+    assert "error" in result
+    assert "private address" in str(result["error"]).lower()
+
+
+def test_web_fetch_blocks_private_ip() -> None:
+    for ip in ("10.1.2.3", "192.168.1.1", "172.16.0.5"):
+        result = _web_fetch(url=f"http://{ip}/")
+        assert "error" in result
+        assert "private address" in str(result["error"]).lower()
+
+
+def test_web_fetch_blocks_link_local_ip() -> None:
+    result = _web_fetch(url="http://169.254.1.1/")
+    assert "error" in result
+    assert "private address" in str(result["error"]).lower()
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_web_fetch_blocks_localhost_via_dns(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))
+    ]
+    result = _web_fetch(url="http://localhost/")
+    assert "error" in result
+    assert "private address" in str(result["error"]).lower()
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_web_fetch_blocks_private_via_dns(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.99", 0)),
+    ]
+    result = _web_fetch(url="http://internal.example.com/")
+    assert "error" in result
+    assert "private address" in str(result["error"]).lower()
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_web_fetch_allows_public_via_dns(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+    ]
+    with patch("src.tool.internet_tool.request.urlopen") as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b"ok"
+        mock_resp.headers = {"Content-Type": "text/plain"}
+        mock_urlopen.return_value.__enter__.return_value = mock_resp
+        result = _web_fetch(url="http://example.com/")
+        assert result.get("status") == 200
+
+
+def test_resolve_host_returns_none_on_gai_error() -> None:
+    result = _resolve_host("")
+    assert result is None
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_resolve_host_returns_private_ip(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 0)),
+    ]
+    result = _resolve_host("internal.local")
+    assert result == "10.0.0.1"
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_resolve_host_returns_none_for_public(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+    ]
+    result = _resolve_host("example.com")
+    assert result is None

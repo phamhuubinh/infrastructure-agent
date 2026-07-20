@@ -1,2 +1,2 @@
 [console_scripts]
-orion = orion_cli:main
+orion = src.cli:main

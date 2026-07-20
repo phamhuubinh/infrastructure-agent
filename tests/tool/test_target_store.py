@@ -38,6 +38,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert data["targets"]["prod"]["port"] == 2222
     assert data["targets"]["prod"]["user"] == "admin"
     assert data["targets"]["prod"]["identity_file"] == "/root/.ssh/id_rsa"
+    assert data["targets"]["prod"]["strict_host_key_checking"] is False
 
     loaded = store.load()
     assert isinstance(loaded["localhost"], LocalExecutionBackend)

@@ -6,8 +6,13 @@ from unittest import mock
 from src.backend.app import create_app
 
 
+def _make_app(database_url: str = "") -> tuple:
+    with mock.patch("src.backend.dependencies._get_dsn", return_value=None):
+        return create_app(database_url=database_url)
+
+
 def test_health_endpoint_no_auth_required() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -18,7 +23,7 @@ def test_health_endpoint_no_auth_required() -> None:
 
 @mock.patch.dict(os.environ, {"ORION_API_KEY": "test-key-123"}, clear=False)
 def test_api_key_required_when_configured() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -28,7 +33,7 @@ def test_api_key_required_when_configured() -> None:
 
 @mock.patch.dict(os.environ, {"ORION_API_KEY": "test-key-123"}, clear=False)
 def test_api_key_missing_returns_401() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -39,7 +44,7 @@ def test_api_key_missing_returns_401() -> None:
 
 @mock.patch.dict(os.environ, {"ORION_API_KEY": "test-key-123"}, clear=False)
 def test_api_key_wrong_returns_401() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -49,7 +54,7 @@ def test_api_key_wrong_returns_401() -> None:
 
 @mock.patch.dict(os.environ, {"ORION_API_KEY": "test-key-123"}, clear=False)
 def test_api_key_bearer_token_valid() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -59,7 +64,7 @@ def test_api_key_bearer_token_valid() -> None:
 
 @mock.patch.dict(os.environ, {"ORION_API_KEY": "test-key-123"}, clear=False)
 def test_api_key_header_valid() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
@@ -68,7 +73,7 @@ def test_api_key_header_valid() -> None:
 
 
 def test_no_auth_when_no_env_key() -> None:
-    app, _, _ = create_app()
+    app, _, _ = _make_app()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)

@@ -3,8 +3,12 @@ Name: orion
 Version: 0.1.0
 Summary: Orion — Infrastructure investigation platform with AI-powered assessment.
 Author: Orion
+Requires-Dist: fastapi>=0.100
+Requires-Dist: uvicorn>=0.20
+Requires-Dist: pydantic>=2.0
+Requires-Dist: psycopg2-binary>=2.9
+Provides-Extra: test
+Requires-Dist: pytest>=7; extra == "test"
 Provides-Extra: web
 Requires-Dist: fastapi>=0.100; extra == "web"
 Requires-Dist: uvicorn>=0.20; extra == "web"
-Provides-Extra: test
-Requires-Dist: pytest>=7; extra == "test"

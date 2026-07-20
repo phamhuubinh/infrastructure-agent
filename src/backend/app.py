@@ -1,46 +1,19 @@
 from __future__ import annotations
 
-import json
-import os
+import atexit
 import subprocess
 import sys
 import time
-import uuid
 from pathlib import Path
 
-from src.agent.conversation_store import (
-    ConversationStore,
-)
-from src.agent.conversation_store import (
-    list_sessions as list_file_sessions,
-)
-from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.auth import APIKeyMiddleware
-from src.backend.db import (
-    PostgresConversationStore,
-    _get_dsn,
-    init_db,
-    init_documents_db,
-    list_sessions_db,
-    rename_session_db,
-)
-from src.backend.db import (
-    delete_session as db_delete_session,
-)
-from src.backend.document_service import (
-    delete_file as doc_delete_file,
-)
-from src.backend.document_service import (
-    get_file as doc_get_file,
-)
-from src.backend.document_service import (
-    list_files as doc_list_files,
-)
-from src.backend.document_service import (
-    read_file_content as doc_read_file_content,
-)
-from src.backend.document_service import (
-    store_file as doc_store_file,
+from src.backend.dependencies import AppState
+from src.backend.routers import (
+    documents,
+    health,
+    knowledge,
+    query,
+    sessions,
 )
 from src.shared.logger import info as _info
 
@@ -81,10 +54,6 @@ def create_app(
     model: str | None = None,
     database_url: str | None = None,
 ) -> tuple:
-    """Create FastAPI app and return (app, sessions_dir, web_sessions).
-
-    Caller is responsible for mounting static files and starting uvicorn.
-    """
     try:
         from fastapi import FastAPI
         from fastapi.middleware.cors import CORSMiddleware
@@ -92,236 +61,28 @@ def create_app(
         print("Web UI requires: pip install fastapi uvicorn")
         sys.exit(1)
 
-    agent = create_deterministic_agent(
+    deps = AppState(
         target_store_path=target_store_path,
         server_name=server_name,
         model=model,
+        database_url=database_url,
     )
 
-    dsn = database_url or _get_dsn()
-    if dsn:
-        init_db(dsn)
-        init_documents_db(dsn)
-        _info(
-            "database",
-            message="PostgreSQL session store initialized",
-            dsn=dsn.split("@")[-1] if "@" in dsn else "default",
-        )
-
-    sessions_dir = str(Path.home() / ".orion" / "sessions")
-    web_sessions: dict[str, ConversationStore] = {}
-
-    def _get_or_create_session(session_id: str | None) -> ConversationStore:
-        sid = session_id or uuid.uuid4().hex[:12]
-        if sid not in web_sessions:
-            if dsn:
-                cs = PostgresConversationStore(
-                    session_id=sid,
-                    dsn=dsn,
-                    source="api",
-                    summarize_fn=agent._assessment_model.assess_raw,
-                )
-            else:
-                cs = ConversationStore(
-                    session_id=sid,
-                    store_dir=sessions_dir,
-                    source="api",
-                    summarize_fn=agent._assessment_model.assess_raw,
-                )
-            web_sessions[sid] = cs
-        cs = web_sessions[sid]
-        agent._conversation_store = cs
-        return cs
-
     app = FastAPI(title="Orion", version="1.0.0")
+    app.state.deps = deps
+
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )
     app.add_middleware(APIKeyMiddleware)
 
-    @app.get("/api/health")
-    def health():
-        return {"status": "ok", "version": "1.0.0"}
+    app.include_router(health.router)
+    app.include_router(sessions.router)
+    app.include_router(query.router)
+    app.include_router(knowledge.router)
+    app.include_router(documents.router)
 
-    @app.get("/api/check-model")
-    def check_model():
-        try:
-            ok = agent._assessment_model._client.health_check(timeout=5)
-            return {"status": "ok" if ok else "error"}
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:120]}
-
-    @app.get("/api/sessions")
-    def list_sessions_api():
-        if dsn:
-            return {"sessions": list_sessions_db(dsn)}
-        return {"sessions": list_file_sessions(sessions_dir)}
-
-    @app.delete("/api/sessions/{session_id}")
-    def delete_session(session_id: str):
-        if dsn:
-            deleted = db_delete_session(dsn, session_id)
-            web_sessions.pop(session_id, None)
-            if not deleted:
-                from fastapi import HTTPException
-
-                raise HTTPException(404, f"Session '{session_id}' not found")
-            return {"status": "deleted", "session_id": session_id}
-        path = Path(sessions_dir) / f"{session_id}.json"
-        if not path.exists():
-            from fastapi import HTTPException
-
-            raise HTTPException(404, f"Session '{session_id}' not found")
-        path.unlink()
-        web_sessions.pop(session_id, None)
-        return {"status": "deleted", "session_id": session_id}
-
-    @app.patch("/api/sessions/{session_id}")
-    def rename_session(session_id: str, body: dict):
-        if dsn:
-            new_title = body.get("title", "").strip()
-            if not new_title:
-                from fastapi import HTTPException
-
-                raise HTTPException(400, "title is required")
-            renamed = rename_session_db(dsn, session_id, new_title)
-            if not renamed:
-                from fastapi import HTTPException
-
-                raise HTTPException(404, f"Session '{session_id}' not found")
-            return {"status": "renamed", "session_id": session_id, "title": new_title}
-        path = Path(sessions_dir) / f"{session_id}.json"
-        if not path.exists():
-            from fastapi import HTTPException
-
-            raise HTTPException(404, f"Session '{session_id}' not found")
-        new_title = body.get("title", "").strip()
-        if not new_title:
-            from fastapi import HTTPException
-
-            raise HTTPException(400, "title is required")
-        data = json.loads(path.read_text())
-        data["title"] = new_title
-        path.write_text(json.dumps(data, indent=2))
-        return {"status": "renamed", "session_id": session_id, "title": new_title}
-
-    @app.post("/api/query")
-    def query(body: dict):
-        question = (body.get("question") or "").strip()
-        if not question:
-            from fastapi import HTTPException
-
-            raise HTTPException(400, "Question is required")
-
-        session_id = body.get("session_id")
-        _get_or_create_session(session_id)
-
-        result = agent.run_with_steps(question)
-
-        return {
-            "steps": result["steps"],
-            "assessment": result["response"],
-        }
-
-    rag_service_url = os.environ.get("RAG_SERVICE_URL", "http://rag-service:8080")
-
-    @app.get("/api/knowledge/health")
-    def knowledge_health():
-        try:
-            import urllib.request
-
-            resp = urllib.request.urlopen(f"{rag_service_url}/health", timeout=5)
-            return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:200]}
-
-    @app.post("/api/knowledge/query")
-    def knowledge_query(body: dict):
-        query_text = (body.get("query") or "").strip()
-        if not query_text:
-            from fastapi import HTTPException
-
-            raise HTTPException(400, "Query is required")
-        try:
-            import urllib.request
-
-            payload = json.dumps(
-                {"query": query_text, "top_k": body.get("top_k", 5)}
-            ).encode("utf-8")
-            req = urllib.request.Request(
-                f"{rag_service_url}/query",
-                data=payload,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except Exception as exc:
-            return {"status": "error", "error": str(exc)[:200]}
-
-    @app.post("/api/documents/upload")
-    def document_upload(body: dict):
-        content = (body.get("content") or "").encode("utf-8")
-        filename = (body.get("filename") or "untitled.txt").strip()
-        content_type = body.get("content_type")
-        session_id = body.get("session_id")
-        metadata = body.get("metadata")
-
-        result = doc_store_file(
-            dsn=dsn,
-            filename=filename,
-            content=content,
-            content_type=content_type,
-            session_id=session_id,
-            metadata=metadata,
-        )
-        return result
-
-    @app.get("/api/documents")
-    def document_list(session_id: str | None = None, limit: int = 50):
-        return {
-            "documents": doc_list_files(dsn=dsn, session_id=session_id, limit=limit)
-        }
-
-    @app.get("/api/documents/{doc_id}")
-    def document_get(doc_id: str):
-        doc = doc_get_file(dsn=dsn, doc_id=doc_id)
-        if doc is None:
-            from fastapi import HTTPException
-
-            raise HTTPException(404, f"Document '{doc_id}' not found")
-        return doc
-
-    @app.get("/api/documents/{doc_id}/download")
-    def document_download(doc_id: str):
-        from fastapi.responses import Response
-
-        doc = doc_get_file(dsn=dsn, doc_id=doc_id)
-        if doc is None:
-            from fastapi import HTTPException
-
-            raise HTTPException(404, f"Document '{doc_id}' not found")
-        content = doc_read_file_content(doc["storage_path"])
-        if content is None:
-            raise HTTPException(404, "File content not found on disk")
-        return Response(
-            content=content,
-            media_type=doc.get("content_type", "application/octet-stream"),
-            headers={
-                "Content-Disposition": f'attachment; filename="{doc["filename"]}"'
-            },
-        )
-
-    @app.delete("/api/documents/{doc_id}")
-    def document_delete(doc_id: str):
-        deleted = doc_delete_file(dsn=dsn, doc_id=doc_id)
-        if not deleted:
-            from fastapi import HTTPException
-
-            raise HTTPException(404, f"Document '{doc_id}' not found")
-        return {"status": "deleted", "doc_id": doc_id}
-
-    return app, sessions_dir, web_sessions
+    return app, deps.sessions_dir, deps.web_sessions
 
 
 def run_web(
@@ -331,7 +92,6 @@ def run_web(
     model: str | None = None,
     database_url: str | None = None,
 ) -> None:
-    import atexit
     import webbrowser
 
     try:

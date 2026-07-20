@@ -1,1 +1,7 @@
-orion_cli
+agent
+backend
+cli
+model
+pipeline
+shared
+tool

@@ -138,6 +138,12 @@ class TestSSHExecutionBackend:
         assert "root@10.0.0.1" in cmd
         assert cmd[-1] == "ls -la"
 
+    def test_build_ssh_command_strict_host_key_checking(self) -> None:
+        backend = SSHExecutionBackend(host="10.0.0.1", strict_host_key_checking=True)
+        cmd = backend._build_ssh_command(["ls", "-la"])
+
+        assert "StrictHostKeyChecking=yes" in cmd
+
     def test_build_ssh_command_with_custom_params(self) -> None:
         backend = SSHExecutionBackend(
             host="192.168.1.1",

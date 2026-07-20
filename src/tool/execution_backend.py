@@ -82,29 +82,27 @@ class SSHExecutionBackend(ExecutionBackend):
         user: str = "root",
         port: int = 22,
         identity_file: str | None = None,
+        strict_host_key_checking: bool = False,
     ) -> None:
         self._host = host
         self._user = user
         self._port = port
         self._identity_file = identity_file
+        self._strict_host_key_checking = strict_host_key_checking
 
     def _build_ssh_command(
         self,
         remote_command: list[str],
     ) -> list[str]:
+        strict = "yes" if self._strict_host_key_checking else "no"
         parts: list[str] = [
             "ssh",
             "-o",
             "BatchMode=yes",
             "-o",
             "ConnectTimeout=10",
-            # Intentional: trusted local network only.
-            # StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null
-            # avoids interactive prompts on first connection and host key
-            # rotation without manual cleanup. Not suitable for internet-facing
-            # deployments — see ADR in docs/ai/09_ARCHITECTURE_DECISIONS.md.
             "-o",
-            "StrictHostKeyChecking=no",
+            f"StrictHostKeyChecking={strict}",
             "-o",
             "UserKnownHostsFile=/dev/null",
             "-p",

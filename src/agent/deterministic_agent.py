@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from src.agent.conversation_store import ConversationStore
 from src.model.assessment_model_adapter import AssessmentModelAdapter
-from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
+from src.model.protocol.prompt_builder_v2 import (
+    _normalize_evidence,
+    build_assessment_prompt,
+)
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.deterministic_responder import DeterministicResponder
@@ -11,16 +14,6 @@ from src.pipeline.intent_resolver import Confidence, Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
-
-
-def _safe_data(val: object) -> object:
-    if val is None or isinstance(val, (bool, int, float, str)):
-        return val
-    if isinstance(val, (list, tuple)):
-        return [_safe_data(v) for v in val]
-    if isinstance(val, dict):
-        return {str(k): _safe_data(v) for k, v in val.items()}
-    return str(val)
 
 
 class DeterministicAgent:
@@ -124,6 +117,7 @@ class DeterministicAgent:
         evidence_list = []
         for pkg in investigation.evidence:
             data_str = str(pkg.data) if pkg.data is not None else None
+            truncated = _normalize_evidence(pkg.data)
             evidence_list.append(
                 {
                     "capability": pkg.capability_name,
@@ -131,7 +125,7 @@ class DeterministicAgent:
                     "success": pkg.success,
                     "error": pkg.error if not pkg.success else None,
                     "data_preview": data_str[:500] if data_str else None,
-                    "data": _safe_data(pkg.data),
+                    "data": truncated,
                 }
             )
 
