@@ -37,6 +37,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Context:** Each investigation must be independent; see `docs/adr/ADR-0004-stateless-state-management.md` for full reasoning, including the Stable vs. Dynamic Information split.
 **Reason:** Stateless execution reduces coupling and prevents stale operational decisions.
 **Consequence:** Only summarized session knowledge may persist, never raw observations, tool outputs, or execution state.
+> Long-form ADR: `docs/adr/ADR-0004-stateless-state-management.md`
 ## AD-008 — Session memory stores summaries only
 **Decision:** No raw observations, tool outputs, execution state, or reasoning history in session memory.
 **Reason:** Summaries reduce redundant execution without reintroducing implicit state; see `docs/adr/ADR-0004-stateless-state-management.md` for the Stable vs. Dynamic Information split that motivates this rule.
