@@ -1,6 +1,6 @@
 # 09 - Architecture Decisions
 Records long-term architectural decisions. Each entry: Decision, Context, Reason, Consequence. Do not put implementation details, TODOs, or roadmap items here — those belong in `04_ROADMAP.md` and `08_PROJECT_STATE.md`.
-> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, and AD-007 of ADR-0004; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
+> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, AD-007 of ADR-0004, and AD-020 of ADR-0001; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
 ---
 ## AD-001 — Infrastructure investigation is deterministic
 **Decision:** Investigation execution is deterministic wherever possible.
@@ -39,7 +39,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Consequence:** Only summarized session knowledge may persist, never raw observations, tool outputs, or execution state.
 ## AD-008 — Session memory stores summaries only
 **Decision:** No raw observations, tool outputs, execution state, or reasoning history in session memory.
-**Reason:** Summaries reduce redundant execution without reintroducing implicit state.
+**Reason:** Summaries reduce redundant execution without reintroducing implicit state; see `docs/adr/ADR-0004-stateless-state-management.md` for the Stable vs. Dynamic Information split that motivates this rule.
 ## AD-009 — Evidence quality outranks AI reasoning complexity
 **Decision:** Tool → Evidence → Assessment is the improvement order; prompt engineering is secondary.
 **Reason:** Improving deterministic evidence is a more reliable lever than increasing prompt complexity.
@@ -52,6 +52,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 ## AD-012 — Dependencies remain strictly one-directional
 **Decision:** `Assessment Model → Execution Engine → KnowledgeTool → Child Tool → Environment`. Reverse dependencies are prohibited.
 **Reason:** Layered architecture keeps coupling low.
+> Long-form ADRs: `docs/adr/ADR-0002-llm-assessment-only.md`, `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
 ## AD-013 — Providers are optional infrastructure adapters
 **Decision:** Only introduce a Provider layer when access complexity justifies it; simple environments may be accessed directly by Child Tools.
 **Reason:** Avoid unnecessary abstraction (see `07_DEVELOPMENT_RULES.md`, rule 12).
