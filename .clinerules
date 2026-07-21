@@ -5,11 +5,13 @@ Always understand the project before making changes.
 Read in this order:
 
 1. docs/ai/00_BOOTSTRAP.md — defines the reading order for all docs/ai/ files
-2. .workflow/README.md
-3. .workflow/state.json
-4. README.md
-5. docs/**
-6. src/**
+2. docs/ai/07_DEVELOPMENT_RULES.md — mandatory engineering rules
+3. docs/ai/08_PROJECT_STATE.md — what actually exists right now
+4. .workflow/README.md
+5. .workflow/state.json
+6. README.md
+7. docs/**
+8. src/**
 
 Ignore:
 
@@ -25,10 +27,13 @@ Rules:
 - Never modify architecture without approval.
 - Never create duplicate implementations.
 - Reuse existing abstractions.
+- Deterministic before AI — prefer deterministic logic wherever possible.
+- Evidence first — better tool → better evidence → better assessment.
 - Explain why before changing code.
-- After every change, run: bash .workflow/commands/run-tests.sh
+- After every change, run the affected tests (bash .workflow/commands/run-tests.sh or `python -m pytest tests/ -q --tb=short -x -k "not slow"`).
 - Before committing, run: bash .workflow/commands/lint.sh
 - Review the complete git diff before every commit.
 - Create exactly ONE atomic commit per logical task.
 - Never mix unrelated changes into the same commit.
-- When a task is complete, update .workflow/state.json to mark it done.
+- Never report planned work as completed — completed work must be verifiable through git diff, test results, or benchmark results.
+- When a task is complete, update docs/ai/08_PROJECT_STATE.md and .workflow/state.json to reflect the new reality.

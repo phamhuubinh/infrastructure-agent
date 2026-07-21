@@ -7,8 +7,14 @@ Every Child Tool should: collect operational evidence, normalize outputs, expose
 Child Tools should never: interpret evidence, make recommendations, generate conclusions, or communicate with the Assessment Model directly. All Child Tool output flows back through the pipeline (`05_EXECUTION_PIPELINE.md`), not to the model.
 ## Domain ownership
 Each Child Tool owns exactly one infrastructure domain and must never access another domain.
-Implemented today (`src/tool/`): `LinuxTool` (SSH execution), `GrafanaTool`, `ZabbixTool`, behind `KnowledgeTool`.
-Possible future domains (not implemented, listed only as examples of the pattern — do not build until there is a real need): `DockerTool`, `VMwareTool`, `GraylogTool`, an `InternetTool` (see `04_ROADMAP.md`, WP4 — opt-in per request only, never automatic).
+Implemented today (`src/tool/`): `LinuxTool` (SSH execution), `GrafanaTool`, `ZabbixTool`, `InternetTool` (HTTP fetch with SSRF protection), `KnowledgeBaseTool` (RAG service proxy), all behind `KnowledgeTool`.
+Possible future domains (not implemented, listed only as examples of the pattern — do not build until there is a real need): `DockerTool`, `VMwareTool`, `GraylogTool`.
+## InternetTool and SSRF protection
+`InternetTool` (`src/tool/internet_tool.py`) fetches external URLs and returns content as text or parsed JSON. It is **opt-in per request** — never invoked automatically by the pipeline (see `04_ROADMAP.md`, WP4 rule). SSRF protection is built-in at two levels:
+1. Direct address check: rejects RFC 1918, RFC 6890, and other private address ranges before making any request.
+2. DNS resolution guard: resolves the hostname and blocks the request if any resolved address falls within private ranges.
+This is the only Child Tool that makes outbound network calls beyond the local infrastructure domain.
+
 ## KnowledgeTool is the single entry point
 `KnowledgeTool` (`src/tool/knowledge_tool.py`) aggregates Child Tool capability metadata and dispatches execution. The pipeline never calls a Child Tool directly. This is intentional — it keeps capability metadata as a single source of truth and avoids duplicated dispatch logic across the pipeline.
 ## Capability ownership
@@ -30,6 +36,6 @@ Child Tools should always prefer live infrastructure (the actual Linux host, the
 ## Stateless design
 Child Tools must not retain execution history, previous observations, previous responses, or investigation state. Each execution is independent — this is what makes the pipeline benchmarkable and safe to run concurrently.
 ## Benchmarkability and evolution
-Capability quality should be measurable via correctness, completeness, execution time, evidence quality, and failure behavior — capabilities should evolve through benchmark improvements, not feature expansion for its own sake (see `08_PROJECT_STATE.md` for current benchmark status — not yet implemented). New capabilities should only be added when a benchmark scenario requires more evidence, an existing capability cannot answer an operational question, or reuse is clearly expected. Avoid speculative capability design.
+Capability quality should be measurable via correctness, completeness, execution time, evidence quality, and failure behavior — capabilities should evolve through benchmark improvements, not feature expansion for its own sake (see `08_PROJECT_STATE.md` for current benchmark status). New capabilities should only be added when a benchmark scenario requires more evidence, an existing capability cannot answer an operational question, or reuse is clearly expected. Avoid speculative capability design.
 ## Final principle
-A Child Tool exists to collect evidence, never to explain it. Evidence collection belongs to Child Tools. Evidence interpretation belongs to the Assessment Model (`05_EXECUTION_PIPELINE.md`, Step 7).
+A Child Tool exists to collect evidence, never to explain it. Evidence collection belongs to Child Tools. Evidence interpretation belongs to the Assessment Model (`05_EXECUTION_PIPELINE.md`, Step 9 — Assessment).

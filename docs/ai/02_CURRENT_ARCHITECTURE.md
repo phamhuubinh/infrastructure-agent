@@ -1,5 +1,5 @@
 # 02 - Current Architecture (Local, Today)
-This describes the system **as it runs today**: local process, single user, no database, no auth, no network exposure other than outbound calls to targets/Grafana/Zabbix/LLM.
+This describes the system **as it runs today**: local process, single user, optional PostgreSQL and API key auth, no network exposure other than outbound calls to targets/Grafana/Zabbix/LLM/Internet APIs.
 ## Runtime shape
 ```
 CLI (src/cli/main.py)
@@ -8,7 +8,9 @@ CLI (src/cli/main.py)
    └── --web mode:  starts a backend API process + Vite dev server (ui/)
                      for the TanStack Start / React frontend
 ```
-There is one process holding all state in memory for the duration of a run. Targets are read from a local JSON file (`src/tool/target_store.py` / `target_registry.py`). Nothing persists to a database. Closing the process loses conversation/job state — this is expected at the current stage.
+In local CLI mode, there is one process holding all state in memory. Targets are read from `targets.json` (`src/tool/target_store.py` / `target_registry.py`). Nothing persists — closing the process loses conversation state.
+
+In `--web` mode, a FastAPI backend (`src/backend/api.py`) handles requests. When `ORION_DATABASE_URL` is set, sessions and documents persist in PostgreSQL via `PostgresConversationStore`. When unset, it falls back to JSON file storage under `~/.orion/sessions/`. Optional `ORION_API_KEY` enables API key authentication.
 ## Investigation pipeline (deterministic)
 ```
 User Request
@@ -29,15 +31,17 @@ Execution Runtime      (src/pipeline/execution_runtime.py, execution_engine.py)
     ↓  calls
 KnowledgeTool           (src/tool/knowledge_tool.py — single entry point into Child Tools)
     ↓  dispatches to
-Child Tools: LinuxTool (SSH) / GrafanaTool / ZabbixTool
+Child Tools: LinuxTool (SSH) / GrafanaTool / ZabbixTool / InternetTool / KnowledgeBaseTool
     ↓
-Evidence Collection     (src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py)
+Evidence Merge         (src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py)
     ↓
-Assessment (AI)          (src/pipeline/assessment_adapter.py → src/model/*)
+Assessment (Agent)     (src/agent/deterministic_agent.py)
+    ├── DeterministicResponder.try_response() — skip LLM if evidence is simple
+    └── AssessmentAdapter → AssessmentRequest → LLM → tool links
     ↓
 Response
 ```
-Every step above the "Assessment (AI)" line is deterministic code — no LLM call. See `05_EXECUTION_PIPELINE.md` for what each stage owns.
+Every step above "Assessment (Agent)" is deterministic code — no LLM call. The `DeterministicResponder` runs inside the agent layer after evidence merge, not inside the pipeline. See `05_EXECUTION_PIPELINE.md` for what each stage owns.
 ## Model layer
 - `src/model/llm_client.py` — thin client to the LLM API.
 - `src/model/assessment_model_adapter.py` — abstract adapter contract (`assess()` / `assess_raw()`); `NotImplementedError` on the base class is intentional — real behavior lives in subclasses.
@@ -50,13 +54,15 @@ Every step above the "Assessment (AI)" line is deterministic code — no LLM cal
 - `src/tool/linux_tool.py` — SSH-based command execution against registered targets, via `src/tool/execution_backend.py`.
 - `src/tool/grafana_tool.py` — Grafana HTTP API queries.
 - `src/tool/zabbix_tool.py` — Zabbix API queries.
+- `src/tool/internet_tool.py` — HTTP fetch with SSRF protection (private IP block + DNS resolution guard).
+- `src/tool/knowledge_base_tool.py` — RAG service proxy for health checks, document ingestion, and knowledge base queries.
 - `src/tool/target_registry.py` / `target_store.py` — local JSON-backed list of investigable targets (host, port, user, identity file path).
 Credential handling for Grafana/Zabbix tokens: see `07_DEVELOPMENT_RULES.md` and `09_ARCHITECTURE_DECISIONS.md` for the current rule and the reasoning — tokens must not be hardcoded in tool source files.
 ## Frontend
 - `ui/` — TanStack Start (React) app. Talks to the local backend API started by `python -m src.cli --web`. No auth, no multi-user concept — it is a local dev-mode UI for one user on one machine.
 ## What is intentionally out of scope right now
-- No database (state is in-memory + one local JSON file for targets).
-- No authentication / accounts.
+- No database by default (state is in-memory + one local JSON file for targets; PostgreSQL available when `ORION_DATABASE_URL` is set — see WP4 migration in `08_PROJECT_STATE.md`).
+- No authentication / accounts (optional `ORION_API_KEY` middleware available for API endpoint protection).
 - No remote hosting.
-- No automated tests, no benchmark runner (`08_PROJECT_STATE.md` is explicit about this — do not assume otherwise). (Update: `tests/benchmark/` now exists.)
+- No automated tests, no benchmark runner — now resolved: **764 tests** (`tests/`) and a benchmark runner (`benchmark/`) both exist. See `08_PROJECT_STATE.md` for current status.
 These are not bugs. They are the current, intentional boundary of the project. `03_PLATFORM_ARCHITECTURE.md` describes what replaces this boundary, and `04_ROADMAP.md` describes the order in which that happens.

@@ -5,9 +5,9 @@
 **Local MVP with Docker Compose.** Single-user, single-machine, no network exposure beyond outbound calls to targets/Grafana/Zabbix/LLM APIs. WP1 local infrastructure (Docker Compose, nginx reverse proxy, PostgreSQL, self-signed HTTPS) is in place.
 
 ## Implemented
-- Deterministic pipeline: Intent Resolution → Target Resolution → Evidence Planning → Execution Graph → Execution Runtime (`src/pipeline/*`).
+- Deterministic pipeline: Intent Resolution → Target Resolution → Evidence Planning → Capability Resolution → Execution Planning → Execution Graph → Execution Runtime (`src/pipeline/*`).
 - `KnowledgeTool` as the single dispatch entry point to Child Tools (`src/tool/knowledge_tool.py`).
-- Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`.
+- Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, `InternetTool` (HTTP fetch with SSRF protection), `KnowledgeBaseTool` (RAG service proxy).
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
 - Assessment layer: `LLMAssessmentAdapter` (real) and `MockAssessmentAdapter` (offline/dev), behind the `AssessmentModelAdapter` interface (`src/model/*`).
 - CLI entry point with local mode and `--web` mode (`src/cli.py`).
@@ -16,13 +16,16 @@
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
 - Chat interface with routing: keyword match + model classify to distinguish infrastructure queries from general chat.
 - Fuzzy target name matching for typo-tolerant server resolution.
+- Deterministic responder (`src/pipeline/deterministic_responder.py`) — generates responses without LLM for simple evidence (service status, zombie processes) before the full assessment step.
+- Capability reference model (`src/pipeline/capability_reference.py`) — typed dataclass for capability references across the pipeline.
+- Assessment request model (`src/pipeline/assessment_request.py`) — typed request envelope used by `AssessmentAdapter`.
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
-- Test directory (`tests/`) with pipeline and tool tests.
+- Test suite: **764 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
-- Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start`.
+- Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 
 ## WP4: Platform capability migration (in progress)
 - Agent runs as a platform capability via the FastAPI API (`src/backend/api.py` as uvicorn entry point).
@@ -30,6 +33,9 @@
 - `psycopg2-binary` dependency added to `pyproject.toml`.
 - Docker Compose API service configured with `ORION_DATABASE_URL` environment variable.
 - Fallback to JSON file storage when no database URL is configured (backward compatible).
+- API authentication via optional `ORION_API_KEY` env var (`src/backend/auth.py`), with `APIKeyMiddleware` protecting all endpoints except `/api/health`. Default: disabled (no key required in local mode).
+- Basic document upload/list/delete (`src/backend/document_service.py`, `src/backend/routers/documents.py`) with filesystem storage under `~/.orion/documents/` and optional PostgreSQL metadata. Full document service (preview, search, versioning, Knowledge Base integration) is not implemented.
+- FastAPI dependency injection (`src/backend/dependencies.py`) — shared session and conversation store dependencies for API routes.
 
 ## Security scanning added to CI
 - **Bandit** static analysis runs on `src/` in CI, configured via `pyproject.toml` with known-issue skips.
@@ -52,9 +58,6 @@
 ## Not implemented (do not assume otherwise)
 - **Authentication / accounts** — no login, no sessions.
 - **Remote hosting** — no remote deployment yet.
-- **Document Service** — not implemented.
-- **Desktop App** — Electron wrapper implemented (`desktop/`). Serves the existing TanStack Start SSR UI via embedded Node.js server, proxies `/api` calls to the backend at `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
-- **Internet Tool** — planned for WP4, opt-in-only when built (see `04_ROADMAP.md`).
 - **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
 
 ## Known issues / open items being tracked
@@ -64,3 +67,5 @@
 ## Next milestones
 1. Complete code quality improvements (lint fixes, test coverage for untested modules).
 2. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
+
+> **Last updated:** 2026-07-21.
