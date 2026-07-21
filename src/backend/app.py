@@ -5,6 +5,10 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 from src.backend.auth import APIKeyMiddleware
 from src.backend.dependencies import AppState
@@ -48,6 +52,23 @@ def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
     return False
 
 
+def _setup_middleware(app: FastAPI) -> None:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    )
+    app.add_middleware(APIKeyMiddleware)
+
+
+def _register_routers(app: FastAPI) -> None:
+    app.include_router(health.router)
+    app.include_router(sessions.router)
+    app.include_router(query.router)
+    app.include_router(knowledge.router)
+    app.include_router(documents.router)
+
+
 def create_app(
     target_store_path: str = "targets.json",
     server_name: str = "sv1",
@@ -56,7 +77,6 @@ def create_app(
 ) -> tuple:
     try:
         from fastapi import FastAPI
-        from fastapi.middleware.cors import CORSMiddleware
     except ImportError:
         print("Web UI requires: pip install fastapi uvicorn")
         sys.exit(1)
@@ -71,16 +91,8 @@ def create_app(
     app = FastAPI(title="Orion", version="1.0.0")
     app.state.deps = deps
 
-    app.add_middleware(
-        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
-    )
-    app.add_middleware(APIKeyMiddleware)
-
-    app.include_router(health.router)
-    app.include_router(sessions.router)
-    app.include_router(query.router)
-    app.include_router(knowledge.router)
-    app.include_router(documents.router)
+    _setup_middleware(app)
+    _register_routers(app)
 
     return app, deps.sessions_dir, deps.web_sessions
 
