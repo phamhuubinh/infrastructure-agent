@@ -56,13 +56,13 @@ Last updated: 2026-07-21
 | 16  | P0       | ✅      | Move Docker Secrets Out of Repository        | Không lưu plaintext secret trong repository. |
 | 17  | P0       | 🔄      | Add API Authentication (Platform)            | Chuẩn bị API authentication cho production. |
 | 18  | P1       | 🔄      | Make SSH Host Key Checking Configurable      | Cho phép bật/tắt StrictHostKeyChecking bằng cấu hình. |
-| 19  | P1       | 🔄      | Prevent SSRF                                 | Ngăn InternetTool truy cập private network. |
+| 19  | P1       | ✅      | Prevent SSRF                                 | InternetTool has SSRF protection (private IP + DNS guard). |
 
 ### DevOps & CI/CD
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
-| 33  | P0       | 🔄      | Fix Docker Build Dependencies                | Đảm bảo Docker image luôn build thành công, không phụ thuộc cấu hình local. |
+| 33  | P0       | ✅      | Fix Docker Build Dependencies                | Docker images build successfully in CI (api, ui, rag-service). |
 | 34  | P1       | ✅      | Build Docker Images In CI                    | CI phải build được toàn bộ Docker image. |
 | 35  | P1       | ✅      | Start Containers During CI                   | Start Docker containers during CI to verify they run correctly. Implement docker compose up in CI pipeline, wait for all services to be ready, run smoke tests to verify functionality, then tear down containers with docker compose down. |
 | 36  | P1       | ✅      | Add Health Endpoint                          | Thêm endpoint kiểm tra trạng thái service. |

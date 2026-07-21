@@ -2,8 +2,9 @@
 
 ## Scope
 
-This project is currently **local-only, single-user** infrastructure investigation tool.
-It is not intended to be exposed to untrusted networks.
+This project is currently **local, single-user** infrastructure investigation tool.
+Has optional API key auth for `--web` mode (see `ORION_API_KEY` env var).
+Intended for trusted internal networks — not hardened for public internet exposure.
 
 ## Known Security Considerations
 
@@ -24,8 +25,10 @@ The application makes outbound connections to:
 - Grafana API
 - Zabbix API
 - LLM API endpoints (as configured in `servers.json`)
+- External URLs via `InternetTool` (SSRF-protected, opt-in per request)
+- RAG service (`RAGTool` microservice)
 
-It does not accept inbound connections from untrusted networks.
+In `--web` mode, the backend listens on `localhost:61888` only. In Docker Compose deployment, nginx reverse proxy terminates HTTPS with self-signed certs. Optional API key auth (`ORION_API_KEY`) protects API endpoints.
 
 ## Reporting a Vulnerability
 

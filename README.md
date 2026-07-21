@@ -4,9 +4,9 @@ Infrastructure investigation platform with AI-powered assessment.
 
 Evidence-driven investigation with AI-powered assessment.
 
-> **Current status: local, single-user only.** Runs on one machine, no accounts, no database, no remote hosting. This is intentional for the current phase — see `docs/ai/08_PROJECT_STATE.md`.
+> **Current status:** local, single-user. Optional PostgreSQL session store (`ORION_DATABASE_URL`), optional API key auth (`ORION_API_KEY`), CLI + Web UI + Desktop App. No accounts, no remote hosting. See `docs/ai/08_PROJECT_STATE.md` for what actually exists.
 >
-> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + Dify + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for how the work is sequenced (WP1–WP5). None of that is built yet.
+> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + Dify + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for the work sequencing (WP1–WP5). Some platform capabilities (PostgreSQL session store, API key auth, Electron desktop) are partially implemented — check `08_PROJECT_STATE.md` for status.
 
 ## Architecture
 
@@ -25,7 +25,7 @@ Execution Planning (deterministic)
     ↓
 Execution Graph (deterministic)
     ↓
-Execution Runtime → KnowledgeTool → Child Tools
+Execution Runtime → KnowledgeTool → Child Tools (Linux, Grafana, Zabbix, Internet, KB)
     ↓
 Evidence Collection
     ↓
@@ -62,6 +62,10 @@ Create `config/secrets.local.json` with this structure:
 ```
 
 A template is available at `config/secrets.local.example.json`.
+
+### Internet fetch
+
+The `InternetTool` fetches external URLs with built-in SSRF protection. It is opt-in per request — the pipeline never invokes it automatically.
 
 > **⚠️ Security note:** The Grafana token was previously hardcoded in source code and pushed to git history. It should be considered compromised. Revoke/rotate the token on your Grafana server and update `config/secrets.local.json` when convenient.
 

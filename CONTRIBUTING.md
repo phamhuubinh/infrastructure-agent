@@ -24,11 +24,13 @@ Key principles:
 
 ## Before Committing
 
-1. Run tests: `python -m pytest tests/ -q --tb=short`
+1. Run tests: `python -m pytest tests/ -q --tb=short -k "not slow"`
 2. Run lint: `ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501`
-3. Run security scan: `make security-scan` (requires `pip install -e ".[security]"`)
-4. Update `docs/ai/08_PROJECT_STATE.md` if behavior changes
-5. Update `CHANGELOG.md` for user-facing changes
+3. Run typecheck: `make typecheck`
+4. Run security scan: `make security-scan` (requires `pip install -e ".[security]"`)
+5. Run full CI suite locally: `make ci` (test + lint + security-scan)
+6. Update `docs/ai/08_PROJECT_STATE.md` if behavior changes
+7. Update `CHANGELOG.md` for user-facing changes
 
 ## Commit Guidelines
 
