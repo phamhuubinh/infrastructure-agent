@@ -43,6 +43,7 @@ def _add_target(args: argparse.Namespace) -> None:
             user=args.ssh_user,
             port=port,
             identity_file=args.ssh_identity_file,
+            strict_host_key_checking=args.strict_host_key_checking,
         ),
     )
     print(f"Target '{name}' added.")
@@ -332,6 +333,12 @@ def main() -> None:
     )
     add_parser.add_argument(
         "--ssh-identity-file", type=str, default=None, help=argparse.SUPPRESS
+    )
+    add_parser.add_argument(
+        "--strict-host-key-checking",
+        action="store_true",
+        default=False,
+        help=argparse.SUPPRESS,
     )
 
     rem_parser = subparsers.add_parser("remove-target", help=argparse.SUPPRESS)
