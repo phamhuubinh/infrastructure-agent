@@ -63,6 +63,47 @@ def test_save_and_load_minimal_ssh(tmp_path: Path) -> None:
     assert ssh._identity_file is None
 
 
+def test_load_legacy_ssh_defaults_host_key_checking_to_disabled(tmp_path: Path) -> None:
+    path = tmp_path / "targets.json"
+    path.write_text(
+        json.dumps(
+            {
+                "targets": {
+                    "staging": {
+                        "backend": "ssh",
+                        "host": "10.0.0.2",
+                    }
+                }
+            }
+        )
+    )
+
+    loaded = TargetStore(path=str(path)).load()
+
+    ssh = loaded["staging"]
+    assert isinstance(ssh, SSHExecutionBackend)
+    assert ssh._strict_host_key_checking is False
+
+
+def test_save_and_load_strict_host_key_checking(tmp_path: Path) -> None:
+    path = str(tmp_path / "targets.json")
+    store = TargetStore(path=path)
+    store.save(
+        {
+            "prod": SSHExecutionBackend(
+                host="10.0.0.1",
+                strict_host_key_checking=True,
+            )
+        }
+    )
+
+    loaded = store.load()
+
+    ssh = loaded["prod"]
+    assert isinstance(ssh, SSHExecutionBackend)
+    assert ssh._strict_host_key_checking is True
+
+
 def test_registry_persistence(tmp_path: Path) -> None:
     from src.tool.target_registry import TargetRegistry
 
@@ -70,7 +111,11 @@ def test_registry_persistence(tmp_path: Path) -> None:
     store = TargetStore(path=path)
 
     registry = TargetRegistry(store=store)
-    registry.add("prod", SSHExecutionBackend(host="10.0.0.1", user="admin"))
+    registry.add(
+        "prod",
+        SSHExecutionBackend(host="10.0.0.1", user="admin"),
+        strict_host_key_checking=True,
+    )
 
     del registry
 
@@ -78,6 +123,9 @@ def test_registry_persistence(tmp_path: Path) -> None:
     names = reloaded.target_names()
     assert "localhost" in names
     assert "prod" in names
+    backend = reloaded.backend("prod")
+    assert isinstance(backend, SSHExecutionBackend)
+    assert backend._strict_host_key_checking is True
 
 
 def test_registry_remove_persists(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.tool.execution_backend import (
     ExecutionBackend,
     LocalExecutionBackend,
+    SSHExecutionBackend,
 )
 from src.tool.linux import LinuxTool
 from src.tool.target_store import TargetStore
@@ -37,6 +38,7 @@ class TargetRegistry:
         self,
         name: str,
         backend: ExecutionBackend | None = None,
+        strict_host_key_checking: bool | None = None,
     ) -> None:
         """Register a target machine accessible via ExecutionBackend.
 
@@ -47,6 +49,11 @@ class TargetRegistry:
             raise ValueError(msg)
 
         backend = backend or LocalExecutionBackend()
+        if strict_host_key_checking is not None:
+            if not isinstance(backend, SSHExecutionBackend):
+                msg = "Host key checking can only be configured for SSH targets."
+                raise ValueError(msg)
+            backend._strict_host_key_checking = strict_host_key_checking
         self._backends[name] = backend
 
         if self._store is not None:

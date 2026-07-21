@@ -95,6 +95,9 @@ class SSHExecutionBackend(ExecutionBackend):
         remote_command: list[str],
     ) -> list[str]:
         strict = "yes" if self._strict_host_key_checking else "no"
+        known_hosts_file = (
+            "~/.ssh/known_hosts" if self._strict_host_key_checking else "/dev/null"
+        )
         parts: list[str] = [
             "ssh",
             "-o",
@@ -104,7 +107,7 @@ class SSHExecutionBackend(ExecutionBackend):
             "-o",
             f"StrictHostKeyChecking={strict}",
             "-o",
-            "UserKnownHostsFile=/dev/null",
+            f"UserKnownHostsFile={known_hosts_file}",
             "-p",
             str(self._port),
         ]

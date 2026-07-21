@@ -143,6 +143,7 @@ class TestSSHExecutionBackend:
         cmd = backend._build_ssh_command(["ls", "-la"])
 
         assert "StrictHostKeyChecking=yes" in cmd
+        assert "UserKnownHostsFile=~/.ssh/known_hosts" in cmd
 
     def test_build_ssh_command_with_custom_params(self) -> None:
         backend = SSHExecutionBackend(
