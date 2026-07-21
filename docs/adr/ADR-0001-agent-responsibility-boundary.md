@@ -2,6 +2,9 @@
 # Status
 Accepted
 ---
+# Cross-reference
+Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-020
+---
 # Context
 Describe the problem.
 The project originally explored an autonomous-agent architecture.
@@ -44,6 +47,10 @@ The Agent is never responsible for:
 * deciding the next action;
 * business decisions.
 ---
+# Related ADRs
+- ADR-0004 (`docs/adr/ADR-0004-stateless-state-management.md`) — stateless execution reinforces the Agent's role as a pure execution engine without workflow memory
+- AD-002 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — LLM assessment only; the Agent's role as execution engine is complementary to keeping the LLM focused on assessment
+- AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies keep the Agent, tools, and model layers separate
 # Consequences
 The architecture becomes model-agnostic.
 New reasoning models can replace existing models without modifying the Agent.

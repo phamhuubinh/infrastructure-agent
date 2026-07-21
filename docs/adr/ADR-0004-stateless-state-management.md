@@ -2,6 +2,9 @@
 # Status
 Accepted
 ---
+# Cross-reference
+Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-007
+---
 # Context
 The Action → Observation architecture executes iteratively.
 Execution may span many Action → Observation cycles.
@@ -57,6 +60,10 @@ Execution belongs to the Agent and Runtime.
 Atomic operations belong to Tools.
 State persistence belongs only to dedicated storage mechanisms.
 No architectural component may implicitly become workflow memory.
+---
+# Related ADRs
+- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — the Agent as a pure execution engine; stateless execution is a prerequisite for keeping the Agent deterministic and model-agnostic
+- AD-008 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — session memory stores summaries only; the Stable/Dynamic Information split in this ADR provides the rationale for AD-008
 ---
 # Consequences
 Execution remains deterministic.

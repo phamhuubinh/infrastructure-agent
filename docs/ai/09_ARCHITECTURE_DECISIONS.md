@@ -1,6 +1,6 @@
 # 09 - Architecture Decisions
 Records long-term architectural decisions. Each entry: Decision, Context, Reason, Consequence. Do not put implementation details, TODOs, or roadmap items here — those belong in `04_ROADMAP.md` and `08_PROJECT_STATE.md`.
-> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-001 and AD-007 below are the short-form summaries of those two; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
+> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, and AD-007 of ADR-0004; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
 ---
 ## AD-001 — Infrastructure investigation is deterministic
 **Decision:** Investigation execution is deterministic wherever possible.
@@ -18,6 +18,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Context:** The platform supports multiple infrastructure domains (Linux, Grafana, Zabbix today; more later).
 **Reason:** The assessment layer should never depend on domain-specific implementations.
 **Consequence:** `KnowledgeTool` exposes capability metadata, routes requests, aggregates results. Child Tools stay hidden behind it.
+> Long-form ADR: `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
 ## AD-004 — Each Child Tool owns exactly one infrastructure domain
 **Decision:** One domain per Child Tool, no overlap.
 **Context:** Operational evidence should stay modular.
@@ -78,3 +79,9 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Decision:** The project stays on the local architecture (`02_CURRENT_ARCHITECTURE.md`) until public VM access triggers `04_ROADMAP.md` WP1. The platform architecture (`03_PLATFORM_ARCHITECTURE.md`) is accepted as the long-term target but is not built speculatively ahead of that trigger.
 **Reason:** Avoid building database/auth/API-server infrastructure with no environment to run it on yet, and avoid diverging effort from the working local tool.
 **Consequence:** Any work that assumes multi-user state, a database, or remote hosting is out of scope until `08_PROJECT_STATE.md` shows WP1 has started.
+## AD-020 — Agent is an execution engine, not a reasoning component
+**Decision:** The Agent executes model-generated actions and returns raw observations; it never reasons, plans, generates commands, or analyzes results. All intelligence belongs to the reasoning model.
+**Context:** The project originally explored an autonomous-agent architecture where the Agent would reason and plan independently.
+**Reason:** Separating execution from reasoning keeps the Agent deterministic, predictable, and model-agnostic. The reasoning model can be swapped without changing the Agent.
+**Consequence:** Architecture follows an Action → Observation loop. The Agent is a pure execution engine. New reasoning models can replace existing ones without modifying the Agent.
+> Long-form ADR: `docs/adr/ADR-0001-agent-responsibility-boundary.md`

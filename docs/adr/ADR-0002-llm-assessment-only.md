@@ -2,6 +2,9 @@
 # Status
 Accepted
 ---
+# Cross-reference
+Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-002
+---
 # Context
 The investigation pipeline is primarily deterministic: intent resolution, target resolution, evidence planning, capability selection, execution scheduling, and evidence collection all run without any LLM call. Only the final step — interpreting the collected evidence — needs the reasoning capability of a language model.
 
@@ -48,6 +51,10 @@ Specifically:
 - The `EvidenceCompleteness` stage (before assessment) ensures the evidence package is as complete as possible, reducing recovery need.
 - The assessment output can flag insufficient evidence and recommend re-investigation, which is handled as a new pipeline invocation.
 ---
+# Related ADRs
+- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — establishes the Agent as an execution engine, reinforcing that the LLM is only used for assessment
+- ADR-0003 (`docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`) — KnowledgeTool enforces the assessment layer's isolation from domain-specific implementations
+- AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; assessment layer never imports from pipeline or tool layers
 # Referenced files
 - `src/pipeline/assessment_adapter.py` — adapter that builds AssessmentRequest from pipeline evidence
 - `src/model/assessment_model_adapter.py` — abstract interface for assessment-only models

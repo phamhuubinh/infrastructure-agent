@@ -2,6 +2,9 @@
 # Status
 Accepted
 ---
+# Cross-reference
+Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-003
+---
 # Context
 The investigation pipeline collects evidence from multiple infrastructure domains: Linux hosts, Grafana dashboards, Zabbix monitoring, and (in the future) Docker, VMware, network devices, and others. Without an explicit architectural rule, each pipeline component could import child tools directly, creating tight coupling between execution orchestration and domain-specific implementations.
 
@@ -60,6 +63,10 @@ The architecture enforces these rules:
 
 ---
 
+# Related ADRs
+- ADR-0002 (`docs/adr/ADR-0002-llm-assessment-only.md`) — LLM assessment only; KnowledgeTool enforces the isolation of the assessment layer from domain-specific implementations
+- AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; KnowledgeTool is the enforcement point that prevents pipeline components from referencing child tools directly
+
 # Referenced files
 - `src/tool/knowledge_tool.py` — the single dispatch entry point (168 lines)
 - `src/tool/target_registry.py` — registry for targets and child tools
@@ -70,4 +77,3 @@ The architecture enforces these rules:
 - `src/pipeline/capability_library.py` — single source of truth for operational capability names
 - `src/shared/capability.py` — Capability dataclass used by child tool declarations
 - `docs/ai/09_ARCHITECTURE_DECISIONS.md` — short-form AD-003 summary of this decision
-- `docs/adr/ADR-0002-llm-assessment-only.md` — related ADR (LLM assessment only)
