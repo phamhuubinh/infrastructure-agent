@@ -4,7 +4,7 @@ from src.tool.execution_backend import (
     ExecutionBackend,
     LocalExecutionBackend,
 )
-from src.tool.linux_tool import LinuxTool
+from src.tool.linux import LinuxTool
 from src.tool.target_store import TargetStore
 from src.tool.tool import Tool
 
