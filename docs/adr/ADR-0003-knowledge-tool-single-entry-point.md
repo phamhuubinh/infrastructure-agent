@@ -68,8 +68,10 @@ The architecture enforces these rules:
 - AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; KnowledgeTool is the enforcement point that prevents pipeline components from referencing child tools directly
 
 # Referenced files
-- `src/tool/knowledge_tool.py` — the single dispatch entry point (168 lines)
-- `src/tool/target_registry.py` — registry for targets and child tools
+- `src/tool/knowledge_tool.py` — the single dispatch entry point
+- `src/tool/target_registry.py` — registry for targets and child tools (now includes `InternetTool` and `KnowledgeBaseTool`)
+- `src/tool/internet_tool.py` — HTTP fetch with SSRF protection
+- `src/tool/knowledge_base_tool.py` — RAG service proxy
 - `src/pipeline/capability_router.py` — builds route table from KnowledgeTool metadata
 - `src/pipeline/execution_engine.py` — ExecutionEngine (receives KnowledgeTool at construction)
 - `src/pipeline/execution_runtime.py` — Executes through KnowledgeTool dispatch

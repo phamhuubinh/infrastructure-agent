@@ -19,7 +19,7 @@ If two documents disagree, resolve in this order (highest wins):
 4. Everything else
 `08_PROJECT_STATE.md` wins over vision/architecture docs specifically because vision and architecture describe *intent*, while project state describes *reality*. Never assume a feature exists because it is described in `01_VISION.md` or `03_PLATFORM_ARCHITECTURE.md` — check `08_PROJECT_STATE.md`.
 ## Scope note (read this)
-This project currently runs **entirely local, single-user, no network exposure**. `03_PLATFORM_ARCHITECTURE.md` and `04_ROADMAP.md` describe a future multi-user, VM-hosted platform. That future state does not exist yet. Do not write code that assumes a database, authentication, or a remote API server unless `08_PROJECT_STATE.md` says that work package is done.
+This project currently runs **local, single-user, with optional PostgreSQL and API key auth**. The Agent makes outbound calls to targets/Grafana/Zabbix/LLM/Internet APIs. `03_PLATFORM_ARCHITECTURE.md` and `04_ROADMAP.md` describe a future multi-user, VM-hosted platform that is not fully built yet. Check `08_PROJECT_STATE.md` before assuming any platform feature exists.
 ## Document set
 | File | Purpose |
 |---|---|

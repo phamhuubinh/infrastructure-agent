@@ -22,7 +22,7 @@ Prefer `assess_machine()` over requiring callers to chain `cpu()`, `memory()`, `
 ## 7. Batch Before Loop
 Execute independent evidence requests together (parallel), not as a tool → LLM → tool → LLM loop. Minimize investigation iterations.
 ## 8. Stateless Execution
-Execution state exists only during a single investigation. Never persist execution state, observations, tool outputs, or runtime context beyond that — except where `03_PLATFORM_ARCHITECTURE.md` explicitly introduces persistent Agent history in the platform Database (WP4). Until that work package is done, treat the Agent as fully stateless between runs.
+Execution state exists only during a single investigation. Never persist execution state, observations, tool outputs, or runtime context beyond that — except where `03_PLATFORM_ARCHITECTURE.md` explicitly introduces persistent Agent history in the platform Database (WP4). The `PostgresConversationStore` (WP4 in progress) persists conversation history (summaries only, not raw observations) — this is the only exception to the stateless rule and should not be treated as a precedent for storing execution state.
 ## 9. Child Tools & 10. Capability Design
 See `06_TOOL_AND_CAPABILITY_DESIGN.md` — the full contract for Child Tools, capabilities, and KnowledgeTool lives there, not duplicated here.
 ## 11. Coding Principles
@@ -40,7 +40,7 @@ No credential, token, password, or API key may be hardcoded in source code, as a
 ## 17. Intentional Security Trade-offs Must Be Documented, Not Silently Changed
 Some security-relevant defaults are intentional for the current local, trusted-network scope (e.g. SSH host key checking currently disabled — see `09_ARCHITECTURE_DECISIONS.md`). Do not "fix" these unilaterally. If a trade-off looks wrong, raise it — do not change it without recording the decision (or its reversal) in `09_ARCHITECTURE_DECISIONS.md`.
 ## 18. Local Scope Until the Roadmap Says Otherwise
-The project runs local-only today (`02_CURRENT_ARCHITECTURE.md`). Do not add a database, authentication, or a remote-facing API server speculatively — that work is sequenced in `04_ROADMAP.md` and only begins once its trigger (public VM access) is met and `08_PROJECT_STATE.md` reflects it.
+The project runs local today (`02_CURRENT_ARCHITECTURE.md`). A PostgreSQL session store and optional API key auth are implemented for the `--web` mode. Do not add multi-user accounts, remote hosting, or production deployment speculatively — that work is sequenced in `04_ROADMAP.md` WP1 and only begins once public VM access is available.
 ## 19. Implementation Mode
 Unless explicitly requested otherwise, operate in Implementation Mode: implement approved designs, preserve existing behavior, avoid unrelated refactoring, keep patches small, stop after the scoped task. Architecture discussion happens only when explicitly requested.
 ## 20. Implementation Rules
@@ -50,7 +50,7 @@ Review implementation, verify responsibilities/dependencies/architecture boundar
 ## 22. Definition of Done
 A task is complete only when: implementation is complete, tests pass (when tests exist for the touched area), benchmarks pass when applicable, no regressions remain, architecture remains intact, the repository is clean, and it's one logical change per commit.
 ## 23. Benchmark-Driven Development
-New capabilities should exist because a benchmark scenario requires additional evidence — not because they appear useful. Benchmark quality matters more than implementation quantity. (Current status: no benchmark runner exists yet — see `08_PROJECT_STATE.md`. This rule governs behavior once one exists, and should also govern how the benchmark runner itself gets built.)
+New capabilities should exist because a benchmark scenario requires additional evidence — not because they appear useful. Benchmark quality matters more than implementation quantity. (Current status: benchmark runner exists at `benchmark/` — see `08_PROJECT_STATE.md`.)
 ## 24. Capability Metadata — One Source of Truth
 Child Tools define capabilities. KnowledgeTool aggregates metadata. The Execution Engine consumes metadata. Capability definitions must never be duplicated.
 ## 25. Reporting — Never Claim Undone Work as Done

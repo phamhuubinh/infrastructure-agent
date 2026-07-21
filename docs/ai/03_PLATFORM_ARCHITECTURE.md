@@ -1,7 +1,7 @@
 # 03 - Platform Architecture (Target, Future)
 > Status: **not implemented**. This document describes where the system is going, not what exists. Check `08_PROJECT_STATE.md` before assuming any part of this is live.
-## Trigger
-This direction only applies once public VM access is available. Until then, the project stays on the local architecture described in `02_CURRENT_ARCHITECTURE.md`.
+## Status
+WP4 is partially underway locally (PostgreSQL session store, API key auth, FastAPI backend). Full platform deployment requires public VM access (WP1). Until then, the project stays on the local architecture described in `02_CURRENT_ARCHITECTURE.md`.
 ## Target shape
 ```
 Internet
@@ -46,7 +46,7 @@ Desktop App
 - Job queue
 Nothing important is allowed to live only on one local machine once this is in place. A user should be able to start a task on one device and pick it up on another with nothing lost.
 ## Desktop App
-A Tauri or Electron app, planned for WP5. It is a second client, not a second backend: same API, same database, same account as the Web UI. The only difference between Desktop App and Web UI is presentation. Example flow this must support: upload a document on the desktop app at work, open the web UI at home later, the file, the chat, and any still-running agent job are all present, unchanged.
+Currently implemented as an Electron wrapper (`desktop/`) that serves the TanStack Start UI and proxies API calls to the backend. See `08_PROJECT_STATE.md` for current status. The long-term plan (Tauri, WP5) would make it a native second client using the same API. Example flow this must support: upload a document on the desktop app at work, open the web UI at home later, the file, the chat, and any still-running agent job are all present, unchanged.
 ## Infrastructure
 - Reverse proxy in front of the API/Web UI, terminating HTTPS.
 - Docker Compose to run the platform's services (API, Web UI, Database, and later Dify/RAG/Document Service) on the VM.
@@ -54,4 +54,4 @@ A Tauri or Electron app, planned for WP5. It is a second client, not a second ba
 ## Non-goals for this document
 This document intentionally does not cover Kubernetes, multi-VM scaling, or high availability. Those are out of scope until the single-VM Docker Compose setup (WP1) is running and stable. Do not over-design for scale that has no corresponding roadmap item yet — see `07_DEVELOPMENT_RULES.md` on avoiding unnecessary complexity.
 ## Relationship to the Agent's own rules
-Becoming a platform capability does not relax the Agent's core rule that Internet access, when the Internet Tool exists (`04_ROADMAP.md`, WP4), is opt-in per request — never automatic, regardless of which client (Web UI or Desktop App) initiated the request.
+Becoming a platform capability does not relax the Agent's core rule that Internet access is opt-in per request — never automatic, regardless of which client (Web UI or Desktop App) initiated the request. The `InternetTool` already enforces this.

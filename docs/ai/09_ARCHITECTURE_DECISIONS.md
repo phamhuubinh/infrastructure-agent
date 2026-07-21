@@ -15,7 +15,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 > Long-form ADR: `docs/adr/ADR-0002-llm-assessment-only.md`
 ## AD-003 — KnowledgeTool is the single runtime entry point
 **Decision:** `KnowledgeTool` is the only entry point for evidence collection.
-**Context:** The platform supports multiple infrastructure domains (Linux, Grafana, Zabbix today; more later).
+**Context:** The platform supports multiple infrastructure domains (Linux, Grafana, Zabbix, Internet fetch, RAG service today; more later).
 **Reason:** The assessment layer should never depend on domain-specific implementations.
 **Consequence:** `KnowledgeTool` exposes capability metadata, routes requests, aggregates results. Child Tools stay hidden behind it.
 > Long-form ADR: `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
@@ -23,7 +23,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Decision:** One domain per Child Tool, no overlap.
 **Context:** Operational evidence should stay modular.
 **Reason:** High cohesion → simpler maintenance, easier extension.
-**Consequence:** `LinuxTool`, `GrafanaTool`, `ZabbixTool` today; any future domain (e.g. Docker, VMware) gets its own tool rather than being bolted onto an existing one.
+**Consequence:** `LinuxTool`, `GrafanaTool`, `ZabbixTool`, `InternetTool`, `KnowledgeBaseTool` today; any future domain (e.g. Docker, VMware) gets its own tool rather than being bolted onto an existing one.
 ## AD-005 — Capability definitions belong exclusively to Child Tools
 **Decision:** One location owns each capability definition.
 **Reason:** Capability metadata must stay synchronized and non-duplicated.
@@ -79,8 +79,8 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Consequence:** Secrets must be supplied through a mechanism outside version control (current agreed mechanism recorded below once settled — env var / gitignored local config / OS credential store). The previously exposed Grafana token must be treated as compromised and rotated on the Grafana server, independent of the code fix. **Status of which supply mechanism is actually implemented: see `08_PROJECT_STATE.md`.**
 ## AD-019 — Local-first, platform-second sequencing
 **Decision:** The project stays on the local architecture (`02_CURRENT_ARCHITECTURE.md`) until public VM access triggers `04_ROADMAP.md` WP1. The platform architecture (`03_PLATFORM_ARCHITECTURE.md`) is accepted as the long-term target but is not built speculatively ahead of that trigger.
-**Reason:** Avoid building database/auth/API-server infrastructure with no environment to run it on yet, and avoid diverging effort from the working local tool.
-**Consequence:** Any work that assumes multi-user state, a database, or remote hosting is out of scope until `08_PROJECT_STATE.md` shows WP1 has started.
+**Reason:** Avoid building multi-user infrastructure with no environment to run it on yet, and avoid diverging effort from the working local tool.
+**Consequence:** A single-user PostgreSQL session store and API key auth are in place for the `--web` mode. Multi-user state, accounts, and remote hosting remain out of scope until WP1 (see `04_ROADMAP.md`).
 ## AD-020 — Agent is an execution engine, not a reasoning component
 **Decision:** The Agent executes model-generated actions and returns raw observations; it never reasons, plans, generates commands, or analyzes results. All intelligence belongs to the reasoning model.
 **Context:** The project originally explored an autonomous-agent architecture where the Agent would reason and plan independently.
