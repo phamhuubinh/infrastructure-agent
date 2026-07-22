@@ -103,9 +103,9 @@ class DeterministicAgent:
             {
                 "type": "intent",
                 "intent": investigation.intent.name if investigation.intent else "N/A",
-                "confidence": investigation.confidence.name
-                if investigation.confidence
-                else "N/A",
+                "confidence": (
+                    investigation.confidence.name if investigation.confidence else "N/A"
+                ),
                 "target": investigation.target or "localhost",
                 "matched_keywords": list(investigation.matched_keywords),
                 "required_evidence": [e.name for e in investigation.required_evidence],
@@ -140,21 +140,23 @@ class DeterministicAgent:
                 "complete": investigation.evidence_complete,
                 "missing_evidence": list(investigation.missing_evidence),
                 "runtime_metrics": {
-                    "execution_duration": round(
-                        getattr(metrics, "execution_duration", 0), 3
-                    )
-                    if metrics
-                    else 0,
+                    "execution_duration": (
+                        round(getattr(metrics, "execution_duration", 0), 3)
+                        if metrics
+                        else 0
+                    ),
                     "total_nodes": getattr(metrics, "total_nodes", 0) if metrics else 0,
-                    "successful_nodes": getattr(metrics, "successful_nodes", 0)
-                    if metrics
-                    else 0,
-                    "failed_nodes": getattr(metrics, "failed_nodes", 0)
-                    if metrics
-                    else 0,
-                    "parallel_ratio": round(getattr(metrics, "parallel_ratio", 0), 2)
-                    if metrics
-                    else 0,
+                    "successful_nodes": (
+                        getattr(metrics, "successful_nodes", 0) if metrics else 0
+                    ),
+                    "failed_nodes": (
+                        getattr(metrics, "failed_nodes", 0) if metrics else 0
+                    ),
+                    "parallel_ratio": (
+                        round(getattr(metrics, "parallel_ratio", 0), 2)
+                        if metrics
+                        else 0
+                    ),
                     "tool_calls": getattr(metrics, "tool_calls", 0) if metrics else 0,
                 },
             }
@@ -258,7 +260,12 @@ class DeterministicAgent:
                 label = "infrastructure" if is_infra else "general"
                 self._conversation_store.add_classifier_turn(user_request, label)
             return (is_infra, None)
-        except Exception:
+        except Exception as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:80],
+                message="Tier-2 LLM classification failed, falling back to general chat",
+            )
             return (False, "chat")
 
     def chat(self, user_request: str) -> str:

@@ -14,7 +14,7 @@ def _get_dsn() -> str | None:
         return dsn
     pg_user = os.environ.get("POSTGRES_USER", "orion")
     pg_pass = os.environ.get("POSTGRES_PASSWORD", "CHANGEME")
-    pg_host = os.environ.get("POSTGRES_HOST", "postgres")
+    pg_host = os.environ.get("POSTGRES_HOST", "")
     pg_db = os.environ.get("POSTGRES_DB", "orion")
     if pg_host:
         return f"postgresql://{pg_user}:{pg_pass}@{pg_host}:5432/{pg_db}"

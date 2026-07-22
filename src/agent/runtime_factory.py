@@ -287,12 +287,17 @@ def create_deterministic_agent(
     )
     store = TargetStore(path=target_store_path)
 
-    registry_count = 0
     try:
         registry = TargetRegistry(store=store)
         registry_count = len(registry.target_names())
-    except Exception:
-        registry = TargetRegistry(store=store)
+    except Exception as exc:
+        _info(
+            "registry",
+            status="error",
+            error=str(exc)[:120],
+            message="Failed to create TargetRegistry, aborting startup",
+        )
+        raise
     _info("registry", targets=registry_count, message="Target registry loaded")
 
     # Register infrastructure tools from tools.json (not from hardcoded code).
@@ -300,9 +305,9 @@ def create_deterministic_agent(
     _register_tools(registry, tools_config)
     _info(
         "tools",
-        tools=len(tools_config.get("tools", []))
-        if isinstance(tools_config, dict)
-        else 0,
+        tools=(
+            len(tools_config.get("tools", [])) if isinstance(tools_config, dict) else 0
+        ),
         message="Tools registered",
     )
 

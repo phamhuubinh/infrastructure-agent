@@ -22,8 +22,12 @@ def test_deterministic_agent_runs_pipeline() -> None:
 
     TargetResolver.resolve = patched_resolve
     try:
-        agent = create_deterministic_agent()
-        result = agent.run("check the server health")
+        with mock.patch(
+            "src.model.llm_client.LLMClient.generate",
+            return_value="Mocked assessment: the system appears healthy and stable based on collected evidence.",
+        ):
+            agent = create_deterministic_agent()
+            result = agent.run("check the server health")
     finally:
         TargetResolver.resolve = original_resolve
     assert isinstance(result, str)
@@ -40,8 +44,12 @@ def test_pipeline_only() -> None:
 
     TargetResolver.resolve = patched_resolve
     try:
-        agent = create_deterministic_agent()
-        request = agent.execute_pipeline_only("check the server health")
+        with mock.patch(
+            "src.model.llm_client.LLMClient.generate",
+            return_value="Mocked assessment: system appears healthy.",
+        ):
+            agent = create_deterministic_agent()
+            request = agent.execute_pipeline_only("check the server health")
         assert len(request.evidence) > 0
         assert request.intent is not None
     finally:

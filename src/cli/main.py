@@ -346,6 +346,9 @@ def main() -> None:
 
     subparsers.add_parser("list-targets", help=argparse.SUPPRESS)
 
+    import sys as _sys
+    if len(_sys.argv) == 1:
+        _sys.argv.append("run")
     args = parser.parse_args()
 
     if args.command == "help" or args.command is None:
