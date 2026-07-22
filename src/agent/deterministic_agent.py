@@ -46,6 +46,22 @@ class DeterministicAgent:
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
+    @property
+    def assessment_model(self) -> AssessmentModelAdapter:
+        """Read-only access to the assessment model adapter."""
+        return self._assessment_model
+
+    @property
+    def conversation_store(self) -> ConversationStore | None:
+        """Read-only access to the conversation store."""
+        return self._conversation_store
+
+    @conversation_store.setter
+    def conversation_store(self, store: ConversationStore) -> None:
+        """Set the conversation store after initialization."""
+        self._conversation_store = store
+        self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
+
     def run(self, user_request: str) -> str:
         """Run a full deterministic investigation and return assessment.
 

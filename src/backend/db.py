@@ -2,22 +2,32 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Callable
 from typing import Any
 
+from src.agent.conversation_store import ConversationStore
+
 _SESSIONS_TABLE = "sessions"
+
+
+def _mask_dsn(dsn: str) -> str:
+    return re.sub(r"(postgresql://[^:]+:)([^@]+)(@)", r"\1***\3", dsn)
 
 
 def _get_dsn() -> str | None:
     dsn = os.environ.get("ORION_DATABASE_URL")
     if dsn:
+        if os.environ.get("ORION_DB_SSL") == "1" and "sslmode" not in dsn:
+            dsn += ("&" if "?" in dsn else "?") + "sslmode=require"
         return dsn
     pg_user = os.environ.get("POSTGRES_USER", "orion")
     pg_pass = os.environ.get("POSTGRES_PASSWORD", "CHANGEME")
     pg_host = os.environ.get("POSTGRES_HOST", "")
     pg_db = os.environ.get("POSTGRES_DB", "orion")
     if pg_host:
-        return f"postgresql://{pg_user}:{pg_pass}@{pg_host}:5432/{pg_db}"
+        params = "?sslmode=require" if os.environ.get("ORION_DB_SSL") == "1" else ""
+        return f"postgresql://{pg_user}:{pg_pass}@{pg_host}:5432/{pg_db}{params}"
     return None
 
 
@@ -151,9 +161,11 @@ def list_sessions_db(dsn: str) -> list[dict]:
                         "title": row[2] or "",
                         "turns": len([m for m in msgs if m.get("role") == "user"]),
                         "updated": row[4].isoformat() if row[4] else "",
-                        "preview": (msgs[:1] or [{}])[0].get("content", "")[:80]
-                        if msgs
-                        else "",
+                        "preview": (
+                            (msgs[:1] or [{}])[0].get("content", "")[:80]
+                            if msgs
+                            else ""
+                        ),
                     }
                 )
             return rows
@@ -265,9 +277,7 @@ def get_document(dsn: str, doc_id: str) -> dict | None:
             meta = (
                 row[6]
                 if isinstance(row[6], dict)
-                else json.loads(row[6])
-                if row[6]
-                else {}
+                else json.loads(row[6]) if row[6] else {}
             )
             return {
                 "id": row[0],
@@ -339,7 +349,7 @@ def delete_document(dsn: str, doc_id: str) -> bool:
         conn.close()
 
 
-class PostgresConversationStore:
+class PostgresConversationStore(ConversationStore):
     def __init__(
         self,
         session_id: str,

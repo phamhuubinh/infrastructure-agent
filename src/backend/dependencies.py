@@ -9,6 +9,7 @@ from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.db import (
     PostgresConversationStore,
     _get_dsn,
+    _mask_dsn,
     init_db,
     init_documents_db,
 )
@@ -35,7 +36,7 @@ class AppState:
             _info(
                 "database",
                 message="PostgreSQL session store initialized",
-                dsn=self.dsn.split("@")[-1] if "@" in self.dsn else "default",
+                dsn=_mask_dsn(self.dsn),
             )
 
         self.sessions_dir = str(Path.home() / ".orion" / "sessions")
@@ -52,16 +53,16 @@ class AppState:
                     session_id=sid,
                     dsn=self.dsn,
                     source="api",
-                    summarize_fn=self.agent._assessment_model.assess_raw,
+                    summarize_fn=self.agent.assessment_model.assess_raw,
                 )
             else:
                 cs = ConversationStore(
                     session_id=sid,
                     store_dir=self.sessions_dir,
                     source="api",
-                    summarize_fn=self.agent._assessment_model.assess_raw,
+                    summarize_fn=self.agent.assessment_model.assess_raw,
                 )
             self.web_sessions[sid] = cs
         cs = self.web_sessions[sid]
-        self.agent._conversation_store = cs
+        self.agent.conversation_store = cs
         return cs
