@@ -465,7 +465,7 @@ def test_document_download_file_not_on_disk(app, tmp_path):
 
 
 @mock.patch(
-    "src.backend.db._get_dsn",
+    "src.backend.dependencies._get_dsn",
     return_value="postgresql://user:pass@localhost:5432/orion",
 )
 @mock.patch("src.backend.db._import_driver")
@@ -488,7 +488,7 @@ def test_sessions_list_db_mode(mock_health, mock_driver, mock_dsn):
 
 
 @mock.patch(
-    "src.backend.db._get_dsn",
+    "src.backend.dependencies._get_dsn",
     return_value="postgresql://user:pass@localhost:5432/orion",
 )
 @mock.patch("src.backend.db._import_driver")
@@ -511,7 +511,7 @@ def test_sessions_delete_db_mode(mock_health, mock_driver, mock_dsn):
 
 
 @mock.patch(
-    "src.backend.db._get_dsn",
+    "src.backend.dependencies._get_dsn",
     return_value="postgresql://user:pass@localhost:5432/orion",
 )
 @mock.patch("src.backend.db._import_driver")
