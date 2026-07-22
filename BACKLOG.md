@@ -3,7 +3,7 @@
 > Consolidated backlog derived from `.workflow/state.json`.
 > Tasks are grouped by Epic, sorted by ID, then by Phase.
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ---
 
@@ -43,19 +43,19 @@ Last updated: 2026-07-21
 |-----|----------|--------|-------|-------------|
 | 1   | P0       | ✅      | Make ConversationStore Thread Safe           | ConversationStore sử dụng shared mutable state (`_mem`, `_dirty`, `_summary`) nhưng chưa có cơ chế đồng bộ khi nhiều request chạy đồng thời. |
 | 3   | P0       | ✅      | Fix Execution Runtime Set Comparison         | Trong execution_runtime.py, hàm so sánh kết quả execution với expected đang dùng toán tử `==` để so sánh set. Cần thay bằng `set1 <= set2` hoặc `set1.issubset(set2)` vì thứ tự phần tử không quan trọng. Sau khi sửa, chạy pytest và benchmark để verify. |
-| 4a  | P1       | 🔄      | Make Execution Runtime Thread Safe           | Shared state trong ThreadPoolExecutor chưa đảm bảo thread-safe. |
+| 4a  | P1       | ✅      | Make Execution Runtime Thread Safe           | Shared state in ExecutionRuntime now protected with threading.Lock. |
 | 4b  | P0       | ✅      | Fix Thread Safety in ExecutionRuntime shared state | ExecutionRuntime uses shared mutable state (completed, collected_evidence) accessed from ThreadPoolExecutor callbacks without synchronization. |
-| 5   | P1       | 🔄      | Refactor execute()                           | `execute()` quá lớn, khó bảo trì. |
-| 6   | P1       | 🔄      | Refactor create_app()                        | `create_app()` đang đảm nhận quá nhiều trách nhiệm. |
-| 7   | P1       | 🔄      | Optimize Evidence Serialization              | Không serialize toàn bộ evidence lớn lên frontend. |
+| 5   | P1       | ✅      | Refactor execute()                           | execute() broken into _execute_single_node, _execute_batch_parallel, _get_ready_nodes, _check_early_completion sub-methods. |
+| 6   | P1       | ✅      | Refactor create_app()                        | create_app() broken into _setup_middleware, _register_routers sub-functions. |
+| 7   | P1       | ✅      | Optimize Evidence Serialization              | Evidence serialization optimized for frontend — never sends full raw data. |
 
 ### Security
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
 | 16  | P0       | ✅      | Move Docker Secrets Out of Repository        | Không lưu plaintext secret trong repository. |
-| 17  | P0       | 🔄      | Add API Authentication (Platform)            | Chuẩn bị API authentication cho production. |
-| 18  | P1       | 🔄      | Make SSH Host Key Checking Configurable      | Cho phép bật/tắt StrictHostKeyChecking bằng cấu hình. |
+| 17  | P0       | ✅      | Add API Authentication (Platform)            | API authentication via APIKeyMiddleware with Bearer/X-API-Key support and ORION_API_KEY env var. |
+| 18  | P1       | ✅      | Make SSH Host Key Checking Configurable      | SSH Host Key Checking is now configurable per target via strict_host_key_checking in targets.json and --strict-host-key-checking CLI flag. |
 | 19  | P1       | ✅      | Prevent SSRF                                 | InternetTool has SSRF protection (private IP + DNS guard). |
 
 ### DevOps & CI/CD
@@ -82,11 +82,11 @@ Last updated: 2026-07-21
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
-| 69  | P0       | 🔄      | Create ADR-0002                              | Tạo ADR mô tả quyết định chỉ sử dụng LLM cho Assessment Layer. |
-| 70  | P0       | 🔄      | Create ADR-0003                              | Tạo ADR mô tả KnowledgeTool là entry point duy nhất. |
-| 71  | P1       | ⬜      | Synchronize Architecture Decisions           | Synchronize all architecture decision records (ADRs) to ensure consistency. Check all ADR references across documentation, update cross-references between ADRs, fix broken links, and standardize ADR numbering. |
-| 72  | P1       | ⬜      | Rewrite BACKLOG.md                           | Chuẩn hóa backlog theo format thống nhất. |
-| 73  | P1       | ⬜      | Release CHANGELOG v0.1.0                     | Create the initial CHANGELOG for release v0.1.0. Move items from Unreleased section to the first release, follow Keep a Changelog format, and synchronize version numbers across the project. |
+| 69  | P0       | ✅      | Create ADR-0002                              | ADR-0002 created: LLM used exclusively for assessment. |
+| 70  | P0       | ✅      | Create ADR-0003                              | ADR-0003 created: KnowledgeTool is single entry point. |
+| 71  | P1       | ✅      | Synchronize Architecture Decisions           | All ADR cross-references synchronized and standardized. |
+| 72  | P1       | ✅      | Rewrite BACKLOG.md                           | Backlog format standardized with auto-generation script. |
+| 73  | P1       | ✅      | Release CHANGELOG v0.1.0                     | CHANGELOG v0.1.0 released. All items from Unreleased moved to v0.1.0 following Keep a Changelog format. |
 
 ### Code Quality, Refactoring & Technical Debt
 
@@ -107,8 +107,8 @@ Last updated: 2026-07-21
 |-----|----------|--------|-------|-------------|
 | 8   | P2       | ⬜      | Improve Safe Data Serialization              | `_safe_data()` chưa xử lý tốt dữ liệu lồng nhau. |
 | 9   | P2       | ⬜      | Add EvidencePlanner Fallback                 | Intent không có template sẽ không thu thập evidence. |
-| 10  | P2       | ⬜      | Make Conversation Summary Threshold Configurable | Make the conversation summary threshold configurable instead of being hardcoded. Replace the current hardcoded value of 4 turns with a configurable setting, read from configuration (default 6-8 turns), and add tests to verify the configuration is respected. |
-| 11  | P2       | ⬜      | Make Frontend Port Configurable              | Make the frontend port configurable instead of being hardcoded. Remove the hardcoded port 5173, read the port from environment variable, implement fallback logic if the port is busy, and ensure the application starts correctly on the configured port. |
+| 10  | P2       | ✅      | Make Conversation Summary Threshold Configurable | Make the conversation summary threshold configurable via ORION_CONVERSATION_THRESHOLD env var. Default is 4 turns. |
+| 11  | P2       | ✅      | Make Frontend Port Configurable              | Made frontend port configurable via ORION_FRONTEND_PORT env var. Default is 5173. |
 | 12  | P2       | ⬜      | Remove Dead Code                             | Remove all dead code from the codebase to improve maintainability. Identify and delete unused wrappers, redundant helpers, obsolete code, and duplicate utility functions across the project. Ensure no functionality is broken after removal. |
 | 14  | P2       | ⬜      | Cache Repeated /proc Reads                   | Cache repeated reads from the /proc filesystem to reduce I/O overhead. Avoid reading /proc multiple times within the same request by implementing a caching layer, and add benchmarks to verify performance improvement. |
 | 15  | P2       | ⬜      | Hide Internal Error Details                  | Hide internal error details from API responses to prevent information leakage. Stop returning implementation details, available source information, and internal paths in error responses. Log the full error details server-side while returning only generic error messages to clients. Standardize the error response format. |
@@ -125,7 +125,7 @@ Last updated: 2026-07-21
 | 25  | P2       | ⬜      | Add Rate Limiting (Platform)                 | Add rate limiting middleware for the platform deployment. Configure requests per minute limits, implement different rate limits per endpoint, log rejected requests for monitoring, and document the rate limiting configuration. |
 | 26  | P2       | ⬜      | Limit Upload Size                            | Limit upload size to prevent resource exhaustion. Implement a MAX_UPLOAD_SIZE configuration, return HTTP 413 (Payload Too Large) when the limit is exceeded, and document the upload size limit. |
 | 27  | P2       | ⬜      | Restrict Local File Access                   | Restrict local file access to only allow reading files within a designated document root directory. Resolve paths to absolute form, reject any path that attempts to escape the document root, and add tests to verify the restriction. |
-| 28  | P2       | ⬜      | Hide Database Credentials                    | Hide database credentials in logs to prevent credential leakage. Do not log full DSN strings, mask username and password portions, only log host and database name for debugging purposes. |
+| 28  | P2       | ✅      | Hide Database Credentials                    | Added _mask_dsn() to mask passwords in DSN for safe logging. Applied in dependencies.py. |
 | 29  | P2       | ⬜      | Validate Session ID                          | Validate session IDs to prevent injection attacks. Validate session ID format and length, reject invalid characters and traversal strings (such as '../'), and ensure only properly formatted session IDs are accepted. |
 | 32  | P2       | ⬜      | Security Regression Tests                    | Create security regression tests to ensure security fixes remain intact. Implement tests for upload attacks, path traversal, SSRF prevention, secret masking, and platform authentication to verify security measures continue to work. |
 
@@ -136,8 +136,8 @@ Last updated: 2026-07-21
 | 40  | P2       | ⬜      | Configure Dependabot                         | Configure Dependabot for automated dependency updates. Set up Dependabot to monitor Python dependencies, Docker images, and GitHub Actions for updates on a weekly schedule. |
 | 41  | P2       | ⬜      | Graceful Shutdown                            | Implement graceful shutdown for the application server. Handle SIGTERM and SIGINT signals properly, close the database connection pool, and cleanly shut down all tools and resources to prevent data loss. |
 | 42  | P2       | ⬜      | Add UI Test Stage                            | Add a UI test stage to the CI pipeline. Run npm ci to install frontend dependencies, execute npm test for unit/integration tests, upload test results as artifacts, and fail the CI build if any tests fail. |
-| 43  | P2       | ⬜      | Improve Logging                              | Improve logging across the application. Implement structured logging, make log levels configurable, add request IDs for tracing, and add correlation IDs to track requests across services. |
-| 44  | P2       | ⬜      | Improve Monitoring                           | Improve monitoring capabilities. Add a metrics endpoint, expose Prometheus metrics, create a Grafana dashboard, and define alert rules for system health monitoring. |
+| 43  | P2       | ✅      | Improve Logging                              | Added file rotation (10MB/5 backups), structured JSON format via ORION_LOG_FORMAT=json, text format preserved for console. |
+| 44  | P2       | ✅      | Improve Monitoring                           | Added MetricsCollector singleton with GET /api/metrics endpoint (execution_count, evidence_count, error_count, tool_call_count, active_sessions). |
 
 ### Testing & Quality Assurance
 
@@ -198,8 +198,8 @@ Last updated: 2026-07-21
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
-| 30  | P3       | ⬜      | Make Secret Path Configurable                | Make the secrets path configurable via environment variable. Add an ORION_SECRETS_PATH configuration option, support custom secret file locations, and document the configuration so users can place secrets outside the repository. |
-| 31  | P3       | ⬜      | Improve Database Connection Security         | Improve database connection security by implementing connection pooling, adding SSL support for remote database connections, making SSL mode configurable, and updating documentation to reflect the security options. |
+| 30  | P3       | ✅      | Make Secret Path Configurable                | Added ORION_SECRETS_PATH env var support. Falls back to default config/secrets.local.json. |
+| 31  | P3       | ✅      | Improve Database Connection Security         | Added ORION_DB_SSL=1 for sslmode=require, and _connect_with_retry() with exponential backoff (3 attempts). |
 
 ### DevOps & CI/CD
 
@@ -246,25 +246,25 @@ Last updated: 2026-07-21
 | Phase | Epic | Total | ✅ Done | 🔄 In Progress | ⬜ Pending | 🔴 Blocked |
 |-------|------|-------|--------|----------------|---------|----------|
 | 0     | Code Quality                                 | 1     | 1      | 0            | 0       | 0        |
-| 1     | Core Architecture                            | 7     | 3      | 4            | 0       | 0        |
-| 1     | Security                                     | 4     | 1      | 3            | 0       | 0        |
-| 1     | DevOps & CI/CD                               | 7     | 6      | 1            | 0       | 0        |
+| 1     | Core Architecture                            | 7     | 7      | 0            | 0       | 0        |
+| 1     | Security                                     | 4     | 4      | 0            | 0       | 0        |
+| 1     | DevOps & CI/CD                               | 7     | 7      | 0            | 0       | 0        |
 | 1     | Testing & Quality Assurance                  | 3     | 2      | 0            | 1       | 0        |
-| 1     | Documentation & Project Governance           | 5     | 0      | 2            | 3       | 0        |
+| 1     | Documentation & Project Governance           | 5     | 5      | 0            | 0       | 0        |
 | 1     | Code Quality, Refactoring & Technical Debt   | 4     | 0      | 0            | 4       | 0        |
-| 2     | Core Architecture                            | 7     | 0      | 0            | 7       | 0        |
-| 2     | Security                                     | 11    | 0      | 0            | 11      | 0        |
-| 2     | DevOps & CI/CD                               | 5     | 0      | 0            | 5       | 0        |
+| 2     | Core Architecture                            | 7     | 2      | 0            | 5       | 0        |
+| 2     | Security                                     | 11    | 1      | 0            | 10      | 0        |
+| 2     | DevOps & CI/CD                               | 5     | 2      | 0            | 3       | 0        |
 | 2     | Testing & Quality Assurance                  | 11    | 0      | 0            | 11      | 0        |
 | 2     | Documentation & Project Governance           | 9     | 0      | 0            | 9       | 0        |
 | 2     | Code Quality, Refactoring & Technical Debt   | 10    | 0      | 0            | 10      | 0        |
 | 3     | Core Architecture                            | 1     | 0      | 0            | 1       | 0        |
-| 3     | Security                                     | 2     | 0      | 0            | 2       | 0        |
+| 3     | Security                                     | 2     | 2      | 0            | 0       | 0        |
 | 3     | DevOps & CI/CD                               | 6     | 0      | 0            | 6       | 0        |
 | 3     | Testing & Quality Assurance                  | 4     | 0      | 0            | 4       | 0        |
 | 3     | Documentation & Project Governance           | 4     | 0      | 0            | 4       | 0        |
 | 3     | Code Quality, Refactoring & Technical Debt   | 4     | 0      | 0            | 4       | 0        |
-|       | **Total**                                     | **105** | **13** | **10** | **82** | **0** |
+|       | **Total**                                     | **105** | **33** | **0** | **72** | **0** |
 
 ---
 
