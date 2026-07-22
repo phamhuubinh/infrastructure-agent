@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 from fastapi import APIRouter, Request
@@ -9,9 +10,59 @@ from src.backend.db import _get_dsn, _import_driver
 router = APIRouter(tags=["health"])
 
 
+class MetricsCollector:
+    """Simple thread-safe in-memory metrics collector (singleton)."""
+
+    _instance = None
+    _lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self._counters = {
+            "execution_count": 0,
+            "evidence_count": 0,
+            "error_count": 0,
+            "tool_call_count": 0,
+        }
+        self._active_sessions = 0
+
+    @classmethod
+    def get(cls) -> MetricsCollector:
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def increment(self, metric: str, delta: int = 1) -> None:
+        with self._lock:
+            if metric in self._counters:
+                self._counters[metric] += delta
+
+    def set_active_sessions(self, count: int) -> None:
+        with self._lock:
+            self._active_sessions = count
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {
+                **self._counters,
+                "active_sessions": self._active_sessions,
+            }
+
+
+metrics = MetricsCollector.get()
+
+
 @router.get("/api/health")
 def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@router.get("/api/metrics")
+def get_metrics():
+    return {
+        "metrics": metrics.snapshot(),
+    }
 
 
 @router.get("/api/check-model")
