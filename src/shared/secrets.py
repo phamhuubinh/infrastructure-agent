@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
+def _default_project_path() -> Path:
+    return (
+        Path(__file__).resolve().parent.parent.parent / "config" / "secrets.local.json"
+    )
 
 
-SECRETS_PATH = _project_root() / "config" / "secrets.local.json"
+def _resolve_secrets_path() -> Path:
+    """Resolve secrets path from ORION_SECRETS_PATH env var or default."""
+    env_path = os.environ.get("ORION_SECRETS_PATH")
+    if env_path:
+        return Path(env_path)
+    return _default_project_path()
+
+
+SECRETS_PATH = _resolve_secrets_path()
 
 
 def get_tool_config(tool_name: str) -> dict[str, str] | None:
@@ -38,18 +49,18 @@ def load_secrets() -> dict[str, dict[str, str]]:
         ValueError: if the file contains invalid JSON.
     """
     if not SECRETS_PATH.exists():
-        msg = "Thiếu config/secrets.local.json, xem README để biết cấu trúc file"
+        msg = f"Secrets file not found at {SECRETS_PATH}"
         raise FileNotFoundError(msg)
 
     try:
         raw = SECRETS_PATH.read_text()
-        data: dict[str, dict[str, str]] = json.loads(raw)
+        data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        msg = f"config/secrets.local.json chứa JSON không hợp lệ: {exc}"
+        msg = f"{SECRETS_PATH} contains invalid JSON: {exc}"
         raise ValueError(msg) from exc
 
     if not isinstance(data, dict):
-        msg = "config/secrets.local.json phải là một JSON object ở cấp cao nhất"
+        msg = f"{SECRETS_PATH} must be a JSON object at the top level"
         raise ValueError(msg)
 
     return data
