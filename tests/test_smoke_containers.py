@@ -2,9 +2,31 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import urllib.request
 
+import pytest
+
 API_URL = os.environ.get("API_URL", "http://localhost:61888")
+
+
+def _server_reachable(url: str) -> bool:
+    try:
+        host = url.split("://")[1].split(":")[0].split("/")[0]
+        port = int(url.split(":")[-1].split("/")[0])
+    except (IndexError, ValueError):
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _server_reachable(API_URL),
+    reason="Docker containers not running — smoke tests require `docker compose up`",
+)
 
 
 def test_api_health_endpoint() -> None:
