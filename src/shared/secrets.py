@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parent.parent.parent
 
 
 SECRETS_PATH = _project_root() / "config" / "secrets.local.json"
