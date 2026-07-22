@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 import subprocess
 import sys
 import time
@@ -150,7 +151,7 @@ def run_web(
     # --- Development mode ---
     print("Starting Infrastructure Agent...", flush=True)
 
-    frontend_port = 5173
+    frontend_port = int(os.environ.get("ORION_FRONTEND_PORT", "5173"))
 
     vite_proc = subprocess.Popen(
         ["npx", "vite", "dev", "--port", str(frontend_port)],

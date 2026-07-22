@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -47,9 +48,9 @@ def list_sessions(store_dir: str | None = None) -> list[dict]:
                     "source": data.get("source", "terminal"),
                     "updated": data.get("updated_at", ""),
                     "turns": len([m for m in msgs if m.get("role") == "user"]),
-                    "preview": (msgs[:1] or [{}])[0].get("content", "")[:80]
-                    if msgs
-                    else "",
+                    "preview": (
+                        (msgs[:1] or [{}])[0].get("content", "")[:80] if msgs else ""
+                    ),
                     "has_summary": bool(data.get("summary")),
                 }
             )
@@ -186,7 +187,8 @@ class ConversationStore:
 
     def _check_compress(self) -> None:
         turn_count = len([m for m in self._mem if m["role"] == "user"])
-        if turn_count >= 4:
+        threshold = int(os.environ.get("ORION_CONVERSATION_THRESHOLD", "4"))
+        if turn_count >= threshold:
             self.summarize()
 
     @property
