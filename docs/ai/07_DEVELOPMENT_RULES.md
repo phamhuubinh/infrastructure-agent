@@ -46,9 +46,10 @@ Unless explicitly requested otherwise, operate in Implementation Mode: implement
 ## 20. Implementation Rules
 Modify only the approved scope. Avoid speculative features, APIs, or workflows. Preserve existing behavior unless required otherwise. Never guess missing requirements — ask or state the assumption explicitly instead.
 ## 21. Verification Before Every Commit
-Review implementation, verify responsibilities/dependencies/architecture boundaries, run affected tests, run affected benchmarks when behavior changes, review `git diff` and `git status`. Resolve regressions before committing.
+Review implementation, verify responsibilities/dependencies/architecture boundaries, review `git diff` and `git status`, resolve regressions before committing.
+Always run: unit tests for the touched module(s). Only run the full benchmark suite (`python -m benchmark`) when the change touches `src/pipeline/` or `src/model/` AND alters scoring, prompt content, or evidence-collection logic. Do NOT run benchmarks for documentation, lint/formatting, config, test-only, or cleanup tasks. If unsure whether a change qualifies, state the assumption and skip the benchmark run rather than running it by default. When benchmarks are run, they must be invoked from the repository root as `python -m benchmark --domain <domain> --json`, and output must be written under `benchmark_results/` — never to the repository root.
 ## 22. Definition of Done
-A task is complete only when: implementation is complete, tests pass (when tests exist for the touched area), benchmarks pass when applicable, no regressions remain, architecture remains intact, the repository is clean, and it's one logical change per commit.
+A task is complete only when: implementation is complete, tests pass (when tests exist for the touched area), the benchmark suite passes if rule #21's benchmark criteria applied to this task, no regressions remain, architecture remains intact, the repository is clean, and it's one logical change per commit.
 ## 23. Benchmark-Driven Development
 New capabilities should exist because a benchmark scenario requires additional evidence — not because they appear useful. Benchmark quality matters more than implementation quantity. (Current status: benchmark runner exists at `benchmark/` — see `08_PROJECT_STATE.md`.)
 ## 24. Capability Metadata — One Source of Truth
