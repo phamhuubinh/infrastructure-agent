@@ -1,8 +1,1 @@
-benchmark
-config
-docker
-docs
-orion_cli
 src
-tests
-ui

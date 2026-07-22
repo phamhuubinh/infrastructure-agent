@@ -19,7 +19,7 @@ from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
 def _timestamped_log_path() -> Path:
     """Return a log path with a timestamp to prevent overwriting."""
     ts = time.strftime("%Y%m%d_%H%M%S")
-    return Path(f"benchmark_results_{ts}.log")
+    return Path("benchmark_results") / f"benchmark_results_{ts}.log"
 
 
 def _export_csv(results: list[dict[str, Any]], path: Path) -> None:
