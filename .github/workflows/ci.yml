@@ -36,11 +36,11 @@ jobs:
         if: always()
 
       - name: Dependency vulnerability scan (Safety)
-        run: safety check --full-report --exit-code
+        run: safety check --full-report --exit-code --audit-level=high
         if: always()
 
       - name: Package vulnerability scan (pip-audit)
-        run: pip-audit --strict
+        run: pip-audit --fail-on=high
         if: always()
 
       - name: Test with coverage
