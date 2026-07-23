@@ -15,6 +15,7 @@ metadata, this test will FAIL — proving it catches the Phase 5-style wiring ga
 import json
 import sys
 from io import StringIO
+from unittest import mock
 
 from benchmark.__main__ import main
 
@@ -24,10 +25,14 @@ def test_main_json_output_contains_benchmark_metadata() -> None:
     old_stdout = sys.stdout
     sys.stdout = StringIO()
 
-    try:
-        main(["--domain", "assessment", "--json"])
-    except SystemExit:
-        pass
+    with mock.patch(
+        "src.model.llm_client.LLMClient.generate",
+        return_value="Mocked assessment result for benchmark test.",
+    ):
+        try:
+            main(["--domain", "assessment", "--json"])
+        except SystemExit:
+            pass
 
     output = sys.stdout.getvalue()
     sys.stdout = old_stdout
@@ -58,10 +63,14 @@ def test_main_json_structure() -> None:
     old_stdout = sys.stdout
     sys.stdout = StringIO()
 
-    try:
-        main(["--domain", "assessment", "--json"])
-    except SystemExit:
-        pass
+    with mock.patch(
+        "src.model.llm_client.LLMClient.generate",
+        return_value="Mocked assessment result for benchmark test.",
+    ):
+        try:
+            main(["--domain", "assessment", "--json"])
+        except SystemExit:
+            pass
 
     output = sys.stdout.getvalue()
     sys.stdout = old_stdout

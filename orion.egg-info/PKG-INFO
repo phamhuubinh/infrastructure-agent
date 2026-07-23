@@ -7,9 +7,11 @@ Requires-Dist: fastapi>=0.100
 Requires-Dist: uvicorn>=0.20
 Requires-Dist: pydantic>=2.0
 Requires-Dist: psycopg2-binary>=2.9
+Requires-Dist: starlette>=0.35
 Provides-Extra: test
 Requires-Dist: pytest>=7; extra == "test"
 Requires-Dist: pytest-cov>=5; extra == "test"
+Requires-Dist: httpx2>=2.0; extra == "test"
 Provides-Extra: web
 Requires-Dist: fastapi>=0.100; extra == "web"
 Requires-Dist: uvicorn>=0.20; extra == "web"
@@ -17,3 +19,7 @@ Provides-Extra: security
 Requires-Dist: bandit>=1.7; extra == "security"
 Requires-Dist: safety>=3.0; extra == "security"
 Requires-Dist: pip-audit>=2.7; extra == "security"
+Provides-Extra: dev
+Requires-Dist: mypy>=1.8; extra == "dev"
+Provides-Extra: typecheck
+Requires-Dist: mypy>=1.8; extra == "typecheck"
