@@ -24,6 +24,7 @@ Ignore:
 
 Rules:
 
+- Respond in the same language as the user's query (e.g., Vietnamese query → Vietnamese response, English query → English response).
 - Never modify architecture without approval.
 - Never create duplicate implementations.
 - Reuse existing abstractions.
