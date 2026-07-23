@@ -5,7 +5,7 @@ import os
 import sys
 import time
 
-from src.agent.conversation_store import list_sessions
+from src.agent.conversation_store import ConversationStore, list_sessions
 from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.app import run_web
 from src.shared.logger import info as _info
@@ -107,15 +107,25 @@ def _run_agent(args: argparse.Namespace) -> None:
 
     _info("orion", message="orion started")
 
-    agent = create_deterministic_agent(
-        target_store_path=args.target_file,
-        server_name=args.server,
-        model=args.model,
-    )
+    from uuid import uuid4
 
     resume_id = getattr(args, "resume", None)
     if resume_id:
         print(f"Resuming session: {resume_id}")
+    else:
+        resume_id = uuid4().hex[:12]
+
+    store = ConversationStore(
+        session_id=resume_id,
+        source="terminal",
+    )
+
+    agent = create_deterministic_agent(
+        target_store_path=args.target_file,
+        server_name=args.server,
+        model=args.model,
+        conversation_store=store,
+    )
     print("Infrastructure Investigation Agent")
     print("=" * 36)
     print("  /help    Commands")
@@ -203,7 +213,8 @@ def _run_agent(args: argparse.Namespace) -> None:
         import signal as _sig
 
         _old_sigint = _sig.signal(
-            _sig.SIGINT, lambda *_: (_sig.default_int_handler(), None)
+            _sig.SIGINT,
+            lambda signum, frame: (_sig.default_int_handler(signum, frame), None),
         )
         try:
             result = agent.run_with_steps(raw_input)
@@ -347,6 +358,7 @@ def main() -> None:
     subparsers.add_parser("list-targets", help=argparse.SUPPRESS)
 
     import sys as _sys
+
     if len(_sys.argv) == 1:
         _sys.argv.append("run")
     args = parser.parse_args()
