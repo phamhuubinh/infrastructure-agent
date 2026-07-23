@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from urllib import parse as urllib_parse
 
 from src.shared.capability import Capability
@@ -124,29 +123,16 @@ class GrafanaTool(Tool):
         self._timeout = timeout
 
     def execute(self, arguments: dict[str, object]) -> ToolResult:
-        action = arguments.get("action")
-        if not isinstance(action, str):
-            return ToolResult(success=False, error="Missing action.")
-        cap = _CAPABILITIES.get(action)
-        if cap is None:
-            available = ", ".join(sorted(_CAPABILITIES))
-            return ToolResult(
-                success=False,
-                error=f"Unknown action: '{action}'. Available actions: {available}.",
-            )
-        api = GrafanaProvider(self._url, self._token, self._timeout)
-        extra = {key: value for key, value in arguments.items() if key != "action"}
         try:
-            filtered = {
-                key: value
-                for key, value in extra.items()
-                if key in inspect.signature(cap.handler).parameters
-            }
-            return ToolResult(success=True, data=cap.handler(api, **filtered))
-        except RuntimeError as exc:
+            api = GrafanaProvider(self._url, self._token, self._timeout)
+            return self._dispatch(
+                _CAPABILITIES,
+                arguments,
+                "GrafanaTool",
+                provider=api,
+            )
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:
             return ToolResult(success=False, error=str(exc))
-        except Exception as exc:
-            return ToolResult(success=False, error=f"GrafanaTool error: {exc}")
 
     def build_links(self, evidence_list: list, user_request: str) -> str:
         from src.shared.secrets import get_tool_config

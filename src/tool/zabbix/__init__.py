@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import inspect
-
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.tool import Tool
@@ -177,31 +175,16 @@ class ZabbixTool(Tool):
         self._timeout = timeout
 
     def execute(self, arguments: dict[str, object]) -> ToolResult:
-        action = arguments.get("action")
-        if not isinstance(action, str):
-            return ToolResult(success=False, error="Missing action.")
-        cap = _CAPABILITIES.get(action)
-        if cap is None:
-            available = ", ".join(sorted(_CAPABILITIES))
-            return ToolResult(
-                success=False,
-                error=f"Unknown action: '{action}'. Available actions: {available}.",
-            )
-        handler = cap.handler if isinstance(cap, Capability) else cap
-        api = _ZabbixAPI(url=self._url, token=self._token, timeout=self._timeout)
-        extra = {key: value for key, value in arguments.items() if key != "action"}
         try:
-            parameters = inspect.signature(handler).parameters
-            data = handler(
-                api, **{key: value for key, value in extra.items() if key in parameters}
+            api = _ZabbixAPI(url=self._url, token=self._token, timeout=self._timeout)
+            return self._dispatch(
+                _CAPABILITIES,
+                arguments,
+                "ZabbixTool",
+                provider=api,
             )
-        except RuntimeError as exc:
+        except (RuntimeError, TypeError, ValueError, OSError) as exc:
             return ToolResult(success=False, error=str(exc))
-        except TypeError as exc:
-            return ToolResult(success=False, error=f"ZabbixTool error: {exc}")
-        except Exception as exc:
-            return ToolResult(success=False, error=f"ZabbixTool error: {exc}")
-        return ToolResult(success=True, data=data)
 
 
 __all__ = ["ZabbixTool", "_CAPABILITIES"]

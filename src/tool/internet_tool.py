@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import ipaddress
 import json
 import re
@@ -60,7 +59,9 @@ class _HTMLStripper(HTMLParser):
         self._text: list[str] = []
         self._skip = False
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # noqa: ARG002
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:  # noqa: ARG002
         if tag in ("script", "style", "noscript"):
             self._skip = True
 
@@ -203,28 +204,11 @@ _CAPABILITIES: dict[str, Capability] = {
 
 class InternetTool(Tool):
     def execute(self, arguments: dict[str, object]) -> ToolResult:
-        action = arguments.get("action")
-        if not isinstance(action, str):
-            return ToolResult(success=False, error="Missing action.")
-
-        cap = _CAPABILITIES.get(action)
-        if cap is None:
-            available = ", ".join(sorted(_CAPABILITIES))
-            return ToolResult(
-                success=False,
-                error=f"Unknown action: '{action}'. Available actions: {available}.",
-            )
-
-        handler = cap.handler if isinstance(cap, Capability) else cap
-        extra = {k: v for k, v in arguments.items() if k != "action"}
-
         try:
-            sig = inspect.signature(handler)
-            filtered: dict[str, object] = {
-                k: v for k, v in extra.items() if k in sig.parameters
-            }
-            data = handler(**filtered)
+            return self._dispatch(
+                _CAPABILITIES,
+                arguments,
+                "InternetTool",
+            )
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
             return ToolResult(success=False, error=f"InternetTool error: {exc}")
-
-        return ToolResult(success=True, data=data)

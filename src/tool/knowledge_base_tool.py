@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import json
 import os
 from urllib import error as urlerror
@@ -137,28 +136,11 @@ _CAPABILITIES: dict[str, Capability] = {
 
 class KnowledgeBaseTool(Tool):
     def execute(self, arguments: dict[str, object]) -> ToolResult:
-        action = arguments.get("action")
-        if not isinstance(action, str):
-            return ToolResult(success=False, error="Missing action.")
-
-        cap = _CAPABILITIES.get(action)
-        if cap is None:
-            available = ", ".join(sorted(_CAPABILITIES))
-            return ToolResult(
-                success=False,
-                error=f"Unknown action: '{action}'. Available actions: {available}.",
-            )
-
-        handler = cap.handler if isinstance(cap, Capability) else cap
-        extra = {k: v for k, v in arguments.items() if k != "action"}
-
         try:
-            sig = inspect.signature(handler)
-            filtered: dict[str, object] = {
-                k: v for k, v in extra.items() if k in sig.parameters
-            }
-            data = handler(**filtered)
+            return self._dispatch(
+                _CAPABILITIES,
+                arguments,
+                "KnowledgeBaseTool",
+            )
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
             return ToolResult(success=False, error=f"KnowledgeBaseTool error: {exc}")
-
-        return ToolResult(success=True, data=data)
