@@ -38,7 +38,14 @@ def test_list_sessions_with_data(app, tmp_path):
     sess_dir = tmp_path / "sessions"
     sess_dir.mkdir(parents=True)
     (sess_dir / "abc123.json").write_text(
-        json.dumps({"session_id": "abc123", "title": "Test Session", "messages": []})
+        json.dumps(
+            {
+                "session_id": "abc123",
+                "title": "Test Session",
+                "source": "api",
+                "messages": [],
+            }
+        )
     )
     with (
         mock.patch("src.backend.dependencies._get_dsn", return_value=None),

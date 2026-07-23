@@ -24,12 +24,15 @@ class AppState:
         model: str | None = None,
         database_url: str | None = None,
     ) -> None:
+        self.target_store_path = target_store_path
         self.dsn = database_url or _get_dsn()
         self.agent = create_deterministic_agent(
             target_store_path=target_store_path,
             server_name=server_name,
             model=model,
         )
+        self._server_name = server_name
+        self._model = model
         if self.dsn:
             init_db(self.dsn)
             init_documents_db(self.dsn)
@@ -44,6 +47,19 @@ class AppState:
         self.rag_service_url = os.environ.get(
             "RAG_SERVICE_URL", "http://rag-service:8080"
         )
+
+    def switch_server(self, server_name: str, model: str | None = None) -> None:
+        """Switch the active LLM server, recreating the agent."""
+        self._server_name = server_name
+        self._model = model
+        self.agent = create_deterministic_agent(
+            target_store_path=self.target_store_path,
+            server_name=server_name,
+            model=model,
+        )
+        # Re-attach active session stores to the new agent
+        for sid, cs in self.web_sessions.items():
+            self.agent.conversation_store = cs
 
     def get_or_create_session(self, session_id: str | None) -> ConversationStore:
         sid = session_id or uuid.uuid4().hex[:12]

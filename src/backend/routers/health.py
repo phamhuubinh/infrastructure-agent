@@ -75,6 +75,65 @@ def check_model(request: Request):
         return {"status": "error", "error": str(exc)[:120]}
 
 
+@router.get("/api/models")
+def list_models():
+    import json
+    from pathlib import Path
+    from urllib import request as ur
+
+    config_path = Path(__file__).resolve().parent.parent.parent.parent / "servers.json"
+    servers_data = {}
+    active = ""
+    if config_path.exists():
+        try:
+            raw = json.loads(config_path.read_text())
+            servers_data = raw.get("servers", {})
+            active = raw.get("active_server", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    models = []
+    for name, cfg in servers_data.items():
+        model_name = cfg.get("model", "unknown")
+        base_url = str(cfg.get("base_url", ""))
+        provider = cfg.get("provider", "unknown")
+
+        # Health-check: try /health or /models endpoint
+        available = False
+        try:
+            url = f"{base_url}/health"
+            req = ur.Request(url)
+            api_key = cfg.get("api_key")
+            if api_key and str(api_key) not in ("EMPTY", ""):
+                req.add_header("Authorization", f"Bearer {api_key}")
+            res = ur.urlopen(req, timeout=3)
+            available = res.status == 200
+        except Exception:
+            # Try /v1/models for OpenAI-compatible
+            try:
+                url = f"{base_url}/v1/models"
+                req = ur.Request(url)
+                api_key = cfg.get("api_key")
+                if api_key and str(api_key) not in ("EMPTY", ""):
+                    req.add_header("Authorization", f"Bearer {api_key}")
+                res = ur.urlopen(req, timeout=3)
+                available = res.status == 200
+            except Exception:
+                available = False
+
+        models.append(
+            {
+                "name": name,
+                "model": model_name,
+                "provider": provider,
+                "base_url": base_url,
+                "available": available,
+            }
+        )
+
+    return {"models": models, "active_server": active}
+
+
 @router.get("/api/status")
 def service_status(request: Request):
     deps = request.app.state.deps
