@@ -1,10 +1,24 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.intent_resolver import Intent
+
+# Vietnamese characters with diacritics (Unicode range)
+_VIETNAMESE_PATTERN = re.compile(
+    r"[àáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợ" r"ùúủũụưừứửữựỳýỷỹỵđ]",
+    re.IGNORECASE,
+)
+
+
+def _detect_language(text: str) -> str:
+    """Detect if text contains Vietnamese characters. Returns 'vi' or 'en'."""
+    if _VIETNAMESE_PATTERN.search(text):
+        return "vi"
+    return "en"
 
 
 def _normalize_evidence(data: Any) -> Any:
@@ -300,6 +314,10 @@ def build_assessment_prompt(
     """
     instruction = _resolve_intent_prompt(assessment_request.intent)
 
+    lang = _detect_language(assessment_request.raw_request)
+    if lang == "vi":
+        instruction += "\n\nTrả lời bằng tiếng Việt."
+
     lines: list[str] = [
         instruction,
         "",
@@ -335,6 +353,12 @@ def build_assessment_prompt(
 
     lines.append("--- End ---")
     lines.append("")
-    lines.append("Assess in Markdown. No JSON/code blocks.")
+
+    if lang == "vi":
+        lines.append(
+            "Trả lời bằng tiếng Việt. Đánh giá bằng Markdown. Không JSON/code blocks."
+        )
+    else:
+        lines.append("Assess in Markdown. No JSON/code blocks.")
 
     return "\n".join(lines)

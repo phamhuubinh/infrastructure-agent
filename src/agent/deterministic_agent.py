@@ -332,11 +332,17 @@ class DeterministicAgent:
             The model's response string.
         """
         try:
+            from src.model.protocol.prompt_builder_v2 import _detect_language
+
+            lang_hint = ""
+            if _detect_language(user_request) == "vi":
+                lang_hint = " Trả lời bằng tiếng Việt."
+
             system = (
                 "You are a helpful AI assistant. Answer the user's question "
                 "concisely and accurately. If the question is about infrastructure "
                 "or system administration, provide technical detail. "
-                "Otherwise, answer as a general-purpose assistant."
+                "Otherwise, answer as a general-purpose assistant." + lang_hint
             )
             if self._conversation_store:
                 conv_history = self._conversation_store.history
