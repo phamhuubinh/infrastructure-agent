@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 from src.agent.conversation_store import ConversationStore, list_sessions
 
 # ---------------------------------------------------------------------------
@@ -317,7 +319,10 @@ def test_summarize_merges_with_existing_summary(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_check_compress_triggers_summarize_at_4_turns(tmp_path: Path) -> None:
+def test_check_compress_triggers_summarize_at_4_turns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ORION_CONVERSATION_THRESHOLD", "4")
     store = ConversationStore("compress-4", store_dir=str(tmp_path))
     mock_fn = mock.Mock(return_value="auto summary")
     store.set_summarize_fn(mock_fn)
@@ -401,7 +406,11 @@ def test_add_turn_save_failure_does_not_corrupt_mem(tmp_path: Path) -> None:
     assert len(store._mem) == 2
 
 
-def test_double_summarize_does_not_lose_turns(tmp_path: Path) -> None:
+def test_double_summarize_does_not_lose_turns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ORION_CONVERSATION_THRESHOLD", "4")
     store = ConversationStore("double-sum", store_dir=str(tmp_path))
     # First batch: 4 turns
     mock1 = mock.Mock(return_value="summary1")

@@ -41,17 +41,36 @@ def list_sessions(store_dir: str | None = None) -> list[dict]:
         try:
             data = json.loads(f.read_text())
             msgs = data.get("messages", [])
+            # Filter out classifier pairs: user + assistant "[classified as ...]"
+            real_msgs = []
+            skip_next = False
+            for i, m in enumerate(msgs):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if (
+                    m.get("role") == "user"
+                    and i + 1 < len(msgs)
+                    and msgs[i + 1].get("role") == "assistant"
+                    and msgs[i + 1].get("content", "").startswith("[classified as")
+                ):
+                    skip_next = True
+                    continue
+                real_msgs.append(m)
             sessions.append(
                 {
                     "id": data.get("session_id", f.stem),
                     "title": data.get("title", ""),
                     "source": data.get("source", "terminal"),
                     "updated": data.get("updated_at", ""),
-                    "turns": len([m for m in msgs if m.get("role") == "user"]),
+                    "turns": len([m for m in real_msgs if m.get("role") == "user"]),
                     "preview": (
-                        (msgs[:1] or [{}])[0].get("content", "")[:80] if msgs else ""
+                        (real_msgs[:1] or [{}])[0].get("content", "")[:80]
+                        if real_msgs
+                        else ""
                     ),
                     "has_summary": bool(data.get("summary")),
+                    "messages": real_msgs,
                 }
             )
         except Exception:
@@ -74,6 +93,7 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
+        self._title: str = ""
         self._dirty = False
         self._summarize_fn = summarize_fn
         self._load()
@@ -181,13 +201,30 @@ class ConversationStore:
             self._summary = summary
 
     @property
+    def title(self) -> str:
+        with self._lock:
+            return self._title
+
+    def set_title(self, value: str) -> None:
+        with self._lock:
+            self._title = value
+
+    @property
     def summary(self) -> str | None:
         with self._lock:
             return self._summary
 
     def _check_compress(self) -> None:
-        turn_count = len([m for m in self._mem if m["role"] == "user"])
-        threshold = int(os.environ.get("ORION_CONVERSATION_THRESHOLD", "4"))
+        # Count real turns — skip classifier messages
+        turn_count = 0
+        for i, m in enumerate(self._mem):
+            if m["role"] == "user":
+                next_msg = self._mem[i + 1] if i + 1 < len(self._mem) else None
+                if next_msg is None or not next_msg.get("content", "").startswith(
+                    "[classified as"
+                ):
+                    turn_count += 1
+        threshold = int(os.environ.get("ORION_CONVERSATION_THRESHOLD", "50"))
         if turn_count >= threshold:
             self.summarize()
 
@@ -204,11 +241,16 @@ class ConversationStore:
                 data = json.loads(path.read_text())
                 self._mem = data.get("messages", [])
                 self._summary = data.get("summary")
+                self._title = data.get("title", "")
+                loaded_source = data.get("source")
+                if loaded_source:
+                    self._source = loaded_source
                 info(
                     "session",
                     session=self._session_id,
                     messages=len(self._mem),
                     has_summary=self._summary is not None,
+                    title=self._title,
                     message="Session loaded from disk",
                 )
             except (json.JSONDecodeError, OSError) as exc:
@@ -227,6 +269,7 @@ class ConversationStore:
                 data: dict[str, Any] = {
                     "session_id": self._session_id,
                     "source": self._source,
+                    "title": self._title,
                     "updated_at": datetime.now().isoformat(),
                     "messages": self._mem,
                 }

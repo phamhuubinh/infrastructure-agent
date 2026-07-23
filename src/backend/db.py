@@ -274,18 +274,36 @@ def list_sessions_db(dsn: str) -> list[dict]:
             rows = []
             for row in cur.fetchall():
                 msgs = row[3] if isinstance(row[3], list) else json.loads(row[3])
+                real_msgs = []
+                skip_next = False
+                for i, m in enumerate(msgs):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    if (
+                        isinstance(m, dict)
+                        and m.get("role") == "user"
+                        and i + 1 < len(msgs)
+                        and isinstance(msgs[i + 1], dict)
+                        and msgs[i + 1].get("role") == "assistant"
+                        and msgs[i + 1].get("content", "").startswith("[classified as")
+                    ):
+                        skip_next = True
+                        continue
+                    real_msgs.append(m)
                 rows.append(
                     {
                         "id": row[0],
                         "source": row[1],
                         "title": row[2] or "",
-                        "turns": len([m for m in msgs if m.get("role") == "user"]),
+                        "turns": len([m for m in real_msgs if m.get("role") == "user"]),
                         "updated": row[4].isoformat() if row[4] else "",
                         "preview": (
-                            (msgs[:1] or [{}])[0].get("content", "")[:80]
-                            if msgs
+                            (real_msgs[:1] or [{}])[0].get("content", "")[:80]
+                            if real_msgs
                             else ""
                         ),
+                        "messages": real_msgs,
                     }
                 )
             return rows
@@ -484,6 +502,7 @@ class PostgresConversationStore(ConversationStore):
         self._summarize_fn = summarize_fn
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
+        self._title: str = ""
         self._dirty = False
         self._load()
 
@@ -522,6 +541,13 @@ class PostgresConversationStore(ConversationStore):
         self._dirty = True
 
     @property
+    def title(self) -> str:
+        return self._title
+
+    def set_title(self, value: str) -> None:
+        self._title = value
+
+    @property
     def summary(self) -> str | None:
         return self._summary
 
@@ -531,6 +557,10 @@ class PostgresConversationStore(ConversationStore):
             return
         self._mem = data.get("messages", [])
         self._summary = data.get("summary")
+        self._title = data.get("title", "")
+        loaded_source = data.get("source")
+        if loaded_source:
+            self._source = loaded_source
 
     def _save(self) -> None:
         if not self._dirty:
@@ -538,6 +568,7 @@ class PostgresConversationStore(ConversationStore):
         data = {
             "session_id": self._session_id,
             "source": self._source,
+            "title": self._title,
             "messages": self._mem,
         }
         if self._summary:
