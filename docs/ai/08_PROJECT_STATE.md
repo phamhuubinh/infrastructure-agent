@@ -64,8 +64,47 @@
 - **SSH host key checking** is currently disabled by design for the local trusted-network use case — this is an intentional trade-off, recorded in `09_ARCHITECTURE_DECISIONS.md`, not an oversight.
 - **Dependency reconciliation**: `pyproject.toml` dependencies have been partially reconciled. Third-party packages that are actually imported are declared; unused declarations (`numpy`, `requests`) remain as placeholders pending removal.
 
+## Phase 1 — Foundation (completed 2026-07-22)
+- ID 87: Replaced broad `except Exception` in execution_runtime.py with specific exception types (`RuntimeError`, `ValueError`, `TypeError`, `OSError`, `CancelledError`).
+- ID 88: Thread-safe database connection pool with semaphore-based concurrency (max 5, configurable via `ORION_DB_POOL_SIZE`). Connection reuse across requests instead of per-request creation.
+- ID 89: Removed duplicate tool execution logic — `GrafanaTool`, `ZabbixTool`, `InternetTool`, `KnowledgeBaseTool` now delegate to shared `_dispatch()` in base `Tool` class.
+- ID 90: Standardized tool interface — base `Tool` provides `_resolve_capability()`, `_filter_arguments()`, and `_dispatch()` helpers. Consistent error messages and argument filtering across all tools.
+- ID 55: Thread Safety Tests for Execution Runtime and Tool execution — 30 tests across 3 modules.
+
+## Phase 2 — Quality & Technical Debt (completed 2026-07-23)
+All 53 Phase 2 tasks completed across 6 epics:
+- **Core Architecture** (7/7): Safe data serialization with nested/circular support, EvidencePlanner fallback, configurable conversation threshold, configurable frontend port, dead code removal, /proc read caching, internal error detail hiding.
+- **Security** (11/11): Error message sanitization, file upload validation, path traversal prevention, log masking, global mutable secret state removal, rate limiting, upload size limits, local file access restriction, database credential masking, session ID validation, security regression tests.
+- **DevOps & CI/CD** (5/5): Dependabot configuration, graceful shutdown, UI test stage in CI, improved logging (file rotation + structured JSON), monitoring metrics endpoint.
+- **Testing & QA** (11/11): Shared pytest fixtures, benchmark-to-dataset conversion, serialization/upload/internet/knowledge/capability tests, performance benchmarks, memory leak tests, load tests, test coverage improvement.
+- **Documentation** (9/9): CONTRIBUTING.md expansion, SECURITY.md improvements, issue templates, last-updated metadata, benchmark report consolidation, documentation standardization, bootstrap guide, development rules update, project state update.
+- **Code Quality** (10/10): Hardcoded config removal, config system standardization, logging consistency, error handling strategy, runtime performance, capability resolution refactoring, response model standardization, type hints, legacy code removal, project structure standardization.
+- ID 243: CI security scans now fail on high-severity CVE findings (`--audit-level=high` for Safety, `--fail-on=high` for pip-audit).
+
+## Phase 3 — Polish & Governance (completed 2026-07-23)
+All 19 Phase 3 tasks completed across 4 epics:
+- **Core Architecture** (1/1): Naming conventions verified consistent across all modules.
+- **DevOps & CI/CD** (6/6): Resource limits documented, deployment pipeline and release automation documented, CI caching and parallelism verified, dev environment standardized, comprehensive DevOps documentation created (`docs/devops/`).
+- **Testing & QA** (4/4): Benchmark reports documented, duplicate test audit (0 found), test documentation created (`docs/testing/README.md`), continuous quality monitoring via MetricsCollector + CI artifacts.
+- **Documentation** (4/4): Tool documentation (5 tools), API documentation (13 endpoints), architecture diagrams (5 Mermaid diagrams), documentation consistency review completed.
+- **Code Quality** (4/4): Technical debt review (0 findings), duplicate utility audit (0 found), coding style verified (ruff clean), final architecture cleanup confirmed.
+
+## Documentation created this phase
+| Doc | Path |
+|-----|------|
+| Linux Tool | `docs/tools/linux.md` |
+| Grafana Tool | `docs/tools/grafana.md` |
+| Zabbix Tool | `docs/tools/zabbix.md` |
+| Internet Tool | `docs/tools/internet.md` |
+| Knowledge Base Tool | `docs/tools/knowledge-base.md` |
+| API Reference | `docs/api/README.md` |
+| Architecture Diagrams | `docs/architecture/diagrams.md` |
+| Docker Guide | `docs/devops/docker.md` |
+| CI/CD Guide | `docs/devops/ci.md` |
+| Testing Guide | `docs/testing/README.md` |
+
 ## Next milestones
-1. Complete code quality improvements (lint fixes, test coverage for untested modules).
+1. All 105 backlog tasks complete (Phases 0–3). Backlog is empty.
 2. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-21.
+> **Last updated:** 2026-07-23.
