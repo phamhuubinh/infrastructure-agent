@@ -326,7 +326,13 @@ class ExecutionRuntime:
                     cap_name = node.execution_step.capability.name
                     try:
                         result = future.result()
-                    except Exception as exc:
+                    except (
+                        RuntimeError,
+                        ValueError,
+                        TypeError,
+                        OSError,
+                        concurrent.futures.CancelledError,
+                    ) as exc:
                         result = ToolResult(
                             success=False,
                             error=f"Execution runtime error: {exc}",
@@ -373,7 +379,7 @@ class ExecutionRuntime:
 
         try:
             return self._knowledge_tool.execute(arguments)
-        except Exception as exc:
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:
             return ToolResult(
                 success=False,
                 error=f"KnowledgeTool dispatch failed for {cap_name}: {exc}",
