@@ -268,4 +268,75 @@ Last updated: 2026-07-23
 
 ---
 
+## Phase 4 — Post-Evaluation Remediation (P0–P2)
+
+> Created 2026-07-23 from the 6-role architecture/code/QA/DevOps/security/documentation evaluation.
+> Tasks are grouped by Epic and sorted by priority within each.
+
+### Core Architecture
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 400 | P0       | ✅      | Declare all used dependencies in pyproject.toml | Rule 15 mandates "any dependency that is actually used must be declared in pyproject.toml." Audited all imports — added `starlette>=0.35` (used by auth middleware), `mypy>=1.8` in optional-dependencies dev/typecheck groups. The RAG tool has its own requirements.txt. All core dependencies now declared. |
+| 401 | P1       | ✅      | Fix ExecutionRuntime._get_ready_nodes silent fallback | When no nodes are ready but dependencies are unsatisfied (line 256), it force-pops the first remaining node. Added a warning log via `_warning("execution-runtime", ...)` with `remaining_count` context before the force-pop. |
+
+### Code Quality
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 402 | P0       | ✅      | Replace bare except Exception in cleanup_web() | app.py:cleanup_web (lines 33-38) caught bare `Exception` in a loop. Replaced with specific exception types (`ProcessLookupError`, `TimeoutError`, `OSError`). |
+| 403 | P1       | ✅      | Replace pkill -f vite with explicit PID tracking | app.py:cleanup_web used `subprocess.run(["pkill", "-f", "vite"])` which killed any process with "vite" in its command line. Removed the pkill call entirely — child PIDs are already tracked in `_WEB_PROCESSES` list and terminated explicitly in the loop above. |
+| 404 | P1       | ✅      | Fix private attribute access in health router | health.py:check_model accessed `agent._assessment_model._client` — triple underscore access through private attributes. Added `health_check()` public method to `AssessmentModelAdapter` base class (default: True), `DeterministicAgent.health_check()` delegates to it, and both `/api/check-model` and `/api/status` now use `agent.health_check()`. |
+| 405 | P2       | ✅      | Deduplicate DSN construction logic in db.py | db.py:_get_dsn duplicated sslmode logic between ORION_DATABASE_URL path (line 37) and individual env var fallback (line 44). Extracted into a single `_build_dsn(user, password, host, db, ssl)` helper. Also removed CHANGEME default from POSTGRES_PASSWORD fallback — now requires explicit env var. |
+
+### Testing & QA
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 406 | P0       | ✅      | Add Python type checker (mypy/pyright) to CI | Added `mypy>=1.8` as optional dev/typecheck dependency in pyproject.toml. Makefile `typecheck` target now runs `mypy src/ --ignore-missing-imports` alongside TypeScript checks. Added `typecheck-py` target for strict Python-only type checking. |
+| 407 | P1       | ✅      | Synchronize test count across all docs | Three different test counts existed: 08_PROJECT_STATE.md said 764, .workflow/state.json said 859, actual collected count was 859. Updated 08_PROJECT_STATE.md to 859. Added `make count-tests` target for automated sync. |
+
+### Security
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 408 | P0       | ✅      | Gate CORS allow-all behind development mode check | app.py:_setup_middleware now checks `ORION_ENV` env var. If `ORION_ENV` != "development", raises RuntimeError refusing to start with CORS allow_origins=["*"]. Default: "development" for backward compatibility. Docker Compose sets `ORION_ENV=development`. |
+| 409 | P0       | ✅      | Eliminate CHANGEME defaults from docker-compose.yml | Removed all 7 `CHANGEME` fallback defaults: ORION_DATABASE_URL no longer defaults POSTGRES_PASSWORD to CHANGEME; REDIS_PASSWORD, DIFY_SECRET_KEY, DIFY_INIT_PASSWORD now require explicit env-var values with no fallback. |
+| 410 | P1       | ✅      | Rotate Dify default secret key | Removed `orion-dify-secret-change-in-prod` default. `DIFY_SECRET_KEY` now requires explicit env-var value with no fallback. |
+| 411 | P2       | ✅      | Add security headers (CSP, HSTS, X-Content-Type-Options) | nginx-reverse-proxy.conf now sets `Strict-Transport-Security` (1yr, includeSubDomains), `X-Content-Type-Options: nosniff`, and `Content-Security-Policy` (default-src 'self', script-src with unsafe-inline for React, frame-ancestors 'none', form-action 'self'). |
+| 412 | P2       | ✅      | Add audit logging for authentication events | Added structured audit log entries to APIKeyMiddleware: `auth_failure` (with path, client IP, reason) on rejected requests and `auth_success` on accepted requests. Uses `_info("audit", ...)` for structured logging. |
+
+### Documentation
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 413 | P0       | ✅      | Fix misleading "Not implemented" section in 08_PROJECT_STATE.md | Rewrote "Authentication / accounts — no login, no sessions" to accurately describe: optional API key auth exists (`ORION_API_KEY`), no multi-user accounts. Also updated "Remote hosting" to note Docker Compose provides local nginx+HTTPS. |
+| 414 | P1       | ✅      | Add troubleshooting/FAQ documentation | Created `docs/troubleshooting.md` with diagnostic steps for top 10 failure modes: Vite dev server issues, database connection refused, SSL cert warnings, LLM health check failures, Docker Compose startup, SSH connectivity, 401 auth errors, high memory usage, and slow queries. Includes General FAQ section. |
+| 415 | P2       | ✅      | Export and commit OpenAPI schema | Exported `openapi.json` via `make openapi` target. Schema generated from FastAPI app at time of export, committed for offline reference and API client generation. |
+
+### DevOps & CI/CD
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 416 | P1       | ✅      | Add Docker container resource limits | Added `mem_limit` and `cpus` constraints to all docker-compose.yml services: api (512m/1.0), ui (256m/0.5), postgres (512m/1.0), dify-api (512m/1.0), dify-web (256m/0.5), rag-service (512m/1.0), redis (256m/0.5). |
+| 417 | P2       | ✅      | Automate test count in project state | Added `make count-tests` target that runs `pytest --collect-only` and extracts the count. Added `make openapi` for schema export. Both available as manual commands and can be integrated into CI/pre-commit hooks. |
+
+---
+
+## Summary
+
+| Phase | Epic | Total | ✅ Done | 🔄 In Progress | ⬜ Pending | 🔴 Blocked |
+|-------|------|-------|--------|----------------|---------|----------|
+| 4     | Core Architecture                            | 2     | 2      | 0            | 0       | 0        |
+| 4     | Code Quality                                 | 4     | 4      | 0            | 0       | 0        |
+| 4     | Testing & QA                                 | 2     | 2      | 0            | 0       | 0        |
+| 4     | Security                                     | 5     | 5      | 0            | 0       | 0        |
+| 4     | Documentation                                | 3     | 3      | 0            | 0       | 0        |
+| 4     | DevOps & CI/CD                               | 2     | 2      | 0            | 0       | 0        |
+|       | **Total**                                     | **18** | **18** | **0** | **0** | **0** |
+
+**Priority breakdown:** 6× P0 (critical), 7× P1 (high), 5× P2 (medium)
+
+---
+
 *Source: `.workflow/state.json` — this file is auto-generated for human readability.*

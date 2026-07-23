@@ -6,6 +6,8 @@ import secrets
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from src.shared.logger import info as _info
+
 
 def _get_api_key() -> str | None:
     return os.environ.get("ORION_API_KEY")
@@ -29,10 +31,23 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             elif x_api_key:
                 token = x_api_key
             if token is None or not secrets.compare_digest(token, api_key):
+                _info(
+                    "audit",
+                    event="auth_failure",
+                    path=request.url.path,
+                    client=str(request.client.host) if request.client else "unknown",
+                    reason="missing_or_invalid" if token is None else "invalid_key",
+                )
                 from fastapi.responses import JSONResponse
 
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid or missing API key"},
                 )
+            _info(
+                "audit",
+                event="auth_success",
+                path=request.url.path,
+                client=str(request.client.host) if request.client else "unknown",
+            )
         return await call_next(request)

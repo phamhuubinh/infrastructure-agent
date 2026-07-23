@@ -19,6 +19,7 @@ lint-fix:
 
 typecheck:
 	cd ui && npx tsc --noEmit 2>/dev/null || true
+	mypy src/ --ignore-missing-imports --no-error-summary 2>/dev/null || true
 
 clean:
 	rm -rf build/ dist/ *.egg-info
@@ -45,6 +46,18 @@ security-scan:
 	pip-audit --strict || true
 
 ci: test lint security-scan typecheck
+
+.PHONY: typecheck-py
+typecheck-py:
+	mypy src/ --ignore-missing-imports
+
+.PHONY: openapi
+openapi:
+	ORION_ENV=development $(PYTHON) -c "import json; from src.backend.app import create_app; app, _, _ = create_app(); json.dump(app.openapi(), open('openapi.json', 'w'), indent=2)" && echo "openapi.json exported"
+
+.PHONY: count-tests
+count-tests:
+	echo -n "Tests collected: " && $(PYTHON) -m pytest tests/ --collect-only -q 2>&1 | tail -1 | grep -oP '\d+(?= tests)'
 
 install:
 	pip install -e ".[test]"

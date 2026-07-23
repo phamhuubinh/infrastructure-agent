@@ -69,7 +69,7 @@ def get_metrics():
 def check_model(request: Request):
     agent = request.app.state.deps.agent
     try:
-        ok = agent._assessment_model._client.health_check(timeout=5)
+        ok = agent.health_check(timeout=5)
         return {"status": "ok" if ok else "error"}
     except Exception as exc:
         return {"status": "error", "error": str(exc)[:120]}
@@ -109,7 +109,7 @@ def service_status(request: Request):
     llm_status = "ok"
     llm_error = None
     try:
-        ok = deps.agent._assessment_model._client.health_check(timeout=5)
+        ok = deps.agent.health_check(timeout=5)
         if not ok:
             llm_status = "error"
             llm_error = "health check returned false"

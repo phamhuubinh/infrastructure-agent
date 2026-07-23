@@ -51,6 +51,16 @@ class DeterministicAgent:
         """Read-only access to the assessment model adapter."""
         return self._assessment_model
 
+    def health_check(self, timeout: float = 5.0) -> bool:
+        """Check if the assessment model backend is reachable.
+
+        Returns True if the model client responds, False otherwise.
+        """
+        try:
+            return self._assessment_model.health_check(timeout=timeout)
+        except Exception:
+            return False
+
     @property
     def conversation_store(self) -> ConversationStore | None:
         """Read-only access to the conversation store."""

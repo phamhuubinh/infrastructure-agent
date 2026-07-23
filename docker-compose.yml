@@ -27,10 +27,11 @@ services:
     env_file:
       - docker-compose.env
     environment:
-      ORION_DATABASE_URL: postgresql://orion:${POSTGRES_PASSWORD:-CHANGEME}@postgres:5432/orion
+      ORION_DATABASE_URL: postgresql://orion:${POSTGRES_PASSWORD}@postgres:5432/orion
       RAG_SERVICE_URL: http://rag-service:8080
       DIFY_API_URL: http://dify-api:5001
       DIFY_WEB_URL: http://dify-web:3000
+      ORION_ENV: development
     volumes:
       - orion-sessions:/root/.orion/sessions
       - ./servers.json:/app/servers.json:ro
@@ -46,6 +47,8 @@ services:
       rag-service:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: "1.0"
 
   ui:
     build:
@@ -56,6 +59,8 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.5"
 
   postgres:
     image: postgres:16-alpine
@@ -70,6 +75,8 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: "1.0"
 
   dify-api:
     image: langgenius/dify-api:1.0.0
@@ -86,13 +93,13 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER:-orion}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGEME}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
       DB_DATABASE: ${POSTGRES_DB:-orion}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-CHANGEME}
-      SECRET_KEY: ${DIFY_SECRET_KEY:-orion-dify-secret-change-in-prod}
-      INIT_PASSWORD: ${DIFY_INIT_PASSWORD:-CHANGEME}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SECRET_KEY: ${DIFY_SECRET_KEY}
+      INIT_PASSWORD: ${DIFY_INIT_PASSWORD}
       LOG_LEVEL: INFO
       CONSOLE_TYPE: disabled
       STORAGE_TYPE: local
@@ -100,6 +107,8 @@ services:
     volumes:
       - dify-storage:/app/api/storage
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: "1.0"
 
   dify-web:
     image: langgenius/dify-web:1.0.0
@@ -113,6 +122,8 @@ services:
     ports:
       - "3000:3000"
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.5"
 
   rag-service:
     build:
@@ -134,19 +145,23 @@ services:
       retries: 5
       start_period: 15s
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: "1.0"
 
   redis:
     image: redis:7-alpine
     container_name: orion-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD:-CHANGEME}
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-CHANGEME}", "--raw", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
     volumes:
       - redis-data:/data
     restart: unless-stopped
+    mem_limit: 256m
+    cpus: "0.5"
 
 volumes:
   orion-sessions:

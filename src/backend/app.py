@@ -30,13 +30,12 @@ def cleanup_web() -> None:
         try:
             p.terminate()
             p.wait(timeout=2)
-        except Exception:
+        except (ProcessLookupError, TimeoutError, OSError):
             try:
                 p.kill()
                 p.wait(timeout=1)
-            except Exception:
+            except (ProcessLookupError, TimeoutError, OSError):
                 _info("cleanup", message="failed to kill web process")
-    subprocess.run(["pkill", "-f", "vite"], capture_output=True)
     _WEB_PROCESSES.clear()
 
 
@@ -56,6 +55,15 @@ def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
 def _setup_middleware(app: FastAPI) -> None:
     from fastapi.middleware.cors import CORSMiddleware
 
+    if os.environ.get("ORION_ENV", "development") != "development":
+        _info(
+            "cors",
+            message="CORS allow-all refused: ORION_ENV is not 'development'",
+        )
+        raise RuntimeError(
+            "CORS allow_origins=['*'] is only permitted when ORION_ENV=development. "
+            "Set ORION_ENV=development for local use or configure explicit CORS origins."
+        )
     app.add_middleware(
         CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
     )

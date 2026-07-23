@@ -22,7 +22,7 @@
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
-- Test suite: **764 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
+- Test suite: **859 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
@@ -56,8 +56,8 @@
 - Updated README.md and HTML metadata.
 
 ## Not implemented (do not assume otherwise)
-- **Authentication / accounts** — no login, no sessions.
-- **Remote hosting** — no remote deployment yet.
+- **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
+- **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local Docker Compose with nginx reverse proxy and self-signed HTTPS.
 - **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
 
 ## Known issues / open items being tracked

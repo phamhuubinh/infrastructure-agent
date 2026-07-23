@@ -27,6 +27,15 @@ class AssessmentModelAdapter(ABC):
         """
         raise NotImplementedError
 
+    def health_check(self, timeout: float = 5.0) -> bool:
+        """Check if the model backend is reachable.
+
+        Returns True if the backend responds, False otherwise.
+        Default implementation returns True (always reachable for mock adapters).
+        Override in subclasses for real connectivity checks.
+        """
+        return True
+
     def assess_raw(self, prompt: str) -> str:
         """Send a raw prompt to the model without evidence context.
 

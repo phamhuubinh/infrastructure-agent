@@ -31,7 +31,7 @@ def test_check_model_calls_health_check(mock_dsn: mock.MagicMock) -> None:
 
 
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)
-@mock.patch("src.model.llm_client.LLMClient.health_check")
+@mock.patch("src.agent.deterministic_agent.DeterministicAgent.health_check")
 def test_check_model_returns_ok_when_llm_healthy(
     mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
 ) -> None:
@@ -46,7 +46,7 @@ def test_check_model_returns_ok_when_llm_healthy(
 
 
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)
-@mock.patch("src.model.llm_client.LLMClient.health_check")
+@mock.patch("src.agent.deterministic_agent.DeterministicAgent.health_check")
 def test_check_model_returns_error_when_llm_unhealthy(
     mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
 ) -> None:

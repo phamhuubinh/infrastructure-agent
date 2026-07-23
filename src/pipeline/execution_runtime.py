@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
 from src.shared.execution.tool_result import ToolResult
+from src.shared.logger import warning as _warning
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -253,6 +254,11 @@ class ExecutionRuntime:
                 still_remaining.append(node)
 
         if not ready:
+            _warning(
+                "execution-runtime",
+                message="no node ready — forcing next node (possible graph error)",
+                remaining_count=len(remaining),
+            )
             still_remaining.clear()
             ready = [remaining.pop(0)]
 

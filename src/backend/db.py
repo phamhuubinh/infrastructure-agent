@@ -30,6 +30,20 @@ def _mask_dsn(dsn: str) -> str:
     return re.sub(r"(postgresql://[^:]+:)([^@]+)(@)", r"\1***\3", dsn)
 
 
+def _build_dsn(
+    user: str,
+    password: str,
+    host: str,
+    db: str,
+    ssl: bool = False,
+) -> str:
+    """Build a PostgreSQL connection string from components."""
+    dsn = f"postgresql://{user}:{password}@{host}:5432/{db}"
+    if ssl:
+        dsn += "?sslmode=require"
+    return dsn
+
+
 def _get_dsn() -> str | None:
     dsn = os.environ.get("ORION_DATABASE_URL")
     if dsn:
@@ -37,12 +51,12 @@ def _get_dsn() -> str | None:
             dsn += ("&" if "?" in dsn else "?") + "sslmode=require"
         return dsn
     pg_user = os.environ.get("POSTGRES_USER", "orion")
-    pg_pass = os.environ.get("POSTGRES_PASSWORD", "CHANGEME")
+    pg_pass = os.environ.get("POSTGRES_PASSWORD", "")
     pg_host = os.environ.get("POSTGRES_HOST", "")
     pg_db = os.environ.get("POSTGRES_DB", "orion")
-    if pg_host:
-        params = "?sslmode=require" if os.environ.get("ORION_DB_SSL") == "1" else ""
-        return f"postgresql://{pg_user}:{pg_pass}@{pg_host}:5432/{pg_db}{params}"
+    if pg_host and pg_pass:
+        ssl = os.environ.get("ORION_DB_SSL") == "1"
+        return _build_dsn(pg_user, pg_pass, pg_host, pg_db, ssl)
     return None
 
 
