@@ -3,12 +3,27 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time as _time
 from collections.abc import Callable
 from typing import Any
 
 from src.agent.conversation_store import ConversationStore
 
 _SESSIONS_TABLE = "sessions"
+_DOCUMENTS_TABLE = "documents"
+
+# ---- Connection pool ----
+
+_pool_dsn: str | None = None
+_pool_connections: list = []
+_pool_lock = threading.Lock()
+_pool_semaphore: threading.Semaphore | None = None
+
+_MAX_POOL_SIZE = int(os.environ.get("ORION_DB_POOL_SIZE", "5"))
+_MIN_POOL_SIZE = int(os.environ.get("ORION_DB_MIN_POOL_SIZE", "1"))
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 0.5
 
 
 def _mask_dsn(dsn: str) -> str:
@@ -40,6 +55,96 @@ def _import_driver() -> tuple:
         return None, "psycopg2 not installed"
 
 
+def _init_pool(dsn: str) -> None:
+    """Initialize (or reset) the connection pool for the given DSN."""
+    global _pool_dsn, _pool_semaphore, _pool_connections  # noqa: PLW0603
+
+    driver, err = _import_driver()
+    if err:
+        return
+
+    with _pool_lock:
+        # Always reset pool — stale connections from previous runs won't work
+        for conn in _pool_connections:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _pool_connections.clear()
+        _pool_semaphore = threading.Semaphore(_MAX_POOL_SIZE)
+        _pool_dsn = dsn
+
+
+def _get_conn(dsn: str):
+    """Get a connection from the pool, or create directly if pool not initialized."""
+    driver, err = _import_driver()
+    if driver is None:
+        msg = err or "psycopg2 not installed"
+        raise RuntimeError(msg)
+
+    if _pool_semaphore is None:
+        return driver.connect(dsn)
+
+    acquired = _pool_semaphore.acquire(timeout=10)
+    if not acquired:
+        raise RuntimeError("Timed out waiting for database connection from pool")
+
+    with _pool_lock:
+        if _pool_connections:
+            return _pool_connections.pop()
+
+    # Pool was empty; create a new connection
+    return _connect_with_retry(driver, dsn)
+
+
+def _put_conn(conn) -> None:
+    """Return a connection to the pool, or close it if pool is full."""
+    if _pool_semaphore is None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return
+
+    with _pool_lock:
+        if len(_pool_connections) < _MAX_POOL_SIZE:
+            _pool_connections.append(conn)
+        else:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    _pool_semaphore.release()
+
+
+def _connect_with_retry(driver, dsn: str, max_attempts: int = _RETRY_MAX_ATTEMPTS):
+    """Connect to PostgreSQL with exponential backoff retry."""
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return driver.connect(dsn)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                delay = _RETRY_BASE_DELAY * (2**attempt)
+                _time.sleep(delay)
+    msg = f"Failed to connect to database after {max_attempts} attempts: {last_exc}"
+    raise RuntimeError(msg) from last_exc
+
+
+def _execute_with_pool(dsn: str, fn: Callable[..., Any], *args: Any) -> Any:
+    """Execute a function with a pooled connection, returning connection after use."""
+    conn = _get_conn(dsn)
+    try:
+        return fn(conn, *args)
+    finally:
+        _put_conn(conn)
+
+
+# ---- Public API ----
+
+
 def init_db(dsn: str | None = None) -> None:
     dsn = dsn or _get_dsn()
     if not dsn:
@@ -47,7 +152,8 @@ def init_db(dsn: str | None = None) -> None:
     driver, err = _import_driver()
     if err:
         return
-    conn = driver.connect(dsn)
+    _init_pool(dsn)
+    conn = _get_conn(dsn)
     try:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -63,19 +169,19 @@ def init_db(dsn: str | None = None) -> None:
             """)
         conn.commit()
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def load_session(dsn: str, session_id: str) -> dict[str, Any] | None:
     driver, _ = _import_driver()
     if driver is None:
         return None
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_load(conn, sid: str) -> dict[str, Any] | None:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT session_id, source, title, summary, messages FROM {_SESSIONS_TABLE} WHERE session_id = %s",
-                (session_id,),
+                (sid,),
             )
             row = cur.fetchone()
             if row is None:
@@ -87,16 +193,16 @@ def load_session(dsn: str, session_id: str) -> dict[str, Any] | None:
                 "summary": row[3],
                 "messages": row[4] if isinstance(row[4], list) else json.loads(row[4]),
             }
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_load, session_id)
 
 
 def save_session(dsn: str, session_id: str, data: dict[str, Any]) -> None:
     driver, _ = _import_driver()
     if driver is None:
         return
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_save(conn, sid: str, d: dict[str, Any]) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -111,42 +217,42 @@ def save_session(dsn: str, session_id: str, data: dict[str, Any]) -> None:
                     updated_at = NOW()
                 """,
                 (
-                    session_id,
-                    data.get("source", "api"),
-                    data.get("title", ""),
-                    data.get("summary"),
-                    json.dumps(data.get("messages", [])),
+                    sid,
+                    d.get("source", "api"),
+                    d.get("title", ""),
+                    d.get("summary"),
+                    json.dumps(d.get("messages", [])),
                 ),
             )
         conn.commit()
-    finally:
-        conn.close()
+
+    _execute_with_pool(dsn, _do_save, session_id, data)
 
 
 def delete_session(dsn: str, session_id: str) -> bool:
     driver, _ = _import_driver()
     if driver is None:
         return False
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_delete(conn, sid: str) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 f"DELETE FROM {_SESSIONS_TABLE} WHERE session_id = %s",
-                (session_id,),
+                (sid,),
             )
             deleted = cur.rowcount > 0
         conn.commit()
         return deleted
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_delete, session_id)
 
 
 def list_sessions_db(dsn: str) -> list[dict]:
     driver, _ = _import_driver()
     if driver is None:
         return []
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_list(conn) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT session_id, source, title, messages, updated_at FROM {_SESSIONS_TABLE} ORDER BY updated_at DESC LIMIT 50"
@@ -169,29 +275,26 @@ def list_sessions_db(dsn: str) -> list[dict]:
                     }
                 )
             return rows
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_list)
 
 
 def rename_session_db(dsn: str, session_id: str, title: str) -> bool:
     driver, _ = _import_driver()
     if driver is None:
         return False
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_rename(conn, sid: str, t: str) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 f"UPDATE {_SESSIONS_TABLE} SET title = %s, updated_at = NOW() WHERE session_id = %s",
-                (title, session_id),
+                (t, sid),
             )
             updated = cur.rowcount > 0
         conn.commit()
         return updated
-    finally:
-        conn.close()
 
-
-_DOCUMENTS_TABLE = "documents"
+    return _execute_with_pool(dsn, _do_rename, session_id, title)
 
 
 def init_documents_db(dsn: str | None = None) -> None:
@@ -201,7 +304,8 @@ def init_documents_db(dsn: str | None = None) -> None:
     driver, err = _import_driver()
     if err:
         return
-    conn = driver.connect(dsn)
+    _init_pool(dsn)
+    conn = _get_conn(dsn)
     try:
         with conn.cursor() as cur:
             cur.execute(f"""
@@ -218,7 +322,7 @@ def init_documents_db(dsn: str | None = None) -> None:
             """)
         conn.commit()
     finally:
-        conn.close()
+        _put_conn(conn)
 
 
 def insert_document(
@@ -234,8 +338,9 @@ def insert_document(
     driver, _ = _import_driver()
     if driver is None:
         return False
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_insert(conn, *args) -> bool:
+        did, fn, ct, sb, sp, sid, meta = args
         with conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -244,32 +349,34 @@ def insert_document(
                 VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
                 ON CONFLICT (id) DO NOTHING
                 """,
-                (
-                    doc_id,
-                    filename,
-                    content_type,
-                    size_bytes,
-                    storage_path,
-                    session_id,
-                    json.dumps(metadata or {}),
-                ),
+                (did, fn, ct, sb, sp, sid, json.dumps(meta or {})),
             )
         conn.commit()
         return cur.rowcount > 0
-    finally:
-        conn.close()
+
+    return _execute_with_pool(
+        dsn,
+        _do_insert,
+        doc_id,
+        filename,
+        content_type,
+        size_bytes,
+        storage_path,
+        session_id,
+        metadata,
+    )
 
 
 def get_document(dsn: str, doc_id: str) -> dict | None:
     driver, _ = _import_driver()
     if driver is None:
         return None
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_get(conn, did: str) -> dict | None:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT id, filename, content_type, size_bytes, storage_path, session_id, metadata, created_at FROM {_DOCUMENTS_TABLE} WHERE id = %s",
-                (doc_id,),
+                (did,),
             )
             row = cur.fetchone()
             if row is None:
@@ -289,8 +396,8 @@ def get_document(dsn: str, doc_id: str) -> dict | None:
                 "metadata": meta,
                 "created_at": row[7].isoformat() if row[7] else "",
             }
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_get, doc_id)
 
 
 def list_documents(
@@ -301,18 +408,18 @@ def list_documents(
     driver, _ = _import_driver()
     if driver is None:
         return []
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_list(conn, sid: str | None, lim: int) -> list[dict]:
         with conn.cursor() as cur:
-            if session_id:
+            if sid:
                 cur.execute(
                     f"SELECT id, filename, content_type, size_bytes, session_id, created_at FROM {_DOCUMENTS_TABLE} WHERE session_id = %s ORDER BY created_at DESC LIMIT %s",
-                    (session_id, limit),
+                    (sid, lim),
                 )
             else:
                 cur.execute(
                     f"SELECT id, filename, content_type, size_bytes, session_id, created_at FROM {_DOCUMENTS_TABLE} ORDER BY created_at DESC LIMIT %s",
-                    (limit,),
+                    (lim,),
                 )
             rows = []
             for row in cur.fetchall():
@@ -327,26 +434,26 @@ def list_documents(
                     }
                 )
             return rows
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_list, session_id, limit)
 
 
 def delete_document(dsn: str, doc_id: str) -> bool:
     driver, _ = _import_driver()
     if driver is None:
         return False
-    conn = driver.connect(dsn)
-    try:
+
+    def _do_delete(conn, did: str) -> bool:
         with conn.cursor() as cur:
             cur.execute(
                 f"DELETE FROM {_DOCUMENTS_TABLE} WHERE id = %s",
-                (doc_id,),
+                (did,),
             )
             deleted = cur.rowcount > 0
         conn.commit()
         return deleted
-    finally:
-        conn.close()
+
+    return _execute_with_pool(dsn, _do_delete, doc_id)
 
 
 class PostgresConversationStore(ConversationStore):
