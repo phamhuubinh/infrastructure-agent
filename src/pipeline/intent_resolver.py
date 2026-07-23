@@ -41,12 +41,12 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
     Intent.CPU_ASSESSMENT: (
         ("cpu",),
         ("cpu usage", "cpu utilization", "cpu load"),
-        ("processor",),
+        ("processor", "bộ xử lý", "vi xử lý"),
         ("core", "cores"),
         ("cpu percent",),
     ),
     Intent.MEMORY_ASSESSMENT: (
-        ("memory", "ram"),
+        ("memory", "ram", "bộ nhớ"),
         ("memory usage", "memory utilization"),
         ("swap",),
         ("memory leak",),
@@ -54,7 +54,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
     Intent.DISK_ASSESSMENT: (
         ("disk", "disks"),
         ("disk usage", "disk space"),
-        ("ổ cứng", "ssd", "hdd"),
+        ("ổ cứng", "ssd", "hdd", "đĩa", "ổ đĩa", "dung lượng"),
         ("filesystem", "filesystems"),
         ("storage",),
         ("iowait", "io wait"),
@@ -66,11 +66,12 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("network usage", "network traffic"),
         ("băng thông", "băng-thông"),
         ("bandwidth",),
-        ("latency",),
+        ("latency", "độ trễ"),
         ("ping",),
+        ("ip",),
     ),
     Intent.PROCESS_ASSESSMENT: (
-        ("process", "processes"),
+        ("process", "processes", "tiến trình"),
         ("process list",),
         ("top process",),
         ("ps",),
@@ -97,11 +98,17 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("kiểm tra",),
         ("vấn đề",),
         ("nghiêm trọng", "nghiêm-trọng"),
+        ("phân tích",),
+        ("máy",),
+        (
+            "cho tôi biết",
+            "cho tôi",
+        ),
     ),
     Intent.APPLICATION_DISCOVERY: (
-        ("installed", "install", "installation"),
+        ("installed", "install", "installation", "cài đặt"),
         ("exist", "exists", "present", "available", "deployed"),
-        ("version",),
+        ("version", "phiên bản"),
         ("running",),
         ("graylog",),
         ("docker",),
@@ -115,15 +122,15 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("postgresql", "postgres"),
         ("rabbitmq",),
         ("mongodb", "mongo"),
-        ("application",),
+        ("application", "ứng dụng"),
         ("package", "packages"),
         ("container", "containers"),
     ),
     Intent.SERVICE_ASSESSMENT: (
-        ("service", "services"),
+        ("service", "services", "dịch vụ"),
         ("systemctl",),
         ("daemon", "daemons"),
-        ("running",),
+        ("running", "đang chạy"),
         ("mysql", "mariadb"),
         ("enabled",),
         ("restart", "started", "stopped"),
@@ -137,6 +144,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("kafka",),
         ("rabbitmq",),
         ("mongodb", "mongo"),
+        ("trạng thái",),
     ),
     Intent.MONITORING_ASSESSMENT: (
         ("alert", "alerts"),
@@ -324,6 +332,22 @@ _PHRASES: frozenset[str] = frozenset(
         "ưu tiên",
         "ssh service",
         "time series",
+        "running process",
+        "dịch vụ",
+        "đang chạy",
+        "ổ đĩa",
+        "ổ cứng",
+        "bộ nhớ",
+        "bộ xử lý",
+        "vi xử lý",
+        "trạng thái",
+        "phiên bản",
+        "cài đặt",
+        "ứng dụng",
+        "độ trễ",
+        "phân tích",
+        "cho tôi biết",
+        "cho tôi",
     }
 )
 
@@ -366,8 +390,9 @@ def _resolve_intent(
     # Multiple intents matched.
     # Heuristic: if two or more specific sub-system intents (CPU, MEMORY,
     # DISK, NETWORK, PROCESS, FILESYSTEM, STORAGE) are tied, the user
-    # likely wants a broader assessment (PERFORMANCE, MACHINE, etc.).
-    # Promote to PERFORMANCE_ASSESSMENT if it is also a candidate.
+    # likely wants a broader assessment (MACHINE, PERFORMANCE, etc.).
+    # Promote to MACHINE_ASSESSMENT first if it has strong confidence,
+    # then fall back to PERFORMANCE_ASSESSMENT.
     _specific = frozenset(
         {
             Intent.CPU_ASSESSMENT,
@@ -381,7 +406,14 @@ def _resolve_intent(
     )
     specific_candidates = [(i, c, m) for i, c, m in candidates if i in _specific]
     if len(specific_candidates) >= 2:
-        # Check whether PERFORMANCE_ASSESSMENT is also a candidate
+        # Prefer MACHINE_ASSESSMENT if it has HIGH confidence (match≥3).
+        machine = next(
+            ((i, c, m) for i, c, m in candidates if i == Intent.MACHINE_ASSESSMENT),
+            None,
+        )
+        if machine is not None and machine[1] >= 3:
+            return (machine[0], _confidence_from_count(machine[1]), machine[2])
+        # Otherwise promote to PERFORMANCE_ASSESSMENT if it is a candidate.
         perf = next(
             ((i, c, m) for i, c, m in candidates if i == Intent.PERFORMANCE_ASSESSMENT),
             None,

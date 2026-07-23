@@ -173,11 +173,53 @@ Structure: Summary, Interfaces, Routing, Connectivity, Conclusion.
 Rules: Base on evidence. {_OUTPUT_RULE}"""
 
 
-PROCESS_PROMPT = """Assess Processes. Scope: running processes, top consumers, process health only.
+PROCESS_PROMPT = f"""Assess Processes. Scope: running processes, top consumers, process health only.
 
 Structure: Summary, Running (total/zombie), Top CPU, Top Memory, Health, Conclusion.
 
-Rules: Base on evidence."""
+Rules: Base on evidence. {_OUTPUT_RULE}"""
+
+
+SERVICE_PROMPT = f"""Assess the target service. Scope: service status, configuration, and logs only.
+
+Structure: Summary, Service Status, Configuration, Logs, Conclusion.
+
+Rules: Base on evidence. Only report on the service the user asked about. {_OUTPUT_RULE}"""
+
+
+TROUBLESHOOTING_PROMPT = f"""Diagnose the reported issue. Focus only on evidence relevant to the problem.
+
+Structure: Summary, Root Cause (or most likely cause), Supporting Evidence, Recommendations.
+
+Rules: Base on evidence. Do not list all subsystems — only those relevant. {_OUTPUT_RULE}"""
+
+
+APPLICATION_PROMPT = f"""Report on application/package discovery. Scope: installed software, versions, containers only.
+
+Structure: Summary, Installed Packages, Containers, Versions, Conclusion.
+
+Rules: Base on evidence. Only report what was found. {_OUTPUT_RULE}"""
+
+
+MONITORING_PROMPT = f"""Assess monitoring system status. Scope: alerts, problems, hosts, dashboards only.
+
+Structure: Summary, Active Problems, Host Status, Dashboards, Conclusion.
+
+Rules: Base on evidence. Focus on actionable findings. {_OUTPUT_RULE}"""
+
+
+PERFORMANCE_PROMPT = f"""Assess system performance. Scope: CPU, memory, disk I/O, load only.
+
+Structure: Summary, Resource Utilization, Bottlenecks, Recommendations.
+
+Rules: Base on evidence. Identify the limiting resource. {_OUTPUT_RULE}"""
+
+
+SECURITY_PROMPT = f"""Assess security posture. Scope: SSH, firewall, auth, certificates only.
+
+Structure: Summary, Findings per Control, Risks, Recommendations.
+
+Rules: Base on evidence. Flag misconfigurations. {_OUTPUT_RULE}"""
 
 
 COMPACT_PROMPT = f"""You are an infrastructure assessment engine. Assess collected evidence.
@@ -205,6 +247,12 @@ _INTENT_PROMPTS: dict[Intent, str] = {
     Intent.DISK_ASSESSMENT: DISK_PROMPT,
     Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
     Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
+    Intent.SERVICE_ASSESSMENT: SERVICE_PROMPT,
+    Intent.TROUBLESHOOTING: TROUBLESHOOTING_PROMPT,
+    Intent.APPLICATION_DISCOVERY: APPLICATION_PROMPT,
+    Intent.MONITORING_ASSESSMENT: MONITORING_PROMPT,
+    Intent.PERFORMANCE_ASSESSMENT: PERFORMANCE_PROMPT,
+    Intent.SECURITY_ASSESSMENT: SECURITY_PROMPT,
 }
 
 

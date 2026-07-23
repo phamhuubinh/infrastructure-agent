@@ -30,6 +30,7 @@ class CapabilityReference:
 
     name: str
     evidence_name: str
+    required: bool = False
     description: str = ""
     supported_targets: tuple[str, ...] = ()
     parameters: tuple[str, ...] = ()

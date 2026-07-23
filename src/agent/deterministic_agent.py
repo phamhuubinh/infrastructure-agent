@@ -81,7 +81,7 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
-        if self._is_knowledge_question(user_request):
+        if not self._should_pipeline(user_request):
             return self.chat(user_request)
 
         investigation = self._execution_engine.execute(user_request)
@@ -95,7 +95,7 @@ class DeterministicAgent:
           - steps: list of pipeline step dicts for UI display
           - investigation: the InvestigationRequest (for CLI /evidence etc.)
         """
-        if self._is_knowledge_question(user_request):
+        if not self._should_pipeline(user_request):
             return {
                 "response": self.chat(user_request),
                 "steps": [],
@@ -244,6 +244,34 @@ class DeterministicAgent:
         _check = _Resolver()
         _req = _check.resolve(user_request)
         return _req.intent == Intent.KNOWLEDGE_ASSESSMENT
+
+    def _should_pipeline(self, user_request: str) -> bool:
+        """Determine if request should go through the investigation pipeline.
+
+        Three-tier routing:
+        1. KNOWLEDGE_ASSESSMENT → chat (no pipeline)
+        2. HIGH/MEDIUM confidence infrastructure intent → pipeline
+        3. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
+
+        Returns:
+            True if the request should go through the investigation pipeline.
+        """
+        from src.pipeline.intent_resolver import Confidence, Intent, IntentResolver
+
+        resolver = IntentResolver()
+        request = resolver.resolve(user_request)
+
+        # Knowledge questions go to chat.
+        if request.intent == Intent.KNOWLEDGE_ASSESSMENT:
+            return False
+
+        # High/medium confidence infrastructure intents go to pipeline.
+        if request.confidence in (Confidence.HIGH, Confidence.MEDIUM):
+            return True
+
+        # LOW confidence or MACHINE_ASSESSMENT fallback → ask classifier.
+        is_infra, _ = self.classify(user_request)
+        return is_infra
 
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.

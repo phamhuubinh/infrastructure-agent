@@ -50,6 +50,7 @@ class CapabilityResolver:
                 CapabilityReference(
                     name=cap_name,
                     evidence_name=evidence.name,
+                    required=evidence.required,
                 )
             )
 

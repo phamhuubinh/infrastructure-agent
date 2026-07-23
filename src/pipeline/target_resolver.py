@@ -41,7 +41,6 @@ class TargetResolver:
         "server2": "server02",
         "db": "database",
         "database": "database",
-        "monitor": "zabbix",
         "monitoring": "zabbix",
         "mon": "zabbix",
         "zabbix_server": "zabbix",

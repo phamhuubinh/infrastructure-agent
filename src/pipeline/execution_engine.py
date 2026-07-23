@@ -81,7 +81,9 @@ class ExecutionEngine:
         if graph.nodes:
             target = request.target or "localhost"
             required_evidence = {
-                ref.evidence_name for ref in request.capability_references
+                ref.evidence_name
+                for ref in request.capability_references
+                if ref.required
             }
             results, metrics = self._runtime.execute(
                 graph,
