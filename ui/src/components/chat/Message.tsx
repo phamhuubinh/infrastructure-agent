@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Copy,
   RefreshCw,
@@ -7,14 +7,18 @@ import {
   Check,
   User,
   Sparkles,
-  ChevronDown,
-  ChevronRight,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export function UserMessage({ children }: { children: React.ReactNode }) {
+export function UserMessage({
+  children,
+  content,
+}: {
+  children: React.ReactNode;
+  content?: string;
+}) {
+  const textContent = content ?? (typeof children === "string" ? children : "");
   return (
     <div className="flex justify-end gap-3 group">
       <div className="max-w-[75%]">
@@ -22,7 +26,7 @@ export function UserMessage({ children }: { children: React.ReactNode }) {
           {children}
         </div>
         <div className="mt-1 flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <IconBtn icon={Copy} label="Copy" />
+          <IconBtn icon={Copy} label="Copy" content={textContent} />
         </div>
       </div>
       <div className="h-8 w-8 rounded-full bg-surface-3 grid place-items-center shrink-0 border border-border">
@@ -34,11 +38,14 @@ export function UserMessage({ children }: { children: React.ReactNode }) {
 
 export function AssistantMessage({
   children,
-  agent = "Assistant",
+  agent = "Orion",
+  content,
 }: {
   children: React.ReactNode;
   agent?: string;
+  content?: string;
 }) {
+  const textContent = content ?? (typeof children === "string" ? children : "");
   return (
     <div className="flex gap-3 group">
       <div className="h-8 w-8 rounded-full bg-gradient-to-br from-primary to-orange-500 grid place-items-center shrink-0 shadow-[var(--shadow-glow)]">
@@ -50,7 +57,7 @@ export function AssistantMessage({
         </div>
         <div className="text-[14.5px] leading-relaxed space-y-3 text-foreground/95">{children}</div>
         <div className="mt-2 flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-          <IconBtn icon={Copy} label="Copy" />
+          <IconBtn icon={Copy} label="Copy" content={textContent} />
           <IconBtn icon={RefreshCw} label="Regenerate" />
           <IconBtn icon={ThumbsUp} label="Good" />
           <IconBtn icon={ThumbsDown} label="Bad" />
@@ -60,19 +67,32 @@ export function AssistantMessage({
   );
 }
 
-function IconBtn({ icon: Icon, label }: { icon: any; label: string }) {
+function IconBtn({
+  icon: Icon,
+  label,
+  content,
+}: {
+  icon: any;
+  label: string;
+  content?: string;
+}) {
   const [copied, setCopied] = useState(false);
+
+  const handleClick = useCallback(() => {
+    if (label === "Copy" && content) {
+      navigator.clipboard?.writeText(content).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      });
+    }
+  }, [label, content]);
+
   return (
     <Button
       variant="ghost"
       size="icon"
       className="h-7 w-7 text-muted-foreground hover:text-foreground"
-      onClick={() => {
-        if (label === "Copy") {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
-        }
-      }}
+      onClick={handleClick}
       title={label}
       aria-label={label}
     >

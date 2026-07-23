@@ -1,11 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Share2, Sparkles, Send, AlertCircle, Square } from "lucide-react";
+import {
+  Share2,
+  Sparkles,
+  Send,
+  AlertCircle,
+  Square,
+  ChevronDown,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContextPanel } from "@/components/ContextPanel";
 import { cn } from "@/lib/utils";
 import { useChat, type Step, type Message } from "@/lib/chat-store";
+import { UserMessage, AssistantMessage } from "@/components/chat/Message";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -13,7 +22,10 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Orion" },
-      { name: "description", content: "Orion — Infrastructure Investigation Platform" },
+      {
+        name: "description",
+        content: "Orion — Infrastructure Investigation Platform",
+      },
     ],
   }),
   component: ChatPage,
@@ -21,10 +33,55 @@ export const Route = createFileRoute("/")({
 
 const API_URL = import.meta.env.VITE_API_URL || "";
 
+type ModelInfo = {
+  name: string;
+  model: string;
+  provider: string;
+  base_url: string;
+  available: boolean;
+};
+
 function ChatPage() {
   const chatCtx = useChat();
   const [drag, setDrag] = useState(false);
-  const session = chatCtx.sessions.find((s) => s.id === chatCtx.currentSessionId);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [selectedServer, setSelectedServer] = useState<string>("");
+  const [loadingModels, setLoadingModels] = useState(true);
+  const session = chatCtx.sessions.find(
+    (s) => s.id === chatCtx.currentSessionId,
+  );
+
+  // Load available models on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function loadModels() {
+      try {
+        const res = await fetch(`${API_URL}/api/models`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setModels(data.models || []);
+        if (data.active_server) {
+          setSelectedServer(data.active_server);
+        } else if (data.models?.length > 0) {
+          // Pre-select first available model
+          const firstAvailable = data.models.find(
+            (m: ModelInfo) => m.available,
+          );
+          if (firstAvailable) {
+            setSelectedServer(firstAvailable.name);
+          }
+        }
+      } catch {
+        // Server not available
+      }
+      setLoadingModels(false);
+    }
+    loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <>
@@ -43,10 +100,17 @@ function ChatPage() {
         <div className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
           <div className="min-w-0 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium truncate">{session?.title || "Orion"}</span>
+            <span className="text-sm font-medium truncate">
+              {session?.title || "Orion"}
+            </span>
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Share">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Share"
+            >
               <Share2 className="h-4 w-4" />
             </Button>
           </div>
@@ -64,9 +128,16 @@ function ChatPage() {
 
         <div className="border-t border-border bg-gradient-to-b from-background/50 to-background px-4 sm:px-6 py-4">
           <div className="mx-auto max-w-3xl w-full">
-            <ChatInput />
+            <ChatInput
+              models={models}
+              selectedServer={selectedServer}
+              setSelectedServer={setSelectedServer}
+              loadingModels={loadingModels}
+            />
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.</span>
+              <span>
+                Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.
+              </span>
             </div>
           </div>
         </div>
@@ -74,8 +145,12 @@ function ChatPage() {
         {drag && (
           <div className="absolute inset-0 pointer-events-none bg-primary/5 border-2 border-dashed border-primary/50 grid place-items-center">
             <div className="text-center">
-              <div className="text-display text-3xl text-primary">Drop to attach</div>
-              <div className="text-sm text-muted-foreground mt-1">PDF, images, code</div>
+              <div className="text-display text-3xl text-primary">
+                Drop to attach
+              </div>
+              <div className="text-sm text-muted-foreground mt-1">
+                PDF, images, code
+              </div>
             </div>
           </div>
         )}
@@ -113,7 +188,11 @@ function EmptyState() {
             onClick={() => {
               const id = createSession();
               setTimeout(() => {
-                document.dispatchEvent(new CustomEvent("infra-send-prompt", { detail: s.prompt }));
+                document.dispatchEvent(
+                  new CustomEvent("infra-send-prompt", {
+                    detail: s.prompt,
+                  }),
+                );
               }, 50);
             }}
             className="w-full text-left text-sm text-foreground/85 hover:text-foreground rounded-md px-3 py-2.5 hover:bg-surface-2 transition-colors border border-border"
@@ -153,26 +232,22 @@ function Conversation({ messages }: { messages: Message[] }) {
   return (
     <div className="space-y-8">
       {messages.map((msg, i) => (
-        <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
-          <div className={cn(msg.role === "user" ? "max-w-[75%]" : "max-w-full w-full")}>
-            {msg.role === "user" ? (
-              <div className="rounded-2xl rounded-tr-sm bg-primary text-primary-foreground px-4 py-2.5 text-sm">
-                {msg.content}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {msg.content ? (
-                  <Card className="p-4 border-border/50">
-                    <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
-                      <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
-                    </div>
-                  </Card>
-                ) : (
-                  <ThinkingDots />
-                )}
-              </div>
-            )}
-          </div>
+        <div key={i}>
+          {msg.role === "user" ? (
+            <UserMessage content={msg.content}>{msg.content}</UserMessage>
+          ) : msg.content ? (
+            <AssistantMessage agent="Orion" content={msg.content}>
+              <Card className="p-4 border-border/50">
+                <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {msg.content}
+                  </Markdown>
+                </div>
+              </Card>
+            </AssistantMessage>
+          ) : (
+            <ThinkingDots />
+          )}
         </div>
       ))}
       <div ref={bottomRef} />
@@ -180,7 +255,142 @@ function Conversation({ messages }: { messages: Message[] }) {
   );
 }
 
-function ChatInput() {
+function ModelSelector({
+  models,
+  selectedServer,
+  setSelectedServer,
+  loadingModels,
+}: {
+  models: ModelInfo[];
+  selectedServer: string;
+  setSelectedServer: (name: string) => void;
+  loadingModels: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedModel = models.find((m) => m.name === selectedServer);
+  const availableModels = models.filter((m) => m.available);
+  const unavailableModels = models.filter((m) => !m.available);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-md border transition-colors",
+          selectedModel?.available
+            ? "border-border hover:bg-surface-2 text-foreground"
+            : "border-destructive/30 text-muted-foreground",
+        )}
+        disabled={loadingModels}
+        title={
+          selectedModel ? `${selectedModel.model} (${selectedModel.provider})` : "Chọn model"
+        }
+      >
+        {loadingModels ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : selectedModel ? (
+          <>
+            <span
+              className={cn(
+                "inline-block h-1.5 w-1.5 rounded-full",
+                selectedModel.available ? "bg-success" : "bg-destructive",
+              )}
+            />
+            <span className="max-w-[100px] truncate">{selectedModel.model}</span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">No model</span>
+        )}
+        <ChevronDown className="h-3 w-3 opacity-50" />
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1 w-64 rounded-md border bg-popover text-popover-foreground shadow-md z-50 py-1">
+          {availableModels.length > 0 && (
+            <>
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                Có sẵn
+              </div>
+              {availableModels.map((m) => (
+                <button
+                  key={m.name}
+                  type="button"
+                  onClick={() => {
+                    setSelectedServer(m.name);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-3 py-1.5 text-[12px] flex items-center gap-2 hover:bg-accent transition-colors",
+                    m.name === selectedServer && "bg-accent",
+                  )}
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-success shrink-0" />
+                  <span className="truncate">
+                    {m.model}
+                  </span>
+                  <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                    {m.provider}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
+
+          {unavailableModels.length > 0 && (
+            <>
+              <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground mt-1 border-t border-border">
+                Không khả dụng
+              </div>
+              {unavailableModels.map((m) => (
+                <div
+                  key={m.name}
+                  className="w-full text-left px-3 py-1.5 text-[12px] flex items-center gap-2 opacity-40 cursor-not-allowed"
+                >
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-destructive shrink-0" />
+                  <span className="truncate">{m.model}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                    {m.provider}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {models.length === 0 && !loadingModels && (
+            <div className="px-3 py-2 text-[11px] text-muted-foreground">
+              Không có model nào được cấu hình
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatInput({
+  models,
+  selectedServer,
+  setSelectedServer,
+  loadingModels,
+}: {
+  models: ModelInfo[];
+  selectedServer: string;
+  setSelectedServer: (name: string) => void;
+  loadingModels: boolean;
+}) {
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
@@ -189,7 +399,9 @@ function ChatInput() {
   const abortRef = useRef<AbortController | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const { getSession, updateSession } = useChat();
+  const selectedServerRef = useRef(selectedServer);
+  selectedServerRef.current = selectedServer;
+  const { getSession, updateSession, renameSession } = useChat();
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -220,7 +432,12 @@ function ChatInput() {
         role: "assistant",
         content: streamingContent || "(interrupted)",
       };
-      updateSession({ messages: [...(getSession()?.messages || updated.messages), assistantMsg] });
+      updateSession({
+        messages: [
+          ...(getSession()?.messages || updated.messages),
+          assistantMsg,
+        ],
+      });
     }
     setStreamingContent("");
     setLoading(false);
@@ -259,7 +476,10 @@ function ChatInput() {
     if (!session) return;
 
     if (session.title === "New chat") {
-      updateSession({ title: question.length > 60 ? question.slice(0, 57) + "..." : question });
+      const newTitle =
+        question.length > 60 ? question.slice(0, 57) + "..." : question;
+      updateSession({ title: newTitle });
+      renameSession(session.id, newTitle);
     }
 
     setValue("");
@@ -276,13 +496,24 @@ function ChatInput() {
     abortRef.current = controller;
 
     try {
-      const history = session.messages.map((m) => ({ role: m.role, content: m.content }));
+      const history = session.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
       const connTimeout = setTimeout(() => controller.abort(), 180000);
 
+      const rawId = getSession()?.id;
+      const sessionId =
+        rawId && !rawId.startsWith("pending_") ? rawId : undefined;
       const res = await fetch(`${API_URL}/api/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, messages: history }),
+        body: JSON.stringify({
+          question,
+          messages: history,
+          session_id: sessionId,
+          server_name: selectedServerRef.current || undefined,
+        }),
         signal: controller.signal,
       });
 
@@ -319,8 +550,16 @@ function ChatInput() {
       let steps: Step[] | undefined;
       let buffer = "";
 
-      const assistantPlaceholder: Message = { role: "assistant", content: "" };
-      updateSession({ messages: [...(getSession()?.messages || []), assistantPlaceholder] });
+      const assistantPlaceholder: Message = {
+        role: "assistant",
+        content: "",
+      };
+      updateSession({
+        messages: [
+          ...(getSession()?.messages || []),
+          assistantPlaceholder,
+        ],
+      });
 
       setPipelineStatus(null);
       startIdleTimer();
@@ -346,7 +585,10 @@ function ChatInput() {
                 const updated = getSession();
                 if (updated) {
                   const msgs = [...updated.messages];
-                  msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: fullContent };
+                  msgs[msgs.length - 1] = {
+                    ...msgs[msgs.length - 1],
+                    content: fullContent,
+                  };
                   updateSession({ messages: msgs });
                 }
               }
@@ -414,6 +656,14 @@ function ChatInput() {
         className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
       />
       <div className="flex items-center gap-1 px-2 pb-2">
+        <div className="flex items-center gap-1.5">
+          <ModelSelector
+            models={models}
+            selectedServer={selectedServer}
+            setSelectedServer={setSelectedServer}
+            loadingModels={loadingModels}
+          />
+        </div>
         <div className="ml-auto flex items-center gap-2">
           <kbd className="hidden sm:inline text-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted-foreground border border-border">
             ⏎

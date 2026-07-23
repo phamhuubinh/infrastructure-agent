@@ -5,6 +5,7 @@ import {
   useRef,
   useMemo,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 
@@ -80,49 +81,100 @@ export function useChat() {
   return useContext(ChatContext);
 }
 
-let nextId = 1;
-
-function genId() {
-  return `sess_${nextId++}_${Date.now().toString(36)}`;
+function emptySession(
+  id: string,
+  title: string = "New chat",
+  msgs: Message[] = [],
+): Session {
+  if (msgs.length > 0) {
+    return { id, title, messages: msgs };
+  }
+  return {
+    id,
+    title,
+    messages: [
+      {
+        role: "assistant",
+        content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
+      },
+    ],
+  };
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<Session[]>(() => [
-    {
-      id: genId(),
-      title: "New chat",
-      messages: [
-        {
-          role: "assistant",
-          content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-        },
-      ],
-    },
-  ]);
-  const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const sessionsRef = useRef(sessions);
   const currentIdRef = useRef(currentSessionId);
   sessionsRef.current = sessions;
   currentIdRef.current = currentSessionId;
 
+  // Load sessions from backend on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch(`${API_URL}/api/sessions`);
+        if (!res.ok) throw new Error("failed");
+        const data = await res.json();
+        if (cancelled) return;
+        const serverSessions: Session[] = (data.sessions || []).map(
+          (s: { id: string; title?: string; messages?: Message[] }) =>
+            emptySession(s.id, s.title || "New chat", s.messages || [])
+        );
+        if (serverSessions.length > 0) {
+          setSessions(serverSessions);
+          setCurrentSessionId(serverSessions[0].id);
+          currentIdRef.current = serverSessions[0].id;
+        } else {
+          // No sessions on server — leave empty, user will create one
+          setSessions([]);
+          setCurrentSessionId(null);
+        }
+      } catch {
+        // Server not available — start with local fallback
+        if (cancelled) return;
+        const fallback = emptySession("local_fallback");
+        setSessions([fallback]);
+        setCurrentSessionId(fallback.id);
+        currentIdRef.current = fallback.id;
+      }
+      setLoaded(true);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const createSession = useCallback(() => {
-    const id = genId();
-    setSessions((prev) => [
-      ...prev,
-      {
-        id,
-        title: "New chat",
-        messages: [
-          {
-            role: "assistant",
-            content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-          },
-        ],
-      },
-    ]);
-    setCurrentSessionId(id);
-    currentIdRef.current = id;
-    return id;
+    const localId = `pending_${Date.now().toString(36)}`;
+    const newSession = emptySession(localId);
+    setSessions((prev) => [newSession, ...prev]);
+    setCurrentSessionId(localId);
+    currentIdRef.current = localId;
+
+    // Create session on server and update local ID
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/sessions`, { method: "POST" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const serverId: string = data.session_id;
+        setSessions((prev) =>
+          prev.map((s) => (s.id === localId ? { ...s, id: serverId } : s))
+        );
+        if (currentIdRef.current === localId) {
+          setCurrentSessionId(serverId);
+          currentIdRef.current = serverId;
+        }
+      } catch {
+        // Server not available — keep local ID
+      }
+    })();
+
+    return localId;
   }, []);
 
   const switchSession = useCallback((id: string) => {
@@ -150,22 +202,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       if (next.length > 0) {
         if (currentIdRef.current === id) {
           setCurrentSessionId(next[0].id);
+          currentIdRef.current = next[0].id;
         }
       } else {
-        const fresh = genId();
-        setCurrentSessionId(fresh);
-        return [
-          {
-            id: fresh,
-            title: "New chat",
-            messages: [
-              {
-                role: "assistant",
-                content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-              },
-            ],
-          },
-        ];
+        // All deleted — create a new one
+        const fallback = emptySession("local_fallback");
+        setCurrentSessionId(fallback.id);
+        currentIdRef.current = fallback.id;
+        return [fallback];
       }
       return next;
     });
@@ -206,6 +250,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       renameSession,
     ],
   );
+
+  if (!loaded) {
+    return <ChatContext.Provider value={value}>{null}</ChatContext.Provider>;
+  }
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
