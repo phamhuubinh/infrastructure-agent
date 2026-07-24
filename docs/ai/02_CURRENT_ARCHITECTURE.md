@@ -15,19 +15,20 @@ In `--web` mode, a FastAPI backend (`src/backend/api.py`) handles requests. When
 ```
 User Request
     ↓
-Intent Resolution      (src/pipeline/intent_resolver.py)
+Normalizer             (src/pipeline/normalizer.py — semantic, language-only)
+    ↓
+Parameter Extractor    (src/pipeline/parameter_extractor.py — service_name, port, process, path, time_range)
+    ↓
+Answer Type Classifier (src/pipeline/answer_type.py — Fact/List/Table/Chart/Assessment/Comparison)
     ↓
 Target Resolution      (src/pipeline/target_resolver.py, src/tool/target_registry.py)
     ↓
-Evidence Planning      (src/pipeline/evidence_planner.py, evidence_requirement.py)
+Tool Selector          (src/pipeline/tool_selector.py — Linux/Grafana/Zabbix/KB/Internet routing)
     ↓
-Capability Resolution  (src/pipeline/capability_resolver.py, capability_router.py, capability_library.py)
+Capability Planner     (src/pipeline/capability_planner.py — concept+action → capability plan)
     ↓
-Execution Planning     (src/pipeline/execution_planner.py, execution_plan.py)
-    ↓
-Execution Graph        (src/pipeline/execution_graph.py)
-    ↓
-Execution Runtime      (src/pipeline/execution_runtime.py, execution_engine.py)
+Execution Engine       (src/pipeline/execution_engine.py, execution_runtime.py, execution_graph.py)
+    ├── Evidence Cache  (src/pipeline/evidence_cache.py — per-session, TTL 60s)
     ↓  calls
 KnowledgeTool           (src/tool/knowledge_tool.py — single entry point into Child Tools)
     ↓  dispatches to
@@ -35,8 +36,12 @@ Child Tools: LinuxTool (SSH) / GrafanaTool / ZabbixTool / InternetTool / Knowled
     ↓
 Evidence Merge         (src/pipeline/evidence_merge.py, evidence_package.py, evidence_completeness.py)
     ↓
+Evidence Correlation   (src/pipeline/evidence_correlation.py)
+    ↓
 Assessment (Agent)     (src/agent/deterministic_agent.py)
-    ├── DeterministicResponder.try_response() — skip LLM if evidence is simple
+    ├── DeterministicResponder.try_response() — skip LLM for simple facts/lists/tables
+    ├── ThresholdEvaluator (src/pipeline/threshold_evaluator.py — ok/info/warning/critical)
+    ├── TimeRangeResolver (src/pipeline/time_range_resolver.py)
     └── AssessmentAdapter → AssessmentRequest → LLM → tool links
     ↓
 Response
@@ -64,5 +69,5 @@ Credential handling for Grafana/Zabbix tokens: see `07_DEVELOPMENT_RULES.md` and
 - No database by default (state is in-memory + one local JSON file for targets; PostgreSQL available when `ORION_DATABASE_URL` is set — see WP4 migration in `08_PROJECT_STATE.md`).
 - No authentication / accounts (optional `ORION_API_KEY` middleware available for API endpoint protection).
 - No remote hosting.
-- No automated tests, no benchmark runner — now resolved: **764 tests** (`tests/`) and a benchmark runner (`benchmark/`) both exist. See `08_PROJECT_STATE.md` for current status.
+- No automated tests, no benchmark runner — now resolved: **990 tests** (`tests/`) and a benchmark runner (`benchmark/`) both exist. See `08_PROJECT_STATE.md` for current status.
 These are not bugs. They are the current, intentional boundary of the project. `03_PLATFORM_ARCHITECTURE.md` describes what replaces this boundary, and `04_ROADMAP.md` describes the order in which that happens.

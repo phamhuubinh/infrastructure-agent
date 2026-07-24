@@ -22,7 +22,7 @@
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
-- Test suite: **923 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
+- Test suite: **990 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
@@ -107,11 +107,6 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 - ID 631✅: GrafanaTool.build_links() accepts time_range → adds from/to params
 - ID 632✅: TimeRangeResolver wired into DeterministicAgent._build_tool_links()
 
-### WP6.9: Time Range & Visualization 🟢 (planned — 3 tasks, 6h)
-- ID 630: Create TimeRangeResolver
-- ID 631: Add Grafana time series query
-- ID 632: Build visualization response
-
 ## Not implemented (do not assume otherwise)
 - **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
 - **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local Docker Compose with nginx reverse proxy and self-signed HTTPS.
@@ -184,7 +179,7 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 ## Next milestones
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
-3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 931 tests passing (63 new Phase 6 tests + 868 existing).
+3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
 4. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
 > **Last updated:** 2026-07-24 (Phase 6 complete).

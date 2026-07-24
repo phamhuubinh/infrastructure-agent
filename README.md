@@ -13,23 +13,28 @@ Evidence-driven investigation with AI-powered assessment.
 ```
 User Request
     ↓
-Intent Resolution (deterministic)
+Normalizer (deterministic) — semantic normalization (language-only)
     ↓
-Target Resolution (deterministic)
+Parameter Extractor (deterministic) — service_name, port, time_range, process, path
     ↓
-Evidence Planning (deterministic)
+Answer Type Classifier (deterministic) — Fact/List/Table/Chart/Assessment/Comparison
     ↓
-Capability Resolution (deterministic)
+Target Resolution (deterministic) — hostname detection, fuzzy matching, aliases
     ↓
-Execution Planning (deterministic)
+Tool Selector (deterministic) — Linux/Grafana/Zabbix/KB/Internet routing
     ↓
-Execution Graph (deterministic)
+Capability Planner (deterministic) — concept+action → capability plan
     ↓
-Execution Runtime → KnowledgeTool → Child Tools (Linux, Grafana, Zabbix, Internet, KB)
+Evidence Collection (deterministic)
+    ├── Execution Engine → KnowledgeTool → Child Tools (Linux, Grafana, Zabbix, Internet, KB)
+    └── Evidence Cache (per-session, TTL 60s)
     ↓
-Evidence Collection
+Evidence Merge + Correlation (deterministic)
     ↓
-Assessment (AI)
+Assessment Pipeline
+    ├── Deterministic Responder (short-circuit for Fact/List/Table answers)
+    ├── Threshold Evaluator (severity: ok/info/warning/critical)
+    └── LLM Assessment (AI) → evidence interpretation + recommendations
     ↓
 Response
 ```
@@ -130,13 +135,14 @@ The `.workflow/` directory contains the autonomous development supervisor:
 ├── supervisor.sh       # Entry point — orchestrates the entire workflow
 ├── state.json          # Persistent backlog & session state
 ├── session.log         # Structured log of all iterations
+├── generate_backlog.py # Backlog generation script
 ├── progress_report.md  # Sprint history and progress summary
-├── daemon.pid          # PID file for supervisor daemon
 ├── commands/           # Reusable task scripts
 │   ├── run-tests.sh    # Run all tests
 │   ├── lint.sh         # Run linter
 │   ├── typecheck.sh    # Run type checker
 │   └── benchmark.sh    # Run benchmarks
+├── task_logs/          # Per-task execution logs
 ├── backups/            # State backup snapshots
 └── README.md           # Full workflow documentation
 ```

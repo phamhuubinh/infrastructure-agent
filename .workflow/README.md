@@ -9,11 +9,14 @@ workflow/
 ├── supervisor.sh       # Entry point — orchestrates the entire workflow
 ├── state.json          # Persistent backlog & session state
 ├── session.log         # Structured log of all iterations
+├── generate_backlog.py # Backlog generation script
 ├── commands/           # Reusable task command files
 │   ├── run-tests.sh
 │   ├── lint.sh
 │   ├── typecheck.sh
 │   └── benchmark.sh
+├── task_logs/          # Per-task execution logs
+├── backups/            # State backup snapshots
 └── README.md
 ```
 
