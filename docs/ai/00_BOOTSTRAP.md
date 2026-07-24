@@ -11,6 +11,7 @@
 8. `05_EXECUTION_PIPELINE.md` — the deterministic investigation pipeline
 9. `06_TOOL_AND_CAPABILITY_DESIGN.md` — how tools/capabilities are added
 10. `09_ARCHITECTURE_DECISIONS.md` — permanent record of decisions and why
+11. `10_PHASE6_PLAN.md` — Phase 6: Pipeline Architecture Hardening plan (planned, not yet implemented)
 ## Conflict priority
 If two documents disagree, resolve in this order (highest wins):
 1. `07_DEVELOPMENT_RULES.md`
@@ -33,3 +34,4 @@ This project currently runs **local, single-user, with optional PostgreSQL and A
 | 07_DEVELOPMENT_RULES.md | Mandatory engineering rules |
 | 08_PROJECT_STATE.md | Current implementation status (source of truth) |
 | 09_ARCHITECTURE_DECISIONS.md | ADR log |
+| 10_PHASE6_PLAN.md | Phase 6 implementation plan (32 tasks, 9 WPs) |

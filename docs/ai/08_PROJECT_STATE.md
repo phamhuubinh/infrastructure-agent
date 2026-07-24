@@ -5,7 +5,7 @@
 **Local MVP with Docker Compose.** Single-user, single-machine, no network exposure beyond outbound calls to targets/Grafana/Zabbix/LLM APIs. WP1 local infrastructure (Docker Compose, nginx reverse proxy, PostgreSQL, self-signed HTTPS) is in place.
 
 ## Implemented
-- Deterministic pipeline: Intent Resolution → Target Resolution → Evidence Planning → Capability Resolution → Execution Planning → Execution Graph → Execution Runtime (`src/pipeline/*`).
+- 6-stage deterministic pipeline: Normalize → Target → Plan → Graph → Execute → Assess (`src/pipeline/*`). Includes SemanticRequest normalization layer (language-only, config-driven via `config/concepts.yaml`) and CapabilityPlanner (concept+action → capability plan, config-driven via `config/capability_plans.yaml`).
 - `KnowledgeTool` as the single dispatch entry point to Child Tools (`src/tool/knowledge_tool.py`).
 - Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, `InternetTool` (HTTP fetch with SSRF protection), `KnowledgeBaseTool` (RAG service proxy).
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
@@ -22,7 +22,7 @@
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
-- Test suite: **859 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
+- Test suite: **923 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
@@ -54,6 +54,63 @@
 - Removed debug `print()` statements from tool files.
 - Removed unused Python imports.
 - Updated README.md and HTML metadata.
+
+## Phase 6 — Pipeline Architecture Hardening (completed 2026-07-24)
+
+Full plan: `docs/ai/10_PHASE6_PLAN.md`. 32 tasks across 9 work packages, all completed.
+
+Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. Root cause: CapabilityPlanner existed but was never wired into ExecutionEngine. **Fixed by ID 605.**
+
+### WP6.1: Bug Fixes 🔴 (completed — 4 tasks)
+- ID 601✅: System prompt overrides model identity to "Orion"
+- ID 602✅: UnknownTargetError propagated instead of chat fallback
+- ID 603✅: TargetResolver Step 4.5 detects nonexistent hostnames (non-alpha words)
+- ID 604✅: Strong language enforcement in assessment + chat prompts
+
+### WP6.2: CapabilityPlanner Integration 🟠 (completed — 4 tasks)
+- ID 605✅: CapabilityPlanner wired into ExecutionEngine.execute() — filters capability_references
+- ID 606✅: concepts.yaml expanded: hostname, kernel, uptime, load
+- ID 607✅: capability_plans.yaml updated with evidence-level names
+- ID 608✅: Operational names verified across CapabilityLibrary
+
+### WP6.3: Parameter Extraction 🟠 (completed — 3 tasks) — `src/pipeline/parameter_extractor.py`
+- ID 609✅: ParameterExtractor — service_name, port, process, path, time_range
+- ID 610✅: Integrated into ExecutionEngine + InvestigationRequest.extracted_params
+- ID 611✅: extracted_params threaded through ExecutionRuntime._execute_node()
+
+### WP6.4: Answer Type Classification 🟠 (completed — 3 tasks) — `src/pipeline/answer_type.py`
+- ID 612✅: AnswerType enum + AnswerTypeClassifier (FACT/LIST/TABLE/CHART/COMPARISON/ASSESSMENT)
+- ID 613✅: Classification in ExecutionEngine, stored in InvestigationRequest.answer_type
+- ID 614✅: Non-ASSESSMENT types attempt DeterministicResponder first in _assess()
+
+### WP6.5: Tool Selection 🟡 (completed — 3 tasks) — `src/pipeline/tool_selector.py`
+- ID 615✅: ToolSelector with ToolCategory enum (LINUX/GRAFANA/ZABBIX/KB/INTERNET)
+- ID 616✅: Integrated into ExecutionEngine via ToolSelector.select()
+- ID 617✅: EvidencePackage.source_tool + EvidenceMerge tagging + ExecutionEngine._merge()
+
+### WP6.6: DeterministicResponder Expansion 🟡 (completed — 5 tasks)
+- ID 618-622✅: hostname, kernel version, top CPU, RAM available, load average responders
+
+### WP6.7: Evidence Cache 🟡 (completed — 3 tasks) — `src/pipeline/evidence_cache.py`
+- ID 623✅: EvidenceCache class (per-session, TTL 60s, thread-safe)
+- ID 624✅: Integrated into ExecutionEngine (cache on success, put evidence)
+- ID 625✅: EvidenceCache accepted in DeterministicAgent constructor
+
+### WP6.8: Assessment Quality 🟡 (completed — 4 tasks)
+- ID 626✅: AssessmentResult.severity field (ok/info/warning/critical)
+- ID 627✅: ThresholdEvaluator — `src/pipeline/threshold_evaluator.py`
+- ID 628✅: Prompt builder: stronger Vietnamese language enforcement
+- ID 629✅: EvidenceCorrelation — `src/pipeline/evidence_correlation.py`
+
+### WP6.9: Time Range & Visualization 🟢 (completed — 3 tasks)
+- ID 630✅: TimeRangeResolver — `src/pipeline/time_range_resolver.py`
+- ID 631✅: GrafanaTool.build_links() accepts time_range → adds from/to params
+- ID 632✅: TimeRangeResolver wired into DeterministicAgent._build_tool_links()
+
+### WP6.9: Time Range & Visualization 🟢 (planned — 3 tasks, 6h)
+- ID 630: Create TimeRangeResolver
+- ID 631: Add Grafana time series query
+- ID 632: Build visualization response
 
 ## Not implemented (do not assume otherwise)
 - **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
@@ -106,8 +163,28 @@ All 19 Phase 3 tasks completed across 4 epics:
 | CI/CD Guide | `docs/devops/ci.md` |
 | Testing Guide | `docs/testing/README.md` |
 
-## Next milestones
-1. All 105 backlog tasks complete (Phases 0–3). Backlog is empty.
-2. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
+## Known issues discovered in evaluation (2026-07-24)
 
-> **Last updated:** 2026-07-23.
+Three rounds of structured evaluation testing exposed the following issues:
+- **Identity leak** (🔴): System prompt does not override model identity → model self-identifies as Qwen/Alibaba
+- **Language contamination** (🔴): Vietnamese queries may receive Chinese or English responses due to weak language enforcement
+- **Target Resolution** (🔴): `TargetResolver` falls back to `localhost` when user types a nonexistent hostname (e.g. `serverabcxyz`). `UnknownTargetError` is caught and silently replaced by chat fallback, causing hallucination.
+- **CapabilityPlanner not integrated** (🔴): Created in Phase 5 but not wired into `ExecutionEngine`. Pipeline still uses IntentResolver → EvidencePlanner exclusively, bypassing the Normalizer → CapabilityPlanner path.
+- **Capability Routing gaps** (🟠): Intent keywords missing for "uptime", "hostname", "kernel", "load average", "database", "port", "zombie" → queries fall through to chat or wrong capability.
+- **No parameter extraction** (🟠): Queries like "Service nginx" return all services instead of filtering to nginx.
+- **No answer type differentiation** (🟠): All queries → assessment paragraph, even simple facts like "Hostname?" or "Zombie?".
+- **No tool selection** (🟠): "sử dụng grafana" directive ignored; evidence from Linux/Grafana/Zabbix contaminated across sources.
+- **Assessment quality** (🟡): Hallucinated risks (33% disk → "nguy cơ đầy"), no severity model, no threshold evaluation, no evidence correlation.
+- **No evidence reuse** (🟡): Same evidence re-collected across turns; no per-session cache.
+- **No time range support** (🟡): "CPU 1 giờ", "memory trend", "today" all return current snapshots.
+- **No visualization pipeline** (🟡): "biểu đồ CPU" returns text assessment instead of Grafana embed.
+
+Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
+
+## Next milestones
+1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
+2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
+3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 931 tests passing (63 new Phase 6 tests + 868 existing).
+4. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
+
+> **Last updated:** 2026-07-24 (Phase 6 complete).
