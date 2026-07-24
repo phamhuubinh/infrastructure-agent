@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+import yaml
+
 from src.agent.conversation_store import ConversationStore
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.protocol.prompt_builder_v2 import (
@@ -12,6 +17,8 @@ from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.intent_resolver import Confidence, Intent
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.normalizer import Normalizer
+from src.pipeline.target_resolver import UnknownTargetError
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
 
@@ -37,12 +44,14 @@ class DeterministicAgent:
         execution_engine: ExecutionEngine,
         assessment_model: AssessmentModelAdapter,
         conversation_store: ConversationStore | None = None,
+        evidence_cache: object = None,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
         self._assessment_adapter = AssessmentAdapter()
         self._deterministic_responder = DeterministicResponder()
         self._conversation_store = conversation_store
+        self._evidence_cache = evidence_cache
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -84,8 +93,23 @@ class DeterministicAgent:
         if not self._should_pipeline(user_request):
             return self.chat(user_request)
 
-        investigation = self._execution_engine.execute(user_request)
-        return self._assess(user_request, investigation)
+        try:
+            investigation = self._execution_engine.execute(user_request)
+            return self._assess(user_request, investigation)
+        except UnknownTargetError as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Unknown target, not falling back to chat",
+            )
+            return str(exc)
+        except Exception as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Pipeline failed, falling back to chat",
+            )
+            return self.chat(user_request)
 
     def run_with_steps(self, user_request: str) -> dict:
         """Run pipeline + assessment, return structured result with steps.
@@ -102,14 +126,37 @@ class DeterministicAgent:
                 "investigation": None,
             }
 
-        investigation = self._execution_engine.execute(user_request)
-        response = self._assess(user_request, investigation)
-        steps = self._build_pipeline_steps(investigation)
-        return {
-            "response": response,
-            "steps": steps,
-            "investigation": investigation,
-        }
+        try:
+            investigation = self._execution_engine.execute(user_request)
+            response = self._assess(user_request, investigation)
+            steps = self._build_pipeline_steps(investigation)
+            return {
+                "response": response,
+                "steps": steps,
+                "investigation": investigation,
+            }
+        except UnknownTargetError as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Unknown target, not falling back to chat",
+            )
+            return {
+                "response": str(exc),
+                "steps": [],
+                "investigation": None,
+            }
+        except Exception as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Pipeline failed, falling back to chat",
+            )
+            return {
+                "response": self.chat(user_request),
+                "steps": [],
+                "investigation": None,
+            }
 
     def _build_pipeline_steps(self, investigation: InvestigationRequest) -> list[dict]:
         """Serialize pipeline stages into step dicts for UI."""
@@ -201,6 +248,17 @@ class DeterministicAgent:
         return steps
 
     def _assess(self, user_request: str, investigation: InvestigationRequest) -> str:
+        # Phase 6: Answer-type routing — skip LLM for simple fact/list queries.
+        from src.pipeline.answer_type import AnswerType
+
+        answer_type = getattr(investigation, "answer_type", None)
+        if answer_type is not None and answer_type != AnswerType.ASSESSMENT:
+            deterministic = self._deterministic_responder.try_response(investigation)
+            if deterministic is not None:
+                if self._conversation_store:
+                    self._conversation_store.add_turn(user_request, deterministic)
+                return deterministic
+
         # Deterministic shortcuts: skip LLM if evidence is simple enough.
         deterministic = self._deterministic_responder.try_response(investigation)
         if deterministic is not None:
@@ -211,12 +269,9 @@ class DeterministicAgent:
         assessment_request = self._assessment_adapter.build(investigation)
 
         if self._conversation_store:
-            conv_history = self._conversation_store.history
-            if conv_history:
-                conv_text = "\n\n".join(
-                    f"{m['role']}: {m['content']}" for m in conv_history
-                )
-                conv_prefix = f"--- Recent conversation context ---\n{conv_text}\n\n--- Current request ---\n{assessment_request.raw_request}"
+            context = self._build_chat_context()
+            if context:
+                conv_prefix = f"--- Recent conversation context ---\n{context}\n\n--- Current request ---\n{assessment_request.raw_request}"
                 assessment_request = AssessmentRequest(
                     raw_request=conv_prefix,
                     intent=assessment_request.intent,
@@ -248,10 +303,11 @@ class DeterministicAgent:
     def _should_pipeline(self, user_request: str) -> bool:
         """Determine if request should go through the investigation pipeline.
 
-        Three-tier routing:
+        Four-tier routing:
         1. KNOWLEDGE_ASSESSMENT → chat (no pipeline)
-        2. HIGH/MEDIUM confidence infrastructure intent → pipeline
-        3. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
+        2. Conversational / yes-no questions → chat (no pipeline)
+        3. HIGH/MEDIUM confidence infrastructure intent → pipeline
+        4. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
 
         Returns:
             True if the request should go through the investigation pipeline.
@@ -265,6 +321,16 @@ class DeterministicAgent:
         if request.intent == Intent.KNOWLEDGE_ASSESSMENT:
             return False
 
+        # Conversational / yes-no questions with MACHINE_ASSESSMENT intent
+        # go to chat. These match generic keywords (e.g. "server") but the
+        # user is asking a clarification question, not requesting an assessment.
+        # Specific intents (CPU_ASSESSMENT, MEMORY_ASSESSMENT, etc.) are
+        # NOT blocked — "mem như thế nào?" should still go to pipeline.
+        if request.intent == Intent.MACHINE_ASSESSMENT and self._is_conversational(
+            user_request, request
+        ):
+            return False
+
         # High/medium confidence infrastructure intents go to pipeline.
         if request.confidence in (Confidence.HIGH, Confidence.MEDIUM):
             return True
@@ -272,6 +338,88 @@ class DeterministicAgent:
         # LOW confidence or MACHINE_ASSESSMENT fallback → ask classifier.
         is_infra, _ = self.classify(user_request)
         return is_infra
+
+    # ------------------------------------------------------------------
+    # Conversational config – loaded lazily from YAML.
+    # ------------------------------------------------------------------
+    _conv_loaded: bool = False
+    _conv_vi_patterns: list[str] = []
+    _conv_en_patterns: list[str] = []
+    _conv_question_mark: bool = True
+    _conv_equivalence_markers: list[str] = [" là ", " is ", "=", "->"]
+
+    @classmethod
+    def _ensure_conv_loaded(cls) -> None:
+        """Lazy-load conversational patterns from config YAML."""
+        if cls._conv_loaded:
+            return
+        cls._conv_loaded = True
+        config_path = os.environ.get(
+            "ORION_CONVERSATIONAL_CONFIG",
+            str(
+                Path(__file__).resolve().parent.parent
+                / "config"
+                / "conversational_patterns.yaml"
+            ),
+        )
+        if not os.path.exists(config_path):
+            return
+        try:
+            with open(config_path, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            cls._conv_vi_patterns = data.get("vi_patterns", cls._conv_vi_patterns)
+            cls._conv_en_patterns = data.get("en_patterns", cls._conv_en_patterns)
+            cls._conv_question_mark = data.get(
+                "question_mark_ends_conversational", True
+            )
+            cls._conv_equivalence_markers = data.get(
+                "equivalence_markers", cls._conv_equivalence_markers
+            )
+        except Exception:
+            # If config is broken, keep the hardcoded defaults.
+            pass
+
+    @classmethod
+    def _is_conversational(
+        cls,
+        user_request: str,
+        request: InvestigationRequest,
+    ) -> bool:
+        """Detect conversational / yes-no questions that should skip pipeline.
+
+        Patterns load from config/conversational_patterns.yaml.
+        Falls back to hardcoded defaults if config is missing.
+
+        Returns True if the request looks like a clarification question
+        rather than a request for infrastructure assessment.
+        """
+        cls._ensure_conv_loaded()
+        lower = user_request.lower().strip()
+
+        # Vietnamese yes-no / conversational patterns.
+        for pat in cls._conv_vi_patterns:
+            if pat in lower:
+                return True
+
+        # English conversational patterns.
+        for pat in cls._conv_en_patterns:
+            if pat in lower:
+                return True
+
+        # Question-mark patterns: "X is Y?" with MACHINE_ASSESSMENT only.
+        if (
+            cls._conv_question_mark
+            and lower.endswith("?")
+            and request.intent == Intent.MACHINE_ASSESSMENT
+        ):
+            return True
+
+        # Patterns that look like clarification about identity/equivalence ("X là Y?").
+        is_pattern = any(p in lower for p in cls._conv_equivalence_markers)
+        if is_pattern:
+            return True
+
+        return False
 
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.
@@ -281,6 +429,10 @@ class DeterministicAgent:
            If confidence is HIGH or MEDIUM → infra = True.
         2. If confidence is LOW → ask the model directly (cheap classifier call).
            Model says 'yes' → infra = True, 'no' → infra = False.
+
+        The LLM classifier is only invoked when concept confidence from
+        the Normalizer is < 0.4 (i.e., truly ambiguous). CPU/RAM/Disk
+        classification is always deterministic — LLM is never used for those.
 
         Returns:
             (is_infra: bool, reason: str | None)
@@ -295,16 +447,19 @@ class DeterministicAgent:
         if request.confidence in (Confidence.HIGH, Confidence.MEDIUM):
             return (True, None)
 
-        # Tier 2: ask the model (fallback for LOW confidence / no keywords)
+        # Check Normalizer confidence before falling through to LLM.
+        # Only invoke LLM for truly ambiguous (confidence < 0.4) queries.
+        normalizer = Normalizer()
+        semantic = normalizer.normalize(user_request)
+        if semantic.confidence >= 0.4:
+            # The Normalizer found reasonable concept + action.
+            # Deterministic classification: ask infrastructure.
+            return (True, None)
+
+        # Tier 2: ask the model (only for truly ambiguous cases, < 0.4 confidence).
+        # Light prompt: ~100 tokens, response is 1 word.
         classifier_prompt = (
-            "Classify this user question as either:\n"
-            "- 'infrastructure' if it asks about checking, monitoring, diagnosing, "
-            "configuring, or investigating a real computer system, server, network, "
-            "service, or IT infrastructure\n"
-            "- 'general' if it's a casual chat, general knowledge, trivia, or "
-            "anything not related to real IT systems\n\n"
-            "Reply with exactly one word: infrastructure or general\n\n"
-            f"Question: {user_request}\n\nAnswer:"
+            "Classify: infrastructure or general?\n" f"Q: {user_request[:200]}\nA:"
         )
         try:
             answer = self._assessment_model.assess_raw(classifier_prompt)
@@ -336,21 +491,23 @@ class DeterministicAgent:
 
             lang_hint = ""
             if _detect_language(user_request) == "vi":
-                lang_hint = " Trả lời bằng tiếng Việt."
+                lang_hint = (
+                    " QUAN TRỌNG: Bạn PHẢI trả lời TOÀN BỘ bằng tiếng Việt. "
+                    "Không được trả lời bằng bất kỳ ngôn ngữ nào khác."
+                )
 
             system = (
-                "You are a helpful AI assistant. Answer the user's question "
-                "concisely and accurately. If the question is about infrastructure "
-                "or system administration, provide technical detail. "
-                "Otherwise, answer as a general-purpose assistant." + lang_hint
+                "You are Orion, an infrastructure operations agent. "
+                "Answer the user's question concisely and accurately. "
+                "If the question is about infrastructure or system administration, "
+                "provide technical detail. Otherwise, answer as a general-purpose "
+                "assistant. Never identify yourself as any other AI model or brand."
+                + lang_hint
             )
             if self._conversation_store:
-                conv_history = self._conversation_store.history
-                if conv_history:
-                    conv_text = "\n\n".join(
-                        f"{m['role']}: {m['content']}" for m in conv_history
-                    )
-                    prompt = f"{conv_text}\n\nUser: {user_request}\n\nAssistant:"
+                context = self._build_chat_context()
+                if context:
+                    prompt = f"{context}\n\nUser: {user_request}\n\nAssistant:"
                 else:
                     prompt = f"{system}\n\nUser: {user_request}\n\nAssistant:"
             else:
@@ -362,6 +519,50 @@ class DeterministicAgent:
             return response
         except Exception as exc:
             return f"Sorry, I couldn't process that: {exc}"
+
+    def _build_chat_context(self) -> str:
+        """Build a bounded chat context from conversation history.
+
+        Uses the stored summary if available, plus the last few recent turns.
+        Prevents context window overflow from long conversation histories.
+        """
+        summary = self._conversation_store.summary if self._conversation_store else None
+        raw_history = (
+            self._conversation_store.history if self._conversation_store else []
+        )
+
+        parts: list[str] = []
+
+        if summary:
+            parts.append(f"Conversation summary: {summary}")
+
+        # Keep only last N user+assistant pairs (skip system/summary messages).
+        max_recent_pairs = 4
+        recent: list[dict[str, str]] = []
+        for m in reversed(raw_history):
+            if m.get("role") not in ("user", "assistant"):
+                continue
+            # Skip classifier labels.
+            content = m.get("content", "")
+            if content.startswith("[classified as"):
+                continue
+            recent.append(m)
+            # Count pairs: keep N user messages worth of context.
+            user_count = sum(1 for r in recent if r.get("role") == "user")
+            if user_count >= max_recent_pairs:
+                break
+        recent.reverse()
+
+        # Truncate long assistant messages to prevent context blow-up.
+        max_msg_len = 600
+        for m in recent:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            if len(content) > max_msg_len:
+                content = content[:max_msg_len] + "..."
+            parts.append(f"{role}: {content}")
+
+        return "\n\n".join(parts)
 
     def execute_pipeline_only(
         self,
@@ -385,11 +586,20 @@ class DeterministicAgent:
         parts = []
         kt = self._execution_engine.knowledge_tool
         evidence_list = list(investigation.evidence)
+
+        # Phase 6: Resolve time range for Grafana embed links.
+        from src.pipeline.time_range_resolver import TimeRangeResolver
+
+        tr_resolver = TimeRangeResolver()
+        time_range = tr_resolver.resolve(user_request)
+
         for name in kt._registry.target_names():
             try:
                 tool = kt._registry.get_tool(name)
                 if isinstance(tool, Tool):
-                    links = tool.build_links(evidence_list, user_request)
+                    links = tool.build_links(
+                        evidence_list, user_request, time_range=time_range
+                    )
                     if links:
                         parts.append(links)
             except Exception:

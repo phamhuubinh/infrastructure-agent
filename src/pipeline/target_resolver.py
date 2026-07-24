@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import difflib
+import os
+import re
+from pathlib import Path
 from typing import ClassVar
 
+import yaml
+
 from src.pipeline.investigation_request import InvestigationRequest
-from src.tool.target_registry import TargetRegistry
 
 
 class UnknownTargetError(ValueError):
@@ -34,13 +38,12 @@ class TargetResolver:
     Never performs execution or evidence collection.
     """
 
-    # Common aliases for hostnames and services.
-    _ALIASES: ClassVar[dict[str, str]] = {
+    # Hardcoded fallback aliases (used when config file is missing).
+    _DEFAULT_ALIASES: ClassVar[dict[str, str]] = {
         "server1": "server01",
-        "server02": "server02",
         "server2": "server02",
-        "db": "database",
-        "database": "database",
+        "srv01": "server01",
+        "sv01": "server01",
         "monitoring": "zabbix",
         "mon": "zabbix",
         "zabbix_server": "zabbix",
@@ -49,12 +52,156 @@ class TargetResolver:
         "graphan": "grafana",
     }
 
-    def __init__(self, target_registry: TargetRegistry | None = None) -> None:
-        self._registry = target_registry
+    _DEFAULT_LOCALHOST_SYNONYMS: ClassVar[list[str]] = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "máy này",
+        "máy",
+        "host này",
+        "host hiện tại",
+        "server này",
+    ]
+
+    _DEFAULT_SKIP_WORDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "check",
+            "show",
+            "get",
+            "list",
+            "find",
+            "what",
+            "how",
+            "why",
+            "when",
+            "where",
+            "in",
+            "with",
+            "of",
+            "to",
+            "and",
+            "or",
+            "but",
+            "not",
+            "all",
+            "cpu",
+            "memory",
+            "disk",
+            "network",
+            "storage",
+            "system",
+            "alert",
+            "alerts",
+            "problem",
+            "problems",
+            "service",
+            "services",
+            "status",
+            "health",
+            "performance",
+            "security",
+            "config",
+            "orion",
+            "database",
+            "monitor",
+            "monitoring",
+            "dashboard",
+            "dashboards",
+            "host",
+            "hosts",
+            "process",
+            "processes",
+            "package",
+            "packages",
+        }
+    )
+
+    _DEFAULT_TARGET_PATTERNS: ClassVar[list[dict[str, str]]] = [
+        {"pattern": r"^srv(\d+)$", "replacement": r"server\1"},
+        {"pattern": r"^sv(\d+)$", "replacement": r"server0\1"},
+        {"pattern": r"^mon(\d+)$", "replacement": "monitor"},
+        {"pattern": r"^(\w+)-(\d+)$", "replacement": r"\1\2"},
+        {"pattern": r"^(\w+)_(\d+)$", "replacement": r"\1\2"},
+    ]
+
+    def __init__(
+        self,
+        target_registry=None,
+        config_path: str | None = None,
+    ) -> None:
+        from src.tool.target_registry import TargetRegistry
+
+        self._registry: TargetRegistry | None = target_registry
+        if config_path is None:
+            repo_root = Path(__file__).resolve().parent.parent.parent
+            config_path = str(repo_root / "config" / "target_aliases.yaml")
+        self._config_path = config_path
+        self._loaded = False
+        self._aliases: dict[str, str] = {}
+        self._skip_words: frozenset[str] = frozenset()
+        self._localhost_synonyms: list[str] = []
+        self._target_patterns: list[dict[str, str]] = []
+
+    def _ensure_loaded(self) -> None:
+        """Lazy-load the target aliases YAML config."""
+        if self._loaded:
+            return
+        if os.path.exists(self._config_path):
+            with open(self._config_path, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh) or {}
+            self._aliases = dict(data.get("aliases", self._DEFAULT_ALIASES))
+            self._skip_words = frozenset(data.get("skip_words", []))
+            self._localhost_synonyms = list(
+                data.get("localhost_synonyms", self._DEFAULT_LOCALHOST_SYNONYMS)
+            )
+            self._target_patterns = list(
+                data.get("target_patterns", self._DEFAULT_TARGET_PATTERNS)
+            )
+        else:
+            self._aliases = dict(self._DEFAULT_ALIASES)
+            self._skip_words = self._DEFAULT_SKIP_WORDS
+            self._localhost_synonyms = list(self._DEFAULT_LOCALHOST_SYNONYMS)
+            self._target_patterns = list(self._DEFAULT_TARGET_PATTERNS)
+        self._loaded = True
 
     @staticmethod
     def _extract_words(raw: str) -> list[str]:
         return [w.strip(",.!?;:'\"()[]{}<>") for w in raw.split()]
+
+    def normalize_target_name(self, raw_name: str) -> str:
+        """Apply pattern-based normalization to a target name.
+
+        Examples:
+            sv01 → server01
+            srv01 → server01
+            mon01 → monitor
+            server-01 → server01
+        """
+        self._ensure_loaded()
+        name = raw_name.strip().lower()
+        for rule in self._target_patterns:
+            pattern = rule.get("pattern", "")
+            replacement = rule.get("replacement", "")
+            if pattern:
+                try:
+                    new_name = re.sub(pattern, replacement, name)
+                    if new_name != name:
+                        return new_name
+                except re.error:
+                    continue
+        return name
+
+    def _is_localhost_synonym(self, word: str) -> bool:
+        """Check if a word is a known localhost synonym."""
+        self._ensure_loaded()
+        return word.lower() in self._localhost_synonyms
 
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.
@@ -70,6 +217,7 @@ class TargetResolver:
                                 resolved target does not exist, or if no matching
                                 target is found and no default applies.
         """
+        self._ensure_loaded()
         raw = request.raw_request.lower()
         intent = request.intent
 
@@ -79,22 +227,40 @@ class TargetResolver:
 
         words = self._extract_words(raw)
 
+        # Step 0: Check localhost synonyms first.
+        for word in words:
+            if self._is_localhost_synonym(word):
+                if "localhost" in known_names:
+                    request.target = "localhost"
+                    return
+                # If no explicit localhost target but we have targets,
+                # still default to localhost — user explicitly asked for this host.
+                request.target = "localhost"
+                return
+
         # Step 1: Check aliases (fastest path).
         for word in words:
-            alias_target = self._ALIASES.get(word)
+            alias_target = self._aliases.get(word)
             if alias_target:
                 if alias_target in known_names:
                     request.target = alias_target
                     return
                 raise UnknownTargetError(alias_target, known_names)
 
-        # Step 2: Exact substring match (fast path).
+        # Step 2: Try normalized target names via pattern matching.
+        for word in words:
+            normalized = self.normalize_target_name(word)
+            if normalized != word and normalized in known_names:
+                request.target = normalized
+                return
+
+        # Step 3: Exact substring match (fast path).
         for name in sorted(known_names, key=len, reverse=True):
             if name.lower() in raw:
                 request.target = name
                 return
 
-        # Step 3: Fuzzy match for typos (slow path).
+        # Step 4: Fuzzy match for typos (slow path).
         best_name: str | None = None
         best_ratio: float = 0.0
         for name in known_names:
@@ -107,7 +273,25 @@ class TargetResolver:
             request.target = best_name
             return
 
-        # Step 4: Intent + keyword-based defaults.
+        # Step 4.5: Detect potential hostnames that failed all resolution steps.
+        # Words like "serverabcxyz" or "server01" should raise an error, not
+        # fall through to localhost. Only flag words that look like technical
+        # hostnames (contain digits, hyphens, or dots) — pure alphabetic words
+        # like "disks" or "check" are not hostnames.
+        _prepositions = frozenset({"on", "for", "at", "from"})
+        _hostname_pattern = re.compile(r"^[a-z][a-z0-9._-]*$", re.IGNORECASE)
+        for word in words:
+            if (
+                len(word) > 2
+                and word not in self._skip_words
+                and word not in _prepositions
+                and not self._is_localhost_synonym(word)
+                and _hostname_pattern.match(word)
+                and not word.isalpha()
+            ):
+                raise UnknownTargetError(word, known_names)
+
+        # Step 5: Intent + keyword-based defaults.
         if intent is not None and self._registry is not None:
             intent_name = intent.name
 
@@ -126,72 +310,24 @@ class TargetResolver:
                         request.target = preferred
                         return
 
-        # Step 5: Check if user explicitly named a target via preposition.
+        # Step 6: Check if user explicitly named a target via preposition.
         # If the request mentions "on <name>" or "for <name>" and that
         # name looks like a hostname, raise UnknownTargetError.
-        _prepositions = frozenset({"on", "for", "at", "from"})
-        _skip_words = frozenset(
-            {
-                "the",
-                "a",
-                "an",
-                "is",
-                "are",
-                "was",
-                "were",
-                "check",
-                "show",
-                "get",
-                "list",
-                "find",
-                "what",
-                "how",
-                "why",
-                "when",
-                "where",
-                "in",
-                "with",
-                "of",
-                "to",
-                "and",
-                "or",
-                "but",
-                "not",
-                "all",
-                "cpu",
-                "memory",
-                "disk",
-                "network",
-                "storage",
-                "system",
-                "alert",
-                "alerts",
-                "problem",
-                "problems",
-                "service",
-                "services",
-                "status",
-                "health",
-                "performance",
-                "security",
-                "config",
-                "monitor",
-                "monitoring",
-                "dashboard",
-                "dashboards",
-                "host",
-                "hosts",
-                "process",
-                "processes",
-                "package",
-                "packages",
-            }
-        )
         for i, word in enumerate(words):
             if word in _prepositions and i + 1 < len(words):
                 candidate = words[i + 1]
-                if len(candidate) > 2 and candidate not in _skip_words:
+                # Also try normalized form before skipping.
+                normalized_candidate = self.normalize_target_name(candidate)
+                if (
+                    len(candidate) > 2
+                    and candidate not in self._skip_words
+                    and normalized_candidate not in self._skip_words
+                ):
+                    # If the normalized form matches a known name, use it.
+                    if normalized_candidate in known_names:
+                        request.target = normalized_candidate
+                        return
                     raise UnknownTargetError(candidate, known_names)
 
-        # Step 6: Fallback — no explicit target found.
+        # Step 7: Fallback — no explicit target found.
         request.target = "localhost"

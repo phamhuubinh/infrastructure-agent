@@ -316,7 +316,11 @@ def build_assessment_prompt(
 
     lang = _detect_language(assessment_request.raw_request)
     if lang == "vi":
-        instruction += "\n\nTrả lời bằng tiếng Việt."
+        instruction += (
+            "\n\nQUAN TRỌNG: Bạn PHẢI trả lời TOÀN BỘ bằng tiếng Việt. "
+            "Không được trả lời bằng bất kỳ ngôn ngữ nào khác (tiếng Anh, tiếng Trung, v.v.). "
+            "Tất cả văn bản, giải thích, đánh giá, và khuyến nghị đều phải bằng tiếng Việt."
+        )
 
     lines: list[str] = [
         instruction,
