@@ -24,3 +24,4 @@ class AssessmentResult:
     latency_ms: float = 0.0
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    severity: str | None = None

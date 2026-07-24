@@ -30,6 +30,7 @@ class Tool(ABC):
         self,
         evidence_list: list,
         user_request: str,
+        time_range: tuple[int, int] | None = None,
     ) -> str:
         """Build tool-specific deep links from collected evidence.
 

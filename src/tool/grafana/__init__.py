@@ -134,15 +134,20 @@ class GrafanaTool(Tool):
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
             return ToolResult(success=False, error=str(exc))
 
-    def build_links(self, evidence_list: list, user_request: str) -> str:
+    def build_links(
+        self,
+        evidence_list: list,
+        user_request: str,
+        time_range: tuple[int, int] | None = None,
+    ) -> str:
         from src.shared.secrets import get_tool_config
 
         config = get_tool_config("grafana")
         grafana_url = config.get("url", "").rstrip("/") if config else ""
         if not grafana_url:
             return ""
-        dashboards: list[tuple[object, object]] = []
-        query_params: dict[object, object] = {}
+        dashboards: list[tuple[str, str]] = []
+        query_params: dict[str, str] = {}
         for package in evidence_list:
             if not getattr(package, "success", False) or package.evidence_name not in (
                 "Dashboards",
@@ -178,9 +183,14 @@ class GrafanaTool(Tool):
         )
         lines = ["**Grafana Dashboards:**"]
         for title, uid in dashboards:
-            params: dict[object, object] = {}
+            params: dict[str, str] = {}
             if signal:
                 params["var-signal"] = signal
+            # Phase 6: Add time range parameters.
+            if time_range is not None:
+                from_ts, to_ts = time_range
+                params["from"] = str(from_ts * 1000)  # Grafana uses ms
+                params["to"] = str(to_ts * 1000)
             params.update(query_params)
             query = urllib_parse.urlencode(params) if params else ""
             url = f"{grafana_url}/d/{uid}"
