@@ -340,3 +340,92 @@ Last updated: 2026-07-23
 ---
 
 *Source: `.workflow/state.json` — this file is auto-generated for human readability.*
+
+---
+
+## Phase 5 — Pipeline Architecture Upgrade (P0–P2)
+
+> Created 2026-07-24 from the conversation analysis that revealed empty responses, incorrect routing, and missing keyword coverage.
+> Tasks are grouped by Epic and sorted by priority within each.
+> Total: **23 tasks** (6 bug fixes + 17 architecture improvements).
+
+### Immediate Bug Fixes (P0)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 500 | P0       | ✅      | Xóa alias database/db khỏi target_resolver | Alias "database"/"db" trỏ đến target không tồn tại → UnknownTargetError crash API. Xóa khỏi `_ALIASES`. |
+| 501 | P0       | ✅      | Thêm try/except trong run() và run_with_steps() | Pipeline exception (UnknownTargetError, tool failure) propagate thẳng lên FastAPI → 500 error. Wrap execute() trong try/except, fallback sang chat(). |
+| 502 | P0       | ✅      | Thêm "orion" và "database" vào skip words | Substring match nhầm project name / generic terms thành target name. |
+| 503 | P0       | ✅      | _build_chat_context(): giới hạn context gửi LLM | chat() và _assess() nhồi toàn bộ lịch sử hội thoại vào prompt → vượt context window → empty response. Giới hạn: summary + 4 lượt gần nhất + truncate 600 chars. |
+| 504 | P0       | ✅      | _is_conversational(): route yes-no/clarification sang chat | "server01 là localhost?" trigger full pipeline assessment thay vì trả lời ngắn. Phát hiện pattern "là", "có phải", "như thế nào"... chỉ chặn MACHINE_ASSESSMENT, không chặn intent cụ thể. |
+| 505 | P0       | ✅      | Thêm "mem" vào MEMORY_ASSESSMENT keywords | "mem đang được hoạt động như nào?" không match keyword "memory"/"ram" → rơi vào MACHINE_ASSESSMENT thay vì MEMORY_ASSESSMENT. |
+
+### Normalization Layer (P0–P1)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 506 | P0       | ⬜      | Tạo SemanticRequest dataclass | `src/pipeline/semantic_request.py`: concept, action, target_raw, target, confidence, matched_synonyms. |
+| 507 | P0       | ⬜      | Tạo config/concepts.yaml | Synonyms cho tất cả concept (cpu, memory, disk, network, gpu, alerts, dashboards, service, process, package, log, container, firewall, ssh, selinux, apparmor, machine) + action synonyms (inspect, diagnose, compare, summarize, configure, forecast). Phân cấp: infrastructure/monitoring/system/security. |
+| 508 | P0       | ⬜      | Tạo Normalizer module | `src/pipeline/normalizer.py`: chuyển ngôn ngữ tự nhiên → SemanticRequest. CHỈ biết về ngôn ngữ, KHÔNG biết capability nào. |
+| 509 | P1       | ⬜      | Tạo config/capability_plans.yaml | Mapping (concept, action) → list of capability names. Mỗi concept có plan riêng cho từng action (inspect ít capability, diagnose nhiều hơn). |
+| 510 | P1       | ⬜      | Tạo CapabilityPlanner module | `src/pipeline/capability_planner.py`: concept + action → list of capabilities. KHÔNG biết về ngôn ngữ, CHỈ biết về capability mapping. |
+| 511 | P1       | ⬜      | Tích hợp 3-stage pipeline vào ExecutionEngine | Normalize → Target → Plan → Graph → Execute → Assess. semantic_request được tạo trước khi vào pipeline hiện tại. |
+
+### Target Resolution Upgrade (P0–P1)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 512 | P0       | ⬜      | normalize_target_name(): pattern-based resolution | sv01 → server01, srv01 → server01, mon01 → monitor, server-01 → server01 (strip dấu gạch ngang). |
+| 513 | P0       | ⬜      | Thêm localhost synonyms | "máy này", "host này", "host hiện tại", "127.0.0.1", "::1" → localhost. |
+| 514 | P1       | ⬜      | Tạo config/target_aliases.yaml | Aliases, skip_words, localhost_synonyms, target_patterns. Chỉ config hóa dữ liệu, không config hóa logic. |
+| 515 | P1       | ⬜      | TargetResolver load từ config | Đọc alias, skip_words, localhost_synonyms từ YAML thay vì hardcode. |
+
+### Config Hóa Dữ Liệu (P1)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 516 | P1       | ⬜      | Tạo config/conversational_patterns.yaml | Patterns cho `_is_conversational()`: Vietnamese patterns, question-mark patterns, clarification patterns. |
+| 517 | P1       | ⬜      | _is_conversational() load từ config | Đọc conversational patterns từ YAML thay vì hardcode. |
+
+### LLM Classifier (P2)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 518 | P2       | ⬜      | Refine LLM classifier cho ambiguous case | Chỉ gọi LLM khi concept confidence < 0.4. Prompt nhẹ (~100 tokens), response 1 từ. Không dùng LLM phân loại CPU/RAM/Disk — những case đó deterministic. |
+
+### Testing (P1)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 519 | P1       | ⬜      | Tests cho Normalizer | Test normalize các cách diễn đạt khác nhau → đúng concept + action. |
+| 520 | P1       | ⬜      | Tests cho CapabilityPlanner | Test plan(inspect) vs plan(diagnose) → đúng số lượng capability. |
+| 521 | P1       | ⬜      | Tests cho TargetResolver nâng cấp | Test sv01 → server01, máy này → localhost, 127.0.0.1 → localhost. |
+| 522 | P1       | ⬜      | Regression tests cho bug fixes | Test empty response, conversational routing, context overflow, alias crash. |
+
+### Documentation (P2)
+
+| ID  | Priority | Status | Title | Description |
+|-----|----------|--------|-------|-------------|
+| 523 | P2       | ⬜      | Cập nhật 08_PROJECT_STATE.md | Phản ánh kiến trúc 6-stage pipeline mới: Normalizer → Target → CapabilityPlanner → Graph → Execute → Assess. |
+| 524 | P2       | ⬜      | Cập nhật .workflow/state.json | Thêm tất cả Phase 5 tasks vào state.json. |
+
+---
+
+## Summary
+
+| Phase | Epic | Total | ✅ Done | 🔄 In Progress | ⬜ Pending | 🔴 Blocked |
+|-------|------|-------|--------|----------------|---------|----------|
+| 0–4   | (all)                                        | 123   | 123    | 0            | 0       | 0        |
+| 5     | Immediate Bug Fixes                           | 6     | 6      | 0            | 0       | 0        |
+| 5     | Normalization Layer                           | 6     | 0      | 0            | 6       | 0        |
+| 5     | Target Resolution Upgrade                     | 4     | 0      | 0            | 4       | 0        |
+| 5     | Config Hóa Dữ Liệu                            | 2     | 0      | 0            | 2       | 0        |
+| 5     | LLM Classifier                                | 1     | 0      | 0            | 1       | 0        |
+| 5     | Testing                                       | 4     | 0      | 0            | 4       | 0        |
+| 5     | Documentation                                 | 2     | 0      | 0            | 2       | 0        |
+|       | **Total**                                     | **148** | **129** | **0** | **19** | **0** |
+
+**Phase 5 breakdown:** 6× done (P0 bug fixes), 6× Normalization (P0-P1), 4× Target (P0-P1), 2× Config (P1), 1× LLM (P2), 4× Testing (P1), 2× Docs (P2)
+
+**Priority breakdown:** 10× P0, 8× P1, 5× P2
+

@@ -46,7 +46,7 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("cpu percent",),
     ),
     Intent.MEMORY_ASSESSMENT: (
-        ("memory", "ram", "bộ nhớ"),
+        ("memory", "ram", "mem", "bộ nhớ"),
         ("memory usage", "memory utilization"),
         ("swap",),
         ("memory leak",),
