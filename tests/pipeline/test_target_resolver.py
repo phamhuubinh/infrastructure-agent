@@ -44,10 +44,10 @@ def test_on_preposition_detects_unknown_target() -> None:
 
 def test_for_preposition_detects_unknown_target() -> None:
     resolver = _resolver_with_targets("localhost")
-    req = InvestigationRequest(raw_request="check disks for database")
+    req = InvestigationRequest(raw_request="check disks for somehost")
     with pytest.raises(UnknownTargetError) as exc:
         resolver.resolve(req)
-    assert "database" in str(exc.value)
+    assert "somehost" in str(exc.value)
 
 
 def test_at_preposition_detects_unknown_target() -> None:
