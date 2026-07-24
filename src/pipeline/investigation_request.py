@@ -48,6 +48,7 @@ class InvestigationRequest:
     confidence: Confidence | None = None
     matched_keywords: tuple[str, ...] = ()
     target: str | None = None
+    semantic_request: object | None = None
     required_evidence: list[EvidenceRequirement] = field(default_factory=list)
     optional_evidence: list[EvidenceRequirement] = field(default_factory=list)
     capability_references: list[CapabilityReference] = field(default_factory=list)
@@ -56,4 +57,7 @@ class InvestigationRequest:
     evidence: list[EvidencePackage] = field(default_factory=list)
     evidence_complete: bool = False
     missing_evidence: tuple[str, ...] = ()
+    extracted_params: object = field(default_factory=lambda: None)
+    answer_type: object = field(default_factory=lambda: None)
+    selected_tool: object = field(default_factory=lambda: None)
     runtime_metrics: object = field(default_factory=lambda: None)

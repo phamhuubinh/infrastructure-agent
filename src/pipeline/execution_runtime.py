@@ -75,6 +75,7 @@ class ExecutionRuntime:
         target: str = "localhost",
         overall_timeout: float = 120.0,
         required_evidence_names: set[str] | None = None,
+        extracted_params: object = None,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -173,6 +174,7 @@ class ExecutionRuntime:
                     target,
                     _timeout_deadline,
                     overall_timeout,
+                    extracted_params=extracted_params,
                 )
             else:
                 self._execute_batch_parallel(
@@ -183,6 +185,7 @@ class ExecutionRuntime:
                     target,
                     _timeout_deadline,
                     overall_timeout,
+                    extracted_params=extracted_params,
                 )
 
         metrics.execution_duration = _time.perf_counter() - t0
@@ -273,6 +276,7 @@ class ExecutionRuntime:
         target: str,
         timeout_deadline: float,
         overall_timeout: float,
+        extracted_params: object = None,
     ) -> None:
         """Execute a single ready node with per-node timeout."""
         cap_name = node.execution_step.capability.name
@@ -287,7 +291,12 @@ class ExecutionRuntime:
 
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            fut = executor.submit(self._execute_node, node, target=target)
+            fut = executor.submit(
+                self._execute_node,
+                node,
+                target=target,
+                extracted_params=extracted_params,
+            )
             try:
                 result = fut.result(timeout=remaining_timeout)
                 metrics.tool_calls += 1
@@ -312,6 +321,7 @@ class ExecutionRuntime:
         target: str,
         timeout_deadline: float,
         overall_timeout: float,
+        extracted_params: object = None,
     ) -> None:
         """Execute a batch of ready nodes in parallel."""
         with concurrent.futures.ThreadPoolExecutor(
@@ -319,7 +329,12 @@ class ExecutionRuntime:
         ) as executor:
             future_map: dict[concurrent.futures.Future, ExecutionNode] = {}
             for node in ready:
-                future = executor.submit(self._execute_node, node, target=target)
+                future = executor.submit(
+                    self._execute_node,
+                    node,
+                    target=target,
+                    extracted_params=extracted_params,
+                )
                 future_map[future] = node
                 metrics.tool_calls += 1
 
@@ -362,6 +377,7 @@ class ExecutionRuntime:
         self,
         node: ExecutionNode,
         target: str = "localhost",
+        extracted_params: object = None,
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name

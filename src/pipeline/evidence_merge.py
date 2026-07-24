@@ -21,6 +21,7 @@ class EvidenceMerge:
         self,
         request: InvestigationRequest,
         results: dict[str, ToolResult],
+        source_tool: str | None = None,
     ) -> None:
         """Merge capability results into normalized evidence packages.
 
@@ -57,6 +58,7 @@ class EvidenceMerge:
                     data=result.data if result.success else None,
                     success=result.success,
                     error=result.error if not result.success else None,
+                    source_tool=source_tool,
                 )
             )
 

@@ -26,3 +26,4 @@ class EvidencePackage:
     data: Any = None
     success: bool = True
     error: str | None = None
+    source_tool: str | None = None
