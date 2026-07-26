@@ -50,6 +50,9 @@ class AppState:
 
     def switch_server(self, server_name: str, model: str | None = None) -> None:
         """Switch the active LLM server, recreating the agent."""
+        # Preserve the current conversation store so conversations
+        # continue to accrue in the same session after agent recreation.
+        old_cs = self.agent.conversation_store
         self._server_name = server_name
         self._model = model
         self.agent = create_deterministic_agent(
@@ -57,9 +60,8 @@ class AppState:
             server_name=server_name,
             model=model,
         )
-        # Re-attach active session stores to the new agent
-        for sid, cs in self.web_sessions.items():
-            self.agent.conversation_store = cs
+        if old_cs is not None:
+            self.agent.conversation_store = old_cs
 
     def get_or_create_session(self, session_id: str | None) -> ConversationStore:
         sid = session_id or uuid.uuid4().hex[:12]
