@@ -185,7 +185,7 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 7/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), 005 (Tool Auto-Discovery), 006 (Retry Policy Unification), and 007 (Prompt Template Extraction) completed. Items 008–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 008: Multi-Provider LLM Support complete — `src/model/providers/` package created with `ProviderRegistry`, `CredentialPool`, `FallbackChain`, and `AnthropicAssessmentAdapter`; `servers.json` extended with `fallback_chain` and `credential_pool` fields; `OrionConfig` now loads `fallback_chain` and `credential_pool`; `_build_provider_registry()` in `runtime_factory.py` builds adapters per provider type; `anthropic>=0.30` added as optional dependency under `[project.optional-dependencies]` key `anthropic`; all 1,084 tests passing).
+> **Last updated:** 2026-07-26 (Task 009: Immutable Pipeline State complete — `src/model/providers/` package created with `ProviderRegistry`, `CredentialPool`, `FallbackChain`, and `AnthropicAssessmentAdapter`; `servers.json` extended with `fallback_chain` and `credential_pool` fields; `OrionConfig` now loads `fallback_chain` and `credential_pool`; `_build_provider_registry()` in `runtime_factory.py` builds adapters per provider type; `anthropic>=0.30` added as optional dependency under `[project.optional-dependencies]` key `anthropic`; all 1,084 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

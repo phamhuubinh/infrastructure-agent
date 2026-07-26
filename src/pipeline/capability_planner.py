@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import yaml
 
 from src.pipeline.semantic_request import SemanticRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState, StateUpdate
 
 
 class CapabilityPlanner:
@@ -22,6 +25,7 @@ class CapabilityPlanner:
     - load capability plans from config/capability_plans.yaml
     - map a (concept, action) pair to a list of capability names
     - provide a fallback when no plan exists for the given (concept, action)
+    - return a StateUpdate dict for immutable state accumulation
 
     Never performs execution or tool calls.
     """
@@ -60,6 +64,20 @@ class CapabilityPlanner:
             data = yaml.safe_load(fh) or {}
         self._plans = data.get("plans", {})
         self._loaded = True
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def plan_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with planned capability names.
+
+        Uses the semantic_request in the PipelineState.
+        """
+        semantic = state.semantic_request
+        planned = self.plan(semantic)
+        update: StateUpdate = {"planned_capability_names": planned}
+        return update
 
     def plan(self, semantic: SemanticRequest) -> list[str]:
         """Return the list of capability names for a given concept+action.

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.pipeline.capability_library import lookup
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.investigation_request import InvestigationRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState, StateUpdate
 
 
 class CapabilityResolver:
@@ -13,6 +18,7 @@ class CapabilityResolver:
     - look up capability names from the Capability Library
     - deduplicate when multiple evidence items map to the same capability
     - populate InvestigationRequest with capability references
+    - return a StateUpdate dict for immutable state accumulation
 
     Owns lookup behaviour only — the capability library is the single
     source of truth for evidence-to-capability mappings.
@@ -20,6 +26,37 @@ class CapabilityResolver:
     Never performs execution.
     Never references tools, providers, or infrastructure.
     """
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def resolve_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with capability references."""
+        all_evidence: list[EvidenceRequirement] = []
+        all_evidence.extend(state.required_evidence)
+        all_evidence.extend(state.optional_evidence)
+
+        result: list[CapabilityReference] = []
+        seen: set[str] = set()
+
+        for evidence in all_evidence:
+            cap_name = lookup(evidence.name)
+            if cap_name is None:
+                continue
+            if cap_name in seen:
+                continue
+            seen.add(cap_name)
+            result.append(
+                CapabilityReference(
+                    name=cap_name,
+                    evidence_name=evidence.name,
+                    required=evidence.required,
+                )
+            )
+
+        update: StateUpdate = {"capability_references": tuple(result)}
+        return update
 
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve evidence requirements to capability references.

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from enum import Enum, auto
+from typing import TYPE_CHECKING
 
 from src.pipeline.investigation_request import InvestigationRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState, StateUpdate
 
 
 class Intent(Enum):
@@ -449,10 +453,48 @@ class IntentResolver:
     - classify user intent from natural language requests
     - normalize input (lowercase, tokenize)
     - populate InvestigationRequest with intent, confidence, and matched keywords
+    - return a StateUpdate dict for immutable state accumulation
 
     Never performs execution or tool calls.
     Never uses AI, ML, embeddings, or vector search.
     """
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def resolve_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with intent/confidence/keywords.
+
+        Thin adapter that delegates to resolve() using state.user_request.
+        """
+        user_request = state.user_request
+        if not user_request or not user_request.strip():
+            update: StateUpdate = {
+                "intent": Intent.MACHINE_ASSESSMENT,
+                "confidence": Confidence.LOW,
+                "matched_keywords": (),
+            }
+            return update
+
+        tokens = _tokenize(user_request)
+        result = _resolve_intent(tokens)
+
+        if result is not None:
+            intent, confidence, keywords = result
+            update = {
+                "intent": intent,
+                "confidence": confidence,
+                "matched_keywords": keywords,
+            }
+            return update
+
+        update = {
+            "intent": Intent.MACHINE_ASSESSMENT,
+            "confidence": Confidence.LOW,
+            "matched_keywords": (),
+        }
+        return update
 
     def resolve(self, user_request: str) -> InvestigationRequest:
         """Resolve a user request and return an InvestigationRequest.

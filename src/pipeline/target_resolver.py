@@ -4,11 +4,14 @@ import difflib
 import os
 import re
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import yaml
 
 from src.pipeline.investigation_request import InvestigationRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState, StateUpdate
 
 
 class UnknownTargetError(ValueError):
@@ -34,6 +37,7 @@ class TargetResolver:
     - match against registered targets (from TargetRegistry)
     - use intent-based default when no explicit target is found
     - raise UnknownTargetError when user names a non-existent target
+    - return a StateUpdate dict for immutable state accumulation
 
     Never performs execution or evidence collection.
     """
@@ -205,6 +209,123 @@ class TargetResolver:
         """Check if a word is a known localhost synonym."""
         self._ensure_loaded()
         return word.lower() in self._localhost_synonyms
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def resolve_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with the resolved target.
+
+        Same resolution logic as resolve(), returns a dict.
+        """
+        self._ensure_loaded()
+        raw = state.user_request.lower()
+        intent = state.intent
+
+        known_names: list[str] = []
+        if self._registry is not None:
+            known_names = self._registry.target_names()
+
+        words = self._extract_words(raw)
+
+        # Step 0: Check localhost synonyms first.
+        for word in words:
+            if self._is_localhost_synonym(word):
+                update: StateUpdate = {"target": "localhost"}
+                return update
+
+        # Step 0.5: Check bad-target cache.
+        for word in words:
+            if word in self._bad_targets:
+                raise UnknownTargetError(word, known_names)
+
+        # Step 1: Check aliases.
+        for word in words:
+            alias_target = self._aliases.get(word)
+            if alias_target:
+                if alias_target in known_names:
+                    update: StateUpdate = {"target": alias_target}
+                    return update
+                self._bad_targets.add(alias_target)
+                raise UnknownTargetError(alias_target, known_names)
+
+        # Step 2: Try normalized target names via pattern matching.
+        for word in words:
+            normalized = self.normalize_target_name(word)
+            if normalized != word and normalized in known_names:
+                update: StateUpdate = {"target": normalized}
+                return update
+
+        # Step 3: Exact substring match.
+        for name in sorted(known_names, key=len, reverse=True):
+            if name.lower() in raw:
+                update: StateUpdate = {"target": name}
+                return update
+
+        # Step 4: Fuzzy match for typos.
+        best_name: str | None = None
+        best_ratio: float = 0.0
+        for name in known_names:
+            for word in words:
+                ratio = difflib.SequenceMatcher(None, name.lower(), word).ratio()
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_name = name
+        if best_name is not None and best_ratio >= 0.6:
+            update: StateUpdate = {"target": best_name}
+            return update
+
+        # Step 4.5: Detect potential hostnames.
+        _prepositions = frozenset({"on", "for", "at", "from"})
+        _hostname_pattern = re.compile(r"^[a-z][a-z0-9._-]*$", re.IGNORECASE)
+        for word in words:
+            if (
+                len(word) > 2
+                and word not in self._skip_words
+                and word not in _prepositions
+                and not self._is_localhost_synonym(word)
+                and _hostname_pattern.match(word)
+                and not word.isalpha()
+            ):
+                self._bad_targets.add(word)
+                raise UnknownTargetError(word, known_names)
+
+        # Step 5: Intent + keyword-based defaults.
+        if intent is not None and self._registry is not None:
+            intent_name = intent.name
+            if intent_name == "MONITORING_ASSESSMENT":
+                if any(
+                    kw in raw
+                    for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")
+                ):
+                    if "grafana" in known_names:
+                        update: StateUpdate = {"target": "grafana"}
+                        return update
+                for preferred in ("zabbix", "grafana"):
+                    if preferred in known_names:
+                        update: StateUpdate = {"target": preferred}
+                        return update
+
+        # Step 6: Preposition-based target.
+        for i, word in enumerate(words):
+            if word in _prepositions and i + 1 < len(words):
+                candidate = words[i + 1]
+                normalized_candidate = self.normalize_target_name(candidate)
+                if (
+                    len(candidate) > 2
+                    and candidate not in self._skip_words
+                    and normalized_candidate not in self._skip_words
+                ):
+                    if normalized_candidate in known_names:
+                        update: StateUpdate = {"target": normalized_candidate}
+                        return update
+                    self._bad_targets.add(candidate)
+                    raise UnknownTargetError(candidate, known_names)
+
+        # Step 7: Fallback.
+        update: StateUpdate = {"target": "localhost"}
+        return update
 
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.

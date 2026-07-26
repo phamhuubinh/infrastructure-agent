@@ -3,10 +3,14 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from src.pipeline.semantic_request import SemanticRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState
 
 # ---------------------------------------------------------------------------
 # Default action when no action keyword is detected.  "inspect" is the
@@ -35,7 +39,23 @@ class Normalizer:
     - match concept and action synonyms from config/concepts.yaml
     - build a SemanticRequest with concept, action, confidence, matched_synonyms
     - extract a raw target string (if any) for later resolution by TargetResolver
+    - return a StateUpdate dict for immutable state accumulation
     """
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def normalize_state(self, state: PipelineState) -> dict[str, object]:
+        """Return an immutable StateUpdate with the semantic_request for the given state.
+
+        Thin adapter that delegates to normalize() using state.user_request.
+        """
+        from src.shared.pipeline_state import StateUpdate
+
+        semantic = self.normalize(state.user_request)
+        update: StateUpdate = {"semantic_request": semantic}
+        return update
 
     def __init__(self, config_path: str | None = None) -> None:
         """Initialize the Normalizer.

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
+
+if TYPE_CHECKING:
+    from src.shared.pipeline_state import PipelineState, StateUpdate
 
 # ---------------------------------------------------------------------------
 # Evidence templates — source of truth: docs/ai/06_TOOL_AND_CAPABILITY_DESIGN.md
@@ -193,10 +198,38 @@ class EvidencePlanner:
     Responsibilities:
     - select the correct Evidence Template for the given Intent
     - populate InvestigationRequest with required and optional EvidenceRequirements
+    - return a StateUpdate dict for immutable state accumulation
 
     Never performs collection or assessment.
     Never references tools, capabilities, providers, or execution.
     """
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def plan_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with evidence requirements."""
+        intent = state.intent
+
+        if intent is None or intent not in _TEMPLATES:
+            update: StateUpdate = {"required_evidence": (), "optional_evidence": ()}
+            return update
+
+        required_names, optional_names = _TEMPLATES[intent]
+
+        required = tuple(
+            EvidenceRequirement(name=name, required=True) for name in required_names
+        )
+        optional = tuple(
+            EvidenceRequirement(name=name, required=False) for name in optional_names
+        )
+
+        update: StateUpdate = {
+            "required_evidence": required,
+            "optional_evidence": optional,
+        }
+        return update
 
     def plan(self, request: InvestigationRequest) -> None:
         """Populate evidence requirements from the investigation intent.

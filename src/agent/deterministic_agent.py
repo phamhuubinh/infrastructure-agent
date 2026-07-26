@@ -175,7 +175,11 @@ class DeterministicAgent:
                     investigation.confidence.name if investigation.confidence else "N/A"
                 ),
                 "target": investigation.target or "localhost",
-                "matched_keywords": list(investigation.matched_keywords),
+                "matched_keywords": (
+                    list(investigation.matched_keywords)
+                    if investigation.matched_keywords
+                    else []
+                ),
                 "required_evidence": [e.name for e in investigation.required_evidence],
                 "optional_evidence": [e.name for e in investigation.optional_evidence],
                 "planned_capabilities": plan_steps,
