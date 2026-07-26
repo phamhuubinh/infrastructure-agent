@@ -13,7 +13,7 @@
     {"id": "010", "status": "completed", "title": "RAG Subsystem Rationalization"},
     {"id": "011", "status": "completed", "title": "SQLite Default Persistence"},
     {"id": "012", "status": "completed", "title": "Config Error Handling Policy"},
-    {"id": "013", "status": "pending", "title": "Plugin Extension System Horizon"}
+    {"id": "013", "status": "horizon_deferred", "title": "Plugin Extension System Horizon", "note": "Gate evaluation 2026-07-26: 2/5 gates met. Gates 1 (community demand), 4 (API design review), 5 (API stability commitment) not met. Implementation deferred."}
   ],
   "completed": [
     {"id": 200, "status": "completed", "title": "Fix logger crash trên read-only filesystem"},
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 12}
+  "sprint_1": {"total": 13, "completed": 12, "horizon": 1, "note": "All 13 tasks evaluated. 12 implemented, 1 horizon_deferred (013: Plugin Extension System)"}
 }

@@ -182,10 +182,25 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 11/13 tasks complete. Items 001–012 completed. Item 013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 012: Configuration Error Handling Policy complete — `src/shared/config_errors.py` created with `ConfigurationError` hierarchy; `src/shared/config.py` updated with fail-fast validation and error collection; `src/agent/runtime_factory.py` uses `InvalidConfigValueError` instead of `RuntimeError`; `docs/devops/configuration.md` documents the policy; `tests/shared/test_config_errors.py` added with 17 tests; all 1,127 tests passing).
+> **Last updated:** 2026-07-26 (Task 013: Plugin/Extension System gate evaluation complete — 2/5 gates met, implementation deferred; Task 012: Configuration Error Handling Policy complete; all 1,127 tests passing).
+
+## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
+
+Task 013 remains **HORIZON** (not promoted to active backlog). Gate evaluation:
+
+| Gate | Requirement | Status |
+|------|-------------|--------|
+| 1 | Community demand for ≥3 monitoring platform integrations | ❌ Not met |
+| 2 | Security Pipeline (Task #004) complete and proven | ✅ Complete |
+| 3 | Tool Auto-Discovery (Task #005) complete and proven | ✅ Complete |
+| 4 | Plugin API design reviewed | ❌ Not met |
+| 5 | API stability commitment made | ❌ Not met |
+
+**Result:** 2/5 gates met. Implementation deferred until all 5 gates are satisfied. No code changes. Task #005 (Tool Auto-Discovery) already achieves 80% of the plugin system's value (reducing tool registration from 4 steps to 1) at 20% of the cost. The `ToolRegistry` in `src/tool/registry.py` provides auto-discovery of `Tool` subclasses with `_CAPABILITIES`. The `InspectorChain` in `src/pipeline/security/` enforces read-only execution for all tool dispatch paths. These two components together satisfy the architectural goals the plugin system was intended to address.
+
 
 ## Post-Phase 6 improvements (2026-07-24)
 
