@@ -527,26 +527,11 @@ class DeterministicAgent:
 
         try:
             from src.model.protocol.prompt_builder_v2 import _detect_language
+            from src.model.protocol.prompt_loader import PromptLoader
 
-            lang_hint = ""
-            if _detect_language(user_request) == "vi":
-                lang_hint = (
-                    " QUAN TRỌNG: Bạn PHẢI trả lời TOÀN BỘ bằng tiếng Việt. "
-                    "Không được trả lời bằng bất kỳ ngôn ngữ nào khác."
-                )
-
-            system = (
-                "You are Orion, an infrastructure operations agent. "
-                "Answer the user's question concisely and accurately. "
-                "If the question is about infrastructure, system administration, "
-                "or a technical concept (e.g., Kubernetes, Docker, networking), "
-                "provide a detailed technical explanation (3-5 sentences minimum) "
-                "with examples where helpful. "
-                "If the user asks for an email or document template, ask for "
-                "missing details (recipient, reason, dates) before writing. "
-                "Otherwise, answer as a general-purpose assistant. "
-                "Never identify yourself as any other AI model or brand." + lang_hint
-            )
+            lang = _detect_language(user_request)
+            loader = PromptLoader()
+            system = loader.render("chat_system.j2", language=lang)
             if self._conversation_store:
                 context = self._build_chat_context()
                 if context:

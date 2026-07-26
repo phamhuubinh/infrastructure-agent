@@ -182,10 +182,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 6/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), 005 (Tool Auto-Discovery), and 006 (Retry Policy Unification) completed. Items 007–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 7/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), 005 (Tool Auto-Discovery), 006 (Retry Policy Unification), and 007 (Prompt Template Extraction) completed. Items 008–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 006: Retry Policy Unification complete — `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` using exponential backoff + jitter; integrated into `ExecutionRuntime._execute_node()` for tool dispatch retry and `db.py._connect_with_retry()` replacing ad-hoc retry; 26 new tests; 1,101 total tests, 1,075 passing).
+> **Last updated:** 2026-07-26 (Task 007: Prompt Template Extraction complete — 11 intent prompts + 1 chat system prompt externalized as `.j2` files under `config/prompts/`; `PromptLoader` (`src/model/protocol/prompt_loader.py`) provides Jinja2 rendering; `prompt_builder_v2.py` loads prompts from templates instead of hardcoded strings; `deterministic_agent.py` uses `chat_system.j2` template; `jinja2>=3.0` added to `pyproject.toml` dependencies; `PROMPT_VERSIONS` backward compatibility preserved for benchmark module; 1,084 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from src.model.protocol.prompt_loader import PromptLoader
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.intent_resolver import Intent
 
@@ -156,146 +157,72 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
     return ""
 
 
-_OUTPUT_RULE = "Respond in plain Markdown. NEVER wrap in JSON or code blocks."
+def _get_loader() -> PromptLoader:
+    """Get or create a PromptLoader instance."""
+    return PromptLoader()
 
 
-CPU_PROMPT = f"""Assess CPU. Scope: CPU only (no memory/disk/network).
-
-Structure: Summary, Hardware (model/cores), Runtime (usage/idle/iowait/load), Top Consumers, Conclusion.
-
-Rules: Base on evidence. No baselines. {_OUTPUT_RULE}"""
-
-
-MEMORY_PROMPT = f"""Assess Memory. Scope: memory + swap only.
-
-Structure: Summary, Utilization (total/used/available/%), Swap, Top Consumers, Conclusion.
-
-Rules: Base on evidence. {_OUTPUT_RULE}"""
-
-
-DISK_PROMPT = f"""Assess Disk. Scope: filesystems, mounts, capacity, disk health only.
-
-Structure: Summary, Filesystem Usage, Mount Points, Disk Health, Conclusion.
-
-Rules: Base on evidence. {_OUTPUT_RULE}"""
-
-
-NETWORK_SINGLE_PROMPT = f"""Assess Network. Scope: interfaces, routing, connectivity only.
-
-Structure: Summary, Interfaces, Routing, Connectivity, Conclusion.
-
-Rules: Base on evidence. {_OUTPUT_RULE}"""
-
-
-PROCESS_PROMPT = f"""Assess Processes. Scope: running processes, top consumers, process health only.
-
-Structure: Summary, Running (total/zombie), Top CPU, Top Memory, Health, Conclusion.
-
-Rules: Base on evidence. {_OUTPUT_RULE}"""
-
-
-SERVICE_PROMPT = f"""Assess the target service. Scope: service status, configuration, and logs only.
-
-Structure: Summary, Service Status, Configuration, Logs, Conclusion.
-
-Rules: Base on evidence. Only report on the service the user asked about. {_OUTPUT_RULE}"""
-
-
-TROUBLESHOOTING_PROMPT = f"""Diagnose the reported issue. Focus only on evidence relevant to the problem.
-
-Structure: Summary, Root Cause (or most likely cause), Supporting Evidence, Recommendations.
-
-Rules: Base on evidence. Do not list all subsystems — only those relevant. {_OUTPUT_RULE}"""
-
-
-APPLICATION_PROMPT = f"""Report on application/package discovery. Scope: installed software, versions, containers only.
-
-Structure: Summary, Installed Packages, Containers, Versions, Conclusion.
-
-Rules: Base on evidence. Only report what was found. {_OUTPUT_RULE}"""
-
-
-MONITORING_PROMPT = f"""Assess monitoring system status. Scope: alerts, problems, hosts, dashboards only.
-
-Structure: Summary, Active Problems, Host Status, Dashboards, Conclusion.
-
-Rules: Base on evidence. Focus on actionable findings. {_OUTPUT_RULE}"""
-
-
-PERFORMANCE_PROMPT = f"""Assess system performance. Scope: CPU, memory, disk I/O, load only.
-
-Structure: Summary, Resource Utilization, Bottlenecks, Recommendations.
-
-Rules: Base on evidence. Identify the limiting resource. {_OUTPUT_RULE}"""
-
-
-SECURITY_PROMPT = f"""Assess security posture. Scope: SSH, firewall, auth, certificates only.
-
-Structure: Summary, Findings per Control, Risks, Recommendations.
-
-Rules: Base on evidence. Flag misconfigurations. {_OUTPUT_RULE}"""
-
-
-COMPACT_PROMPT = f"""You are an infrastructure assessment engine. Assess collected evidence.
-
-Structure: Summary, Assessment per subsystem, Risks, Unknowns, Recommendations.
-
-Rules: Base on evidence. Say if evidence missing. Be concise. {_OUTPUT_RULE}"""
-
-
-MINIMAL_PROMPT = f"""Assess infrastructure evidence.
-
-Sections: Summary, Assessment, Risks, Unknowns, Recommendations.
-
-Be concise. Base on evidence. {_OUTPUT_RULE}"""
-
-
-PROMPT_VERSIONS = {
-    "compact": COMPACT_PROMPT,
-    "minimal": MINIMAL_PROMPT,
+# Map Intent enum to template filename.
+_INTENT_TEMPLATES: dict[Intent, str] = {
+    Intent.CPU_ASSESSMENT: "assess_cpu.j2",
+    Intent.MEMORY_ASSESSMENT: "assess_memory.j2",
+    Intent.DISK_ASSESSMENT: "assess_disk.j2",
+    Intent.NETWORK_ASSESSMENT_SINGLE: "assess_network.j2",
+    Intent.PROCESS_ASSESSMENT: "assess_process.j2",
+    Intent.SERVICE_ASSESSMENT: "assess_service.j2",
+    Intent.TROUBLESHOOTING: "assess_troubleshoot.j2",
+    Intent.APPLICATION_DISCOVERY: "assess_application.j2",
+    Intent.MONITORING_ASSESSMENT: "assess_monitoring.j2",
+    Intent.PERFORMANCE_ASSESSMENT: "assess_performance.j2",
+    Intent.SECURITY_ASSESSMENT: "assess_security.j2",
 }
 
-_INTENT_PROMPTS: dict[Intent, str] = {
-    Intent.CPU_ASSESSMENT: CPU_PROMPT,
-    Intent.MEMORY_ASSESSMENT: MEMORY_PROMPT,
-    Intent.DISK_ASSESSMENT: DISK_PROMPT,
-    Intent.NETWORK_ASSESSMENT_SINGLE: NETWORK_SINGLE_PROMPT,
-    Intent.PROCESS_ASSESSMENT: PROCESS_PROMPT,
-    Intent.SERVICE_ASSESSMENT: SERVICE_PROMPT,
-    Intent.TROUBLESHOOTING: TROUBLESHOOTING_PROMPT,
-    Intent.APPLICATION_DISCOVERY: APPLICATION_PROMPT,
-    Intent.MONITORING_ASSESSMENT: MONITORING_PROMPT,
-    Intent.PERFORMANCE_ASSESSMENT: PERFORMANCE_PROMPT,
-    Intent.SECURITY_ASSESSMENT: SECURITY_PROMPT,
+# Map version name to template filename.
+_VERSION_TEMPLATES: dict[str, str] = {
+    "compact": "assess_compact.j2",
+    "minimal": "assess_minimal.j2",
 }
 
+# Backward-compatible PROMPT_VERSIONS dict for the benchmark module.
+# Maps version names to their rendered prompt strings.
+PROMPT_VERSIONS: dict[str, str] = {
+    version: _get_loader().render_raw(template)
+    for version, template in _VERSION_TEMPLATES.items()
+}
 
 # Default prompt version used by the system.
-_ACTIVE_PROMPT = COMPACT_PROMPT
+_ACTIVE_VERSION: str = "compact"
 
 
 def set_prompt_version(version: str) -> None:
-    global _ACTIVE_PROMPT
-    if version not in PROMPT_VERSIONS:
+    global _ACTIVE_VERSION
+    if version not in _VERSION_TEMPLATES:
         msg = (
             f"Unknown prompt version '{version}'. "
-            f"Available: {', '.join(PROMPT_VERSIONS)}"
+            f"Available: {', '.join(_VERSION_TEMPLATES)}"
         )
         raise ValueError(msg)
-    _ACTIVE_PROMPT = PROMPT_VERSIONS[version]
+    _ACTIVE_VERSION = version
 
 
 def _resolve_intent_prompt(intent_str: str) -> str:
     """Resolve intent prompt from a string intent name.
 
     Converts the string to an Intent enum for lookup; falls back
-    to the default compact prompt when no specific prompt exists.
+    to the active version template when no specific prompt exists.
     """
     try:
         intent_enum = Intent[intent_str]
-        return _INTENT_PROMPTS.get(intent_enum, _ACTIVE_PROMPT)
+        template_name = _INTENT_TEMPLATES.get(intent_enum)
+        if template_name is not None:
+            loader = _get_loader()
+            return loader.render_raw(template_name)
     except (KeyError, ValueError):
-        return _ACTIVE_PROMPT
+        pass
+
+    # Fall back to the active version template.
+    loader = _get_loader()
+    return loader.render_raw(_VERSION_TEMPLATES[_ACTIVE_VERSION])
 
 
 def build_assessment_prompt(
