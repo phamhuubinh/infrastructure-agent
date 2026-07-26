@@ -34,6 +34,8 @@ class OrionConfig:
     # --- servers.json -------------------------------------------------------
     servers: dict[str, Any] = field(default_factory=dict)
     active_server_name: str = ""
+    fallback_chain: list[str] = field(default_factory=list)
+    credential_pool: dict[str, list[str]] = field(default_factory=dict)
 
     # --- tools.json ---------------------------------------------------------
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -85,8 +87,21 @@ class OrionConfig:
         config.project_root = project_root
 
         # --- 1. servers.json ------------------------------------------------
-        config.servers, config.active_server_name = cls._load_servers(
-            project_root / "servers.json"
+        servers, active = cls._load_servers(project_root / "servers.json")
+        config.servers = servers
+        config.active_server_name = active
+
+        # Extract optional multi-provider fields from raw servers.json.
+        raw = cls._load_json(project_root / "servers.json") or {}
+        fb = raw.get("fallback_chain")
+        config.fallback_chain = (
+            [str(n) for n in fb if isinstance(n, str)] if isinstance(fb, list) else []
+        )
+        cp = raw.get("credential_pool")
+        config.credential_pool = (
+            {str(k): [str(vv) for vv in v] for k, v in cp.items()}
+            if isinstance(cp, dict)
+            else {}
         )
 
         # --- 2. tools.json + 4. secrets overlay ----------------------------

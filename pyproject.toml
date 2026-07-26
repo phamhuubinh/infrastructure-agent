@@ -25,9 +25,10 @@ where = ["."]
 include = ["src*"]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-cov>=5", "httpx2>=2.0"]
+test = ["pytest>=7", "pytest-cov>=5", "httpx>=2.0"]
 web = ["fastapi>=0.100", "uvicorn>=0.20"]
 security = ["bandit>=1.7", "safety>=3.0", "pip-audit>=2.7"]
+anthropic = ["anthropic>=0.30"]
 dev = ["mypy>=1.8"]
 typecheck = ["mypy>=1.8"]
 

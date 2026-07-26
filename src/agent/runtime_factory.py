@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.agent.conversation_store import ConversationStore
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
+
+if TYPE_CHECKING:
+    from src.model.providers.registry import ProviderRegistry
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_planner import EvidencePlanner
@@ -268,6 +271,127 @@ def _build_assessment_adapter(
     )
 
     return LLMAssessmentAdapter(client=client)
+
+
+def _build_openai_adapter(
+    cfg: object,
+    model_override: str | None = None,
+) -> LLMAssessmentAdapter:
+    """Build an LLMAssessmentAdapter from a ServerConfig-like object."""
+    base_url: str = getattr(cfg, "base_url", "http://localhost:8000")
+    api_key: str | None = getattr(cfg, "api_key", None)
+    model: str = model_override or getattr(cfg, "model", "gpt-4")
+    timeout: int = getattr(cfg, "timeout", 60)
+    temperature: float = getattr(cfg, "temperature", 0.0)
+    max_tokens: int = getattr(cfg, "max_tokens", 2048)
+
+    client = LLMClient(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        timeout=timeout,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return LLMAssessmentAdapter(client=client)
+
+
+def _build_anthropic_adapter(
+    cfg: object,
+    model_override: str | None = None,
+) -> AssessmentModelAdapter:
+    """Build an AnthropicAssessmentAdapter from a ServerConfig-like object.
+
+    Returns LLMAssessmentAdapter as fallback if anthropic is not installed.
+    """
+    api_key: str | None = getattr(cfg, "api_key", None)
+    model: str = model_override or getattr(cfg, "model", "claude-3-haiku-20240307")
+    timeout: int = getattr(cfg, "timeout", 180)
+    temperature: float = getattr(cfg, "temperature", 0.0)
+    max_tokens: int = getattr(cfg, "max_tokens", 4096)
+
+    if not api_key:
+        _warn(
+            f"Anthropic provider '{getattr(cfg, 'base_url', 'unknown')}' "
+            f"has no api_key set. Adapter will fail at runtime."
+        )
+
+    try:
+        from src.model.providers.anthropic_adapter import AnthropicAssessmentAdapter
+
+        return AnthropicAssessmentAdapter(
+            api_key=api_key or "",
+            model=model,
+            timeout=timeout,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+    except ImportError:
+        _warn("anthropic package not installed. " "Install with: pip install anthropic")
+        # Return an OpenAI adapter as fallback — it will fail at
+        # health_check time and get skipped in the fallback chain.
+        return _build_openai_adapter(cfg, model_override=model)
+
+
+def _build_provider_registry(
+    server_name: str | None = None,
+    model: str | None = None,
+) -> tuple[ProviderRegistry, AssessmentModelAdapter]:
+    """Build a ProviderRegistry from all servers in servers.json.
+
+    Creates adapters for every server based on its provider type,
+    registers them, and configures the fallback chain.
+
+    Returns:
+        (registry, primary_adapter) — the primary adapter is the one
+        matching the active server (or server_name override).
+    """
+    from src.model.providers.registry import ProviderRegistry
+
+    config = get_config()
+    registry = ProviderRegistry()
+    primary_name = server_name or config.active_server_name or "sv1"
+    primary_adapter: AssessmentModelAdapter | None = None
+
+    for srv_name, raw in config.servers.items():
+        provider_type = str(raw.get("provider", "openai")).lower()
+        adapter: AssessmentModelAdapter
+
+        if provider_type == "anthropic":
+            adapter = _build_anthropic_adapter(raw, model_override=model)
+        else:
+            # openai, ollama, vllm, or unspecified — all use OpenAI-compatible API
+            adapter = _build_openai_adapter(raw, model_override=model)
+
+        registry.register(srv_name, adapter)
+        if srv_name == primary_name:
+            primary_adapter = adapter
+
+    # Configure fallback chain from servers.json.
+    registry.fallback_chain = [
+        n for n in config.fallback_chain if n in registry.providers
+    ]
+
+    # Configure credential pool if present.
+    pool_raw = config.credential_pool
+    if pool_raw:
+        from src.model.providers.credential_pool import CredentialPool
+
+        all_keys: list[str] = []
+        for keys in pool_raw.values():
+            for k in keys:
+                all_keys.append(k)
+        if all_keys:
+            registry.credential_pool = CredentialPool(keys=all_keys)
+
+    if primary_adapter is None:
+        # Primary server not found — use first available.
+        if registry.providers:
+            primary_adapter = next(iter(registry.providers.values()))
+        else:
+            raise RuntimeError("No LLM providers configured in servers.json")
+
+    return registry, primary_adapter
 
 
 # ---------------------------------------------------------------------------
