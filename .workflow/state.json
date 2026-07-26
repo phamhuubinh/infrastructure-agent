@@ -10,7 +10,7 @@
     {"id": "007", "status": "completed", "title": "Prompt Template Extraction"},
     {"id": "008", "status": "completed", "title": "Multi-Provider LLM"},
     {"id": "009", "status": "completed", "title": "Immutable Pipeline State"},
-    {"id": "010", "status": "pending", "title": "RAG Subsystem Rationalization"},
+    {"id": "010", "status": "completed", "title": "RAG Subsystem Rationalization"},
     {"id": "011", "status": "pending", "title": "SQLite Default Persistence"},
     {"id": "012", "status": "pending", "title": "Config Error Handling Policy"},
     {"id": "013", "status": "pending", "title": "Plugin Extension System Horizon"}
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 9}
+  "sprint_1": {"total": 13, "completed": 10}
 }

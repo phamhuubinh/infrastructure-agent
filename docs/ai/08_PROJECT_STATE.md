@@ -21,7 +21,7 @@
 - Assessment request model (`src/pipeline/assessment_request.py`) — typed request envelope used by `AssessmentAdapter`.
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
-- RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
+- RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline. LangGraph-based agent loop (`langgraph_agent.py`) deprecated in favor of deterministic single-pass pipeline (`deterministic_rag.py`).
 - Test suite: **1,101 tests** across pipeline, tools, model, backend, agent, and benchmark modules (1,075 passing; 26 retry tests added via Task 006).
 - Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
@@ -182,10 +182,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 7/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), 005 (Tool Auto-Discovery), 006 (Retry Policy Unification), and 007 (Prompt Template Extraction) completed. Items 008–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 10/13 tasks complete. Items 001–010 completed. Items 011–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 009: Immutable Pipeline State complete — `src/model/providers/` package created with `ProviderRegistry`, `CredentialPool`, `FallbackChain`, and `AnthropicAssessmentAdapter`; `servers.json` extended with `fallback_chain` and `credential_pool` fields; `OrionConfig` now loads `fallback_chain` and `credential_pool`; `_build_provider_registry()` in `runtime_factory.py` builds adapters per provider type; `anthropic>=0.30` added as optional dependency under `[project.optional-dependencies]` key `anthropic`; all 1,084 tests passing).
+> **Last updated:** 2026-07-26 (Task 010: RAG Subsystem Rationalization complete — `src/tool/RAGTool/app/agent/deterministic_rag.py` created with `DeterministicRAGPipeline`; `langgraph_agent.py` deprecated; RAG tests all pass; all 1,083 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 
