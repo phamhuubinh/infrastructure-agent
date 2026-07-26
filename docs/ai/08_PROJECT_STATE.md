@@ -182,10 +182,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 10/13 tasks complete. Items 001–010 completed. Items 011–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 11/13 tasks complete. Items 001–012 completed. Item 013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 010: RAG Subsystem Rationalization complete — `src/tool/RAGTool/app/agent/deterministic_rag.py` created with `DeterministicRAGPipeline`; `langgraph_agent.py` deprecated; RAG tests all pass; all 1,083 tests passing).
+> **Last updated:** 2026-07-26 (Task 012: Configuration Error Handling Policy complete — `src/shared/config_errors.py` created with `ConfigurationError` hierarchy; `src/shared/config.py` updated with fail-fast validation and error collection; `src/agent/runtime_factory.py` uses `InvalidConfigValueError` instead of `RuntimeError`; `docs/devops/configuration.md` documents the policy; `tests/shared/test_config_errors.py` added with 17 tests; all 1,127 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

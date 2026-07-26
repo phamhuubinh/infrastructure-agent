@@ -10,11 +10,18 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from src.shared.config_errors import (
+    ConfigurationError,
+    InvalidConfigValueError,
+    MissingConfigFileError,
+)
 
 # ---------------------------------------------------------------------------
 # OrionConfig — aggregates all configuration sources
@@ -80,44 +87,97 @@ class OrionConfig:
         Args:
             project_root: Repository root directory.  Defaults to three
                 levels up from this file (src/shared/config.py → repo root).
+
+        Raises:
+            SystemExit: if any required configuration is missing or invalid.
         """
         config = cls()
+        errors: list[ConfigurationError] = []
         if project_root is None:
             project_root = Path(__file__).resolve().parent.parent.parent
         config.project_root = project_root
 
-        # --- 1. servers.json ------------------------------------------------
-        servers, active = cls._load_servers(project_root / "servers.json")
-        config.servers = servers
-        config.active_server_name = active
+        # --- 1. servers.json (required) -------------------------------------
+        servers_path = project_root / "servers.json"
+        if not servers_path.exists():
+            errors.append(
+                MissingConfigFileError(
+                    file="servers.json",
+                    key="(file)",
+                    expected="existing file",
+                    received="not found",
+                )
+            )
+        else:
+            try:
+                raw = cls._load_json(servers_path)
+                if raw is None:
+                    errors.append(
+                        InvalidConfigValueError(
+                            file="servers.json",
+                            key="(root)",
+                            expected="JSON object",
+                            received="null or non-object",
+                        )
+                    )
+                else:
+                    servers, active = cls._load_servers(servers_path)
+                    config.servers = servers
+                    config.active_server_name = active
 
-        # Extract optional multi-provider fields from raw servers.json.
-        raw = cls._load_json(project_root / "servers.json") or {}
-        fb = raw.get("fallback_chain")
-        config.fallback_chain = (
-            [str(n) for n in fb if isinstance(n, str)] if isinstance(fb, list) else []
-        )
-        cp = raw.get("credential_pool")
-        config.credential_pool = (
-            {str(k): [str(vv) for vv in v] for k, v in cp.items()}
-            if isinstance(cp, dict)
-            else {}
-        )
+                    # Validate servers.json via Pydantic schema.
+                    try:
+                        from src.shared.config_schema import ServersConfig
 
-        # --- 2. tools.json + 4. secrets overlay ----------------------------
+                        ServersConfig.model_validate(raw)
+                    except Exception as exc:
+                        errors.append(
+                            InvalidConfigValueError(
+                                file="servers.json",
+                                key="(schema)",
+                                expected="valid ServersConfig",
+                                received=str(exc)[:120],
+                            )
+                        )
+
+                    # Extract optional multi-provider fields.
+                    fb = raw.get("fallback_chain")
+                    config.fallback_chain = (
+                        [str(n) for n in fb if isinstance(n, str)]
+                        if isinstance(fb, list)
+                        else []
+                    )
+                    cp = raw.get("credential_pool")
+                    config.credential_pool = (
+                        {str(k): [str(vv) for vv in v] for k, v in cp.items()}
+                        if isinstance(cp, dict)
+                        else {}
+                    )
+
+            except Exception as exc:
+                errors.append(
+                    InvalidConfigValueError(
+                        file="servers.json",
+                        key="(load)",
+                        expected="valid JSON",
+                        received=str(exc)[:120],
+                    )
+                )
+
+        # --- 2. tools.json (optional) + secrets overlay ---------------------
         config.tools = cls._load_tools(
             project_root / "tools.json", project_root / "config" / "secrets.local.json"
         )
 
-        # --- 3. targets.json ------------------------------------------------
+        # --- 3. targets.json (optional) -------------------------------------
         config.targets = cls._load_targets(project_root / "targets.json")
 
-        # --- 4. secrets (standalone) ----------------------------------------
+        # --- 4. secrets (standalone, optional) ------------------------------
         config.secrets = cls._load_secrets(
             project_root / "config" / "secrets.local.json"
         )
 
-        # --- 5. conversational_patterns.yaml --------------------------------
+        # --- 5. conversational_patterns.yaml (optional) ---------------------
         (
             config.vi_patterns,
             config.en_patterns,
@@ -125,15 +185,15 @@ class OrionConfig:
             config.conv_equivalence_markers,
         ) = cls._load_conversational(project_root)
 
-        # --- 6. capability_plans.yaml ---------------------------------------
+        # --- 6. capability_plans.yaml (optional) ----------------------------
         config.capability_plans = cls._load_yaml(
             project_root / "config" / "capability_plans.yaml"
         )
 
-        # --- 7. concepts.yaml -----------------------------------------------
+        # --- 7. concepts.yaml (optional) ------------------------------------
         config.concepts = cls._load_yaml(project_root / "config" / "concepts.yaml")
 
-        # --- 8. target_aliases.yaml -----------------------------------------
+        # --- 8. target_aliases.yaml (optional) ------------------------------
         config.target_aliases = cls._load_yaml(
             project_root / "config" / "target_aliases.yaml"
         )
@@ -143,9 +203,15 @@ class OrionConfig:
             key: value for key, value in os.environ.items() if key.startswith("ORION_")
         }
 
-        # --- 10. health_patterns.yaml ---------------------------------------
+        # --- 10. health_patterns.yaml (optional) ----------------------------
         health = cls._load_yaml(project_root / "config" / "health_patterns.yaml")
         config.vague_health_patterns = health.get("vague_health_patterns", [])
+
+        # --- Report all errors at once --------------------------------------
+        if errors:
+            for err in errors:
+                print(err.format(), file=sys.stderr)
+            raise SystemExit(1)
 
         return config
 
@@ -169,12 +235,23 @@ class OrionConfig:
 
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any] | None:
-        """Load a JSON file, returning None if it doesn't exist."""
+        """Load a JSON file, returning None if it doesn't exist or is invalid."""
         if not path.exists():
             return None
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            print(
+                f"Warning: {path.name} is not valid JSON; treating as missing",
+                file=sys.stderr,
+            )
+            return None
         if not isinstance(data, dict):
+            print(
+                f"Warning: {path.name} must contain a JSON object; treating as missing",
+                file=sys.stderr,
+            )
             return None
         return data
 

@@ -11,6 +11,7 @@ from src.agent.runtime_factory import (
     _register_tools,
 )
 from src.shared.config import OrionConfig, _reset_config
+from src.shared.config_errors import InvalidConfigValueError
 from src.tool.target_registry import TargetRegistry
 
 # ---------------------------------------------------------------------------
@@ -30,18 +31,13 @@ def _reset_orion_config() -> None:
 
 
 def test_config_missing_servers_file() -> None:
-    """OrionConfig returns empty servers when file is missing."""
-    config = OrionConfig.load(project_root=Path("/nonexistent/path"))
-    assert config.servers == {}
-    assert config.active_server_name == ""
+    """OrionConfig.load raises SystemExit(1) when servers.json is missing."""
+    with pytest.raises(SystemExit, match="1"):
+        OrionConfig.load(project_root=Path("/nonexistent/path"))
 
 
 def test_config_unknown_server_in_build_adapter() -> None:
-    """_build_assessment_adapter raises RuntimeError for unknown server."""
-    data = {
-        "active_server": "sv1",
-        "servers": {"sv1": {"base_url": "http://localhost:8000"}},
-    }
+    """_build_assessment_adapter raises InvalidConfigValueError for unknown server."""
     mock_config = OrionConfig(
         servers={"sv1": {"base_url": "http://localhost:8000"}},
         active_server_name="sv1",
@@ -49,7 +45,7 @@ def test_config_unknown_server_in_build_adapter() -> None:
     with mock.patch("src.shared.config._config", mock_config), mock.patch(
         "src.agent.runtime_factory.get_config", return_value=mock_config
     ):
-        with pytest.raises(RuntimeError, match="Server 'sv2' not found"):
+        with pytest.raises(InvalidConfigValueError, match="sv2"):
             _build_assessment_adapter("sv2")
 
 

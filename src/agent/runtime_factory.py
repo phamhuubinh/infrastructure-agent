@@ -24,6 +24,7 @@ from src.pipeline.security.read_only_inspector import ReadOnlyInspector
 from src.pipeline.security.target_inspector import TargetInspector
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.config import get_config
+from src.shared.config_errors import InvalidConfigValueError
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
@@ -251,9 +252,12 @@ def _build_assessment_adapter(
         server_name = config.active_server_name or "sv1"
     raw = config.servers.get(server_name)
     if raw is None:
-        available = ", ".join(sorted(config.servers))
-        raise RuntimeError(
-            f"Server {server_name!r} not found. Available servers: {available}"
+        available = ", ".join(sorted(config.servers)) or "(none)"
+        raise InvalidConfigValueError(
+            file="servers.json",
+            key=server_name,
+            expected="valid server entry",
+            received=f"not found. Available servers: {available}",
         )
     cfg = ServerConfig.model_validate(raw)
 
@@ -389,7 +393,12 @@ def _build_provider_registry(
         if registry.providers:
             primary_adapter = next(iter(registry.providers.values()))
         else:
-            raise RuntimeError("No LLM providers configured in servers.json")
+            raise InvalidConfigValueError(
+                file="servers.json",
+                key="(all)",
+                expected="at least one LLM provider",
+                received="no LLM providers configured",
+            )
 
     return registry, primary_adapter
 
