@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
-import yaml
-
 from src.agent.conversation_store import ConversationStore
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.protocol.prompt_builder_v2 import (
@@ -346,7 +341,7 @@ class DeterministicAgent:
         return is_infra
 
     # ------------------------------------------------------------------
-    # Conversational config – loaded lazily from YAML.
+    # Conversational config – loaded from unified OrionConfig.
     # ------------------------------------------------------------------
     _conv_loaded: bool = False
     _conv_vi_patterns: list[str] = []
@@ -356,34 +351,17 @@ class DeterministicAgent:
 
     @classmethod
     def _ensure_conv_loaded(cls) -> None:
-        """Lazy-load conversational patterns from config YAML."""
+        """Lazy-load conversational patterns from unified OrionConfig."""
         if cls._conv_loaded:
             return
         cls._conv_loaded = True
-        config_path = os.environ.get(
-            "ORION_CONVERSATIONAL_CONFIG",
-            str(
-                Path(__file__).resolve().parent.parent
-                / "config"
-                / "conversational_patterns.yaml"
-            ),
-        )
-        if not os.path.exists(config_path):
-            return
-        try:
-            with open(config_path, encoding="utf-8") as fh:
-                data = yaml.safe_load(fh) or {}
-            cls._conv_vi_patterns = data.get("vi_patterns", cls._conv_vi_patterns)
-            cls._conv_en_patterns = data.get("en_patterns", cls._conv_en_patterns)
-            cls._conv_question_mark = data.get(
-                "question_mark_ends_conversational", True
-            )
-            cls._conv_equivalence_markers = data.get(
-                "equivalence_markers", cls._conv_equivalence_markers
-            )
-        except Exception:
-            # If config is broken, keep the hardcoded defaults.
-            pass
+        from src.shared.config import get_config
+
+        config = get_config()
+        cls._conv_vi_patterns = config.vi_patterns or cls._conv_vi_patterns
+        cls._conv_en_patterns = config.en_patterns or cls._conv_en_patterns
+        cls._conv_question_mark = config.conv_question_mark
+        cls._conv_equivalence_markers = config.conv_equivalence_markers
 
     @classmethod
     def _is_conversational(
@@ -428,35 +406,52 @@ class DeterministicAgent:
         return False
 
     # ------------------------------------------------------------------
-    # Vague health-check patterns — questions that look conversational
-    # but are genuine infrastructure health-check requests.
+    # Vague health-check patterns — loaded from config/health_patterns.yaml
+    # via OrionConfig.  Questions that look conversational but are genuine
+    # infrastructure health-check requests.
     # ------------------------------------------------------------------
-    _VAGUE_HEALTH_PATTERNS: list[str] = [
-        "có vấn đề gì không",
-        "có lỗi gì không",
-        "có ổn không",
-        "hoạt động tốt không",
-        "tình trạng thế nào",
-        "đang gặp vấn đề",
-        "có sao không",
-        "có vấn đề",
-        "ổn định không",
-        "chạy tốt không",
-        "any issues",
-        "is it healthy",
-        "is it ok",
-        "is it stable",
-        "any problems",
-        "anything wrong",
-        "health check",
-        "status check",
-    ]
+    _VAGUE_HEALTH_PATTERNS: list[str] | None = None
+
+    @classmethod
+    def _get_health_patterns(cls) -> list[str]:
+        """Return health-check patterns from unified config (lazy load)."""
+        if cls._VAGUE_HEALTH_PATTERNS is not None:
+            return cls._VAGUE_HEALTH_PATTERNS
+        from src.shared.config import get_config
+
+        config = get_config()
+        patterns = config.vague_health_patterns
+        if patterns:
+            cls._VAGUE_HEALTH_PATTERNS = patterns
+        else:
+            # Fallback defaults if health_patterns.yaml is missing
+            cls._VAGUE_HEALTH_PATTERNS = [
+                "có vấn đề gì không",
+                "có lỗi gì không",
+                "có ổn không",
+                "hoạt động tốt không",
+                "tình trạng thế nào",
+                "đang gặp vấn đề",
+                "có sao không",
+                "có vấn đề",
+                "ổn định không",
+                "chạy tốt không",
+                "any issues",
+                "is it healthy",
+                "is it ok",
+                "is it stable",
+                "any problems",
+                "anything wrong",
+                "health check",
+                "status check",
+            ]
+        return cls._VAGUE_HEALTH_PATTERNS
 
     @classmethod
     def _is_vague_health_check(cls, user_request: str) -> bool:
         """Detect vague health-check questions that should go to pipeline."""
         lower = user_request.lower().strip()
-        return any(pat in lower for pat in cls._VAGUE_HEALTH_PATTERNS)
+        return any(pat in lower for pat in cls._get_health_patterns())
 
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.

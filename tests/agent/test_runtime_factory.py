@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest import mock
 
@@ -8,69 +7,61 @@ import pytest
 
 from src.agent.runtime_factory import (
     _build_assessment_adapter,
-    _load_server_config,
-    _project_root,
     _register_single_tool,
     _register_tools,
 )
+from src.shared.config import OrionConfig, _reset_config
 from src.tool.target_registry import TargetRegistry
 
 # ---------------------------------------------------------------------------
-# _project_root
+# Fixture to reset OrionConfig singleton between tests
 # ---------------------------------------------------------------------------
 
 
-def test_project_root_returns_path() -> None:
-    root = _project_root()
-    assert isinstance(root, Path)
-    assert root.exists()
-    assert (root / "src").is_dir()
+@pytest.fixture(autouse=True)
+def _reset_orion_config() -> None:
+    """Reset the global OrionConfig singleton before each test."""
+    _reset_config()
 
 
 # ---------------------------------------------------------------------------
-# _load_server_config
+# OrionConfig — server loading (replaces old _load_server_config)
 # ---------------------------------------------------------------------------
 
 
-def test_load_server_config_missing_file() -> None:
-    with mock.patch("pathlib.Path.exists", return_value=False):
-        with pytest.raises(RuntimeError, match="servers.json not found"):
-            _load_server_config("sv1")
+def test_config_missing_servers_file() -> None:
+    """OrionConfig returns empty servers when file is missing."""
+    config = OrionConfig.load(project_root=Path("/nonexistent/path"))
+    assert config.servers == {}
+    assert config.active_server_name == ""
 
 
-def test_load_server_config_unknown_server() -> None:
-    data = {"servers": {"sv1": {"base_url": "http://localhost:8000"}}}
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            with pytest.raises(RuntimeError, match="Server 'sv2' not found"):
-                _load_server_config("sv2")
-
-
-def test_load_server_config_active_server_default() -> None:
+def test_config_unknown_server_in_build_adapter() -> None:
+    """_build_assessment_adapter raises RuntimeError for unknown server."""
     data = {
         "active_server": "sv1",
-        "servers": {
+        "servers": {"sv1": {"base_url": "http://localhost:8000"}},
+    }
+    mock_config = OrionConfig(
+        servers={"sv1": {"base_url": "http://localhost:8000"}},
+        active_server_name="sv1",
+    )
+    with mock.patch("src.shared.config._config", mock_config), mock.patch(
+        "src.agent.runtime_factory.get_config", return_value=mock_config
+    ):
+        with pytest.raises(RuntimeError, match="Server 'sv2' not found"):
+            _build_assessment_adapter("sv2")
+
+
+def test_config_active_server_default() -> None:
+    """OrionConfig.active_server returns the active server config."""
+    config = OrionConfig(
+        servers={
             "sv1": {"base_url": "http://localhost:8000", "model": "gpt-4"},
         },
-    }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            cfg = _load_server_config()
-            assert cfg["base_url"] == "http://localhost:8000"
-
-
-def test_load_server_config_explicit_server() -> None:
-    data = {
-        "servers": {
-            "sv1": {"base_url": "http://localhost:8000"},
-            "sv2": {"base_url": "http://other:8080", "model": "llama3"},
-        },
-    }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            cfg = _load_server_config("sv2")
-            assert cfg["base_url"] == "http://other:8080"
-            assert cfg["model"] == "llama3"
+        active_server_name="sv1",
+    )
+    assert config.active_server["base_url"] == "http://localhost:8000"
 
 
 # ---------------------------------------------------------------------------
@@ -80,8 +71,8 @@ def test_load_server_config_explicit_server() -> None:
 
 def test_build_assessment_adapter_returns_adapter() -> None:
     """Builds an LLMAssessmentAdapter from a server config."""
-    data = {
-        "servers": {
+    mock_config = OrionConfig(
+        servers={
             "sv1": {
                 "base_url": "http://test-llm:8000",
                 "model": "test-model",
@@ -91,39 +82,35 @@ def test_build_assessment_adapter_returns_adapter() -> None:
                 "max_tokens": 1024,
             },
         },
-    }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            adapter = _build_assessment_adapter("sv1")
-            from src.model.llm_assessment_adapter import LLMAssessmentAdapter
+        active_server_name="sv1",
+    )
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
+        adapter = _build_assessment_adapter("sv1")
+        from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 
-            assert isinstance(adapter, LLMAssessmentAdapter)
+        assert isinstance(adapter, LLMAssessmentAdapter)
 
 
 def test_build_assessment_adapter_defaults() -> None:
     """Uses server config with minimal fields and model defaults."""
-    data = {
-        "servers": {
-            "sv1": {"base_url": "http://localhost:8000"},
-        },
-    }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            adapter = _build_assessment_adapter("sv1")
-            assert adapter is not None
+    mock_config = OrionConfig(
+        servers={"sv1": {"base_url": "http://localhost:8000"}},
+        active_server_name="sv1",
+    )
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
+        adapter = _build_assessment_adapter("sv1")
+        assert adapter is not None
 
 
 def test_build_assessment_adapter_model_override() -> None:
     """Explicit model parameter overrides the server config model."""
-    data = {
-        "servers": {
-            "sv1": {"base_url": "http://localhost:8000", "model": "gpt-4"},
-        },
-    }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            adapter = _build_assessment_adapter("sv1", model="custom-model")
-            assert adapter is not None
+    mock_config = OrionConfig(
+        servers={"sv1": {"base_url": "http://localhost:8000", "model": "gpt-4"}},
+        active_server_name="sv1",
+    )
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
+        adapter = _build_assessment_adapter("sv1", model="custom-model")
+        assert adapter is not None
 
 
 # ---------------------------------------------------------------------------

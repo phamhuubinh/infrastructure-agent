@@ -3,7 +3,7 @@
   "backlog": [
     {"id": "001", "status": "completed", "title": "ADR-0001 Reconciliation with deterministic pipeline architecture"},
     {"id": "002", "status": "completed", "title": "Config Schema Validation"},
-    {"id": "003", "status": "pending", "title": "Unified Config Accessor"},
+    {"id": "003", "status": "completed", "title": "Unified Config Accessor"},
     {"id": "004", "status": "pending", "title": "Security Pipeline"},
     {"id": "005", "status": "pending", "title": "Tool Auto-Discovery"},
     {"id": "006", "status": "pending", "title": "Retry Policy Unification"},
@@ -126,7 +126,7 @@
     {"id": 631, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Add Grafana time series query with time_range support"},
     {"id": 632, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Build visualization response"}
   ],
-  "metrics": {"commits_made": 41, "tests_passed": 990, "tests_total": 990},
+  "metrics": {"commits_made": 42, "tests_passed": 1007, "tests_total": 1011},
   "phase_4": {"total": 18, "completed": 18},
   "phase_5": {"total": 25, "completed": 25},
   "phase_6": {"total": 32, "completed": 32, "wp": {
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 2}
+  "sprint_1": {"total": 13, "completed": 3}
 }

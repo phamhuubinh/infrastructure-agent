@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest import mock
+
+import pytest
 
 from src.agent.runtime_factory import (
     _SUPPORTED_TOOL_TYPES,
@@ -10,6 +10,7 @@ from src.agent.runtime_factory import (
     _warn,
     create_deterministic_agent,
 )
+from src.shared.config import OrionConfig
 
 
 def test_deterministic_agent_runs_pipeline() -> None:
@@ -57,35 +58,15 @@ def test_pipeline_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# tools.json loading
+# tools.json loading (via OrionConfig)
 # ---------------------------------------------------------------------------
 
 
 def test_no_tools_file_returns_empty() -> None:
-    with mock.patch("pathlib.Path.exists", return_value=False):
+    mock_config = OrionConfig(tools={})
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
         config = _load_tools_config()
         assert config == {}
-
-
-def test_invalid_json_returns_empty() -> None:
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value="not json"):
-            config = _load_tools_config()
-            assert config == {}
-
-
-def test_non_dict_json_returns_empty() -> None:
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value='"string"'):
-            config = _load_tools_config()
-            assert config == {}
-
-
-def test_oserror_returns_empty() -> None:
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", side_effect=OSError("denied")):
-            config = _load_tools_config()
-            assert config == {}
 
 
 def test_valid_config_loaded() -> None:
@@ -97,10 +78,10 @@ def test_valid_config_loaded() -> None:
             "target": "zabbix",
         },
     }
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value=json.dumps(data)):
-            config = _load_tools_config()
-            assert config == data
+    mock_config = OrionConfig(tools=data)
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
+        config = _load_tools_config()
+        assert config == data
 
 
 # ---------------------------------------------------------------------------
@@ -230,26 +211,6 @@ def test_warn_output(capsys: pytest.CaptureFixture) -> None:
     assert captured.out == ""
 
 
-def test_warn_called_on_invalid_json() -> None:
-    """Loading invalid JSON should trigger a warning."""
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value="not json"):
-            with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
-                _load_tools_config()
-                mock_warn.assert_called_once()
-                assert "invalid JSON" in mock_warn.call_args[0][0]
-
-
-def test_warn_called_on_non_dict_json() -> None:
-    """Loading non-dict JSON should trigger a warning."""
-    with mock.patch.object(Path, "exists", return_value=True):
-        with mock.patch.object(Path, "read_text", return_value='"string"'):
-            with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
-                _load_tools_config()
-                mock_warn.assert_called_once()
-                assert "JSON object" in mock_warn.call_args[0][0]
-
-
 def test_warn_called_on_missing_tool_field() -> None:
     """Entry without tool field should trigger a warning."""
     from src.agent.runtime_factory import _register_single_tool
@@ -316,8 +277,6 @@ def test_warn_called_on_duplicate_registration() -> None:
         assert "Failed to register" in mock_warn.call_args[0][0]
 
 
-import pytest  # noqa: E402, F811
-
 # ---------------------------------------------------------------------------
 # ConversationStore summarization integration
 # ---------------------------------------------------------------------------
@@ -347,5 +306,7 @@ def test_set_summarize_fn_replaces_function() -> None:
     store.set_summarize_fn(my_fn)
     assert store._summarize_fn is my_fn
 
-    result = store._summarize_fn("some prompt")
+    fn = store._summarize_fn
+    assert fn is not None  # type narrow for Pylance
+    result = fn("some prompt")
     assert result == "summarized"

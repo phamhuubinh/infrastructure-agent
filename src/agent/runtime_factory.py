@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from src.agent.conversation_store import ConversationStore
@@ -18,38 +16,14 @@ from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.target_resolver import TargetResolver
+from src.shared.config import get_config
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
 # ---------------------------------------------------------------------------
-# Model server configuration (servers.json)
+# Model server configuration (servers.json) — via OrionConfig
 # ---------------------------------------------------------------------------
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def _load_server_config(
-    server_name: str | None = None,
-) -> dict[str, Any]:
-    config_path = _project_root() / "servers.json"
-    if not config_path.exists():
-        raise RuntimeError(
-            "servers.json not found at " + str(config_path) + ". "
-            "Create a servers.json with model configuration."
-        )
-    data: dict[str, Any] = json.loads(config_path.read_text())
-    servers: dict[str, Any] = data.get("servers", {})
-    if server_name is None:
-        server_name = str(data.get("active_server", ""))
-    cfg: Any = servers.get(server_name)
-    if cfg is None or not isinstance(cfg, dict):
-        available = ", ".join(sorted(servers))
-        msg = f"Server {server_name!r} not found. Available servers: {available}"
-        raise RuntimeError(msg)
-    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -69,14 +43,12 @@ def _warn(message: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Infrastructure tool configuration (tools.json)
+# Infrastructure tool configuration (tools.json) — via OrionConfig
 # ---------------------------------------------------------------------------
 # Supported tool types and their required config fields.
 # Adding a new tool type requires:
 #   1. An entry in _SUPPORTED_TOOL_TYPES
 #   2. An import and construction block in _register_single_tool
-
-from src.shared.secrets import load_secrets
 
 _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
@@ -87,45 +59,16 @@ _SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
 
 
 def _load_tools_config() -> dict[str, dict[str, Any]]:
-    """Load infrastructure tool configuration from tools.json and secrets.
+    """Load infrastructure tool configuration from OrionConfig.
 
     Credentials (url, token) are overlaid from config/secrets.local.json
     on top of tools.json. This keeps secrets out of version control.
 
     Returns an empty dict if tools.json does not exist.
-    Warnings are emitted via _warn() for invalid JSON or read errors.
+    Warnings are emitted via _warn() for invalid entries.
     """
-    config_path = _project_root() / "tools.json"
-    if not config_path.exists():
-        return {}
-    try:
-        raw = config_path.read_text()
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            _warn(
-                "tools.json must contain a JSON object at top level. "
-                "Skipping tool registration."
-            )
-            return {}
-
-        config: dict[str, dict[str, Any]] = dict(data)
-
-        # Overlay secrets from config/secrets.local.json
-        try:
-            secrets = load_secrets()
-            for tool_name, secret_cfg in secrets.items():
-                if tool_name in config:
-                    config[tool_name].update(secret_cfg)
-        except FileNotFoundError:
-            pass  # secrets file is optional for tools that don't need it
-
-        return config
-    except json.JSONDecodeError as exc:
-        _warn(f"tools.json contains invalid JSON ({exc}). Skipping tool registration.")
-        return {}
-    except OSError as exc:
-        _warn(f"Cannot read tools.json ({exc}). Skipping tool registration.")
-        return {}
+    config = get_config()
+    return config.tools
 
 
 def _register_single_tool(
@@ -230,7 +173,15 @@ def _build_assessment_adapter(
 ) -> AssessmentModelAdapter:
     from src.shared.config_schema import ServerConfig
 
-    raw = _load_server_config(server_name)
+    config = get_config()
+    if server_name is None:
+        server_name = config.active_server_name or "sv1"
+    raw = config.servers.get(server_name)
+    if raw is None:
+        available = ", ".join(sorted(config.servers))
+        raise RuntimeError(
+            f"Server {server_name!r} not found. Available servers: {available}"
+        )
     cfg = ServerConfig.model_validate(raw)
 
     base_url: str = cfg.base_url
@@ -308,9 +259,7 @@ def create_deterministic_agent(
     _register_tools(registry, tools_config)
     _info(
         "tools",
-        tools=(
-            len(tools_config.get("tools", [])) if isinstance(tools_config, dict) else 0
-        ),
+        tools=len(tools_config),
         message="Tools registered",
     )
 
@@ -333,7 +282,7 @@ def create_deterministic_agent(
         base_url = "unknown"
         resolved_model = "unknown"
         try:
-            cfg = _load_server_config(server_name)
+            cfg = get_config().servers.get(server_name, {})
             base_url = str(cfg.get("base_url", "unknown"))
             resolved_model = str(cfg.get("model", "unknown"))
         except Exception:

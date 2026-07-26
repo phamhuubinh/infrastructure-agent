@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import atexit
-import os
 import subprocess
 import sys
 import time
@@ -55,7 +54,10 @@ def _wait_for_server(url: str, timeout: float = 30.0) -> bool:
 def _setup_middleware(app: FastAPI) -> None:
     from fastapi.middleware.cors import CORSMiddleware
 
-    if os.environ.get("ORION_ENV", "development") != "development":
+    from src.shared.config import get_config
+
+    orion_env = get_config().env("ORION_ENV", "development")
+    if orion_env != "development":
         _info(
             "cors",
             message="CORS allow-all refused: ORION_ENV is not 'development'",
@@ -167,7 +169,9 @@ def run_web(
     # --- Development mode ---
     print("Starting Infrastructure Agent...", flush=True)
 
-    frontend_port = int(os.environ.get("ORION_FRONTEND_PORT", "5173"))
+    from src.shared.config import get_config
+
+    frontend_port = int(get_config().env("ORION_FRONTEND_PORT", "5173"))
 
     vite_proc = subprocess.Popen(
         ["npx", "vite", "dev", "--port", str(frontend_port)],

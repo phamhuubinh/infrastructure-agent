@@ -181,10 +181,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 2/13 tasks complete. Items 001 (ADR Reconciliation) and 002 (Config Schema Validation) completed. Items 003–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 3/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), and 003 (Unified Config Accessor) completed. Items 004–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 002: Config Schema Validation complete — Pydantic v2 models for servers.json/tools.json/targets.json, startup validation in CLI + web, validated model access in `_build_assessment_adapter()`, 21 new tests).
+> **Last updated:** 2026-07-26 (Task 003: Unified Config Accessor complete — `OrionConfig` dataclass aggregating 11 config sources, migrated `os.environ.get()` calls to `get_config()`, moved hardcoded `_VAGUE_HEALTH_PATTERNS` to `config/health_patterns.yaml`, 1007 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

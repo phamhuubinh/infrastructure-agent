@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -224,7 +223,9 @@ class ConversationStore:
                     "[classified as"
                 ):
                     turn_count += 1
-        threshold = int(os.environ.get("ORION_CONVERSATION_THRESHOLD", "50"))
+        from src.shared.config import get_config
+
+        threshold = int(get_config().env("ORION_CONVERSATION_THRESHOLD", "50"))
         if turn_count >= threshold:
             self.summarize()
 
