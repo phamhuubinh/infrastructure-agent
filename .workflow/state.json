@@ -6,7 +6,7 @@
     {"id": "003", "status": "completed", "title": "Unified Config Accessor"},
     {"id": "004", "status": "completed", "title": "Security Pipeline"},
     {"id": "005", "status": "completed", "title": "Tool Auto-Discovery"},
-    {"id": "006", "status": "pending", "title": "Retry Policy Unification"},
+    {"id": "006", "status": "completed", "title": "Retry Policy Unification"},
     {"id": "007", "status": "pending", "title": "Prompt Template Extraction"},
     {"id": "008", "status": "pending", "title": "Multi-Provider LLM"},
     {"id": "009", "status": "pending", "title": "Immutable Pipeline State"},
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 5}
+  "sprint_1": {"total": 13, "completed": 6}
 }

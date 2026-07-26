@@ -22,7 +22,8 @@
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
 - RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline.
-- Test suite: **990 tests** across pipeline, tools, model, backend, agent, and benchmark modules.
+- Test suite: **1,101 tests** across pipeline, tools, model, backend, agent, and benchmark modules (1,075 passing; 26 retry tests added via Task 006).
+- Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
 - Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
@@ -181,10 +182,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 5/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), and 005 (Tool Auto-Discovery) completed. Items 006–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 6/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), 005 (Tool Auto-Discovery), and 006 (Retry Policy Unification) completed. Items 007–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 005: Tool Auto-Discovery complete — `ToolRegistry` auto-discovers 5 tool types via `pkgutil.walk_packages`, replaces hardcoded `_SUPPORTED_TOOL_TYPES` dict with lazy auto-population from `_CAPABILITIES` attributes; hardcoded construction in `_register_single_tool()` replaced with `_build_auto_tool()` that uses discovered constructor signatures; backward-compatible hardcoded fallback preserved; 1057 tests passing).
+> **Last updated:** 2026-07-26 (Task 006: Retry Policy Unification complete — `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` using exponential backoff + jitter; integrated into `ExecutionRuntime._execute_node()` for tool dispatch retry and `db.py._connect_with_retry()` replacing ad-hoc retry; 26 new tests; 1,101 total tests, 1,075 passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

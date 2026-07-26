@@ -4,11 +4,11 @@ import json
 import os
 import re
 import threading
-import time as _time
 from collections.abc import Callable
 from typing import Any
 
 from src.agent.conversation_store import ConversationStore
+from src.pipeline.retry import RetryExecutor, RetryPolicy
 
 _SESSIONS_TABLE = "sessions"
 _DOCUMENTS_TABLE = "documents"
@@ -23,7 +23,14 @@ _pool_semaphore: threading.Semaphore | None = None
 _MAX_POOL_SIZE = int(os.environ.get("ORION_DB_POOL_SIZE", "5"))
 _MIN_POOL_SIZE = int(os.environ.get("ORION_DB_MIN_POOL_SIZE", "1"))
 _RETRY_MAX_ATTEMPTS = 3
-_RETRY_BASE_DELAY = 0.5
+
+_db_retry = RetryExecutor(
+    RetryPolicy(
+        max_attempts=_RETRY_MAX_ATTEMPTS,
+        backoff_base=0.5,
+        retryable_exceptions=(Exception,),  # psycopg2 raises its own types
+    ),
+)
 
 
 def _mask_dsn(dsn: str) -> str:
@@ -132,19 +139,12 @@ def _put_conn(conn) -> None:
     _pool_semaphore.release()
 
 
-def _connect_with_retry(driver, dsn: str, max_attempts: int = _RETRY_MAX_ATTEMPTS):
-    """Connect to PostgreSQL with exponential backoff retry."""
-    last_exc: Exception | None = None
-    for attempt in range(max_attempts):
-        try:
-            return driver.connect(dsn)
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_attempts - 1:
-                delay = _RETRY_BASE_DELAY * (2**attempt)
-                _time.sleep(delay)
-    msg = f"Failed to connect to database after {max_attempts} attempts: {last_exc}"
-    raise RuntimeError(msg) from last_exc
+def _connect_with_retry(driver, dsn: str):
+    """Connect to PostgreSQL with exponential backoff retry (unified policy)."""
+    return _db_retry.execute(
+        lambda: driver.connect(dsn),
+        context="postgresql_connect",
+    )
 
 
 def _execute_with_pool(dsn: str, fn: Callable[..., Any], *args: Any) -> Any:

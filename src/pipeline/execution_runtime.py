@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
+from src.pipeline.retry import RetryExecutor, RetryPolicy
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import warning as _warning
 from src.tool.knowledge_tool import KnowledgeTool
@@ -59,9 +60,13 @@ class ExecutionRuntime:
         self,
         knowledge_tool: KnowledgeTool,
         router: CapabilityRouter | None = None,
+        retry_executor: RetryExecutor | None = None,
     ) -> None:
         self._knowledge_tool = knowledge_tool
         self._router = router or CapabilityRouter()
+        self._retry = retry_executor or RetryExecutor(
+            RetryPolicy(max_attempts=3),
+        )
         self._evidence_name_by_cap: dict[str, str] = {}
 
     @property
@@ -400,7 +405,10 @@ class ExecutionRuntime:
         }
 
         try:
-            return self._knowledge_tool.execute(arguments)
+            return self._retry.execute(
+                lambda: self._knowledge_tool.execute(arguments),
+                context=cap_name,
+            )
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
             return ToolResult(
                 success=False,
