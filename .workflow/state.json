@@ -112,7 +112,7 @@
     {"id": 631, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Add Grafana time series query with time_range support"},
     {"id": 632, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Build visualization response"}
   ],
-  "metrics": {"commits_made": 36, "tests_passed": 990, "tests_total": 990},
+  "metrics": {"commits_made": 41, "tests_passed": 990, "tests_total": 990},
   "phase_4": {"total": 18, "completed": 18},
   "phase_5": {"total": 25, "completed": 25},
   "phase_6": {"total": 32, "completed": 32, "wp": {
