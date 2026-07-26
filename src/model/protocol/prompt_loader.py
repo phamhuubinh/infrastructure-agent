@@ -20,10 +20,14 @@ class PromptLoader:
     """
 
     def __init__(self, template_dir: Path | None = None) -> None:
+        if template_dir is None:
+            template_dir = (
+                Path(__file__).resolve().parent.parent.parent.parent
+                / "config"
+                / "prompts"
+            )
         self._env = Environment(
-            loader=FileSystemLoader(
-                str(template_dir) if template_dir else "config/prompts"
-            ),
+            loader=FileSystemLoader(str(template_dir)),
             autoescape=False,
         )
 
