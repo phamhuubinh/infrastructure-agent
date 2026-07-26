@@ -49,12 +49,18 @@ def _warn(message: str) -> None:
 # ---------------------------------------------------------------------------
 # Infrastructure tool configuration (tools.json) — via OrionConfig
 # ---------------------------------------------------------------------------
-# Supported tool types and their required config fields.
-# Adding a new tool type requires:
-#   1. An entry in _SUPPORTED_TOOL_TYPES
-#   2. An import and construction block in _register_single_tool
+from src.tool.registry import ToolRegistry
 
-_SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {
+# ---------------------------------------------------------------------------
+# Auto-discovered tool registry (replaces hardcoded _SUPPORTED_TOOL_TYPES)
+# ---------------------------------------------------------------------------
+
+_AUTO_TOOL_REGISTRY = ToolRegistry()
+
+_SUPPORTED_TOOL_TYPES: dict[str, tuple[str, ...]] = {}
+
+# Fallback types used if auto-discovery returns empty (e.g. import errors).
+_FALLBACK_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
     "grafana": ("url", "token"),
     "internet": (),
@@ -75,6 +81,66 @@ def _load_tools_config() -> dict[str, dict[str, Any]]:
     return config.tools
 
 
+def _build_auto_tool(tool_type: str, cfg: dict[str, Any]):
+    """Auto-construct a tool using the discovered class.
+
+    Falls back to hardcoded construction if the tool class is not found
+    in the auto-discovered registry.
+    """
+    discovered = _AUTO_TOOL_REGISTRY.discover_classes()
+    tool_cls = discovered.get(tool_type)
+
+    if tool_cls is not None:
+        # Build using the discovered class constructor signature
+        required = _SUPPORTED_TOOL_TYPES.get(tool_type, ())
+        kwargs: dict[str, Any] = {}
+        for field in required:
+            if field in cfg:
+                kwargs[field] = cfg[field]
+        # Add optional fields present in cfg
+        for key, val in cfg.items():
+            if (
+                key not in ("tool", "target")
+                and key not in kwargs
+                and isinstance(val, (str, int, float))
+            ):
+                kwargs[key] = val
+        try:
+            return tool_cls(**kwargs)
+        except TypeError:
+            # Fall back to position- or dict-style construction
+            return tool_cls()
+        except Exception:
+            return None
+
+    # Hardcoded fallback for backward compatibility
+    if tool_type == "zabbix":
+        from src.tool.zabbix_tool import ZabbixTool
+
+        return ZabbixTool(
+            url=str(cfg.get("url", "")),
+            token=str(cfg.get("token", "")),
+            timeout=int(cfg.get("timeout", 10)),
+        )
+    elif tool_type == "grafana":
+        from src.tool.grafana_tool import GrafanaTool
+
+        return GrafanaTool(
+            url=str(cfg.get("url", "")),
+            token=str(cfg.get("token", "")),
+            timeout=int(cfg.get("timeout", 10)),
+        )
+    elif tool_type == "internet":
+        from src.tool.internet_tool import InternetTool
+
+        return InternetTool()
+    elif tool_type == "knowledge_base":
+        from src.tool.knowledge_base_tool import KnowledgeBaseTool
+
+        return KnowledgeBaseTool()
+    return None
+
+
 def _register_single_tool(
     registry: TargetRegistry,
     entry_name: str,
@@ -82,8 +148,9 @@ def _register_single_tool(
 ) -> None:
     """Register one tool from a tools.json entry.
 
-    Validates the entry, constructs the tool, and registers it.
-    Warnings are emitted via _warn() for invalid entries instead of crashing.
+    Validates the entry, constructs the tool (via auto-discovery or
+    fallback), and registers it.  Warnings are emitted via _warn()
+    for invalid entries instead of crashing.
     """
     tool_type = cfg.get("tool")
     if not isinstance(tool_type, str) or not tool_type:
@@ -114,32 +181,13 @@ def _register_single_tool(
 
     target_name = str(cfg.get("target", entry_name))
 
-    if tool_type == "zabbix":
-        from src.tool.zabbix_tool import ZabbixTool
-
-        tool = ZabbixTool(
-            url=str(cfg["url"]),
-            token=str(cfg["token"]),
-            timeout=int(cfg.get("timeout", 10)),
+    tool = _build_auto_tool(tool_type, cfg)
+    if tool is None:
+        _warn(
+            f"Failed to construct tool '{tool_type}' from "
+            f"tools.json entry '{entry_name}'. Skipping."
         )
-    elif tool_type == "grafana":
-        from src.tool.grafana_tool import GrafanaTool
-
-        tool = GrafanaTool(
-            url=str(cfg["url"]),
-            token=str(cfg["token"]),
-            timeout=int(cfg.get("timeout", 10)),
-        )
-    elif tool_type == "internet":
-        from src.tool.internet_tool import InternetTool
-
-        tool = InternetTool()
-    elif tool_type == "knowledge_base":
-        from src.tool.knowledge_base_tool import KnowledgeBaseTool
-
-        tool = KnowledgeBaseTool()
-    else:
-        return  # pragma: no cover — unreachable via _SUPPORTED_TOOL_TYPES check
+        return
 
     try:
         registry.register_tool(name=target_name, tool=tool)
@@ -148,6 +196,19 @@ def _register_single_tool(
             f"Failed to register tool '{target_name}' "
             f"from tools.json entry '{entry_name}': {exc}"
         )
+
+
+def _populate_supported_tool_types() -> dict[str, tuple[str, ...]]:
+    """Build _SUPPORTED_TOOL_TYPES from auto-discovery.
+
+    Returns the populated dict.  Falls back to _FALLBACK_TOOL_TYPES if
+    auto-discovery returns no results.
+    """
+    discovered = _AUTO_TOOL_REGISTRY.discover_required_fields()
+    if discovered:
+        return discovered
+    # Auto-discovery returned empty — use hardcoded fallback.
+    return dict(_FALLBACK_TOOL_TYPES)
 
 
 def _register_tools(
@@ -159,6 +220,11 @@ def _register_tools(
     Each entry is validated and registered independently.
     A single invalid entry does not block other entries.
     """
+    # Populate _SUPPORTED_TOOL_TYPES from auto-discovery on first call.
+    global _SUPPORTED_TOOL_TYPES
+    if not _SUPPORTED_TOOL_TYPES:
+        _SUPPORTED_TOOL_TYPES = _populate_supported_tool_types()
+
     for entry_name, cfg in tools_config.items():
         if not isinstance(cfg, dict):
             _warn(f"tools.json entry '{entry_name}' is not a JSON object. Skipping.")

@@ -181,10 +181,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
 2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 3/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), and 003 (Unified Config Accessor) completed. Items 004–013 pending.
+4. **Sprint 1 (IMPLEMENTATION_BACKLOG) in progress**: 5/13 tasks complete. Items 001 (ADR Reconciliation), 002 (Config Schema Validation), 003 (Unified Config Accessor), 004 (Security Pipeline), and 005 (Tool Auto-Discovery) completed. Items 006–013 pending.
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 003: Unified Config Accessor complete — `OrionConfig` dataclass aggregating 11 config sources, migrated `os.environ.get()` calls to `get_config()`, moved hardcoded `_VAGUE_HEALTH_PATTERNS` to `config/health_patterns.yaml`, 1007 tests passing).
+> **Last updated:** 2026-07-26 (Task 005: Tool Auto-Discovery complete — `ToolRegistry` auto-discovers 5 tool types via `pkgutil.walk_packages`, replaces hardcoded `_SUPPORTED_TOOL_TYPES` dict with lazy auto-population from `_CAPABILITIES` attributes; hardcoded construction in `_register_single_tool()` replaced with `_build_auto_tool()` that uses discovered constructor signatures; backward-compatible hardcoded fallback preserved; 1057 tests passing).
 
 ## Post-Phase 6 improvements (2026-07-24)
 

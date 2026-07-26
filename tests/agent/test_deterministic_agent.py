@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 
 from src.agent.runtime_factory import (
-    _SUPPORTED_TOOL_TYPES,
+    _FALLBACK_TOOL_TYPES,
     _load_tools_config,
     _warn,
     create_deterministic_agent,
@@ -186,11 +186,13 @@ def test_non_dict_entry_skipped(mock_load: mock.Mock) -> None:
 
 
 def test_supported_tool_types_defined() -> None:
-    assert "zabbix" in _SUPPORTED_TOOL_TYPES
-    assert "grafana" in _SUPPORTED_TOOL_TYPES
-    assert "internet" in _SUPPORTED_TOOL_TYPES
-    assert "knowledge_base" in _SUPPORTED_TOOL_TYPES
-    for tool_type, required in _SUPPORTED_TOOL_TYPES.items():
+    # _SUPPORTED_TOOL_TYPES is lazily populated from auto-discovery.
+    # _FALLBACK_TOOL_TYPES provides the canonical definition for backward compat.
+    assert "zabbix" in _FALLBACK_TOOL_TYPES
+    assert "grafana" in _FALLBACK_TOOL_TYPES
+    assert "internet" in _FALLBACK_TOOL_TYPES
+    assert "knowledge_base" in _FALLBACK_TOOL_TYPES
+    for tool_type, required in _FALLBACK_TOOL_TYPES.items():
         if tool_type in ("internet", "knowledge_base"):
             assert required == ()
         else:
@@ -211,11 +213,25 @@ def test_warn_output(capsys: pytest.CaptureFixture) -> None:
     assert captured.out == ""
 
 
+def _ensure_supported_types_populated() -> None:
+    """Populate _SUPPORTED_TOOL_TYPES for tests that call _register_single_tool."""
+    from src.agent.runtime_factory import (
+        _SUPPORTED_TOOL_TYPES,
+        _populate_supported_tool_types,
+    )
+
+    if not _SUPPORTED_TOOL_TYPES:
+        import src.agent.runtime_factory as rf
+
+        rf._SUPPORTED_TOOL_TYPES = _populate_supported_tool_types()
+
+
 def test_warn_called_on_missing_tool_field() -> None:
     """Entry without tool field should trigger a warning."""
     from src.agent.runtime_factory import _register_single_tool
     from src.tool.target_registry import TargetRegistry
 
+    _ensure_supported_types_populated()
     registry = TargetRegistry()
     with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
         _register_single_tool(registry, "bad_entry", {"url": "x"})
@@ -228,6 +244,7 @@ def test_warn_called_on_unknown_tool_type() -> None:
     from src.agent.runtime_factory import _register_single_tool
     from src.tool.target_registry import TargetRegistry
 
+    _ensure_supported_types_populated()
     registry = TargetRegistry()
     with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
         _register_single_tool(registry, "bad", {"tool": "nonexistent"})
@@ -240,6 +257,7 @@ def test_warn_called_on_missing_required_fields() -> None:
     from src.agent.runtime_factory import _register_single_tool
     from src.tool.target_registry import TargetRegistry
 
+    _ensure_supported_types_populated()
     registry = TargetRegistry()
     with mock.patch("src.agent.runtime_factory._warn") as mock_warn:
         _register_single_tool(registry, "bad", {"tool": "zabbix"})
@@ -253,6 +271,8 @@ def test_warn_called_on_duplicate_registration() -> None:
     from src.shared.execution.tool_result import ToolResult
     from src.tool.target_registry import TargetRegistry
     from src.tool.tool import Tool
+
+    _ensure_supported_types_populated()
 
     # Register first tool with target name "zabbix"
     registry = TargetRegistry()
