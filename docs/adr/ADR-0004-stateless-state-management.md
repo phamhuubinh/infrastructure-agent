@@ -6,16 +6,16 @@ Accepted
 Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-007
 ---
 # Context
-The Action → Observation architecture executes iteratively.
-Execution may span many Action → Observation cycles.
+The deterministic pipeline architecture (ADR-0007) executes in a single pass.
+Each investigation is independent — there is no iterative loop and no implicit state carried between turns.
 Without explicit architectural rules, Agent, Tool or the Reasoning Model could gradually become implicit state holders.
-This creates hidden coupling between iterations.
+This creates hidden coupling between investigations.
 It also increases prompt size, token usage and the risk of stale execution data.
 The architecture therefore requires explicit ownership of workflow state and information lifecycle.
 ---
 # Decision
 The entire architecture is stateless by default.
-The Reasoning Model does not rely on remembering previous iterations.
+The Reasoning Model does not rely on remembering previous investigations.
 The Agent never stores workflow state.
 The Runtime never becomes workflow memory.
 Tools never become conversation memory.
@@ -26,7 +26,7 @@ The Reasoning Model may only use information available through:
 - Memory
 - Observation
 - Tool Result
-No component may assume information from previous iterations still exists unless it is explicitly provided again.
+No component may assume information from previous investigations still exists unless it is explicitly provided again.
 ---
 # Information Classification
 Information is divided into two categories.
@@ -62,7 +62,8 @@ State persistence belongs only to dedicated storage mechanisms.
 No architectural component may implicitly become workflow memory.
 ---
 # Related ADRs
-- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — the Agent as a pure execution engine; stateless execution is a prerequisite for keeping the Agent deterministic and model-agnostic
+- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — the Agent as a pure execution engine; stateless execution is a prerequisite for keeping the Agent deterministic and model-agnostic (execution model superseded by ADR-0007)
+- ADR-0007 (`docs/adr/ADR-0007-deterministic-pipeline.md`) — deterministic single-pass pipeline; each pipeline invocation is independent, reinforcing the stateless principle
 - AD-008 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — session memory stores summaries only; the Stable/Dynamic Information split in this ADR provides the rationale for AD-008
 ---
 # Consequences

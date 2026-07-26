@@ -64,7 +64,9 @@ The architecture enforces these rules:
 ---
 
 # Related ADRs
+- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — establishes the Agent as an execution engine (execution model superseded by ADR-0007)
 - ADR-0002 (`docs/adr/ADR-0002-llm-assessment-only.md`) — LLM assessment only; KnowledgeTool enforces the isolation of the assessment layer from domain-specific implementations
+- ADR-0007 (`docs/adr/ADR-0007-deterministic-pipeline.md`) — deterministic single-pass pipeline; KnowledgeTool is the evidence collection layer within this pipeline
 - AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; KnowledgeTool is the enforcement point that prevents pipeline components from referencing child tools directly
 
 # Referenced files

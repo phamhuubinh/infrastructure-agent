@@ -52,8 +52,9 @@ Specifically:
 - The assessment output can flag insufficient evidence and recommend re-investigation, which is handled as a new pipeline invocation.
 ---
 # Related ADRs
-- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — establishes the Agent as an execution engine, reinforcing that the LLM is only used for assessment
+- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — establishes the Agent as an execution engine. **Note:** ADR-0001's execution model description (iterative Action → Observation loop) was superseded by the deterministic pipeline architecture documented in ADR-0007. The responsibility boundaries defined in ADR-0001 remain valid.
 - ADR-0003 (`docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`) — KnowledgeTool enforces the assessment layer's isolation from domain-specific implementations
+- ADR-0007 (`docs/adr/ADR-0007-deterministic-pipeline.md`) — documents the deterministic single-pass pipeline that supersedes ADR-0001's model-driven iterative loop
 - AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; assessment layer never imports from pipeline or tool layers
 # Referenced files
 - `src/pipeline/assessment_adapter.py` — adapter that builds AssessmentRequest from pipeline evidence
