@@ -118,6 +118,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 - **Frontend-backend session sync** (fixed 2026-07-23): Frontend ChatProvider now fetches sessions from `GET /api/sessions` on mount, creates sessions server-side via `POST /api/sessions`, and sends `session_id` with every `/api/query` request. Previously sessions existed only in local React state with generated IDs, causing the Orion Web session list to show zero sessions and sessions created in Orion Web to be invisible in the sidebar.
 - **CLI session persistence** (fixed 2026-07-23): CLI `_run_agent()` now creates a `ConversationStore` with a UUID session ID (or resume ID) and passes it to `create_deterministic_agent()`. Previously `conversation_store=None`, so `DeterministicAgent._conversation_store` was `None` and `add_turn()` was never called.
 - **Session metadata corruption** (fixed 2026-07-23): Four bugs compounded to corrupt session metadata when opening from the Web UI: (1) `_check_compress()` counted classifier messages (`[classified as ...]`) as real turns, causing premature summarization that cleared `_mem` entirely, (2) `ConversationStore._save()` never wrote `title` to disk, (3) `ConversationStore._load()` never restored `source` from disk (hardcoded `"api"`), (4) `chat-store.tsx` ignored server titles. Fixed: classifier messages excluded from turn counts, `title` saved/loaded, `source` restored from persisted data, frontend reads server titles.
+- **Session splitting after server switch** (fixed 2026-07-24): `AppState.switch_server()` iterated over ALL sessions in `web_sessions` and assigned the last one to `agent.conversation_store`, causing conversations in an old session to be split across multiple session files. Root cause: the loop `for sid, cs in self.web_sessions.items()` assigned each session's store to the agent in arbitrary dict order, so the last session in the iteration "won". Fixed: `switch_server()` now preserves only the current `agent.conversation_store` before agent recreation, restoring it on the new agent instance.
 
 ## Phase 1 — Foundation (completed 2026-07-22)
 - ID 87: Replaced broad `except Exception` in execution_runtime.py with specific exception types (`RuntimeError`, `ValueError`, `TypeError`, `OSError`, `CancelledError`).
@@ -182,4 +183,48 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
 4. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-24 (Phase 6 complete).
+> **Last updated:** 2026-07-24 (Post-Phase 6 conversation evaluation fixes: 7 improvements across 4 modules).
+
+## Post-Phase 6 improvements (2026-07-24)
+
+Based on structured evaluation of a 60-turn conversation with Orion, the following improvements were implemented to address the 6 key weaknesses identified:
+
+### Round 1 fixes (conversation evaluation)
+
+### DeterministicResponder expansion
+- **Service-specific responses**: `_check_service_status()` now accepts `service_name` parameter to return status for a specific service (nginx, docker, sshd, etc.) instead of generic "all 69 services running".
+- **Swap**: New `_check_swap()` method extracts swap usage from Memory evidence.
+- **Uptime**: New `_check_uptime()` method extracts uptime from CPU/System evidence.
+- **Listening ports**: New `_check_listening_ports()` method extracts open ports from Network evidence.
+- **Disk full**: New `_check_disk_full()` method checks filesystem usage and flags near-capacity (>80%) mounts.
+- Expanded keyword detection for Vietnamese queries (uptime, swap, port listen, disk full).
+
+### ThresholdEvaluator hardening
+- Added swap thresholds: >50% warning, >80% critical.
+- Added `memory_usage_pct`, `load_5min`, `failed_services_count`, `failed_count` thresholds.
+- Documented risk calibration: >90% critical, >80% warning, <=80% ok.
+
+### ParameterExtractor improvements
+- Expanded `_SERVICE_NAMES` regex to include `grafana-server`, `zabbix-agent`, `zabbix-server`, `prometheus`, `node_exporter`, `containerd`, `openvpn`, `bind9`.
+- Added "trạng thái X" / "kiểm tra X" Vietnamese pattern matching for service extraction.
+
+### Config improvements
+- `config/concepts.yaml`: Added Vietnamese synonyms for swap (bộ nhớ ảo, phân vùng trao đổi), RAM (ram còn trống, ram available, ram free).
+- `config/capability_plans.yaml`: Added `CPU` to memory/diagnose plan for richer context.
+
+### Round 2 fixes (conversation evaluation, 2026-07-24)
+7 improvements implemented based on structured Q&A evaluation of 14 Orion responses:
+
+1. **Vague health-check routing** (`src/agent/deterministic_agent.py`): Added `_is_vague_health_check()` with 18 patterns (VI + EN). Questions like "có vấn đề gì không?", "có ổn không?" now route to pipeline → `assess_machine()` instead of chat fallback.
+
+2. **Swap info always collected** (`src/tool/linux/capabilities/memory.py`): `_get_memory()` now parses SwapTotal/SwapFree from `/proc/meminfo` inline, returning `swap_total_kb`, `swap_used_kb`, `swap_free_kb`, `swap_usage_percent`. Eliminates 100% of "không có thông tin swap" responses.
+
+3. **Top memory consumers always collected** (`src/tool/linux/capabilities/memory.py`): `_get_memory()` now runs `ps aux --sort=-%mem --no-headers` and returns top 6 consumers with user, pid, cpu_pct, mem_pct, command.
+
+4. **Bad target cache** (`src/pipeline/target_resolver.py`): Per-session `_bad_targets` set prevents retrying the same failed target across multiple turns. Previously `server01`/`srv01`/`sv01` would each trigger a full resolution attempt → same `UnknownTargetError`. Now cached after first failure.
+
+5. **Chat system prompt depth** (`src/agent/deterministic_agent.py`): Chat prompt now instructs: "provide a detailed technical explanation (3-5 sentences minimum) with examples where helpful" for technical concepts. Also: "ask for missing details before writing" when user requests templates.
+
+6. **Language enforcement** (`src/agent/deterministic_agent.py`): Stronger chat prompt: "QUAN TRỌNG: Bạn PHẢI trả lời TOÀN BỘ bằng tiếng Việt. Không được trả lời bằng bất kỳ ngôn ngữ nào khác." (already present — verified working; assessment prompt already has similar enforcement at line 319-323 of prompt_builder_v2.py).
+
+7. **Disk threshold hallucination** (`src/pipeline/threshold_evaluator.py`): Verified existing thresholds: `usage_percent > 80%` = warning, `> 90%` = critical. Issue was LLM hallucination ("34% → nguy cơ đầy"), not missing threshold. ThresholdEvaluator (ID 627) + EvidenceCorrelation (ID 629) already address this in assessment prompt.
