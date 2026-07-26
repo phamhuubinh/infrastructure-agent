@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import inspect
+from typing import TYPE_CHECKING
 
 from src.pipeline.capability_library import COVERS_TO_OPERATIONAL
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
+
+if TYPE_CHECKING:
+    from src.pipeline.security.inspector_chain import InspectorChain
 
 
 def _tool_capabilities(tool: Tool) -> list[str]:
@@ -43,11 +47,13 @@ class KnowledgeTool(Tool):
     def __init__(
         self,
         target_registry: TargetRegistry | None = None,
+        inspector_chain: InspectorChain | None = None,
     ) -> None:
         if target_registry is None:
             target_registry = TargetRegistry()
             target_registry.add("localhost")
         self._registry = target_registry
+        self._inspector_chain = inspector_chain
 
     @staticmethod
     def get_operational_name(covers_tag: str) -> str | None:
@@ -91,6 +97,28 @@ class KnowledgeTool(Tool):
                 success=False,
                 error=f"Unknown source: '{source}'. Available sources: {available}.",
             )
+
+        # Security inspection: run the inspector chain before dispatching.
+        if self._inspector_chain is not None:
+            from src.pipeline.security.tool_inspector import InspectionContext
+
+            ctx = InspectionContext(
+                capability_name=resource,
+                target=source,
+                resource=resource,
+                arguments={
+                    k: v
+                    for k, v in arguments.items()
+                    if k not in ("source", "resource")
+                },
+                tool_name=type(child_tool).__name__,
+            )
+            result = self._inspector_chain.inspect(ctx)
+            if result.denied:
+                return ToolResult(
+                    success=False,
+                    error=f"Security inspection blocked: {result.reason}",
+                )
 
         child_args: dict[str, object] = {"action": resource}
         extra = {k: v for k, v in arguments.items() if k not in ("source", "resource")}

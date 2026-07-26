@@ -518,6 +518,13 @@ class DeterministicAgent:
         Returns:
             The model's response string.
         """
+        # Security guard: check for dangerous patterns in user input
+        # before sending to the LLM. This covers the chat() path which
+        # bypasses KnowledgeTool entirely.
+        danger = self._check_chat_safety(user_request)
+        if danger:
+            return danger
+
         try:
             from src.model.protocol.prompt_builder_v2 import _detect_language
 
@@ -555,6 +562,49 @@ class DeterministicAgent:
             return response
         except Exception as exc:
             return f"Sorry, I couldn't process that: {exc}"
+
+    @staticmethod
+    def _check_chat_safety(user_request: str) -> str | None:
+        """Check chat input for dangerous patterns before sending to LLM.
+
+        This guard covers the chat() path which bypasses KnowledgeTool
+        and sends raw user input directly to the model via assess_raw().
+        It uses the same detection patterns as ParameterSafetyInspector
+        to maintain consistent security coverage.
+
+        Returns:
+            An error message string if dangerous patterns are detected,
+            or None if the input is safe.
+        """
+        import re
+
+        dangerous_patterns = [
+            (r"\$\(.*\)", "command substitution detected"),
+            (r"`[^`]+`", "backtick command substitution detected"),
+            (r"\.\./", "path traversal detected"),
+            (r"\x00", "null byte injection detected"),
+            (r"(?i)(\bDROP\b\s+\bTABLE\b)", "DROP TABLE statement detected"),
+            (r"(?i)(\bDELETE\b\s+\bFROM\b)", "DELETE FROM statement detected"),
+        ]
+
+        for pattern, reason in dangerous_patterns:
+            if re.search(pattern, user_request):
+                return (
+                    f"I cannot process this request because it contains "
+                    f"potentially dangerous content ({reason}). "
+                    f"Please rephrase your question."
+                )
+
+        # Check for excessively long single "words" (possible injection).
+        # A legitimate Vietnamese sentence won't have >500-char tokens.
+        tokens = user_request.split()
+        if any(len(t) > 500 for t in tokens):
+            return (
+                "I cannot process this request because it contains "
+                "an excessively long token that may indicate an injection attempt."
+            )
+
+        return None
 
     def _build_chat_context(self) -> str:
         """Build a bounded chat context from conversation history.

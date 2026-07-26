@@ -17,3 +17,4 @@ class Capability:
     supported_targets: tuple[str, ...] = ()
     parameters: tuple[str, ...] = ()
     estimated_cost: float = 0.0
+    mutation_risk: str = "none"

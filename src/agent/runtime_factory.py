@@ -15,6 +15,10 @@ from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.intent_resolver import IntentResolver
+from src.pipeline.security.inspector_chain import InspectorChain
+from src.pipeline.security.parameter_safety_inspector import ParameterSafetyInspector
+from src.pipeline.security.read_only_inspector import ReadOnlyInspector
+from src.pipeline.security.target_inspector import TargetInspector
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.config import get_config
 from src.tool.knowledge_tool import KnowledgeTool
@@ -263,7 +267,18 @@ def create_deterministic_agent(
         message="Tools registered",
     )
 
-    kt = KnowledgeTool(target_registry=registry)
+    # Build the security inspector chain.
+    target_inspector = TargetInspector()
+    inspector_chain = InspectorChain()
+    inspector_chain.add(ReadOnlyInspector())
+    inspector_chain.add(ParameterSafetyInspector())
+    inspector_chain.add(target_inspector)
+
+    # Register known targets from the registry as safe targets.
+    for target_name in registry.target_names():
+        target_inspector.add_safe_target(target_name)
+
+    kt = KnowledgeTool(target_registry=registry, inspector_chain=inspector_chain)
 
     engine = ExecutionEngine(
         intent_resolver=IntentResolver(),
