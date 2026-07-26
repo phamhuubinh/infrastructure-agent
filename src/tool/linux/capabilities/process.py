@@ -39,7 +39,11 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     def _try_float(v: object) -> float:
         try:
-            return float(v) if v is not None else 0.0
+            if isinstance(v, (int, float)):
+                return float(v)
+            if isinstance(v, str):
+                return float(v)
+            return 0.0
         except (ValueError, TypeError):
             return 0.0
 

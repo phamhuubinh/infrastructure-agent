@@ -44,8 +44,8 @@ def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     high_usage = [
         d
         for d in disks
-        if d.get("use_percent", "0%").strip("%").isdigit()
-        and int(d["use_percent"].strip("%")) > 80
+        if str(d.get("use_percent", "0%")).strip("%").isdigit()
+        and int(str(d["use_percent"]).strip("%")) > 80
     ]
     return {
         "disks": disks,
@@ -128,8 +128,8 @@ def _get_filesystem_health(run: Callable[..., tuple[bool, str]]) -> dict[str, ob
     ro_mounts = [
         m
         for m in mounts
-        if "ro" in m.get("options", "")
-        and m.get("fstype") not in ("proc", "sysfs", "tmpfs")
+        if "ro" in str(m.get("options", ""))
+        and str(m.get("fstype", "")) not in ("proc", "sysfs", "tmpfs")
     ]
     return {
         "mounts": mounts,

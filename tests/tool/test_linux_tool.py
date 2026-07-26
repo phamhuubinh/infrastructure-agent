@@ -18,6 +18,7 @@ def test_execute_reports_unknown_action_with_available_list() -> None:
     result = tool.execute({"action": "get_disk_temperature"})
 
     assert result.success is False
+    assert result.error is not None
     assert "Unknown action: 'get_disk_temperature'" in result.error
     assert "get_system" in result.error
     assert "get_network" in result.error
@@ -196,6 +197,7 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
         "exited": 0,
         "failed": 0,
         "failed_services": [],
+        "services": [],
     }
 
 
@@ -245,6 +247,7 @@ def test_execute_reports_unknown_action_includes_new_capabilities() -> None:
     result = tool.execute({"action": "get_disk_temperature"})
 
     assert result.success is False
+    assert result.error is not None
     for name in [
         "get_cpu",
         "get_memory",
@@ -331,6 +334,7 @@ def test_get_memory_parses_meminfo(monkeypatch) -> None:
         "free_kb": 2048000,
         "available_kb": 8192000,
         "usage_percent": 50.0,
+        "top_consumers": [],
     }
 
 
@@ -351,6 +355,7 @@ def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
         "free_kb": 0,
         "available_kb": 0,
         "usage_percent": 0,
+        "top_consumers": [],
     }
 
 
@@ -1440,7 +1445,7 @@ def test_get_lxd_returns_empty_containers_on_invalid_json(monkeypatch) -> None:
 def test_linux_tool_accepts_ssh_backend(monkeypatch) -> None:
     from src.tool.execution_backend import SSHExecutionBackend
 
-    captured: list[tuple[list[str], int]] = []
+    captured: list[tuple[list[str] | None, int]] = []
 
     def fake_subprocess_run(*, command=None, **kwargs):
         captured.append((command, 0))
@@ -1607,7 +1612,7 @@ def test_local_backend_returns_false_on_timeout() -> None:
     from src.tool.execution_backend import LocalExecutionBackend
 
     backend = LocalExecutionBackend()
-    ok, output = backend.run(["sleep", "5"], timeout=0.01)
+    ok, output = backend.run(["sleep", "5"], timeout=1)
 
     assert ok is False
     assert output == ""

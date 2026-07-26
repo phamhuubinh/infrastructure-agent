@@ -22,8 +22,8 @@ class TestCollectBenchmarkMetadata:
     def test_server_without_model_resolves_from_file(self) -> None:
         meta = collect_benchmark_metadata(server_name="sv1")
         assert meta["server"] == "sv1"
-        # sv1 in servers.json has model "deepseek-ai/DeepSeek-V4-Flash"
-        assert meta["model"] == "deepseek-ai/DeepSeek-V4-Flash"
+        # sv1 in servers.json has model "qwen"
+        assert meta["model"] == "qwen"
 
     def test_timestamp_is_int(self) -> None:
         meta = collect_benchmark_metadata()

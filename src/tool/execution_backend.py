@@ -5,7 +5,7 @@ import subprocess
 import time as _time
 from abc import ABC, abstractmethod
 
-from src.shared.logger import error, info
+from src.shared.logger import error, info, warning
 
 
 class ExecutionBackend(ABC):
@@ -51,13 +51,17 @@ class LocalExecutionBackend(ExecutionBackend):
 
         if completed.returncode != 0:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            error(
+            # Non-zero exit is not necessarily an error
+            # (e.g. service not running, command not found on target).
+            # Use WARNING — only truly fatal failures (OSError, TimeoutExpired)
+            # should be ERROR.
+            warning(
                 "exec",
                 command=cmd_str,
-                status="failed",
+                status="non-zero",
                 returncode=completed.returncode,
                 host="localhost",
-                message="Failed",
+                message="Non-zero exit",
             )
             return False, ""
 
@@ -162,13 +166,18 @@ class SSHExecutionBackend(ExecutionBackend):
                     False,
                     "SSH authentication failed (password prompted). Use SSH key authentication.",
                 )
-            error(
+            # Non-zero exit is not necessarily an error
+            # (e.g. service not running, command not found on target).
+            # Use WARNING — only truly fatal failures (OSError, TimeoutExpired)
+            # should be ERROR.
+            warning(
                 "exec",
                 command=cmd_str,
-                status="failed",
+                status="non-zero",
+                returncode=completed.returncode,
                 error=err_msg,
                 host=host,
-                message="Failed",
+                message="Non-zero exit",
             )
             return False, err_msg
 

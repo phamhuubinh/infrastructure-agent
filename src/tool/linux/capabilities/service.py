@@ -18,7 +18,7 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         ]
     )
 
-    services: list[dict[str, object]] = []
+    services: list[dict[str, str]] = []
     running = 0
     exited = 0
     failed = 0
@@ -35,6 +35,7 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 "load": parts[1],
                 "active": parts[2],
                 "sub": parts[3],
+                "status": parts[3],
             }
             services.append(service)
             if parts[2] == "active" and parts[3] == "running":
@@ -52,6 +53,7 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         "exited": exited,
         "failed": failed,
         "failed_services": failed_names,
+        "services": services,
     }
 
 
