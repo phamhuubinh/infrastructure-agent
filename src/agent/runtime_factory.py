@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
-from src.agent.conversation_store import ConversationStore
+from src.agent.conversation_store import ConversationStoreProtocol
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
@@ -404,7 +404,7 @@ def create_deterministic_agent(
     server_name: str | None = None,
     model: str | None = None,
     assessment_adapter: AssessmentModelAdapter | None = None,
-    conversation_store: ConversationStore | None = None,
+    conversation_store: ConversationStoreProtocol | None = None,
 ) -> DeterministicAgent:
     """Build the production deterministic runtime.
 

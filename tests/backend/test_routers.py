@@ -35,56 +35,57 @@ def test_list_sessions_empty(app):
 def test_list_sessions_with_data(app, tmp_path):
     from fastapi.testclient import TestClient
 
-    sess_dir = tmp_path / "sessions"
-    sess_dir.mkdir(parents=True)
-    (sess_dir / "abc123.json").write_text(
-        json.dumps(
-            {
-                "session_id": "abc123",
-                "title": "Test Session",
-                "source": "api",
-                "messages": [],
-            }
-        )
-    )
+    from src.backend.sqlite_store import SQLiteConversationStore
+
+    db = tmp_path / "test_sessions.db"
+    store = SQLiteConversationStore("abc123", db_path=db, source="api")
+    store.set_title("Test Session")
+    store.add_turn("hello", "world")
+
     with (
         mock.patch("src.backend.dependencies._get_dsn", return_value=None),
         mock.patch("src.model.llm_client.LLMClient.health_check", return_value=True),
     ):
         app_obj, _, _ = create_app(database_url="")
-        app_obj.state.deps.sessions_dir = str(sess_dir)
-        client = TestClient(app_obj)
-        resp = client.get("/api/sessions")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["sessions"]) >= 1
-        ids = [s["id"] for s in data["sessions"]]
-        assert "abc123" in ids
+        with mock.patch(
+            "src.backend.routers.sessions.SQLiteConversationStore.list_sessions",
+            return_value=SQLiteConversationStore.list_sessions(db_path=db),
+        ):
+            client = TestClient(app_obj)
+            resp = client.get("/api/sessions")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["sessions"]) >= 1
+            ids = [s["id"] for s in data["sessions"]]
+            assert "abc123" in ids
 
 
 def test_delete_session_not_found(app):
-    resp = app.delete("/api/sessions/nonexistent")
-    assert resp.status_code == 404
-    assert "not found" in resp.json()["detail"].lower()
+    with mock.patch(
+        "src.backend.routers.sessions.SQLiteConversationStore.delete_session",
+        return_value=False,
+    ):
+        resp = app.delete("/api/sessions/nonexistent")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
 
 
-def test_delete_session_success(app, tmp_path):
+def test_delete_session_success(app):
     from fastapi.testclient import TestClient
 
-    sess_dir = tmp_path / "sessions"
-    sess_dir.mkdir(parents=True)
-    sess_file = sess_dir / "delme.json"
-    sess_file.write_text(
-        json.dumps({"session_id": "delme", "title": "Delete Me", "messages": []})
-    )
-    with mock.patch("src.backend.dependencies._get_dsn", return_value=None):
+    with (
+        mock.patch("src.backend.dependencies._get_dsn", return_value=None),
+        mock.patch("src.model.llm_client.LLMClient.health_check", return_value=True),
+    ):
         app_obj, _, _ = create_app(database_url="")
-        app_obj.state.deps.sessions_dir = str(sess_dir)
-        client = TestClient(app_obj)
-        resp = client.delete("/api/sessions/delme")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "deleted"
-        assert not sess_file.exists()
+        with mock.patch(
+            "src.backend.routers.sessions.SQLiteConversationStore.delete_session",
+            return_value=True,
+        ):
+            client = TestClient(app_obj)
+            resp = client.delete("/api/sessions/delme")
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "deleted"
 
 
 def test_rename_session_missing_title(app):
@@ -94,28 +95,41 @@ def test_rename_session_missing_title(app):
 
 
 def test_rename_session_not_found(app):
-    resp = app.patch("/api/sessions/nonexistent", json={"title": "New Title"})
-    assert resp.status_code == 404
-    assert "not found" in resp.json()["detail"].lower()
-
-
-def test_rename_session_success(app, tmp_path):
     from fastapi.testclient import TestClient
 
-    sess_dir = tmp_path / "sessions"
-    sess_dir.mkdir(parents=True)
-    (sess_dir / "rename_me.json").write_text(
-        json.dumps({"session_id": "rename_me", "title": "Old Title", "messages": []})
-    )
-    with mock.patch("src.backend.dependencies._get_dsn", return_value=None):
+    with (
+        mock.patch("src.backend.dependencies._get_dsn", return_value=None),
+        mock.patch("src.model.llm_client.LLMClient.health_check", return_value=True),
+    ):
         app_obj, _, _ = create_app(database_url="")
-        app_obj.state.deps.sessions_dir = str(sess_dir)
-        client = TestClient(app_obj)
-        resp = client.patch("/api/sessions/rename_me", json={"title": "New Title"})
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "renamed"
-        data = json.loads((sess_dir / "rename_me.json").read_text())
-        assert data["title"] == "New Title"
+        with mock.patch(
+            "src.backend.routers.sessions.SQLiteConversationStore.rename_session",
+            return_value=False,
+        ):
+            client = TestClient(app_obj)
+            resp = client.patch(
+                "/api/sessions/nonexistent", json={"title": "New Title"}
+            )
+            assert resp.status_code == 404
+            assert "not found" in resp.json()["detail"].lower()
+
+
+def test_rename_session_success(app):
+    from fastapi.testclient import TestClient
+
+    with (
+        mock.patch("src.backend.dependencies._get_dsn", return_value=None),
+        mock.patch("src.model.llm_client.LLMClient.health_check", return_value=True),
+    ):
+        app_obj, _, _ = create_app(database_url="")
+        with mock.patch(
+            "src.backend.routers.sessions.SQLiteConversationStore.rename_session",
+            return_value=True,
+        ):
+            client = TestClient(app_obj)
+            resp = client.patch("/api/sessions/rename_me", json={"title": "New Title"})
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "renamed"
 
 
 # ── Knowledge ─────────────────────────────────────────────────────────

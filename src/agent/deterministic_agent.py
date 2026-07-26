@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from src.agent.conversation_store import ConversationStore
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.agent.conversation_store import ConversationStoreProtocol
+
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.protocol.prompt_builder_v2 import (
     _normalize_evidence,
@@ -38,7 +42,7 @@ class DeterministicAgent:
         self,
         execution_engine: ExecutionEngine,
         assessment_model: AssessmentModelAdapter,
-        conversation_store: ConversationStore | None = None,
+        conversation_store: ConversationStoreProtocol | None = None,  # type: ignore[valid-type]
         evidence_cache: object = None,
     ) -> None:
         self._execution_engine = execution_engine
@@ -66,15 +70,16 @@ class DeterministicAgent:
             return False
 
     @property
-    def conversation_store(self) -> ConversationStore | None:
+    def conversation_store(self) -> ConversationStoreProtocol | None:  # type: ignore[valid-type]
         """Read-only access to the conversation store."""
         return self._conversation_store
 
     @conversation_store.setter
-    def conversation_store(self, store: ConversationStore) -> None:
+    def conversation_store(self, store: ConversationStoreProtocol | None) -> None:  # type: ignore[valid-type]
         """Set the conversation store after initialization."""
         self._conversation_store = store
-        self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
+        if store:
+            store.set_summarize_fn(self._assessment_model.assess_raw)
 
     def run(self, user_request: str) -> str:
         """Run a full deterministic investigation and return assessment.

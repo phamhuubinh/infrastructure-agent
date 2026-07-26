@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
+from pathlib import Path
 
-from src.agent.conversation_store import ConversationStore, list_sessions
 from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.app import run_web
+from src.backend.sqlite_store import (
+    SQLiteConversationStore,
+    migrate_json_to_sqlite,
+)
 from src.shared.logger import info as _info
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
@@ -115,7 +118,8 @@ def _run_agent(args: argparse.Namespace) -> None:
     else:
         resume_id = uuid4().hex[:12]
 
-    store = ConversationStore(
+    # SQLite is the default persistence backend (replaces JSON files).
+    store = SQLiteConversationStore(
         session_id=resume_id,
         source="terminal",
     )
@@ -259,6 +263,7 @@ def main() -> None:
             "    session list        List all saved sessions\n"
             "    session delete <id> Delete a specific session by ID\n"
             "    session clean       Delete ALL sessions\n"
+            "  migrate              Migrate JSON sessions to SQLite\n"
             "  run                   Run terminal agent (default)\n"
             "    --server <name>       Model server (default: sv1)\n"
             "    --model <name>        Override model name\n"
@@ -290,6 +295,21 @@ def main() -> None:
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
     del_parser.add_argument("-y", "--yes", action="store_true", help=argparse.SUPPRESS)
     session_sub.add_parser("clean", help=argparse.SUPPRESS)
+
+    # Migrate command: JSON → SQLite
+    migrate_parser = subparsers.add_parser("migrate", help=argparse.SUPPRESS)
+    migrate_parser.add_argument(
+        "--json-dir",
+        type=str,
+        default=None,
+        help="JSON sessions directory (default: ~/.orion/sessions/)",
+    )
+    migrate_parser.add_argument(
+        "--sqlite-path",
+        type=str,
+        default=None,
+        help="SQLite database path (default: ~/.orion/sessions.db)",
+    )
 
     run_parser = subparsers.add_parser("run", help=argparse.SUPPRESS)
     run_parser.add_argument(
@@ -375,14 +395,18 @@ def main() -> None:
         parser.print_help()
         return
 
+    if args.command == "migrate":
+        count = migrate_json_to_sqlite(
+            json_dir=args.json_dir,
+            sqlite_path=args.sqlite_path,
+        )
+        print(f"Migrated {count} sessions from JSON to SQLite.")
+        return
+
     if args.command == "session":
-        from pathlib import Path
-
-        sessions_dir = str(Path.home() / ".orion" / "sessions")
-
         if args.session_action == "delete":
-            path = Path(sessions_dir) / f"{args.id}.json"
-            if not os.path.exists(path):
+            deleted = SQLiteConversationStore.delete_session(args.id)
+            if not deleted:
                 print(f"Session '{args.id}' not found.")
                 return
             if not args.yes:
@@ -390,19 +414,21 @@ def main() -> None:
                 if ans not in ("y", "yes"):
                     print("Cancelled.")
                     return
-            os.remove(path)
             print(f"Session '{args.id}' deleted.")
             return
 
         if args.session_action == "clean":
-            import shutil
+            DB_PATH = Path.home() / ".orion" / "sessions.db"
+            import os as _os
 
-            if os.path.exists(sessions_dir):
-                shutil.rmtree(sessions_dir)
-                print("All sessions deleted.")
+            if _os.path.exists(DB_PATH):
+                _os.remove(DB_PATH)
+                print("All sessions deleted (SQLite database removed).")
+            else:
+                print("No sessions database found.")
             return
 
-        sessions = list_sessions()
+        sessions = SQLiteConversationStore.list_sessions()
         if not sessions:
             print("No sessions found.")
             return

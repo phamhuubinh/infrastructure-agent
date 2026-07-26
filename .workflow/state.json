@@ -11,7 +11,7 @@
     {"id": "008", "status": "completed", "title": "Multi-Provider LLM"},
     {"id": "009", "status": "completed", "title": "Immutable Pipeline State"},
     {"id": "010", "status": "completed", "title": "RAG Subsystem Rationalization"},
-    {"id": "011", "status": "pending", "title": "SQLite Default Persistence"},
+    {"id": "011", "status": "completed", "title": "SQLite Default Persistence"},
     {"id": "012", "status": "pending", "title": "Config Error Handling Policy"},
     {"id": "013", "status": "pending", "title": "Plugin Extension System Horizon"}
   ],
@@ -126,7 +126,7 @@
     {"id": 631, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Add Grafana time series query with time_range support"},
     {"id": 632, "status": "completed", "priority": "P3", "wp": "6.9", "title": "[Phase 6] Build visualization response"}
   ],
-  "metrics": {"commits_made": 42, "tests_passed": 1007, "tests_total": 1011},
+  "metrics": {"commits_made": 43, "tests_passed": 1115, "tests_total": 1119},
   "phase_4": {"total": 18, "completed": 18},
   "phase_5": {"total": 25, "completed": 25},
   "phase_6": {"total": 32, "completed": 32, "wp": {
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 10}
+  "sprint_1": {"total": 13, "completed": 11}
 }

@@ -4,7 +4,7 @@ import os
 import uuid
 from pathlib import Path
 
-from src.agent.conversation_store import ConversationStore
+from src.agent.conversation_store import ConversationStore, ConversationStoreProtocol
 from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.db import (
     PostgresConversationStore,
@@ -13,6 +13,7 @@ from src.backend.db import (
     init_db,
     init_documents_db,
 )
+from src.backend.sqlite_store import SQLiteConversationStore
 from src.shared.logger import info as _info
 
 
@@ -26,6 +27,7 @@ class AppState:
     ) -> None:
         self.target_store_path = target_store_path
         self.dsn = database_url or _get_dsn()
+        self.use_postgresql = bool(self.dsn)
         self.agent = create_deterministic_agent(
             target_store_path=target_store_path,
             server_name=server_name,
@@ -41,9 +43,16 @@ class AppState:
                 message="PostgreSQL session store initialized",
                 dsn=_mask_dsn(self.dsn),
             )
+        else:
+            _info(
+                "database",
+                message="SQLite session store used (default)",
+            )
 
         self.sessions_dir = str(Path.home() / ".orion" / "sessions")
-        self.web_sessions: dict[str, ConversationStore] = {}
+        self.web_sessions: dict[
+            str, ConversationStoreProtocol
+        ] = {}
         self.rag_service_url = os.environ.get(
             "RAG_SERVICE_URL", "http://rag-service:8080"
         )
@@ -63,7 +72,7 @@ class AppState:
         if old_cs is not None:
             self.agent.conversation_store = old_cs
 
-    def get_or_create_session(self, session_id: str | None) -> ConversationStore:
+    def get_or_create_session(self, session_id: str | None) -> ConversationStoreProtocol:
         sid = session_id or uuid.uuid4().hex[:12]
         if sid not in self.web_sessions:
             if self.dsn:
@@ -74,9 +83,9 @@ class AppState:
                     summarize_fn=self.agent.assessment_model.assess_raw,
                 )
             else:
-                cs = ConversationStore(
+                # SQLite is the default persistence backend
+                cs = SQLiteConversationStore(
                     session_id=sid,
-                    store_dir=self.sessions_dir,
                     source="api",
                     summarize_fn=self.agent.assessment_model.assess_raw,
                 )

@@ -5,9 +5,43 @@ import threading
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from src.shared.logger import info
+
+
+@runtime_checkable
+class ConversationStoreProtocol(Protocol):
+    """Protocol defining the interface all conversation stores must implement.
+
+    Implemented by:
+    - ConversationStore (JSON files — legacy)
+    - PostgresConversationStore (PostgreSQL — when ORION_DATABASE_URL is set)
+    - SQLiteConversationStore (SQLite — default as of Task 011)
+    """
+
+    @property
+    def history(self) -> list[dict[str, str]]: ...
+
+    def set_title(self, value: str) -> None: ...
+
+    def add_turn(self, user: str, assistant: str) -> None: ...
+
+    def add_classifier_turn(self, user: str, label: str) -> None: ...
+
+    def set_summarize_fn(self, fn: Callable[[str], str]) -> None: ...
+
+    def set_summary(self, summary: str) -> None: ...
+
+    def summarize(self) -> None: ...
+
+    @property
+    def summary(self) -> str | None: ...
+    @property
+    def title(self) -> str: ...
+    @property
+    def session_id(self) -> str: ...
+
 
 _SUMMARIZE_SYSTEM_PROMPT = """You are a conversation summarizer for an infrastructure monitoring assistant.
 
