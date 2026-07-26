@@ -9,19 +9,42 @@ class ThresholdEvaluator:
 
     # Thresholds: (metric_key, operator, threshold_value) → severity
     # operator: "gt" (>), "lt" (<), "ge" (>=), "le" (<=), "eq" (==), "ne" (!=)
+    #
+    # Risk levels are calibrated for production servers:
+    #   - >90% : critical (imminent risk of failure)
+    #   - >80% : warning (needs attention)
+    #   - <=80% : ok (normal operating range)
+    # Disk thresholds use used_pct which is expected to be 0-100.
     _THRESHOLDS: tuple[tuple[str, str, float, str], ...] = (
+        # Disk: any filesystem > 90% is critical, > 80% is warning.
         ("usage_percent", "gt", 90.0, "critical"),
         ("usage_percent", "gt", 80.0, "warning"),
         ("used_pct", "gt", 90.0, "critical"),
         ("used_pct", "gt", 80.0, "warning"),
+        # Memory/RAM: > 90% critical, > 80% warning.
         ("memory_usage", "gt", 90.0, "critical"),
         ("memory_usage", "gt", 80.0, "warning"),
+        ("memory_usage_pct", "gt", 90.0, "critical"),
+        ("memory_usage_pct", "gt", 80.0, "warning"),
+        # CPU: > 90% critical, > 80% warning.
         ("cpu_usage", "gt", 90.0, "critical"),
         ("cpu_usage", "gt", 80.0, "warning"),
+        # Swap: any swap usage > 50% is warning (indicates memory pressure).
+        ("swap_used_pct", "gt", 50.0, "warning"),
+        ("swap_used_pct", "gt", 80.0, "critical"),
+        ("swap_usage", "gt", 50.0, "warning"),
+        ("swap_usage", "gt", 80.0, "critical"),
+        # Zombie processes: any zombie is a warning.
         ("zombie_count", "gt", 0.0, "warning"),
         ("zombies", "gt", 0.0, "warning"),
+        # Load average: depends on core count. Conservative defaults.
         ("load_1min", "gt", 8.0, "critical"),
         ("load_1min", "gt", 4.0, "warning"),
+        ("load_5min", "gt", 6.0, "critical"),
+        ("load_5min", "gt", 3.0, "warning"),
+        # Failed services: any failed service is at least warning.
+        ("failed_services_count", "gt", 0.0, "warning"),
+        ("failed_count", "gt", 0.0, "warning"),
     )
 
     def evaluate(self, data: dict) -> str | None:

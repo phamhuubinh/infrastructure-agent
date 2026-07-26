@@ -12,6 +12,11 @@ class DeterministicResponder:
 
     def try_response(self, investigation: InvestigationRequest) -> str | None:
         raw = investigation.raw_request.lower()
+
+        # Extract params for service-specific queries.
+        params = getattr(investigation, "extracted_params", None)
+        target_service = params.service_name if params else None
+
         is_service_status = any(
             kw in raw
             for kw in (
@@ -23,7 +28,7 @@ class DeterministicResponder:
                 "disabled",
                 "enabled",
             )
-        ) and any(kw in raw for kw in ("service", "dịch vụ", "sshd", "nginx"))
+        ) and any(kw in raw for kw in ("service", "dịch vụ", "sshd", "nginx", "docker"))
 
         is_hostname = any(kw in raw for kw in ("hostname", "tên máy"))
         is_kernel = any(
@@ -47,18 +52,70 @@ class DeterministicResponder:
                 "mức tải",
             )
         )
+        is_uptime = any(
+            kw in raw
+            for kw in (
+                "uptime",
+                "thời gian chạy",
+                "thời gian hoạt động",
+                "đã chạy bao lâu",
+                "chạy được bao lâu",
+                "chạy bao lâu",
+            )
+        )
+        is_swap = any(kw in raw for kw in ("swap", "bộ nhớ ảo", "phân vùng trao đổi"))
+        is_port_listen = any(
+            kw in raw
+            for kw in (
+                "port",
+                "cổng",
+                "listen",
+                "listening",
+                "đang listen",
+                "đang mở",
+                "lắng nghe",
+                "cổng nào",
+            )
+        )
+        is_zombie = any(
+            kw in raw for kw in ("zombie", "process zombie", "tiến trình zombie")
+        )
+        is_disk_full = any(
+            kw in raw
+            for kw in (
+                "đầy",
+                "full",
+                "gần đầy",
+                "còn trống",
+                "còn bao nhiêu",
+                "dung lượng",
+            )
+        )
 
         for pkg in investigation.evidence:
             if not pkg.success or not isinstance(pkg.data, dict):
                 continue
 
-            if pkg.evidence_name == "Processes":
+            if (
+                pkg.evidence_name in ("Processes", "Processes Information")
+                and is_zombie
+            ):
                 result = self._check_zombie_processes(pkg.data)
                 if result is not None:
                     return result
 
-            if pkg.evidence_name == "Service Status" and is_service_status:
-                result = self._check_service_status(pkg.data)
+            if pkg.evidence_name == "Processes" and not is_zombie:
+                result = self._check_zombie_processes(pkg.data)
+                if result is not None:
+                    return result
+
+            if (
+                pkg.evidence_name in ("Service Status", "Services")
+                and is_service_status
+            ):
+                result = self._check_service_status(
+                    pkg.data, service_name=target_service
+                )
                 if result is not None:
                     return result
 
@@ -90,6 +147,29 @@ class DeterministicResponder:
                 if result is not None:
                     return result
 
+            if pkg.evidence_name in ("CPU", "CPU Information") and is_uptime:
+                result = self._check_uptime(pkg.data)
+                if result is not None:
+                    return result
+
+            if pkg.evidence_name in ("Memory", "Memory Information") and is_swap:
+                result = self._check_swap(pkg.data)
+                if result is not None:
+                    return result
+
+            if (
+                pkg.evidence_name in ("Network", "Network Information")
+                and is_port_listen
+            ):
+                result = self._check_listening_ports(pkg.data)
+                if result is not None:
+                    return result
+
+            if pkg.evidence_name in ("Storage", "Filesystem") and is_disk_full:
+                result = self._check_disk_full(pkg.data)
+                if result is not None:
+                    return result
+
         return None
 
     def _check_zombie_processes(self, data: dict) -> str | None:
@@ -116,8 +196,69 @@ class DeterministicResponder:
             f"Check the parent process or restart the orphaned service."
         )
 
-    def _check_service_status(self, data: dict) -> str | None:
+    def _check_service_status(
+        self, data: dict, service_name: str | None = None
+    ) -> str | None:
         failed_svcs = data.get("failed") or data.get("failed_services") or []
+        all_svcs = data.get("services") or data.get("service_list") or []
+
+        # If user asked about a specific service, look it up.
+        if service_name:
+            # Normalize common service name variants.
+            _svc_map = {
+                "sshd": ["sshd", "ssh", "openssh-server"],
+                "nginx": ["nginx"],
+                "docker": ["docker"],
+                "apache2": ["apache2", "httpd", "apache"],
+                "postgresql": ["postgresql", "postgres"],
+                "mysql": ["mysql", "mariadb"],
+                "redis": ["redis", "redis-server"],
+                "mongod": ["mongod", "mongodb"],
+            }
+            lookup_names = _svc_map.get(service_name, [service_name])
+
+            # Search through service lists for a match.
+            svc_entry = None
+            for svc in all_svcs:
+                if isinstance(svc, dict):
+                    name = str(svc.get("name", svc.get("service", ""))).lower()
+                    status = str(svc.get("status", svc.get("state", ""))).lower()
+                    if any(ln in name for ln in lookup_names):
+                        svc_entry = {"name": name, "status": status}
+                        break
+                elif isinstance(svc, str):
+                    if any(ln in svc.lower() for ln in lookup_names):
+                        svc_entry = {"name": svc, "status": "unknown"}
+                        break
+
+            if svc_entry:
+                svc_status = svc_entry.get("status", "unknown")
+                status_emoji = (
+                    "✅" if svc_status in ("active", "running", "enabled") else "❌"
+                )
+                return (
+                    f"## Service: {svc_entry['name']}\n\n"
+                    f"{status_emoji} Status: **{svc_status}**"
+                )
+
+            # Check failed list.
+            for fs in failed_svcs:
+                if any(ln in str(fs).lower() for ln in lookup_names):
+                    return (
+                        f"## Service: {service_name}\n\n"
+                        f"❌ Status: **failed**\n\n"
+                        f"Use `systemctl status {service_name}` or "
+                        f"`journalctl -u {service_name}` for detailed error logs."
+                    )
+
+            # Service not found in data.
+            return (
+                f"## Service: {service_name}\n\n"
+                f"⚠️ Could not find **{service_name}** in the service list. "
+                f"It may not be installed or the service name may differ."
+            )
+
+        # Generic service status check.
         if isinstance(failed_svcs, list) and failed_svcs:
             f_list = [str(s) for s in failed_svcs[:10]]
             summary = ", ".join(f_list)
@@ -131,7 +272,6 @@ class DeterministicResponder:
                 f"for detailed error logs."
             )
 
-        all_svcs = data.get("services") or data.get("service_list") or []
         total = data.get("total") or data.get("service_count")
         if total is None:
             total = len(all_svcs)
@@ -227,3 +367,182 @@ class DeterministicResponder:
         if load_15 is not None:
             parts.append(f"15 min: **{load_15}**")
         return f"## Load Average\n\n{' | '.join(parts)}"
+
+    def _check_uptime(self, data: dict) -> str | None:
+        """Extract uptime from CPU or System Information evidence."""
+        uptime_sec = (
+            data.get("uptime_seconds") or data.get("uptime") or data.get("uptime_sec")
+        )
+        if uptime_sec is None:
+            return None
+        if isinstance(uptime_sec, (int, float)):
+            days = int(uptime_sec // 86400)
+            hours = int((uptime_sec % 86400) // 3600)
+            minutes = int((uptime_sec % 3600) // 60)
+            parts = []
+            if days > 0:
+                parts.append(f"{days} day{'s' if days > 1 else ''}")
+            if hours > 0:
+                parts.append(f"{hours} hour{'s' if hours > 1 else ''}")
+            if minutes > 0 or not parts:
+                parts.append(f"{minutes} minute{'s' if minutes > 1 else ''}")
+            uptime_str = ", ".join(parts)
+            return f"## Uptime\n\n**{uptime_str}**"
+        return f"## Uptime\n\n**{uptime_sec}**"
+
+    def _check_swap(self, data: dict) -> str | None:
+        """Extract swap usage from Memory evidence."""
+        swap_total = data.get("swap_total") or data.get("swap_total_kb")
+        swap_used = data.get("swap_used") or data.get("swap_used_kb")
+
+        if swap_total is None and swap_used is None:
+            return None
+
+        lines = []
+        if swap_total is not None:
+            if isinstance(swap_total, (int, float)) and swap_total > 0:
+                total_gb = round(swap_total / (1024**2), 1)
+                lines.append(f"Total: **{total_gb} GB**")
+            else:
+                lines.append(f"Total: **{swap_total}**")
+        else:
+            lines.append("Total: **N/A**")
+
+        if swap_used is not None:
+            if isinstance(swap_used, (int, float)):
+                used_gb = round(swap_used / (1024**2), 1)
+                lines.append(f"Used: **{used_gb} GB**")
+            else:
+                lines.append(f"Used: **{swap_used}**")
+        else:
+            lines.append("Used: **N/A**")
+
+        if (
+            isinstance(swap_total, (int, float))
+            and isinstance(swap_used, (int, float))
+            and swap_total > 0
+        ):
+            pct = round((swap_used / swap_total) * 100, 1)
+            lines.append(f"Usage: **{pct}%**")
+
+        return "## Swap\n\n" + "\n".join(lines)
+
+    def _check_listening_ports(self, data: dict) -> str | None:
+        """Extract listening ports from Network evidence."""
+        ports = (
+            data.get("listening_ports") or data.get("open_ports") or data.get("ports")
+        )
+        if not ports:
+            return None
+
+        if isinstance(ports, list):
+            port_lines = []
+            for p in ports[:20]:
+                if isinstance(p, dict):
+                    port_num = p.get("port", p.get("number", "?"))
+                    proto = p.get("protocol", p.get("proto", ""))
+                    service = p.get("service", p.get("name", ""))
+                    entry = f"- **{port_num}**/{proto}"
+                    if service:
+                        entry += f" ({service})"
+                    port_lines.append(entry)
+                else:
+                    port_lines.append(f"- {p}")
+            if len(ports) > 20:
+                port_lines.append(f"  (+{len(ports) - 20} more)")
+            return (
+                f"## Listening Ports\n\n"
+                f"{len(ports)} port{'s' if len(ports) > 1 else ''} listening:\n\n"
+                + "\n".join(port_lines)
+            )
+
+        if isinstance(ports, dict):
+            port_lines = []
+            for port_num, info in list(ports.items())[:20]:
+                if isinstance(info, dict):
+                    service = info.get("service", info.get("name", ""))
+                    entry = f"- **{port_num}**"
+                    if service:
+                        entry += f" ({service})"
+                    port_lines.append(entry)
+                else:
+                    port_lines.append(f"- **{port_num}**: {info}")
+            return (
+                f"## Listening Ports\n\n"
+                f"{len(ports)} port{'s' if len(ports) > 1 else ''} listening:\n\n"
+                + "\n".join(port_lines)
+            )
+
+        return f"## Listening Ports\n\n**{ports}**"
+
+    def _check_disk_full(self, data: dict) -> str | None:
+        """Check if any filesystem is near capacity."""
+        filesystems = (
+            data.get("filesystems") or data.get("mounts") or data.get("mount_points")
+        )
+        if not filesystems:
+            # Check for single filesystem data.
+            total = data.get("total") or data.get("total_kb")
+            used = data.get("used") or data.get("used_kb")
+            if total is not None and used is not None:
+                pct = round((used / total) * 100, 1) if total > 0 else 0
+                mount = data.get("mount", data.get("mount_point", "/"))
+                return f"## Disk: {mount}\n\n**{pct}%** used"
+            return None
+
+        if isinstance(filesystems, list):
+            fs_lines = []
+            near_full = []
+            for fs in filesystems[:15]:
+                if isinstance(fs, dict):
+                    mount = fs.get("mount", fs.get("mount_point", "?"))
+                    used_pct = fs.get(
+                        "used_pct", fs.get("usage_percent", fs.get("pct"))
+                    )
+                    if used_pct is not None:
+                        pct_val = (
+                            float(used_pct) if isinstance(used_pct, str) else used_pct
+                        )
+                        if pct_val > 80:
+                            near_full.append((mount, pct_val))
+                    fs_lines.append(f"- **{mount}**: {used_pct}%")
+                else:
+                    fs_lines.append(f"- {fs}")
+            if len(filesystems) > 15:
+                fs_lines.append(f"  (+{len(filesystems) - 15} more)")
+
+            result = "## Disk Usage\n\n" + "\n".join(fs_lines)
+            if near_full:
+                nf_summary = ", ".join(f"**{m}** ({p:.1f}%)" for m, p in near_full)
+                result += (
+                    f"\n\n⚠️ **Near capacity**: {nf_summary}\n"
+                    f"Consider freeing space or expanding storage."
+                )
+            return result
+
+        if isinstance(filesystems, dict):
+            fs_lines = []
+            near_full = []
+            for mount, info in list(filesystems.items())[:15]:
+                if isinstance(info, dict):
+                    used_pct = info.get("used_pct", info.get("usage_percent"))
+                    if used_pct is not None:
+                        pct_val = (
+                            float(used_pct) if isinstance(used_pct, str) else used_pct
+                        )
+                        if pct_val > 80:
+                            near_full.append((mount, pct_val))
+                    fs_lines.append(f"- **{mount}**: {used_pct}%")
+                else:
+                    fs_lines.append(f"- **{mount}**: {info}")
+
+            result = "## Disk Usage\n\n" + "\n".join(fs_lines)
+            if near_full:
+                nf_summary = ", ".join(f"**{m}** ({p:.1f}%)" for m, p in near_full)
+                result += (
+                    f"\n\n⚠️ **Near capacity**: {nf_summary}\n"
+                    f"Consider freeing space or expanding storage."
+                )
+            return result
+
+        return None

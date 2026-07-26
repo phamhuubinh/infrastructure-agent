@@ -15,6 +15,9 @@ def _to_int(value: str) -> int:
 def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     Subsystem: system memory (from /proc/meminfo, values in kB).
+
+    Also collects swap and top memory consumers inline so the assessment
+    always has this data without requiring separate capability calls.
     """
     ok, output = run(["cat", "/proc/meminfo"])
 
@@ -26,13 +29,60 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     usage_percent = round((1 - available / total) * 100, 1) if total > 0 else 0
 
     used = total - available if total > available else 0
-    return {
+
+    # Collect swap info from /proc/meminfo (always available, same file).
+    swap_total = _to_int(raw.get("SwapTotal", "0"))
+    swap_free = _to_int(raw.get("SwapFree", "0"))
+    swap_used = swap_total - swap_free
+    swap_usage_percent = (
+        round((swap_used / swap_total) * 100, 1) if swap_total > 0 else 0
+    )
+
+    # Collect top memory consumers via ps.
+    top_consumers: list[dict[str, object]] = []
+    try:
+        ps_ok, ps_out = run(
+            ["ps", "aux", "--sort=-%mem", "--no-headers"],
+            timeout=10,
+        )
+        if ps_ok and ps_out.strip():
+            lines = ps_out.strip().split("\n")[:6]
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 11:
+                    top_consumers.append(
+                        {
+                            "user": parts[0],
+                            "pid": parts[1],
+                            "cpu_pct": parts[2],
+                            "mem_pct": parts[3],
+                            "command": parts[10],
+                        }
+                    )
+    except Exception:
+        pass
+
+    result: dict[str, object] = {
         "total_kb": total,
         "used_kb": used,
         "free_kb": free,
         "available_kb": available,
         "usage_percent": usage_percent,
+        "swap_total_kb": swap_total,
+        "swap_used_kb": swap_used,
+        "swap_free_kb": swap_free,
+        "swap_usage_percent": swap_usage_percent,
+        "top_consumers": top_consumers,
     }
+
+    # Strip empty/none values for cleaner serialization.
+    if swap_total == 0:
+        del result["swap_total_kb"]
+        del result["swap_used_kb"]
+        del result["swap_free_kb"]
+        del result["swap_usage_percent"]
+
+    return result
 
 
 def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:

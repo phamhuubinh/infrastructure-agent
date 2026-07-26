@@ -148,6 +148,9 @@ class TargetResolver:
         self._skip_words: frozenset[str] = frozenset()
         self._localhost_synonyms: list[str] = []
         self._target_patterns: list[dict[str, str]] = []
+        # Per-session cache of bad targets (words that previously failed resolution).
+        # Prevents repeating the same UnknownTargetError across multiple turns.
+        self._bad_targets: set[str] = set()
 
     def _ensure_loaded(self) -> None:
         """Lazy-load the target aliases YAML config."""
@@ -238,6 +241,12 @@ class TargetResolver:
                 request.target = "localhost"
                 return
 
+        # Step 0.5: Check bad-target cache — if this word failed before, skip it.
+        for word in words:
+            if word in self._bad_targets:
+                # Already tried and failed — don't retry same resolution path.
+                raise UnknownTargetError(word, known_names)
+
         # Step 1: Check aliases (fastest path).
         for word in words:
             alias_target = self._aliases.get(word)
@@ -245,6 +254,7 @@ class TargetResolver:
                 if alias_target in known_names:
                     request.target = alias_target
                     return
+                self._bad_targets.add(alias_target)
                 raise UnknownTargetError(alias_target, known_names)
 
         # Step 2: Try normalized target names via pattern matching.
@@ -289,6 +299,7 @@ class TargetResolver:
                 and _hostname_pattern.match(word)
                 and not word.isalpha()
             ):
+                self._bad_targets.add(word)
                 raise UnknownTargetError(word, known_names)
 
         # Step 5: Intent + keyword-based defaults.
@@ -327,6 +338,7 @@ class TargetResolver:
                     if normalized_candidate in known_names:
                         request.target = normalized_candidate
                         return
+                    self._bad_targets.add(candidate)
                     raise UnknownTargetError(candidate, known_names)
 
         # Step 7: Fallback — no explicit target found.

@@ -326,9 +326,15 @@ class DeterministicAgent:
         # user is asking a clarification question, not requesting an assessment.
         # Specific intents (CPU_ASSESSMENT, MEMORY_ASSESSMENT, etc.) are
         # NOT blocked — "mem như thế nào?" should still go to pipeline.
+        #
+        # Exception: vague health-check questions with infrastructure keywords
+        # should still go to pipeline (e.g. "có vấn đề gì không?", "có ổn không?").
+        # These are genuine infrastructure requests, not casual conversation.
         if request.intent == Intent.MACHINE_ASSESSMENT and self._is_conversational(
             user_request, request
         ):
+            if self._is_vague_health_check(user_request):
+                return True
             return False
 
         # High/medium confidence infrastructure intents go to pipeline.
@@ -421,6 +427,37 @@ class DeterministicAgent:
 
         return False
 
+    # ------------------------------------------------------------------
+    # Vague health-check patterns — questions that look conversational
+    # but are genuine infrastructure health-check requests.
+    # ------------------------------------------------------------------
+    _VAGUE_HEALTH_PATTERNS: list[str] = [
+        "có vấn đề gì không",
+        "có lỗi gì không",
+        "có ổn không",
+        "hoạt động tốt không",
+        "tình trạng thế nào",
+        "đang gặp vấn đề",
+        "có sao không",
+        "có vấn đề",
+        "ổn định không",
+        "chạy tốt không",
+        "any issues",
+        "is it healthy",
+        "is it ok",
+        "is it stable",
+        "any problems",
+        "anything wrong",
+        "health check",
+        "status check",
+    ]
+
+    @classmethod
+    def _is_vague_health_check(cls, user_request: str) -> bool:
+        """Detect vague health-check questions that should go to pipeline."""
+        lower = user_request.lower().strip()
+        return any(pat in lower for pat in cls._VAGUE_HEALTH_PATTERNS)
+
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.
 
@@ -499,10 +536,14 @@ class DeterministicAgent:
             system = (
                 "You are Orion, an infrastructure operations agent. "
                 "Answer the user's question concisely and accurately. "
-                "If the question is about infrastructure or system administration, "
-                "provide technical detail. Otherwise, answer as a general-purpose "
-                "assistant. Never identify yourself as any other AI model or brand."
-                + lang_hint
+                "If the question is about infrastructure, system administration, "
+                "or a technical concept (e.g., Kubernetes, Docker, networking), "
+                "provide a detailed technical explanation (3-5 sentences minimum) "
+                "with examples where helpful. "
+                "If the user asks for an email or document template, ask for "
+                "missing details (recipient, reason, dates) before writing. "
+                "Otherwise, answer as a general-purpose assistant. "
+                "Never identify yourself as any other AI model or brand." + lang_hint
             )
             if self._conversation_store:
                 context = self._build_chat_context()

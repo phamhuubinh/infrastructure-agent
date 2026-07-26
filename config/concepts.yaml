@@ -30,7 +30,15 @@ concepts:
         - mem
         - bộ nhớ
         - swap
+        - bộ nhớ ảo
+        - phân vùng trao đổi
+        - swap memory
+        - swap usage
         - memory usage
+        - ram usage
+        - ram còn trống
+        - ram available
+        - ram free
       category: infrastructure
       display: Memory
     disk:

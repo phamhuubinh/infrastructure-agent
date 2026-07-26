@@ -50,7 +50,9 @@ class ParameterExtractor:
     _SERVICE_NAMES: re.Pattern = re.compile(
         r"\b(nginx|apache2?|httpd|sshd?|docker|postgres(ql)?|mysql|mariadb|"
         r"redis|mongod|kafka|rabbitmq|elasticsearch|haproxy|traefik|cron|"
-        r"rsyslog|systemd-journald|ufw|iptables|fail2ban|apparmor|selinux)\b",
+        r"rsyslog|systemd-journald|ufw|iptables|fail2ban|apparmor|selinux|"
+        r"containerd|grafana(?:-server)?|zabbix(?:-agent|-server)?|prometheus|"
+        r"node_exporter|openvpn|bind9|named)\b",
         re.IGNORECASE,
     )
 
@@ -128,11 +130,25 @@ class ParameterExtractor:
             # Normalize common variants.
             if candidate in ("apache", "apache2"):
                 return "apache2"
-            if candidate in ("postgresql",):
+            if candidate in ("postgresql", "postgres"):
                 return "postgresql"
-            if candidate in ("sshd",):
+            if candidate in ("sshd", "ssh"):
                 return "sshd"
             return candidate
+
+        # Try "trạng thái X" (Vietnamese: status of X).
+        status_pattern = re.compile(
+            r"\b(?:trạng thái|kiểm tra|check)\s+(\w+)", re.IGNORECASE
+        )
+        m = status_pattern.search(text)
+        if m:
+            candidate = m.group(1).lower()
+            if candidate in ("sshd", "ssh"):
+                return "sshd"
+            if candidate in ("nginx",):
+                return "nginx"
+            if candidate in ("docker",):
+                return "docker"
 
         # Fall back: look for known service names anywhere.
         m = self._SERVICE_NAMES.search(text)
@@ -140,6 +156,10 @@ class ParameterExtractor:
             name = m.group(1).lower()
             if name == "apache":
                 return "apache2"
+            if name.startswith("grafana"):
+                return "grafana-server"
+            if name.startswith("zabbix"):
+                return "zabbix-server"
             return name
         return None
 
