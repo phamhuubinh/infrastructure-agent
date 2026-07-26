@@ -67,10 +67,13 @@ export type Session = {
 type ChatContextValue = {
   sessions: Session[];
   currentSessionId: string | null;
+  generatingSessions: Set<string>;
+  setSessionGenerating: (sessionId: string, generating: boolean) => void;
   createSession: () => string;
   switchSession: (id: string) => void;
   getSession: () => Session | undefined;
   updateSession: (updates: Partial<Session>) => void;
+  updateSessionById: (id: string, updates: Partial<Session>) => void;
   deleteSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
 };
@@ -103,7 +106,12 @@ function emptySession(
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(
+    null,
+  );
+  const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(
+    new Set(),
+  );
   const [loaded, setLoaded] = useState(false);
   const sessionsRef = useRef(sessions);
   const currentIdRef = useRef(currentSessionId);
@@ -121,7 +129,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const serverSessions: Session[] = (data.sessions || []).map(
           (s: { id: string; title?: string; messages?: Message[] }) =>
-            emptySession(s.id, s.title || "New chat", s.messages || [])
+            emptySession(s.id, s.title || "New chat", s.messages || []),
         );
         if (serverSessions.length > 0) {
           setSessions(serverSessions);
@@ -148,6 +156,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const setSessionGenerating = useCallback(
+    (sessionId: string, generating: boolean) => {
+      setGeneratingSessions((prev) => {
+        const next = new Set(prev);
+        if (generating) {
+          next.add(sessionId);
+        } else {
+          next.delete(sessionId);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const createSession = useCallback(() => {
     const localId = `pending_${Date.now().toString(36)}`;
     const newSession = emptySession(localId);
@@ -158,12 +181,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     // Create session on server and update local ID
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/sessions`, { method: "POST" });
+        const res = await fetch(`${API_URL}/api/sessions`, {
+          method: "POST",
+        });
         if (!res.ok) return;
         const data = await res.json();
         const serverId: string = data.session_id;
         setSessions((prev) =>
-          prev.map((s) => (s.id === localId ? { ...s, id: serverId } : s))
+          prev.map((s) =>
+            s.id === localId ? { ...s, id: serverId } : s,
+          ),
         );
         if (currentIdRef.current === localId) {
           setCurrentSessionId(serverId);
@@ -188,32 +215,52 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const updateSession = useCallback((updates: Partial<Session>) => {
     const id = currentIdRef.current;
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+    );
   }, []);
 
-  const deleteSession = useCallback(async (id: string) => {
-    try {
-      await fetch(`${API_URL}/api/sessions/${id}`, { method: "DELETE" });
-    } catch {
-      // server not available, delete locally anyway
-    }
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (next.length > 0) {
-        if (currentIdRef.current === id) {
-          setCurrentSessionId(next[0].id);
-          currentIdRef.current = next[0].id;
-        }
-      } else {
-        // All deleted — create a new one
-        const fallback = emptySession("local_fallback");
-        setCurrentSessionId(fallback.id);
-        currentIdRef.current = fallback.id;
-        return [fallback];
+  const updateSessionById = useCallback(
+    (id: string, updates: Partial<Session>) => {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      );
+    },
+    [],
+  );
+
+  const deleteSession = useCallback(
+    async (id: string) => {
+      try {
+        await fetch(`${API_URL}/api/sessions/${id}`, { method: "DELETE" });
+      } catch {
+        // server not available, delete locally anyway
       }
-      return next;
-    });
-  }, []);
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        if (next.length > 0) {
+          if (currentIdRef.current === id) {
+            setCurrentSessionId(next[0].id);
+            currentIdRef.current = next[0].id;
+          }
+        } else {
+          // All deleted — create a new one
+          const fallback = emptySession("local_fallback");
+          setCurrentSessionId(fallback.id);
+          currentIdRef.current = fallback.id;
+          return [fallback];
+        }
+        return next;
+      });
+      // Clean up generating state
+      setGeneratingSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+    [],
+  );
 
   const renameSession = useCallback(async (id: string, title: string) => {
     try {
@@ -225,27 +272,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } catch {
       // server not available
     }
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+    setSessions((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, title } : s)),
+    );
   }, []);
 
   const value = useMemo<ChatContextValue>(
     () => ({
       sessions,
       currentSessionId,
+      generatingSessions,
+      setSessionGenerating,
       createSession,
       switchSession,
       getSession,
       updateSession,
+      updateSessionById,
       deleteSession,
       renameSession,
     }),
     [
       sessions,
       currentSessionId,
+      generatingSessions,
+      setSessionGenerating,
       createSession,
       switchSession,
       getSession,
       updateSession,
+      updateSessionById,
       deleteSession,
       renameSession,
     ],

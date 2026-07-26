@@ -13,6 +13,7 @@ import {
   Pencil,
   Sun,
   Moon,
+  Loader2,
 } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { cn } from "@/lib/utils";
@@ -48,12 +49,14 @@ const navItems = [
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [query, setQuery] = useState("");
-  const { sessions, currentSessionId, createSession, switchSession } = useChat();
+  const { sessions, currentSessionId, createSession, switchSession, generatingSessions } = useChat();
 
   const filtered = useMemo(
     () =>
       query
-        ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
+        ? sessions.filter((s) =>
+            s.title.toLowerCase().includes(query.toLowerCase()),
+          )
         : sessions,
     [sessions, query],
   );
@@ -96,7 +99,9 @@ export function AppSidebar() {
       {/* Nav */}
       <nav className="px-2 pt-3 pb-1 space-y-0.5">
         {navItems.map((item) => {
-          const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
+          const active =
+            pathname === item.to ||
+            (item.to !== "/" && pathname.startsWith(item.to));
           return (
             <Link
               key={item.to}
@@ -108,7 +113,9 @@ export function AppSidebar() {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
               )}
             >
-              <item.icon className={cn("h-4 w-4", active && "text-primary")} />
+              <item.icon
+                className={cn("h-4 w-4", active && "text-primary")}
+              />
               <span>{item.label}</span>
             </Link>
           );
@@ -128,6 +135,7 @@ export function AppSidebar() {
             id={s.id}
             title={s.title}
             active={s.id === currentSessionId}
+            isGenerating={generatingSessions.has(s.id)}
             onSelect={() => switchSession(s.id)}
           />
         ))}
@@ -164,10 +172,16 @@ function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors"
+      className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors cursor-pointer"
     >
-      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      <span>{theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}</span>
+      {theme === "dark" ? (
+        <Sun className="h-4 w-4" />
+      ) : (
+        <Moon className="h-4 w-4" />
+      )}
+      <span>
+        {theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}
+      </span>
     </button>
   );
 }
@@ -176,11 +190,13 @@ function ChatRow({
   id,
   title,
   active,
+  isGenerating,
   onSelect,
 }: {
   id: string;
   title: string;
   active: boolean;
+  isGenerating: boolean;
   onSelect: () => void;
 }) {
   const { deleteSession, renameSession } = useChat();
@@ -206,12 +222,18 @@ function ChatRow({
   return (
     <div
       className={cn(
-        "group w-full flex items-center gap-1 rounded-md px-1 text-sm transition-colors cursor-pointer",
+        "group w-full flex items-center gap-1 rounded-md px-1 text-sm transition-colors",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
       )}
     >
+      {isGenerating && (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0 ml-1" />
+      )}
+      {!isGenerating && !renaming && (
+        <span className="w-4 shrink-0" />
+      )}
       {renaming ? (
         <input
           value={editValue}
@@ -225,7 +247,10 @@ function ChatRow({
           autoFocus
         />
       ) : (
-        <button onClick={onSelect} className="flex-1 truncate text-left px-1.5 py-1.5">
+        <button
+          onClick={onSelect}
+          className="flex-1 truncate text-left px-1.5 py-1.5 cursor-pointer"
+        >
           {title}
         </button>
       )}
@@ -259,7 +284,8 @@ function ChatRow({
           <AlertDialogHeader>
             <AlertDialogTitle>Xoá hội thoại?</AlertDialogTitle>
             <AlertDialogDescription>
-              Hành động này không thể hoàn tác. Hội thoại "{title}" sẽ bị xoá vĩnh viễn.
+              Hành động này không thể hoàn tác. Hội thoại "{title}" sẽ bị xoá
+              vĩnh viễn.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Share2,
   Sparkles,
@@ -41,6 +41,16 @@ type ModelInfo = {
   available: boolean;
 };
 
+/** Per-session generation state tracked independently for each session. */
+type SessionGenState = {
+  loading: boolean;
+  streamingContent: string;
+  pipelineStatus: string | null;
+  error: string | null;
+  abortRef: AbortController | null;
+  idleTimerRef: number | null;
+};
+
 function ChatPage() {
   const chatCtx = useChat();
   const [drag, setDrag] = useState(false);
@@ -64,7 +74,6 @@ function ChatPage() {
         if (data.active_server) {
           setSelectedServer(data.active_server);
         } else if (data.models?.length > 0) {
-          // Pre-select first available model
           const firstAvailable = data.models.find(
             (m: ModelInfo) => m.available,
           );
@@ -186,7 +195,7 @@ function EmptyState() {
           <button
             key={s.label}
             onClick={() => {
-              const id = createSession();
+              createSession();
               setTimeout(() => {
                 document.dispatchEvent(
                   new CustomEvent("infra-send-prompt", {
@@ -296,7 +305,9 @@ function ModelSelector({
         )}
         disabled={loadingModels}
         title={
-          selectedModel ? `${selectedModel.model} (${selectedModel.provider})` : "Chọn model"
+          selectedModel
+            ? `${selectedModel.model} (${selectedModel.provider})`
+            : "Chọn model"
         }
       >
         {loadingModels ? (
@@ -309,7 +320,9 @@ function ModelSelector({
                 selectedModel.available ? "bg-success" : "bg-destructive",
               )}
             />
-            <span className="max-w-[100px] truncate">{selectedModel.model}</span>
+            <span className="max-w-[100px] truncate">
+              {selectedModel.model}
+            </span>
           </>
         ) : (
           <span className="text-muted-foreground">No model</span>
@@ -338,9 +351,7 @@ function ModelSelector({
                   )}
                 >
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-success shrink-0" />
-                  <span className="truncate">
-                    {m.model}
-                  </span>
+                  <span className="truncate">{m.model}</span>
                   <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
                     {m.provider}
                   </span>
@@ -392,16 +403,51 @@ function ChatInput({
   loadingModels: boolean;
 }) {
   const [value, setValue] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [pipelineStatus, setPipelineStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [streamingContent, setStreamingContent] = useState("");
-  const abortRef = useRef<AbortController | null>(null);
-  const idleTimerRef = useRef<number | null>(null);
-  const ref = useRef<HTMLTextAreaElement>(null);
   const selectedServerRef = useRef(selectedServer);
   selectedServerRef.current = selectedServer;
-  const { getSession, updateSession, renameSession } = useChat();
+
+  const {
+    currentSessionId,
+    sessions,
+    getSession,
+    updateSession,
+    updateSessionById,
+    renameSession,
+    setSessionGenerating,
+  } = useChat();
+
+  // Per-session generation state, keyed by session ID.
+  // This allows multiple sessions to generate concurrently.
+  const sessionGenRef = useRef<Map<string, SessionGenState>>(new Map());
+
+  function getGen(sid: string | null): SessionGenState {
+    if (!sid) {
+      return {
+        loading: false,
+        streamingContent: "",
+        pipelineStatus: null,
+        error: null,
+        abortRef: null,
+        idleTimerRef: null,
+      };
+    }
+    let st = sessionGenRef.current.get(sid);
+    if (!st) {
+      st = {
+        loading: false,
+        streamingContent: "",
+        pipelineStatus: null,
+        error: null,
+        abortRef: null,
+        idleTimerRef: null,
+      };
+      sessionGenRef.current.set(sid, st);
+    }
+    return st;
+  }
+
+  // Compute the current session's gen state for rendering
+  const gen = useMemo(() => getGen(currentSessionId), [currentSessionId]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -413,24 +459,27 @@ function ChatInput({
     return () => document.removeEventListener("infra-send-prompt", handler);
   }, []);
 
-  const resetIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = null;
+  const resetIdleTimer = useCallback((g: SessionGenState) => {
+    if (g.idleTimerRef) clearTimeout(g.idleTimerRef);
+    g.idleTimerRef = null;
   }, []);
 
   const handleStop = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    resetIdleTimer();
+    const sid = currentSessionId;
+    const g = getGen(sid);
+    g.abortRef?.abort();
+    g.abortRef = null;
+    resetIdleTimer(g);
+
     const updated = getSession();
-    if (updated && streamingContent) {
+    if (updated && g.streamingContent) {
       const lastMsg = updated.messages[updated.messages.length - 1];
       if (lastMsg?.role === "assistant") {
         updateSession({ messages: updated.messages.slice(0, -1) });
       }
       const assistantMsg: Message = {
         role: "assistant",
-        content: streamingContent || "(interrupted)",
+        content: g.streamingContent || "(interrupted)",
       };
       updateSession({
         messages: [
@@ -439,38 +488,69 @@ function ChatInput({
         ],
       });
     }
-    setStreamingContent("");
-    setLoading(false);
-    setPipelineStatus(null);
-  }, [streamingContent]);
+    g.streamingContent = "";
+    g.loading = false;
+    g.pipelineStatus = null;
+    setSessionGenerating(sid!, false);
+  }, [
+    currentSessionId,
+    getSession,
+    updateSession,
+    resetIdleTimer,
+    setSessionGenerating,
+  ]);
 
-  const startIdleTimer = useCallback(() => {
-    resetIdleTimer();
-    idleTimerRef.current = window.setTimeout(async () => {
-      try {
-        const healthController = new AbortController();
-        const healthTimer = setTimeout(() => healthController.abort(), 5000);
-        const healthRes = await fetch(`${API_URL}/api/check-model`, {
-          signal: healthController.signal,
-        });
-        clearTimeout(healthTimer);
-        if (healthRes.ok) {
-          setPipelineStatus("Model đang xử lý, vui lòng đợi...");
-          startIdleTimer();
-        } else {
+  const startIdleTimer = useCallback(
+    (g: SessionGenState) => {
+      resetIdleTimer(g);
+      g.idleTimerRef = window.setTimeout(async () => {
+        try {
+          const healthController = new AbortController();
+          const healthTimer = setTimeout(() => healthController.abort(), 5000);
+          const healthRes = await fetch(`${API_URL}/api/check-model`, {
+            signal: healthController.signal,
+          });
+          clearTimeout(healthTimer);
+          if (healthRes.ok) {
+            g.pipelineStatus = "Model đang xử lý, vui lòng đợi...";
+            startIdleTimer(g);
+          } else {
+            handleStop();
+            g.error = "Model không phản hồi, vui lòng thử lại sau.";
+          }
+        } catch {
           handleStop();
-          setError("Model không phản hồi, vui lòng thử lại sau.");
+          g.error = "Model không phản hồi, vui lòng thử lại sau.";
         }
-      } catch {
-        handleStop();
-        setError("Model không phản hồi, vui lòng thử lại sau.");
+      }, 60000);
+    },
+    [handleStop, resetIdleTimer],
+  );
+
+  /** Update messages for a specific session by its ID (for background sessions). */
+  const setSidMessages = useCallback(
+    (sid: string, content: string, steps: Step[] | undefined) => {
+      const s = sessions.find((s) => s.id === sid);
+      if (!s) return;
+      const msgs = [...s.messages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant") {
+        msgs[msgs.length - 1] = { ...last, content, steps };
+      } else {
+        msgs.push({ role: "assistant", content, steps });
       }
-    }, 60000);
-  }, [handleStop, resetIdleTimer]);
+      updateSessionById(sid, { messages: msgs });
+    },
+    [sessions, updateSessionById],
+  );
 
   async function handleSubmit(text?: string) {
     const question = (text ?? value).trim();
-    if (!question || loading) return;
+    const sid = currentSessionId;
+    if (!sid) return;
+
+    const g = getGen(sid);
+    if (!question || g.loading) return;
 
     const session = getSession();
     if (!session) return;
@@ -483,17 +563,22 @@ function ChatInput({
     }
 
     setValue("");
-    setError(null);
-    setPipelineStatus("Đang phân tích intent...");
-    setStreamingContent("");
+    g.error = null;
+    g.pipelineStatus = "Đang phân tích intent...";
+    g.streamingContent = "";
 
     const userMsg: Message = { role: "user", content: question };
-    const thinkingMsg: Message = { role: "assistant", content: "", steps: [] };
+    const thinkingMsg: Message = {
+      role: "assistant",
+      content: "",
+      steps: [],
+    };
     updateSession({ messages: [...session.messages, userMsg, thinkingMsg] });
-    setLoading(true);
+    g.loading = true;
+    setSessionGenerating(sid, true);
 
     const controller = new AbortController();
-    abortRef.current = controller;
+    g.abortRef = controller;
 
     try {
       const history = session.messages.map((m) => ({
@@ -502,7 +587,7 @@ function ChatInput({
       }));
       const connTimeout = setTimeout(() => controller.abort(), 180000);
 
-      const rawId = getSession()?.id;
+      const rawId = sid;
       const sessionId =
         rawId && !rawId.startsWith("pending_") ? rawId : undefined;
       const res = await fetch(`${API_URL}/api/query`, {
@@ -521,25 +606,23 @@ function ChatInput({
 
       if (!res.ok) throw new Error(await res.text());
 
-      setPipelineStatus("Đang nhận phản hồi...");
+      g.pipelineStatus = "Đang nhận phản hồi...";
 
       // Non-streaming fallback
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("text/event-stream")) {
         const data = await res.json();
-        setPipelineStatus(null);
+        g.pipelineStatus = null;
 
-        const updated = getSession();
-        if (!updated) return;
-
-        const msgs = [...updated.messages];
+        const msgs = [...(getSession()?.messages || session.messages)];
         msgs[msgs.length - 1] = {
           role: "assistant",
           content: data.assessment || "(empty response)",
           steps: data.steps,
         };
-        updateSession({ messages: msgs });
-        setLoading(false);
+        updateSessionById(sid, { messages: msgs });
+        g.loading = false;
+        setSessionGenerating(sid, false);
         return;
       }
 
@@ -550,25 +633,14 @@ function ChatInput({
       let steps: Step[] | undefined;
       let buffer = "";
 
-      const assistantPlaceholder: Message = {
-        role: "assistant",
-        content: "",
-      };
-      updateSession({
-        messages: [
-          ...(getSession()?.messages || []),
-          assistantPlaceholder,
-        ],
-      });
-
-      setPipelineStatus(null);
-      startIdleTimer();
+      g.pipelineStatus = null;
+      startIdleTimer(g);
 
       while (true) {
         const { done, value: chunk } = await reader.read();
         if (done) break;
 
-        resetIdleTimer();
+        resetIdleTimer(g);
         buffer += decoder.decode(chunk, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
@@ -581,59 +653,37 @@ function ChatInput({
               const parsed = JSON.parse(data);
               if (parsed.content) {
                 fullContent += parsed.content;
-                setStreamingContent(fullContent);
-                const updated = getSession();
-                if (updated) {
-                  const msgs = [...updated.messages];
-                  msgs[msgs.length - 1] = {
-                    ...msgs[msgs.length - 1],
-                    content: fullContent,
-                  };
-                  updateSession({ messages: msgs });
-                }
+                g.streamingContent = fullContent;
+                setSidMessages(sid, fullContent, steps);
               }
               if (parsed.steps) {
                 steps = parsed.steps;
               }
-            } catch {}
+            } catch {
+              // skip malformed SSE chunks
+            }
           }
         }
       }
 
-      resetIdleTimer();
-      const finalUpdated = getSession();
-      if (finalUpdated) {
-        const msgs = [...finalUpdated.messages];
-        msgs[msgs.length - 1] = {
-          role: "assistant",
-          content: fullContent || "(empty response)",
-          steps,
-        };
-        updateSession({ messages: msgs });
-      }
-      setStreamingContent("");
+      resetIdleTimer(g);
+      setSidMessages(sid, fullContent || "(empty response)", steps);
+      g.streamingContent = "";
     } catch (err: any) {
       if (err.name === "AbortError") {
-        if (streamingContent) {
-          const updated = getSession();
-          if (updated) {
-            const msgs = [...updated.messages];
-            msgs[msgs.length - 1] = {
-              role: "assistant",
-              content: streamingContent,
-            };
-            updateSession({ messages: msgs });
-          }
+        if (g.streamingContent) {
+          setSidMessages(sid, g.streamingContent, undefined);
         }
       } else {
-        setError(err.message || "Request failed");
+        g.error = err.message || "Request failed";
       }
     } finally {
-      abortRef.current = null;
-      resetIdleTimer();
-      setLoading(false);
-      setPipelineStatus(null);
-      setStreamingContent("");
+      g.abortRef = null;
+      resetIdleTimer(g);
+      g.loading = false;
+      g.pipelineStatus = null;
+      g.streamingContent = "";
+      setSessionGenerating(sid, false);
     }
   }
 
@@ -647,7 +697,6 @@ function ChatInput({
   return (
     <div className="relative rounded-2xl border bg-surface/80 backdrop-blur transition-all border-border-strong shadow-[var(--shadow-elegant)]">
       <textarea
-        ref={ref}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -668,7 +717,7 @@ function ChatInput({
           <kbd className="hidden sm:inline text-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted-foreground border border-border">
             ⏎
           </kbd>
-          {loading ? (
+          {gen.loading ? (
             <Button
               size="icon"
               variant="destructive"
@@ -691,11 +740,19 @@ function ChatInput({
           )}
         </div>
       </div>
-      {error && (
+      {gen.error && (
         <div className="absolute bottom-14 left-4 right-4">
           <div className="text-xs text-destructive flex items-center gap-2">
             <AlertCircle className="h-3 w-3" />
-            {error}
+            {gen.error}
+          </div>
+        </div>
+      )}
+      {gen.pipelineStatus && (
+        <div className="absolute bottom-14 left-4 right-4">
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {gen.pipelineStatus}
           </div>
         </div>
       )}
