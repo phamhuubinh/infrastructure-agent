@@ -101,10 +101,10 @@ def test_build_assessment_adapter_returns_adapter() -> None:
 
 
 def test_build_assessment_adapter_defaults() -> None:
-    """Uses sensible defaults when config fields are missing."""
+    """Uses server config with minimal fields and model defaults."""
     data = {
         "servers": {
-            "sv1": {},
+            "sv1": {"base_url": "http://localhost:8000"},
         },
     }
     with mock.patch.object(Path, "exists", return_value=True):
@@ -177,8 +177,10 @@ def test_register_tools_skips_invalid_entry() -> None:
 
 
 def test_register_tools_skips_non_dict_entry() -> None:
+    from typing import Any
+
     registry = TargetRegistry()
-    config = {"bad_entry": "not a dict"}
+    config: dict[str, dict[str, Any]] = {"bad_entry": "not a dict"}  # type: ignore[dict-item]
     with mock.patch("src.agent.runtime_factory._warn"):
         _register_tools(registry, config)
     assert registry.target_names() == []

@@ -2,7 +2,7 @@
   "version": 6,
   "backlog": [
     {"id": "001", "status": "completed", "title": "ADR-0001 Reconciliation with deterministic pipeline architecture"},
-    {"id": "002", "status": "pending", "title": "Config Schema Validation"},
+    {"id": "002", "status": "completed", "title": "Config Schema Validation"},
     {"id": "003", "status": "pending", "title": "Unified Config Accessor"},
     {"id": "004", "status": "pending", "title": "Security Pipeline"},
     {"id": "005", "status": "pending", "title": "Tool Auto-Discovery"},
@@ -140,5 +140,5 @@
     "6.8_assessment_quality": {"total": 4, "completed": 4},
     "6.9_time_range_viz": {"total": 3, "completed": 3}
   }},
-  "sprint_1": {"total": 13, "completed": 1}
+  "sprint_1": {"total": 13, "completed": 2}
 }

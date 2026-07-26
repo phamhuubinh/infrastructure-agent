@@ -33,23 +33,23 @@ def _project_root() -> Path:
 
 def _load_server_config(
     server_name: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     config_path = _project_root() / "servers.json"
     if not config_path.exists():
         raise RuntimeError(
             "servers.json not found at " + str(config_path) + ". "
             "Create a servers.json with model configuration."
         )
-    data = json.loads(config_path.read_text())
-    servers: dict[str, object] = data.get("servers", {})
+    data: dict[str, Any] = json.loads(config_path.read_text())
+    servers: dict[str, Any] = data.get("servers", {})
     if server_name is None:
-        server_name = data.get("active_server", "")
-    cfg = servers.get(server_name)
-    if cfg is None:
+        server_name = str(data.get("active_server", ""))
+    cfg: Any = servers.get(server_name)
+    if cfg is None or not isinstance(cfg, dict):
         available = ", ".join(sorted(servers))
         msg = f"Server {server_name!r} not found. Available servers: {available}"
         raise RuntimeError(msg)
-    return dict(cfg)
+    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -228,19 +228,22 @@ def _build_assessment_adapter(
     server_name: str | None = None,
     model: str | None = None,
 ) -> AssessmentModelAdapter:
-    config = _load_server_config(server_name)
+    from src.shared.config_schema import ServerConfig
 
-    base_url: str = str(config.get("base_url", "http://localhost:8000"))
-    api_key: str | None = config.get("api_key")
-    resolved_model: str = model or str(config.get("model", "gpt-4"))
+    raw = _load_server_config(server_name)
+    cfg = ServerConfig.model_validate(raw)
+
+    base_url: str = cfg.base_url
+    api_key: str | None = cfg.api_key
+    resolved_model: str = model or cfg.model
 
     client = LLMClient(
         base_url=base_url,
         model=resolved_model,
         api_key=api_key,
-        timeout=int(config.get("timeout", 60)),
-        temperature=float(config.get("temperature", 0.0)),
-        max_tokens=int(config.get("max_tokens", 2048)),
+        timeout=cfg.timeout,
+        temperature=cfg.temperature,
+        max_tokens=cfg.max_tokens,
     )
 
     return LLMAssessmentAdapter(client=client)

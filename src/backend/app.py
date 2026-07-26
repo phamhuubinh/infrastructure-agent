@@ -84,6 +84,14 @@ def create_app(
     model: str | None = None,
     database_url: str | None = None,
 ) -> tuple:
+    from src.shared.config_schema import ConfigValidationError, validate_all_configs
+
+    try:
+        validate_all_configs()
+    except ConfigValidationError as exc:
+        print(f"Configuration error:\n{exc}", file=sys.stderr)
+        sys.exit(1)
+
     try:
         from fastapi import FastAPI
     except ImportError:

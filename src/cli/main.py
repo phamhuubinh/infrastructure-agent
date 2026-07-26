@@ -241,6 +241,14 @@ def _run_agent(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    from src.shared.config_schema import ConfigValidationError, validate_all_configs
+
+    try:
+        validate_all_configs()
+    except ConfigValidationError as exc:
+        print(f"Configuration error:\n{exc}", file=sys.stderr)
+        sys.exit(1)
+
     parser = argparse.ArgumentParser(
         description="Orion — Infrastructure Investigation Platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
