@@ -1,0 +1,14 @@
+[
+  {
+    "id": "postgres-session-store",
+    "desc": "PostgreSQL session store not implemented despite being listed as optional feature in PROJECT_CONTEXT.md",
+    "evidence": "src/backend/sqlite_store.py (only SQLite implementation present, no PostgreSQL code)",
+    "keywords": [
+      "PostgreSQL",
+      "session store",
+      "optional"
+    ],
+    "status": "open",
+    "source": "discovery"
+  }
+]
