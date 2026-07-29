@@ -72,6 +72,187 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"nameservers": nameservers}
 
 
+def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    """Subsystem: per-interface traffic statistics (bytes/packets/errors/drops)."""
+    interfaces: list[dict[str, object]] = []
+    ok, output = run(["ip", "-s", "link"])
+    if ok:
+        current_iface: dict[str, object] = {}
+        for line in output.splitlines():
+            line = line.strip()
+            # New interface block starts with a digit+colon (e.g., "1: lo:")
+            if line and line[0].isdigit() and ":" in line:
+                if current_iface:
+                    interfaces.append(current_iface)
+                current_iface = {}
+                parts = line.split(":", 2)
+                if len(parts) >= 2:
+                    current_iface["name"] = parts[1].strip()
+            elif "RX:" in line and current_iface:
+                current_iface.update(_parse_ip_stats_line(line))
+            elif "TX:" in line and current_iface:
+                current_iface.update(_parse_ip_stats_line(line))
+        if current_iface:
+            interfaces.append(current_iface)
+
+    # Fallback: /proc/net/dev
+    if not interfaces:
+        ok2, dev_output = run(["cat", "/proc/net/dev"])
+        if ok2:
+            interfaces = _parse_proc_net_dev(dev_output)
+
+    return {"interface_stats": interfaces, "interface_stat_count": len(interfaces)}
+
+
+def _parse_ip_stats_line(line: str) -> dict[str, object]:
+    """Parse 'RX: bytes packets errors dropped ...' style line from ip -s link."""
+    result: dict[str, object] = {}
+    parts = line.split()
+    if len(parts) < 2:
+        return result
+    direction = parts[0].rstrip(":").lower()  # "RX" or "TX"
+    prefix = f"{direction}_"
+    for i, key in enumerate(("bytes", "packets", "errors", "dropped")):
+        if i + 1 < len(parts):
+            result[f"{prefix}{key}"] = parts[i + 1]
+    return result
+
+
+def _parse_proc_net_dev(output: str) -> list[dict[str, object]]:
+    """Parse /proc/net/dev into interface stats list."""
+    interfaces: list[dict[str, object]] = []
+    for line in output.splitlines()[2:]:  # skip header lines
+        if ":" not in line:
+            continue
+        name, stats = line.split(":", 1)
+        name = name.strip()
+        values = stats.split()
+        if len(values) >= 10:
+            interfaces.append(
+                {
+                    "name": name,
+                    "rx_bytes": values[0],
+                    "rx_packets": values[1],
+                    "rx_errors": values[2],
+                    "rx_dropped": values[3],
+                    "tx_bytes": values[8],
+                    "tx_packets": values[9],
+                }
+            )
+    return interfaces
+
+
+def _get_ping_latency(
+    run: Callable[..., tuple[bool, str]],
+    target: str = "",
+    count: int = 4,
+) -> dict[str, object]:
+    """Subsystem: ping latency to a specific target.
+
+    Only runs when explicitly asked — never auto-ping on vague queries.
+    """
+    if not target:
+        return {"latency": None, "error": "No target specified"}
+
+    # Safety: validate target is not an injection attempt.
+    import re as _re
+
+    if not _re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,253}$", target):
+        return {"latency": None, "error": f"Invalid target: {target}"}
+
+    # Limit count to prevent abuse.
+    count = max(1, min(count, 10))
+    ok, output = run(["ping", "-c", str(count), "-W", "2", target])
+
+    if not ok:
+        return {"latency": None, "error": output.strip() or "Ping failed"}
+
+    # Parse ping statistics.
+    rtt_values: list[float] = []
+    for line in output.splitlines():
+        if "time=" in line:
+            # Extract time=N.NN ms
+            import re as _re2
+
+            m = _re2.search(r"time=(\d+\.?\d*)\s*ms", line)
+            if m:
+                rtt_values.append(float(m.group(1)))
+
+    if not rtt_values:
+        return {"latency": None, "error": "No RTT data in ping output"}
+
+    avg = sum(rtt_values) / len(rtt_values)
+    min_rtt = min(rtt_values)
+    max_rtt = max(rtt_values)
+
+    # Parse loss percentage from summary line.
+    loss_pct = 0.0
+    for line in output.splitlines():
+        if "packet loss" in line:
+            import re as _re3
+
+            m = _re3.search(r"(\d+(?:\.\d+)?)%", line)
+            if m:
+                loss_pct = float(m.group(1))
+                break
+
+    return {
+        "target": target,
+        "latency_ms": round(avg, 2),
+        "latency_min_ms": round(min_rtt, 2),
+        "latency_max_ms": round(max_rtt, 2),
+        "packet_loss_pct": loss_pct,
+        "samples": len(rtt_values),
+    }
+
+
+def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+    """Subsystem: current bandwidth usage via sar.
+
+    Falls back gracefully if sysstat is not installed.
+    """
+    ok, output = run(["sar", "-n", "DEV", "1", "1"])
+
+    if not ok:
+        # Check if sar is missing vs. just no data.
+        ok2, _ = run(["which", "sar"])
+        if not ok2:
+            return {
+                "bandwidth": None,
+                "error": "sysstat not installed (sar unavailable)",
+                "hint": "Install sysstat: apt install sysstat",
+            }
+        return {"bandwidth": None, "error": "sar failed"}
+
+    interfaces: list[dict[str, object]] = []
+    # Parse sar -n DEV output: skip header, parse IFACE rxpck/s txpck/s rxkB/s txkB/s
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.startswith("Linux") or line.startswith("Average"):
+            continue
+        if "IFACE" in line:
+            continue
+        parts = line.split()
+        if len(parts) >= 6 and parts[0] != "Average:":
+            try:
+                interfaces.append(
+                    {
+                        "name": parts[0],
+                        "rx_packets_per_sec": float(parts[1]),
+                        "tx_packets_per_sec": float(parts[2]),
+                        "rx_kbps": float(parts[3]),
+                        "tx_kbps": float(parts[4]),
+                    }
+                )
+            except (ValueError, IndexError):
+                continue
+
+    return {
+        "bandwidth": interfaces,
+        "interface_count": len(interfaces),
+    }
+
+
 def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ports: list[dict[str, object]] = []
 

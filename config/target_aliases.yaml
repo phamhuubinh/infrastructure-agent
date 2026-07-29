@@ -73,6 +73,28 @@ skip_words:
   - processes
   - package
   - packages
+  - next
+  - last
+  - current
+  - this
+  - that
+  - each
+  - every
+  - some
+  - any
+  - its
+  - their
+  - now
+  - just
+  - forecast
+  - predict
+  - trend
+  - month
+  - quarter
+  - year
+  - week
+  - day
+  - hour
 
 # Synonyms that imply localhost.
 localhost_synonyms:

@@ -9,6 +9,19 @@ from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
 from src.shared.logger import info as _info
 
+# Orion identity system prompt — used for ALL LLM calls (assessment + raw/chat).
+# Must be sent as the OpenAI "system" message so models don't self-identify
+# as their training brand (Qwen, Alibaba Cloud, etc.).
+_ORION_SYSTEM_PROMPT = (
+    "You are Orion, an infrastructure operations agent. "
+    "Your identity is Orion — you are NOT Qwen, Alibaba Cloud, DeepSeek, "
+    "OpenAI, Anthropic, or any other AI model. "
+    "Never identify yourself as any other AI model or brand. "
+    "Answer technical questions about infrastructure, system administration, "
+    "Linux, networking, Docker, and monitoring tools. "
+    "Be concise, accurate, and evidence-based."
+)
+
 
 class LLMAssessmentAdapter(AssessmentModelAdapter):
     """Production assessment adapter using a real LLM.
@@ -60,7 +73,10 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         """Send a raw prompt to the LLM without evidence wrapper."""
         t0 = _time.perf_counter()
         try:
-            response = self._client.generate(prompt)
+            response = self._client.generate(
+                prompt,
+                system_prompt=_ORION_SYSTEM_PROMPT,
+            )
             latency = round((_time.perf_counter() - t0) * 1000, 1)
             usage = self._client.last_usage
             _info(
@@ -104,7 +120,7 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
             )
 
         try:
-            response = self._client.generate(prompt)
+            response = self._client.generate(prompt, system_prompt=_ORION_SYSTEM_PROMPT)
         except Exception as exc:
             _info(
                 "llm",

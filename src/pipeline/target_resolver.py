@@ -17,14 +17,29 @@ if TYPE_CHECKING:
 class UnknownTargetError(ValueError):
     """Raised when the user explicitly mentions a target that does not exist."""
 
-    def __init__(self, raw_target: str, available: list[str]) -> None:
+    def __init__(
+        self,
+        raw_target: str,
+        available: list[str],
+        domain_tool_names: list[str] | None = None,
+    ) -> None:
         self.raw_target = raw_target
         self.available = available
+        # Filter out domain tool names (grafana, zabbix, etc.) from suggestions.
+        # Only suggest actual infrastructure target hosts (localhost, monitor, etc.).
+        _dt_set = set(domain_tool_names or [])
+        _target_only = sorted(t for t in available if t not in _dt_set)
         if available:
-            super().__init__(
-                f"Unknown target: '{raw_target}'.\n"
-                f"Did you mean: {', '.join(sorted(available))}"
-            )
+            if _target_only:
+                super().__init__(
+                    f"Unknown target: '{raw_target}'.\n"
+                    f"Did you mean: {', '.join(_target_only)}"
+                )
+            else:
+                super().__init__(
+                    f"Unknown target: '{raw_target}'.\n"
+                    f"Available: {', '.join(sorted(available))}"
+                )
         else:
             super().__init__(f"Unknown target: '{raw_target}'.\nNo targets configured.")
 
@@ -210,22 +225,48 @@ class TargetResolver:
         self._ensure_loaded()
         return word.lower() in self._localhost_synonyms
 
+    def _find_unrecognized_hostname(self, words: list[str]) -> str | None:
+        """Find a word that looks like an unrecognized hostname.
+
+        Used to prevent localhost synonyms from shadowing actual target names
+        that appear mid-sentence (e.g., "Kiểm tra CPU trên máy khonghetontai123").
+        """
+        self._ensure_loaded()
+        _hostname_pattern = re.compile(r"^[a-z][a-z0-9._-]*$", re.IGNORECASE)
+        _prepositions = frozenset({"on", "for", "at", "from"})
+        for word in words:
+            if (
+                len(word) > 2
+                and word not in self._skip_words
+                and word not in _prepositions
+                and not self._is_localhost_synonym(word)
+                and _hostname_pattern.match(word)
+                and not word.isalpha()
+            ):
+                return word
+        return None
+
     # ------------------------------------------------------------------
     # Immutable pipeline state interface.
     # ------------------------------------------------------------------
 
-    def resolve_state(self, state: PipelineState) -> StateUpdate:
-        """Return an immutable StateUpdate with the resolved target.
+    def _domain_tool_names(self) -> list[str]:
+        """Return the list of domain tool names from the registry."""
+        if self._registry is not None:
+            return list(self._registry._domain_tools.keys())
+        return []
 
-        Same resolution logic as resolve(), returns a dict.
-        """
+    def resolve_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with the resolved target."""
         self._ensure_loaded()
         raw = state.user_request.lower()
         intent = state.intent
 
         known_names: list[str] = []
+        domain_names: list[str] = []
         if self._registry is not None:
             known_names = self._registry.target_names()
+            domain_names = list(self._registry._domain_tools.keys())
 
         words = self._extract_words(raw)
 
@@ -238,7 +279,7 @@ class TargetResolver:
         # Step 0.5: Check bad-target cache.
         for word in words:
             if word in self._bad_targets:
-                raise UnknownTargetError(word, known_names)
+                raise UnknownTargetError(word, known_names, domain_names)
 
         # Step 1: Check aliases.
         for word in words:
@@ -248,7 +289,7 @@ class TargetResolver:
                     update: StateUpdate = {"target": alias_target}
                     return update
                 self._bad_targets.add(alias_target)
-                raise UnknownTargetError(alias_target, known_names)
+                raise UnknownTargetError(alias_target, known_names, domain_names)
 
         # Step 2: Try normalized target names via pattern matching.
         for word in words:
@@ -289,7 +330,7 @@ class TargetResolver:
                 and not word.isalpha()
             ):
                 self._bad_targets.add(word)
-                raise UnknownTargetError(word, known_names)
+                raise UnknownTargetError(word, known_names, domain_names)
 
         # Step 5: Intent + keyword-based defaults.
         if intent is not None and self._registry is not None:
@@ -321,7 +362,7 @@ class TargetResolver:
                         update: StateUpdate = {"target": normalized_candidate}
                         return update
                     self._bad_targets.add(candidate)
-                    raise UnknownTargetError(candidate, known_names)
+                    raise UnknownTargetError(candidate, known_names, domain_names)
 
         # Step 7: Fallback.
         update: StateUpdate = {"target": "localhost"}
@@ -346,27 +387,31 @@ class TargetResolver:
         intent = request.intent
 
         known_names: list[str] = []
+        domain_names: list[str] = []
         if self._registry is not None:
             known_names = self._registry.target_names()
+            domain_names = list(self._registry._domain_tools.keys())
 
         words = self._extract_words(raw)
 
-        # Step 0: Check localhost synonyms first.
+        # Step 0: Check localhost synonyms first — but ONLY if no other
+        # hostname-looking word appears. Pattern "trên máy X" (where X is
+        # an unrecognized hostname) should prioritize X over localhost.
+        _has_unrecognized_host = self._find_unrecognized_hostname(words)
         for word in words:
             if self._is_localhost_synonym(word):
+                if _has_unrecognized_host:
+                    break
                 if "localhost" in known_names:
                     request.target = "localhost"
                     return
-                # If no explicit localhost target but we have targets,
-                # still default to localhost — user explicitly asked for this host.
                 request.target = "localhost"
                 return
 
         # Step 0.5: Check bad-target cache — if this word failed before, skip it.
         for word in words:
             if word in self._bad_targets:
-                # Already tried and failed — don't retry same resolution path.
-                raise UnknownTargetError(word, known_names)
+                raise UnknownTargetError(word, known_names, domain_names)
 
         # Step 1: Check aliases (fastest path).
         for word in words:
@@ -376,7 +421,7 @@ class TargetResolver:
                     request.target = alias_target
                     return
                 self._bad_targets.add(alias_target)
-                raise UnknownTargetError(alias_target, known_names)
+                raise UnknownTargetError(alias_target, known_names, domain_names)
 
         # Step 2: Try normalized target names via pattern matching.
         for word in words:
@@ -421,7 +466,7 @@ class TargetResolver:
                 and not word.isalpha()
             ):
                 self._bad_targets.add(word)
-                raise UnknownTargetError(word, known_names)
+                raise UnknownTargetError(word, known_names, domain_names)
 
         # Step 5: Intent + keyword-based defaults.
         if intent is not None and self._registry is not None:
@@ -460,7 +505,7 @@ class TargetResolver:
                         request.target = normalized_candidate
                         return
                     self._bad_targets.add(candidate)
-                    raise UnknownTargetError(candidate, known_names)
+                    raise UnknownTargetError(candidate, known_names, domain_names)
 
         # Step 7: Fallback — no explicit target found.
         request.target = "localhost"

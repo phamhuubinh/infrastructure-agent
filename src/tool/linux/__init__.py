@@ -25,7 +25,14 @@ from .capabilities.disk import (
     _get_filesystem_health,
 )
 from .capabilities.memory import _get_memory, _get_swap
-from .capabilities.network import _get_dns, _get_listening_ports, _get_network
+from .capabilities.network import (
+    _get_bandwidth,
+    _get_dns,
+    _get_interface_stats,
+    _get_listening_ports,
+    _get_network,
+    _get_ping_latency,
+)
 from .capabilities.package import _get_package, _search_package
 from .capabilities.process import _get_process, _get_process_by_name, _search_process
 from .capabilities.security import (
@@ -367,6 +374,42 @@ _CAPABILITIES: dict[str, Capability] = {
         ("network", "security"),
         ("search_process",),
         ("network", "listening-ports", "open_ports"),
+    ),
+    "get_interface_stats": Capability(
+        "get_interface_stats",
+        _get_interface_stats,
+        "network",
+        ("network", "performance", "diagnostics"),
+        ("get_network",),
+        ("network", "interface_stats", "traffic", "packet_loss"),
+        description="Per-interface traffic statistics (bytes/packets/errors/drops)",
+        supported_targets=("localhost",),
+        parameters=("source", "resource"),
+        estimated_cost=0.1,
+    ),
+    "get_bandwidth": Capability(
+        "get_bandwidth",
+        _get_bandwidth,
+        "network",
+        ("network", "performance"),
+        ("get_network", "get_interface_stats"),
+        ("network", "bandwidth", "throughput"),
+        description="Current bandwidth usage via sar (requires sysstat)",
+        supported_targets=("localhost",),
+        parameters=("source", "resource"),
+        estimated_cost=0.3,
+    ),
+    "get_ping_latency": Capability(
+        "get_ping_latency",
+        _get_ping_latency,
+        "network",
+        ("network", "diagnostics", "connectivity"),
+        ("get_network",),
+        ("network", "latency", "ping"),
+        description="Ping latency to a specific target (only on explicit request)",
+        supported_targets=("localhost",),
+        parameters=("source", "resource", "target"),
+        estimated_cost=1.0,
     ),
     "get_disk_usage": Capability(
         "get_disk_usage",

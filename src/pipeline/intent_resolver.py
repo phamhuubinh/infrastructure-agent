@@ -48,6 +48,14 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("processor", "bộ xử lý", "vi xử lý"),
         ("core", "cores"),
         ("cpu percent",),
+        ("uptime",),
+        (
+            "thời gian chạy",
+            "thời gian hoạt động",
+            "đã chạy bao lâu",
+            "chạy được bao lâu",
+            "chạy bao lâu",
+        ),
     ),
     Intent.MEMORY_ASSESSMENT: (
         ("memory", "ram", "mem", "bộ nhớ"),
@@ -129,6 +137,13 @@ _INTENT_KEYWORDS: dict[Intent, tuple[tuple[str, ...], ...]] = {
         ("application", "ứng dụng"),
         ("package", "packages"),
         ("container", "containers"),
+        (
+            "danh sách container",
+            "list container",
+            "liệt kê container",
+            "các container",
+            "những container",
+        ),
     ),
     Intent.SERVICE_ASSESSMENT: (
         ("service", "services", "dịch vụ"),

@@ -307,22 +307,39 @@ class DeterministicAgent:
     def _should_pipeline(self, user_request: str) -> bool:
         """Determine if request should go through the investigation pipeline.
 
-        Four-tier routing:
-        1. KNOWLEDGE_ASSESSMENT → chat (no pipeline)
-        2. Conversational / yes-no questions → chat (no pipeline)
-        3. HIGH/MEDIUM confidence infrastructure intent → pipeline
-        4. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
+        Multi-tier routing:
+        1. Code/script generation requests → chat (no pipeline)
+        2. KNOWLEDGE_ASSESSMENT → chat (no pipeline)
+        3. Conceptual questions (X là gì? / giải thích) → chat
+        4. Conversational / yes-no questions → chat (no pipeline)
+        5. HIGH/MEDIUM confidence infrastructure intent → pipeline
+        6. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
 
         Returns:
             True if the request should go through the investigation pipeline.
         """
         from src.pipeline.intent_resolver import Confidence, Intent, IntentResolver
 
+        # A5: Code/script generation requests should NOT go through pipeline.
+        # "viết/tạo/generate/write + script/config/file" → chat only.
+        if self._is_code_generation_request(user_request):
+            return False
+
+        # A14: Bare hostname/alias typed standalone should route to pipeline.
+        # e.g., "srv01", "monitor123" — user wants to investigate that target.
+        if self._is_bare_target_candidate(user_request):
+            return True
+
         resolver = IntentResolver()
         request = resolver.resolve(user_request)
 
         # Knowledge questions go to chat.
         if request.intent == Intent.KNOWLEDGE_ASSESSMENT:
+            return False
+
+        # A7: Conceptual questions ("X là gì?", "giải thích X", "sự khác biệt")
+        # should go to chat for definition/explanation, NOT through pipeline.
+        if self._is_conceptual_question(user_request):
             return False
 
         # Conversational / yes-no questions with MACHINE_ASSESSMENT intent
@@ -461,6 +478,131 @@ class DeterministicAgent:
         """Detect vague health-check questions that should go to pipeline."""
         lower = user_request.lower().strip()
         return any(pat in lower for pat in cls._get_health_patterns())
+
+    @staticmethod
+    def _is_code_generation_request(user_request: str) -> bool:
+        """A5: Detect requests to write/generate/create code/scripts/configs.
+
+        Orion currently does not support writing code — it should respond
+        honestly rather than routing to the infrastructure pipeline.
+        """
+        lower = user_request.lower().strip()
+        _code_verbs = frozenset(
+            {
+                "viết",
+                "viết giúp",
+                "tạo",
+                "tạo giúp",
+                "write",
+                "generate",
+                "create",
+                "soạn",
+                "soạn giúp",
+                "code",
+            }
+        )
+        _code_targets = frozenset(
+            {
+                "script",
+                "kịch bản",
+                "code",
+                "mã",
+                "config",
+                "cấu hình",
+                "file",
+                "tệp",
+                "template",
+                "mẫu",
+                "backup",
+                "sao lưu",
+                "function",
+                "hàm",
+            }
+        )
+        has_verb = any(v in lower for v in _code_verbs)
+        has_target = any(t in lower for t in _code_targets)
+        return has_verb and has_target
+
+    @staticmethod
+    def _is_bare_target_candidate(user_request: str) -> bool:
+        """A14: Detect bare hostname/alias typed as the only content.
+
+        e.g., "srv01", "monitor123", "serverabc" — user likely wants to
+        investigate that target, not ask a chat question about it.
+        """
+        stripped = user_request.strip()
+        # Only match when the entire request is a single word/hostname.
+        if " " in stripped:
+            return False
+        if len(stripped) <= 1:
+            return False
+        # Must look like a technical name (not a common Vietnamese/English word).
+        _common_words = frozenset(
+            {
+                "help",
+                "hi",
+                "hello",
+                "chào",
+                "hỗ",
+                "trợ",
+                "giúp",
+                "đỡ",
+                "ok",
+                "thanks",
+                "cảm",
+                "ơn",
+                "yes",
+                "no",
+                "bye",
+                "tạm",
+                "biệt",
+            }
+        )
+        if stripped.lower() in _common_words:
+            return False
+        import re as _re
+
+        # Must be alphanumeric with optional hyphens/underscores/dots.
+        return bool(_re.match(r"^[a-z0-9][a-z0-9._-]*$", stripped, _re.IGNORECASE))
+
+    @staticmethod
+    def _is_conceptual_question(user_request: str) -> bool:
+        """A7: Detect conceptual/definition questions that should NOT route to pipeline.
+
+        "X là gì?" / "giải thích X" / "sự khác biệt giữa X và Y" should go to chat.
+        "X hiện tại là gì/bao nhiêu" (asking for current VALUE) should route to pipeline.
+        """
+        lower = user_request.lower().strip()
+
+        # Definition patterns: always chat.
+        _definition_patterns = (
+            " là gì",
+            " nghĩa là gì",
+            " định nghĩa",
+            " giải thích",
+            " what is ",
+            " what does ",
+            " what are ",
+            " sự khác biệt",
+            " khác nhau",
+            " difference between",
+        )
+        if any(p in lower for p in _definition_patterns):
+            # Exception: "X hiện tại là gì" / "X hiện tại là bao nhiêu"
+            # asking for current VALUE → route to pipeline.
+            _value_indicators = (
+                "hiện tại là",
+                "hiện là",
+                "bây giờ là",
+                "current",
+                "currently",
+                "now",
+            )
+            if any(p in lower for p in _value_indicators):
+                return False
+            return True
+
+        return False
 
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.

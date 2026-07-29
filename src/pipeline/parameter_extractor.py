@@ -56,6 +56,60 @@ class ParameterExtractor:
         re.IGNORECASE,
     )
 
+    # Words that should never be considered service names.
+    # These are function words / stop words commonly appearing near services
+    # in Vietnamese and English queries (e.g., "đang chạy", "check status").
+    _SERVICE_SKIP_WORDS: frozenset[str] = frozenset(
+        {
+            "đang",
+            "chạy",
+            "hiện",
+            "tại",
+            "nào",
+            "các",
+            "những",
+            "mọi",
+            "một",
+            "vài",
+            "tất",
+            "cả",
+            "danh",
+            "sách",
+            "liệt",
+            "kê",
+            "trạng",
+            "thái",
+            "kiểm",
+            "tra",
+            "bị",
+            "được",
+            "không",
+            "có",
+            "với",
+            "cho",
+            "status",
+            "state",
+            "check",
+            "list",
+            "all",
+            "running",
+            "stopped",
+            "failed",
+            "active",
+            "inactive",
+            "the",
+            "what",
+            "which",
+            "how",
+            "any",
+            "next",
+            "forecast",
+            "week",
+            "use",
+            "only",
+        }
+    )
+
     # Port number patterns.
     _PORT: re.Pattern = re.compile(r"\b(?:port|cổng)\s+(\d{1,5})\b", re.IGNORECASE)
     _BARE_PORT: re.Pattern = re.compile(r"\b(?:on port|:)\s*(\d{1,5})\b", re.IGNORECASE)
@@ -122,12 +176,31 @@ class ParameterExtractor:
 
     def _extract_service(self, text: str) -> str | None:
         """Look for specific service names like nginx, docker, sshd."""
+
+        def _is_valid(candidate: str) -> bool:
+            return candidate.lower() not in self._SERVICE_SKIP_WORDS
+
+        # Detect "list all services" / "danh sách dịch vụ" — no single service.
+        _list_patterns = [
+            "danh sách",
+            "liệt kê",
+            "list",
+            "tất cả",
+            "các service",
+            "các dịch vụ",
+            "những service",
+            "những dịch vụ",
+        ]
+        if any(p in text for p in _list_patterns):
+            return None
+
         # Try "service X" or "dịch vụ X" patterns first.
         svc_pattern = re.compile(r"\b(?:service|dịch vụ)\s+(\w+)", re.IGNORECASE)
         m = svc_pattern.search(text)
         if m:
             candidate = m.group(1).lower()
-            # Normalize common variants.
+            if not _is_valid(candidate):
+                return None
             if candidate in ("apache", "apache2"):
                 return "apache2"
             if candidate in ("postgresql", "postgres"):
@@ -136,19 +209,28 @@ class ParameterExtractor:
                 return "sshd"
             return candidate
 
-        # Try "trạng thái X" (Vietnamese: status of X).
+        # Try "trạng thái X" / "kiểm tra X" / "check X" (Vietnamese/English).
         status_pattern = re.compile(
             r"\b(?:trạng thái|kiểm tra|check)\s+(\w+)", re.IGNORECASE
         )
         m = status_pattern.search(text)
         if m:
             candidate = m.group(1).lower()
+            if not _is_valid(candidate):
+                return None
             if candidate in ("sshd", "ssh"):
                 return "sshd"
             if candidate in ("nginx",):
                 return "nginx"
             if candidate in ("docker",):
                 return "docker"
+            if candidate in ("mysql", "mariadb"):
+                return "mysql"
+            if candidate in ("postgresql", "postgres"):
+                return "postgresql"
+            if candidate in ("apache", "apache2", "httpd"):
+                return "apache2"
+            return candidate
 
         # Fall back: look for known service names anywhere.
         m = self._SERVICE_NAMES.search(text)

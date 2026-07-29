@@ -53,12 +53,22 @@ plans:
   network:
     inspect:
       - Network
+      - Listening Ports
     diagnose:
       - Network
+      - Listening Ports
       - Processes
       - System Information
     summarize:
       - Network
+  ports:
+    inspect:
+      - Listening Ports
+    diagnose:
+      - Listening Ports
+      - Network
+    summarize:
+      - Listening Ports
 
   gpu:
     inspect:
@@ -181,13 +191,13 @@ plans:
 
   container:
     inspect:
-      - Docker
+      - Containers
     diagnose:
-      - Docker
+      - Containers
       - Processes
       - Storage
     summarize:
-      - Docker
+      - Containers
 
   firewall:
     inspect:

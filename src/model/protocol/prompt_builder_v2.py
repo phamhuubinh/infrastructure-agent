@@ -103,27 +103,38 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         return "Memory: " + ", ".join(parts) if parts else ""
 
     if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
-        mounts = (
-            pkg_data.get("mounts")
-            or pkg_data.get("disks")
+        mount_list = (
+            pkg_data.get("disks")
+            or pkg_data.get("mounts")
             or pkg_data.get("filesystems")
             or []
         )
-        if not isinstance(mounts, list):
+        if not isinstance(mount_list, list):
             return ""
         lines = []
-        for m in mounts[:8]:
+        for m in mount_list[:8]:
             if isinstance(m, dict):
-                mp = m.get("mountpoint") or m.get("target") or m.get("name") or "?"
-                used = m.get("use_percent") or m.get("used_pct") or ""
+                mp = (
+                    m.get("target")
+                    or m.get("mountpoint")
+                    or m.get("mount")
+                    or m.get("name")
+                    or "?"
+                )
+                used = (
+                    m.get("use_percent")
+                    or m.get("used_pct")
+                    or m.get("usage_percent")
+                    or ""
+                )
                 size = m.get("size_bytes") or m.get("total") or 0
                 if isinstance(size, (int, float)) and size > 0:
                     size_gb = round(size / (1024**3), 1)
                     lines.append(f"{mp} {used} ({size_gb}GB)")
                 else:
                     lines.append(f"{mp} {used}")
-        if len(mounts) > 8:
-            lines.append(f"...+{len(mounts) - 8}")
+        if len(mount_list) > 8:
+            lines.append(f"...+{len(mount_list) - 8}")
         return "Disks:\n" + "\n".join(lines) if lines else ""
 
     if evidence_name in ("Services", "Service Status"):

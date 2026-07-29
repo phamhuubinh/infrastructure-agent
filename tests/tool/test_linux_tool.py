@@ -642,6 +642,7 @@ def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
         "permit_root_login": "no",
         "password_authentication": "yes",
         "active": "active",
+        "has_config": True,
     }
 
 
@@ -657,10 +658,11 @@ def test_get_ssh_returns_unknown_on_failure(monkeypatch) -> None:
 
     assert result.success is True
     assert result.data == {
-        "port": "unknown",
-        "permit_root_login": "unknown",
-        "password_authentication": "unknown",
+        "port": "22 (default, not set in sshd_config)",
+        "permit_root_login": "prohibit-password (default, not set in sshd_config)",
+        "password_authentication": "yes (default, not set in sshd_config)",
         "active": "unknown",
+        "has_config": False,
     }
 
 
@@ -965,17 +967,26 @@ def test_get_apparmor_returns_unknown_on_failure(monkeypatch) -> None:
 
 
 def test_get_selinux_reports_status(monkeypatch) -> None:
+    """SELinux reports status via getenforce fallback (sestatus not available)."""
+
+    def fake_run(command, timeout=5):
+        if command == ["sestatus"]:
+            return (False, "")
+        if command == ["getenforce"]:
+            return (True, "Enforcing")
+        return (False, "")
+
     monkeypatch.setattr(
         LinuxTool,
         "_run",
-        lambda self, command, timeout=5: (True, "Enforcing"),
+        lambda self, command, timeout=5: fake_run(command, timeout),
     )
 
     tool = LinuxTool()
     result = tool.execute({"action": "get_selinux"})
 
     assert result.success is True
-    assert result.data == {"status": "Enforcing"}
+    assert result.data == {"status": "Enforcing", "installed": True}
 
 
 def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
@@ -989,13 +1000,19 @@ def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
     result = tool.execute({"action": "get_selinux"})
 
     assert result.success is True
-    assert result.data == {"status": "unknown"}
+    assert result.data == {"status": "not installed", "installed": False}
 
 
 def test_get_firewall_prefers_ufw_active(monkeypatch) -> None:
     def fake_run(command, timeout=5):
-        if command == ["ufw", "status"]:
-            return True, "Status: active"
+        if command == ["ufw", "status", "verbose"]:
+            return True, (
+                "Status: active\n"
+                "Logging: on (low)\n"
+                "Default: deny (incoming), allow (outgoing)\n"
+                "---\n"
+                "22/tcp    ALLOW IN    Anywhere\n"
+            )
         return False, ""
 
     monkeypatch.setattr(
@@ -1008,13 +1025,18 @@ def test_get_firewall_prefers_ufw_active(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "ufw", "active": True}
+    assert result.data["backend"] == "ufw"
+    assert result.data["active"] is True
 
 
 def test_get_firewall_prefers_ufw_inactive(monkeypatch) -> None:
     def fake_run(command, timeout=5):
-        if command == ["ufw", "status"]:
-            return True, "Status: inactive"
+        if command == ["ufw", "status", "verbose"]:
+            return True, (
+                "Status: inactive\n"
+                "Logging: off\n"
+                "Default: deny (incoming), allow (outgoing)\n"
+            )
         return False, ""
 
     monkeypatch.setattr(
@@ -1027,15 +1049,16 @@ def test_get_firewall_prefers_ufw_inactive(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "ufw", "active": False}
+    assert result.data["backend"] == "ufw"
+    assert result.data["active"] is False
 
 
 def test_get_firewall_falls_back_to_iptables(monkeypatch) -> None:
     def fake_run(command, timeout=5):
-        if command == ["ufw", "status"]:
+        if command == ["ufw", "status", "verbose"]:
             return False, ""
-        if command == ["iptables", "-L", "-n"]:
-            return True, "Chain INPUT (policy ACCEPT)"
+        if command == ["iptables", "-L", "-n", "-v", "--line-numbers"]:
+            return True, "Chain INPUT (policy ACCEPT 0 packets, 0 bytes)"
         return False, ""
 
     monkeypatch.setattr(
@@ -1048,7 +1071,35 @@ def test_get_firewall_falls_back_to_iptables(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "iptables", "active": True}
+    assert result.data["backend"] == "iptables"
+    assert result.data["active"] is True
+
+
+def test_get_firewall_falls_back_to_nftables(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["ufw", "status", "verbose"]:
+            return False, ""
+        if command == ["iptables", "-L", "-n", "-v", "--line-numbers"]:
+            return False, ""
+        if command == ["nft", "list", "ruleset"]:
+            return (
+                True,
+                "table inet filter {\n  chain input { type filter hook input priority 0; }\n}",
+            )
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_firewall"})
+
+    assert result.success is True
+    assert result.data["backend"] == "nftables"
+    assert result.data["active"] is True
 
 
 def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
@@ -1062,7 +1113,7 @@ def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
     result = tool.execute({"action": "get_firewall"})
 
     assert result.success is True
-    assert result.data == {"backend": "unknown", "active": None}
+    assert result.data == {"backend": "unknown", "active": False}
 
 
 def test_get_certificate_lists_filenames(monkeypatch) -> None:

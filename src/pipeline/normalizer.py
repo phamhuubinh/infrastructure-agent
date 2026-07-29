@@ -260,8 +260,43 @@ class Normalizer:
     # Matching
     # ------------------------------------------------------------------
 
-    @staticmethod
+    # Concept priority: domain-specific concepts should win over generic ones.
+    # Higher number = higher priority. Used as primary sort, with string
+    # length as tiebreaker within the same priority tier.
+    _CONCEPT_PRIORITY: dict[str, int] = {
+        # Security concepts — most specific, should always win.
+        "firewall": 4,
+        "ssh": 4,
+        "selinux": 4,
+        "apparmor": 4,
+        # Infrastructure concepts.
+        "cpu": 3,
+        "memory": 3,
+        "disk": 3,
+        "network": 3,
+        "gpu": 3,
+        "hostname": 3,
+        "kernel": 3,
+        "uptime": 3,
+        "load": 3,
+        # System concepts.
+        "service": 2,
+        "process": 2,
+        "package": 2,
+        "log": 2,
+        "container": 2,
+        # Monitoring concepts.
+        "alerts": 2,
+        "dashboards": 2,
+        "monitors": 2,
+        # Generic — lowest priority.
+        "machine": 1,
+    }
+
+    _DEFAULT_CONCEPT_PRIORITY: int = 0
+
     def _match_best(
+        self,
         tokens: list[str],
         lookup: dict[str, dict[str, object]],
         field: str,
@@ -269,13 +304,28 @@ class Normalizer:
         """Find the best-matching entry from a synonym lookup map.
 
         Returns (value_for_field, list_of_matched_synonyms).
-        Picks the entry with the longest matching synonym (most specific).
+        Concept matching uses priority first (domain-specific > generic),
+        then longest synonym as tiebreaker.
         """
         best_syn: str | None = None
+        best_priority = -1
         best_len = 0
-        for syn, _meta in lookup.items():
-            if syn in tokens and len(syn) > best_len:
+
+        for syn, meta in lookup.items():
+            if syn not in tokens:
+                continue
+
+            concept_name = str(meta.get(field, ""))
+            priority = self._CONCEPT_PRIORITY.get(
+                concept_name, self._DEFAULT_CONCEPT_PRIORITY
+            )
+
+            # Primary sort: priority. Tiebreaker: longest synonym.
+            if priority > best_priority or (
+                priority == best_priority and len(syn) > best_len
+            ):
                 best_syn = syn
+                best_priority = priority
                 best_len = len(syn)
 
         if best_syn is None:

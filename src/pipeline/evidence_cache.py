@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 import time as _time
-from collections.abc import Hashable
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class CacheKey:
+    """Composite cache key: target + evidence name.
+
+    Ensures evidence from different targets don't collide,
+    and identical evidence requests across turns are reused.
+    """
+
+    target: str
+    evidence_name: str
 
 
 class EvidenceCache:
@@ -9,7 +21,7 @@ class EvidenceCache:
 
     Reuses collected evidence across turns within a session
     to avoid re-collecting the same data. Evidence expires
-    after a configurable TTL.
+    after a configurable TTL (default 60s).
 
     Thread-safe — uses a simple dict with no locking needed
     for single-threaded agent usage.
@@ -23,17 +35,19 @@ class EvidenceCache:
                  is considered stale and will be re-collected.
         """
         self._ttl = ttl
-        self._cache: dict[Hashable, tuple[float, object]] = {}
+        self._cache: dict[CacheKey, tuple[float, object]] = {}
 
-    def get(self, key: Hashable) -> object | None:
-        """Retrieve cached evidence if still fresh.
+    def get(self, target: str, evidence_name: str) -> object | None:
+        """Retrieve cached evidence for a specific target if still fresh.
 
         Args:
-            key: The cache key (typically evidence_name or capability_name).
+            target: The investigation target (e.g., 'localhost').
+            evidence_name: The evidence name (e.g., 'CPU', 'Memory').
 
         Returns:
-            Cached data if fresh, None otherwise.
+            Cached evidence package if fresh, None otherwise.
         """
+        key = CacheKey(target=target, evidence_name=evidence_name)
         entry = self._cache.get(key)
         if entry is None:
             return None
@@ -43,13 +57,15 @@ class EvidenceCache:
             return None
         return data
 
-    def put(self, key: Hashable, data: object) -> None:
+    def put(self, target: str, evidence_name: str, data: object) -> None:
         """Store evidence in the cache.
 
         Args:
-            key: The cache key.
-            data: The evidence data to cache.
+            target: The investigation target.
+            evidence_name: The evidence name.
+            data: The evidence package to cache.
         """
+        key = CacheKey(target=target, evidence_name=evidence_name)
         self._cache[key] = (_time.monotonic(), data)
 
     def clear(self) -> None:
@@ -67,3 +83,8 @@ class EvidenceCache:
         for k in expired:
             del self._cache[k]
         return len(expired)
+
+    @property
+    def ttl(self) -> float:
+        """Time-to-live in seconds."""
+        return self._ttl

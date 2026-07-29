@@ -184,11 +184,12 @@ class ExecutionEngine:
             }
         )
 
-        # Cache evidence
+        # Cache evidence (with target for cross-machine isolation).
         if self._evidence_cache is not None:
+            _target = state.target or "localhost"
             for pkg in temp_req.evidence:
                 if pkg.success:
-                    self._evidence_cache.put(pkg.evidence_name, pkg)
+                    self._evidence_cache.put(_target, pkg.evidence_name, pkg)
 
         # Attach metrics
         metrics.evidence_complete = temp_req.evidence_complete
@@ -291,9 +292,10 @@ class ExecutionEngine:
 
         # Phase 6: Cache collected evidence for reuse across turns.
         if self._evidence_cache is not None:
+            _target = request.target or "localhost"
             for pkg in request.evidence:
                 if pkg.success:
-                    self._evidence_cache.put(pkg.evidence_name, pkg)
+                    self._evidence_cache.put(_target, pkg.evidence_name, pkg)
 
         # Attach metrics to the request for observability.
         metrics.evidence_complete = request.evidence_complete

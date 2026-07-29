@@ -3,6 +3,21 @@ from __future__ import annotations
 from src.pipeline.investigation_request import InvestigationRequest
 
 
+def _safe_parse_pct(value: object) -> float | None:
+    """Safely parse a percentage value that may include '%' suffix."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip().rstrip("%").strip()
+        try:
+            return float(stripped)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 class DeterministicResponder:
     """Generate deterministic responses without LLM when evidence is simple.
 
@@ -142,12 +157,19 @@ class DeterministicResponder:
                 if result is not None:
                     return result
 
-            if pkg.evidence_name in ("CPU", "CPU Information") and is_load:
+            if (
+                pkg.evidence_name in ("CPU", "CPU Information", "CPU Hardware")
+                and is_load
+            ):
                 result = self._check_load_average(pkg.data)
                 if result is not None:
                     return result
 
-            if pkg.evidence_name in ("CPU", "CPU Information") and is_uptime:
+            if (
+                pkg.evidence_name
+                in ("CPU", "CPU Information", "CPU Hardware", "System Information")
+                and is_uptime
+            ):
                 result = self._check_uptime(pkg.data)
                 if result is not None:
                     return result
@@ -478,7 +500,10 @@ class DeterministicResponder:
     def _check_disk_full(self, data: dict) -> str | None:
         """Check if any filesystem is near capacity."""
         filesystems = (
-            data.get("filesystems") or data.get("mounts") or data.get("mount_points")
+            data.get("disks")
+            or data.get("filesystems")
+            or data.get("mounts")
+            or data.get("mount_points")
         )
         if not filesystems:
             # Check for single filesystem data.
@@ -486,30 +511,45 @@ class DeterministicResponder:
             used = data.get("used") or data.get("used_kb")
             if total is not None and used is not None:
                 pct = round((used / total) * 100, 1) if total > 0 else 0
-                mount = data.get("mount", data.get("mount_point", "/"))
+                mount = data.get(
+                    "mount", data.get("mount_point", data.get("target", "/"))
+                )
                 return f"## Disk: {mount}\n\n**{pct}%** used"
             return None
 
         if isinstance(filesystems, list):
             fs_lines = []
             near_full = []
+            has_any_pct = False
             for fs in filesystems[:15]:
                 if isinstance(fs, dict):
-                    mount = fs.get("mount", fs.get("mount_point", "?"))
-                    used_pct = fs.get(
-                        "used_pct", fs.get("usage_percent", fs.get("pct"))
+                    mount = fs.get(
+                        "mount",
+                        fs.get(
+                            "mount_point", fs.get("target", fs.get("mountpoint", "?"))
+                        ),
                     )
-                    if used_pct is not None:
-                        pct_val = (
-                            float(used_pct) if isinstance(used_pct, str) else used_pct
-                        )
+                    used_pct = fs.get(
+                        "use_percent",
+                        fs.get("used_pct", fs.get("usage_percent", fs.get("pct"))),
+                    )
+                    pct_val = _safe_parse_pct(used_pct)
+                    if pct_val is not None:
+                        has_any_pct = True
                         if pct_val > 80:
                             near_full.append((mount, pct_val))
-                    fs_lines.append(f"- **{mount}**: {used_pct}%")
+                        fs_lines.append(f"- **{mount}**: {pct_val:.1f}%")
+                    else:
+                        fs_lines.append(f"- **{mount}**: ?")
                 else:
                     fs_lines.append(f"- {fs}")
             if len(filesystems) > 15:
                 fs_lines.append(f"  (+{len(filesystems) - 15} more)")
+
+            # If no entry had any percentage data, return None to let
+            # the loop try the next evidence package (e.g., Storage after Filesystem).
+            if not has_any_pct:
+                return None
 
             result = "## Disk Usage\n\n" + "\n".join(fs_lines)
             if near_full:
@@ -525,14 +565,16 @@ class DeterministicResponder:
             near_full = []
             for mount, info in list(filesystems.items())[:15]:
                 if isinstance(info, dict):
-                    used_pct = info.get("used_pct", info.get("usage_percent"))
-                    if used_pct is not None:
-                        pct_val = (
-                            float(used_pct) if isinstance(used_pct, str) else used_pct
-                        )
+                    used_pct = info.get(
+                        "use_percent", info.get("used_pct", info.get("usage_percent"))
+                    )
+                    pct_val = _safe_parse_pct(used_pct)
+                    if pct_val is not None:
                         if pct_val > 80:
                             near_full.append((mount, pct_val))
-                    fs_lines.append(f"- **{mount}**: {used_pct}%")
+                        fs_lines.append(f"- **{mount}**: {pct_val:.1f}%")
+                    else:
+                        fs_lines.append(f"- **{mount}**: ?")
                 else:
                     fs_lines.append(f"- **{mount}**: {info}")
 

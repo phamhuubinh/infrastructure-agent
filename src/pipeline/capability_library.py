@@ -201,6 +201,13 @@ COVERS_TO_OPERATIONAL: dict[str, str] = {
     "block_device": "Block Device Information",
     "firewall_status": "Firewall Status",
     "open_ports": "Port Discovery",
+    "interface_stats": "Interface Statistics",
+    "traffic": "Network Traffic Statistics",
+    "packet_loss": "Packet Loss Assessment",
+    "bandwidth": "Bandwidth Utilization",
+    "throughput": "Network Throughput",
+    "latency": "Network Latency",
+    "ping": "Network Latency",
     "zabbix-problems": "Monitoring Problems",
     "zabbix-triggers": "Alert Triggers",
     "alert_severity": "Alert Severity Assessment",
@@ -262,6 +269,12 @@ _ADDITIONAL_OPERATIONAL: set[str] = {
     "Knowledge Base Query",
     "Documentation Lookup",
     "Runbook Lookup",
+    "Interface Statistics",
+    "Network Traffic Statistics",
+    "Packet Loss Assessment",
+    "Bandwidth Utilization",
+    "Network Throughput",
+    "Network Latency",
 }
 # ------------------------------------------------------------------
 # Combined mapping: evidence name → operational capability name

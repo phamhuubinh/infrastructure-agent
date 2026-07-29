@@ -185,7 +185,7 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-26 (Task 013: Plugin/Extension System gate evaluation complete — 2/5 gates met, implementation deferred; Task 012: Configuration Error Handling Policy complete; all 1,127 tests passing).
+> **Last updated:** 2026-07-27 (Post-Phase 6 bugfix round: 9 issues fixed across 8 files — identity prompt hardening, disk percentage parsing, target skip-words expansion, uptime/kernel/port evidence routing, UnknownTargetError domain-tool filtering, firewall iptables fallback, container capability_plans mismatch; all 1,130 tests passing).
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 
