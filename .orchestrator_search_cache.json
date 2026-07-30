@@ -493,5 +493,104 @@
         }
       ]
     }
+  },
+  "39246b0cccaacc3e": {
+    "ts": "2026-07-30T08:09:15.128262+00:00",
+    "query": "GraphRAG config output_dir parameter",
+    "result": {
+      "results": [
+        {
+          "title": "graphrag-core - crates.io: Rust Package Registry",
+          "url": "https://crates.io/crates/graphrag-core",
+          "snippet": "31 thg 5, 2026 ... Three Ways to Configure · 1. TypedBuilder (Compile-Time Safety). use graphrag_core::prelude::*; // Build won't compile until required fields are ..."
+        },
+        {
+          "title": "GraphRAG: Enhancing LLMs with knowledge graphs for superior ...",
+          "url": "https://wandb.ai/byyoung3/Generative-AI/reports/GraphRAG-Enhancing-LLMs-with-knowledge-graphs-for-superior-retrieval--VmlldzoxMDY0OTU0MA",
+          "snippet": "18 thg 12, 2024 ... yaml to increase the stagger value and reduce the num_threads parameter in the parallelization section of the settings.yaml file, which will ..."
+        },
+        {
+          "title": "How RAGAnything query work · HKUDS/RAG-Anything · Discussion #66",
+          "url": "https://github.com/HKUDS/RAG-Anything/discussions/66",
+          "snippet": "working_dir (in config) = permanent knowledge graph storage ⭐ · output_dir (in process functions) = temporary parsed content storage"
+        },
+        {
+          "title": "lightrag-hku 1.0.6 - PyPI",
+          "url": "https://pypi.org/project/lightrag-hku/1.0.6/",
+          "snippet": "13 thg 12, 2024 ... The structure of this code is based on nano-graphrag. LightRAG ... Parameter, Type, Explanation, Default. working_dir, str, Directory where ..."
+        },
+        {
+          "title": "SLM FineTuning — Part 1. A small code example | by Pelin Balci",
+          "url": "https://medium.com/@balci.pelin/slm-finetuning-part-1-1f0087e91d58",
+          "snippet": "24 thg 1, 2026 ... output_dir=OUT_DIR, per_device_train_batch_size=BATCH_SIZE ... The model config and generation config were aligned accordingly,"
+        }
+      ]
+    }
+  },
+  "6adb605a3609ee99": {
+    "ts": "2026-07-30T08:09:16.530659+00:00",
+    "query": "GraphRAG index output directory configuration",
+    "result": {
+      "results": [
+        {
+          "title": "Detailed Configuration - GraphRAG - Microsoft Open Source",
+          "url": "https://microsoft.github.io/graphrag/config/yaml/",
+          "snippet": "base_dir str - The base directory to write output artifacts to, relative to the root. connection_string str - (blob/cosmosdb only) The Azure Storage connection ..."
+        },
+        {
+          "title": "GraphRAG Configuration Guide: Master settings.yml and .env",
+          "url": "https://medium.com/@QuarkAndCode/graphrag-configuration-guide-master-settings-yml-and-env-04730f3e4a77",
+          "snippet": "4 thg 4, 2026 ... Storage is what turns GraphRAG from a simple example into a real, working pipeline. The generated config includes input_storage, output_storage, ..."
+        },
+        {
+          "title": "CLI - GraphRAG",
+          "url": "https://microsoft.github.io/graphrag/cli/",
+          "snippet": "Applies a default output configuration (if not provided by config), saving the new index to the local file system in the update_output folder. Usage: update ..."
+        },
+        {
+          "title": "GraphRAG: Hierarchical Approach to Retrieval-Augmented ...",
+          "url": "https://www.lancedb.com/blog/graphrag-hierarchical-approach-to-retrieval-augmented-generation",
+          "snippet": "Supported File Types Currently, GraphRAG supports only .txt and .csv file formats. If you need to add support for CSV files, you'll need to modify the settings."
+        },
+        {
+          "title": "Init Command - GraphRAG",
+          "url": "https://microsoft.github.io/graphrag/config/init/",
+          "snippet": "env and settings.yaml files in the specified directory with the necessary configuration settings. It will also output the default LLM prompts used by GraphRAG."
+        }
+      ]
+    }
+  },
+  "dda19b5108476892": {
+    "ts": "2026-07-30T08:09:17.098672+00:00",
+    "query": "GraphRAG default output directory path",
+    "result": {
+      "results": [
+        {
+          "title": "CLI - GraphRAG",
+          "url": "https://microsoft.github.io/graphrag/cli/",
+          "snippet": "-r, --root DIRECTORY The project root directory. [default: /home/runner/work/graphrag/graphrag] -m, --model TEXT [default: gpt-4.1] -e, ..."
+        },
+        {
+          "title": "Init Command - GraphRAG",
+          "url": "https://microsoft.github.io/graphrag/config/init/",
+          "snippet": "--root PATH - The project root directory to initialize graphrag at. Default is the current directory. ... Output. The init command will create the following ..."
+        },
+        {
+          "title": "Auto Prompt Tuning - microsoft/graphrag - GitHub",
+          "url": "https://github.com/microsoft/graphrag/blob/main/docs/prompt_tuning/auto_prompt_tuning.md",
+          "snippet": "... [--output OUTPUT]. Command-Line Options. --root (optional): Path to the project directory that contains the config file (settings.yaml). Defaults to the current ..."
+        },
+        {
+          "title": "GraphRAG: Hierarchical Approach to Retrieval-Augmented ...",
+          "url": "https://www.lancedb.com/blog/graphrag-hierarchical-approach-to-retrieval-augmented-generation",
+          "snippet": "Create and Organize Your Dataset Start by creating your dataset and saving it in the following directory: /content/rag_exim/input/info. · Supported File Types ..."
+        },
+        {
+          "title": "Detailed Configuration - GraphRAG - Microsoft Open Source",
+          "url": "https://microsoft.github.io/graphrag/config/yaml/",
+          "snippet": "base_dir str - The base directory to write output artifacts to, relative to the root. connection_string str - (blob/cosmosdb only) The Azure Storage connection ..."
+        }
+      ]
+    }
   }
 }
