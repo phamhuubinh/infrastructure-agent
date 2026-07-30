@@ -236,7 +236,7 @@
       "path traversal",
       "input validation"
     ],
-    "status": "open",
+    "status": "done",
     "source": "full_project_audit",
     "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/security-path-traversal_20260730T094324.md"
   },

@@ -1087,5 +1087,104 @@
         }
       ]
     }
+  },
+  "ec36a60852e11ce3": {
+    "ts": "2026-07-30T16:50:17.907793+00:00",
+    "query": "2024 enterprise AI agent framework trends LangChain LlamaIndex AutoGen",
+    "result": {
+      "results": [
+        {
+          "title": "The AI Agent Framework Landscape in 2025: What Changed and What Matters | by Trung Hiếu Trần | Medium",
+          "url": "https://medium.com/@hieutrantrung.it/the-ai-agent-framework-landscape-in-2025-what-changed-and-what-matters-3cd9b07ef2c3",
+          "snippet": "If you’ve been building AI agents, you’ve witnessed the shift. The 2023–2024 explosion of frameworks — LangChain, AutoGen, CrewAI, Swarm, Semantic Kernel, Haystack, LlamaIndex, and a dozen others — has narrowed dramatically."
+        },
+        {
+          "title": "The Best AI Agent Frameworks for 2024: A Complete Overview - Lyzr",
+          "url": "https://www.lyzr.ai/blog/best-ai-agent-frameworks/",
+          "snippet": "21 thg 8, 2024 ... As we step into 2025, the world of AI is experiencing a revolution already. While traditional AI systems are still gaining popularity, ..."
+        },
+        {
+          "title": "Stop Guessing: Best AI Agent Framework for Your Project (2026) — 40+ Compared",
+          "url": "https://www.xpay.sh/resources/agentic-frameworks/",
+          "snippet": "The AI agent framework landscape is rapidly evolving, with established players like LangChain leading in community adoption while newer frameworks like CrewAI focus on user experience."
+        },
+        {
+          "title": "Agentic AI Frameworks 2026 — LangGraph, CrewAI & AutoGen",
+          "url": "https://myengineeringpath.dev/tools/agentic-frameworks/",
+          "snippet": "20 thg 3, 2026 ... By late 2024, three frameworks had emerged as the dominant choices for building multi-agent AI systems: LangGraph, CrewAI, and AutoGen."
+        },
+        {
+          "title": "Agent Frameworks 101: The Complete Guide to Building AI Agents in 2026",
+          "url": "https://sidsaladi.substack.com/p/agent-frameworks-101-the-complete",
+          "snippet": "There are 30+ AI agent frameworks right now. You need one. Maybe two. Here’s how to pick the right one without wasting 3 months on the wrong choice · If you’ve been anywhere near AI development in the last year, you’ve seen the explosion. LangGraph. CrewAI."
+        }
+      ]
+    }
+  },
+  "4abaf976eb3160c5": {
+    "ts": "2026-07-30T16:50:19.035312+00:00",
+    "query": "Enterprise AI architecture best practices multi-tenancy security caching streaming",
+    "result": {
+      "results": [
+        {
+          "title": "Designing Secure Multi-Tenant Data Platforms | by Manik Hossain",
+          "url": "https://medium.com/@manik.ruet08/designing-secure-multi-tenant-data-platforms-2052e62925d7",
+          "snippet": "11 thg 4, 2026 ... In the modern data ecosystem, multi-tenancy has become a foundational architectural pattern. Organizations increasingly need to serve ..."
+        },
+        {
+          "title": "Build a multi-tenant generative AI environment for your enterprise on ...",
+          "url": "https://aws.amazon.com/blogs/machine-learning/build-a-multi-tenant-generative-ai-environment-for-your-enterprise-on-aws/",
+          "snippet": "A generative AI multi-tenant architecture helps you maintain security, governance, and cost controls while scaling the use of generative AI across multiple use cases and teams."
+        },
+        {
+          "title": "Best practices for enterprise multi-tenancy",
+          "url": "https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/enterprise-multitenancy",
+          "snippet": "Each tenant should not be able to affect other tenants in the shared cluster, except via explicit design decisions like API calls, shared data sources, etc."
+        },
+        {
+          "title": "Multi-Tenant Event Streaming Architecture for SaaS Platforms",
+          "url": "https://www.linkedin.com/pulse/multi-tenant-event-streaming-architecture-saas-platforms-datatroops-zioqc",
+          "snippet": "16 thg 1, 2026 ... Product Engineering, Functional Programming & AI… · Shared database, shared schema · Tenant ID used to isolate data · Lowest cost, highest ..."
+        },
+        {
+          "title": "Building Enterprise-Ready AI Agents — A Practical Field Guide",
+          "url": "https://viblo.asia/p/building-enterprise-ready-ai-agents-a-practical-field-guide-3RL1B5PoVao",
+          "snippet": "Read Parts 8–10 for the enterprise gates: security, compliance, multi-tenancy, observability, cost. Read Parts 11–15 for delivery, scale & rollout: deployment ..."
+        }
+      ]
+    }
+  },
+  "685beb8044f3e1ce": {
+    "ts": "2026-07-30T16:50:19.892226+00:00",
+    "query": "Common security vulnerabilities CVEs in RAG frameworks LangChain LlamaIndex",
+    "result": {
+      "results": [
+        {
+          "title": "LangChain and LangGraph Security: Risks and Hardening in AI ...",
+          "url": "https://secra.es/en/blog/langchain-langgraph-security-ai-applications",
+          "snippet": "8 thg 6, 2026 ... LangChain/LangGraph security: agent abuse, tool poisoning, deserialization CVEs, memory injection and defensive controls in production."
+        },
+        {
+          "title": "The Hidden Threat in Plain Text: Attacking RAG Data Loaders",
+          "url": "https://dl.acm.org/doi/10.1145/3733799.3762976",
+          "snippet": "More recently, a Common Vulnerabilities and Exposures (CVE) has been disclosed in Meta's Llama framework exposed AI applications to remote execution attacks ( ..."
+        },
+        {
+          "title": "ChromaDB RCE Exposes Unauthenticated AI Infrastructure",
+          "url": "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/05/CSA_research_note_chromadb_rce_ai_infrastructure_security_20260521-csa-styled.pdf",
+          "snippet": "21 thg 5, 2026 ... vector store in widely-used AI application frameworks including LangChain and LlamaIndex; ... HiddenLayer formally reports CVE-2026-45829 to ..."
+        },
+        {
+          "title": "Cache Related Security Threats in LLM Serving Frameworks",
+          "url": "https://www.ndss-symposium.org/wp-content/uploads/2026-f2812-paper.pdf",
+          "snippet": "We have received 3. Common Vulnerabilities and Exposure (CVE) IDs, which will ... of 0.6 (the default value of LangChain RAG [37]), was: Q+ = “Based on ..."
+        },
+        {
+          "title": "An agentic RAG cyber attack classification and reporting tool",
+          "url": "https://www.sciencedirect.com/science/article/pii/S0167739X25004807",
+          "snippet": "Several state-of-the-art frameworks, including LangChain \"},{\"#name\":\"cross ... This includes common usage patterns, associated CVEs, threat severities, and ..."
+        }
+      ]
+    }
   }
 }
