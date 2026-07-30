@@ -97,5 +97,104 @@
         }
       ]
     }
+  },
+  "930ddac22c1a4ea9": {
+    "ts": "2026-07-30T03:40:50.982525+00:00",
+    "query": "SSHExecutionBackend host port public getter",
+    "result": {
+      "results": [
+        {
+          "title": "bash - Getting ssh to execute a command in the background on target machine - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/29142/getting-ssh-to-execute-a-command-in-the-background-on-target-machine",
+          "snippet": "26 thg 8, 2008 ... ... host and ssh command on local machine will return to shell almost instantly. You can then ssh to the remote host and tmux attach to that session ..."
+        },
+        {
+          "title": "How to run the SSH server on a port other than 22 - Ask Ubuntu",
+          "url": "https://askubuntu.com/questions/264046/how-to-run-the-ssh-server-on-a-port-other-than-22",
+          "snippet": "4 thg 3, 2013 ... If you are on Linux system and you want connect to an SSH server on port 26 you can use the following command. ssh user@192.168.1.1 -p 26."
+        },
+        {
+          "title": "SSH Port Forwarding: Local, Remote, and Dynamic Explained | DigitalOcean",
+          "url": "https://www.digitalocean.com/community/tutorials/ssh-port-forwarding",
+          "snippet": "Imagine you’re working on a development project locally, and your database is hosted on a remote server (remote-db.com) running PostgreSQL on its default port 5432. To establish a secure connection, you would use local port forwarding like this: ... Now, connecting to localhost:5433 locally ..."
+        },
+        {
+          "title": "Using SSH tunnels to get around network limitations - End Point Dev",
+          "url": "https://www.endpointdev.com/blog/2022/01/using-ssh-tunnels-network-limitations/",
+          "snippet": "26 thg 1, 2022 ... Serving content without a public IP address · -f tells ssh to run in the background. · -N doesn't run a command on the remote host, which is ..."
+        },
+        {
+          "title": "SSH Port forwarding - Super User",
+          "url": "https://superuser.com/questions/667040/ssh-port-forwarding",
+          "snippet": "29 thg 10, 2013 ... I guess you first need to get clear on some terms I'll use: Client means the machine where you start ssh. This machine is refered to by ..."
+        }
+      ]
+    }
+  },
+  "cc57e7806135f68b": {
+    "ts": "2026-07-30T03:40:52.122623+00:00",
+    "query": "Python private attribute access violation fix",
+    "result": {
+      "results": [
+        {
+          "title": "\"Private\" attribute properties in Python - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/23432258/private-attribute-properties-in-python",
+          "snippet": "I'm trying to write a Python module, and I'd like to create a class with a \"private\" attribute that can (or maybe 'should') only be modified through one or more functions within the module."
+        },
+        {
+          "title": "How to Fix Attribute Error in Python? - - Analytics Vidhya",
+          "url": "https://www.analyticsvidhya.com/blog/2024/01/python-attribute-errors/",
+          "snippet": "The variable you’re trying to access is None: In Python, None represents the absence of a value. If you try to use an attribute on a variable that is None, you’ll get this error. Trying to access a private attribute: In some object-oriented programming contexts, there might be special attributes designed not to be directly accessed."
+        },
+        {
+          "title": "How to Fix the 'Class' object has no 'attribute_name' Error in Python - AskPython",
+          "url": "https://www.askpython.com/python/examples/attributeerror-class-object-has-no-attribute",
+          "snippet": "s shown in the above examples, verify if the attributes of the parent class called by the child class aren’t private. One should check for the underscores “_” before the attribute’s name and thus make it public or protected as per the need. Python comes with different inbuilt methods, thus making programming easy and efficient. Likewise, the ‘hasattr()’ method is a function to avoid Attribute Errors. It checks if the object has access to such attributes or are such attributes declared in the cla"
+        },
+        {
+          "title": "Access violation with pytest >= 5.0.0 and windows 10 #7634 - GitHub",
+          "url": "https://github.com/pytest-dev/pytest/issues/7634",
+          "snippet": "... private\\path\\mytmptestDir collected 1 item test.py Windows fatal ... The error happened every time with python 3.10 on Windows. Before the cure ..."
+        },
+        {
+          "title": "Python Attribute Access using __getattr__ and __getattribute__ ...",
+          "url": "https://medium.com/@satishgoda/python-attribute-access-using-getattr-and-getattribute-6401f7425ce6",
+          "snippet": "13 thg 12, 2019 ... This method should return the (computed) attribute value or raise an AttributeError exception. In order to avoid infinite recursion in this ..."
+        }
+      ]
+    }
+  },
+  "fc9216df82fc7d90": {
+    "ts": "2026-07-30T03:40:53.604600+00:00",
+    "query": "encapsulation violation replace _attribute with method",
+    "result": {
+      "results": [
+        {
+          "title": "Overriding private methods in Java - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/2000137/overriding-private-methods-in-java",
+          "snippet": "4 thg 1, 2010 ... How is it not a violation of encapsulation to not allow a parent's private method ... However it seem to be perfectly legal to replace the method:."
+        },
+        {
+          "title": "Encapsulation in Object-Oriented Programming | by Hey Amit",
+          "url": "https://medium.com/@heyamit10/encapsulation-in-object-oriented-programming-f10ed08c2998",
+          "snippet": "19 thg 11, 2024 ... With encapsulation, you can change the internal workings of your class whenever needed (maybe you need a new algorithm or method) without ..."
+        },
+        {
+          "title": "Encapsulation in OOPs by Logicmojo",
+          "url": "https://logicmojo.com/encapsulation-in-oops",
+          "snippet": "In practice sometimes methods (so-called \"getters\" and \"setters\") are provided to access the values indirectly, but, although not necessarily a violation of ..."
+        },
+        {
+          "title": "Encapsulation in Python - GeeksforGeeks",
+          "url": "https://www.geeksforgeeks.org/python/encapsulation-in-python/",
+          "snippet": "22 thg 5, 2026 ... Protects data from unauthorized access and accidental modification. Controls data updates using getter/setter methods with validation. Enhances ..."
+        },
+        {
+          "title": "Encapsulation in Python: A Comprehensive Guide - DataCamp",
+          "url": "https://www.datacamp.com/tutorial/encapsulation-in-python-object-oriented-programming",
+          "snippet": "Create protected or private attributes or methods if they are used only by you. Protected or private members get excluded from documentation and signal others ..."
+        }
+      ]
+    }
   }
 }
