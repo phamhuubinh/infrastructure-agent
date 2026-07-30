@@ -95,6 +95,12 @@ class Tool(ABC):
             {k: v for k, v in arguments.items() if k != "action"},
         )
 
-        if provider is not None:
-            return ToolResult(success=True, data=handler(provider, **filtered))
-        return ToolResult(success=True, data=handler(**filtered))
+        try:
+            if provider is not None:
+                return ToolResult(success=True, data=handler(provider, **filtered))
+            return ToolResult(success=True, data=handler(**filtered))
+        except Exception as e:
+            return ToolResult(
+                success=False,
+                error=f"Error executing capability '{action}': {str(e)}"
+            )
