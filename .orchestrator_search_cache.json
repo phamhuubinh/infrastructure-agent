@@ -691,5 +691,104 @@
         }
       ]
     }
+  },
+  "2308a94252794002": {
+    "ts": "2026-07-30T09:08:29.025819+00:00",
+    "query": "python zip strict=False behavior",
+    "result": {
+      "results": [
+        {
+          "title": "PEP 618 – Add Optional Length-Checking To zip | peps.python.org",
+          "url": "https://peps.python.org/pep-0618/",
+          "snippet": "This change is fully backward-compatible. zip currently takes no keyword arguments, and the “non-strict” default behavior when strict is omitted remains unchanged. The author has drafted a C implementation."
+        },
+        {
+          "title": "why is python's zip strictness only enforced when the object is used, not created - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/78549723/why-is-pythons-zip-strictness-only-enforced-when-the-object-is-used-not-create",
+          "snippet": "Copyl1 = [3] l2 = [1,2] Z = zip(l1, l2, strict=True) Zlist = list(Z) ... zip() works on arbitrary iterables, which don't necessarily have any ability to determine their length in advance. Yes, it could have detected the problem earlier in this particular case, but that wouldn't eliminate the need for the end-of-iteration check, and would result in inconsistent behavior depending on the exact type of the arguments."
+        },
+        {
+          "title": "Using the Python zip() Function for Parallel Iteration – Real Python",
+          "url": "https://realpython.com/python-zip-function/",
+          "snippet": "This argument’s main goal is to provide a safe way to handle iterables of unequal length. The default value of strict is False, which ensures that zip() remains backward compatible and has a default behavior ..."
+        },
+        {
+          "title": "Unclear documentation of `zip()`'s `strict` option · Issue #100101 · python/cpython",
+          "url": "https://github.com/python/cpython/issues/100101",
+          "snippet": "In version 3.10, zip() has gained the strict option, which causes a ValueError to be raised when the iterables have different lengths (cf. #84816). The documentation describes this as follows: Unlike the default behavior, it checks that the ..."
+        },
+        {
+          "title": "zip() | Python’s Built-in Functions – Real Python",
+          "url": "https://realpython.com/ref/builtin-functions/zip/",
+          "snippet": "Language: Python Syntax · zip(*iterables, strict=False) An iterator of tuples, where the i-th tuple contains the i-th element from each of the argument iterables. With a single iterable argument, it returns an iterator of one-item tuples."
+        }
+      ]
+    }
+  },
+  "3f33d1c7d5c6f555": {
+    "ts": "2026-07-30T09:08:30.376915+00:00",
+    "query": "python zip strict parameter default",
+    "result": {
+      "results": [
+        {
+          "title": "PEP 618 – Add Optional Length-Checking To zip | peps.python.org",
+          "url": "https://peps.python.org/pep-0618/",
+          "snippet": "This PEP proposes adding an optional strict boolean keyword parameter to the built-in zip. When enabled, a ValueError is raised if one of the arguments is exhausted before the others."
+        },
+        {
+          "title": "Unclear documentation of zip() 's strict option #100101 - GitHub",
+          "url": "https://github.com/python/cpython/issues/100101",
+          "snippet": "Unlike the default behavior, it checks that the lengths of iterables are identical, raising a ValueError if they aren't: In my opinion, this is confusing at best. zip () in strict mode does not check the len () of the iterables, as that sentence might lead one to think."
+        },
+        {
+          "title": "why is python's zip strictness only enforced when the object is used ...",
+          "url": "https://stackoverflow.com/questions/78549723/why-is-pythons-zip-strictness-only-enforced-when-the-object-is-used-not-create",
+          "snippet": "29 thg 5, 2024 ... ... strict=True) Zlist = list(Z). python · Share. Share a link to this ... \"Least Astonishment\" and the Mutable Default Argument · 3363. How do I ..."
+        },
+        {
+          "title": "zip() | Python's Built-in Functions",
+          "url": "https://realpython.com/ref/builtin-functions/zip/",
+          "snippet": "Language: Python Syntax. zip(*iterables, strict=False) ... One or more iterables (e.g., lists, tuples, strings) to be zipped together. Required arguments. strict ..."
+        },
+        {
+          "title": "What is the equivalent of Python's `zip(..., strict=True)` in Rust?",
+          "url": "https://users.rust-lang.org/t/what-is-the-equivalent-of-pythons-zip-strict-true-in-rust/119618",
+          "snippet": "12 thg 10, 2024 ... In Python, the zip() function with strict=True ensures that all iterables passed to zip() have the same length. If they don't, it raises a ..."
+        }
+      ]
+    }
+  },
+  "0025399fb954c9ee": {
+    "ts": "2026-07-30T09:08:31.233633+00:00",
+    "query": "zip strict=False length mismatch",
+    "result": {
+      "results": [
+        {
+          "title": "Why You Should Be Using Python's zip(strict=True) | by ... - Medium",
+          "url": "https://medium.com/@tihomir.manushev/the-silent-data-killer-in-your-loops-why-you-should-be-using-pythons-zip-strict-true-58e648346183",
+          "snippet": "22 thg 1, 2026 ... The legacy behavior of zip violated this core aphorism by silencing length mismatch errors by default. While there are legitimate use cases for ..."
+        },
+        {
+          "title": "zip iterators asserting for equal length in python - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/32954486/zip-iterators-asserting-for-equal-length-in-python",
+          "snippet": "5 thg 10, 2015 ... Use the builtin zip function with ' 'strict=True instead.' ), DeprecationWarning, ) # Check whether the iterables are all the same size. try ..."
+        },
+        {
+          "title": "zip & enumerate | Python - AlgoMaster.io",
+          "url": "https://algomaster.io/learn/python/zip-enumerate",
+          "snippet": "6 thg 6, 2026 ... zip(a, b, strict=True), Lengths should always match; mismatch is a ... Length mismatch is a bug. zip(*pairs), Transposed tuples, Shortest ..."
+        },
+        {
+          "title": "Zip up | Pydon't - mathspp",
+          "url": "https://mathspp.com/blog/pydonts/zip-up",
+          "snippet": "31 thg 3, 2021 ... starting with Python 3.10, you can use the keyword argument strict=True to tell zip to error if the arguments to zip have different lengths; and ..."
+        },
+        {
+          "title": "Python enumerate and zip Explained - PythonAlchemist",
+          "url": "https://www.pythonalchemist.com/blog/python-enumerate-zip",
+          "snippet": "2 thg 1, 2026 ... Python 3.10 added strict=True to zip: zip(a, b, strict=True) raises ... Reach for it when the inputs share an origin and a length mismatch ..."
+        }
+      ]
+    }
   }
 }
