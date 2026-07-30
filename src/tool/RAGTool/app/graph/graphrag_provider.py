@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.shared.config import get_config
 from app.graph.base import GraphSearchResult
 
 
@@ -60,7 +61,7 @@ class MicrosoftGraphRagProvider:
             raise RuntimeError(msg) from exc
 
         config = load_config(self._workspace_dir)
-        output_dir = self._workspace_dir / "output"
+        output_dir = self._workspace_dir / config.output_dir
 
         entities = pd.read_parquet(output_dir / "entities.parquet")
         communities = pd.read_parquet(output_dir / "communities.parquet")
