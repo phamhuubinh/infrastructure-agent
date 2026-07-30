@@ -52,8 +52,9 @@
       "exception",
       "logging"
     ],
-    "status": "open",
-    "source": "full_project_audit"
+    "status": "done",
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/registry-safety-import_20260730T033215.md"
   },
   {
     "id": "target-store-json-decode",
