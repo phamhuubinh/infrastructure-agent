@@ -18,6 +18,7 @@ used so the tree still builds and is testable end-to-end offline.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -95,7 +96,13 @@ class RaptorIndex:
 
         vectors = np.array([n.embedding for n in nodes])
         gmm = GaussianMixture(n_components=n_clusters, random_state=42, n_init=1)
-        labels = gmm.fit_predict(vectors)
+        try:
+            labels = gmm.fit_predict(vectors)
+        except ValueError as e:
+            logging.error(f"GMM clustering failed: {e}. Falling back to single cluster.")
+            # If GMM fails (e.g., singular matrix with degenerate embeddings),
+            # fall back to putting all nodes in a single cluster
+            labels = np.zeros(len(nodes), dtype=int)
 
         clusters: dict[int, list[RaptorNode]] = {}
         for label, node in zip(labels, nodes, strict=False):
