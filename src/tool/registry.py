@@ -4,9 +4,12 @@ import importlib
 import inspect
 import pkgutil
 import re
+import logging
 from pathlib import Path
 
 from src.tool.tool import Tool
+
+logger = logging.getLogger(__name__)
 
 
 def _tool_type_key(tool_cls: type[Tool]) -> str:
@@ -124,6 +127,7 @@ class ToolRegistry:
         try:
             return importlib.import_module(module_name)
         except Exception:
+            logging.error(f"Failed to import module '{module_name}'", exc_info=True)
             return None
 
     @staticmethod
