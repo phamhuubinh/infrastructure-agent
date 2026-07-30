@@ -53,3 +53,5 @@ certs/
 .coverage
 coverage.xml
 htmlcov/
+qa_logs/
+orchestrator_transcript.jsonl

@@ -37,8 +37,9 @@
       "autoescape",
       "security"
     ],
-    "status": "open",
-    "source": "full_project_audit"
+    "status": "done",
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/security_prompt_loader_autoescape_20260730T030051.md"
   },
   {
     "id": "registry-safety-import",
