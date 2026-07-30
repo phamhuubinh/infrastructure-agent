@@ -13,6 +13,6 @@ class NoOpReranker:
         self, query: str, candidates: list[tuple[str, str]], top_k: int = 10
     ) -> list[RerankedResult]:
         return [
-            RerankedResult(id=cid, score=1.0 - (i / max(len(candidates), 1)), text=text)
+            RerankedResult(id=cid, score=1.0 - (i / len(candidates)), text=text)
             for i, (cid, text) in enumerate(candidates[:top_k])
         ]
