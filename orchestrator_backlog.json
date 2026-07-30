@@ -95,8 +95,9 @@
       "uncaught exception",
       "tool execution crash"
     ],
-    "status": "open",
-    "source": "full_project_audit"
+    "status": "done",
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/stability-001_20260730T035752.md"
   },
   {
     "id": "sec-exception-leak",
