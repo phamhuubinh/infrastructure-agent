@@ -988,5 +988,104 @@
         }
       ]
     }
+  },
+  "660bb55291140262": {
+    "ts": "2026-07-30T14:54:38.490574+00:00",
+    "query": "2024 enterprise AI agent framework trends LangChain LlamaIndex AutoGen CrewAI",
+    "result": {
+      "results": [
+        {
+          "title": "AI Agent Frameworks Compared: LangChain, CrewAI, and More",
+          "url": "https://atlan.com/know/ai-agents-frameworks-compared/",
+          "snippet": "LangChain, LlamaIndex, CrewAI, and AutoGen are the four most-adopted AI agent frameworks in enterprise environments. LangChain leads on orchestration flexibility and MCP maturity, LlamaIndex on retrieval, CrewAI on role-based multi-agent coordination, and AutoGen on human-in-the-loop workflows."
+        },
+        {
+          "title": "r/LangChain on Reddit: Comprehensive comparison of every AI agent framework in 2026 — LangChain, LangGraph, CrewAI, AutoGen, Mastra, DeerFlow, and 20+ more",
+          "url": "https://www.reddit.com/r/LangChain/comments/1rnc2u9/comprehensive_comparison_of_every_ai_agent/",
+          "snippet": "This is awesome, super useful thanks! More on reddit.com"
+        },
+        {
+          "title": "AI Agent Frameworks Compared: LangGraph vs CrewAI vs AutoGen (2026)",
+          "url": "https://pecollective.com/blog/ai-agent-frameworks-compared/",
+          "snippet": "Popular frameworks across 2025-2026: LangChain (~85K GitHub stars, broader LLM application framework). LangGraph (LangChain's agent-specific library). CrewAI (multi-agent role-based). AutoGen (Microsoft Research multi-agent). LlamaIndex (retrieval-focused but supports agents)."
+        },
+        {
+          "title": "Which AI Agent Framework Should You Choose? LangChain vs LlamaIndex vs AutoGen vs CrewAI for Enterprise (2026) | TechAhead",
+          "url": "https://www.techaheadcorp.com/blog/top-agent-frameworks/",
+          "snippet": "This table highlights the key focus and ideal enterprise use cases for LangChain, LlamaIndex, AutoGen, and CrewAI, which helps you choose the best framework for your AI agent development needs:"
+        },
+        {
+          "title": "How do I choose between LangChain, CrewAI, AutoGen, LlamaIndex, and Semantic Kernel?",
+          "url": "https://cordum.io/blog/ai-agent-frameworks-comparison",
+          "snippet": "Choose based on the workload you need to operate, not the framework with the best demo. Use LangChain for broad integrations, CrewAI for role/task multi-agent workflows, AutoGen for conversational agent collaboration, LlamaIndex for RAG-heavy products, and Semantic Kernel when enterprise SDK consistency across C#, Python, and Java matters most."
+        }
+      ]
+    }
+  },
+  "909c6c2cf95cc36a": {
+    "ts": "2026-07-30T14:54:39.604288+00:00",
+    "query": "Enterprise AI architecture best practices multi-tenancy security caching evaluation",
+    "result": {
+      "results": [
+        {
+          "title": "Build a multi-tenant generative AI environment for your enterprise on ...",
+          "url": "https://aws.amazon.com/blogs/machine-learning/build-a-multi-tenant-generative-ai-environment-for-your-enterprise-on-aws/",
+          "snippet": "A generative AI multi-tenant architecture helps you maintain security, governance, and cost controls while scaling the use of generative AI across multiple use cases and teams."
+        },
+        {
+          "title": "Multi-Tenant AI Architecture: Share the Model, Never the Customer ...",
+          "url": "https://www.linkedin.com/pulse/multi-tenant-ai-architecture-share-model-never-customer-bommena-12zjf",
+          "snippet": "8 thg 7, 2026 ... Why multi-tenant AI systems fail in retrieval, prompts, permissions, and caches — not usually in the LLM itself."
+        },
+        {
+          "title": "Building Enterprise-Ready AI Agents — A Practical Field Guide",
+          "url": "https://viblo.asia/p/building-enterprise-ready-ai-agents-a-practical-field-guide-3RL1B5PoVao",
+          "snippet": "Read Parts 8–10 for the enterprise gates: security, compliance, multi-tenancy, observability, cost. Read Parts 11–15 for delivery, scale & rollout: deployment ..."
+        },
+        {
+          "title": "Architecting Secure Multi-Tenant Data Isolation | by Justin Hamade",
+          "url": "https://medium.com/@justhamade/architecting-secure-multi-tenant-data-isolation-d8f36cb0d25e",
+          "snippet": "10 thg 9, 2025 ... The standard architectural pattern of using a shared database with a TenantId column provides logical separation, which is effective for ..."
+        },
+        {
+          "title": "Multi-Tenant SaaS Architectures: Design Principles and Security ...",
+          "url": "https://www.questjournals.org/jses/papers/Vol6-issue-5/06052841.pdf",
+          "snippet": "Review audit logs to detect unusual access patterns across tenants. By implementing these best practices, multi-tenant SaaS providers can ensure long-term ..."
+        }
+      ]
+    }
+  },
+  "9d0c3c72cb1538e0": {
+    "ts": "2026-07-30T14:54:40.837522+00:00",
+    "query": "Common security vulnerabilities CVEs in RAG frameworks LangChain LlamaIndex 2024",
+    "result": {
+      "results": [
+        {
+          "title": "LangChain and LangGraph Security: Risks and Hardening in AI ...",
+          "url": "https://secra.es/en/blog/langchain-langgraph-security-ai-applications",
+          "snippet": "8 thg 6, 2026 ... LangChain/LangGraph security: agent abuse, tool poisoning, deserialization CVEs, memory injection and defensive controls in production."
+        },
+        {
+          "title": "Cache Related Security Threats in LLM Serving Frameworks",
+          "url": "https://www.ndss-symposium.org/wp-content/uploads/2026-f2812-paper.pdf",
+          "snippet": "We have received 3. Common Vulnerabilities and Exposure (CVE) IDs, which will ... of 0.6 (the default value of LangChain RAG [37]), was: Q+ = “Based on ..."
+        },
+        {
+          "title": "The Hidden Threat in Plain Text: Attacking RAG Data Loaders",
+          "url": "https://dl.acm.org/doi/10.1145/3733799.3762976",
+          "snippet": "More recently, a Common Vulnerabilities and Exposures (CVE) has been disclosed in Meta's Llama framework exposed AI applications to remote execution attacks ( ..."
+        },
+        {
+          "title": "ChromaDB RCE Exposes Unauthenticated AI Infrastructure",
+          "url": "https://labs.cloudsecurityalliance.org/wp-content/uploads/2026/05/CSA_research_note_chromadb_rce_ai_infrastructure_security_20260521-csa-styled.pdf",
+          "snippet": "21 thg 5, 2026 ... vector store in widely-used AI application frameworks including LangChain and LlamaIndex; ... \"Securing Vector Databases.\" Cisco Security, 2024."
+        },
+        {
+          "title": "From prompt injections to protocol exploits: Threats in LLM-powered ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2405959525001997",
+          "snippet": "... vulnerability databases (e.g., CVE), and GitHub security advisories. Finally, the framework underwent expert validation through structured review by domain ..."
+        }
+      ]
+    }
   }
 }
