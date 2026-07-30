@@ -166,7 +166,7 @@
       "list growth",
       "BM25Index.delete"
     ],
-    "status": "done",
+    "status": "open",
     "source": "full_project_audit",
     "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/tech-debt-bm25-list-growth_20260730T073733.md"
   },
@@ -181,7 +181,7 @@
       "output directory",
       "file not found"
     ],
-    "status": "openn",
+    "status": "open",
     "source": "full_project_audit",
     "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/graphrag-output-dir-hardcoded_20260730T082859.md"
   },
@@ -237,7 +237,8 @@
       "input validation"
     ],
     "status": "open",
-    "source": "full_project_audit"
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/security-path-traversal_20260730T094324.md"
   },
   {
     "id": "stability-missing-exception-handling",

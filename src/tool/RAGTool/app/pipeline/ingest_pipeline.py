@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.chunking.base import Chunker
+from app.config import load_config
 from app.embedding.base import EmbeddingProvider
 from app.ocr.base import OcrProvider
 from app.parsers.router import ParserRouter
@@ -39,6 +40,7 @@ class IngestPipeline:
         bm25_index: BM25Index,
         ocr_provider: OcrProvider | None = None,
         collection: str = "documents",
+        data_dir: str | Path | None = None,
     ) -> None:
         self._parser_router = parser_router
         self._chunker = chunker
@@ -47,9 +49,25 @@ class IngestPipeline:
         self._bm25 = bm25_index
         self._ocr = ocr_provider
         self._collection = collection
+        self._data_dir = Path(data_dir) if data_dir is not None else None
 
     def ingest(self, path: str | Path, doc_id: str) -> IngestResult:
         path = Path(path)
+        
+        # Validate path against configured data directory to prevent path traversal
+        # Only validate if data_dir is explicitly configured
+        if self._data_dir is not None:
+            data_directory = Path(self._data_dir)
+            try:
+                # Resolve both paths to handle symbolic links and normalize paths
+                resolved_path = path.resolve()
+                resolved_data_dir = data_directory.resolve()
+                
+                # Check if the resolved path is within the data directory
+                resolved_path.relative_to(resolved_data_dir)
+            except (ValueError, OSError):
+                raise ValueError(f"Invalid path: {path}. Path must be within configured data directory: {data_directory}")
+        
         document = self._parser_router.parse(path)
         warnings = list(document.warnings)
 

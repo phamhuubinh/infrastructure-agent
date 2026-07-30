@@ -101,6 +101,65 @@ class PipelineEndToEndTest(unittest.TestCase):
         self.assertIn("no LLM client configured", result.answer)
         self.assertGreater(len(result.retrieved), 0)
 
+    def test_path_traversal_prevention(self):
+        """Test that path traversal attempts raise ValueError"""
+        # Create a separate pipeline instance with data_dir to test path traversal
+        # This avoids affecting the main test setup
+        test_pipeline = IngestPipeline(
+            parser_router=_FakeParserRouter(ParsedDocument(
+                source_path="fake.pdf",
+                parser_name="fake",
+                blocks=[]
+            )),
+            chunker=self.chunker,
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            bm25_index=self.bm25,
+            collection="test",
+            data_dir="/tmp/test_data"  # Set data_dir to enable validation
+        )
+        
+        # Test with a path that tries to traverse up the directory structure
+        with self.assertRaises(ValueError) as context:
+            test_pipeline.ingest("../etc/passwd", doc_id="doc1")
+        
+        # Verify that the error message contains the expected text
+        self.assertIn("Invalid path", str(context.exception))
+
+    def test_ingest_with_malicious_path_raises_validation_error(self):
+        """Test that malicious path inputs raise validation error"""
+        # Create a separate pipeline instance with data_dir to test path traversal
+        test_pipeline = IngestPipeline(
+            parser_router=_FakeParserRouter(ParsedDocument(
+                source_path="fake.pdf",
+                parser_name="fake",
+                blocks=[]
+            )),
+            chunker=self.chunker,
+            embedder=self.embedder,
+            vector_store=self.vector_store,
+            bm25_index=self.bm25,
+            collection="test",
+            data_dir="/tmp/test_data"  # Set data_dir to enable validation
+        )
+        
+        # Test with various malicious paths that try to traverse up the directory structure
+        malicious_paths = [
+            "../../etc/passwd",
+            "../../../etc/passwd",
+            "../secret_file.txt",
+            "/etc/passwd",
+            "../../../../../../../../etc/passwd"
+        ]
+        
+        for malicious_path in malicious_paths:
+            with self.subTest(path=malicious_path):
+                with self.assertRaises(ValueError) as context:
+                    test_pipeline.ingest(malicious_path, doc_id="doc1")
+                
+                # Verify that the error message contains the expected text
+                self.assertIn("Invalid path", str(context.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
