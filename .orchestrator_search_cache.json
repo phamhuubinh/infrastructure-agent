@@ -196,5 +196,104 @@
         }
       ]
     }
+  },
+  "02f6a164ade964b2": {
+    "ts": "2026-07-30T07:26:39.528821+00:00",
+    "query": "BM25 delete method remove from lists",
+    "result": {
+      "results": [
+        {
+          "title": "Keyword Search (BM25) | Weaviate Documentation",
+          "url": "https://docs.weaviate.io/weaviate/concepts/search/keyword-search",
+          "snippet": "Remove any stopwords (e.g. remove a , to produce ... Any tokens that are contained in the stopword list will be ignored from the BM25 score calculation."
+        },
+        {
+          "title": "BM25 Retriever | Developer Documentation - LlamaParse",
+          "url": "https://developers.llamaindex.ai/python/framework/integrations/retrievers/bm25_retriever/",
+          "snippet": "In this guide, we define a bm25 retriever that search documents using the bm25 method. BM25 (Best Matching 25) is a ranking function that extends TF-IDF by ..."
+        },
+        {
+          "title": "BM25: keyword search - Maciej Kaszkowiak",
+          "url": "https://kaszkowiak.org/en/blog/bm25/",
+          "snippet": "16 thg 10, 2024 ... Removing stopwords has its problems: Stopwords vary by language. If we used an English stopword list for a Polish search query, we might not ..."
+        },
+        {
+          "title": "Index Modification — Add, Update and Delete Embeddings - Medium",
+          "url": "https://medium.com/the-ai-mindscape/index-modification-add-update-and-delete-embeddings-24f59d6d2580",
+          "snippet": "26 thg 8, 2025 ... remove method. This method removes the specified files from the filesystem. Function converts the store to a DataFrame using the store_to_df ..."
+        },
+        {
+          "title": "Write documents - Turbopuffer",
+          "url": "https://turbopuffer.com/docs/write",
+          "snippet": "OverviewWriteQueryNamespace metadataExportWarm cacheList namespacesDelete ... You should issue another potentially duplicate request to delete additional matching ..."
+        }
+      ]
+    }
+  },
+  "8b3a10970ee8b8d1": {
+    "ts": "2026-07-30T07:26:41.253192+00:00",
+    "query": "BM25Index delete memory bloat",
+    "result": {
+      "results": [
+        {
+          "title": "GitHub - lightonai/bm25x: A fast, streaming-friendly BM25 search ...",
+          "url": "https://github.com/lightonai/bm25x",
+          "snippet": "bm25x does lazy scoring -- raw term frequencies go into an inverted index, BM25 scores are computed at query time. So add/delete/update are cheap; no full ..."
+        },
+        {
+          "title": "GitHub - xhluca/bm25s: Fast BM25 search in Python, powered by Numpy and ...",
+          "url": "https://github.com/xhluca/bm25s",
+          "snippet": "You can use the mmap option to load the BM25 index as a memory-mapped file, which allows you to load the index without loading the full index into memory. This is useful when you have a large index and want to save memory:"
+        },
+        {
+          "title": "Using a Vector Database - Lightweight GaussDB 25.1.32 Product ...",
+          "url": "https://support.huawei.com/enterprise/en/doc/EDOC1100488514/216d88e0/using-a-vector-database",
+          "snippet": "18 thg 11, 2025 ... ... index quality may deteriorate, causing index bloat and long-time search. ... During BM25 text index building, some working memory is required."
+        },
+        {
+          "title": "BM25 Cheat Sheet - jellydn.github.io",
+          "url": "https://jellydn.github.io/rag-blog/reference/bm25-cheatsheet.html",
+          "snippet": "Production decisions ... Complexity ... For 100k docs × 200 tokens: ~20M ints in memory. Fine. For 10M docs, switch to a real inverted index (tantivy, Lucene) where cost is O (|q| · matches), not O (|q| · N · L)."
+        },
+        {
+          "title": "Examples | xhluca/bm25s | DeepWiki",
+          "url": "https://deepwiki.com/xhluca/bm25s/9-examples",
+          "snippet": "For more detailed information about memory optimization specifically, see Memory Optimization Examples, and for Numba acceleration, refer to Numba Acceleration Examples."
+        }
+      ]
+    }
+  },
+  "d99154c495c36ed6": {
+    "ts": "2026-07-30T07:26:41.952721+00:00",
+    "query": "BM25 document deletion remove entries",
+    "result": {
+      "results": [
+        {
+          "title": "How do I handle document updates and deletions in a vector store?",
+          "url": "https://milvus.io/ai-quick-reference/how-do-i-handle-document-updates-and-deletions-in-a-vector-store",
+          "snippet": "... delete the old entry and insert a new one. For deletions, use the document's unique ID to remove the vector and metadata. ... BM25 · How Milvus 2.6 Upgrades ..."
+        },
+        {
+          "title": "BM25 Function | Cloud | Zilliz Cloud Developer Hub",
+          "url": "https://docs.zilliz.com/docs/bm25-function",
+          "snippet": "The BM25 function enables full text search by transforming raw text into sparse vectors and scoring documents based on lexical relevance."
+        },
+        {
+          "title": "lightonai/ducksearch: Efficient BM25 with DuckDB - GitHub",
+          "url": "https://github.com/lightonai/ducksearch",
+          "snippet": "We can delete documents and update the BM25 weights accordingly using the delete.documents function. from ducksearch import delete delete.documents( database ..."
+        },
+        {
+          "title": "Why I stopped using semantic embeddings for tool selection ... - Reddit",
+          "url": "https://www.reddit.com/r/MachineLearning/comments/1u07tlm/why_i_stopped_using_semantic_embeddings_for_tool/",
+          "snippet": "8 thg 6, 2026 ... Tools are a different shape of data. BM25 is not the boring fallback; for this problem it's the right primary and semantic is the optional add."
+        },
+        {
+          "title": "BM25 vs Dense Retrieval for RAG: What Actually Breaks in Production",
+          "url": "https://ranjankumar.in/bm25-vs-dense-retrieval-for-rag-engineers",
+          "snippet": "17 thg 1, 2026 ... Domain terminology is preserved. Legal documents use specific clause references. Medical records use precise condition names. Technical docs use ..."
+        }
+      ]
+    }
   }
 }
