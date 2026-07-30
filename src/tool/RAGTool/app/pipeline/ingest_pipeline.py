@@ -20,7 +20,7 @@ from app.parsers.router import ParserRouter
 from app.sparse.bm25_index import BM25Index
 from app.vectordb.base import VectorRecord, VectorStore
 
-logger = logging.getLogger(__name__)
+from src.shared.logger import logger
 
 
 @dataclass
@@ -66,74 +66,84 @@ class IngestPipeline:
             if ".." in path.split(os.sep):
                 raise ValueError(f"Invalid path: {path}. Path traversal attempt detected")
 
-        validate_path_input(str(path))
-        path = Path(path)
-        
-        # Validate path against configured data directory to prevent path traversal
-        # Only validate if data_dir is explicitly configured
-        if self._data_dir is not None:
-            data_directory = Path(self._data_dir)
-            try:
-                # Resolve both paths to handle symbolic links and normalize paths
-                resolved_path = path.resolve()
-                resolved_data_dir = data_directory.resolve()
-                
-                # Check if the resolved path is within the data directory
-                resolved_path.relative_to(resolved_data_dir)
-            except (ValueError, OSError):
-                raise ValueError(f"Invalid path: {path}. Path must be within configured data directory: {data_directory}")
-        
-        document = self._parser_router.parse(path)
-        warnings = list(document.warnings)
+        try:
+            validate_path_input(str(path))
+            path = Path(path)
+            
+            # Validate path against configured data directory to prevent path traversal
+            # Only validate if data_dir is explicitly configured
+            if self._data_dir is not None:
+                data_directory = Path(self._data_dir)
+                try:
+                    # Resolve both paths to handle symbolic links and normalize paths
+                    resolved_path = path.resolve()
+                    resolved_data_dir = data_directory.resolve()
+                    
+                    # Check if the resolved path is within the data directory
+                    resolved_path.relative_to(resolved_data_dir)
+                except (ValueError, OSError):
+                    raise ValueError(f"Invalid path: {path}. Path must be within configured data directory: {data_directory}")
+            
+            document = self._parser_router.parse(path)
+            warnings = list(document.warnings)
 
-        if (
-            self._needs_ocr(document)
-            and self._ocr is not None
-            and self._ocr.is_available()
-        ):
-            warnings.append(
-                "Low/no extractable text detected — OCR repair is configured but "
-                "per-page image extraction must be wired in for the specific parser "
-                "in use (see app/ocr/README notes in this file's docstring)."
-            )
+            if (
+                self._needs_ocr(document)
+                and self._ocr is not None
+                and self._ocr.is_available()
+            ):
+                warnings.append(
+                    "Low/no extractable text detected — OCR repair is configured but "
+                    "per-page image extraction must be wired in for the specific parser "
+                    "in use (see app/ocr/README notes in this file's docstring)."
+                )
 
-        chunks = self._chunker.chunk(document, doc_id=doc_id)
-        if not chunks:
+            chunks = self._chunker.chunk(document, doc_id=doc_id)
+            if not chunks:
+                return IngestResult(
+                    doc_id=doc_id,
+                    chunk_count=0,
+                    warnings=warnings + ["No chunks produced."],
+                    parser_used=document.parser_name,
+                )
+
+            texts = [c.text for c in chunks]
+            vectors = self._embedder.embed(texts)
+
+            records = [
+                VectorRecord(
+                    id=chunk.chunk_id,
+                    vector=vector,
+                    payload={
+                        "doc_id": chunk.doc_id,
+                        "text": chunk.text,
+                        "heading_path": chunk.heading_path,
+                        "page": chunk.page,
+                        **chunk.metadata,
+                    },
+                )
+                for chunk, vector in zip(chunks, vectors, strict=False)
+            ]
+            self._vector_store.upsert(self._collection, records)
+
+            for chunk in chunks:
+                self._bm25.add(chunk.chunk_id, chunk.text)
+
             return IngestResult(
                 doc_id=doc_id,
-                chunk_count=0,
-                warnings=warnings + ["No chunks produced."],
+                chunk_count=len(chunks),
+                warnings=warnings,
                 parser_used=document.parser_name,
             )
-
-        texts = [c.text for c in chunks]
-        vectors = self._embedder.embed(texts)
-
-        records = [
-            VectorRecord(
-                id=chunk.chunk_id,
-                vector=vector,
-                payload={
-                    "doc_id": chunk.doc_id,
-                    "text": chunk.text,
-                    "heading_path": chunk.heading_path,
-                    "page": chunk.page,
-                    **chunk.metadata,
-                },
-            )
-            for chunk, vector in zip(chunks, vectors, strict=False)
-        ]
-        self._vector_store.upsert(self._collection, records)
-
-        for chunk in chunks:
-            self._bm25.add(chunk.chunk_id, chunk.text)
-
-        return IngestResult(
-            doc_id=doc_id,
-            chunk_count=len(chunks),
-            warnings=warnings,
-            parser_used=document.parser_name,
-        )
+        except FileNotFoundError as e:
+            logger.error(f"Document file not found: {path}")
+            raise
+        except ValueError as e:
+            logger.error(f"Ingestion failed: {type(e).__name__}")
+            raise
+        except Exception as e:
+            logger.error(f"Ingestion failed: {type(e).__name__}")
+            raise
 
     @staticmethod
     def _needs_ocr(document) -> bool:
