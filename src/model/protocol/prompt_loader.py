@@ -28,7 +28,7 @@ class PromptLoader:
             )
         self._env = Environment(
             loader=FileSystemLoader(str(template_dir)),
-            autoescape=False,
+            autoescape=True,
         )
 
     def render(self, template_name: str, **context: object) -> str:
