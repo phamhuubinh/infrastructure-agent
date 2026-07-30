@@ -49,7 +49,7 @@ class BgeRerankerV2Provider:
 
         results = [
             RerankedResult(id=cid, score=float(score), text=text)
-            for (cid, text), score in zip(candidates, scores, strict=False)
+            for (cid, text), score in zip(candidates, scores, strict=True)
         ]
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:top_k]
