@@ -15,6 +15,7 @@ code change needed to go from the offline-testable default stack
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import uuid
@@ -44,7 +45,11 @@ from app.sparse.bm25_index import BM25Index
 
 app = FastAPI(title="RAG Service", version="0.1.0")
 
-_config = load_config()
+try:
+    _config = load_config()
+except Exception as exc:
+    logging.error(f"Service startup failed due to config validation error: {exc}")
+    raise
 _embedder = build_embedder(_config)
 _vector_store = build_vector_store(_config)
 _bm25 = BM25Index()
