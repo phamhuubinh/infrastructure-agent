@@ -1,0 +1,101 @@
+{
+  "6a88a2b5edf7a44e": {
+    "ts": "2026-07-30T03:35:33.903844+00:00",
+    "query": "Python json.loads JSONDecodeError exception",
+    "result": {
+      "results": [
+        {
+          "title": "JSON Parsing Errors in Python - GeeksforGeeks",
+          "url": "https://www.geeksforgeeks.org/python/json-parsing-errors-in-python/",
+          "snippet": "JSONDecodeError is an error that occurs when the JSON data is invalid, such as having missing or extra commas, missing brackets, or other syntax errors. This error is typically raised by the json.loads () function when it's unable to parse the JSON data."
+        },
+        {
+          "title": "Why am I getting a JSONDecodeError when trying to load a JSON ...",
+          "url": "https://stackoverflow.com/questions/67461672/why-am-i-getting-a-jsondecodeerror-when-trying-to-load-a-json-file-in-python",
+          "snippet": "9 thg 5, 2021 ... \"utils/fmt_test.py\", line 62, in ; \"/Library/Frameworks/Python.framework/Versions/3.7/lib/python3.7/json/__init__.py\", line 296, in ; \"/Library/ ..."
+        },
+        {
+          "title": "json — JSON encoder and decoder — Python 3.14.6 documentation",
+          "url": "https://docs.python.org/3/library/json.html",
+          "snippet": "The old version of JSON specified by the obsolete RFC 4627 required that the top-level value of a JSON text must be either a JSON object or array (Python dict or list), and could not be a JSON null, boolean, number, or string value."
+        },
+        {
+          "title": "How to handle JSON decode error in Python script with try and except",
+          "url": "https://www.claudiokuenzler.com/blog/1394/how-to-handle-json-decode-error-python-script-try-except",
+          "snippet": "So we see the json.decoder throwing a JSONDecodeError. A common way in Python scripts is to use try + except to catch errors. The \"try\" part runs the code you want to run, in this case the json.loads line. The \"except\" part handles a potential error of the try part. Let's use the JSONDecodeError seen in the previous output:"
+        },
+        {
+          "title": "JSONDecodeError exception's message - verbose - Ideas",
+          "url": "https://discuss.python.org/t/jsondecodeerror-exceptions-message-verbose/58472",
+          "snippet": "17 thg 7, 2024 ... JSONDecodeError verbose error mesage ... Ariel Rotem: The malformed JSON caused the exception which is not the wanted result. We would like it to ..."
+        }
+      ]
+    }
+  },
+  "cdd527745df53f92": {
+    "ts": "2026-07-30T03:35:35.197938+00:00",
+    "query": "json.JSONDecodeError Python 3 documentation",
+    "result": {
+      "results": [
+        {
+          "title": "json — JSON encoder and decoder — Python 3.14.6 documentation",
+          "url": "https://docs.python.org/3/library/json.html",
+          "snippet": "Source code: Lib/json/__init__.py JSON (JavaScript Object Notation), specified by RFC 7159(which obsoletes RFC 4627) and by ECMA-404, is a lightweight data interchange format inspired by JavaScript..."
+        },
+        {
+          "title": "Why am I getting a JSONDecodeError when trying to load a JSON ...",
+          "url": "https://stackoverflow.com/questions/67461672/why-am-i-getting-a-jsondecodeerror-when-trying-to-load-a-json-file-in-python",
+          "snippet": "9 thg 5, 2021 ... \"utils/fmt_test.py\", line 62, in ; \"/Library/Frameworks/Python.framework/Versions/3.7/lib/python3.7/json/__init__.py\", line 296, in ; \"/Library/ ..."
+        },
+        {
+          "title": "orjson.JSONDecodeError in Python - GeeksforGeeks",
+          "url": "https://www.geeksforgeeks.org/python/orjson-jsondecodeerror-in-python/",
+          "snippet": "23 thg 7, 2025 ... This error typically occurs when the JSON data being decoded is invalid or does not conform to the expected JSON format."
+        },
+        {
+          "title": "Raise JSONDecodeError instead of ValueError when passing ...",
+          "url": "https://github.com/python-rapidjson/python-rapidjson/issues/118",
+          "snippet": "14 thg 3, 2019 ... The json module in the Python standard library raises a JSONDecodeError if invalid JSON is passed to json.loads() , while rapidjson raises a ..."
+        },
+        {
+          "title": "Working With JSON Data in Python",
+          "url": "https://realpython.com/python-json/",
+          "snippet": "20 thg 8, 2025 ... The Boolean Python values of your dictionary become JSON Booleans. As mentioned before, the tiny but significant difference between JSON ..."
+        }
+      ]
+    }
+  },
+  "0718330d711bd417": {
+    "ts": "2026-07-30T03:35:35.984496+00:00",
+    "query": "Python json decoding error handling best practice",
+    "result": {
+      "results": [
+        {
+          "title": "Handle JSON Decode Error when nothing returned - Stack Overflow",
+          "url": "https://stackoverflow.com/questions/8381193/handle-json-decode-error-when-nothing-returned",
+          "snippet": "5 thg 12, 2011 ... There is a rule in Python programming called \"it is Easier to Ask for Forgiveness than for Permission\" (in short: EAFP)."
+        },
+        {
+          "title": "Working With JSON Data in Python",
+          "url": "https://realpython.com/python-json/",
+          "snippet": "20 thg 8, 2025 ... The result is a JSON-formatted string that only contains a subset of the input dictionary. In practice, you usually want your JSON data to ..."
+        },
+        {
+          "title": "json — JSON encoder and decoder — Python 3.14.6 documentation",
+          "url": "https://docs.python.org/3/library/json.html",
+          "snippet": "Be cautious when parsing JSON data from untrusted sources. A malicious JSON string may cause the decoder to consume considerable CPU and memory resources."
+        },
+        {
+          "title": "Handling Large JSON Files in Python: Efficient Read, Write, and ...",
+          "url": "https://dev.to/lovestaco/handling-large-json-files-in-python-efficient-read-write-and-update-strategies-3jgg",
+          "snippet": "4 thg 10, 2025 ... If you try to load it in Python with json.load() , you'll likely run into memory errors. If you attempt a direct seek + write, you risk ..."
+        },
+        {
+          "title": "Python JSON tricks: how to deal with JSONDecodeError? - Medium",
+          "url": "https://lynn-kwong.medium.com/python-json-tricks-how-to-deal-with-jsondecodeerror-2353464814bc",
+          "snippet": "16 thg 3, 2021 ... Trick 1: You should use double quotes for keys and values, otherwise you will have the JSONDecodeError error."
+        }
+      ]
+    }
+  }
+}

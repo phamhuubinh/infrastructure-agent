@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from src.tool.execution_backend import (
@@ -23,7 +24,13 @@ class TargetStore:
             return dict(DEFAULT_TARGETS)
 
         raw = self._path.read_text()
-        data: dict[str, object] = json.loads(raw)
+        try:
+            data: dict[str, object] = json.loads(raw)
+        except json.JSONDecodeError:
+            logging.getLogger(__name__).error(
+                "Failed to decode JSON from %s, returning default targets", self._path
+            )
+            return dict(DEFAULT_TARGETS)
         entries: dict[str, dict[str, object]] = data.get("targets", data)
         targets: dict[str, ExecutionBackend] = {}
         for name, cfg in entries.items():
