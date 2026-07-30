@@ -27,15 +27,15 @@ class MicrosoftGraphRagProvider:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = Path(workspace_dir)
-        # Using config.output_dir instead of hardcoded path
-        self._output_dir = config.output_dir
+        # Using config.get() to allow fallback to default path
+        output_dir = config.get('output_dir', '/output/graphrag')
         
-        # Validate that output_dir is configured in GraphRAG config
-        if not hasattr(config, 'output_dir') or config.output_dir is None or config.output_dir == "":
+        # Validate output_dir to prevent directory traversal attacks
+        if '..' in output_dir:
             from src.shared.config_errors import ConfigurationError
-            raise ConfigurationError("output_dir must be configured in GraphRAG config")
-        # Using config.output_dir instead of hardcoded path
-        self._output_dir = config.output_dir
+            raise ConfigurationError("Invalid output_dir: directory traversal detected")
+        
+        self._output_dir = output_dir
 
     def build(self, doc_id: str, text: str) -> None:
         """GraphRAG indexes in batch, not per-document. Write the text into
