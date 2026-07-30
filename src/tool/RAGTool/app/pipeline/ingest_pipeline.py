@@ -8,6 +8,7 @@ never touches this file.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,20 @@ class IngestPipeline:
         self._data_dir = Path(data_dir) if data_dir is not None else None
 
     def ingest(self, path: str | Path, doc_id: str) -> IngestResult:
+        def validate_path_input(path: str) -> None:
+            """Validate user-controlled path input to prevent path traversal attacks."""
+            if not path:
+                raise ValueError("Path cannot be empty")
+            
+            # Check for absolute paths
+            if os.path.isabs(path):
+                raise ValueError(f"Invalid path: {path}. Absolute paths are not allowed")
+            
+            # Check for path traversal attempts with '..'
+            if ".." in path.split(os.sep):
+                raise ValueError(f"Invalid path: {path}. Path traversal attempt detected")
+
+        validate_path_input(str(path))
         path = Path(path)
         
         # Validate path against configured data directory to prevent path traversal

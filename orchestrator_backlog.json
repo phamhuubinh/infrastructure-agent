@@ -181,7 +181,7 @@
       "output directory",
       "file not found"
     ],
-    "status": "open",
+    "status": "done",
     "source": "full_project_audit",
     "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/graphrag-output-dir-hardcoded_20260730T082859.md"
   },
