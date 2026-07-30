@@ -117,7 +117,8 @@ class BM25Index:
             return
         idx = self._id_to_index.pop(doc_id)
         self._remove_from_stats(idx)
-        self._doc_ids[idx] = ""
-        self._doc_term_freqs[idx] = Counter()
-        self._doc_lengths[idx] = 0
+        # Remove the entry from all three lists entirely, not just mark as empty
+        del self._doc_ids[idx]
+        del self._doc_term_freqs[idx]
+        del self._doc_lengths[idx]
         self._recompute_avg_length()

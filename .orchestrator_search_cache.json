@@ -295,5 +295,203 @@
         }
       ]
     }
+  },
+  "680b5d296dfc0df0": {
+    "ts": "2026-07-30T08:00:33.568216+00:00",
+    "query": "BM25Index.delete() remove entries from doc_ids doc_term_freqs doc_lengths",
+    "result": {
+      "results": [
+        {
+          "title": "Methods and Parameters | dorianbrown/rank_bm25 | DeepWiki",
+          "url": "https://deepwiki.com/dorianbrown/rank_bm25/3.2-methods-and-parameters",
+          "snippet": "The rank_bm25 library follows a clear inheritance pattern where all BM25 algorithms inherit from a common base class, ensuring consistent method signatures across implementations."
+        },
+        {
+          "title": "NLP/models/BM25.py at main · Jaanav-Mathavan/NLP · GitHub",
+          "url": "https://github.com/Jaanav-Mathavan/NLP/blob/main/models/BM25.py",
+          "snippet": "doc_IDs_ordered = [] for query in queries: # Flatten query into terms query_terms = [word for sentence in query for word in sentence] relevant_docs = self.bm25.get_relevant_docs (query_terms) doc_scores = [] score = self.bm25.score (query_terms, doc_id) ranked_docs = [doc_id for doc_id, _ in sorted (doc_scores, key=lambda x: x [1], reverse=True)]"
+        },
+        {
+          "title": "BM25 Cheat Sheet - jellydn.github.io",
+          "url": "https://jellydn.github.io/rag-blog/reference/bm25-cheatsheet.html",
+          "snippet": "The hard floor has its own failure mode: an adversarial query with zero corpus overlap would have its BM25 list silently wiped clean. The adaptive override detects this and keeps every hit so vector search + RRF can still do useful work."
+        },
+        {
+          "title": "BM25 Index — semlix 3.2.1 documentation",
+          "url": "https://semlix.readthedocs.io/en/latest/bm25.html",
+          "snippet": "The BM25 module provides a complete alternative to FileStorage using the bm25s library for ultra-fast lexical search. It implements the full semlix Index protocol, making it a drop-in replacement with significant performance improvements. Key Benefits: Basic index creation: id=ID(stored=True), title=TEXT(stored=True, analyzer=StandardAnalyzer()),"
+        },
+        {
+          "title": "GitHub - xhluca/bm25s: Fast BM25 search in Python, powered by Numpy and ...",
+          "url": "https://github.com/xhluca/bm25s",
+          "snippet": "bm25s separates the text you index from the values you get back. Pass strings to bm25s.tokenize (), then pass the resulting tokenized corpus to retriever.index (). The optional corpus argument on BM25 (...), retrieve (...), and save (...) is the list of values returned for matching document IDs."
+        }
+      ]
+    }
+  },
+  "2b0cb406170255aa": {
+    "ts": "2026-07-30T08:00:34.873567+00:00",
+    "query": "BM25 memory management after document deletion",
+    "result": {
+      "results": [
+        {
+          "title": "You Deleted BM25 the Day You Bought a Vector Database. Your ...",
+          "url": "https://dev.to/fagundesv/you-deleted-bm25-the-day-you-bought-a-vector-database-your-fraud-queue-noticed-3d2j",
+          "snippet": "5 giờ trước ... The demo, on real-shaped data. Review-queue records from a mid-size e-commerce shop: queue = [ ..."
+        },
+        {
+          "title": "How We Built a BM25 Search Engine on Postgres Pages - Tiger Data",
+          "url": "https://www.tigerdata.com/blog/pg-textsearch-bm25-full-text-search-postgres",
+          "snippet": "31 thg 3, 2026 ... To illustrate: consider a single-term top-10 query on a large corpus. After scanning a few thousand postings, the algorithm has accumulated 10 ..."
+        },
+        {
+          "title": "Maintainable Topic Documents for Long-Term LLM Agent Memory",
+          "url": "https://arxiv.org/html/2606.10677v1",
+          "snippet": "9 thg 6, 2026 ... Infini Memory supports two retrieval variants: a hybrid reader (Infini Memory-H) that combines LLM-based summary selection with BM25 partition ..."
+        },
+        {
+          "title": "Deep Dive: Hybrid Memory Search Architecture trong OpenClaw",
+          "url": "https://viblo.asia/p/deep-dive-hybrid-memory-search-architecture-trong-openclaw-y0VGwzPEVPA",
+          "snippet": "4.2 Keyword Search (FTS/BM25). File hybrid.ts -- hàm buildFtsQuery() + file manager-search.ts -- hàm searchKeyword() : Bước 1: Tokenization (đơn giản)."
+        },
+        {
+          "title": "Best Matching 25 (BM25) - KDB-X Documentation",
+          "url": "https://code.kx.com/kdb-x/ref/ai-libs/bm25-index-parameters.html",
+          "snippet": "This function inserts sparse vector representations of documents into a BM25 index. By storing these sparse vectors, the index can later be used to perform ..."
+        }
+      ]
+    }
+  },
+  "bdf7ba305dca48e8": {
+    "ts": "2026-07-30T08:00:36.103936+00:00",
+    "query": "Best practice for BM25 index deletion to prevent list growth",
+    "result": {
+      "results": [
+        {
+          "title": "Smart Relations - Obsidian Plugin",
+          "url": "https://community.obsidian.md/plugins/smart-relations",
+          "snippet": "What It Does · BM25 — The industry-standard ranking algorithm (same one used by Elasticsearch). · Jaccard Tag Similarity — Measures overlap between the current ..."
+        },
+        {
+          "title": "Towards Retrieving Interaction Spaces for Agentic Search - arXiv",
+          "url": "https://arxiv.org/pdf/2606.06880",
+          "snippet": "5 thg 6, 2026 ... A growing line of work adapts retrieval models to the behavior of search agents rather than treating agent queries as ordinary ad-hoc queries."
+        },
+        {
+          "title": "Obsidian MCP Guide: AI Search & Retrieval (2026) - Blake Crosley",
+          "url": "https://blakecrosley.com/guides/obsidian",
+          "snippet": "23 thg 3, 2026 ... Fusion in Practice. Query: “how does the review aggregator handle disagreements”. BM25 ... rank and include best chunk return results + list ..."
+        },
+        {
+          "title": "Designing a Semantic Search System for Internal Documents",
+          "url": "https://www.meetapro.com/blog/designing-a-semantic-search-system-for-internal-documents-78",
+          "snippet": "8 thg 10, 2025 ... Metadata and Hybrid Retrieval Strategies · Parallel search: Run a BM25 query and a vector similarity query separately, then merge the result sets ..."
+        },
+        {
+          "title": "Pyserini is a Python toolkit for reproducible information ... - GitHub",
+          "url": "https://github.com/castorini/pyserini",
+          "snippet": "It's not included in the dependencies list because there is a ... Building a BM25 Index (Direct Java Implementation) · Building a BM25 Index ..."
+        }
+      ]
+    }
+  },
+  "30078341a2e9f3e4": {
+    "ts": "2026-07-30T08:01:22.796429+00:00",
+    "query": "rank_bm25 BM25Index delete method implementation",
+    "result": {
+      "results": [
+        {
+          "title": "BM25: Complete Guide to the Search Algorithm Behind Elasticsearch",
+          "url": "https://mbrenndoerfer.com/writing/bm25-search-algorithm-elasticsearch-implementation",
+          "snippet": "21 thg 3, 2026 ... ... methods to the class BM25Index.compute_idf = compute_idf BM25Index ... The rank_bm25 library provides a simple, efficient implementation:."
+        },
+        {
+          "title": "GitHub - lyonzin/knowledge-rag: Local RAG MCP server for Claude ...",
+          "url": "https://github.com/lyonzin/knowledge-rag",
+          "snippet": "128× faster BM25 search — replaced rank-bm25 full-corpus scan with a custom inverted-index implementation. Only documents containing query terms are scored, ..."
+        },
+        {
+          "title": "Sparse, Yet Smart: Fixing BM25 with 4D Meaning Vectors | miniCOIL",
+          "url": "https://pub.towardsai.net/sparse-yet-smart-fixing-bm25-with-4d-meaning-vectors-minicoil-10x-better-rag-1e50169e0649",
+          "snippet": "23 thg 3, 2026 ... Building the BM25 Index. from rank_bm25 import BM25Okapi def build_bm25(documents): tokenized = [doc.lower ..."
+        },
+        {
+          "title": "Hybrid Search in RAG: Dense + Sparse (BM25/SPLADE ... - GoPenAI",
+          "url": "https://blog.gopenai.com/hybrid-search-in-rag-dense-sparse-bm25-splade-reciprocal-rank-fusion-and-when-to-use-which-fafe4fd6156e",
+          "snippet": "25 thg 3, 2026 ... Implementation. Code Block 1: BM25 Sparse Retriever from rank_bm25 ... When you add, update, or delete documents, you need to rebuild ..."
+        },
+        {
+          "title": "From Jira to Pull Request: Building an AI Bug-Fix Agent",
+          "url": "https://levelup.gitconnected.com/from-jira-to-pull-request-building-an-ai-bug-fix-agent-5eba67cfd34a",
+          "snippet": "9 thg 4, 2026 ... Deleted symbols: delete from all three stores ... Hybrid retrieval: embed chunks with OpenAI, build a BM25 index with rank_bm25, fuse results with ..."
+        }
+      ]
+    }
+  },
+  "2c87990be15dd788": {
+    "ts": "2026-07-30T08:01:23.689005+00:00",
+    "query": "how to clean BM25 index after document deletion",
+    "result": {
+      "results": [
+        {
+          "title": "Why I stopped using semantic embeddings for tool selection ... - Reddit",
+          "url": "https://www.reddit.com/r/MachineLearning/comments/1u07tlm/why_i_stopped_using_semantic_embeddings_for_tool/",
+          "snippet": "8 thg 6, 2026 ... Hybrid (0.7 semantic + 0.3 BM25 normalized): 78%. Worse than BM25 alone. The semantic noise dragged BM25's clean signal down. I sat with ..."
+        },
+        {
+          "title": "Getting started with semantic and hybrid search",
+          "url": "https://docs.opensearch.org/latest/tutorials/vector-search/neural-search-tutorial/",
+          "snippet": "By default, OpenSearch calculates document scores using the Okapi BM25 algorithm. ... Clean up. After you're done, delete the components you've created in ..."
+        },
+        {
+          "title": "AutoIndex: Learning Representation Programs for Retrieval - arXiv",
+          "url": "https://arxiv.org/html/2607.18603v1",
+          "snippet": "21 thg 7, 2026 ... ... BM25 as a fixed retriever. AutoIndex improves recall over a static full-document BM25 baseline on 8 of 8 tasks, with average gains of +8.4 ..."
+        },
+        {
+          "title": "Zing index and search dictionary attributes - ServiceNow",
+          "url": "https://www.servicenow.com/docs/r/platform-administration/search-administration/index-attributes.html",
+          "snippet": "This dictionary attribute is part of the BM25 algorithm. The attribute impacts the importance of the length of a document in search results. If this attribute ..."
+        },
+        {
+          "title": "Text Analysis for Hybrid Search: Tokenization, Stopwords & Accent ...",
+          "url": "https://weaviate.io/blog/tokenization-text-analysis-weaviate",
+          "snippet": "14 thg 5, 2026 ... BM25 doesn't operate on text. It operates on tokens, the discrete units the analyzer produced when each document was indexed. This is the same ..."
+        }
+      ]
+    }
+  },
+  "78544580cefdc353": {
+    "ts": "2026-07-30T08:01:24.316533+00:00",
+    "query": "BM25Index delete memory management best practices",
+    "result": {
+      "results": [
+        {
+          "title": "How We Built a BM25 Search Engine on Postgres Pages - Tiger Data",
+          "url": "https://www.tigerdata.com/blog/pg-textsearch-bm25-full-text-search-postgres",
+          "snippet": "31 thg 3, 2026 ... Design, implementation, and benchmarks of a native BM25 index for Postgres. Now generally available to all Tiger Cloud customers and freely ..."
+        },
+        {
+          "title": "The key to salient episodic memory for AI Agents - Medium",
+          "url": "https://medium.com/@richardhightower/agent-memory-the-key-to-salient-episodic-memory-for-ai-agents-70b0f8e296db",
+          "snippet": "21 thg 3, 2026 ... ... better version of agent-memory than some of these other systems. ... Easy to delete: remove the directory to wipe one agent's history cleanly."
+        },
+        {
+          "title": "Structured Distillation for Personalized Agent Memory - arXiv",
+          "url": "https://arxiv.org/pdf/2603.13017",
+          "snippet": "13 thg 3, 2026 ... MemGPT. [Packer et al., 2024] frames memory management as a hierarchy in which older context is pushed ... The BM25 index is constructed lazily in ..."
+        },
+        {
+          "title": "BM25: Complete Guide to the Search Algorithm Behind Elasticsearch",
+          "url": "https://mbrenndoerfer.com/writing/bm25-search-algorithm-elasticsearch-implementation",
+          "snippet": "21 thg 3, 2026 ... ... methods to the class BM25Index.compute_idf = compute_idf BM25Index ... best practices for building robust Python applications."
+        },
+        {
+          "title": "Optimizing Top K Queries in ParadeDB with Columnar Storage and ...",
+          "url": "https://www.linkedin.com/posts/philippemnoel_how-we-optimized-top-k-in-postgres-activity-7434705306644959232-O91o",
+          "snippet": "3 thg 3, 2026 ... 3️⃣ GiST Index (For Complex Data Types) Best for: • Geospatial data ... PostgreSQL doesn't overwrite rows on UPDATE/DELETE — it creates new versions ..."
+        }
+      ]
+    }
   }
 }

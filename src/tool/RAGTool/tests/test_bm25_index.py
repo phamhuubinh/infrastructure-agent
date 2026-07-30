@@ -40,6 +40,20 @@ class Bm25IndexTest(unittest.TestCase):
         hits = self.index.search("zabbix configuration", top_k=4)
         self.assertNotIn("d1", [h.id for h in hits])
 
+    def test_delete_memory_cleanup(self):
+        # Verify that deleting documents actually removes entries from internal lists
+        initial_doc_ids_len = len(self.index._doc_ids)
+        initial_doc_term_freqs_len = len(self.index._doc_term_freqs)
+        initial_doc_lengths_len = len(self.index._doc_lengths)
+        
+        # Delete one document
+        self.index.delete("d1")
+        
+        # Check that all three lists have been reduced by 1
+        self.assertEqual(len(self.index._doc_ids), initial_doc_ids_len - 1)
+        self.assertEqual(len(self.index._doc_term_freqs), initial_doc_term_freqs_len - 1)
+        self.assertEqual(len(self.index._doc_lengths), initial_doc_lengths_len - 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -167,7 +167,8 @@
       "BM25Index.delete"
     ],
     "status": "open",
-    "source": "full_project_audit"
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/tech-debt-bm25-list-growth_20260730T073733.md"
   },
   {
     "id": "graphrag-output-dir-hardcoded",
