@@ -790,5 +790,104 @@
         }
       ]
     }
+  },
+  "374f19258779eda9": {
+    "ts": "2026-07-30T09:14:49.576456+00:00",
+    "query": "pathlib Path validation for path traversal",
+    "result": {
+      "results": [
+        {
+          "title": "A guide to path traversal and arbitrary file read attacks - YesWeHack",
+          "url": "https://www.yeswehack.com/learn-bug-bounty/practical-guide-path-traversal-attacks",
+          "snippet": "15 thg 5, 2025 ... Path traversal occurs when user input is used to build file paths without proper sanitization. This allows you to use ../ sequences to “traverse ..."
+        },
+        {
+          "title": "How to prevent directory traversal attack from Python code",
+          "url": "https://stackoverflow.com/questions/45188708/how-to-prevent-directory-traversal-attack-from-python-code",
+          "snippet": "19 thg 7, 2017 ... user should not be allowed to access or modify sudo directories. So check that path is not a sudo dir ... a check like below will also prevent ..."
+        },
+        {
+          "title": "Securing ZIP File Operations: Understanding and Preventing Path ...",
+          "url": "https://medium.com/@contactomyna/securing-zip-file-operations-understanding-and-preventing-path-traversal-attacks-74d79f696c46",
+          "snippet": "8 thg 2, 2025 ... Securing ZIP File Operations: Understanding and Preventing Path Traversal ... Using pathlib for Secure Path Handling. from pathlib import ..."
+        },
+        {
+          "title": "Django Path Traversal via open() Function - Sourcery.ai",
+          "url": "https://www.sourcery.ai/vulnerabilities/python-django-security-injection-path-traversal-path-traversal-open",
+          "snippet": "... paths without proper validation, enabling path traversal attacks. Attackers ... traversal sequences: from pathlib import Path; base_dir = Path(settings."
+        },
+        {
+          "title": "How to Fix 'Directory Traversal' Vulnerabilities - OneUptime",
+          "url": "https://oneuptime.com/blog/post/2026-01-24-fix-directory-traversal/view",
+          "snippet": "24 thg 1, 2026 ... Validation Flow · Receive filename from user · Sanitize input · Construct full path · Resolve to absolute path · Path within allowed directory?"
+        }
+      ]
+    }
+  },
+  "32979781876b2a07": {
+    "ts": "2026-07-30T09:14:50.645273+00:00",
+    "query": "pathlib Path.resolve security risks",
+    "result": {
+      "results": [
+        {
+          "title": "How to prevent directory traversal attack from Python code",
+          "url": "https://stackoverflow.com/questions/45188708/how-to-prevent-directory-traversal-attack-from-python-code",
+          "snippet": "19 thg 7, 2017 ... you could try the methods of pathlib.Path. Path(root_dir).joinpath(param).resolve().relative_to(root_dir.resolve()). should return the relative ..."
+        },
+        {
+          "title": "A guide to path traversal and arbitrary file read attacks - YesWeHack",
+          "url": "https://www.yeswehack.com/learn-bug-bounty/practical-guide-path-traversal-attacks",
+          "snippet": "15 thg 5, 2025 ... To exploit traversal reliably, it's important to understand how file resolution works at the OS and language level. On Unix systems, ../ is ..."
+        },
+        {
+          "title": "Pathlib in Python: Modern, Secure File Path Handling",
+          "url": "https://systemweakness.com/pathlib-in-python-modern-secure-file-path-handling-e7ee2bf6b5cd",
+          "snippet": "14 thg 9, 2025 ... Key Security Features of Pathlib ·.resolve() → Expands symlinks, removes traversal tricks. ·.is_absolute() → Detects if a path is trying to ..."
+        },
+        {
+          "title": "\"Safe\" archive unpacking and path resolution? - Python Discussions",
+          "url": "https://discuss.python.org/t/safe-archive-unpacking-and-path-resolution/30476",
+          "snippet": "28 thg 7, 2023 ... ... concerns by the number of archive formats, of course. For path resolution, I know that I can use .is_absolute and .resolve on a pathlib.Path ..."
+        },
+        {
+          "title": "Easiest fix to file Path traversal attacks: Secure coding methodology",
+          "url": "https://medium.com/bug-bounty-hunting/easiest-fix-to-file-path-traversal-attacks-secure-coding-methodology-75bb03ae8674",
+          "snippet": "22 thg 11, 2024 ... Relative: It specifies the path relative to the current working directory or another reference point. Does not start with the root directory ..."
+        }
+      ]
+    }
+  },
+  "b9e6e8adc1c4a97c": {
+    "ts": "2026-07-30T09:14:51.403717+00:00",
+    "query": "Python path traversal with user-controlled Path input",
+    "result": {
+      "results": [
+        {
+          "title": "Django Path Traversal via open() Function - Sourcery.ai",
+          "url": "https://www.sourcery.ai/vulnerabilities/python-django-security-injection-path-traversal-path-traversal-open",
+          "snippet": "The Django application uses the open() function with user-controlled file paths without proper validation, enabling path traversal attacks."
+        },
+        {
+          "title": "A guide to path traversal and arbitrary file read attacks - YesWeHack",
+          "url": "https://www.yeswehack.com/learn-bug-bounty/practical-guide-path-traversal-attacks",
+          "snippet": "15 thg 5, 2025 ... Path traversal occurs when user input is used to build file paths without proper sanitization. This allows you to use ../ sequences to “traverse ..."
+        },
+        {
+          "title": "motionEye's Absolute Path Traversal in Media File Handlers Allows ...",
+          "url": "https://github.com/advisories/ghsa-rw9q-97r9-8gvh",
+          "snippet": "20 thg 6, 2026 ... The affected handlers accept a user-controlled filename parameter and construct filesystem paths using os.path.join() . When an absolute path ..."
+        },
+        {
+          "title": "Preventing Directory Traversal Attacks: Techniques and Tips for ...",
+          "url": "https://www.hackerone.com/blog/preventing-directory-traversal-attacks-techniques-and-tips-secure-file-access",
+          "snippet": "26 thg 2, 2024 ... This is often possible due to insufficient input validation and sanitization when user input is used to construct file paths for file operations ..."
+        },
+        {
+          "title": "CVE-2023-41105: Python Path Traversal Vulnerability - SentinelOne",
+          "url": "https://www.sentinelone.com/vulnerability-database/cve-2023-41105/",
+          "snippet": "4 thg 2, 2026 ... An attacker can submit a specially crafted path containing null bytes to any application that: Accepts user-controlled file paths; Uses os.path."
+        }
+      ]
+    }
   }
 }
