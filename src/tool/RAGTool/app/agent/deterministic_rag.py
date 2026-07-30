@@ -70,5 +70,5 @@ class DeterministicRAGPipeline:
         return RAGResult(
             answer=result.answer,
             chunks=chunks,
-            retrieval_only="no LLM client configured" in result.answer,
+            retrieval_only=result.retrieval_only,
         )
