@@ -22,8 +22,9 @@
       "exception handling",
       "stability"
     ],
-    "status": "open",
-    "source": "full_project_audit"
+    "status": "done",
+    "source": "full_project_audit",
+    "last_transcript": "/home/binh/projects/Orion_agent/qa_logs/deterministic_agent_broad_exception_20260730T024508.md"
   },
   {
     "id": "security_prompt_loader_autoescape",

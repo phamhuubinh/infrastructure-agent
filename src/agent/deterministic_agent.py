@@ -146,6 +146,16 @@ class DeterministicAgent:
                 "steps": [],
                 "investigation": None,
             }
+        except (ValueError, TypeError) as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Pipeline failed, falling back to chat",
+            )
+            # Log full exception details with exc_info=True and re-raise
+            import logging
+            logging.getLogger("agent").error("Pipeline failed", exc_info=True)
+            raise
         except Exception as exc:
             _warning(
                 "agent",
