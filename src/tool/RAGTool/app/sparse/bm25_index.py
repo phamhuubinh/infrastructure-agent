@@ -5,6 +5,7 @@ offline. This is real, runnable, unit-tested code, not a stub.
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from collections import Counter
@@ -35,6 +36,7 @@ class BM25Index:
         self._avg_doc_length = 0.0
         self._doc_freq: Counter = Counter()  # in how many docs does term t appear
         self._id_to_index: dict[str, int] = {}
+        self.logger = logging.getLogger(__name__)
 
     def add(self, doc_id: str, text: str) -> None:
         tokens = tokenize(text)
@@ -113,12 +115,25 @@ class BM25Index:
         return ranked[:top_k]
 
     def delete(self, doc_id: str) -> None:
-        if doc_id not in self._id_to_index:
-            return
-        idx = self._id_to_index.pop(doc_id)
-        self._remove_from_stats(idx)
-        # Remove the entry from all three lists entirely, not just mark as empty
-        del self._doc_ids[idx]
-        del self._doc_term_freqs[idx]
-        del self._doc_lengths[idx]
-        self._recompute_avg_length()
+        try:
+            # Find index of doc_id in self._doc_ids
+            idx = self._id_to_index[doc_id]
+            
+            # Delete corresponding entries from all three lists using del statements
+            del self._doc_ids[idx]
+            del self._doc_term_freqs[idx]
+            del self._doc_lengths[idx]
+            
+            # Remove from id_to_index mapping
+            del self._id_to_index[doc_id]
+            
+            # Update indices for documents that come after the deleted one
+            for id, current_idx in self._id_to_index.items():
+                if current_idx > idx:
+                    self._id_to_index[id] = current_idx - 1
+            
+            self._remove_from_stats(idx)
+            self._recompute_avg_length()
+        except KeyError:
+            # Log warning when doc_id not found
+            self.logger.warning(f"Document ID '{doc_id}' not found in index")
