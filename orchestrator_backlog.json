@@ -1,14 +1,1112 @@
 [
   {
-    "id": "postgres-session-store",
-    "desc": "PostgreSQL session store not implemented despite being listed as optional feature in PROJECT_CONTEXT.md",
-    "evidence": "src/backend/sqlite_store.py (only SQLite implementation present, no PostgreSQL code)",
+    "id": "runtime_factory_syntax_error",
+    "category": "technical_debt",
+    "desc": "Incomplete assignment statement in _build_auto_tool causing syntax error",
+    "evidence": "src/agent/runtime_factory.py: line 123 (required =)",
+    "why_it_matters": "Code will fail to compile, preventing deployment and causing immediate runtime failures",
     "keywords": [
-      "PostgreSQL",
-      "session store",
-      "optional"
+      "syntax error",
+      "code quality"
+    ],
+    "status": "done",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "deterministic_agent_broad_exception",
+    "category": "stability",
+    "desc": "Broad exception handling in run method swallows all exceptions without proper logging or re-raising",
+    "evidence": "src/agent/deterministic_agent.py: line 120 (except Exception as exc)",
+    "why_it_matters": "Critical errors may be hidden, leading to unhandled failures and unreliable service behavior",
+    "keywords": [
+      "exception handling",
+      "stability"
     ],
     "status": "open",
-    "source": "discovery"
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security_prompt_loader_autoescape",
+    "category": "security",
+    "desc": "PromptLoader uses autoescape=False, risking XSS if context variables contain user input",
+    "evidence": "src/model/protocol/prompt_loader.py:17",
+    "why_it_matters": "Malicious user input in context variables could lead to cross-site scripting attacks when rendered in templates",
+    "keywords": [
+      "xss",
+      "autoescape",
+      "security"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "registry-safety-import",
+    "category": "stability",
+    "desc": "Swallows all import exceptions without logging, making debugging difficult",
+    "evidence": "src/tool/registry.py: _safe_import method (except Exception: return)",
+    "why_it_matters": "Silent import failures during tool discovery prevent identifying broken modules and cause unexpected behavior",
+    "keywords": [
+      "import",
+      "exception",
+      "logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "target-store-json-decode",
+    "category": "stability",
+    "desc": "Fails to handle JSON decoding errors, causing application crash on malformed config",
+    "evidence": "src/tool/target_store.py: load method (json.loads(raw))",
+    "why_it_matters": "Invalid targets.json file will crash the application instead of using defaults or reporting error",
+    "keywords": [
+      "json",
+      "decoding",
+      "error-handling"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "target-store-private-attrs",
+    "category": "technical_debt",
+    "desc": "Accesses private attributes of SSHExecutionBackend, violating encapsulation",
+    "evidence": "src/tool/target_store.py: save method (backend._host, backend._port, etc.)",
+    "why_it_matters": "Changes to SSHExecutionBackend internals will break TargetStore without warning",
+    "keywords": [
+      "encapsulation",
+      "private-attributes",
+      "technical-debt"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-001",
+    "category": "stability",
+    "desc": "Missing exception handling when invoking capability handler; uncaught exceptions crash the application",
+    "evidence": "src/tool/tool.py: _dispatch",
+    "why_it_matters": "Uncaught exceptions during tool execution will cause the entire application to crash, leading to service disruption and loss of user requests",
+    "keywords": [
+      "exception handling",
+      "uncaught exception",
+      "tool execution crash"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sec-exception-leak",
+    "category": "security",
+    "desc": "Exposing raw exception details to client leaks internal system information",
+    "evidence": "src/tool/RAGTool/app/main.py: line 42",
+    "why_it_matters": "Attackers can extract sensitive system details (e.g., stack traces, file paths) from error messages",
+    "keywords": [
+      "exception",
+      "error",
+      "leak"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stb-no-startup-logs",
+    "category": "stability",
+    "desc": "Missing error logging during service startup when config validation fails",
+    "evidence": "src/tool/RAGTool/app/main.py: lines 25-32",
+    "why_it_matters": "Unlogged startup failures prevent debugging of configuration issues in production",
+    "keywords": [
+      "startup",
+      "logging",
+      "crash"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "cq-typo-ocr-provider",
+    "category": "technical_debt",
+    "desc": "Typo in config.ocr_pro (should be ocr_provider) causes runtime failure",
+    "evidence": "src/tool/RAGTool/app/config.py: line 102",
+    "why_it_matters": "Service fails to start with invalid config due to missing attribute reference",
+    "keywords": [
+      "typo",
+      "config",
+      "runtime error"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-string-check",
+    "category": "technical_debt",
+    "desc": "Using fragile string-based check for retrieval_only flag instead of dedicated boolean field",
+    "evidence": "src/tool/RAGTool/app/agent/deterministic_rag.py: answer method line 35",
+    "why_it_matters": "If QueryPipeline.answer() returns a modified answer string (e.g., typo, different message), retrieval_only flag will be set incorrectly causing incorrect behavior in caller logic",
+    "keywords": [
+      "string-based flag",
+      "fragile check",
+      "retrieval_only"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-bm25-list-growth",
+    "category": "technical_debt",
+    "desc": "BM25Index.delete() leaves deleted documents' entries as placeholders in lists (doc_ids, doc_term_freqs, doc_lengths), causing memory bloat over time",
+    "evidence": "src/tool/RAGTool/app/sparse/bm25_index.py: delete() method, lines 70-73",
+    "why_it_matters": "Memory usage grows linearly with number of deletions (not active documents), risking OOM in long-running applications",
+    "keywords": [
+      "memory leak",
+      "list growth",
+      "BM25Index.delete"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "graphrag-output-dir-hardcoded",
+    "category": "stability",
+    "desc": "Hardcoded output directory path instead of using config's output_dir, causing file not found errors if config specifies a different path",
+    "evidence": "src/tool/RAGTool/app/graph/graphrag_provider.py: line 45",
+    "why_it_matters": "Search will fail with FileNotFoundError if GraphRAG index was built with a non-default output directory, making the provider unusable in custom configurations",
+    "keywords": [
+      "graphrag",
+      "output directory",
+      "file not found"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-gmm-exception",
+    "category": "stability",
+    "desc": "Missing exception handling for GaussianMixture clustering failure, causing unhandled crashes during index build",
+    "evidence": "src/tool/RAGTool/app/raptor/raptor_index.py: line 45 (gmm.fit_predict(vectors))",
+    "why_it_matters": "Process crashes without logging when GMM fails (e.g., singular matrix with degenerate embeddings), making debugging impossible and causing index build failures",
+    "keywords": [
+      "GaussianMixture",
+      "fit_predict",
+      "unhandled exception",
+      "clustering failure"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "noop_reranker_redundant_max",
+    "category": "technical_debt",
+    "desc": "Redundant max(len(candidates), 1) in score calculation since loop only runs when candidates is non-empty",
+    "evidence": "src/tool/RAGTool/app/rerank/noop_reranker.py: line 15",
+    "why_it_matters": "Unnecessary computation and confusing logic; could lead to confusion during maintenance",
+    "keywords": [
+      "redundant code",
+      "code quality"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "bge_reranker_zip_strict_false",
+    "category": "technical_debt",
+    "desc": "Using zip(..., strict=False) masks potential length mismatch between candidates and scores",
+    "evidence": "src/tool/RAGTool/app/rerank/bge_reranker_provider.py: line 22",
+    "why_it_matters": "Could hide bugs where scores length doesn't match candidates, leading to incorrect results",
+    "keywords": [
+      "zip strict",
+      "code quality"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-path-traversal",
+    "category": "security",
+    "desc": "Unvalidated user-controlled path input may lead to path traversal attacks",
+    "evidence": "src/tool/RAGTool/app/pipeline/ingest_pipeline.py: line 38 (path = Path(path))",
+    "why_it_matters": "Attackers can access arbitrary files on the server by providing malicious paths (e.g., ../../etc/passwd)",
+    "keywords": [
+      "path traversal",
+      "input validation"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-missing-exception-handling",
+    "category": "stability",
+    "desc": "Missing exception handling in ingest method leads to unlogged crashes",
+    "evidence": "src/tool/RAGTool/app/pipeline/ingest_pipeline.py: IngestPipeline.ingest",
+    "why_it_matters": "Critical errors during ingestion (e.g., file not found, parser failure) will crash the service without diagnostic logs",
+    "keywords": [
+      "exception handling",
+      "logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-zip-strict-false",
+    "category": "stability",
+    "desc": "Using zip(..., strict=False) may silently truncate data when chunks and vectors differ in length",
+    "evidence": "src/tool/RAGTool/app/pipeline/ingest_pipeline.py: line 47 (zip(chunks, vectors, strict=False))",
+    "why_it_matters": "Incomplete vector records may be stored without error, leading to data corruption in the vector store",
+    "keywords": [
+      "zip strict",
+      "data truncation"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-ocr-no-exception",
+    "category": "stability",
+    "desc": "Missing exception handling in OCR processing causes unhandled crashes without logging",
+    "evidence": "src/tool/RAGTool/app/ocr/paddleocr_provider.py:25",
+    "why_it_matters": "Service crashes silently when OCR fails (e.g., invalid image), making failures impossible to diagnose without manual inspection",
+    "keywords": [
+      "ocr",
+      "exception",
+      "crash",
+      "logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sec-logging-sensitive-path",
+    "category": "security",
+    "desc": "Logging file paths in info logs may expose sensitive information",
+    "evidence": "src/tool/RAGTool/app/parsers/router.py: line 65",
+    "why_it_matters": "Sensitive file paths (e.g., containing user IDs or personal data) could be leaked in logs, leading to information disclosure vulnerabilities",
+    "keywords": [
+      "logging",
+      "sensitive data",
+      "path leakage"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-unhandled-exceptions",
+    "category": "stability",
+    "desc": "Router only catches ParserError, not other exceptions, risking service crashes",
+    "evidence": "src/tool/RAGTool/app/parsers/router.py: line 45",
+    "why_it_matters": "Uncaught exceptions from parsers (e.g., ValueError, RuntimeError) will crash the ingestion process, causing service downtime",
+    "keywords": [
+      "exception handling",
+      "uncaught exception",
+      "service stability"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "docling-unused-level",
+    "category": "technical_debt",
+    "desc": "Unused variable `_level` in loop over document items",
+    "evidence": "docling_parser.py:38",
+    "why_it_matters": "Wastes memory and confuses code maintainers with irrelevant variable",
+    "keywords": [
+      "unused_variable",
+      "code_quality"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "chunker-typo",
+    "category": "technical_debt",
+    "desc": "Syntax error due to typo 'Chun' instead of 'Chunk' in constructor call",
+    "evidence": "src/tool/RAGTool/app/chunking/hierarchical_semantic_chunker.py: line 58",
+    "why_it_matters": "Code fails to compile, preventing application from running",
+    "keywords": [
+      "syntax error",
+      "typo",
+      "Chunk constructor"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "perf-hash-embed-long-input",
+    "category": "performance",
+    "desc": "Inefficient O(n) processing of long input texts without size validation, causing excessive CPU/memory usage",
+    "evidence": "src/tool/RAGTool/app/embedding/hash_provider.py, line 19",
+    "why_it_matters": "Could cause CI pipeline failures or severe slowdowns when processing large test inputs (e.g., 10MB+ text files)",
+    "keywords": [
+      "performance",
+      "long input",
+      "n-gram loop",
+      "hashing"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "grafana-typo-execute",
+    "category": "bug",
+    "desc": "Typo in parameter name 'self._timeou' instead of 'self._timeout' causes NameError during GrafanaProvider initialization",
+    "evidence": "src/tool/grafana/__init__.py, GrafanaTool.execute method",
+    "why_it_matters": "Will cause immediate runtime crash when executing GrafanaTool, preventing all monitoring operations",
+    "keywords": [
+      "typo",
+      "NameError",
+      "GrafanaTool",
+      "timeout"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-input-validation",
+    "category": "security",
+    "desc": "Missing input validation for 'limit' parameter, allowing negative values to be passed to Grafana API",
+    "evidence": "src/tool/grafana/annotations.py:5",
+    "why_it_matters": "Invalid negative limit values cause unnecessary API errors, potentially leading to service disruptions and increased error rates",
+    "keywords": [
+      "limit",
+      "input validation",
+      "negative value"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sys-user-parsing",
+    "category": "technical_debt",
+    "desc": "Incorrect parsing of /etc/passwd when fields contain colons, causing misaligned user data (e.g., home directory with colon)",
+    "evidence": "src/tool/linux/capabilities/system.py: _get_user",
+    "why_it_matters": "User data corruption (e.g., home directory and shell fields swapped), leading to inaccurate system inventory",
+    "keywords": [
+      "passwd parsing",
+      "colon in home directory",
+      "user data corruption"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sys-gpu-redundant-lspci",
+    "category": "performance",
+    "desc": "Redundant execution of 'lspci' command in _get_gpu (already called in _get_pci)",
+    "evidence": "src/tool/linux/capabilities/system.py: _get_gpu",
+    "why_it_matters": "Unnecessary system resource usage (CPU/I/O) for duplicate command execution",
+    "keywords": [
+      "lspci redundant",
+      "performance optimization",
+      "command duplication"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "cpu-usage-crash-risk",
+    "category": "stability",
+    "desc": "Missing numeric validation in top output parsing, risking ValueError crash on malformed data",
+    "evidence": "src/tool/linux/capabilities/cpu.py: _get_cpu_usage",
+    "why_it_matters": "Application crash during system monitoring due to unhandled non-numeric values in top output",
+    "keywords": [
+      "top output parsing",
+      "ValueError",
+      "crash risk"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-selinux-incomplete",
+    "category": "technical_debt",
+    "desc": "Incomplete function definition for _get_selinux, missing implementation after 'if ok:'",
+    "evidence": "src/tool/linux/capabilities/security.py: _get_selinux",
+    "why_it_matters": "Causes syntax error and prevents the function from executing, leading to runtime failure",
+    "keywords": [
+      "syntax error",
+      "incomplete function"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "memory-top-consumers-exception",
+    "category": "stability",
+    "desc": "Swallowed exception in top memory consumers collection without logging",
+    "evidence": "src/tool/linux/capabilities/memory.py: _get_memory (try-except pass)",
+    "why_it_matters": "Silently ignores errors when collecting top memory consumers, making debugging difficult",
+    "keywords": [
+      "exception swallowed",
+      "no logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "bug-001",
+    "category": "bug",
+    "desc": "Swallows exceptions without logging when secrets file is missing or invalid",
+    "evidence": "src/shared/secrets.py: get_tool_config",
+    "why_it_matters": "Makes it impossible to diagnose why tool configuration is missing, leading to unexplained failures during runtime",
+    "keywords": [
+      "secrets file missing",
+      "error logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "bug-002",
+    "category": "bug",
+    "desc": "Swallows exceptions during log rotation and trimming, risking disk space exhaustion",
+    "evidence": "src/shared/logger.py: _rotate_if_needed, _trim_to_max_lines",
+    "why_it_matters": "Log files may grow indefinitely if rotation fails, consuming all disk space and causing application crashes",
+    "keywords": [
+      "log rotation failure",
+      "disk space"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "SEC-001",
+    "category": "security",
+    "desc": "Sensitive configuration values logged in error messages, risking secret leakage. Mask sensitive values (e.g., 'password', 'api_key') in error messages.",
+    "evidence": "src/shared/config_errors.py:format",
+    "why_it_matters": "Exposing secrets like API keys or passwords in error logs can lead to credential theft and unauthorized access.",
+    "keywords": [
+      "secret leakage",
+      "config error",
+      "sensitive data"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "evidence_correlation_cpu_load_bug",
+    "category": "bug",
+    "desc": "Incorrect condition in CPU+Load correlation check (checks 'CPU' twice instead of 'Load')",
+    "evidence": "src/pipeline/evidence_correlation.py: EvidenceCorrelation.correlate() method, line with 'if \"CPU\" in severity_names and \"CPU\" in severity_names:'",
+    "why_it_matters": "Will never trigger CPU+Load correlation, leading to missed detection of CPU-bound bottlenecks in system assessments",
+    "keywords": [
+      "correlation",
+      "bug",
+      "CPU",
+      "Load"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "assessment_adapter_evidence_none",
+    "category": "stability",
+    "desc": "Missing null check for request.evidence, may cause TypeError when evidence is None",
+    "evidence": "src/pipeline/assessment_adapter.py:17",
+    "why_it_matters": "Crashes pipeline when evidence is None, leading to failed investigations",
+    "keywords": [
+      "null check",
+      "evidence",
+      "TypeError"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "retry_policy_retryable_empty",
+    "category": "technical_debt",
+    "desc": "RetryPolicy does not validate retryable_exceptions is non-empty, allowing invalid configuration",
+    "evidence": "src/pipeline/retry.py:25",
+    "why_it_matters": "Allows creation of RetryPolicy with empty retryable_exceptions, causing syntax error at runtime",
+    "keywords": [
+      "retry policy",
+      "empty exceptions",
+      "configuration validation"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "evidence_planner_incomplete",
+    "category": "technical_debt",
+    "desc": "Incomplete Intent definition 'Intent.CONFI' causes syntax error",
+    "evidence": "src/pipeline/evidence_planner.py:123",
+    "why_it_matters": "Prevents successful module import and causes build failure",
+    "keywords": [
+      "syntax error",
+      "incomplete code",
+      "Intent definition"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "cap_resolver_duplication",
+    "category": "technical_debt",
+    "desc": "Identical implementation in resolve_state and resolve methods",
+    "evidence": "src/pipeline/capability_resolver.py: resolve_state and resolve methods",
+    "why_it_matters": "Maintainability risk - changes must be applied in two places leading to potential inconsistencies",
+    "keywords": [
+      "code duplication",
+      "refactor",
+      "redundant logic"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-redundant-seen",
+    "category": "technical_debt",
+    "desc": "Redundant 'seen' set in EvidenceMerge.merge() since results is a dict with unique keys",
+    "evidence": "src/pipeline/evidence_merge.py:25-26",
+    "why_it_matters": "Adds unnecessary complexity and potential for bugs if code is modified to handle non-unique keys",
+    "keywords": [
+      "redundant code",
+      "unnecessary set",
+      "code smell"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "keyword-substring-matching",
+    "category": "technical_debt",
+    "desc": "Using substring matching (kw in text) instead of word boundary checks causes false positives (e.g., 'listless' triggers LIST type)",
+    "evidence": "src/pipeline/answer_type.py: _match_any method",
+    "why_it_matters": "Incorrect answer type classification leading to wrong response paths (e.g., 'listless' classified as LIST instead of ASSESSMENT)",
+    "keywords": [
+      "keyword matching",
+      "substring",
+      "false positive",
+      "word boundary"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "time_range_resolver_last_week_typo",
+    "category": "technical_debt",
+    "desc": "Typo in 'last_week' calculation: 'dt.w' should be 'dt.weekday()'",
+    "evidence": "src/pipeline/time_range_resolver.py: _compute method, line 65",
+    "why_it_matters": "Causes AttributeError when resolving 'last week' time range, leading to failed time range resolution",
+    "keywords": [
+      "last_week",
+      "typo",
+      "dt.weekday"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "deterministic_responder_zombie_logic_error",
+    "category": "bug",
+    "desc": "Incorrect zombie process check when is_zombie=False: checks for zombie processes even when not requested",
+    "evidence": "src/pipeline/deterministic_responder.py: try_response method, lines 45-47",
+    "why_it_matters": "Returns zombie process responses for non-zombie queries, causing incorrect answers",
+    "keywords": [
+      "zombie",
+      "logic error",
+      "is_zombie"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "normalizer_syntax_error",
+    "category": "technical_debt",
+    "desc": "Syntax error in _parse_config: incomplete 'str(s' without closing parenthesis",
+    "evidence": "src/pipeline/normalizer.py: _parse_config method, line 62",
+    "why_it_matters": "Code will fail to compile, preventing normalizer from functioning",
+    "keywords": [
+      "syntax error",
+      "compile error"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "parameter_extractor_incomplete_regex",
+    "category": "technical_debt",
+    "desc": "Incomplete regex pattern in _TIME_RANGE_PATTERN definition",
+    "evidence": "src/pipeline/parameter_extractor.py: _TIME_RANGE_PATTERN definition, line 45",
+    "why_it_matters": "Code will fail to compile, preventing parameter extraction",
+    "keywords": [
+      "regex",
+      "syntax error"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "normalizer_missing_log",
+    "category": "stability",
+    "desc": "Missing log when config file is missing, leading to silent failure",
+    "evidence": "src/pipeline/normalizer.py: _ensure_loaded method, lines 25-26",
+    "why_it_matters": "Unable to diagnose why normalizer is not loading concepts, complicating debugging",
+    "keywords": [
+      "missing log",
+      "silent failure"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "target_resolver_syntax_error",
+    "category": "technical_debt",
+    "desc": "Incomplete dictionary definition in _DEFAULT_TARGET_PATTERNS, missing 'replacement' key and closing brace",
+    "evidence": "src/pipeline/target_resolver.py: line 35",
+    "why_it_matters": "Code will fail to compile due to syntax error, preventing application startup",
+    "keywords": [
+      "syntax error",
+      "incomplete dict",
+      "dictionary definition"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-exception-crash",
+    "category": "stability",
+    "desc": "Missing exception handling in security chain; inspector failures cause system crash instead of safe fallback",
+    "evidence": "src/pipeline/security/inspector_chain.py, inspect method",
+    "why_it_matters": "A single faulty inspector (e.g., due to bug or invalid input) will crash the entire security pipeline, causing denial of service instead of blocking malicious requests",
+    "keywords": [
+      "stability",
+      "exception handling",
+      "crash",
+      "security chain"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "target_inspector_allow_unknown",
+    "category": "security",
+    "desc": "TargetInspector allows execution against unknown targets by default, bypassing security controls for production environments",
+    "evidence": "src/pipeline/security/target_inspector.py: TargetInspector.inspect",
+    "why_it_matters": "Allows tool execution against any target not explicitly added to safe list (e.g., production servers), defeating the purpose of target validation",
+    "keywords": [
+      "security",
+      "target allowlist",
+      "production targets",
+      "unintended execution"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-dsn-password-encoding",
+    "category": "security",
+    "desc": "Password not URL-encoded in DSN, risking incorrect connection parameters if password contains '@'",
+    "evidence": "src/backend/db.py: _build_dsn function",
+    "why_it_matters": "Malformed DSN due to unescaped '@' in password can lead to connection with wrong credentials, causing security misconfigurations or unauthorized access",
+    "keywords": [
+      "DSN",
+      "password",
+      "URL encoding"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-connection-close-swallow",
+    "category": "stability",
+    "desc": "Swallowing exceptions during connection closing without logging",
+    "evidence": "src/backend/db.py: _init_pool and _put_conn functions",
+    "why_it_matters": "Hides connection cleanup errors, making debugging difficult and potentially causing resource leaks",
+    "keywords": [
+      "connection close",
+      "exception swallowing",
+      "logging"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "technical-debt-unused-mask-dsn",
+    "category": "technical_debt",
+    "desc": "Unused _mask_dsn function, dead code",
+    "evidence": "src/backend/db.py: _mask_dsn function definition",
+    "why_it_matters": "Increases maintenance burden and confuses developers with unnecessary code",
+    "keywords": [
+      "dead code",
+      "unused function",
+      "technical debt"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "doc_delete_file_before_db",
+    "category": "stability",
+    "desc": "File deletion occurs before database record removal, causing data inconsistency if database operation fails",
+    "evidence": "src/backend/document_service.py: delete_file",
+    "why_it_matters": "Orphaned files remain on disk if database delete fails, leading to data corruption and potential storage bloat",
+    "keywords": [
+      "data consistency",
+      "file deletion"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "doc_list_files_full_scan",
+    "category": "performance",
+    "desc": "Full directory scan and sort for file listing, inefficient for large file counts",
+    "evidence": "src/backend/document_service.py: list_files",
+    "why_it_matters": "High CPU/memory usage when listing files with thousands of entries, degrading performance for users",
+    "keywords": [
+      "directory scan",
+      "performance bottleneck"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-api-key-empty",
+    "category": "security",
+    "desc": "API key from environment variable not validated for empty string, allowing authentication bypass if key is empty",
+    "evidence": "src/backend/auth.py: if api_key is not None and not _is_public_path(request.url.path):",
+    "why_it_matters": "An empty ORION_API_KEY environment variable would allow any request with an empty token to pass authentication",
+    "keywords": [
+      "api_key",
+      "empty_key",
+      "authentication_bypass"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-import-inside-function",
+    "category": "technical_debt",
+    "desc": "Importing FastAPI response module inside a function instead of at module level",
+    "evidence": "src/backend/auth.py: from fastapi.responses import JSONResponse",
+    "why_it_matters": "Causes unnecessary import overhead on every request and violates Python best practices",
+    "keywords": [
+      "import_inside_function",
+      "code_style",
+      "performance"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-knowledge-query-topk-validation",
+    "category": "security",
+    "desc": "Missing input validation for 'top_k' parameter, allowing invalid types to be sent to RAG service",
+    "evidence": "src/backend/routers/knowledge.py:knowledge_query",
+    "why_it_matters": "Malformed requests could cause RAG service errors or unexpected behavior",
+    "keywords": [
+      "input validation",
+      "top_k"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "technical_debt-health-list_models-imports",
+    "category": "technical_debt",
+    "desc": "Imports inside function instead of top of file, violating code quality standards",
+    "evidence": "src/backend/routers/health.py:list_models",
+    "why_it_matters": "Makes code harder to read and maintain, and can cause unexpected behavior",
+    "keywords": [
+      "imports",
+      "code quality"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "performance-health-list_models-blocking-io",
+    "category": "performance",
+    "desc": "Blocking I/O operations in a loop for model health checks, causing high latency",
+    "evidence": "src/backend/routers/health.py:list_models",
+    "why_it_matters": "Each model check blocks the thread, leading to slow response times for large server lists",
+    "keywords": [
+      "blocking I/O",
+      "performance"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sec-filename-sanitization",
+    "category": "security",
+    "desc": "Filename not sanitized, allowing path traversal attacks via malicious filename input",
+    "evidence": "src/backend/routers/documents.py:18",
+    "why_it_matters": "Attackers can read arbitrary files on the server by crafting filenames with directory traversal sequences (e.g., '../etc/passwd')",
+    "keywords": [
+      "path traversal",
+      "filename sanitization",
+      "directory traversal"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-queryclient-singleton",
+    "category": "security",
+    "desc": "QueryClient is shared across requests (singleton pattern), causing data leakage between user sessions and cache pollution",
+    "evidence": "ui/src/router.tsx: getRouter function",
+    "why_it_matters": "Sensitive data from one user's request may be exposed to another user, or stale data may be served across different sessions",
+    "keywords": [
+      "security",
+      "data leakage",
+      "QueryClient",
+      "singleton"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-no-error-logging",
+    "category": "stability",
+    "desc": "Missing error logging when server session load fails, leading to untraceable crashes",
+    "evidence": "ui/src/lib/chat-store.tsx: line 45-52 (catch block in load function)",
+    "why_it_matters": "Without logging, server-side errors during session load cannot be diagnosed, causing user confusion and potential data loss",
+    "keywords": [
+      "error logging",
+      "unhandled error"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "technical-debt-typo",
+    "category": "technical_debt",
+    "desc": "Typo in variable name 'fallba' instead of 'fallback' causing ReferenceError",
+    "evidence": "ui/src/lib/chat-store.tsx: line 52 (currentIdRef.current = fallba)",
+    "why_it_matters": "Will crash the application when attempting to assign undefined variable 'fallba'",
+    "keywords": [
+      "typo",
+      "runtime error"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "test-invalid-assertions",
+    "category": "technical_debt",
+    "desc": "Test file contains placeholder assertions that don't verify actual code behavior (e.g., expect(true).toBe(true))",
+    "evidence": "ui/src/lib/__tests__/chat-store.test.tsx: lines 12, 20, 28, 36, 44",
+    "why_it_matters": "Creates false confidence in test coverage, hides real bugs, and wastes developer time debugging non-existent issues",
+    "keywords": [
+      "test",
+      "technical_debt",
+      "invalid_test",
+      "placeholder_assertion"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-duplicate-pages",
+    "category": "technical_debt",
+    "desc": "Duplicate implementation of placeholder pages for settings and knowledge with identical structure",
+    "evidence": "ui/src/routes/settings.tsx (SettingsPage), ui/src/routes/knowledge.tsx (KnowledgePage)",
+    "why_it_matters": "Increases maintenance effort and risk of inconsistent UI/behavior when implementing actual features",
+    "keywords": [
+      "duplicate code",
+      "technical debt",
+      "placeholder pages"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-xss-commandpalette",
+    "category": "security",
+    "desc": "Unsanitized session title displayed directly in JSX, allowing potential XSS attacks via malicious session titles",
+    "evidence": "ui/src/components/CommandPalette.tsx: line 28",
+    "why_it_matters": "Attackers can inject malicious scripts via session titles, leading to session hijacking, data theft, or account compromise",
+    "keywords": [
+      "xss",
+      "unescaped-input",
+      "session-title"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "performance-unmemoized-filter",
+    "category": "performance",
+    "desc": "Sessions filtering performed on every render without memoization, causing unnecessary O(n) computation",
+    "evidence": "ui/src/components/CommandPalette.tsx: line 18",
+    "why_it_matters": "Can cause noticeable performance degradation with large session lists during frequent re-renders",
+    "keywords": [
+      "performance",
+      "memoization",
+      "filter"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-clipboard-error-iconbtn",
+    "category": "stability",
+    "desc": "Missing error handling for clipboard write operation, causing silent failure when copy fails",
+    "evidence": "ui/src/components/chat/Message.tsx, IconBtn component",
+    "why_it_matters": "Users won't know if copy operation failed (e.g., browser permission denied), leading to confusion and potential data loss",
+    "keywords": [
+      "clipboard",
+      "error handling",
+      "silent failure"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "stability-clipboard-error-codeblock",
+    "category": "stability",
+    "desc": "Missing error handling for clipboard write operation in code block copy button",
+    "evidence": "ui/src/components/chat/Message.tsx, CodeBlock component",
+    "why_it_matters": "Same as above - silent failure prevents users from knowing copy operation failed",
+    "keywords": [
+      "clipboard",
+      "error handling",
+      "silent failure"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tooltip-css-syntax-error",
+    "category": "technical_debt",
+    "desc": "Invalid CSS class syntax for tooltip positioning (missing brackets around CSS variable)",
+    "evidence": "ui/src/components/ui/tooltip.tsx: Line 15",
+    "why_it_matters": "Causes tooltip positioning to fail due to invalid CSS syntax, breaking UI layout",
+    "keywords": [
+      "CSS-variable-syntax",
+      "tooltip-positioning",
+      "radix-ui"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "context-menu-typo",
+    "category": "technical_debt",
+    "desc": "Syntax error in ContextMenuCheckboxItem declaration (missing 'ef' in React.forwardRef)",
+    "evidence": "ui/src/components/ui/context-menu.tsx: line 32",
+    "why_it_matters": "Causes build failure and prevents component from working",
+    "keywords": [
+      "syntax error",
+      "typo",
+      "forwardRef"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "popover-css-typo",
+    "category": "technical_debt",
+    "desc": "Typo in CSS class 'origin-(--radix-popover-content-transform-origin)' should be 'origin-[--radix-popover-content-transform-origin]' for correct styling",
+    "evidence": "ui/src/components/ui/popover.tsx, PopoverContent component",
+    "why_it_matters": "Causes popover positioning to break due to invalid CSS class, resulting in incorrect UI layout",
+    "keywords": [
+      "css",
+      "typo",
+      "radix-ui"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "alert-dialog-typo-export",
+    "category": "technical_debt",
+    "desc": "Typo in export statement causing syntax error (missing 'r' in AlertDialogOverlay)",
+    "evidence": "ui/src/components/ui/alert-dialog.tsx: line 52 (export { AlertDialog, AlertDialogPortal, AlertDialogOve",
+    "why_it_matters": "Prevents component from being imported correctly, causing build failure",
+    "keywords": [
+      "typo",
+      "syntax error",
+      "export"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "sidebar-style-syntax-error",
+    "category": "technical_debt",
+    "desc": "Invalid JSX syntax in style prop declaration with missing closing brace",
+    "evidence": "ui/src/components/ui/sidebar.tsx: SidebarProvider component, style prop declaration",
+    "why_it_matters": "Causes syntax error during compilation, preventing component from rendering",
+    "keywords": [
+      "syntax error",
+      "jsx",
+      "style prop"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "command-item-classname-syntax-error",
+    "category": "technical_debt",
+    "desc": "Missing closing parenthesis in className prop for CommandItem component",
+    "evidence": "ui/src/components/ui/command.tsx: CommandItem component, className prop",
+    "why_it_matters": "Causes syntax error during compilation, preventing component from rendering",
+    "keywords": [
+      "syntax error",
+      "jsx",
+      "className"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "form-message-syntax-error",
+    "category": "technical_debt",
+    "desc": "Syntax error: missing closing tag for <p> element in FormMessage component",
+    "evidence": "ui/src/components/ui/form.tsx, FormMessage component",
+    "why_it_matters": "Causes build failure and prevents form error messages from rendering",
+    "keywords": [
+      "syntax error",
+      "form",
+      "error message",
+      "missing closing tag"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "security-chart-dangerously-set-inner-html",
+    "category": "security",
+    "desc": "Using dangerouslySetInnerHTML without sanitizing config values, risking CSS injection if config is user-controlled",
+    "evidence": "ui/src/components/ui/chart.tsx, ChartStyle component",
+    "why_it_matters": "Attackers could inject malicious CSS or trigger XSS via CSS properties if config is user-provided",
+    "keywords": [
+      "security",
+      "dangerouslySetInnerHTML",
+      "config",
+      "CSS injection"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "breadcrumb-ellipsis-displayname-typo",
+    "category": "technical_debt",
+    "desc": "Misspelled displayName 'BreadcrumbElipssis' should be 'BreadcrumbEllipsis' for consistency and clarity",
+    "evidence": "ui/src/components/ui/breadcrumb.tsx: BreadcrumbEllipsis.displayName = \"BreadcrumbElipssis\";",
+    "why_it_matters": "Causes confusion for developers when debugging or referencing the component in dev tools, and may lead to incorrect component identification during code reviews",
+    "keywords": [
+      "display name typo",
+      "component naming",
+      "breadcrumb"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
+  },
+  {
+    "id": "tech-debt-menubar-content-syntax",
+    "category": "technical_debt",
+    "desc": "MenubarContent component has unclosed props for MenubarPrimitive.Content, causing syntax error",
+    "evidence": "ui/src/components/ui/menubar.tsx, line 45 (alignOffset={alignOffset})",
+    "why_it_matters": "Prevents code from compiling, blocks development and deployment",
+    "keywords": [
+      "syntax error",
+      "missing closing bracket",
+      "invalid JSX"
+    ],
+    "status": "open",
+    "source": "full_project_audit"
   }
 ]
