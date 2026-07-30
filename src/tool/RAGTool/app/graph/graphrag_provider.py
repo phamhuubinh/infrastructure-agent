@@ -29,6 +29,13 @@ class MicrosoftGraphRagProvider:
         self._workspace_dir = Path(workspace_dir)
         # Using config.output_dir instead of hardcoded path
         self._output_dir = config.output_dir
+        
+        # Validate that output_dir is configured in GraphRAG config
+        if not hasattr(config, 'output_dir') or config.output_dir is None or config.output_dir == "":
+            from src.shared.config_errors import ConfigurationError
+            raise ConfigurationError("output_dir must be configured in GraphRAG config")
+        # Using config.output_dir instead of hardcoded path
+        self._output_dir = config.output_dir
 
     def build(self, doc_id: str, text: str) -> None:
         """GraphRAG indexes in batch, not per-document. Write the text into
@@ -64,7 +71,7 @@ class MicrosoftGraphRagProvider:
 
         config = load_config(self._workspace_dir)
         # Validate that output_dir is configured in GraphRAG config
-        if not hasattr(config, 'output_dir') or config.output_dir is None:
+        if not hasattr(config, 'output_dir') or config.output_dir is None or config.output_dir == "":
             from src.shared.config_errors import ConfigurationError
             raise ConfigurationError("output_dir must be configured in GraphRAG config")
         
