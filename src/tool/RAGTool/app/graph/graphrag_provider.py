@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.shared.config import get_config, config
+from src.shared.config import config
 from app.graph.base import GraphSearchResult
 
 
@@ -27,8 +27,8 @@ class MicrosoftGraphRagProvider:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = Path(workspace_dir)
-        # Using config.get() to allow fallback to default path
-        output_dir = config.get('output_dir', '/output/graphrag')
+        # Using config.output_dir directly without fallback
+        output_dir = config.output_dir
         
         # Validate output_dir to prevent directory traversal attacks
         if '..' in output_dir:
