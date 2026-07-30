@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.shared.config import get_config
+from src.shared.config import get_config, config
 from app.graph.base import GraphSearchResult
 
 
@@ -27,6 +27,8 @@ class MicrosoftGraphRagProvider:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = Path(workspace_dir)
+        # Using config.output_dir instead of hardcoded path
+        self._output_dir = config.output_dir
 
     def build(self, doc_id: str, text: str) -> None:
         """GraphRAG indexes in batch, not per-document. Write the text into
@@ -61,6 +63,11 @@ class MicrosoftGraphRagProvider:
             raise RuntimeError(msg) from exc
 
         config = load_config(self._workspace_dir)
+        # Validate that output_dir is configured in GraphRAG config
+        if not hasattr(config, 'output_dir') or config.output_dir is None:
+            from src.shared.config_errors import ConfigurationError
+            raise ConfigurationError("output_dir must be configured in GraphRAG config")
+        
         output_dir = self._workspace_dir / config.output_dir
 
         entities = pd.read_parquet(output_dir / "entities.parquet")
