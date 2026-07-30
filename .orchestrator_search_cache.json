@@ -889,5 +889,104 @@
         }
       ]
     }
+  },
+  "6056b950f4577b32": {
+    "ts": "2026-07-30T13:58:51.930693+00:00",
+    "query": "Latest enterprise features in LangChain and LlamaIndex RAG frameworks 2024",
+    "result": {
+      "results": [
+        {
+          "title": "RAG Frameworks: LangChain vs LangGraph vs LlamaIndex",
+          "url": "https://aimultiple.com/rag-frameworks",
+          "snippet": "We benchmarked 5 RAG frameworks: LangChain, LangGraph, LlamaIndex, Haystack, and DSPy, by building the same agentic RAG workflow with standardized components: identical models (GPT-4.1-mini), embeddings (BGE-small), retriever (Qdrant), and tools (Tavily web search)."
+        },
+        {
+          "title": "LangChain vs LlamaIndex: Which RAG Framework Is Better? (202",
+          "url": "https://coworker.ai/blog/langchain-vs-llamaindex",
+          "snippet": "22 thg 3, 2026 ... According to AlphaCorp AI's analysis, LangChain reduced development time by 40% for enterprise RAG implementations, proving that framework ..."
+        },
+        {
+          "title": "RAG Frameworks Comparison | Guides - Clore.ai",
+          "url": "https://docs.clore.ai/guides/comparisons/rag-frameworks-comparison",
+          "snippet": "RAG (Retrieval-Augmented Generation) lets LLMs answer questions using your own documents. This guide compares the four leading frameworks: LangChain, LlamaIndex, Haystack, and RAGFlow — covering features, performance, and when to use each."
+        },
+        {
+          "title": "10 Best RAG Frameworks and Libraries in 2026 - AY Automate",
+          "url": "https://www.ayautomate.com/blog/best-rag-frameworks",
+          "snippet": "17 thg 6, 2026 ... Best RAG frameworks in 2026: LlamaIndex, LangChain, Haystack, Dify, RAGFlow, and Ragas ranked by use case with honest pros, cons, and when to ..."
+        },
+        {
+          "title": "LangChain vs LangGraph vs LlamaIndex: Agent Framework Guide",
+          "url": "https://techjacksolutions.com/ai/agentic-ai/build/agent-frameworks-compared/",
+          "snippet": "These frameworks offer predefined architectures, tool integration libraries, memory management modules, and orchestration logic, which significantly streamline ..."
+        }
+      ]
+    }
+  },
+  "7b551e41641cdef6": {
+    "ts": "2026-07-30T13:58:53.049653+00:00",
+    "query": "Enterprise AI architecture best practices multi-tenancy security caching streaming evaluation",
+    "result": {
+      "results": [
+        {
+          "title": "Best practices for enterprise multi-tenancy",
+          "url": "https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/enterprise-multitenancy",
+          "snippet": "Each tenant should not be able to affect other tenants in the shared cluster, except via explicit design decisions like API calls, shared data sources, etc."
+        },
+        {
+          "title": "Building Enterprise-Ready AI Agents — A Practical Field Guide",
+          "url": "https://viblo.asia/p/building-enterprise-ready-ai-agents-a-practical-field-guide-3RL1B5PoVao",
+          "snippet": "Read Parts 8–10 for the enterprise gates: security, compliance, multi-tenancy, observability, cost. Read Parts 11–15 for delivery, scale & rollout: deployment ..."
+        },
+        {
+          "title": "Multi-Tenant Event Streaming Architecture for SaaS Platforms",
+          "url": "https://www.linkedin.com/pulse/multi-tenant-event-streaming-architecture-saas-platforms-datatroops-zioqc",
+          "snippet": "16 thg 1, 2026 ... Product Engineering, Functional Programming & AI… · Shared database, shared schema · Tenant ID used to isolate data · Lowest cost, highest ..."
+        },
+        {
+          "title": "Data isolation in multi-tenant SaaS environments - Redis",
+          "url": "https://redis.io/blog/data-isolation-multi-tenant-saas/",
+          "snippet": "6 thg 2, 2026 ... Your primary database might have solid tenant isolation, but data flows through various systems including caching, messaging, file storage, and ..."
+        },
+        {
+          "title": "Pool model multi-tenancy with Amazon Bedrock AgentCore",
+          "url": "https://aws.amazon.com/blogs/machine-learning/shared-infrastructure-isolated-tenants-pool-model-multi-tenancy-with-amazon-bedrock-agentcore/",
+          "snippet": "23 thg 6, 2026 ... The architecture implements a three-level hierarchy: Tier → Tenant → User, where you enforce isolation at every layer through documents in ..."
+        }
+      ]
+    }
+  },
+  "d10bc7cd22ad3189": {
+    "ts": "2026-07-30T13:58:54.203136+00:00",
+    "query": "Common RAG security vulnerabilities CVEs and design flaws 2024",
+    "result": {
+      "results": [
+        {
+          "title": "Reproducibility and Replicability of RAG-based Vulnerability ... - arXiv",
+          "url": "https://arxiv.org/html/2606.04739v1",
+          "snippet": "3 thg 6, 2026 ... ... security/revisiting-Vul-RAG. 1 Introduction. Software ... Common Vulnerabilities and Exposures (CVEs) and their corresponding fixes."
+        },
+        {
+          "title": "Why RAG Security is Broken? (And How to Fix It) | by Riad Moudjahed",
+          "url": "https://medium.com/@riadmouja47/why-rag-security-is-broken-and-how-to-fix-it-8697845a1a3d",
+          "snippet": "2 thg 1, 2026 ... The most recent Common Vulnerabilities and Exposures of RAG system are CVE ... Design Choices That Matter. SQLite for Authentication ..."
+        },
+        {
+          "title": "LLM agents for vulnerability identification and verification of CVEs",
+          "url": "https://ceur-ws.org/Vol-3920/paper09.pdf",
+          "snippet": "Patching software security issues is becoming progressively more challenging as the number of reported security flaws in the common vulnerabilities and ..."
+        },
+        {
+          "title": "Top AI Security Vulnerabilities to Watch out for in 2026 - Cycode",
+          "url": "https://cycode.com/blog/ai-security-vulnerabilities/",
+          "snippet": "31 thg 3, 2026 ... The EchoLeak vulnerability found in Microsoft 365 Copilot demonstrated that a zero-click prompt injection could access and silently exfiltrate ..."
+        },
+        {
+          "title": "Generating vulnerability security fixes with Code Language Models",
+          "url": "https://www.sciencedirect.com/science/article/pii/S0950584925001259",
+          "snippet": "... Common Vulnerabilities and Exposures (CVE) records. Our proposed model ... security flaws are among the significant challenges to addressing security ..."
+        }
+      ]
+    }
   }
 }
