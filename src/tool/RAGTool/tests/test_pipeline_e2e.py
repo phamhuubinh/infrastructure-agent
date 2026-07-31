@@ -160,6 +160,52 @@ class PipelineEndToEndTest(unittest.TestCase):
                 # Verify that the error message contains the expected text
                 self.assertIn("Invalid path", str(context.exception))
 
+    def test_ingest_pipeline_raises_value_error_on_mismatched_lengths(self):
+        """Test that ingest_pipeline raises ValueError when chunks and vectors have different lengths"""
+        # Create fake data with chunks of length 3 and vectors of length 5
+        # We'll mock the embedder to return vectors of different length than chunks
+        from unittest.mock import patch, MagicMock
+        
+        # Create a mock embedder that returns more vectors than chunks
+        mock_embedder = MagicMock()
+        mock_embedder.embed.return_value = [1, 2, 3, 4, 5]  # 5 vectors for 3 chunks
+        
+        # Create a mock chunker that returns 3 chunks
+        mock_chunker = MagicMock()
+        mock_chunker.chunk.return_value = [
+            MagicMock(chunk_id="chunk1", text="text1"),
+            MagicMock(chunk_id="chunk2", text="text2"), 
+            MagicMock(chunk_id="chunk3", text="text3")
+        ]
+        
+        # Create a fake document
+        fake_doc = ParsedDocument(
+            source_path="fake.pdf",
+            parser_name="fake",
+            blocks=[
+                ParsedBlock(text="Text 1", block_type="paragraph"),
+                ParsedBlock(text="Text 2", block_type="paragraph"),
+                ParsedBlock(text="Text 3", block_type="paragraph"),
+            ],
+        )
+        
+        # Create pipeline with mocks
+        test_pipeline = IngestPipeline(
+            parser_router=_FakeParserRouter(fake_doc),
+            chunker=mock_chunker,
+            embedder=mock_embedder,
+            vector_store=self.vector_store,
+            bm25_index=self.bm25,
+            collection="test",
+        )
+        
+        # Verify that ValueError is raised with appropriate message
+        with self.assertRaises(ValueError) as context:
+            test_pipeline.ingest("fake.pdf", doc_id="doc1")
+            
+        # Check that the error message contains 'lengths differ'
+        self.assertIn("longer than", str(context.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

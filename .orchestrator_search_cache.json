@@ -5705,5 +5705,1205 @@
         }
       ]
     }
+  },
+  "a58c00915842b615": {
+    "ts": "2026-07-31T06:25:51.352363+00:00",
+    "query": "Enterprise AI framework trends 2024: LangChain multi-tenancy and LlamaIndex RAG optimizations",
+    "result": {
+      "results": [
+        {
+          "title": "RAG Frameworks: LangChain vs LangGraph vs LlamaIndex",
+          "url": "https://aimultiple.com/rag-frameworks",
+          "snippet": "We benchmarked 5 RAG frameworks: LangChain, LangGraph, LlamaIndex, Haystack, and DSPy, by building the same agentic RAG workflow with standardized components: identical models (GPT-4.1-mini), embeddings (BGE-small), retriever (Qdrant), and tools (Tavily web search)."
+        },
+        {
+          "title": "AI Agent Frameworks Compared: LangChain, CrewAI, and More",
+          "url": "https://atlan.com/know/ai-agents-frameworks-compared/",
+          "snippet": "LangChain, LlamaIndex, CrewAI, and AutoGen are the four most-adopted AI agent frameworks in enterprise environments. LangChain leads on orchestration flexibility and MCP maturity, LlamaIndex on retrieval, CrewAI on role-based multi-agent coordination, and AutoGen on human-in-the-loop workflows."
+        },
+        {
+          "title": "LangChain State of AI 2024 Report",
+          "url": "https://www.langchain.com/blog/langchain-state-of-ai-2024",
+          "snippet": "In 2024, developers leaned into complexity with multi-step agents, sharpened efficiency by doing more with fewer LLM calls, and added quality checks to their apps using methods of feedback and evaluation."
+        },
+        {
+          "title": "Large Language Models, Architectures, Protocols, and Applications",
+          "url": "https://arxiv.org/html/2306.02781v4",
+          "snippet": "9 thg 4, 2026 ... 2017 2020 2022 2023 2024 2025 2026 Transformer architecture GPT-3 few-shot learning ChatGPT launched GPT-4, LLaMA, open-weight era DeepSeek-V3, ..."
+        },
+        {
+          "title": "LangChain vs LlamaIndex: Which RAG Framework Is Better? (202 | Coworker AI",
+          "url": "https://coworker.ai/blog/langchain-vs-llamaindex",
+          "snippet": "LangChain vs LlamaIndex head-to-head comparison. Performance benchmarks, ease of use, and which RAG framework works better for production AI applications."
+        },
+        {
+          "title": "r/LangChain on Reddit: LangChain or LlamaIndex for RAG? I've built production systems with both. Here's which one for what.",
+          "url": "https://www.reddit.com/r/LangChain/comments/1u6cpn9/langchain_or_llamaindex_for_rag_ive_built/",
+          "snippet": "LLamaIndex is better for RAG than LangChain, but in my opinion obsolete in 2026. It's a great resource for learning though. Reality will be a lot more complicated, you will need to retrieve from multiple sources, pass filter conditions and process different types of queries (some need summaries, other need details). Sometimes you may locate documents which have been superseded. The best way to deal with that is probably an Agent with tools to do the retrieval itself. It should be able to deal wi"
+        },
+        {
+          "title": "Enterprise RAG Platforms Comparison 2026: Full Tool Breakdown",
+          "url": "https://atlan.com/know/enterprise-rag-platforms-comparison/",
+          "snippet": "Depends on the primary requirement. LlamaIndex leads on retrieval accuracy (approximately 92% vs. 85%) and data connector breadth (160+). LangChain leads on ecosystem size (500+ integrations) and agentic orchestration via LangGraph. Teams focused purely on retrieval quality typically start with LlamaIndex; teams building multi-step agentic workflows typically start with LangChain."
+        },
+        {
+          "title": "LangChain vs LlamaIndex: Which Framework handles RAG Better for ...",
+          "url": "https://emasterlabs.com/langchain-vs-llamaindex",
+          "snippet": "Compare LangChain vs LlamaIndex to find the best framework for RAG and enterprise AI data solutions."
+        }
+      ]
+    }
+  },
+  "a27443097ad0d005": {
+    "ts": "2026-07-31T06:25:52.687787+00:00",
+    "query": "Enterprise RAG architecture best practices for security, caching, and streaming",
+    "result": {
+      "results": [
+        {
+          "title": "Enterprise RAG Architecture: A Reference Design for Production Systems",
+          "url": "https://azumo.com/artificial-intelligence/ai-insights/build-enterprise-rag-system",
+          "snippet": "You'll learn enterprise RAG architecture best practices (security, governance, caching, monitoring), how to avoid common failure points, and how to evaluate encoders/vector stores for accuracy, cost, and latency."
+        },
+        {
+          "title": "RAG for Enterprise IT — Part 2: RAG Architecture Deep Dive - Medium",
+          "url": "https://medium.com/@archbeat/rag-for-enterprise-it-part-2-rag-architecture-deep-dive-designing-enterprise-grade-pipelines-288dbbf49c12",
+          "snippet": "Enterprises don't just need a chatbot — they need a scalable, secure, and auditable RAG architecture that integrates seamlessly with existing systems and governance frameworks."
+        },
+        {
+          "title": "Enterprise RAG System: Best Practices Strategies",
+          "url": "https://intelliarts.com/blog/enterprise-rag-system-best-practices/",
+          "snippet": "Basically, what the demonstrated ... processes. Starting from user input, it follows steps including authentication, input guardrails, and query rewriting...."
+        },
+        {
+          "title": "Secure RAG for Internal Company Knowledge: Architecture & Best Practices",
+          "url": "https://wezom.com/blog/secure-rag-for-internal-company-knowledge",
+          "snippet": "In the enterprise sector, a data breach can result in the loss of intellectual property, as well as fines for violating user data privacy standards and subsequent lawsuits."
+        },
+        {
+          "title": "Enterprise RAG System Architecture Design and Best Practices | RAG Navigator",
+          "url": "https://ragnav.com/knowledge/enterprise-rag-architecture",
+          "snippet": "Security and Compliance: Enterprise data typically contains sensitive information, and RAG systems need to implement strict security measures, including data encryption, access control, audit logs, and privacy protection. Additionally, systems need to comply with relevant regulatory requirements ..."
+        },
+        {
+          "title": "Building Enterprise RAG Systems: Security and Compliance Guide",
+          "url": "https://collabnix.com/building-enterprise-rag-systems-security-and-compliance-guide/",
+          "snippet": "Master enterprise RAG system security with practical examples for authentication, data governance, and compliance. Includes Kubernetes configs and Python code."
+        },
+        {
+          "title": "Building scalable, secure, and reliable RAG applications using Amazon ...",
+          "url": "https://aws.amazon.com/blogs/machine-learning/building-scalable-secure-and-reliable-rag-applications-using-amazon-bedrock-knowledge-bases/",
+          "snippet": "The AWS Well-Architected Framework provides best practices and guidelines for designing and operating reliable, secure, efficient, and cost-effective systems in the cloud."
+        },
+        {
+          "title": "I Built RAG Systems for Enterprises (20K+ Docs). Here’s the learning path I wish I had (complete guide)",
+          "url": "https://www.reddit.com/r/LLMDevs/comments/1nl9oxo/i_built_rag_systems_for_enterprises_20k_docs/",
+          "snippet": "Here is the complete technical guide if anyone is interested to deep dive: https://www.reddit.com/r/LLMDevs/comments/1n98lsf/building_rag_systems_at_enterprise_scale_20k_docs/ More on reddit.com"
+        }
+      ]
+    }
+  },
+  "ed22d392e56f89f6": {
+    "ts": "2026-07-31T06:25:53.940445+00:00",
+    "query": "Recent CVEs in AI agent frameworks: LangChain, LlamaIndex security flaws 2023-2024",
+    "result": {
+      "results": [
+        {
+          "title": "A Systematic Survey of Security Threats and Defenses in LLM ...",
+          "url": "https://arxiv.org/html/2604.23338v2",
+          "snippet": "6 thg 5, 2026 ... Agentic AI systems plan across multiple sessions, retain memory, invoke external tools, and coordinate with peer agents. Stateless LLMs do none ..."
+        },
+        {
+          "title": "Critical LangChain Vulnerability Risks AI Secrets and Workflows | Quantum Safe News Center",
+          "url": "https://www.gopher.security/news/critical-langchain-vulnerability-risks-ai-secrets-and-workflows",
+          "snippet": "LangChain vulnerabilities LangGrinch CVE-2025-68664 LangChain RCE CVE-2024-36480 LangChain SSRF CVE-2023-46229 LangChain prompt injection CVE-2023-44467 AI security LLM security cybersecurity best practices"
+        },
+        {
+          "title": "r/artificial on Reddit: I compiled every major AI agent security incident from 2024-2026 in one place - 90 incidents, all sourced, updated weekly",
+          "url": "https://www.reddit.com/r/artificial/comments/1sgm6dz/i_compiled_every_major_ai_agent_security_incident/",
+          "snippet": "This is the kind of resource the space badly needs because most AI security talk stays either abstract or marketing-driven. A dated, sourced incident list makes it much easier to separate real attack patterns from vibes. The taxonomy angle is especially useful if you keep expanding it. More on reddit.com"
+        },
+        {
+          "title": "LangChain Security: 3 New Vulnerabilities Leaking AI Data",
+          "url": "https://www.cyera.com/research/langdrained-3-paths-to-your-data-through-the-worlds-most-popular-ai-framework",
+          "snippet": "I middleware shouldn’t be a data drain. Cyera uncovers 3 critical LangChain vulnerabilities. See the research and learn how to patch your AI stack now."
+        },
+        {
+          "title": "A Systematic Survey of Security Threats and Defenses in LLM ...",
+          "url": "https://arxiv.org/pdf/2604.23338",
+          "snippet": "by peer tools via shared context, achieving 75% vulnerability rates in LangChain/LlamaIndex toolchains. ... A Comprehensive Framework for Evaluating Real-World AI ..."
+        },
+        {
+          "title": "LangChain and LangGraph: Critical Vulnerabilities in AI Orchestration – Lab Space",
+          "url": "https://labs.cloudsecurityalliance.org/research/csa-research-note-langchain-langgraph-vulnerabilities-202603/",
+          "snippet": "A coordinated disclosure by Cyera Research on March 27, 2026 (“LangDrained”) [1] identified multiple high- and critical-severity vulnerabilities across LangChain and LangGraph, compounding a pattern of serious flaws documented throughout ..."
+        },
+        {
+          "title": "Ask HN: Who wants to be hired? (November 2025) - Hacker News",
+          "url": "https://news.ycombinator.com/item?id=45800464",
+          "snippet": "Mathematician, want to work on AI. You only need to double my salary as a Ph.D. student and I'm on board lol."
+        },
+        {
+          "title": "From Prompt Injections to Protocol Exploits: Threats in LLM-Powered AI Agents Workflows",
+          "url": "https://arxiv.org/html/2506.23260v2",
+          "snippet": "This section groups techniques that subvert LLM behavior by tampering with inputs — whether text, code, or multimodal data — before they reach the core model. We cover direct and compositional prompt injections (including SQL-style attacks in Langchain), adaptive and indirect prompt hijacks, long-context jailbreaks, and fuzz-driven automated jailbreak generation."
+        }
+      ]
+    }
+  },
+  "ec10b65c44c06aa0": {
+    "ts": "2026-07-31T06:26:58.038455+00:00",
+    "query": "Best practices for multi-tenancy in LangChain",
+    "result": {
+      "results": [
+        {
+          "title": "Best practice for mapping LangGraph threads to users (multi-tenant ...",
+          "url": "https://forum.langchain.com/t/best-practice-for-mapping-langgraph-threads-to-users-multi-tenant-production/2617",
+          "snippet": "I'm building a production chat app with multiple users, and I'm trying to understand the recommended way to associate LangGraph threads (or LangSmith Threads) with a user_id."
+        },
+        {
+          "title": "The Runtime Behind Production Deep Agents - LangChain",
+          "url": "https://www.langchain.com/blog/runtime-behind-production-deep-agents",
+          "snippet": "But deploying long-running agents in production requires durable execution, memory, multi-tenancy, human-in-the-loop, and observability. ... best practices, or a ..."
+        },
+        {
+          "title": "Choosing the Right Multi-Agent Architecture - langchain.com",
+          "url": "https://www.langchain.com/blog/choosing-the-right-multi-agent-architecture",
+          "snippet": "In this post, we'll explore when multi-agent architectures become necessary, the four main patterns we've observed, and how LangChain empowers you to effectively build multi-agent systems."
+        },
+        {
+          "title": "Creating Multi-Tenant Chatbots with Mistral 7b, Qdrant ... - Sidgraph",
+          "url": "https://sidgraph.medium.com/creating-multi-tenant-chatbots-with-mistral-7b-qdrant-and-langchain-a-comprehensive-guide-3e5308d4f060",
+          "snippet": "22 thg 2, 2024 ... ... best practices for Massive-Scale Deployments. I have summarised the key differences and features of single v/s multi-tenancy in the table below:."
+        },
+        {
+          "title": "Multi-tenant / per-user checkpoint querying with AsyncPostgresSaver",
+          "url": "https://forum.langchain.com/t/multi-tenant-per-user-checkpoint-querying-with-asyncpostgressaver/2604",
+          "snippet": "27 thg 12, 2025 ... Create an application‑level table that owns the tenant/user relationship and conversation metadata, and use its primary key as thread_id :"
+        },
+        {
+          "title": "Make Your LangSmith Deployment Multi-Tenant - YouTube",
+          "url": "https://www.youtube.com/watch?v=DkNqgCz8cjE",
+          "snippet": "14 thg 4, 2026 ... ... langchain-samples/lsd-custom-route-react-ui - LangSmith ... Claude Code best practices | Code w/ Claude. Anthropic•529K views · 8 ..."
+        },
+        {
+          "title": "From Prompt to Persistence (Part 1): Designing Multi-Tenant Agent ...",
+          "url": "https://blogs.oracle.com/developers/from-prompt-to-persistence-part-1-designing-multi-tenant-agent-memory-schemas-for-saas",
+          "snippet": "9 thg 7, 2026 ... Key Takeaways · Multi-tenant SaaS changes agent memory design. · Tenant isolation should be enforced by the database, not just application code."
+        },
+        {
+          "title": "FlyersSoft Builds Multi-Tenant Architectures for Agentic AI Growth",
+          "url": "https://www.flyerssoft.com/our-blogs/Building-Multi-Tenant-Architectures-for-Agentic-AI",
+          "snippet": "16 thg 9, 2025 ... Make use of an orchestration layer (LangChain, LlamaIndex, CrewAI, custom middleware, etc.), which stamps every request with tenant metadata to ..."
+        }
+      ]
+    }
+  },
+  "48ffe09db33e49e9": {
+    "ts": "2026-07-31T06:26:59.014192+00:00",
+    "query": "How to implement caching in LlamaIndex for enterprise applications",
+    "result": {
+      "results": [
+        {
+          "title": "LlamaIndex 0.9 Release: Ingestion Pipeline & Caching",
+          "url": "https://www.llamaindex.ai/blog/announcing-llamaindex-0-9-719f03282945",
+          "snippet": "15 thg 11, 2023 ... Each time you run the same IngestionPipeline object, it caches a hash of the input nodes + transformations and the output of that transformation ..."
+        },
+        {
+          "title": "LlamaIndex for Beginners (2025): A Complete Guide to Building ...",
+          "url": "https://medium.com/@gautsoni/llamaindex-for-beginners-2025-a-complete-guide-to-building-rag-apps-from-zero-to-production-cb15ad290fe0",
+          "snippet": "17 thg 8, 2025 ... 1) What is LlamaIndex and why use it. LlamaIndex is a data framework for LLM applications. It helps you ingest, transform, index, retrieve ..."
+        },
+        {
+          "title": "How to Use LlamaIndex for Data Indexing - OneUptime",
+          "url": "https://oneuptime.com/blog/post/2026-01-27-llamaindex-data-indexing/view",
+          "snippet": "27 thg 1, 2026 ... \"LlamaIndex is a data framework for LLM applications.\", metadata ... Implement caching, Cache embeddings and query results for repeated ..."
+        },
+        {
+          "title": "LlamaIndex: Build Context-Aware LLM Apps That Actually Work",
+          "url": "https://tezeract.ai/llamaindex-guide/",
+          "snippet": "11 thg 3, 2026 ... Get actionable insights you can apply with confidence. Partnership Models. Enterprise ... Implement caching aggressively. Cache embeddings so you ..."
+        },
+        {
+          "title": "[Bug]: Ingestion cache bigger than 16mb for mongo db #11958",
+          "url": "https://github.com/run-llama/llama_index/issues/11958",
+          "snippet": "14 thg 3, 2024 ... Custom Caching Strategy: Implement a custom caching strategy that ... LlamaIndex software. For more information, you can refer to the ..."
+        },
+        {
+          "title": "What is Semantic Caching? A Complete Guide - Redis",
+          "url": "https://redis.io/blog/how-to-cache-semantic-search/",
+          "snippet": "21 thg 1, 2026 ... Cache hit rates (carefully distinguish exact matches from semantic matches) · Similarity score distributions across queries · Embedding generation ..."
+        },
+        {
+          "title": "What is prompt caching? How can product managers leverage it to ...",
+          "url": "https://labs.adaline.ai/p/what-is-prompt-caching-how-can-product",
+          "snippet": "27 thg 3, 2025 ... Basically, the system needs to quickly retrieve cached prompts without adding significant overhead. Most prompt caching systems use these key ..."
+        },
+        {
+          "title": "Top Semantic Caching Solutions for AI Applications in 2026 - Maxim AI",
+          "url": "https://www.getmaxim.ai/articles/top-semantic-caching-solutions-for-ai-applications-in-2026/",
+          "snippet": "26 thg 3, 2026 ... Semantic caching solutions fix this by matching incoming requests against cached responses using vector similarity rather than exact string ..."
+        }
+      ]
+    }
+  },
+  "07f7b3a3791a5e90": {
+    "ts": "2026-07-31T06:26:59.871358+00:00",
+    "query": "Common security vulnerabilities in AI frameworks like LangChain and LlamaIndex",
+    "result": {
+      "results": [
+        {
+          "title": "LangChain Security: 3 New Vulnerabilities Leaking AI Data - Cyera",
+          "url": "https://www.cyera.com/research/langdrained-3-paths-to-your-data-through-the-worlds-most-popular-ai-framework",
+          "snippet": "26 thg 3, 2026 ... The vulnerability classes are CWE-22 (Path Traversal), CWE-502 (Deserialization of Untrusted Data), and CWE-89 (SQL Injection). Classic AppSec ..."
+        },
+        {
+          "title": "LangChain, LangGraph Flaws Expose Files, Secrets, Databases in Widely ...",
+          "url": "https://thehackernews.com/2026/03/langchain-langgraph-flaws-expose-files.html",
+          "snippet": "Cybersecurity researchers have disclosed three security vulnerabilities impacting LangChain and LangGraph that, if successfully exploited, could expose filesystem data, environment secrets, and conversation history."
+        },
+        {
+          "title": "LangChain and LangGraph Vulnerabilities Expose Files, Secrets, and ...",
+          "url": "https://vulert.com/blog/langchain-langgraph-vulnerabilities-expose-files/",
+          "snippet": "Security researchers have disclosed three serious vulnerabilities affecting LangChain and LangGraph, two widely used open-source frameworks for building LLM-powered and agentic AI applications."
+        },
+        {
+          "title": "LangChain and LangGraph: Critical Vulnerabilities in AI Orchestration",
+          "url": "https://labs.cloudsecurityalliance.org/research/csa-research-note-langchain-langgraph-vulnerabilities-202603/",
+          "snippet": "A coordinated disclosure by Cyera Research on March 27, 2026 (\"LangDrained\") [1] identified multiple high- and critical-severity vulnerabilities across LangChain and LangGraph, compounding a pattern of serious flaws documented throughout 2024 and 2025."
+        },
+        {
+          "title": "A security health check of 25 popular open source AI/LLM projects",
+          "url": "https://ostif.org/25ai-llm-projects/",
+          "snippet": "15 thg 12, 2025 ... The issue is that the application performs no checks on the files or prevents them from harming the user. As such, an attacker who controls any ..."
+        },
+        {
+          "title": "Case study: Securing AI application supply chains | Microsoft Security Blog",
+          "url": "https://www.microsoft.com/en-us/security/blog/2026/01/30/case-study-securing-ai-application-supply-chains/",
+          "snippet": "This case study examines how vulnerabilities in AI frameworks and orchestration layers can introduce supply chain risk. Using a real-world LangChain vulnerability as an example, it shows how security teams can identify and mitigate AI application risks across code, deployment, and runtime."
+        },
+        {
+          "title": "LangChain LangGraph Security Vulnerabilities Expose Enterprise AI ...",
+          "url": "https://www.techgines.com/post/langchain-langgraph-security-vulnerabilities-expose-enterprise-ai-secrets-three-cves-you-must-patc",
+          "snippet": "27 thg 3, 2026 ... Cybersecurity researchers disclosed three security vulnerabilities impacting LangChain and LangGraph on March 27, 2026 — flaws that, ..."
+        },
+        {
+          "title": "Langchain CVEs and Security Vulnerabilities - OpenCVE",
+          "url": "https://app.opencve.io/cve/?vendor=langchain",
+          "snippet": "Explore the latest vulnerabilities and security issues of Langchain in the CVE database"
+        }
+      ]
+    }
+  },
+  "1a91402d6ed5839a": {
+    "ts": "2026-07-31T06:27:31.176874+00:00",
+    "query": "Trends in AI frameworks for scalability in 2026",
+    "result": {
+      "results": [
+        {
+          "title": "Five Trends in AI and Data Science for 2026 - MIT Sloan Management Review",
+          "url": "https://sloanreview.mit.edu/article/five-trends-in-ai-and-data-science-for-2026/",
+          "snippet": "6 thg 1, 2026 ... 2. More all-in adopters will create 'AI factories' and infrastructure. ... Companies that are all in on AI as an ongoing competitive advantage are ..."
+        },
+        {
+          "title": "The trends that will shape AI and tech in 2026 - IBM",
+          "url": "https://www.ibm.com/think/news/ai-tech-trends-predictions-2026",
+          "snippet": "IBM has publicly stated that 2026 will mark the first time a quantum computer will be able to outperform a classical computer—the point at which a quantum computer can solve a problem better than all classical-only methods."
+        },
+        {
+          "title": "AI agent trends 2026 report | Google Cloud",
+          "url": "https://cloud.google.com/resources/content/ai-agent-trends-2026",
+          "snippet": "How are businesses putting AI agents to work? We interviewed Google experts and surveyed 3,466 global execs to find out. Uncover the 5 major trends you need to define your business strategy in 2026. Download the research and prepare your company today."
+        },
+        {
+          "title": "What will define IT in 2026? 8 trends reshaping technology, strategy ...",
+          "url": "https://frends.com/insights/what-will-define-it-in-2026-8-trends-reshaping-technology-strategy-and-the-enterprise",
+          "snippet": "30 thg 12, 2025 ... Discover the top IT trends shaping 2026 — from AI-native platforms and secure, scalable AI automation to predictive cybersecurity, ..."
+        },
+        {
+          "title": "AI in 2026: Enterprise Scale, Scaling Experiments, and Frontier Bets",
+          "url": "https://www.linkedin.com/pulse/ai-2026-enterprise-scale-scaling-experiments-frontier-dhaliwal-jd--pulbc",
+          "snippet": "2 thg 1, 2026 ... 1. Enterprise Scale (mainstreaming in 2026): These are no longer just “AI experiments”—they are becoming the default way large organizations run ..."
+        },
+        {
+          "title": "Why AI Data Governance Is the Key to Scaling AI in 2026 | Precisely",
+          "url": "https://www.precisely.com/blog/datagovernance/why-ai-data-governance-is-the-key-to-scaling-ai-in-2026/",
+          "snippet": "29 thg 1, 2026 ... As we look toward 2026, one trend stands out above the rest: the move toward autonomous and agentic AI systems. This was an area where Nicola ..."
+        },
+        {
+          "title": "Building Resilient and Scalable AI Value Chains: A Nexus Strategy",
+          "url": "https://reports.weforum.org/docs/WEF_Building_Resilient_and_Scalable_AI_Value_Chains_2026.pdf",
+          "snippet": "Capital spending by major technology firms on AI infrastructure is projected to reach $700 billion in 2026, compared to $410 billion in 2025,1 as companies race ..."
+        },
+        {
+          "title": "Artificial Intelligence Index Report | Stanford HAI",
+          "url": "https://hai.stanford.edu/assets/files/ai_index_report_2026.pdf",
+          "snippet": "This decline has been key to enabling the scaling trends described ... 2.1 OVERALL PERFORMANCE TRENDS | TECHNICAL PERFORMANCE | AI INDEX REPORT 2026."
+        }
+      ]
+    }
+  },
+  "4bf53bb6803b18d1": {
+    "ts": "2026-07-31T06:27:32.141379+00:00",
+    "query": "Best practices for data management in enterprise AI systems",
+    "result": {
+      "results": [
+        {
+          "title": "13 enterprise data management best practices for scalable AI and ...",
+          "url": "https://lumenalta.com/insights/13-data-management-best-practices",
+          "snippet": "3 thg 6, 2026 ... 1. Enterprise data management works best when ownership, definitions, and controls are set before AI usage spreads across teams. 2. The ..."
+        },
+        {
+          "title": "5 Best Practices to Move Enterprise AI from Aspiration to ROI",
+          "url": "https://www.moderndata101.com/blogs/ai-in-data-management-best-practices",
+          "snippet": "15 thg 7, 2026 ... 5. Implement AI-Augmented Data Governance · Automated lineage tracking: AI traces data from source to consumption across complex multi-system ..."
+        },
+        {
+          "title": "PDF Data Management Best Practices: Cloud Storage and AI for Smarter Insights",
+          "url": "https://www.ijlrp.com/papers/2025/1/1483.pdf",
+          "snippet": "This white paper presents a comprehensive guide to data management best practices, focusing on how cloud storage and AI technologies can be combined to create resilient, scalable, and intelligent data ecosystems."
+        },
+        {
+          "title": "Best Practices for Data Governance in the Age of AI | LTM",
+          "url": "https://www.ltm.com/content/dam/ltimcorporatewebsite/uploads/povs/2025/04/Best-Practices-for-Data-Governance-in-the-Age-of-AI.pdf",
+          "snippet": "AI-powered data access management: Automate data access controls by leveraging technical metadata, classifications, and business processes. This approach makes ..."
+        },
+        {
+          "title": "Top Data Management Practices Your Team Should Follow - Medium",
+          "url": "https://medium.com/@community_md101/top-data-management-practices-your-team-should-follow-b3bf0767c44f",
+          "snippet": "9 thg 4, 2026 ... As far as reporting, analytics, and AI adoption are concerned, poor data quality is one of the biggest blockers. Ensuring that the data is still ..."
+        },
+        {
+          "title": "10 modern data infrastructure best practices that power enterprise AI",
+          "url": "https://transcend.io/blog/modern-data-infrastructure-best-practices-that-power-enterprise-ai",
+          "snippet": "2. Establish unified data governance across systems · Centralized policy definition and enforcement · Consistent permissioning across systems · Real-time updates ..."
+        },
+        {
+          "title": "Best Practices for Data Management in AI Models - LinkedIn",
+          "url": "https://www.linkedin.com/top-content/artificial-intelligence/data-quality-for-ai/best-practices-for-data-management-in-ai-models/",
+          "snippet": "Define quality standards: Set business-driven rules for what \"good data\" means, and embed validation throughout workflows to catch issues early and prevent ..."
+        },
+        {
+          "title": "Enterprise Data Services: Definition, Importance, and Best Practices",
+          "url": "https://www.denodo.com/en/glossary/enterprise-data-services-definition-importance-best-practices",
+          "snippet": "Automate Data Management: Use AI and machine learning for efficient data handling. Enhance Data Security: Apply encryption, multi-factor authentication, and ..."
+        }
+      ]
+    }
+  },
+  "5ebfec6b7f66a1c2": {
+    "ts": "2026-07-31T06:27:33.002377+00:00",
+    "query": "Recent CVEs related to AI framework vulnerabilities",
+    "result": {
+      "results": [
+        {
+          "title": "Top AI Security Vulnerabilities to Watch out for in 2026 - Cycode",
+          "url": "https://cycode.com/blog/ai-security-vulnerabilities/",
+          "snippet": "31 thg 3, 2026 ... In 2026, vulnerability CVE-2025-53773 revealed that hidden prompt injection in pull request descriptions enabled remote code execution with ..."
+        },
+        {
+          "title": "5 Spring AI CVEs Disclosed April 27, 2026: Roundup and EOL Risk",
+          "url": "https://www.herodevs.com/blog-posts/5-spring-ai-cves-disclosed-april-27-2026-roundup-and-eol-risk",
+          "snippet": "28 thg 4, 2026 ... On April 27, 2026, the Spring security team disclosed five new vulnerabilities in Spring AI, including two High severity CVEs in vector ..."
+        },
+        {
+          "title": "NIST CVE Prioritization as AI Speeds Up Vulnerability Discovery",
+          "url": "https://www.penligent.ai/hackinglabs/nist-cve-prioritization-as-ai-speeds-up-vulnerability-discovery/",
+          "snippet": "20 thg 4, 2026 ... AI vulnerability discovery is creating a new asymmetry · NIST CVE prioritization is a symptom, not the root cause · CVE, NVD, CVSS, KEV, and EPSS ..."
+        },
+        {
+          "title": "The Collapsing Exploit Window: AI-Speed Vulnerability Weaponization",
+          "url": "https://labs.cloudsecurityalliance.org/research/csa-whitepaper-collapsing-exploit-window-ai-speed-vulnerabil/",
+          "snippet": "25 thg 4, 2026 ... The CVE-Genie multi-agent framework reproduced 51% of all CVEs published in 2024–2025—complete with verifiable exploits—at an average cost of ..."
+        },
+        {
+          "title": "The 2025 Wave: Recent CVEs in Agentic AI Security - Substack",
+          "url": "https://kenhuangus.substack.com/p/the-2025-wave-recent-cves-in-agentic",
+          "snippet": "19 thg 11, 2025 ... A CVE, or Common Vulnerabilities and Exposures, is a standardized identifier assigned to publicly documented cybersecurity vulnerabilities ..."
+        },
+        {
+          "title": "Remote Code Execution With Modern AI/ML Formats and Libraries",
+          "url": "https://unit42.paloaltonetworks.com/rce-vulnerabilities-in-ai-python-libraries/",
+          "snippet": "13 thg 1, 2026 ... We identified vulnerabilities in three open-source artificial intelligence/machine learning (AI/ML) Python libraries published by Apple, ..."
+        },
+        {
+          "title": "Introducing ÆSIR: Finding Zero-Day Vulnerabilities at the Speed of AI",
+          "url": "https://www.trendmicro.com/en_us/research/26/a/aesir.html",
+          "snippet": "15 thg 1, 2026 ... From 2018 to 2022, AI vulnerabilities grew at a steady but manageable pace, with roughly 50 CVEs in 2018 climbing to approximately 275 by 2022."
+        },
+        {
+          "title": "Are We Ready Yet? A Study of Vulnerability Disclosure in AI Products",
+          "url": "https://dl.acm.org/doi/10.1145/3733799.3762969",
+          "snippet": "30 thg 12, 2025 ... This paper analyses the trend of AI‐related vulnerabilities reported in the CVE framework. The vulnerabilities are associated with different AI ..."
+        }
+      ]
+    }
+  },
+  "21511b5be8b67c27": {
+    "ts": "2026-07-31T06:27:53.353400+00:00",
+    "query": "Integration of vector databases in LangChain for real-time RAG applications",
+    "result": {
+      "results": [
+        {
+          "title": "VectorizeRetriever integration - Docs by LangChain",
+          "url": "https://docs.langchain.com/oss/python/integrations/retrievers/vectorize",
+          "snippet": "It automates data extraction, finds the best vectorization strategy using RAG evaluation, and lets you quickly deploy real-time RAG pipelines for your ..."
+        },
+        {
+          "title": "How to Use Vector Databases for RAG - LangChain Tutorials",
+          "url": "https://langchain-tutorials.com/lessons/rag-applications/lesson-12",
+          "snippet": "Learn how to use vector databases with LangChain for retrieval augmented generation. This tutorial covers ChromaDB, Pinecone, Weaviate, Qdrant, and FAISS ..."
+        },
+        {
+          "title": "Vector Databases: Building a Local LangChain Store in Python",
+          "url": "https://www.pluralsight.com/resources/blog/ai-and-data/langchain-local-vector-database-tutorial",
+          "snippet": "21 thg 2, 2025 ... LangChain: Provides tools for building LLM-powered workflows, including vector database integration. FAISS (Facebook AI Similarity Search): A ..."
+        },
+        {
+          "title": "How to Use LangChain with Vector Databases - OneUptime",
+          "url": "https://oneuptime.com/blog/post/2026-01-27-langchain-vector-databases/view",
+          "snippet": "27 thg 1, 2026 ... ... (RAG) applications ... real-time service health.\", metadata={\"source\": \"docs\", \"topic\": \"status-pages\"} ), Document( page_content=\"Incident ..."
+        },
+        {
+          "title": "Vector Databases: Powering your RAG applications using OpenAI ...",
+          "url": "https://www.linkedin.com/pulse/vector-databases-powering-your-rag-applications-using-gamboa-uribe-9mxtf",
+          "snippet": "6 thg 11, 2024 ... In this article, we will review 6 main vector databases. We will develop the code necessary to implement a complete RAG process, using LangChain as a code ..."
+        },
+        {
+          "title": "Storing Intelligence: Understanding Vector Databases in RAG Systems",
+          "url": "https://medium.com/@akankshasinha247/rag-series-part-2-storing-intelligence-understanding-vector-databases-in-rag-systems-21729ca0ac02",
+          "snippet": "26 thg 5, 2025 ... Split documents into chunks · Convert each chunk into a vector using an embedding model · Store these vectors in a vector database · Convert the ..."
+        },
+        {
+          "title": "Vector Databases in Modern Applications: Real-Time Search ...",
+          "url": "https://ijaibdcms.org/index.php/ijaibdcms/article/download/257/260/518",
+          "snippet": "Keywords: Vector Database, Approximate Nearest Neighbor (ANN), Semantic Search, Recommendation Systems, Retrieval-. Augmented Generation (RAG), FAISS, Milvus, ..."
+        },
+        {
+          "title": "TeradataVectorStore integration - Docs by LangChain",
+          "url": "https://docs.langchain.com/oss/python/integrations/vectorstores/teradata",
+          "snippet": "... RAG applications. Whether you're new to Teradata or looking to add AI ... data warehouses, or real-time feeds without complex data movement. # Add ..."
+        }
+      ]
+    }
+  },
+  "e0a3914a4ddcbf07": {
+    "ts": "2026-07-31T06:27:54.327066+00:00",
+    "query": "Best practices for data governance in multi-tenant AI systems using LlamaIndex",
+    "result": {
+      "results": [
+        {
+          "title": "Building Multi-Tenancy RAG System with LlamaIndex",
+          "url": "https://www.llamaindex.ai/blog/building-multi-tenancy-rag-system-with-llamaindex-0d6ab4e0c44b",
+          "snippet": "15 thg 1, 2024 ... The key to managing Multi-Tenancy lies within the metadata. When indexing documents, we incorporate user-specific information into the metadata ..."
+        },
+        {
+          "title": "Multi-tenant GraphRAG: Safe Multi-Graph Isolation for Secure AI ...",
+          "url": "https://medium.com/@QuarkAndCode/multi-tenant-graphrag-safe-multi-graph-isolation-for-secure-ai-retrieval-a52a6f4e9b1c",
+          "snippet": "1 thg 3, 2026 ... A user from Company A must never see Company B's data — by accident, by bug, or by clever prompt. That's the heart of multi-tenancy: one system ..."
+        },
+        {
+          "title": "Can We Govern the AI System While It Is Actually Making Decisions?",
+          "url": "https://www.linkedin.com/pulse/runtime-ai-governance-can-we-govern-system-while-actually-bommena-8knfe",
+          "snippet": "10 thg 6, 2026 ... The model is reviewed. The risk assessment is completed. The architecture is approved. Security checks the data flow. Legal reviews the use ..."
+        },
+        {
+          "title": "Build a multi-tenant generative AI environment for your enterprise on ...",
+          "url": "https://aws.amazon.com/blogs/machine-learning/build-a-multi-tenant-generative-ai-environment-for-your-enterprise-on-aws/",
+          "snippet": "7 thg 11, 2024 ... A multi-tenant, generative AI solution for your enterprise needs to address the unique requirements of generative AI workloads and responsible AI governance."
+        },
+        {
+          "title": "Best practices for securing agent interactions with Model Context ...",
+          "url": "https://docs.cloud.google.com/alloydb/docs/ai/secure-agent-interactions-mcp",
+          "snippet": "29 thg 6, 2026 ... Model Context Protocol (MCP) standardizes how generative AI agents connect to AlloyDB for PostgreSQL. Due to the inherent risks of ..."
+        },
+        {
+          "title": "Best Database for AI Agents (2026): Memory, State & RAG Guide",
+          "url": "https://www.pingcap.com/compare/best-database-for-ai-agents/",
+          "snippet": "Distributed SQL databases provide horizontal scalability, strong ACID guarantees, and tenant isolation — all critical for multi-agent systems. They handle ..."
+        },
+        {
+          "title": "FlyersSoft Builds Multi-Tenant Architectures for Agentic AI Growth",
+          "url": "https://www.flyerssoft.com/our-blogs/Building-Multi-Tenant-Architectures-for-Agentic-AI",
+          "snippet": "16 thg 9, 2025 ... Tenants must never see or effect each other's data. This goes for stored documents and APIs, but also includes agent memory and contextual ..."
+        },
+        {
+          "title": "Best AI for Lease Documents - LlamaIndex",
+          "url": "https://www.llamaindex.ai/insights/best-ai-for-lease-documents",
+          "snippet": "28 thg 5, 2026 ... Legal obligation review: Extracts key dates, rent terms, and contractual entities. Tenant onboarding automation: Processes IDs, applications, ..."
+        }
+      ]
+    }
+  },
+  "c56b131612168010": {
+    "ts": "2026-07-31T06:27:54.955129+00:00",
+    "query": "Emerging security threats in enterprise AI architectures: Case studies from 2024",
+    "result": {
+      "results": [
+        {
+          "title": "Emerging AI threats in cybercrime: a review of zero-day attacks via ...",
+          "url": "https://link.springer.com/article/10.1007/s10115-025-02556-6",
+          "snippet": "18 thg 8, 2025 ... The rise of artificial intelligence (AI) revolutionized both cybersecurity defenses and cybercriminals' methods to exploit vulnerabilities."
+        },
+        {
+          "title": "Gartner Survey Shows AI-Enhanced Malicious Attacks as Top ...",
+          "url": "https://www.gartner.com/en/newsroom/press-releases/2024-05-22-gartner-survey-shows-ai-enhanced-malicious-attacks-as-top-er-for-enterprises-for-third-consec-quarter",
+          "snippet": "1 thg 11, 2024 ... Survey of 286 Senior Enterprise Risk Executives Reveals Top Five Emerging Risks in the Third Quarter of 2024 ... Artificial intelligence (AI)- ..."
+        },
+        {
+          "title": "A Comprehensive Review of AI Security: Threats, Challenges, and ...",
+          "url": "https://www.researchgate.net/publication/386347307_A_Comprehensive_Review_of_AI_Security_Threats_Challenges_and_Mitigation_Strategies",
+          "snippet": "3 thg 12, 2024 ... By synthesizing recent advancements and identifying gaps in existing research, this paper aims to guide future efforts in enhancing the security ..."
+        },
+        {
+          "title": "Tackling AI Threats and Trade Pressures in Asia/Pacific - IDC",
+          "url": "https://www.idc.com/resource-center/blog/security-in-an-uncertain-world-tackling-ai-threats-and-trade-pressures-in-asia-pacific/",
+          "snippet": "9 thg 7, 2025 ... AI holds immense promise for security automation, but its adoption is hindered by poor integration with legacy environments and high costs. IDC ..."
+        },
+        {
+          "title": "Emerging technologies and their effect on cyber security - GOV.UK",
+          "url": "https://www.gov.uk/government/publications/emerging-technology-pairings-and-their-effects-on-cyber-security/emerging-technologies-and-their-effect-on-cyber-security",
+          "snippet": "8 thg 8, 2025 ... For example, although AI's integration with IoT and Blockchain enhances threat detection and automation, it also amplifies risks such as ..."
+        },
+        {
+          "title": "Securing the AI Frontier: A Comprehensive Analysis of ... - Medium",
+          "url": "https://medium.com/@gwrx2005/securing-the-ai-frontier-a-comprehensive-analysis-of-security-threats-vulnerabilities-and-51fc9405e7ce",
+          "snippet": "2 thg 4, 2026 ... This paper provides a comprehensive analysis of the evolving threat landscape surrounding AI systems, with particular emphasis on LLM-specific ..."
+        },
+        {
+          "title": "Transforming cybersecurity with agentic AI to combat emerging ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S0308596125000734",
+          "snippet": "It also emphasizes the risks associated with AI integration, including the introduction of new vulnerabilities and challenges in managing automated systems, ..."
+        },
+        {
+          "title": "7 Examples Of How AI In Data Security Is Transforming Cybersecurity",
+          "url": "https://www.protecto.ai/blog/7-examples-ai-in-data-security-transforming-cybersecurity/",
+          "snippet": "11 thg 9, 2024 ... These intelligent systems adapt​ to new threats, providing​ a dynamic shield for valuable data assets. The impact of AI and data security ..."
+        }
+      ]
+    }
+  },
+  "c02f7ab44939e3b1": {
+    "ts": "2026-07-31T07:03:02.171458+00:00",
+    "query": "2024 enterprise AI agent framework trends multi-tenancy security",
+    "result": {
+      "results": [
+        {
+          "title": "A Secure Multi-Tenant AI Framework for Enterprise CRM Automation ...",
+          "url": "https://ijetcsit.org/index.php/ijetcsit/article/download/582/524",
+          "snippet": "This Project Suggests An. Enterprise CRM Automation through this paper, which is a. Secure Multi-Tenant AI Framework on the Salesforce Cloud. Platform. The ..."
+        },
+        {
+          "title": "Design of a Secure Multi-Tenant Artificial Intelligence Framework for ...",
+          "url": "https://ijhit.info/index.php/ijhit/article/download/181/172",
+          "snippet": "8 thg 4, 2026 ... In conclusion, the results indicate that a secure multi- tenant AI framework for enterprise CRM, ERP, and cloud application integration ..."
+        },
+        {
+          "title": "Cognitive Agentic AI Framework for Autonomous Enterprise ...",
+          "url": "https://ijaibdcms.org/index.php/ijaibdcms/article/view/594",
+          "snippet": "9 thg 5, 2026 ... The proposed framework addresses these research gaps by combining multi-agent cognition, adaptive cloud intelligence, secure orchestration ..."
+        },
+        {
+          "title": "Security Challenges of LLM Integration in Multi-Tenant SaaS",
+          "url": "https://cybersecurityjournal.info/uploads/archivepdf/45572026.3121.pdf",
+          "snippet": "27 thg 4, 2026 ... Retrieval-Augmented Generation (RAG), AI agents with tool access, and newly articulated patterns for context orchestration all provide attack ..."
+        },
+        {
+          "title": "Autonomous AI Agents for Enterprise Workflow Orchestration in HR ...",
+          "url": "https://www.ijrai.org/index.php/ijrai/article/download/443/412",
+          "snippet": "Fig 3: Architectural Frameworks for Autonomous Agent Integration in Enterprise HR Systems: A Multi- ... Adaptive and Autonomous Security Frameworks Using ..."
+        },
+        {
+          "title": "Performance Trade-Offs in Multi-Tenant IoT–Cloud Security - MDPI",
+          "url": "https://www.mdpi.com/2624-831X/7/1/21",
+          "snippet": "Multi-tenancy is essential for scalable IoT–Cloud systems; however, it introduces complex security vulnerabilities at the intersection of shared cloud ..."
+        },
+        {
+          "title": "A Multi-Tenant Cloud Security Framework Using Zero-Trust ...",
+          "url": "https://aijcst.org/index.php/aijcst/article/view/66",
+          "snippet": "3 thg 7, 2024 ... A Multi-Tenant Cloud Security Framework Using Zero-Trust Architecture and AI-Based Anomaly Detection. Authors. Dr. Maria Gabriela Camila ..."
+        },
+        {
+          "title": "Enterprise Usage of AI Agents: A Comprehensive Survey",
+          "url": "https://papers.ssrn.com/sol3/Delivery.cfm/6405998.pdf?abstractid=6405998&mirid=1",
+          "snippet": "Our findings indicate that enterprises deploying AI agents report 35–55% improvements in operational efficiency, with multi-agent architectures enabling ..."
+        }
+      ]
+    }
+  },
+  "edead28eca1d1167": {
+    "ts": "2026-07-31T07:03:03.364984+00:00",
+    "query": "Enterprise RAG architecture best practices caching streaming evaluation",
+    "result": {
+      "results": [
+        {
+          "title": "Understanding Caching in Retrieval-Augmented Generation (RAG ...",
+          "url": "https://medium.com/@shekhar.manna83/understanding-caching-in-retrieval-augmented-generation-rag-systems-implementation-d5d1918cc4bd",
+          "snippet": "23 thg 6, 2025 ... Design Principles · Layer Appropriately: Implement caching at each processing stage · Size Strategically: Balance memory usage with performance ..."
+        },
+        {
+          "title": "RAG for Enterprise Response: Architecture Guide - Redis",
+          "url": "https://redis.io/blog/rag-for-enterprise-response/",
+          "snippet": "1 thg 3, 2026 ... How to design your enterprise RAG retrieval architecture · Chunking strategy · Hybrid search with re-ranking · Metadata filtering · Vector indexing."
+        },
+        {
+          "title": "Mastering RAG: How To Architect An Enterprise RAG System",
+          "url": "https://galileo.ai/blog/mastering-rag-how-to-architect-an-enterprise-rag-system",
+          "snippet": "23 thg 1, 2024 ... Caching is a great way to save money in such cases. Caching involves the storage of prompts and their corresponding responses in a database, ..."
+        },
+        {
+          "title": "RAG Best Practices for Enterprise AI Systems | VDF AI",
+          "url": "https://vdf.ai/blog/rag-technology-best-practices/",
+          "snippet": "10 thg 12, 2024 ... Enterprise RAG best practices come down to four things: preserve context when you chunk, treat retrieval quality as a first-class metric, govern ..."
+        },
+        {
+          "title": "Enterprise RAG Guide: Retrieval to Production | Tencent Cloud ADP",
+          "url": "https://adp.tencentcloud.com/blog/enterprise-rag-guide",
+          "snippet": "30 thg 3, 2026 ... Enterprise RAG is as much a knowledge governance practice as it is a technical architecture ... best on your evaluation set. Vector ..."
+        },
+        {
+          "title": "Demystifying RAG Architecture for Enterprise Data - Ozigi Blog",
+          "url": "https://blog.ozigi.app/blog/rag-architecture-for-enterprise-data",
+          "snippet": "9 thg 4, 2026 ... Best Practice: Experiment with different chunk sizes and overlap values. ... Continuous monitoring and evaluation are essential to ensure your RAG ..."
+        },
+        {
+          "title": "Retrieval Augmented Generation for Enterprise AI Systems | Aerospike",
+          "url": "https://aerospike.com/blog/retrieval-augmented-generation-enterprise-ai/",
+          "snippet": "For snappy end-to-end response times, every step of the RAG pipeline must be optimized for low latency. One aspect is the infrastructure setup for the vector ..."
+        },
+        {
+          "title": "What are the key components of a scalable RAG architecture for ...",
+          "url": "https://www.linkedin.com/pulse/what-key-components-scalable-rag-architecture-enterprises-n8n-fzpnf",
+          "snippet": "10 thg 6, 2026 ... Flexible AI workflow automation for technical… ... Enterprise retrieval-augmented generation (RAG) is the architectural pattern that connects ..."
+        }
+      ]
+    }
+  },
+  "44514794e1c554ab": {
+    "ts": "2026-07-31T07:03:05.097940+00:00",
+    "query": "Common CVEs and design flaws in LangChain LlamaIndex 2024",
+    "result": {
+      "results": [
+        {
+          "title": "Security Risks of LLM Frameworks with Case Studies",
+          "url": "https://flatt.tech/research/posts/llm-framework-vulns-exposed/",
+          "snippet": "29 thg 10, 2025 ... SSRF in LangChain (CVE-2023-46229) ... SSRF (Server Side Request Forgery) is a vulnerability that allows an attacker to cause the server to send ..."
+        },
+        {
+          "title": "Demystifying RCE Vulnerabilities in LLM-Integrated Apps - arXiv",
+          "url": "https://arxiv.org/html/2309.02926v4",
+          "snippet": "Frameworks like LangChain aid LLM-integrated app development, offering code execution utility/APIs for custom actions. However, these capabilities theoretically ..."
+        },
+        {
+          "title": "Cache Related Security Threats in LLM Serving Frameworks",
+          "url": "https://www.ndss-symposium.org/wp-content/uploads/2026-f2812-paper.pdf",
+          "snippet": "We have received 3. Common Vulnerabilities and Exposure (CVE) IDs, which will ... USENIX Symposium on Operating Systems Design and Implementation. (OSDI), 2024."
+        },
+        {
+          "title": "The Hidden Threat in Plain Text: Attacking RAG Data Loaders",
+          "url": "https://dl.acm.org/doi/full/10.1145/3733799.3762976",
+          "snippet": "... (CVE-2024-50050). Contributions. Since RAG systems ... We tested the following frameworks: Docling [1, 15], Haystack, LangChain, LlamaIndex, and LLMSherpa."
+        },
+        {
+          "title": "Exploring OWASP Top 10 Security Risks in LLMs - ResearchGate",
+          "url": "https://www.researchgate.net/publication/387271453_Exploring_OWASP_Top_10_Security_Risks_in_LLMs",
+          "snippet": "20 thg 12, 2024 ... Key case studies, including the Meta LLaMA data leak, ChatGPT server outages, and the LangChain code execution vulnerability (CVE-2023-29374), ..."
+        },
+        {
+          "title": "From prompt injections to protocol exploits: Threats in LLM-powered ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2405959525001997",
+          "snippet": "The framework was validated through expert review and cross-mapping with real-world incidents and public vulnerability repositories (e.g., CVE, NIST NVD) to ..."
+        },
+        {
+          "title": "Context Injection Vulnerabilities and Resource Exploitation Attacks ...",
+          "url": "https://www.techrxiv.org/doi/pdf/10.36227/techrxiv.175321790.02502754",
+          "snippet": "MCP introduces a fundamentally different attack surface compared to traditional API services or standalone LLM de- ployments. By design, MCP servers grant LLMs ..."
+        },
+        {
+          "title": "COMMON VULNERABILITIES IN AI AGENT ARCHITECTURE YOU ...",
+          "url": "https://www.facebook.com/groups/1123388939179429/posts/1311401983711456/",
+          "snippet": "30 thg 8, 2025 ... 7️⃣ Blind Trust in the Model – accepting incorrect outputs without validation. 8️⃣ Going Rogue – getting stuck in loops or behaving ..."
+        }
+      ]
+    }
+  },
+  "c60308eae5b4ebe1": {
+    "ts": "2026-07-31T07:03:46.932682+00:00",
+    "query": "Common security design flaws in enterprise RAG systems",
+    "result": {
+      "results": [
+        {
+          "title": "RAG Gone Wrong: The 7 Most Common Mistakes (and How to Avoid ...",
+          "url": "https://www.kapa.ai/blog/rag-gone-wrong-the-7-most-common-mistakes-and-how-to-avoid-them",
+          "snippet": "6 thg 1, 2026 ... The “garbage in -> garbage out” saying doesn't refer to ML models only; it also applies to RAG. Most RAG systems are built on top of the data ..."
+        },
+        {
+          "title": "RAG Problems Persist. Here Are Five Ways to Fix Them | IBM",
+          "url": "https://www.ibm.com/think/insights/rag-problems-five-ways-to-fix",
+          "snippet": "Namely, implementing RAG can also present security concerns, such as data leakage. The good news is that advancements in artificial intelligence tools and ..."
+        },
+        {
+          "title": "Security Risks with RAG Architectures - IronCore Labs",
+          "url": "https://ironcorelabs.com/security-risks-rag/",
+          "snippet": "There are huge risks with the RAG architectures used to power today's AI chat bots so they can safely work over private and up-to-date data."
+        },
+        {
+          "title": "Prompt injection is exploiting enterprise AI's biggest design flaws by ...",
+          "url": "https://venturebeat.com/security/prompt-injection-is-exploiting-enterprise-ais-biggest-design-flaws-by-targeting-agents-rag-pipelines-and-model-routers",
+          "snippet": "28 thg 6, 2026 ... What enterprises should do now ... Limit what the model can do, not just what it should do. ... Treat all external data — including RAG sources — as ..."
+        },
+        {
+          "title": "Why RAG Systems Fail in Enterprise AI (Root Causes + Fixes)",
+          "url": "https://appinventiv.com/blog/why-rag-systems-fail/",
+          "snippet": "26 thg 6, 2026 ... Most enterprise RAG failures originate in retrieval pipelines rather than in the large language model itself."
+        },
+        {
+          "title": "The Common Failure Points of LLM RAG Systems and How to ...",
+          "url": "https://medium.com/@sahin.samia/the-common-failure-points-of-llm-rag-systems-and-how-to-overcome-them-926d9090a88f",
+          "snippet": "29 thg 10, 2024 ... Sometimes, RAG systems struggle with the specificity needed to match a query. The system might return an answer that is either too general or ..."
+        },
+        {
+          "title": "Secure Retrieval-Augmented Generation (RAG) in Enterprise ...",
+          "url": "https://www.daxa.ai/blogs/secure-retrieval-augmented-generation-rag-in-enterprise-environments",
+          "snippet": "8 thg 8, 2025 ... Security Challenges in Enterprise RAG ... Adversarial content embedded in user input or retrievable documents can hijack model responses, ..."
+        },
+        {
+          "title": "Data Governance in RAG Systems: Security, Privacy, and ...",
+          "url": "https://dev.to/artyom_mukhopad_a9444ed6d/data-governance-in-rag-systems-security-privacy-and-compliance-by-design-2dj9",
+          "snippet": "23 thg 12, 2025 ... It retrieves, transforms, reasons, and generates — often across multiple systems, users, and access levels. Without governance designed in from ..."
+        }
+      ]
+    }
+  },
+  "23bbb69cc80e3fd9": {
+    "ts": "2026-07-31T07:03:47.855422+00:00",
+    "query": "Recent security vulnerabilities in AutoGen CrewAI multi-tenant architectures",
+    "result": {
+      "results": [
+        {
+          "title": "AI Security Architecture for Multi-LLM Environments - LangProtect",
+          "url": "https://www.langprotect.com/blog/multi-llm-ai-security-architecture",
+          "snippet": "16 thg 4, 2026 ... This is the architecture problem most security teams haven't solved yet. Not because they aren't capable, but because the threat didn't exist at ..."
+        },
+        {
+          "title": "AI Agent Vulnerabilities: Understanding Security Risks - WitnessAI",
+          "url": "https://witness.ai/blog/ai-agent-vulnerabilities/",
+          "snippet": "8 thg 1, 2026 ... AI agents rely on open-source frameworks (e.g., LangChain, CrewAI, AutoGen) ... Our single-tenant architecture ensures data sovereignty and ..."
+        },
+        {
+          "title": "AI Agents for Data Analysis: Examples and Security Risks | Blaxel Blog",
+          "url": "https://blaxel.ai/blog/ai-agents-for-data-analysis",
+          "snippet": "25 thg 3, 2026 ... For agents handling sensitive data, use microVM-based isolation rather than standard containers. Recent container escape vulnerabilities (like ..."
+        },
+        {
+          "title": "Vendor-Neutral, Multitenant Enterprise Retrieval and Tool Use",
+          "url": "https://dl.acm.org/doi/full/10.1145/3786335.3813145",
+          "snippet": "26 thg 5, 2026 ... In multitenant settings, these assumptions create serious vulnerabilities. A document highly similar to a query may belong to a different tenant ..."
+        },
+        {
+          "title": "AI Agent Memory Architectures for Multi-Agent Systems | Zylos ...",
+          "url": "https://zylos.ai/research/2026-03-09-multi-agent-memory-architectures-shared-isolated-hierarchical/",
+          "snippet": "9 thg 3, 2026 ... Security is the biggest gap. Most frameworks have no built-in access control on memory. Enterprise deployments require tenant isolation, ..."
+        },
+        {
+          "title": "Solving the Multi-Tenant Hermes Problem · Issue #34352 - GitHub",
+          "url": "https://github.com/NousResearch/hermes-agent/issues/34352",
+          "snippet": "28 thg 5, 2026 ... It's the next architectural frontier for agentic AI. Every major framework and platform in the space is actively solving this problem ( ..."
+        },
+        {
+          "title": "TRiSM for Agentic AI: A review of Trust, Risk, and Security ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2666651026000069",
+          "snippet": "For instance, in systems like AutoGen and CrewAI where agents take on ... Recent datasets also evaluate vulnerabilities specific to agentic architectures ..."
+        },
+        {
+          "title": "How to Architect a Multi-Tenant MCP Server for Enterprise B2B SaaS",
+          "url": "https://truto.one/blog/how-to-architect-a-multi-tenant-mcp-server-for-enterprise-b2b-saas/",
+          "snippet": "6 thg 5, 2026 ... An MCP server is a standardized bridge between AI models and your SaaS APIs. Learn how the architecture works, why remote deployment wins, and ..."
+        }
+      ]
+    }
+  },
+  "c54f5a6518873dab": {
+    "ts": "2026-07-31T09:55:32.094055+00:00",
+    "query": "Latest enterprise features in LangChain 0.2.0 and LlamaIndex 0.1.0 for multi-tenant RAG systems",
+    "result": {
+      "results": [
+        {
+          "title": "AI | Freedom.Tech",
+          "url": "https://freedom.tech/ai/",
+          "snippet": "Local LLM runners, open-weight models, agent frameworks, and frontier-lab releases. 449 releases · 65 sources tracked · latest Jul 30, 2026. AI release Jul ..."
+        },
+        {
+          "title": "docs-merge-14 - 绝不原创的飞龙 - 博客园",
+          "url": "https://www.cnblogs.com/apachecn/p/18662745",
+          "snippet": "9 thg 1, 2025 ... cargo check --no-default-features --features html_reports. 这个命令告诉 ... means that the system can cope with any business logic and ..."
+        },
+        {
+          "title": "LangChain vs LlamaIndex — RAG Framework Decision Guide (2026)",
+          "url": "https://myengineeringpath.dev/tools/langchain-vs-llamaindex/",
+          "snippet": "Updated March 2026 — Covers LlamaIndex 0.10+ with improved async pipeline support and LangChain 0.3 LCEL stabilization. LangChain for general-purpose agent orchestration, LlamaIndex for data-intensive RAG pipelines."
+        },
+        {
+          "title": "LangChain vs LlamaIndex 2026: Which RAG Framework Should You Choose?",
+          "url": "https://baeseokjae.github.io/posts/langchain-vs-llamaindex-2026/",
+          "snippet": "LangChain vs LlamaIndex 2026 compared across RAG quality, agent workflows, performance, and enterprise readiness — with a clear decision guide."
+        },
+        {
+          "title": "LangChain vs LlamaIndex: A Production Engineering Co... | Inductivee",
+          "url": "https://inductivee.com/blog/langchain-vs-llamaindex-rag-comparison",
+          "snippet": "Both frameworks can build a RAG pipeline in 20 lines of code. At production scale, the differences in indexing strategy, retrieval abstractions, and community support are what actually determine the right choice."
+        },
+        {
+          "title": "LlamaIndex vs LangChain vs Haystack — RAG Framework Comparison 2026",
+          "url": "https://jangwook.net/en/blog/en/llamaindex-vs-langchain-vs-haystack-rag-2026/",
+          "snippet": "LlamaIndex 0.14, LangChain 1.3, and Haystack 2.30 tested side by side: code complexity, the langchain-community sunset warning, and a clear decision guide."
+        },
+        {
+          "title": "LangChain vs LlamaIndex (2026): Complete Production RAG Comparison",
+          "url": "https://www.premai.io/blog/langchain-vs-llamaindex-2026-complete-production-rag-comparison/",
+          "snippet": "LangChain for complex workflows, LlamaIndex for retrieval. In 2026, that framing is outdated. LangChain has effectively become LangGraph for anything production-facing. LlamaIndex added Workflows and now handles complex multi-step agents."
+        },
+        {
+          "title": "LangChain vs LlamaIndex: Complete Comparison 2026 | is4.ai",
+          "url": "https://is4.ai/blog/our-blog-1/langchain-vs-llamaindex-comparison-2026-293",
+          "snippet": "This comprehensive comparison examines LangChain and LlamaIndex across architecture, features, performance, and use cases to help you choose the right framework for your 2026 AI projects."
+        }
+      ]
+    }
+  },
+  "7e93326919a91df0": {
+    "ts": "2026-07-31T09:55:33.088351+00:00",
+    "query": "Enterprise AI architecture best practices 2024: multi-tenancy, security, and caching strategies for RAG systems",
+    "result": {
+      "results": [
+        {
+          "title": "The Production RAG Architecture: A Complete Guide to Building ...",
+          "url": "https://medium.com/@spjosyula2005/the-production-rag-architecture-a-complete-guide-to-building-enterprise-grade-65d24292fcea",
+          "snippet": "1 thg 12, 2025 ... The robust solutions involve defense in depth. First, apply tenant filtering at every stage of retrieval, including vector search, keyword ..."
+        },
+        {
+          "title": "Mastering RAG: How To Architect An Enterprise RAG System - Galileo",
+          "url": "https://galileo.ai/blog/mastering-rag-how-to-architect-an-enterprise-rag-system",
+          "snippet": "Now that we've established common problems faced when designing a RAG system, let's go through the design needs and roles of each component, along with best practices for building them."
+        },
+        {
+          "title": "Can prompt caching tame RAG costs without sacrificing accuracy?",
+          "url": "https://thenewstack.io/production-rag-architecture-fixes/",
+          "snippet": "23 thg 7, 2026 ... High compliance risk; prone to noisy neighbor performance degradation. ... Client provisions a dedicated database cluster. Maximum security, but ..."
+        },
+        {
+          "title": "Higress-RAG: A Holistic Optimization Framework for Enterprise ...",
+          "url": "https://arxiv.org/html/2602.23374v1",
+          "snippet": "Built upon the Model Context Protocol (MCP), the system introduces a layered architecture that orchestrates a sophisticated pipeline of Adaptive Routing, ..."
+        },
+        {
+          "title": "RAG Infrastructure | Introl Blog",
+          "url": "https://introl.com/blog/rag-infrastructure-production-retrieval-augmented-generation-guide",
+          "snippet": "25 thg 3, 2026 ... Orchestration handles query processing, retrieval, reranking, prompt construction, and response generation. Production systems implement caching ..."
+        },
+        {
+          "title": "RAG API Integration Patterns & Best Practices - CustomGPT.ai",
+          "url": "https://customgpt.ai/rag-api-integration-patterns/",
+          "snippet": "23 thg 9, 2025 ... We'll examine multi-tenant architectures, API proxy patterns, chunking strategies that work at scale, and the RAG API integration patterns that ..."
+        },
+        {
+          "title": "Building Hierarchical Agentic RAG Systems: Multi-Modal Reasoning ...",
+          "url": "https://www.infoq.com/articles/building-hierarchical-agentic-rag-systems/",
+          "snippet": "9 thg 4, 2026 ... This design allows teams to swap database backends without modifying orchestration logic, which is critical for enterprises with heterogeneous ..."
+        },
+        {
+          "title": "Why Production RAG Pipelines Fail Under Enterprise Load - Opcito",
+          "url": "https://www.opcito.com/blogs/production-rag-pipeline-fails-under-load",
+          "snippet": "11 thg 6, 2026 ... Introduce Query Caching and Semantic Caching: Many enterprise prompts are repetitive. Caching retrieval outputs, embeddings, and final responses ..."
+        }
+      ]
+    }
+  },
+  "421192bc6da4a9ec": {
+    "ts": "2026-07-31T09:55:33.965574+00:00",
+    "query": "Common CVEs in LangChain and LlamaIndex 2023-2024 and design flaws in enterprise RAG deployments",
+    "result": {
+      "results": [
+        {
+          "title": "A Systematic Survey of Security Threats and Defenses in LLM ...",
+          "url": "https://arxiv.org/html/2604.23338v2",
+          "snippet": "6 thg 5, 2026 ... ... LangChain/LlamaIndex toolchains. Together with the computer-use ... enterprise deployments implement any form of cross-session behavioral ..."
+        },
+        {
+          "title": "A Systematic Survey of Security Threats and Defenses in LLM ...",
+          "url": "https://arxiv.org/pdf/2604.23338",
+          "snippet": "... LangChain/LlamaIndex toolchains. Together with ... than 20% of surveyed enterprise deployments implement any form of cross-session behavioral monitoring."
+        },
+        {
+          "title": "SitecoreAI Review & Scorecard",
+          "url": "https://www.dxpscorecard.com/platform/sitecore-ai",
+          "snippet": "15 thg 7, 2026 ... 0 and Content SDK agent skills (85) give developers a comprehensive programmable AI surface with governed audit trails (78). 84.8; +. Enterprise ..."
+        },
+        {
+          "title": "Ask HN: Who wants to be hired? (November 2025) - Hacker News",
+          "url": "https://news.ycombinator.com/item?id=45800464",
+          "snippet": "AI/Innovation: OpenAI, RAG, LangChain, NLP/LLM pipelines, distributed systems ... design to ensure that solutions are laser-focused on solving real business ..."
+        },
+        {
+          "title": "Generative AI and Its Transformative Potential - MDPI",
+          "url": "https://mdpi-res.com/bookfiles/book/10996/Generative_AI_and_Its_Transformative_Potential.pdf?v=1749036637",
+          "snippet": "Generative AI offers a wide range of opportunities for innovation and problem-solving— from simplifying product design processes in manufacturing to ..."
+        },
+        {
+          "title": "Archives - DefCamp 2026",
+          "url": "https://def.camp/archives/",
+          "snippet": "He has experience reporting many vulnerabilities to organizations including LangChain, Llama Index, and Microsoft. ... business's efforts to sell and deploy its ..."
+        },
+        {
+          "title": "Daily Dose of Data Science (@dailydoseofds_) - Instagram",
+          "url": "https://www.instagram.com/dailydoseofds_/",
+          "snippet": "LangChain, CrewAI, LlamaIndex, Haystack, and Semantic Kernel manage orchestration. ... Common in RAG retrieval fusion and voting systems. 6️⃣ Network - No clear ..."
+        },
+        {
+          "title": "RadioCSIRT - Podcast Hosting",
+          "url": "https://feeds.podcastics.com/podcastics/podcasts/rss/7830_715fc0df79e689d2aaf12925f9e0b427.rss",
+          "snippet": "Point SmartConsole, authentification incorrecte) et CVE-2026-50522 (Microsoft SharePoint, désérialisation de données non fiables). 🛡️ CISA, NSA et ..."
+        }
+      ]
+    }
+  },
+  "b18287a0ceee493e": {
+    "ts": "2026-07-31T10:03:43.354608+00:00",
+    "query": "Enterprise AI agent framework trends 2024 LangChain LlamaIndex",
+    "result": {
+      "results": [
+        {
+          "title": "What is the difference between LlamaIndex and LangChain for agent development?",
+          "url": "https://atlan.com/know/ai-agents-frameworks-compared/",
+          "snippet": "LlamaIndex is a retrieval and indexing framework optimized for making large data corpora queryable. LangChain is an orchestration framework for agents that take multi-step actions using tools. LlamaIndex handles finding the right information; LangChain handles deciding what to do with it. Many production architectures use both, with LlamaIndex as the retrieval layer inside a LangChain-orchestrated agent."
+        },
+        {
+          "title": "LangChain vs LangGraph vs LlamaIndex: Agent Framework Guide - Tech Jacks Solutions",
+          "url": "https://techjacksolutions.com/ai/agentic-ai/build/agent-frameworks-compared/",
+          "snippet": "The LangChain/LangGraph combination covers the widest surface area. If you're uncertain about your requirements, it's the safest starting point because it scales from simple chains to complex multi-agent graphs without switching frameworks. AutoGen is the stronger choice when multi-agent conversation is the core interaction pattern. CrewAI wins on time-to-first-agent for straightforward collaborative workflows. Missing from this table: LlamaIndex, which competes on a different axis entirely (dat"
+        },
+        {
+          "title": "LangChain vs LlamaIndex: from retrieval to reliable AI agents",
+          "url": "https://www.langchain.com/resources/langchain-vs-llamaindex",
+          "snippet": "Compare LangChain and LlamaIndex for building production-grade AI agents. Takeaways. Pick LangChain or LangGraph for orchestration-heavy AI agents: multi-step execution, branching, loops, durable state, retries, approvals, and complex tool use."
+        },
+        {
+          "title": "AI Agent Frameworks Compared: LangChain, LlamaIndex ... - Process Times",
+          "url": "https://processtimes.com/ai-agent-frameworks-langchain-llamaindex-crewai-compared/",
+          "snippet": "Over 65% of enterprise AI projects in 2024 involved some form of agentic architecture, yet most developers waste weeks picking the wrong framework before writing a single line of production code."
+        },
+        {
+          "title": "AI Agents",
+          "url": "https://www.reddit.com/r/LangChain/comments/1ctfepy/ai_agents/",
+          "snippet": "A lot of folks seem to be misunderstanding both the notion of agents and the limitations of the underlying (transformer) infrastructure. Probably scared of Devlin :) And on a side-note: agentic behavior != function/tool calling. Here's a nice glimpse on the current state of the art including some nice visuals: https://github.com/Jenqyang/Awesome-AI-Agents Some more stuff: https://github.com/lafmdp/Awesome-Papers-Autonomous-Agent https://arxiv.org/abs/2405.06682 https://arxiv.org/abs/2405.06643 h"
+        },
+        {
+          "title": "Orchestration Frameworks: LangChain vs LlamaIndex vs Semantic Kernel vs ...",
+          "url": "https://www.blocksimplified.com/blog/orchestration-frameworks-langchain-vs-llamaindex-vs-semantic-kernel-vs-crewai-and-more",
+          "snippet": "In this guide, we'll demystify the leading frameworks - LangChain, LlamaIndex, Semantic Kernel, CrewAI, Pydantic AI - plus emerging ones like LangGraph and AutoGen."
+        },
+        {
+          "title": "Which AI Agent Framework Should You Choose? LangChain vs LlamaIndex vs AutoGen vs CrewAI for Enterprise (2026) | TechAhead",
+          "url": "https://www.techaheadcorp.com/blog/top-agent-frameworks/",
+          "snippet": "You can customize the memory systems ... LlamaIndex is a flexible framework designed to help you build knowledge assistants by connecting large language models (LLMs) with your enterprise data (RAG)...."
+        },
+        {
+          "title": "Best Frameworks for Enterprise LLM Deployment: LangChain vs LlamaIndex ...",
+          "url": "https://techelix.co/blogs/best-frameworks-for-enterprise-llm-deployment-langchain-vs-llamaindex/",
+          "snippet": "Choosing the right LLM framework has become a critical decision for AI teams. Solutions like LangChain, LlamaIndex, and CrewAI offer different approaches to building enterprise AI applications, from data integration and retrieval to multi-agent collaboration."
+        }
+      ]
+    }
+  },
+  "20b5f59a044af835": {
+    "ts": "2026-07-31T10:03:44.278410+00:00",
+    "query": "Multi-tenancy and security best practices for RAG systems",
+    "result": {
+      "results": [
+        {
+          "title": "Design a Secure Multitenant RAG Inferencing Solution",
+          "url": "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/secure-multitenant-rag",
+          "snippet": "3 thg 10, 2025 ... Multitenancy in RAG architecture ... In multitenant solutions, tenant data might exist in a tenant-specific store or coexist with other tenants in ..."
+        },
+        {
+          "title": "RAG Multi-Tenancy | Managing Multiple Instances - apxml.com",
+          "url": "https://apxml.com/courses/optimizing-rag-for-production/chapter-7-rag-scalability-reliability-maintainability/rag-multi-tenancy-management",
+          "snippet": "Strategies and trade-offs involved in designing for multi-tenancy and managing separate RAG deployments are analyzed, aiming to equip you with the knowledge to select and implement the most suitable model for your production environment."
+        },
+        {
+          "title": "Building Secure Multi-Tenant RAG: Implementing Role ... - Medium",
+          "url": "https://medium.com/@mungahdaudi/building-secure-multi-tenant-rag-implementing-role-based-access-control-rbac-with-elasticsearch-364e03c6ce9e",
+          "snippet": "10 thg 1, 2026 ... Building Secure Multi-Tenant RAG: Implementing Role-Based Access Control (RBAC) with Elasticsearch and Ollama · Step 1: Data Modeling with ..."
+        },
+        {
+          "title": "Multi-Tenant RAG Data Isolation: The 2026 Enterprise Architecture ...",
+          "url": "https://truto.one/blog/how-to-architect-strict-data-isolation-in-multi-tenant-rag-pipelines/",
+          "snippet": "14 thg 5, 2026 ... Secure multi-tenant RAG requires deterministic data isolation at the vector database layer using namespaces and JWTs. Relying on LLMs for access ..."
+        },
+        {
+          "title": "Building Multi-Tenancy RAG System with LlamaIndex",
+          "url": "https://www.llamaindex.ai/blog/building-multi-tenancy-rag-system-with-llamaindex-0d6ab4e0c44b",
+          "snippet": "15 thg 1, 2024 ... In the context of Multi-Tenancy in RAG systems, this means designing a system that not only understands and retrieves information effectively ..."
+        },
+        {
+          "title": "Multi-tenant RAG implementation with Amazon Bedrock and ... - AWS",
+          "url": "https://aws.amazon.com/blogs/machine-learning/multi-tenant-rag-implementation-with-amazon-bedrock-and-amazon-opensearch-service-for-saas-using-jwt/",
+          "snippet": "23 thg 7, 2025 ... Multi-tenant RAG usage is important for SaaS companies, and strategies vary depending on requirements such as data isolation strictness, ease of ..."
+        },
+        {
+          "title": "Building Multi-Tenant RAG Architecture for Scalable Enterprise AI ...",
+          "url": "https://www.linkedin.com/pulse/building-multi-tenant-rag-architecture-scalable-enterprise-sachin-p-hgqsf",
+          "snippet": "22 thg 4, 2025 ... Unlike single-tenant systems, every architectural decision in a multi-tenant RAG affects how you scale, govern, and personalize experiences ..."
+        },
+        {
+          "title": "Building Multi-Tenant RAG Applications With PostgreSQL - Tiger Data",
+          "url": "https://www.tigerdata.com/blog/building-multi-tenant-rag-applications-with-postgresql-choosing-the-right-approach",
+          "snippet": "11 thg 10, 2024 ... Data isolation: This allows multiple tenants to use the same RAG system while keeping their data separate and secure. This is crucial for ..."
+        }
+      ]
+    }
+  },
+  "bdacc3e0efec529f": {
+    "ts": "2026-07-31T10:03:45.127332+00:00",
+    "query": "CVEs and design flaws in AI agent frameworks AutoGen CrewAI",
+    "result": {
+      "results": [
+        {
+          "title": "AI Agents Are Here. So Are the Threats. - Palo Alto Networks Unit 42",
+          "url": "https://unit42.paloaltonetworks.com/agentic-ai-threats/",
+          "snippet": "1 thg 5, 2025 ... Programs leveraging AI agents are increasingly popular. Nine attack scenarios using open-source agent frameworks show how bad actors target ..."
+        },
+        {
+          "title": "AI Agents for Data Analysis: Examples and Security Risks | Blaxel Blog",
+          "url": "https://blaxel.ai/blog/ai-agents-for-data-analysis",
+          "snippet": "25 thg 3, 2026 ... In 2025, OWASP developed the AIVSS (Agentic AI Vulnerability Scoring System) framework to address the unique security risks of agentic AI. It ..."
+        },
+        {
+          "title": "Threats in LLM-Powered AI Agents Workflows - arXiv",
+          "url": "https://arxiv.org/html/2506.23260v2",
+          "snippet": "14 thg 12, 2025 ... The study focuses on two primary attack types: goal hijacking, in which the attacker manipulates the model to perform unintended actions, and ..."
+        },
+        {
+          "title": "A Multi-agent Security Framework for AI-Assisted Software ...",
+          "url": "https://ijaibdcms.org/index.php/ijaibdcms/article/download/370/365/731",
+          "snippet": "such as MetaGPT [5], CrewAI, and AutoGen [6] demonstrate the efficacy of purposeful AI agents working on complex issues. However, such frameworks are not."
+        },
+        {
+          "title": "AI Agent Frameworks Compared: LangChain vs AutoGen vs CrewAI ...",
+          "url": "https://sparkco.ai/blog/ai-agent-frameworks-compared-langchain-autogen-crewai-and-openclaw-in-2026",
+          "snippet": "26 thg 2, 2026 ... Authoritative quick take on the best AI agent framework in 2026: LangChain, AutoGen, CrewAI, and OpenClaw compared by production readiness, ..."
+        },
+        {
+          "title": "Agentic AI Threat Landscape: Attack Vectors & Defenses",
+          "url": "https://snailsploit.com/ai-security/agentic-ai-threat-landscape/",
+          "snippet": "11 thg 2, 2026 ... Code execution vulnerabilities in agent frameworks have accumulated at alarming rates. The most significant, CVE-2025-68664 (\"LangGrinch,\" CVSS ..."
+        },
+        {
+          "title": "(PDF) The Rise of Autonomous AI Agents: A Comprehensive Survey ...",
+          "url": "https://www.researchgate.net/publication/404248344_The_Rise_of_Autonomous_AI_Agents_A_Comprehensive_Survey_of_OpenClaw_-_Architecture_Security_Ecosystem_and_Beyond",
+          "snippet": "30 thg 4, 2026 ... Our central thesis is that OpenClaw's trajectory-from weekend project to the most-starred repository in GitHub history to a case study in ..."
+        },
+        {
+          "title": "Zero Trust for AI Agents: Stop Building Like It's 2005 - Medium",
+          "url": "https://medium.com/@michael.hannecke/zero-trust-for-ai-agents-stop-building-like-its-2005-698987340d66",
+          "snippet": "2 thg 1, 2026 ... We're building AI agents with broad tool access, implicit trust assumptions, and “it works in the demo” security models. We're handing ..."
+        }
+      ]
+    }
+  },
+  "9368eecdcf078cda": {
+    "ts": "2026-07-31T10:04:34.976974+00:00",
+    "query": "Enterprise AI architecture best practices multi-tenancy security caching streaming 2024",
+    "result": {
+      "results": [
+        {
+          "title": "Building Enterprise-Ready AI Agents — A Practical Field Guide",
+          "url": "https://viblo.asia/p/building-enterprise-ready-ai-agents-a-practical-field-guide-3RL1B5PoVao",
+          "snippet": "Read Parts 8–10 for the enterprise gates: security, compliance, multi-tenancy, observability, cost. Read Parts 11–15 for delivery, scale & rollout: deployment ..."
+        },
+        {
+          "title": "Build a multi-tenant generative AI environment for your enterprise on ...",
+          "url": "https://aws.amazon.com/blogs/machine-learning/build-a-multi-tenant-generative-ai-environment-for-your-enterprise-on-aws/",
+          "snippet": "7 thg 11, 2024 ... A generative AI multi-tenant architecture helps you maintain security, governance, and cost controls while scaling the use of generative AI ..."
+        },
+        {
+          "title": "From Proof of Concept to Production: Building an Enterprise-Grade ...",
+          "url": "https://medium.com/@rubenszimbres/from-proof-of-concept-to-production-building-an-enterprise-grade-platform-for-ai-systems-1fb9ebac78b9",
+          "snippet": "15 thg 2, 2026 ... Finally, the architecture is designed for cost efficiency, using serverless compute, intelligent caching, and tiered storage to minimize ..."
+        },
+        {
+          "title": "Data isolation in multi-tenant SaaS environments - Redis",
+          "url": "https://redis.io/blog/data-isolation-multi-tenant-saas/",
+          "snippet": "6 thg 2, 2026 ... Your primary database might have solid tenant isolation, but data flows through various systems including caching, messaging, file storage, and ..."
+        },
+        {
+          "title": "Multi-Tenant AI Systems: Isolation, Auth & Scaling (2026) - Prefactor",
+          "url": "https://prefactor.tech/blog/ultimate-guide-to-multi-tenant-ai-systems",
+          "snippet": "30 thg 8, 2025 ... Multi-tenant AI systems allow multiple customers or organizations to share a single AI infrastructure while maintaining isolated and secure ..."
+        },
+        {
+          "title": "Rights Management Platform vs DAM - Orange Logic",
+          "url": "https://www.orangelogic.com/dam-blog/digital-asset-management-architecture",
+          "snippet": "20 thg 7, 2026 ... ... architecture, workflow automation, AI readiness, security, and enterprise content operations. ... caching layers, asynchronous processing ..."
+        },
+        {
+          "title": "Enterprise CRM Architecture in the AI Era: Design Patterns, Platform ...",
+          "url": "https://www.preprints.org/manuscript/202601.2199",
+          "snippet": "28 thg 1, 2026 ... Enterprise Customer Relationship Management (CRM) platforms have evolved from simple contact databases into complex, multi-tenant cloud ..."
+        },
+        {
+          "title": "Multi-Tenant Database Design Patterns 2026 - daily.dev",
+          "url": "https://daily.dev/blog/multi-tenant-database-design-patterns-2024/",
+          "snippet": "9 thg 6, 2024 ... Choose a pattern based on your requirements for scalability, performance, security, compliance, and customization. Emerging trends include cloud ..."
+        }
+      ]
+    }
+  },
+  "e2b395b59f426b1f": {
+    "ts": "2026-07-31T10:04:35.753365+00:00",
+    "query": "LangChain LlamaIndex security CVEs RAG framework vulnerabilities 2024",
+    "result": {
+      "results": [
+        {
+          "title": "An LLM-Based Vulnerability Assessment Framework for the Wild",
+          "url": "https://arxiv.org/html/2510.04056v2",
+          "snippet": "12 thg 5, 2026 ... Software vulnerabilities are growing at an unprecedented rate: in 2024, the National Vulnerability Database (NVD) recorded nearly 40,000 new ..."
+        },
+        {
+          "title": "LangChain Security: 3 New Vulnerabilities Leaking AI Data - Cyera",
+          "url": "https://www.cyera.com/research/langdrained-3-paths-to-your-data-through-the-worlds-most-popular-ai-framework",
+          "snippet": "26 thg 3, 2026 ... In 2021, Log4Shell (CVE-2021-44228) exposed the same fundamental flaw in Apache Log4j: user-controlled data containing a special marker (${jndi: ..."
+        },
+        {
+          "title": "A Measurement Study of Vulnerabilities and Mitigation Trade-offs",
+          "url": "https://yuanxzhang.github.io/paper/agentstudy-ase25.pdf",
+          "snippet": "From LlamaIndex's perspective, these developers are its end users. Another example is CVE-2024-23750 [12], an LLM2Tool code execution vulnerability in MetaGPT."
+        },
+        {
+          "title": "CVERAG: Design and Evaluation of a Sovereign CVE Intelligence ...",
+          "url": "https://raw.githubusercontent.com/b0br4nks/CVERAG/main/cverag_2026.pdf",
+          "snippet": "15 thg 4, 2026 ... LangChain [22] and LlamaIndex [23] provide generalized RAG pipeline ... Noever, Can LLMs Patch Security Vulnerabilities?, arXiv preprint arXiv: ..."
+        },
+        {
+          "title": "An agentic RAG cyber attack classification and reporting tool - arXiv",
+          "url": "https://arxiv.org/html/2507.02424v1",
+          "snippet": "3 thg 7, 2025 ... The tool we propose is a custom-built solution designed to assist security operators in identifying and resolving vulnerabilities that commonly ..."
+        },
+        {
+          "title": "Whitepaper: Securing the AI Layer | PromptGuard",
+          "url": "https://promptguard.co/whitepaper",
+          "snippet": "Works with any framework built on top of these SDKs - LangChain, CrewAI, LlamaIndex, Vercel AI SDK, AutoGen. ... CVEs, fabricated compliance claims, and invented ..."
+        },
+        {
+          "title": "Securing Vector Databases - Cisco.com",
+          "url": "https://sec.cloudapps.cisco.com/security/center/resources/securing-vector-databases",
+          "snippet": "In the context of RAG, LlamaIndex and LangChain can handle the ingestion and ... secure indexing algorithms, and regularly audit the indexing mechanism for ..."
+        },
+        {
+          "title": "LLM Framework Security: Developer's Deep Dive - Medium",
+          "url": "https://medium.com/@michael.hannecke/hidden-dangers-in-llm-frameworks-a-practical-security-guide-for-developers-and-architects-7f7ac74b5372",
+          "snippet": "4 thg 11, 2025 ... Critical CVEs by Framework · CVE-2024–23751: SQL injection via Text-to-SQL features, affecting multiple query engines · Misconfigured deployments ..."
+        }
+      ]
+    }
   }
 }

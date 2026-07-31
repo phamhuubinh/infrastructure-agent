@@ -8,6 +8,7 @@ network the first time it runs, then caches locally.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from app.ocr.base import OcrResult
@@ -39,8 +40,12 @@ class PaddleOcrProvider:
 
     def run(self, image_path: Path) -> OcrResult:
         engine = self._get_engine()
-        result = engine.ocr(str(image_path), cls=True)
-
+        try:
+            result = engine.ocr(str(image_path), cls=True)
+        except Exception as e:
+            logging.error(f"OCR failed for {image_path}: {str(e)}")
+            return OcrResult(text="", confidence=None)
+        
         lines: list[str] = []
         confidences: list[float] = []
         for page_result in result or []:

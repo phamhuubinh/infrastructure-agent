@@ -248,3 +248,23 @@ def error(component: str, **fields: object) -> None:
 
 def critical(component: str, **fields: object) -> None:
     log("CRITICAL", component, **fields)
+
+
+# --- Bổ sung đối tượng logger để tương thích với các module import `from src.shared.logger import logger` ---
+class _LoggerFacade:
+    def debug(self, component_or_msg: str, **fields: object) -> None:
+        debug(component_or_msg, **fields)
+
+    def info(self, component_or_msg: str, **fields: object) -> None:
+        info(component_or_msg, **fields)
+
+    def warning(self, component_or_msg: str, **fields: object) -> None:
+        warning(component_or_msg, **fields)
+
+    def error(self, component_or_msg: str, **fields: object) -> None:
+        error(component_or_msg, **fields)
+
+    def critical(self, component_or_msg: str, **fields: object) -> None:
+        critical(component_or_msg, **fields)
+
+logger = _LoggerFacade()
