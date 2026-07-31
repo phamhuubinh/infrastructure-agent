@@ -55,3 +55,9 @@ coverage.xml
 htmlcov/
 qa_logs/
 orchestrator_transcript.jsonl
+orchestrator_transcript.jsonl
+.orchestrator_search_cache.json
+orchestrator_backlog.json
+ORCHESTRATOR_NEEDS_HUMAN.md
+.orchestrator_processed_directives.json
+qa_logs/
