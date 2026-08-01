@@ -12,6 +12,7 @@ deployed yet.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from app.parsers.base import DocumentParser, ParsedDocument, ParserError
@@ -73,9 +74,11 @@ class ParserRouter:
                     errors.append(f"{parser.name}: produced no blocks")
                     continue
                 if errors:
+                    # Log only the filename to prevent sensitive path disclosure
+                    filename = os.path.basename(path) if path and str(path) != "." else "[EMPTY_PATH]"
                     logger.info(
                         "Parsed '%s' with fallback parser '%s' after: %s",
-                        path,
+                        filename,
                         parser.name,
                         "; ".join(errors),
                     )
