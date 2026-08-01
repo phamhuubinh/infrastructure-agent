@@ -8,19 +8,18 @@ never touches this file.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from app.chunking.base import Chunker
-from app.config import load_config
 from app.embedding.base import EmbeddingProvider
 from app.ocr.base import OcrProvider
 from app.parsers.router import ParserRouter
 from app.sparse.bm25_index import BM25Index
 from app.vectordb.base import VectorRecord, VectorStore
 
-from src.shared.logger import logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -29,6 +28,7 @@ class IngestResult:
     chunk_count: int
     warnings: list[str]
     parser_used: str
+    chunk_ids: list[str]
 
 
 class IngestPipeline:
@@ -52,38 +52,48 @@ class IngestPipeline:
         self._collection = collection
         self._data_dir = Path(data_dir) if data_dir is not None else None
 
-    def ingest(self, path: str | Path, doc_id: str) -> IngestResult:
-        def validate_path_input(path: str) -> None:
+    def ingest(
+        self,
+        path: str | Path,
+        doc_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> IngestResult:
+        def validate_path_input(raw_path: str) -> None:
             """Validate user-controlled path input to prevent path traversal attacks."""
-            if not path:
+            if not raw_path:
                 raise ValueError("Path cannot be empty")
-            
-            # Check for absolute paths
-            if os.path.isabs(path):
-                raise ValueError(f"Invalid path: {path}. Absolute paths are not allowed")
-            
+
             # Check for path traversal attempts with '..'
-            if ".." in path.split(os.sep):
-                raise ValueError(f"Invalid path: {path}. Path traversal attempt detected")
+            if ".." in Path(raw_path).parts:
+                raise ValueError(
+                    f"Invalid path: {raw_path}. Path traversal attempt detected"
+                )
 
         try:
             validate_path_input(str(path))
             path = Path(path)
-            
+
             # Validate path against configured data directory to prevent path traversal
             # Only validate if data_dir is explicitly configured
             if self._data_dir is not None:
-                data_directory = Path(self._data_dir)
+                data_directory = self._data_dir
                 try:
                     # Resolve both paths to handle symbolic links and normalize paths
-                    resolved_path = path.resolve()
                     resolved_data_dir = data_directory.resolve()
-                    
+                    resolved_path = (
+                        path.resolve()
+                        if path.is_absolute()
+                        else (resolved_data_dir / path).resolve()
+                    )
+
                     # Check if the resolved path is within the data directory
                     resolved_path.relative_to(resolved_data_dir)
                 except (ValueError, OSError):
-                    raise ValueError(f"Invalid path: {path}. Path must be within configured data directory: {data_directory}")
-            
+                    raise ValueError(
+                        f"Invalid path: {path}. Path must be within configured data directory: {data_directory}"
+                    ) from None
+                path = resolved_path
+
             document = self._parser_router.parse(path)
             warnings = list(document.warnings)
 
@@ -105,6 +115,7 @@ class IngestPipeline:
                     chunk_count=0,
                     warnings=warnings + ["No chunks produced."],
                     parser_used=document.parser_name,
+                    chunk_ids=[],
                 )
 
             texts = [c.text for c in chunks]
@@ -120,29 +131,45 @@ class IngestPipeline:
                         "heading_path": chunk.heading_path,
                         "page": chunk.page,
                         **chunk.metadata,
+                        **(metadata or {}),
                     },
                 )
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ]
-            self._vector_store.upsert(self._collection, records)
-
-            for chunk in chunks:
-                self._bm25.add(chunk.chunk_id, chunk.text)
+            chunk_ids = [chunk.chunk_id for chunk in chunks]
+            sparse_ids: list[str] = []
+            try:
+                self._vector_store.upsert(self._collection, records)
+                for chunk, record in zip(chunks, records, strict=True):
+                    self._bm25.add(
+                        chunk.chunk_id,
+                        chunk.text,
+                        payload=record.payload,
+                    )
+                    sparse_ids.append(chunk.chunk_id)
+            except Exception:
+                # Keep dense and sparse indexes atomic from the caller's point
+                # of view. A retry must not inherit orphaned chunks.
+                self._vector_store.delete(self._collection, chunk_ids)
+                for sparse_id in sparse_ids:
+                    self._bm25.delete(sparse_id)
+                raise
 
             return IngestResult(
                 doc_id=doc_id,
                 chunk_count=len(chunks),
                 warnings=warnings,
                 parser_used=document.parser_name,
+                chunk_ids=chunk_ids,
             )
-        except FileNotFoundError as e:
+        except FileNotFoundError:
             logger.error(f"Document file not found: {path}")
             raise
-        except ValueError as e:
-            logger.error(f"Ingestion failed: {type(e).__name__}")
+        except ValueError as exc:
+            logger.error("Ingestion failed: %s", type(exc).__name__)
             raise
-        except Exception as e:
-            logger.error(f"Ingestion failed: {type(e).__name__}")
+        except Exception as exc:
+            logger.error("Ingestion failed: %s", type(exc).__name__)
             raise
 
     @staticmethod

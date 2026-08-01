@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import requests
 
+from app.serving.output_sanitizer import sanitize_model_output
+
 
 class LlmClient:
     def __init__(
@@ -47,7 +49,13 @@ class LlmClient:
         )
         response.raise_for_status()
         payload = response.json()
-        return payload["choices"][0]["message"]["content"]
+        content = payload["choices"][0]["message"]["content"]
+        if not isinstance(content, str):
+            raise RuntimeError("LLM returned no content")
+        visible = sanitize_model_output(content)
+        if not visible:
+            raise RuntimeError("LLM returned no user-visible content")
+        return visible
 
     def _headers(self) -> dict:
         headers = {"Content-Type": "application/json"}

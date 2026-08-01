@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import {
-  Share2,
-  Sparkles,
-  Send,
-  AlertCircle,
-  Square,
-  ChevronDown,
-  Loader2,
-} from "lucide-react";
+import { Share2, Sparkles, Send, AlertCircle, Square, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContextPanel } from "@/components/ContextPanel";
@@ -17,6 +9,7 @@ import { useChat, type Step, type Message } from "@/lib/chat-store";
 import { UserMessage, AssistantMessage } from "@/components/chat/Message";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { apiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -30,8 +23,6 @@ export const Route = createFileRoute("/")({
   }),
   component: ChatPage,
 });
-
-const API_URL = import.meta.env.VITE_API_URL || "";
 
 type ModelInfo = {
   name: string;
@@ -57,16 +48,14 @@ function ChatPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedServer, setSelectedServer] = useState<string>("");
   const [loadingModels, setLoadingModels] = useState(true);
-  const session = chatCtx.sessions.find(
-    (s) => s.id === chatCtx.currentSessionId,
-  );
+  const session = chatCtx.sessions.find((s) => s.id === chatCtx.currentSessionId);
 
   // Load available models on mount
   useEffect(() => {
     let cancelled = false;
     async function loadModels() {
       try {
-        const res = await fetch(`${API_URL}/api/models`);
+        const res = await apiFetch("/api/models");
         if (!res.ok || cancelled) return;
         const data = await res.json();
         if (cancelled) return;
@@ -74,9 +63,7 @@ function ChatPage() {
         if (data.active_server) {
           setSelectedServer(data.active_server);
         } else if (data.models?.length > 0) {
-          const firstAvailable = data.models.find(
-            (m: ModelInfo) => m.available,
-          );
+          const firstAvailable = data.models.find((m: ModelInfo) => m.available);
           if (firstAvailable) {
             setSelectedServer(firstAvailable.name);
           }
@@ -109,17 +96,10 @@ function ChatPage() {
         <div className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
           <div className="min-w-0 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium truncate">
-              {session?.title || "Orion"}
-            </span>
+            <span className="text-sm font-medium truncate">{session?.title || "Orion"}</span>
           </div>
           <div className="ml-auto flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              aria-label="Share"
-            >
+            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Share">
               <Share2 className="h-4 w-4" />
             </Button>
           </div>
@@ -144,9 +124,7 @@ function ChatPage() {
               loadingModels={loadingModels}
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-              <span>
-                Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.
-              </span>
+              <span>Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.</span>
             </div>
           </div>
         </div>
@@ -154,12 +132,8 @@ function ChatPage() {
         {drag && (
           <div className="absolute inset-0 pointer-events-none bg-primary/5 border-2 border-dashed border-primary/50 grid place-items-center">
             <div className="text-center">
-              <div className="text-display text-3xl text-primary">
-                Drop to attach
-              </div>
-              <div className="text-sm text-muted-foreground mt-1">
-                PDF, images, code
-              </div>
+              <div className="text-display text-3xl text-primary">Drop to attach</div>
+              <div className="text-sm text-muted-foreground mt-1">PDF, images, code</div>
             </div>
           </div>
         )}
@@ -194,15 +168,13 @@ function EmptyState() {
         {suggestions.map((s) => (
           <button
             key={s.label}
-            onClick={() => {
-              createSession();
-              setTimeout(() => {
-                document.dispatchEvent(
-                  new CustomEvent("infra-send-prompt", {
-                    detail: s.prompt,
-                  }),
-                );
-              }, 50);
+            onClick={async () => {
+              await createSession();
+              document.dispatchEvent(
+                new CustomEvent("infra-send-prompt", {
+                  detail: s.prompt,
+                }),
+              );
             }}
             className="w-full text-left text-sm text-foreground/85 hover:text-foreground rounded-md px-3 py-2.5 hover:bg-surface-2 transition-colors border border-border"
           >
@@ -248,9 +220,7 @@ function Conversation({ messages }: { messages: Message[] }) {
             <AssistantMessage agent="Orion" content={msg.content}>
               <Card className="p-4 border-border/50">
                 <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
-                  <Markdown remarkPlugins={[remarkGfm]}>
-                    {msg.content}
-                  </Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
                 </div>
               </Card>
             </AssistantMessage>
@@ -304,11 +274,7 @@ function ModelSelector({
             : "border-destructive/30 text-muted-foreground",
         )}
         disabled={loadingModels}
-        title={
-          selectedModel
-            ? `${selectedModel.model} (${selectedModel.provider})`
-            : "Chọn model"
-        }
+        title={selectedModel ? `${selectedModel.model} (${selectedModel.provider})` : "Chọn model"}
       >
         {loadingModels ? (
           <Loader2 className="h-3 w-3 animate-spin" />
@@ -320,9 +286,7 @@ function ModelSelector({
                 selectedModel.available ? "bg-success" : "bg-destructive",
               )}
             />
-            <span className="max-w-[100px] truncate">
-              {selectedModel.model}
-            </span>
+            <span className="max-w-[100px] truncate">{selectedModel.model}</span>
           </>
         ) : (
           <span className="text-muted-foreground">No model</span>
@@ -419,6 +383,7 @@ function ChatInput({
   // Per-session generation state, keyed by session ID.
   // This allows multiple sessions to generate concurrently.
   const sessionGenRef = useRef<Map<string, SessionGenState>>(new Map());
+  const handleSubmitRef = useRef<(override?: string) => void>(() => undefined);
 
   function getGen(sid: string | null): SessionGenState {
     if (!sid) {
@@ -453,7 +418,7 @@ function ChatInput({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       setValue(detail);
-      setTimeout(() => handleSubmit(detail), 10);
+      setTimeout(() => handleSubmitRef.current(detail), 10);
     };
     document.addEventListener("infra-send-prompt", handler);
     return () => document.removeEventListener("infra-send-prompt", handler);
@@ -482,23 +447,14 @@ function ChatInput({
         content: g.streamingContent || "(interrupted)",
       };
       updateSession({
-        messages: [
-          ...(getSession()?.messages || updated.messages),
-          assistantMsg,
-        ],
+        messages: [...(getSession()?.messages || updated.messages), assistantMsg],
       });
     }
     g.streamingContent = "";
     g.loading = false;
     g.pipelineStatus = null;
     setSessionGenerating(sid!, false);
-  }, [
-    currentSessionId,
-    getSession,
-    updateSession,
-    resetIdleTimer,
-    setSessionGenerating,
-  ]);
+  }, [currentSessionId, getSession, updateSession, resetIdleTimer, setSessionGenerating]);
 
   const startIdleTimer = useCallback(
     (g: SessionGenState) => {
@@ -507,7 +463,7 @@ function ChatInput({
         try {
           const healthController = new AbortController();
           const healthTimer = setTimeout(() => healthController.abort(), 5000);
-          const healthRes = await fetch(`${API_URL}/api/check-model`, {
+          const healthRes = await apiFetch("/api/check-model", {
             signal: healthController.signal,
           });
           clearTimeout(healthTimer);
@@ -556,8 +512,7 @@ function ChatInput({
     if (!session) return;
 
     if (session.title === "New chat") {
-      const newTitle =
-        question.length > 60 ? question.slice(0, 57) + "..." : question;
+      const newTitle = question.length > 60 ? question.slice(0, 57) + "..." : question;
       updateSession({ title: newTitle });
       renameSession(session.id, newTitle);
     }
@@ -588,9 +543,8 @@ function ChatInput({
       const connTimeout = setTimeout(() => controller.abort(), 180000);
 
       const rawId = sid;
-      const sessionId =
-        rawId && !rawId.startsWith("pending_") ? rawId : undefined;
-      const res = await fetch(`${API_URL}/api/query`, {
+      const sessionId = rawId || undefined;
+      const res = await apiFetch("/api/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -669,13 +623,14 @@ function ChatInput({
       resetIdleTimer(g);
       setSidMessages(sid, fullContent || "(empty response)", steps);
       g.streamingContent = "";
-    } catch (err: any) {
-      if (err.name === "AbortError") {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      if (error.name === "AbortError") {
         if (g.streamingContent) {
           setSidMessages(sid, g.streamingContent, undefined);
         }
       } else {
-        g.error = err.message || "Request failed";
+        g.error = error.message || "Request failed";
       }
     } finally {
       g.abortRef = null;
@@ -686,6 +641,8 @@ function ChatInput({
       setSessionGenerating(sid, false);
     }
   }
+
+  handleSubmitRef.current = handleSubmit;
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {

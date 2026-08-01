@@ -82,6 +82,7 @@ class TestConversationStoreThreadSafety:
         errors: list[Exception] = []
         summarize_lock = threading.Lock()
         summarize_calls: list[str] = []
+        first_turn_added = threading.Event()
 
         def _summarize_fn(prompt: str) -> str:
             with summarize_lock:
@@ -95,11 +96,13 @@ class TestConversationStoreThreadSafety:
             for i in range(turns_per_writer):
                 try:
                     store.add_turn(f"q_{tid}_{i}", f"a_{tid}_{i}")
+                    first_turn_added.set()
                 except Exception as e:
                     errors.append(e)
 
         def _summarizer() -> None:
             barrier.wait()
+            first_turn_added.wait(timeout=2)
             for _ in range(5):
                 try:
                     store.summarize()

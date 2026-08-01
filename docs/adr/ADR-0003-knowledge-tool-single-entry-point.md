@@ -24,7 +24,7 @@ The pipeline needed a single, stable, tool-agnostic entry point that:
 ---
 
 # Decision
-`KnowledgeTool` is the single runtime entry point for all evidence collection.
+`KnowledgeTool` is the single runtime entry point for all **chat infrastructure evidence** collection. Project RAG is outside this dispatch path by AD-021.
 
 The architecture enforces these rules:
 
@@ -71,9 +71,9 @@ The architecture enforces these rules:
 
 # Referenced files
 - `src/tool/knowledge_tool.py` — the single dispatch entry point
-- `src/tool/target_registry.py` — registry for targets and child tools (now includes `InternetTool` and `KnowledgeBaseTool`)
+- `src/tool/target_registry.py` — registry for targets and infrastructure child tools
 - `src/tool/internet_tool.py` — HTTP fetch with SSRF protection
-- `src/tool/knowledge_base_tool.py` — RAG service proxy
+- `src/backend/routers/knowledge.py` — separate project RAG API proxy (not a KnowledgeTool child)
 - `src/pipeline/capability_router.py` — builds route table from KnowledgeTool metadata
 - `src/pipeline/execution_engine.py` — ExecutionEngine (receives KnowledgeTool at construction)
 - `src/pipeline/execution_runtime.py` — Executes through KnowledgeTool dispatch

@@ -55,9 +55,9 @@ class ProviderRegistry:
                 pass
 
         for provider_name in self.fallback_chain[start_idx:]:
-            adapter = self.providers.get(provider_name)
-            if adapter and self._is_healthy(adapter, provider_name):
-                return adapter
+            fallback_adapter = self.providers.get(provider_name)
+            if fallback_adapter and self._is_healthy(fallback_adapter, provider_name):
+                return fallback_adapter
 
         # Last resort: try any registered provider not in the chain.
         for pname, adapter in self.providers.items():

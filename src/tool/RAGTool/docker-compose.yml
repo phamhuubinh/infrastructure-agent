@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   qdrant:
     image: qdrant/qdrant:latest
@@ -14,19 +12,23 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Offline-safe defaults — override to go to production.
+      # Offline-safe retrieval defaults. Analysis requires model configuration.
       RAG_EMBEDDING_PROVIDER: "hash"          # hash | openai_compatible | qwen3 | bge_m3
       RAG_VECTOR_STORE: "qdrant"
       RAG_QDRANT_URL: "http://qdrant:6333"
       RAG_RERANKER: "noop"                    # noop | bge_v2
       RAG_OCR_PROVIDER: "noop"                # noop | paddleocr
-      RAG_LLM_ENABLED: "false"                # set true + point at your vLLM server
+      RAG_DATA_DIR: "/data"
+      # Standalone only: the root Orion stack configures its active model by API.
       # RAG_LLM_BASE_URL: "http://vllm:8000/v1"
       # RAG_LLM_MODEL: "your-model-name"
       # RAG_EMBEDDING_BASE_URL: "http://vllm-embed:8001/v1"
       # RAG_EMBEDDING_MODEL: "qwen3-embedding"
     depends_on:
       - qdrant
+    volumes:
+      - rag_data:/data
 
 volumes:
   qdrant_data:
+  rag_data:

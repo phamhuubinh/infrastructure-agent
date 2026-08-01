@@ -19,11 +19,10 @@ class TestCollectBenchmarkMetadata:
         assert meta["server"] == "sv1"
         assert meta["model"] == "gpt-4"
 
-    def test_server_without_model_resolves_from_file(self) -> None:
-        meta = collect_benchmark_metadata(server_name="sv1")
-        assert meta["server"] == "sv1"
-        # sv1 in servers.json has model "qwen"
-        assert meta["model"] == "qwen"
+    def test_unknown_server_without_model_uses_mock_label(self) -> None:
+        meta = collect_benchmark_metadata(server_name="not-configured")
+        assert meta["server"] == "not-configured"
+        assert meta["model"] == "mock"
 
     def test_timestamp_is_int(self) -> None:
         meta = collect_benchmark_metadata()

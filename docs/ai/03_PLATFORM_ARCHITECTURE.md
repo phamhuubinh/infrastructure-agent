@@ -32,8 +32,8 @@ Desktop App
 **API** — single entry point for both Web UI and Desktop App. Owns request auth, routing to Agent/RAG/Document Service, and persistence via the Database.
 **Auth** — accounts, sessions/tokens. Every user, conversation, and job is scoped to an authenticated account. This is what makes "same data on every device" possible.
 **Agent** — this project. The deterministic investigation pipeline (`05_EXECUTION_PIPELINE.md`) runs as a platform capability invoked through the API, not as a standalone local process. Its internal design (Code investigates, AI explains; Child Tools behind KnowledgeTool) does not change — only how it is invoked and where its output is stored changes.
-**RAG** — retrieval over a knowledge base, backing platform conversations and Agent assessments where relevant.
-**Document Service** — upload, storage, preview, and download of files. Feeds RAG/Knowledge Base metadata into the Database.
+**RAG** — project-scoped document analysis. It is invoked explicitly from the document-analysis UI and never implicitly from chat or Agent assessment.
+**Document Service** — upload, storage, preview, and download of files. Documents selected for analysis belong to exactly one RAG project.
 **Database (PostgreSQL)** — the single source of truth for state that used to live only on a local disk:
 - Users
 - Conversations

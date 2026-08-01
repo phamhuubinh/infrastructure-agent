@@ -4,10 +4,16 @@ from unittest import mock
 
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_resolver import CapabilityResolver
+from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_merge import EvidenceMerge
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.execution_engine import ExecutionEngine
-from src.pipeline.execution_graph import ExecutionGraph, ExecutionGraphBuilder
+from src.pipeline.execution_graph import (
+    ExecutionGraph,
+    ExecutionGraphBuilder,
+    ExecutionNode,
+)
 from src.pipeline.execution_plan import ExecutionPlan, ExecutionStep
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import RuntimeMetrics
@@ -33,6 +39,7 @@ def _engine(
     graph_builder: ExecutionGraphBuilder | None = None,
     knowledge_tool: KnowledgeTool | None = None,
     evidence_merge: EvidenceMerge | None = None,
+    evidence_cache: EvidenceCache | None = None,
 ) -> ExecutionEngine:
     """Build an ExecutionEngine with defaults or overridden dependencies.
 
@@ -54,6 +61,7 @@ def _engine(
         graph_builder=graph_builder or mock.Mock(spec=ExecutionGraphBuilder),
         knowledge_tool=kt,
         evidence_merge=evidence_merge or mock.Mock(spec=EvidenceMerge),
+        evidence_cache=evidence_cache,
     )
 
 
@@ -219,6 +227,44 @@ class TestGraphBuilding:
         result = engine.execute("test")
 
         assert isinstance(result.runtime_metrics, RuntimeMetrics)
+
+    def test_cached_node_satisfies_downstream_dependency(self) -> None:
+        cache = EvidenceCache()
+        cache.put(
+            "localhost",
+            "System evidence",
+            EvidencePackage(
+                capability_name="System Information",
+                evidence_name="System evidence",
+            ),
+        )
+        system_step = ExecutionStep(
+            capability=CapabilityReference(
+                name="System Information", evidence_name="System evidence"
+            )
+        )
+        cpu_step = ExecutionStep(
+            capability=CapabilityReference(
+                name="CPU Information", evidence_name="CPU evidence"
+            )
+        )
+        graph = ExecutionGraph(
+            nodes=(
+                ExecutionNode(execution_step=system_step),
+                ExecutionNode(
+                    execution_step=cpu_step,
+                    depends_on=("System Information",),
+                ),
+            )
+        )
+
+        remaining, cached = _engine(evidence_cache=cache)._without_cached_nodes(
+            graph, "localhost"
+        )
+
+        assert [item.evidence_name for item in cached] == ["System evidence"]
+        assert len(remaining.nodes) == 1
+        assert remaining.nodes[0].depends_on == ()
 
 
 # ---------------------------------------------------------------------------

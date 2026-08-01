@@ -1,159 +1,81 @@
-# Docker Guide
+# Docker Compose
 
-> Build, run, and troubleshoot Orion with Docker Compose.
+The root Compose stack runs the React UI, FastAPI API, PostgreSQL, the project RAG service, and an HTTP reverse proxy for local use. Model servers are user-managed external dependencies; Orion does not install model runtimes or weights.
 
-## Prerequisites
-
-- Docker Engine 24+
-- Docker Compose v2+
-- OpenSSL (for self-signed cert generation, installed automatically)
-
-## Quick Start
+## Quick start
 
 ```bash
-# Generate self-signed certificates (first time only)
-make certs
-
-# Start all services
-docker compose up -d
-
-# Check service status
+./install.sh
 docker compose ps
-
-# View logs
-docker compose logs -f api
-docker compose logs -f ui
+orion help
 ```
 
-Services and ports:
+The installer creates `.env` with private random secrets, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Choosing **Skip** is supported. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP; terminate TLS in a production ingress/reverse proxy.
 
-| Service | Internal Port | Exposed | Description |
-|---------|--------------|---------|-------------|
-| `reverse-proxy` | 80/443 | 80/443 | HTTP redirect and HTTPS reverse proxy |
-| `api` | 61888 | — | FastAPI backend |
-| `ui` | 80 | — | Built React frontend |
-| `postgres` | 5432 | — | PostgreSQL database |
-| `rag-service` | 8080 | 8080 | RAG microservice |
+`orion web` opens the packaged Web UI URL in the default desktop browser. On SSH/headless systems it prints the URL. It does not start a second backend or a Vite development server inside the API container.
 
-## Service Details
+| Service | Internal port | Host exposure | Purpose |
+|---|---:|---:|---|
+| `reverse-proxy` | 80 | 80 | Browser entry point |
+| `api` | 61888 | 61888 | API/debug access and CI smoke tests |
+| `ui` | 3000 | none | TanStack Start SSR frontend behind proxy |
+| `postgres` | 5432 | none | Chat/document metadata |
+| `rag-service` | 8080 | none | Internal project RAG API |
 
-### API Service
+The RAG service is deliberately not published. Browser traffic goes through `/api/rag/*`, so backend authentication and upload limits always apply.
 
-```bash
-# Rebuild API after code changes
-docker compose build api
-docker compose up -d api
+## Persistence
 
-# Run tests inside container
-docker compose exec api pytest tests/ -q
+- `orion-data:/root/.orion` — SQLite fallback and generic document storage.
+- `orion-pgdata:/var/lib/postgresql/data` — PostgreSQL.
+- `orion-ragdata:/data` — RAG project metadata, uploaded corpus, vector data, and BM25 indexes.
+
+`docker compose down` preserves these volumes. `docker compose down -v` deletes all persisted local data and cannot be undone.
+
+## Generated environment
+
+`install.sh` creates `.env` automatically. `.env.example` documents its shape for operators running Compose directly:
+
+```dotenv
+POSTGRES_USER=orion
+POSTGRES_PASSWORD=replace-with-a-long-random-password
+POSTGRES_DB=orion
+ORION_API_KEY=replace-with-a-long-random-api-key
 ```
 
-### Database
+`POSTGRES_PASSWORD` and `ORION_API_KEY` are required; Compose refuses blank values. The ignored legacy `docker-compose.env` file is not required.
+
+## Model lifecycle
+
+Model weights and external credentials are not required to install Orion. Configure them later from Web UI **Cài đặt** or CLI:
 
 ```bash
-# Connect to PostgreSQL
-docker compose exec postgres psql -U orion -d orion
-
-# Reset database (WARNING: deletes all data)
-docker compose down -v postgres
-docker compose up -d postgres
+docker compose exec api orion model list
+docker compose exec api orion model add primary --base-url http://model-host:8000 --model qwen
+docker compose exec api orion model test primary
+docker compose exec api orion model use primary
 ```
 
-### RAG Service
+The model registry is persisted in `orion-data`. Changes made by the CLI are detected by the running API without a restart. Chat uses the model selected per request; RAG synthesis always uses Orion's active model and never falls back to retrieval-only output. OpenAI-compatible, Ollama, and vLLM endpoints are supported when installed and operated independently by the user.
+
+The Compose API maps `host.docker.internal` to the Docker host. When a saved model URL uses `localhost`, `127.0.0.1`, or `::1`, Orion rewrites only that loopback host to `host.docker.internal`; this lets a user-managed model runtime on the same machine work without exposing it publicly.
+
+RAG retrieval itself uses bundled hash embeddings, persistent vectors, BM25, and a no-op reranker by default. For larger deployments, configure an OpenAI-compatible embedding endpoint and optionally Qdrant; see `src/tool/RAGTool/README.md`.
+
+## Common commands
 
 ```bash
-# Check RAG health
-curl http://localhost:8080/health
-
-# Rebuild RAG service
-docker compose build rag-service
-docker compose up -d rag-service
-```
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file (or export before `docker compose up`):
-
-```bash
-# API Key (optional, disables auth when empty)
-ORION_API_KEY=your-secret-key
-
-# Database
-ORION_DATABASE_URL=postgresql://orion:orion@postgres:5432/orion
-ORION_DB_POOL_SIZE=5
-ORION_DB_SSL=0
-
-# RAG Service
-RAG_SERVICE_URL=http://rag-service:8080
-
-# Logging
-ORION_LOG_FORMAT=json
-ORION_LOG_LEVEL=INFO
-
-# Frontend
-ORION_FRONTEND_PORT=5173
-
-# Conversation
-ORION_CONVERSATION_THRESHOLD=4
-```
-
-### Secrets
-
-Secrets (Grafana tokens, Zabbix credentials, LLM keys) are stored in `config/secrets.local.json` — never in `.env` or committed to git.
-
-## Troubleshooting
-
-### API won't start
-
-```bash
-# Check if port 61888 is already in use
-lsof -i :61888
-
-# Check API logs for database connection errors
-docker compose logs api | grep -i error
-```
-
-### Database connection refused
-
-```bash
-# Verify PostgreSQL is accepting connections
+docker compose logs -f api rag-service
+docker compose build api ui rag-service
+docker compose up -d api ui rag-service
 docker compose exec postgres pg_isready -U orion
-
-# Check API can reach the database
-docker compose exec api python -c "
-from src.backend.db import _get_dsn, _import_driver
-dsn = _get_dsn()
-print(f'DSN: {dsn}')
-driver, err = _import_driver()
-if err:
-    print(f'Import error: {err}')
-else:
-    try:
-        conn = driver.connect(dsn)
-        print('Connected successfully')
-        conn.close()
-    except Exception as e:
-        print(f'Connection error: {e}')
-"
-```
-
-### Nginx returns 502
-
-```bash
-# Check if backend services are running
-docker compose ps api ui
-
-# Check nginx config
 docker compose exec reverse-proxy nginx -t
-
-# Reload nginx
-docker compose exec reverse-proxy nginx -s reload
 ```
 
-### Reset everything
+The API image seeds an empty model registry. Model credentials are written to the private persistent Orion volume, never to the tracked repository configuration.
 
-```bash
-docker compose down -v
-docker compose up -d --build
+## Uninstall
+
+`./uninstall.sh` removes the running app and Orion-built images while preserving persistent data. `./uninstall.sh --purge` also deletes Orion volumes, local sessions/documents/logs, `.env`, private local configuration, and legacy Ollama artifacts created by older Orion versions. The source checkout is never deleted.
+
+> Last updated: 2026-08-02

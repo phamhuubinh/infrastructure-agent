@@ -5,6 +5,7 @@ import time
 from urllib import error as urlerror
 from urllib import request
 
+from src.model.output_sanitizer import sanitize_model_output
 from src.shared.logger import debug, info
 from src.shared.logger import error as log_error
 
@@ -35,6 +36,8 @@ class LLMClient:
         max_tokens: int = 2048,
     ) -> None:
         self._base_url = base_url.rstrip("/")
+        if self._base_url.endswith("/v1"):
+            self._base_url = self._base_url[:-3].rstrip("/")
         self._model = model
         self._api_key = api_key
         self._timeout = timeout
@@ -172,6 +175,10 @@ class LLMClient:
         content = message.get("content")
         if not isinstance(content, str):
             msg = "LLM API returned no content in message"
+            raise RuntimeError(msg)
+        content = sanitize_model_output(content)
+        if not content:
+            msg = "LLM API returned no user-visible content"
             raise RuntimeError(msg)
 
         raw_usage = data.get("usage")

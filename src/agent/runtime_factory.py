@@ -12,6 +12,7 @@ from src.model.llm_client import LLMClient
 if TYPE_CHECKING:
     from src.model.providers.registry import ProviderRegistry
 from src.pipeline.capability_resolver import CapabilityResolver
+from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.execution_engine import ExecutionEngine
@@ -68,7 +69,6 @@ _FALLBACK_TOOL_TYPES: dict[str, tuple[str, ...]] = {
     "zabbix": ("url", "token"),
     "grafana": ("url", "token"),
     "internet": (),
-    "knowledge_base": (),
 }
 
 
@@ -138,10 +138,6 @@ def _build_auto_tool(tool_type: str, cfg: dict[str, Any]):
         from src.tool.internet_tool import InternetTool
 
         return InternetTool()
-    elif tool_type == "knowledge_base":
-        from src.tool.knowledge_base_tool import KnowledgeBaseTool
-
-        return KnowledgeBaseTool()
     return None
 
 
@@ -241,6 +237,13 @@ def _register_tools(
 # ---------------------------------------------------------------------------
 
 
+def _normalize_api_key(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return None if not normalized or normalized.upper() == "EMPTY" else normalized
+
+
 def _build_assessment_adapter(
     server_name: str | None = None,
     model: str | None = None,
@@ -262,7 +265,7 @@ def _build_assessment_adapter(
     cfg = ServerConfig.model_validate(raw)
 
     base_url: str = cfg.base_url
-    api_key: str | None = cfg.api_key
+    api_key = _normalize_api_key(cfg.api_key)
     resolved_model: str = model or cfg.model
 
     client = LLMClient(
@@ -282,12 +285,20 @@ def _build_openai_adapter(
     model_override: str | None = None,
 ) -> LLMAssessmentAdapter:
     """Build an LLMAssessmentAdapter from a ServerConfig-like object."""
-    base_url: str = getattr(cfg, "base_url", "http://localhost:8000")
-    api_key: str | None = getattr(cfg, "api_key", None)
-    model: str = model_override or getattr(cfg, "model", "gpt-4")
-    timeout: int = getattr(cfg, "timeout", 60)
-    temperature: float = getattr(cfg, "temperature", 0.0)
-    max_tokens: int = getattr(cfg, "max_tokens", 2048)
+
+    def value(name: str, default: Any) -> Any:
+        return (
+            cfg.get(name, default)
+            if isinstance(cfg, dict)
+            else getattr(cfg, name, default)
+        )
+
+    base_url = str(value("base_url", "http://localhost:8000"))
+    api_key = _normalize_api_key(value("api_key", None))
+    model = model_override or str(value("model", "gpt-4"))
+    timeout = int(value("timeout", 60))
+    temperature = float(value("temperature", 0.0))
+    max_tokens = int(value("max_tokens", 2048))
 
     client = LLMClient(
         base_url=base_url,
@@ -308,15 +319,23 @@ def _build_anthropic_adapter(
 
     Returns LLMAssessmentAdapter as fallback if anthropic is not installed.
     """
-    api_key: str | None = getattr(cfg, "api_key", None)
-    model: str = model_override or getattr(cfg, "model", "claude-3-haiku-20240307")
-    timeout: int = getattr(cfg, "timeout", 180)
-    temperature: float = getattr(cfg, "temperature", 0.0)
-    max_tokens: int = getattr(cfg, "max_tokens", 4096)
+
+    def value(name: str, default: Any) -> Any:
+        return (
+            cfg.get(name, default)
+            if isinstance(cfg, dict)
+            else getattr(cfg, name, default)
+        )
+
+    api_key = _normalize_api_key(value("api_key", None))
+    model = model_override or str(value("model", "claude-3-haiku-20240307"))
+    timeout = int(value("timeout", 180))
+    temperature = float(value("temperature", 0.0))
+    max_tokens = int(value("max_tokens", 4096))
 
     if not api_key:
         _warn(
-            f"Anthropic provider '{getattr(cfg, 'base_url', 'unknown')}' "
+            f"Anthropic provider '{value('base_url', 'unknown')}' "
             f"has no api_key set. Adapter will fail at runtime."
         )
 
@@ -331,7 +350,7 @@ def _build_anthropic_adapter(
             max_tokens=max_tokens,
         )
     except ImportError:
-        _warn("anthropic package not installed. " "Install with: pip install anthropic")
+        _warn("anthropic package not installed. Install with: pip install anthropic")
         # Return an OpenAI adapter as fallback — it will fail at
         # health_check time and get skipped in the fallback chain.
         return _build_openai_adapter(cfg, model_override=model)
@@ -479,6 +498,7 @@ def create_deterministic_agent(
 
     kt = KnowledgeTool(target_registry=registry, inspector_chain=inspector_chain)
 
+    evidence_cache = EvidenceCache()
     engine = ExecutionEngine(
         intent_resolver=IntentResolver(),
         target_resolver=TargetResolver(target_registry=registry),
@@ -488,34 +508,49 @@ def create_deterministic_agent(
         graph_builder=ExecutionGraphBuilder(),
         knowledge_tool=kt,
         evidence_merge=EvidenceMerge(),
+        evidence_cache=evidence_cache,
     )
 
     if assessment_adapter is None:
-        server_name = server_name or "sv1"
-        model = model or None
-        base_url = "unknown"
-        resolved_model = "unknown"
-        try:
-            cfg = get_config().servers.get(server_name, {})
-            base_url = str(cfg.get("base_url", "unknown"))
-            resolved_model = str(cfg.get("model", "unknown"))
-        except Exception:
-            _warn(f"failed to load server config for '{server_name}', using defaults")
-        _info(
-            "llm",
-            provider=base_url,
-            model=resolved_model,
-            message="Initializing LLM adapter",
-        )
-        assessment_adapter = _build_assessment_adapter(
-            server_name=server_name,
-            model=model,
-        )
+        model_config = get_config()
+        if not model_config.servers:
+            from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
+
+            assessment_adapter = UnconfiguredAssessmentAdapter()
+            _warn("no model configured; Orion will start in setup mode")
+        else:
+            server_name = server_name or model_config.active_server_name
+            model = model or None
+            cfg = model_config.servers.get(server_name, {})
+            _info(
+                "llm",
+                provider=str(cfg.get("base_url", "unknown")),
+                model=str(cfg.get("model", "unknown")),
+                message="Initializing LLM adapter",
+            )
+            provider_registry, primary_adapter = _build_provider_registry(
+                server_name=server_name,
+                model=model,
+            )
+            ordered_adapters = [primary_adapter]
+            for provider_name in provider_registry.fallback_chain:
+                adapter = provider_registry.providers.get(provider_name)
+                if adapter is not None and adapter not in ordered_adapters:
+                    ordered_adapters.append(adapter)
+            if len(ordered_adapters) > 1:
+                from src.model.providers.fallback_adapter import (
+                    FallbackAssessmentAdapter,
+                )
+
+                assessment_adapter = FallbackAssessmentAdapter(ordered_adapters)
+            else:
+                assessment_adapter = primary_adapter
 
     agent = DeterministicAgent(
         execution_engine=engine,
         assessment_model=assessment_adapter,
         conversation_store=conversation_store,
+        evidence_cache=evidence_cache,
     )
     _info("orion", message="orion started")
     return agent

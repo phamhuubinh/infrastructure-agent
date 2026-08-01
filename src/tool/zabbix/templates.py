@@ -67,7 +67,7 @@ def _get_templates(zapi: _ZabbixAPI) -> dict[str, object]:
     for template in result:
         if not isinstance(template, dict):
             continue
-        name = template.get("name", template.get("host", ""))
+        name = str(template.get("name", template.get("host", "")))
         templates.append(
             {
                 "templateid": template.get("templateid"),
@@ -79,7 +79,7 @@ def _get_templates(zapi: _ZabbixAPI) -> dict[str, object]:
         )
     domain_summary: dict[str, int] = {}
     for template in templates:
-        domain = template["domain"]
+        domain = str(template["domain"])
         domain_summary[domain] = domain_summary.get(domain, 0) + 1
     return {
         "templates": templates,

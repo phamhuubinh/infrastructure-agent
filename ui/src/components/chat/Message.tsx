@@ -7,6 +7,7 @@ import {
   Check,
   User,
   Sparkles,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,7 @@ function IconBtn({
   label,
   content,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   content?: string;
 }) {

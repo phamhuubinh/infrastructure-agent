@@ -12,10 +12,9 @@ deployed yet.
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 
-from src.tool.RAGTool.app.parsers.base import DocumentParser, ParsedDocument, ParserError
+from app.parsers.base import DocumentParser, ParsedDocument, ParserError
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +43,15 @@ class ParserRouter:
         from app.parsers.marker_parser import MarkerParser
         from app.parsers.mineru_parser import MinerUParser
         from app.parsers.pypdf_parser import PyPdfParser
+        from app.parsers.text_parser import TextParser
 
-        return [DoclingParser(), MarkerParser(), MinerUParser(), PyPdfParser()]
+        return [
+            TextParser(),
+            DoclingParser(),
+            MarkerParser(),
+            MinerUParser(),
+            PyPdfParser(),
+        ]
 
     def looks_scientific(self, path: Path) -> bool:
         try:
@@ -57,8 +63,14 @@ class ParserRouter:
         return sum(hint in sample for hint in _SCIENTIFIC_HINTS) >= 2
 
     def parse(self, path: Path) -> ParsedDocument:
+        if path is None:
+            logger.info("Processing file: [No file path provided]")
+            raise ParserError("No file path provided")
         path = Path(path)
         if not path.exists():
+            logger.info(
+                "Processed file with fallback parser unavailable: file does not exist"
+            )
             pargs_msg = f"File not found: {path}"
             raise ParserError(pargs_msg)
 
@@ -74,21 +86,21 @@ class ParserRouter:
                     errors.append(f"{parser.name}: produced no blocks")
                     continue
                 if errors:
-                    # Sanitize path to prevent sensitive path disclosure
-                    if not path or str(path) == ".":
-                        logger.info("Processing file: [No file path provided]")
-                    else:
-                        logger.info(
-                            "Processed file with fallback parser '%s' after: %s",
-                            parser.name,
-                            "; ".join(errors),
-                        )
+                    logger.info(
+                        "Processed file with fallback parser '%s' after: %s",
+                        parser.name,
+                        "; ".join(errors),
+                    )
                 return doc
             except ParserError as exc:
                 errors.append(f"{parser.name}: {exc}")
                 continue
 
-        pargs_msg = f"All parsers failed for '{path}': {'; '.join(errors) or 'no applicable parser'}"
+        logger.info(
+            "Processed file with fallback parser unavailable after: %s",
+            "; ".join(errors) or "no applicable parser",
+        )
+        pargs_msg = f"All parsers failed: {'; '.join(errors) or 'no applicable parser'}"
         raise ParserError(pargs_msg)
 
     def _order_for(self, path: Path) -> list[DocumentParser]:

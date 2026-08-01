@@ -1,16 +1,16 @@
 """Provider selection config.
 
 Kept intentionally simple (no pydantic-settings dependency) — reads from
-environment variables with sane offline-testable defaults so the service
-boots even with nothing configured (using the hash embedding fallback +
-in-memory vector store + no-op reranker/OCR). Point every *_PROVIDER env
-var at "real" and fill in the matching URL/model vars to go to production.
+environment variables with offline-testable retrieval defaults so the service
+can boot and ingest documents before a model is selected. Analysis still
+requires a configured LLM and never returns a retrieval-only answer.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _env(key: str, default: str) -> str:
@@ -30,12 +30,12 @@ class RagServiceConfig:
     reranker: str = "noop"  # noop | bge_v2
     ocr_provider: str = "noop"  # noop | paddleocr
 
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "default"
+    llm_base_url: str = ""
+    llm_model: str = ""
     llm_api_key: str = ""
-    llm_enabled: bool = False
 
     collection: str = "documents"
+    data_dir: str = "/tmp/orion-rag"
 
 
 def load_config() -> RagServiceConfig:
@@ -48,11 +48,11 @@ def load_config() -> RagServiceConfig:
         qdrant_url=_env("RAG_QDRANT_URL", "http://localhost:6333"),
         reranker=_env("RAG_RERANKER", "noop"),
         ocr_provider=_env("RAG_OCR_PROVIDER", "noop"),
-        llm_base_url=_env("RAG_LLM_BASE_URL", "http://localhost:8000/v1"),
-        llm_model=_env("RAG_LLM_MODEL", "default"),
+        llm_base_url=_env("RAG_LLM_BASE_URL", ""),
+        llm_model=_env("RAG_LLM_MODEL", ""),
         llm_api_key=_env("RAG_LLM_API_KEY", ""),
-        llm_enabled=_env("RAG_LLM_ENABLED", "false").lower() == "true",
         collection=_env("RAG_COLLECTION", "documents"),
+        data_dir=_env("RAG_DATA_DIR", "/tmp/orion-rag"),
     )
 
 
@@ -87,7 +87,9 @@ def build_vector_store(config: RagServiceConfig):
     if config.vector_store == "memory":
         from app.vectordb.memory_store import InMemoryVectorStore
 
-        return InMemoryVectorStore()
+        data_dir = Path(config.data_dir)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return InMemoryVectorStore(persist_path=str(data_dir / "vectors.json"))
     if config.vector_store == "qdrant":
         from app.vectordb.qdrant_store import QdrantVectorStore
 
@@ -123,7 +125,7 @@ def build_ocr_provider(config: RagServiceConfig):
 
 
 def build_llm_client(config: RagServiceConfig):
-    if not config.llm_enabled:
+    if not config.llm_base_url.strip() or not config.llm_model.strip():
         return None
     from app.serving.llm_client import LlmClient
 

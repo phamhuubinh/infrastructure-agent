@@ -9,6 +9,7 @@ import time as _time
 _lock = threading.Lock()
 _file_lock = threading.Lock()
 _json_format = os.environ.get("ORION_LOG_FORMAT") == "json"
+_file_error_reported = False
 
 # Auto-detect: color console output when stderr is a terminal (TTY).
 # `set_enabled(False)` can override this to disable if needed.
@@ -48,7 +49,7 @@ def clear_context() -> None:
 def _log_dir() -> str:
     from pathlib import Path
 
-    d = str(Path.home() / ".orion")
+    d = os.environ.get("ORION_LOG_DIR") or str(Path.home() / ".orion")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -96,23 +97,22 @@ def _trim_to_max_lines(path: str) -> None:
 
 
 def _write(line: str) -> None:
+    global _file_error_reported
     from pathlib import Path
 
-    path = str(Path(_log_dir()) / "orion.log")
     try:
+        path = str(Path(_log_dir()) / "orion.log")
         with _file_lock:
             _rotate_if_needed(path)
             with open(path, "a") as f:
                 f.write(line + "\n")
             _trim_to_max_lines(path)
-    except OSError:
-        import traceback
-
-        print(
-            "[logger] failed to write to log file:",
-            traceback.format_exc(),
-            file=sys.stderr,
-        )
+    except OSError as exc:
+        # Logging must never break the request path. Read-only containers and
+        # sandboxed test runners are expected to lack a writable home folder.
+        if not _file_error_reported:
+            _file_error_reported = True
+            print(f"[logger] file logging disabled: {exc}", file=sys.stderr)
 
 
 def _now() -> str:
@@ -266,5 +266,6 @@ class _LoggerFacade:
 
     def critical(self, component_or_msg: str, **fields: object) -> None:
         critical(component_or_msg, **fields)
+
 
 logger = _LoggerFacade()

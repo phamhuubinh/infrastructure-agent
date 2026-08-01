@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import logging
 import pkgutil
 import re
-import logging
 from pathlib import Path
 
 from src.tool.tool import Tool
@@ -18,7 +18,6 @@ def _tool_type_key(tool_cls: type[Tool]) -> str:
     GrafanaTool -> 'grafana'
     InternetTool -> 'internet'
     ZabbixTool -> 'zabbix'
-    KnowledgeBaseTool -> 'knowledge_base'
     LinuxTool -> 'linux'
     """
     name = tool_cls.__name__

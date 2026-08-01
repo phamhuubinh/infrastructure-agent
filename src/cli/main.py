@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -11,12 +12,103 @@ from src.backend.sqlite_store import (
     SQLiteConversationStore,
     migrate_json_to_sqlite,
 )
+from src.model.config_store import ModelConfigStore
 from src.shared.logger import info as _info
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
 _last_request = None
+
+
+def _run_web_command(args: argparse.Namespace) -> None:
+    packaged_url = os.environ.get("ORION_PACKAGED_WEB_URL", "").strip()
+    if packaged_url:
+        print(f"Orion Web UI is already running at {packaged_url}")
+        return
+    run_web(
+        port=args.port,
+        target_store_path=args.target_file,
+        server_name=args.server,
+        model=args.model,
+    )
+
+
+# ============================================================
+# Model management
+# ============================================================
+
+
+def _manage_model(args: argparse.Namespace) -> None:
+    store = ModelConfigStore()
+    action = args.model_action
+    if action == "list":
+        data = store.list_public()
+        if not data["models"]:
+            print("No model configured. Orion is available in setup mode.")
+            return
+        for item in data["models"]:
+            marker = "*" if item["active"] else " "
+            print(
+                f"{marker} {item['name']}: {item['provider']} / "
+                f"{item['model']} @ {item['base_url']}"
+            )
+        return
+
+    if action == "add":
+        api_key = args.api_key
+        if args.api_key_stdin:
+            api_key = sys.stdin.readline().rstrip("\r\n")
+        try:
+            store.upsert(
+                args.name,
+                {
+                    "provider": args.provider,
+                    "base_url": args.base_url,
+                    "model": args.model_name,
+                    "api_key": api_key or None,
+                    "timeout": args.timeout,
+                    "temperature": args.temperature,
+                    "max_tokens": args.max_tokens,
+                },
+                activate=not args.no_activate,
+            )
+        except ValueError as exc:
+            print(f"Model configuration error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(f"Model connection '{args.name}' saved.")
+        print(f"Run: orion model test {args.name}")
+        return
+
+    if action == "test":
+        try:
+            result = store.test(args.name, timeout=args.timeout)
+        except KeyError as exc:
+            print(f"Model connection '{args.name}' not found.", file=sys.stderr)
+            raise SystemExit(1) from exc
+        if result["status"] != "ok":
+            print(f"Connection failed: {result.get('error', 'unknown error')}")
+            raise SystemExit(1)
+        print(f"Connection '{args.name}' is healthy.")
+        return
+
+    if action == "use":
+        try:
+            store.set_active(args.name)
+        except KeyError as exc:
+            print(f"Model connection '{args.name}' not found.", file=sys.stderr)
+            raise SystemExit(1) from exc
+        print(f"Model connection '{args.name}' selected.")
+        return
+
+    if action == "remove":
+        if not store.delete(args.name):
+            print(f"Model connection '{args.name}' not found.", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"Model connection '{args.name}' removed.")
+        return
+
+    raise SystemExit("Choose a model action: list, add, test, use, or remove")
 
 
 # ============================================================
@@ -264,8 +356,14 @@ def main() -> None:
             "    session delete <id> Delete a specific session by ID\n"
             "    session clean       Delete ALL sessions\n"
             "  migrate              Migrate JSON sessions to SQLite\n"
+            "  model                Configure and test model connections\n"
+            "    model list          List configured models\n"
+            "    model add           Add an OpenAI-compatible connection\n"
+            "    model test <name>   Test a saved connection\n"
+            "    model use <name>    Select a connection\n"
+            "    model remove <name> Remove a connection\n"
             "  run                   Run terminal agent (default)\n"
-            "    --server <name>       Model server (default: sv1)\n"
+            "    --server <name>       Model connection (default: active)\n"
             "    --model <name>        Override model name\n"
             "    --target-file <path>  Target config (default: targets.json)\n"
             "    --verbose             Debug output\n"
@@ -274,7 +372,7 @@ def main() -> None:
             "    (same options as run)\n"
             "  web                   Start web UI\n"
             "    --port <port>         Port (default: 61888)\n"
-            "    --server <name>       Model server\n"
+            "    --server <name>       Model connection\n"
             "    --model <name>        Override model name\n"
             "  log                   Tail structured log output\n"
             "  add-target            Add a remote SSH target\n"
@@ -304,6 +402,45 @@ def main() -> None:
         default=None,
         help="JSON sessions directory (default: ~/.orion/sessions/)",
     )
+
+    model_parser = subparsers.add_parser(
+        "model", help="Manage user-provided model connections"
+    )
+    model_sub = model_parser.add_subparsers(
+        dest="model_action", metavar="ACTION", required=True
+    )
+    model_sub.add_parser("list", help="List saved model connections")
+
+    model_add = model_sub.add_parser(
+        "add", help="Save an OpenAI-compatible model connection"
+    )
+    model_add.add_argument("name", help="Unique connection name")
+    model_add.add_argument(
+        "--provider", default="openai", choices=["openai", "ollama", "vllm"]
+    )
+    model_add.add_argument("--base-url", required=True, help="Provider base URL")
+    model_add.add_argument(
+        "--model", dest="model_name", required=True, help="Provider model name"
+    )
+    model_add.add_argument("--api-key", default="", help="Provider API key")
+    model_add.add_argument(
+        "--api-key-stdin",
+        action="store_true",
+        help="Read the model API key from stdin instead of process arguments",
+    )
+    model_add.add_argument("--timeout", type=int, default=180)
+    model_add.add_argument("--temperature", type=float, default=0.0)
+    model_add.add_argument("--max-tokens", type=int, default=4096)
+    model_add.add_argument("--no-activate", action="store_true")
+
+    model_test = model_sub.add_parser("test", help="Test a saved connection")
+    model_test.add_argument("name", help="Connection name")
+    model_test.add_argument("--timeout", type=int, default=30)
+
+    model_use = model_sub.add_parser("use", help="Select the active connection")
+    model_use.add_argument("name", help="Connection name")
+    model_remove = model_sub.add_parser("remove", help="Delete a connection")
+    model_remove.add_argument("name", help="Connection name")
     migrate_parser.add_argument(
         "--sqlite-path",
         type=str,
@@ -313,7 +450,10 @@ def main() -> None:
 
     run_parser = subparsers.add_parser("run", help=argparse.SUPPRESS)
     run_parser.add_argument(
-        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+        "--server",
+        type=str,
+        default=None,
+        help="Model connection name (default: active)",
     )
     run_parser.add_argument(
         "--model", type=str, default=None, help="Override model name"
@@ -334,7 +474,10 @@ def main() -> None:
     resume_parser = subparsers.add_parser("resume", help=argparse.SUPPRESS)
     resume_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
     resume_parser.add_argument(
-        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+        "--server",
+        type=str,
+        default=None,
+        help="Model connection name (default: active)",
     )
     resume_parser.add_argument(
         "--model", type=str, default=None, help="Override model name"
@@ -351,7 +494,10 @@ def main() -> None:
         "--port", type=int, default=61888, help="Web UI port (default: 61888)"
     )
     web_parser.add_argument(
-        "--server", type=str, default="sv1", help="Model server name (default: sv1)"
+        "--server",
+        type=str,
+        default=None,
+        help="Model connection name (default: active)",
     )
     web_parser.add_argument(
         "--model", type=str, default=None, help="Override model name"
@@ -403,6 +549,10 @@ def main() -> None:
         print(f"Migrated {count} sessions from JSON to SQLite.")
         return
 
+    if args.command == "model":
+        _manage_model(args)
+        return
+
     if args.command == "session":
         if args.session_action == "delete":
             deleted = SQLiteConversationStore.delete_session(args.id)
@@ -447,12 +597,7 @@ def main() -> None:
         return
 
     if args.command == "web":
-        run_web(
-            port=args.port,
-            target_store_path=args.target_file,
-            server_name=args.server,
-            model=args.model,
-        )
+        _run_web_command(args)
         return
 
     if args.command == "log":

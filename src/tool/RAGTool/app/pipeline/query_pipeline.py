@@ -80,7 +80,10 @@ class QueryPipeline:
         sparse_hits = self._bm25.search(query, top_k=self._sparse_top_k)
 
         payload_by_id = {h.id: h.payload for h in dense_hits}
-        text_by_id = {h.id: h.payload.get("text", "") for h in dense_hits}
+        text_by_id = {h.id: str(h.payload.get("text", "")) for h in dense_hits}
+        for hit in sparse_hits:
+            payload_by_id.setdefault(hit.id, hit.payload)
+            text_by_id.setdefault(hit.id, hit.text)
 
         fused = reciprocal_rank_fusion(
             rankings={
@@ -90,9 +93,6 @@ class QueryPipeline:
             top_k=self._fusion_top_k,
         )
 
-        # sparse-only hits won't have text/payload from the dense search —
-        # in production, fetch their text/payload from the vector store or
-        # a document store by id; omitted here for brevity in this scaffold.
         candidates = [
             (f.id, text_by_id.get(f.id, "")) for f in fused if text_by_id.get(f.id)
         ]
@@ -123,9 +123,8 @@ class QueryPipeline:
     def answer(self, query: str) -> QueryResult:
         retrieved = self.retrieve(query)
         if self._llm is None:
-            return QueryResult(
-                answer="[no LLM client configured — retrieval-only mode]",
-                retrieved=retrieved,
+            raise RuntimeError(
+                "No analysis model configured. Configure and test a model before running RAG analysis."
             )
 
         context = "\n\n".join(f"[{i + 1}] {c.text}" for i, c in enumerate(retrieved))

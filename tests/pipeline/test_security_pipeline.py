@@ -147,11 +147,11 @@ def test_read_only_denies_package_install() -> None:
     assert result.denied
 
 
-def test_read_only_allows_unknown_capability() -> None:
+def test_read_only_denies_unknown_capability() -> None:
     inspector = ReadOnlyInspector()
     ctx = InspectionContext(capability_name="weird_custom_thing")
     result = inspector.inspect(ctx)
-    assert result.allowed
+    assert result.denied
     assert "no explicit read-only classification" in result.reason.lower()
 
 
@@ -212,12 +212,12 @@ def test_target_blocked_overrides_safe() -> None:
     assert result.denied
 
 
-def test_target_allow_unknown_in_local_mode() -> None:
+def test_target_denies_unknown_target() -> None:
     inspector = TargetInspector()
     ctx = InspectionContext(target="some-unknown-server")
     result = inspector.inspect(ctx)
-    assert result.allowed
-    assert "trusted-network" in result.reason.lower()
+    assert result.denied
+    assert "explicit safe list" in result.reason.lower()
 
 
 def test_target_remove_safe() -> None:
@@ -225,9 +225,8 @@ def test_target_remove_safe() -> None:
     inspector.remove_safe_target("server01")
     ctx = InspectionContext(target="server01")
     result = inspector.inspect(ctx)
-    # Now unknown — allowed but with warning in local mode.
-    assert result.allowed
-    assert "trusted-network" in result.reason.lower()
+    assert result.denied
+    assert "explicit safe list" in result.reason.lower()
 
 
 def test_target_case_insensitive() -> None:

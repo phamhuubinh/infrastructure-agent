@@ -213,8 +213,7 @@ class EvidencePlanner:
         intent = state.intent
 
         if intent is None or intent not in _TEMPLATES:
-            update: StateUpdate = {"required_evidence": (), "optional_evidence": ()}
-            return update
+            return {"required_evidence": (), "optional_evidence": ()}
 
         required_names, optional_names = _TEMPLATES[intent]
 
@@ -225,11 +224,10 @@ class EvidencePlanner:
             EvidenceRequirement(name=name, required=False) for name in optional_names
         )
 
-        update: StateUpdate = {
+        return {
             "required_evidence": required,
             "optional_evidence": optional,
         }
-        return update
 
     def plan(self, request: InvestigationRequest) -> None:
         """Populate evidence requirements from the investigation intent.

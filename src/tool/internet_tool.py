@@ -46,6 +46,8 @@ def _resolve_host(hostname: str) -> str | None:
     seen: set[str] = set()
     for info in infos:
         ip_str = info[4][0]
+        if not isinstance(ip_str, str):
+            continue
         if ip_str not in seen:
             seen.add(ip_str)
             if _is_private_address(ip_str):
@@ -59,9 +61,7 @@ class _HTMLStripper(HTMLParser):
         self._text: list[str] = []
         self._skip = False
 
-    def handle_starttag(
-        self, tag: str, attrs: list[tuple[str, str | None]]
-    ) -> None:  # noqa: ARG002
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # noqa: ARG002
         if tag in ("script", "style", "noscript"):
             self._skip = True
 

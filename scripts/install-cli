@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+user_home="${HOME:-}"
+if [[ -z "$user_home" || "$user_home" == "/" ]]; then
+    echo "Cannot install the Orion command because HOME is not set safely." >&2
+    exit 1
+fi
+
+cli_dir="$user_home/.local/bin"
+cli_path="$cli_dir/orion"
+marker="# Orion CLI launcher managed by Orion"
+mkdir -p "$cli_dir"
+
+if [[ -e "$cli_path" || -L "$cli_path" ]]; then
+    if [[ -L "$cli_path" ]]; then
+        target="$(readlink -f "$cli_path" 2>/dev/null || true)"
+        if [[ "$target" != "$PROJECT_DIR/scripts/orion" ]]; then
+            echo "Cannot install Orion CLI: $cli_path is managed by another application." >&2
+            exit 1
+        fi
+    elif ! grep -qFx "$marker" "$cli_path"; then
+        echo "Cannot install Orion CLI: $cli_path is managed by another application." >&2
+        exit 1
+    fi
+fi
+
+launcher_tmp="$(mktemp "${cli_path}.tmp.XXXXXX")"
+trap 'rm -f -- "$launcher_tmp"' EXIT
+{
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$marker"
+    printf 'exec %q "$@"\n' "$PROJECT_DIR/scripts/orion"
+} > "$launcher_tmp"
+chmod 755 "$launcher_tmp"
+mv -f -- "$launcher_tmp" "$cli_path"
+trap - EXIT
+
+echo "Orion CLI installed at $cli_path"
+if [[ ":${PATH}:" != *":${cli_dir}:"* ]]; then
+    echo "Add $cli_dir to PATH to use the 'orion' command from a new shell." >&2
+fi

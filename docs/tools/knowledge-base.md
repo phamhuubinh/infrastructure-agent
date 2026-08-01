@@ -1,81 +1,56 @@
-# Knowledge Base Tool
+# Project RAG Analysis
 
-> RAG-powered document search and retrieval tool.
+RAG is a dedicated Web UI application flow for analyzing user-uploaded documents. It is not a Chat Child Tool and is not registered behind `KnowledgeTool`.
 
-## Overview
+## Isolation model
 
-The Knowledge Base Tool queries a RAG (Retrieval-Augmented Generation) microservice to search indexed documents and return relevant chunks. It supports semantic search, query expansion, reranking, and graph-based retrieval.
+- A RAG project owns its document files, dense-vector collection, BM25 index, and latest 100 analyses.
+- Retrieval always uses the selected project's collection and index.
+- Deleting a document removes its dense and sparse chunks; deleting a project removes its complete corpus.
+- Chat sessions separately own their Agent, conversation store, evidence cache, and execution lock.
+- Chat routing has no RAG capability or RAG child tool.
 
-## Capabilities
+## Web UI flow
 
-| Capability | Description |
-|------------|-------------|
-| `knowledge_search` | Search indexed documents by semantic similarity |
-| `knowledge_ingest` | Index a document for future retrieval |
-| `knowledge_health` | Check RAG service health |
+Open **Phân tích tài liệu** (`/knowledge`):
 
-## Usage Examples
+1. Create a project.
+2. Upload PDF, TXT, Markdown, CSV, JSON, YAML, or log files (maximum 50 MiB each).
+3. Enter an analysis request.
+4. Review the answer, retrieved snippets, and project analysis history.
 
-### Via CLI
+RAG analysis always synthesizes an answer with Orion's active model. There is no retrieval-only response mode. Without a configured model, project creation and document upload still work, but starting an analysis returns a setup-required error. Configure and test a model in **Cài đặt** first.
 
-```bash
-orion run
-> Search knowledge base for Kubernetes best practices
+## Service boundary
+
+The browser talks only to the FastAPI backend:
+
+```text
+Browser → /api/rag/* → backend proxy → internal rag-service:8080
 ```
 
-### Via API
-
-```bash
-# Search documents
-curl -X POST http://localhost:61888/api/knowledge/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Kubernetes pod security policies", "top_k": 5}'
-
-# Health check
-curl http://localhost:61888/api/knowledge/health
-```
-
-### Python
-
-```python
-from src.tool.knowledge_base_tool import KnowledgeBaseTool
-
-tool = KnowledgeBaseTool(rag_service_url="http://localhost:8000")
-result = tool.execute({
-    "capability": "knowledge_search",
-    "query": "nginx configuration best practices",
-    "top_k": 5,
-})
-print(result.data)
-```
-
-## Architecture
-
-The Knowledge Base Tool delegates to a separate RAG microservice (`src/tool/RAGTool/`) that provides:
-
-- **Embedding**: Qwen3, BGE-M3, compatible providers
-- **Vector Store**: In-memory, Qdrant
-- **Chunking**: Hierarchical semantic chunking with heading-aware splitting
-- **Query Expansion**: HyDE (Hypothetical Document Embeddings)
-- **Reranking**: BGE Reranker
-- **GraphRAG/LightRAG**: Entity-relationship graph indexing
-- **OCR**: PaddleOCR for image-based documents
-- **Parsers**: Docling, Marker, MinerU, PyPDF
+The root Docker Compose stack does not publish the RAG port to the host. API-key middleware protects `/api/rag/*` whenever `ORION_API_KEY` is configured.
 
 ## Configuration
 
-The RAG service URL is configured on startup:
-
 ```bash
-export ORION_RAG_SERVICE_URL="http://localhost:8000"
+RAG_DATA_DIR=/data
+RAG_EMBEDDING_PROVIDER=hash
+RAG_VECTOR_STORE=memory
+RAG_RERANKER=noop
 ```
 
-Secrets for LLM-based components (HyDE, GraphRAG) are stored in `config/secrets.local.json`:
+The backend supplies Orion's active model as request-scoped internal data for each analysis. It is never stored as shared mutable state in the RAG service, so concurrent projects cannot switch one another's model client. The `memory` vector provider is process-local but persists to `RAG_DATA_DIR/vectors.json`. For larger deployments, install `qdrant-client` and select `RAG_VECTOR_STORE=qdrant`.
 
-```json
-{
-  "rag_llm": {
-    "base_url": "https://llm.example.com/v1",
-    "api_token": "..."
-  }
-}
+## Active API
+
+- `GET /api/rag/health`
+- `POST /api/rag/projects`
+- `GET /api/rag/projects`
+- `GET /api/rag/projects/{project_id}`
+- `DELETE /api/rag/projects/{project_id}`
+- `POST /api/rag/projects/{project_id}/documents` (multipart field `file`)
+- `DELETE /api/rag/projects/{project_id}/documents/{doc_id}`
+- `POST /api/rag/projects/{project_id}/analyses`
+
+`/api/knowledge/health` and `/api/knowledge/query` remain compatibility aliases for older clients. They use the isolated built-in `default` project and are not called by Chat.

@@ -24,12 +24,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test,security]"
+          pip install -e ".[test,security,typecheck]"
 
       - name: Lint
         run: |
           pip install ruff
           ruff check .
+
+      - name: Type check
+        run: python -m mypy src --ignore-missing-imports
 
       - name: Security scan (Bandit)
         run: bandit -r src/ -c pyproject.toml --severity-level high
@@ -40,7 +43,7 @@ jobs:
         if: always()
 
       - name: Package vulnerability scan (pip-audit)
-        run: pip-audit --fail-on=high
+        run: pip-audit
         if: always()
 
       - name: Test with coverage
@@ -79,6 +82,40 @@ jobs:
           path: benchmark_results_*
           if-no-files-found: ignore
 
+  rag-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install RAG dependencies
+        run: pip install -r src/tool/RAGTool/requirements.txt
+      - name: Test RAG service
+        run: python -m pytest src/tool/RAGTool/tests -q --tb=short
+
+  ui-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        run: npm ci
+        working-directory: ui
+      - name: Lint UI
+        run: npm run lint
+        working-directory: ui
+      - name: Test UI
+        run: npm test -- --run
+        working-directory: ui
+      - name: Build UI
+        run: npm run build
+        working-directory: ui
+
   docker-build:
     runs-on: ubuntu-latest
     steps:
@@ -113,6 +150,9 @@ jobs:
 
   docker-compose:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-only-postgres-password
+      ORION_API_KEY: ci-only-api-key
     steps:
       - uses: actions/checkout@v4
 
@@ -175,6 +215,7 @@ jobs:
           API_URL: http://localhost:61888
           UI_URL: http://localhost:80
           PROXY_URL: http://localhost:80
+          ORION_API_KEY: ci-only-api-key
 
       - name: Dump container logs on failure
         if: failure()

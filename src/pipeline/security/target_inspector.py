@@ -89,15 +89,13 @@ class TargetInspector(ToolInspector):
                 inspector_name=self.name,
             )
 
-        # Unknown targets — allow by default for the local trusted-network
-        # scope. This is consistent with ADR-0001's current scope.
-        # The target was already resolved by TargetResolver, so it is
-        # a valid known hostname.
+        # Unknown targets fail closed. Runtime construction registers every
+        # configured target explicitly through add_safe_target().
         return InspectionResult(
-            verdict=InspectionVerdict.ALLOW,
+            verdict=InspectionVerdict.DENY,
             reason=(
                 f"Target '{context.target}' is not in the explicit safe list "
-                f"but is allowed in local trusted-network mode."
+                f"and is denied by default."
             ),
             inspector_name=self.name,
         )

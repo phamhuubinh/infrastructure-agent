@@ -18,9 +18,10 @@ All configuration errors are collected before exit. The system does not fail on 
 ## Required vs Optional Sources
 
 ### Required
-- `servers.json` — Must exist and contain valid JSON with at least one server entry. Missing servers.json causes a fatal startup error.
+- No model configuration is required to install or start Orion.
 
 ### Optional (warn + safe default)
+- `servers.json` / `ORION_SERVERS_FILE` — Model registry. A missing file is created as an empty registry; zero model entries is valid setup mode.
 - `tools.json` — Warns if missing or invalid JSON; returns empty dict.
 - `targets.json` — Warns if missing or invalid JSON; returns empty dict.
 - `config/secrets.local.json` — Warns if missing or invalid JSON; returns empty dict.

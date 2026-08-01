@@ -2,16 +2,16 @@
 > Source of truth for "what actually exists." If this file and any other doc disagree, this file wins (see `00_BOOTSTRAP.md`). Update this file whenever status changes — do not let it drift from reality (`07_DEVELOPMENT_RULES.md`, rule 25).
 
 ## Phase
-**Local MVP with Docker Compose.** Single-user, single-machine, no network exposure beyond outbound calls to targets/Grafana/Zabbix/LLM APIs. WP1 local infrastructure (Docker Compose, nginx reverse proxy, PostgreSQL, self-signed HTTPS) is in place.
+**Local MVP with Docker Compose.** Single-user, single-machine. Docker Compose provides an HTTP reverse proxy for local use; production TLS is expected to terminate outside this stack.
 
 ## Implemented
 - 6-stage deterministic pipeline: Normalize → Target → Plan → Graph → Execute → Assess (`src/pipeline/*`). Includes SemanticRequest normalization layer (language-only, config-driven via `config/concepts.yaml`) and CapabilityPlanner (concept+action → capability plan, config-driven via `config/capability_plans.yaml`).
 - `KnowledgeTool` as the single dispatch entry point to Child Tools (`src/tool/knowledge_tool.py`).
-- Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, `InternetTool` (HTTP fetch with SSRF protection), `KnowledgeBaseTool` (RAG service proxy).
+- Chat Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, and `InternetTool` (HTTP fetch with SSRF protection). RAG is explicitly excluded from chat registration.
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
-- Assessment layer: `LLMAssessmentAdapter` (real) and `MockAssessmentAdapter` (offline/dev), behind the `AssessmentModelAdapter` interface (`src/model/*`).
-- CLI entry point with local mode and `--web` mode (`src/cli.py`).
-- Web UI (TanStack Start / React) for local dev use (`ui/`), talking to the local backend started by `--web`.
+- Assessment layer: `LLMAssessmentAdapter` (real), `MockAssessmentAdapter` (tests), and an explicit unconfigured/setup adapter, behind the `AssessmentModelAdapter` interface (`src/model/*`). Orion starts without a model.
+- CLI entry point with local mode, `web` mode, and model management (`src/cli/main.py`).
+- Web UI (TanStack Start / React) with isolated Chat sessions, a dedicated project-based document-analysis page, API-key settings, and model add/install/test/select/delete controls.
 - Step-by-step pipeline visualization in Web UI (intent → evidence → prompt → assessment with expandable details).
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
 - Chat interface with routing: keyword match + model classify to distinguish infrastructure queries from general chat.
@@ -21,10 +21,11 @@
 - Assessment request model (`src/pipeline/assessment_request.py`) — typed request envelope used by `AssessmentAdapter`.
 - Ctrl+C cancel support without crash.
 - Benchmark runner (`python -m benchmark`) with dataset, scoring, reporting, regression detection, CSV/Markdown/JSON export, and configurable repeat runs (`benchmark/`).
-- RAG microservice (`src/tool/RAGTool/`) with embedding, vector store, OCR, document parsing, query expansion, reranking, fusion, chunking, GraphRAG/LightRAG support, and a full query/ingest pipeline. LangGraph-based agent loop (`langgraph_agent.py`) deprecated in favor of deterministic single-pass pipeline (`deterministic_rag.py`).
-- Test suite: **1,101 tests** across pipeline, tools, model, backend, agent, and benchmark modules (1,075 passing; 26 retry tests added via Task 006).
+- RAG microservice (`src/tool/RAGTool/`) with persistent project metadata, project-specific documents/vector collections/BM25 indexes, and bounded analysis history. Analysis always uses Orion's active model; retrieval-only output is not supported.
+- Session isolation: each chat session owns its Agent, conversation store, evidence cache, and execution lock. Switching a model in one session cannot mutate another session.
+- CI runs the Python suite and type-check, the independent RAG suite, UI lint/Vitest/build, security scans, image builds, and Compose smoke tests.
 - Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
-- Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
+- Complete local installer (`install.sh`) and Docker Compose deployment: nginx HTTP reverse proxy, FastAPI API, React UI, PostgreSQL, and an internal-only persistent RAG service. Model selection is prompted but optional; CLI and Web UI configure and test user-managed endpoints without installing model runtimes or weights.
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 
 ## WP4: Platform capability migration (in progress)
@@ -32,9 +33,9 @@
 - PostgreSQL session store (`src/backend/db.py`) with `PostgresConversationStore` replacing JSON file storage when `ORION_DATABASE_URL` is set.
 - `psycopg2-binary` dependency added to `pyproject.toml`.
 - Docker Compose API service configured with `ORION_DATABASE_URL` environment variable.
-- Fallback to JSON file storage when no database URL is configured (backward compatible).
+- SQLite session storage at `~/.orion/sessions.db` when no database URL is configured.
 - API authentication via optional `ORION_API_KEY` env var (`src/backend/auth.py`), with `APIKeyMiddleware` protecting all endpoints except `/api/health`. Default: disabled (no key required in local mode).
-- Basic document upload/list/delete (`src/backend/document_service.py`, `src/backend/routers/documents.py`) with filesystem storage under `~/.orion/documents/` and optional PostgreSQL metadata. Full document service (preview, search, versioning, Knowledge Base integration) is not implemented.
+- Legacy generic document upload/list/delete remains available under `/api/documents`. Project RAG documents use the separate `/api/rag/projects/{project_id}/documents` lifecycle.
 - FastAPI dependency injection (`src/backend/dependencies.py`) — shared session and conversation store dependencies for API routes.
 
 ## Security scanning added to CI
@@ -87,7 +88,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 - ID 614✅: Non-ASSESSMENT types attempt DeterministicResponder first in _assess()
 
 ### WP6.5: Tool Selection 🟡 (completed — 3 tasks) — `src/pipeline/tool_selector.py`
-- ID 615✅: ToolSelector with ToolCategory enum (LINUX/GRAFANA/ZABBIX/KB/INTERNET)
+- ID 615✅: ToolSelector with ToolCategory enum (LINUX/GRAFANA/ZABBIX/INTERNET; the legacy KB enum value remains for compatibility but is never selected)
 - ID 616✅: Integrated into ExecutionEngine via ToolSelector.select()
 - ID 617✅: EvidencePackage.source_tool + EvidenceMerge tagging + ExecutionEngine._merge()
 
@@ -112,7 +113,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 
 ## Not implemented (do not assume otherwise)
 - **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
-- **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local Docker Compose with nginx reverse proxy and self-signed HTTPS.
+- **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local HTTP; production TLS termination is not part of this stack.
 - **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
 
 ## Known issues / open items being tracked
@@ -126,7 +127,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 ## Phase 1 — Foundation (completed 2026-07-22)
 - ID 87: Replaced broad `except Exception` in execution_runtime.py with specific exception types (`RuntimeError`, `ValueError`, `TypeError`, `OSError`, `CancelledError`).
 - ID 88: Thread-safe database connection pool with semaphore-based concurrency (max 5, configurable via `ORION_DB_POOL_SIZE`). Connection reuse across requests instead of per-request creation.
-- ID 89: Removed duplicate tool execution logic — `GrafanaTool`, `ZabbixTool`, `InternetTool`, `KnowledgeBaseTool` now delegate to shared `_dispatch()` in base `Tool` class.
+- ID 89: Removed duplicate tool execution logic for infrastructure tools. RAG is no longer represented as a Chat child tool.
 - ID 90: Standardized tool interface — base `Tool` provides `_resolve_capability()`, `_filter_arguments()`, and `_dispatch()` helpers. Consistent error messages and argument filtering across all tools.
 - ID 55: Thread Safety Tests for Execution Runtime and Tool execution — 30 tests across 3 modules.
 
@@ -138,7 +139,7 @@ All 53 Phase 2 tasks completed across 6 epics:
 - **Testing & QA** (11/11): Shared pytest fixtures, benchmark-to-dataset conversion, serialization/upload/internet/knowledge/capability tests, performance benchmarks, memory leak tests, load tests, test coverage improvement.
 - **Documentation** (9/9): CONTRIBUTING.md expansion, SECURITY.md improvements, issue templates, last-updated metadata, benchmark report consolidation, documentation standardization, bootstrap guide, development rules update, project state update.
 - **Code Quality** (10/10): Hardcoded config removal, config system standardization, logging consistency, error handling strategy, runtime performance, capability resolution refactoring, response model standardization, type hints, legacy code removal, project structure standardization.
-- ID 243: CI security scans now fail on high-severity CVE findings (`--audit-level=high` for Safety, `--fail-on=high` for pip-audit).
+- ID 243: CI security scans run Bandit, Safety, and `pip-audit`; `pip-audit` uses its supported default non-zero exit behavior for discovered vulnerabilities.
 
 ## Phase 3 — Polish & Governance (completed 2026-07-23)
 All 19 Phase 3 tasks completed across 4 epics:
@@ -162,9 +163,9 @@ All 19 Phase 3 tasks completed across 4 epics:
 | CI/CD Guide | `docs/devops/ci.md` |
 | Testing Guide | `docs/testing/README.md` |
 
-## Known issues discovered in evaluation (2026-07-24)
+## Historical evaluation findings (2026-07-24)
 
-Three rounds of structured evaluation testing exposed the following issues:
+These findings drove the completed Phase 6 work. They are retained as history, not as the current defect list:
 - **Identity leak** (🔴): System prompt does not override model identity → model self-identifies as Qwen/Alibaba
 - **Language contamination** (🔴): Vietnamese queries may receive Chinese or English responses due to weak language enforcement
 - **Target Resolution** (🔴): `TargetResolver` falls back to `localhost` when user types a nonexistent hostname (e.g. `serverabcxyz`). `UnknownTargetError` is caught and silently replaced by chat fallback, causing hallucination.
@@ -187,7 +188,7 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-08-02 (Repository support files reorganized; unused Dify/Redis and autonomous development subsystems removed; GitHub Actions CI remains).
+> **Last updated:** 2026-08-02 (User-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

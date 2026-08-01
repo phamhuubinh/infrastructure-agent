@@ -55,6 +55,7 @@ class SQLiteConversationStore:
         self._mem: list[dict[str, str]] = []
         self._summary: str | None = None
         self._title: str = ""
+        self._lock = threading.RLock()
 
         # Thread-local connections for WAL mode safety
         self._local = threading.local()
@@ -123,57 +124,68 @@ class SQLiteConversationStore:
 
     @property
     def history(self) -> list[dict[str, str]]:
-        if self._summary:
-            return [
-                {
-                    "role": "system",
-                    "content": f"Previous conversation summary: {self._summary}",
-                }
-            ] + list(self._mem)
-        return list(self._mem)
+        with self._lock:
+            if self._summary:
+                return [
+                    {
+                        "role": "system",
+                        "content": f"Previous conversation summary: {self._summary}",
+                    }
+                ] + list(self._mem)
+            return list(self._mem)
 
     @property
     def title(self) -> str:
-        return self._title
+        with self._lock:
+            return self._title
 
     def set_title(self, value: str) -> None:
-        self._title = value
+        with self._lock:
+            self._title = value
 
     @property
     def summary(self) -> str | None:
-        return self._summary
+        with self._lock:
+            return self._summary
 
     # ------------------------------------------------------------------
     # Turn management
     # ------------------------------------------------------------------
 
     def add_turn(self, user: str, assistant: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": assistant})
-        self._save()
-        self._check_compress()
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append({"role": "assistant", "content": assistant})
+            self._save()
+            self._check_compress()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": f"[classified as {label}]"})
-        self._save()
-        self._check_compress()
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append(
+                {"role": "assistant", "content": f"[classified as {label}]"}
+            )
+            self._save()
+            self._check_compress()
 
     # ------------------------------------------------------------------
     # Summary management
     # ------------------------------------------------------------------
 
     def set_summarize_fn(self, fn: Callable[[str], str]) -> None:
-        self._summarize_fn = fn
+        with self._lock:
+            self._summarize_fn = fn
 
     def set_summary(self, summary: str) -> None:
-        self._summary = summary
+        with self._lock:
+            self._summary = summary
 
     def summarize(self) -> None:
         """Summarize current conversation using the configured summarize_fn."""
-        all_turns = list(self._mem)
-        previous_summary = self._summary
-        summarize_fn = self._summarize_fn
+        with self._lock:
+            all_turns = list(self._mem)
+            previous_summary = self._summary
+            summarize_fn = self._summarize_fn
 
         if not all_turns:
             return
@@ -207,10 +219,12 @@ class SQLiteConversationStore:
             return
 
         # Keep only turns that arrived after the snapshot was taken
-        len_before = len(all_turns)
-        self._mem = self._mem[len_before:]
-        self._summary = new_summary
-        self._save()
+        with self._lock:
+            len_before = len(all_turns)
+            if self._mem[:len_before] == all_turns:
+                self._mem = self._mem[len_before:]
+            self._summary = new_summary
+            self._save()
         info(
             "session",
             session=self._session_id,
@@ -243,11 +257,12 @@ class SQLiteConversationStore:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        conn = self._get_conn()
-        row = conn.execute(
-            "SELECT source, title, summary, messages FROM sessions WHERE session_id = ?",
-            (self._session_id,),
-        ).fetchone()
+        with self._lock:
+            conn = self._get_conn()
+            row = conn.execute(
+                "SELECT source, title, summary, messages FROM sessions WHERE session_id = ?",
+                (self._session_id,),
+            ).fetchone()
 
         if row is None:
             return
@@ -273,6 +288,14 @@ class SQLiteConversationStore:
         )
 
     def _save(self) -> None:
+        with self._lock:
+            self._save_locked()
+
+    def persist(self) -> None:
+        """Ensure an empty session is visible to list/delete APIs."""
+        self._save()
+
+    def _save_locked(self) -> None:
         conn = self._get_conn()
         now = datetime.now(timezone.utc).isoformat()
 

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+PROJECT_DIR="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
+
+if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    echo "Docker Engine with Docker Compose is required to run Orion." >&2
+    exit 1
+fi
+
+cd "$PROJECT_DIR"
+
+if ! docker compose ps --status running --services 2>/dev/null | grep -qx api; then
+    echo "Orion is not running. Start it with: $PROJECT_DIR/install.sh" >&2
+    exit 1
+fi
+
+if [[ "${1:-}" == "web" ]]; then
+    web_url="${ORION_WEB_URL:-http://localhost}"
+    echo "Orion Web UI: $web_url"
+    if [[ "${ORION_DISABLE_BROWSER:-}" == "1" ]]; then
+        echo "Browser launch is disabled; open the URL above manually."
+    elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        if command -v xdg-open >/dev/null 2>&1; then
+            nohup xdg-open "$web_url" >/dev/null 2>&1 &
+            echo "Opening the Web UI in your default browser..."
+        elif command -v gio >/dev/null 2>&1; then
+            nohup gio open "$web_url" >/dev/null 2>&1 &
+            echo "Opening the Web UI in your default browser..."
+        else
+            echo "No desktop URL opener was found; open the URL above manually."
+        fi
+    else
+        echo "No graphical desktop detected; open the URL above manually."
+    fi
+    exit 0
+fi
+
+compose_args=(compose exec)
+if [[ ! -t 0 || ! -t 1 ]]; then
+    compose_args+=(-T)
+fi
+
+exec docker "${compose_args[@]}" api orion "$@"

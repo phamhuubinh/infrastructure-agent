@@ -43,8 +43,12 @@ class _ZabbixAPI:
 
         error = data.get("error")
         if error is not None:
-            msg = error.get("message", "unknown")
-            detail = error.get("data", "")
+            if isinstance(error, dict):
+                msg = error.get("message", "unknown")
+                detail = error.get("data", "")
+            else:
+                msg = "unknown"
+                detail = str(error)
             raise RuntimeError(f"Zabbix API error: {msg} - {detail}")
 
         result = data.get("result")

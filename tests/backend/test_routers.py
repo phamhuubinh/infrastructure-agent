@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import urllib.error
 from unittest import mock
 
 import pytest
@@ -136,15 +138,19 @@ def test_rename_session_success(app):
 
 
 def test_knowledge_health_no_rag(app):
-    resp = app.get("/api/knowledge/health")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "error"
+    with mock.patch(
+        "src.backend.routers.knowledge.urllib.request.urlopen",
+        side_effect=urllib.error.URLError("no rag"),
+    ):
+        resp = app.get("/api/knowledge/health")
+    assert resp.status_code == 503
+    assert "unavailable" in resp.json()["detail"].lower()
 
 
 @mock.patch("urllib.request.urlopen")
 def test_knowledge_health_success(mock_urlopen):
     mock_resp = mock.MagicMock()
+    mock_resp.__enter__.return_value = mock_resp
     mock_resp.read.return_value = json.dumps({"status": "ok"}).encode("utf-8")
     mock_urlopen.return_value = mock_resp
     from fastapi.testclient import TestClient
@@ -176,7 +182,10 @@ def test_knowledge_query_success():
     mock_resp = mock.MagicMock()
     mock_resp.__enter__.return_value = mock_resp
     mock_resp.read.return_value = json.dumps(
-        {"results": [{"text": "ansible docs"}], "status": "ok"}
+        {
+            "answer": "ansible docs",
+            "retrieved": [{"id": "1", "text": "docs", "score": 1, "payload": {}}],
+        }
     ).encode("utf-8")
     from fastapi.testclient import TestClient
 
@@ -194,8 +203,8 @@ def test_knowledge_query_success():
         resp = client.post("/api/knowledge/query", json={"query": "ansible"})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "ok"
-        assert len(data["results"]) == 1
+        assert data["answer"] == "ansible docs"
+        assert len(data["retrieved"]) == 1
 
 
 # ── Documents ─────────────────────────────────────────────────────────
@@ -357,7 +366,9 @@ def test_query_success(app):
         "steps": [{"tool": "ping", "result": "ok"}],
         "response": "Server is healthy",
     }
-    app_obj.state.deps.agent = mock_agent
+    app_obj.state.deps.prepare_query = mock.MagicMock(
+        return_value=("test-sess", mock_agent, threading.RLock())
+    )
     client = TestClient(app_obj)
     resp = client.post(
         "/api/query",
@@ -366,6 +377,7 @@ def test_query_success(app):
     assert resp.status_code == 200
     data = resp.json()
     assert data["assessment"] == "Server is healthy"
+    assert data["session_id"] == "test-sess"
     assert len(data["steps"]) == 1
 
 
@@ -382,11 +394,13 @@ def test_query_generates_session_id_when_not_provided(app):
             "steps": [],
             "response": "ok",
         }
-        app_obj.state.deps.agent = mock_agent
+        app_obj.state.deps.prepare_query = mock.MagicMock(
+            return_value=("generated-session", mock_agent, threading.RLock())
+        )
         client = TestClient(app_obj)
         resp = client.post("/api/query", json={"question": "test"})
         assert resp.status_code == 200
-        assert len(app_obj.state.deps.web_sessions) == 1
+        assert resp.json()["session_id"] == "generated-session"
 
 
 # ── Service Status ────────────────────────────────────────────────────
@@ -560,20 +574,18 @@ def test_sessions_rename_db_mode(mock_health, mock_driver, mock_dsn):
 def test_knowledge_query_rag_error(app):
     with mock.patch(
         "src.backend.routers.knowledge.urllib.request.urlopen",
-        side_effect=RuntimeError("connection refused"),
+        side_effect=urllib.error.URLError("connection refused"),
     ):
         resp = app.post("/api/knowledge/query", json={"query": "test"})
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "error"
+        assert resp.status_code == 503
+        assert "unavailable" in resp.json()["detail"].lower()
 
 
 def test_knowledge_health_connected_but_no_rag(app):
     with mock.patch(
         "src.backend.routers.knowledge.urllib.request.urlopen",
-        side_effect=RuntimeError("timeout"),
+        side_effect=urllib.error.URLError("timeout"),
     ):
         resp = app.get("/api/knowledge/health")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "error"
+        assert resp.status_code == 503
+        assert "unavailable" in resp.json()["detail"].lower()

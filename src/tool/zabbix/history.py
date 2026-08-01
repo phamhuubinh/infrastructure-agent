@@ -149,7 +149,7 @@ def _get_items(zapi: _ZabbixAPI, hostid: str = "") -> dict[str, object]:
     items = [_format_item(item) for item in result if isinstance(item, dict)]
     signal_summary: dict[str, int] = {}
     for item in items:
-        signal = item.get("observed_signal", "Other")
+        signal = str(item.get("observed_signal", "Other"))
         signal_summary[signal] = signal_summary.get(signal, 0) + 1
     return {
         "items": items,

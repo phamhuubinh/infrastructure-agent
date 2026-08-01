@@ -31,7 +31,7 @@ Common issues encountered when running Orion and how to resolve them.
 1. Ensure Node.js 18+ is installed: `node --version`.
 2. Run `cd ui && npm install` to install frontend dependencies.
 3. Check if port 5173 is in use: `lsof -i :5173` and kill the process if needed.
-4. Use a different frontend port: `ORION_FRONTEND_PORT=5174 orion --web`.
+4. Use a different frontend port: `ORION_FRONTEND_PORT=5174 orion web`.
 
 ### Vite port conflict
 
@@ -40,7 +40,7 @@ Common issues encountered when running Orion and how to resolve them.
 **Resolution:**
 Set a different port:
 ```bash
-ORION_FRONTEND_PORT=5174 orion --web
+ORION_FRONTEND_PORT=5174 orion web
 ```
 
 ---
@@ -73,27 +73,9 @@ ORION_FRONTEND_PORT=5174 orion --web
 
 ---
 
-## Certificate/SSL Warnings
+## TLS
 
-### Self-signed certificate warnings in browser
-
-**Symptom:** Browser shows "Your connection is not private" when accessing `https://localhost`.
-
-**Resolution:**
-This is expected for local development. The Docker Compose setup uses self-signed certificates.
-- In Chrome/Edge: type `thisisunsafe` on the warning page.
-- In Firefox: click Advanced → Accept Risk and Continue.
-- For production deployment, replace with Let's Encrypt certificates.
-
-### SSL certificate not found
-
-**Symptom:** Nginx fails to start with `cannot load certificate`.
-
-**Resolution:**
-Generate certificates:
-```bash
-bash docker/generate-certs.sh
-```
+The root Compose stack serves local HTTP at `http://localhost`; it no longer requires generated self-signed certificates. Production deployments should terminate TLS in their external ingress or reverse proxy.
 
 ---
 
@@ -105,14 +87,15 @@ bash docker/generate-certs.sh
 
 **Causes:**
 - LLM server (Ollama, vLLM, OpenAI) not running.
-- Wrong `ORION_LLM_BASE_URL` or model name.
+- Wrong saved base URL, API key, or model name.
 - Model not pulled/loaded on the LLM server.
 
 **Resolution:**
-1. Verify the LLM server is running: `curl http://localhost:8000/v1/chat/completions`.
-2. Check `ORION_LLM_BASE_URL` env var points to the correct endpoint.
-3. For Ollama: `ollama pull <model>` and `ollama list`.
-4. The application still starts without LLM — features requiring assessment will fail gracefully.
+1. Open Web UI **Cài đặt**, then press **Kiểm tra** for the saved connection.
+2. From Compose, run `docker compose exec api orion model test <connection-name>`.
+3. Check the saved base URL and model with `docker compose exec api orion model list`.
+4. Check the independently managed model runtime and install/load the requested model there if necessary.
+5. Orion still starts without a model; Chat assessment and RAG analysis report that setup is required.
 
 ### Assessment returns empty or error
 
@@ -121,7 +104,7 @@ bash docker/generate-certs.sh
 **Resolution:**
 1. Check LLM server logs for rate limiting or token quota issues.
 2. Verify the model supports the request format (OpenAI-compatible `/v1/chat/completions`).
-3. Increase timeout: `ORION_LLM_TIMEOUT=300`.
+3. Save the connection with a larger timeout in the Web UI or `orion model add ... --timeout 300`.
 
 ---
 
@@ -135,7 +118,7 @@ bash docker/generate-certs.sh
 1. Ensure Docker Engine is running (Docker Desktop or `dockerd`).
 2. Rebuild images: `docker compose build --no-cache`.
 3. Check logs: `docker compose logs <service-name>`.
-4. Ensure `docker-compose.env` file exists with required variables.
+4. For a first install, run `./install.sh`; it creates required secrets automatically. Operators invoking Compose directly must create `.env` with nonblank `POSTGRES_PASSWORD` and `ORION_API_KEY`.
 
 ### Port conflicts
 
@@ -233,7 +216,7 @@ Orion auto-creates tables on first connection. Verify:
 
 ```bash
 pip install -e ".[test]"
-orion --web
+orion web
 ```
 
 This starts the API + frontend in development mode on localhost.
@@ -258,7 +241,7 @@ Edit `targets.json`:
 
 ```bash
 export ORION_API_KEY="your-secure-random-key"
-orion --web
+orion web
 ```
 
 Requests must include the key in the `X-API-Key` or `Authorization: Bearer` header.
@@ -266,11 +249,11 @@ Requests must include the key in the `X-API-Key` or `Authorization: Bearer` head
 ### What's the difference between `--web` mode and Docker Compose?
 
 `--web` runs the backend + Vite dev server directly on your machine.
-Docker Compose runs Nginx (HTTPS), API, UI, PostgreSQL, and RAG as separate containers.
+Docker Compose runs Nginx (local HTTP), API, UI, PostgreSQL, and RAG as separate containers. RAG is reachable only from the internal Compose network.
 
 ### How do I view the OpenAPI docs?
 
-When running: http://localhost:61888/docs (or https://localhost/docs in Docker Compose).
+When running: `http://localhost:61888/docs` directly or `http://localhost/docs` through Docker Compose.
 
 ### Where are logs stored?
 

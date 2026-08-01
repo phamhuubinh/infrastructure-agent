@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { AppSidebar } from "@/components/AppSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ChatProvider } from "@/lib/chat-store";
+import { reportLovableError } from "@/lib/lovable-error-reporting";
 
 function NotFoundComponent() {
   return (
@@ -40,13 +41,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   useEffect(() => {
-    try {
-      if (typeof window !== "undefined" && (window as any).__lovableEvents?.captureException) {
-        (window as any).__lovableEvents.captureException(error, {
-          boundary: "tanstack_root_error_component",
-        });
-      }
-    } catch {}
+    reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

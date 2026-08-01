@@ -35,17 +35,17 @@ class CapabilityRouter:
 
         for source, capabilities in metadata.items():
             for cap_info in capabilities:
-                tool_cap_name = cap_info["name"]
+                tool_cap_name = str(cap_info["name"])
                 op_name = cap_info.get("operational_name")
 
-                if not op_name:
+                if not isinstance(op_name, str) or not op_name:
                     continue
                 # Only register if this operational capability exists in the library
                 if op_name not in VALID_OPERATIONAL_NAMES:
                     continue
                 # Register route if not already registered (first source wins)
                 if op_name not in self._routes:
-                    self._routes[op_name] = (source, tool_cap_name)
+                    self._routes[op_name] = (str(source), tool_cap_name)
 
     def resolve(self, capability_name: str) -> tuple[str, str] | None:
         """Resolve an operational capability name to a KnowledgeTool route.

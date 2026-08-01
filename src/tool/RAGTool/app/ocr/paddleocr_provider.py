@@ -44,9 +44,11 @@ class PaddleOcrProvider:
         try:
             result = engine.ocr(str(image_path), cls=True)
         except Exception as e:
-            self.logger.exception("OCR processing failed for image %s: %s", image_path, str(e))
+            self.logger.exception(
+                "OCR processing failed for image %s: %s", image_path, str(e)
+            )
             return OcrResult(text="", confidence=None)
-        
+
         lines: list[str] = []
         confidences: list[float] = []
         for page_result in result or []:

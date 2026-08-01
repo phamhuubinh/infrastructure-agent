@@ -69,6 +69,11 @@ class TestServerConfig:
 
 
 class TestServersConfig:
+    def test_empty_registry_is_valid(self) -> None:
+        cfg = ServersConfig.model_validate({"active_server": "", "servers": {}})
+        assert cfg.active_server == ""
+        assert cfg.servers == {}
+
     def test_valid(self) -> None:
         cfg = ServersConfig.model_validate(
             {
@@ -91,7 +96,7 @@ class TestServersConfig:
                 }
             )
 
-    def test_missing_active_server(self) -> None:
+    def test_missing_active_server_with_models(self) -> None:
         with pytest.raises(ValueError, match="active_server"):
             ServersConfig.model_validate(
                 {
@@ -99,9 +104,10 @@ class TestServersConfig:
                 }
             )
 
-    def test_missing_servers(self) -> None:
-        with pytest.raises(ValueError, match="servers"):
-            ServersConfig.model_validate({"active_server": "sv1"})
+    def test_missing_servers_is_valid_when_active_is_empty(self) -> None:
+        cfg = ServersConfig.model_validate({})
+        assert cfg.active_server == ""
+        assert cfg.servers == {}
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +261,8 @@ class TestValidateAllConfigs:
             # Should not raise
             validate_all_configs()
 
-    def test_servers_json_missing(self, tmp_path: Path) -> None:
-        """servers.json is required and must exist."""
+    def test_servers_json_missing_is_setup_mode(self, tmp_path: Path) -> None:
+        """A missing model registry is valid before first model setup."""
         # Only tools.json and targets.json exist
         (tmp_path / "tools.json").write_text(
             json.dumps(
@@ -276,9 +282,7 @@ class TestValidateAllConfigs:
         with mock.patch(
             "src.shared.config_schema._project_root", return_value=tmp_path
         ):
-            with pytest.raises(ConfigValidationError) as exc_info:
-                validate_all_configs()
-            assert "servers.json: file not found" in exc_info.value.errors
+            validate_all_configs()
 
     def test_servers_json_invalid(self, tmp_path: Path) -> None:
         """Invalid servers.json triggers an error."""
@@ -414,7 +418,7 @@ class TestValidateAllConfigs:
 
     def test_multiple_errors_collected(self, tmp_path: Path) -> None:
         """All errors are collected before raising."""
-        # servers.json: missing (error)
+        # servers.json: missing (valid setup mode)
         # tools.json: invalid (error)
         # targets.json: invalid (error)
         (tmp_path / "tools.json").write_text(
@@ -437,8 +441,8 @@ class TestValidateAllConfigs:
         ):
             with pytest.raises(ConfigValidationError) as exc_info:
                 validate_all_configs()
-            # 3 errors: servers missing, tools invalid, targets invalid
-            assert len(exc_info.value.errors) == 3
+            # 2 errors: tools invalid and targets invalid
+            assert len(exc_info.value.errors) == 2
 
     def test_config_validation_error_str(self) -> None:
         """ConfigValidationError has readable str output."""

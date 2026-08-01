@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
@@ -103,12 +104,21 @@ class DeterministicAgent:
                 message="Unknown target, not falling back to chat",
             )
             return str(exc)
+        except (ValueError, TypeError) as exc:
+            _warning(
+                "agent",
+                error=str(exc)[:200],
+                message="Pipeline failed with an invalid value",
+            )
+            logging.getLogger("agent").error("Pipeline failed", exc_info=True)
+            raise
         except Exception as exc:
             _warning(
                 "agent",
                 error=str(exc)[:200],
                 message="Pipeline failed, falling back to chat",
             )
+            logging.getLogger("agent").error("Pipeline failed", exc_info=True)
             return self.chat(user_request)
 
     def run_with_steps(self, user_request: str) -> dict:
@@ -153,7 +163,6 @@ class DeterministicAgent:
                 message="Pipeline failed, falling back to chat",
             )
             # Log full exception details with exc_info=True and re-raise
-            import logging
             logging.getLogger("agent").error("Pipeline failed", exc_info=True)
             raise
         except Exception as exc:
@@ -170,7 +179,7 @@ class DeterministicAgent:
 
     def _build_pipeline_steps(self, investigation: InvestigationRequest) -> list[dict]:
         """Serialize pipeline stages into step dicts for UI."""
-        steps = []
+        steps: list[dict[str, Any]] = []
 
         plan_steps = []
         if investigation.execution_plan:
@@ -201,7 +210,7 @@ class DeterministicAgent:
             }
         )
 
-        evidence_list = []
+        evidence_list: list[dict[str, Any]] = []
         for pkg in investigation.evidence:
             data_str = str(pkg.data) if pkg.data is not None else None
             truncated = _normalize_evidence(pkg.data)
@@ -652,7 +661,7 @@ class DeterministicAgent:
         # Tier 2: ask the model (only for truly ambiguous cases, < 0.4 confidence).
         # Light prompt: ~100 tokens, response is 1 word.
         classifier_prompt = (
-            "Classify: infrastructure or general?\n" f"Q: {user_request[:200]}\nA:"
+            f"Classify: infrastructure or general?\nQ: {user_request[:200]}\nA:"
         )
         try:
             answer = self._assessment_model.assess_raw(classifier_prompt)

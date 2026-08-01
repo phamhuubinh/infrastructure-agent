@@ -5,8 +5,13 @@ from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_completeness import EvidenceCompleteness
 from src.pipeline.evidence_merge import EvidenceMerge
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
-from src.pipeline.execution_graph import ExecutionGraph, ExecutionGraphBuilder
+from src.pipeline.execution_graph import (
+    ExecutionGraph,
+    ExecutionGraphBuilder,
+    ExecutionNode,
+)
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
 from src.pipeline.intent_resolver import IntentResolver
@@ -155,12 +160,17 @@ class ExecutionEngine:
             graph = ExecutionGraph()
         state = state.apply({"execution_graph": graph})
 
+        target = state.target or "localhost"
+        graph, cached_evidence = self._without_cached_nodes(graph, target)
+
         # Execute graph
         if graph.nodes:
-            target = state.target or "localhost"
             required_evidence = {
                 ref.evidence_name for ref in state.capability_references if ref.required
             }
+            required_evidence.difference_update(
+                package.evidence_name for package in cached_evidence
+            )
             extracted_params = state.extracted_params
             results, metrics = self._runtime.execute(
                 graph,
@@ -173,6 +183,7 @@ class ExecutionEngine:
 
         # Merge evidence
         self._evidence_merge.merge(temp_req, results)
+        temp_req.evidence = cached_evidence + temp_req.evidence
         state = state.apply({"evidence": tuple(temp_req.evidence)})
 
         # Completeness check
@@ -267,14 +278,19 @@ class ExecutionEngine:
             graph = ExecutionGraph()
         request.execution_graph = graph
 
+        target = request.target or "localhost"
+        graph, cached_evidence = self._without_cached_nodes(graph, target)
+
         # Stage 5: Execute the graph through the runtime.
         if graph.nodes:
-            target = request.target or "localhost"
             required_evidence = {
                 ref.evidence_name
                 for ref in request.capability_references
                 if ref.required
             }
+            required_evidence.difference_update(
+                package.evidence_name for package in cached_evidence
+            )
             # Phase 6: Pass extracted params to runtime for filtered evidence collection.
             extracted_params = getattr(request, "extracted_params", None)
             results, metrics = self._runtime.execute(
@@ -288,6 +304,7 @@ class ExecutionEngine:
 
         # Stage 6: Merge evidence + completeness.
         self._merge(request, results)
+        request.evidence = cached_evidence + request.evidence
         self._evidence_completeness.check(request)
 
         # Phase 6: Cache collected evidence for reuse across turns.
@@ -302,6 +319,46 @@ class ExecutionEngine:
         request.runtime_metrics = metrics
 
         return request
+
+    def _without_cached_nodes(
+        self,
+        graph: ExecutionGraph,
+        target: str,
+    ) -> tuple[ExecutionGraph, list[EvidencePackage]]:
+        if self._evidence_cache is None or not graph.nodes:
+            return graph, []
+
+        cached_by_name: dict[str, EvidencePackage] = {}
+        cached_capabilities: set[str] = set()
+        remaining_nodes: list[ExecutionNode] = []
+        for node in graph.nodes:
+            evidence_name = node.execution_step.capability.evidence_name
+            cached = self._evidence_cache.get(target, evidence_name)
+            if isinstance(cached, EvidencePackage) and cached.success:
+                cached_by_name.setdefault(evidence_name, cached)
+                cached_capabilities.add(node.execution_step.capability.name)
+            else:
+                remaining_nodes.append(node)
+
+        # A cached node counts as completed. Remove it from the runtime graph and
+        # also remove its dependency edge from downstream nodes; otherwise the
+        # runtime cannot observe that completion and may force nodes out of order.
+        if cached_capabilities:
+            remaining_nodes = [
+                ExecutionNode(
+                    execution_step=node.execution_step,
+                    depends_on=tuple(
+                        dependency
+                        for dependency in node.depends_on
+                        if dependency not in cached_capabilities
+                    ),
+                )
+                for node in remaining_nodes
+            ]
+
+        return ExecutionGraph(nodes=tuple(remaining_nodes)), list(
+            cached_by_name.values()
+        )
 
     def _merge(
         self,

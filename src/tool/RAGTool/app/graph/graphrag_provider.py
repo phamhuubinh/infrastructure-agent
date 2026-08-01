@@ -17,9 +17,13 @@ documents, not per-request.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
-from src.shared.config import config
 from app.graph.base import GraphSearchResult
+
+# Module-level compatibility config. Tests and deployments may replace it;
+# GraphRAG's own config is loaded for actual index/search operations.
+config = SimpleNamespace(output_dir="output")
 
 
 class MicrosoftGraphRagProvider:
@@ -27,14 +31,9 @@ class MicrosoftGraphRagProvider:
 
     def __init__(self, workspace_dir: str) -> None:
         self._workspace_dir = Path(workspace_dir)
-        # Using config.output_dir directly without fallback
-        output_dir = config.output_dir
-        
-        # Validate output_dir to prevent directory traversal attacks
-        if '..' in output_dir:
-            from src.shared.config_errors import ConfigurationError
-            raise ConfigurationError("Invalid output_dir: directory traversal detected")
-        
+        output_dir = str(config.output_dir)
+        if ".." in Path(output_dir).parts:
+            raise ValueError("Invalid output_dir: directory traversal detected")
         self._output_dir = output_dir
 
     def build(self, doc_id: str, text: str) -> None:
@@ -55,8 +54,8 @@ class MicrosoftGraphRagProvider:
             msg = "graphrag is not installed (`pip install graphrag`)"
             raise RuntimeError(msg) from exc
 
-        config = load_config(self._workspace_dir)
-        asyncio.run(build_index(config=config))
+        graph_config = load_config(self._workspace_dir)
+        asyncio.run(build_index(config=graph_config))
 
     def search(self, query: str, top_k: int = 10) -> list[GraphSearchResult]:
         try:
@@ -69,13 +68,15 @@ class MicrosoftGraphRagProvider:
             msg = "graphrag is not installed (`pip install graphrag`)"
             raise RuntimeError(msg) from exc
 
-        config = load_config(self._workspace_dir)
+        graph_config = load_config(self._workspace_dir)
         # Validate that output_dir is configured in GraphRAG config
-        if not hasattr(config, 'output_dir') or config.output_dir is None or config.output_dir == "":
-            from src.shared.config_errors import ConfigurationError
-            raise ConfigurationError("output_dir must be configured in GraphRAG config")
-        
-        output_dir = self._workspace_dir / config.output_dir
+        output_setting = getattr(graph_config, "output_dir", None)
+        if not output_setting:
+            raise ValueError("output_dir must be configured in GraphRAG config")
+        if ".." in Path(str(output_setting)).parts:
+            raise ValueError("Invalid output_dir: directory traversal detected")
+
+        output_dir = self._workspace_dir / str(output_setting)
 
         entities = pd.read_parquet(output_dir / "entities.parquet")
         communities = pd.read_parquet(output_dir / "communities.parquet")
@@ -83,7 +84,7 @@ class MicrosoftGraphRagProvider:
 
         response, context = asyncio.run(
             global_search(
-                config=config,
+                config=graph_config,
                 entities=entities,
                 communities=communities,
                 community_reports=community_reports,

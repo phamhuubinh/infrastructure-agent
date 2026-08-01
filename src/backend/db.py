@@ -416,7 +416,9 @@ def get_document(dsn: str, doc_id: str) -> dict | None:
             meta = (
                 row[6]
                 if isinstance(row[6], dict)
-                else json.loads(row[6]) if row[6] else {}
+                else json.loads(row[6])
+                if row[6]
+                else {}
             )
             return {
                 "id": row[0],
@@ -504,6 +506,7 @@ class PostgresConversationStore(ConversationStore):
         self._summary: str | None = None
         self._title: str = ""
         self._dirty = False
+        self._lock = threading.RLock()
         self._load()
 
     @property
@@ -512,44 +515,56 @@ class PostgresConversationStore(ConversationStore):
 
     @property
     def history(self) -> list[dict[str, str]]:
-        if self._summary:
-            return [
-                {
-                    "role": "system",
-                    "content": f"Previous conversation summary: {self._summary}",
-                }
-            ] + self._mem
-        return list(self._mem)
+        with self._lock:
+            if self._summary:
+                return [
+                    {
+                        "role": "system",
+                        "content": f"Previous conversation summary: {self._summary}",
+                    }
+                ] + list(self._mem)
+            return list(self._mem)
 
     def add_turn(self, user: str, assistant: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": assistant})
-        self._dirty = True
-        self._save()
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append({"role": "assistant", "content": assistant})
+            self._dirty = True
+            self._save()
+            self._check_compress()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
-        self._mem.append({"role": "user", "content": user})
-        self._mem.append({"role": "assistant", "content": f"[classified as {label}]"})
-        self._dirty = True
-        self._save()
+        with self._lock:
+            self._mem.append({"role": "user", "content": user})
+            self._mem.append(
+                {"role": "assistant", "content": f"[classified as {label}]"}
+            )
+            self._dirty = True
+            self._save()
+            self._check_compress()
 
     def set_summarize_fn(self, fn: Callable[[str], str]) -> None:
-        self._summarize_fn = fn
+        with self._lock:
+            self._summarize_fn = fn
 
     def set_summary(self, summary: str) -> None:
-        self._summary = summary
-        self._dirty = True
+        with self._lock:
+            self._summary = summary
+            self._dirty = True
 
     @property
     def title(self) -> str:
-        return self._title
+        with self._lock:
+            return self._title
 
     def set_title(self, value: str) -> None:
-        self._title = value
+        with self._lock:
+            self._title = value
 
     @property
     def summary(self) -> str | None:
-        return self._summary
+        with self._lock:
+            return self._summary
 
     def _load(self) -> None:
         data = load_session(self._dsn, self._session_id)
@@ -563,15 +578,16 @@ class PostgresConversationStore(ConversationStore):
             self._source = loaded_source
 
     def _save(self) -> None:
-        if not self._dirty:
-            return
-        data = {
-            "session_id": self._session_id,
-            "source": self._source,
-            "title": self._title,
-            "messages": self._mem,
-        }
-        if self._summary:
-            data["summary"] = self._summary
-        save_session(self._dsn, self._session_id, data)
-        self._dirty = False
+        with self._lock:
+            if not self._dirty:
+                return
+            data = {
+                "session_id": self._session_id,
+                "source": self._source,
+                "title": self._title,
+                "messages": self._mem,
+            }
+            if self._summary:
+                data["summary"] = self._summary
+            save_session(self._dsn, self._session_id, data)
+            self._dirty = False

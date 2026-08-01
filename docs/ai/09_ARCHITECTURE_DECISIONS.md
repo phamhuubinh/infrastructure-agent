@@ -15,7 +15,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 > Long-form ADR: `docs/adr/ADR-0002-llm-assessment-only.md`
 ## AD-003 — KnowledgeTool is the single runtime entry point
 **Decision:** `KnowledgeTool` is the only entry point for evidence collection.
-**Context:** The platform supports multiple infrastructure domains (Linux, Grafana, Zabbix, Internet fetch, RAG service today; more later).
+**Context:** The chat runtime supports multiple infrastructure domains (Linux, Grafana, Zabbix, Internet fetch; more later). Project RAG is a separate application flow.
 **Reason:** The assessment layer should never depend on domain-specific implementations.
 **Consequence:** `KnowledgeTool` exposes capability metadata, routes requests, aggregates results. Child Tools stay hidden behind it.
 > Long-form ADR: `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
@@ -23,7 +23,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Decision:** One domain per Child Tool, no overlap.
 **Context:** Operational evidence should stay modular.
 **Reason:** High cohesion → simpler maintenance, easier extension.
-**Consequence:** `LinuxTool`, `GrafanaTool`, `ZabbixTool`, `InternetTool`, `KnowledgeBaseTool` today; any future domain (e.g. Docker, VMware) gets its own tool rather than being bolted onto an existing one.
+**Consequence:** `LinuxTool`, `GrafanaTool`, `ZabbixTool`, and `InternetTool` are current chat-runtime domains; any future infrastructure domain gets its own tool rather than being bolted onto an existing one.
 ## AD-005 — Capability definitions belong exclusively to Child Tools
 **Decision:** One location owns each capability definition.
 **Reason:** Capability metadata must stay synchronized and non-duplicated.
@@ -87,3 +87,15 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Reason:** Separating execution from reasoning keeps the Agent deterministic, predictable, and model-agnostic. The reasoning model can be swapped without changing the Agent.
 **Consequence:** Architecture follows a deterministic single-pass pipeline (see ADR-0007). The Agent is a pure execution engine. New reasoning models can replace existing ones without modifying the Agent.
 > Long-form ADR: `docs/adr/ADR-0001-agent-responsibility-boundary.md` (**Note:** ADR-0001's execution model superseded by ADR-0007 `docs/adr/ADR-0007-deterministic-pipeline.md`).
+
+## AD-021 — Project RAG is isolated from Chat
+**Decision:** RAG is available only through the Web UI's explicit document-analysis flow. It is not registered as an Agent Child Tool and is never selected by chat routing.
+**Context:** Chat investigations operate on live infrastructure, while document analysis operates on a user-selected corpus with different lifecycle and isolation requirements.
+**Reason:** Implicitly mixing document context into chat risks cross-project retrieval, hidden context, and session coupling.
+**Consequence:** Every RAG project owns a separate document collection, BM25 index, and analysis history. Every analysis receives a request-scoped model client rather than mutating shared model state. Every chat session owns a separate Agent, conversation store, cache, and lock. The API is the only browser-facing entry point to the internal RAG service.
+
+## AD-022 — Model installation is independent from Orion
+**Decision:** The standard installer deploys every Orion-owned application component, but never installs a model runtime or downloads model weights. The installer, CLI, and Web UI only save and test connections to endpoints operated by the user.
+**Context:** Users may operate an OpenAI-compatible endpoint, Ollama, vLLM, or another compatible runtime, and model lifecycle requirements differ substantially between environments.
+**Reason:** Installing or managing model infrastructure couples Orion to a provider, consumes large machine resources unexpectedly, and crosses the application's ownership boundary.
+**Consequence:** Orion starts in an explicit setup mode with an empty model registry. Chat assessment and RAG analysis require a configured endpoint; RAG has no retrieval-only mode. Model runtime installation, model downloads, upgrades, and removal remain entirely outside Orion.

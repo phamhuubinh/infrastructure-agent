@@ -8,6 +8,12 @@ import urllib.request
 import pytest
 
 API_URL = os.environ.get("API_URL", "http://localhost:61888")
+API_KEY = os.environ.get("ORION_API_KEY")
+
+
+def _request(url: str) -> urllib.request.Request:
+    headers = {"X-API-Key": API_KEY} if API_KEY else {}
+    return urllib.request.Request(url, headers=headers)
 
 
 def _server_reachable(url: str) -> bool:
@@ -30,14 +36,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_api_health_endpoint() -> None:
-    resp = urllib.request.urlopen(f"{API_URL}/api/health", timeout=10)
+    resp = urllib.request.urlopen(_request(f"{API_URL}/api/health"), timeout=10)
     assert resp.status == 200
     data = json.loads(resp.read().decode())
     assert data["status"] == "ok"
 
 
-def test_api_knowledge_health() -> None:
-    resp = urllib.request.urlopen(f"{API_URL}/api/knowledge/health", timeout=10)
+def test_api_rag_health() -> None:
+    resp = urllib.request.urlopen(_request(f"{API_URL}/api/rag/health"), timeout=10)
     assert resp.status == 200
     data = json.loads(resp.read().decode())
     assert "status" in data
@@ -53,7 +59,7 @@ def test_ui_is_serving() -> None:
 
 def test_reverse_proxy_routes_to_api() -> None:
     proxy_url = os.environ.get("PROXY_URL", "http://localhost:80")
-    resp = urllib.request.urlopen(f"{proxy_url}/api/health", timeout=10)
+    resp = urllib.request.urlopen(_request(f"{proxy_url}/api/health"), timeout=10)
     assert resp.status == 200
     data = json.loads(resp.read().decode())
     assert data["status"] == "ok"

@@ -49,14 +49,13 @@ const navItems = [
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [query, setQuery] = useState("");
-  const { sessions, currentSessionId, createSession, switchSession, generatingSessions } = useChat();
+  const { sessions, currentSessionId, createSession, switchSession, generatingSessions } =
+    useChat();
 
   const filtered = useMemo(
     () =>
       query
-        ? sessions.filter((s) =>
-            s.title.toLowerCase().includes(query.toLowerCase()),
-          )
+        ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
         : sessions,
     [sessions, query],
   );
@@ -99,9 +98,7 @@ export function AppSidebar() {
       {/* Nav */}
       <nav className="px-2 pt-3 pb-1 space-y-0.5">
         {navItems.map((item) => {
-          const active =
-            pathname === item.to ||
-            (item.to !== "/" && pathname.startsWith(item.to));
+          const active = pathname === item.to || (item.to !== "/" && pathname.startsWith(item.to));
           return (
             <Link
               key={item.to}
@@ -113,9 +110,7 @@ export function AppSidebar() {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
               )}
             >
-              <item.icon
-                className={cn("h-4 w-4", active && "text-primary")}
-              />
+              <item.icon className={cn("h-4 w-4", active && "text-primary")} />
               <span>{item.label}</span>
             </Link>
           );
@@ -174,14 +169,8 @@ function ThemeToggle() {
       onClick={toggle}
       className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground transition-colors cursor-pointer"
     >
-      {theme === "dark" ? (
-        <Sun className="h-4 w-4" />
-      ) : (
-        <Moon className="h-4 w-4" />
-      )}
-      <span>
-        {theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}
-      </span>
+      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      <span>{theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}</span>
     </button>
   );
 }
@@ -228,12 +217,8 @@ function ChatRow({
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
       )}
     >
-      {isGenerating && (
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0 ml-1" />
-      )}
-      {!isGenerating && !renaming && (
-        <span className="w-4 shrink-0" />
-      )}
+      {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0 ml-1" />}
+      {!isGenerating && !renaming && <span className="w-4 shrink-0" />}
       {renaming ? (
         <input
           value={editValue}
@@ -284,8 +269,7 @@ function ChatRow({
           <AlertDialogHeader>
             <AlertDialogTitle>Xoá hội thoại?</AlertDialogTitle>
             <AlertDialogDescription>
-              Hành động này không thể hoàn tác. Hội thoại "{title}" sẽ bị xoá
-              vĩnh viễn.
+              Hành động này không thể hoàn tác. Hội thoại "{title}" sẽ bị xoá vĩnh viễn.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

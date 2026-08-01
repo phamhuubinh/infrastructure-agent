@@ -101,6 +101,5 @@ class Tool(ABC):
             return ToolResult(success=True, data=handler(**filtered))
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=f"Error executing capability '{action}': {str(e)}"
+                success=False, error=f"Error executing capability '{action}': {str(e)}"
             )

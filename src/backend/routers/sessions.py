@@ -29,7 +29,9 @@ def create_session(request: Request):
         # SQLite is the default. No explicit create needed — the store
         # creates the row on first save. But we ensure the session exists.
         pass
-    deps.get_or_create_session(session_id)
+    store = deps.get_or_create_session(session_id)
+    if isinstance(store, SQLiteConversationStore):
+        store.persist()
     return {"session_id": session_id}
 
 
@@ -53,13 +55,13 @@ def delete_session(session_id: str, request: Request):
         from src.backend.db import delete_session as db_delete_session
 
         deleted = db_delete_session(deps.dsn, session_id)
-        deps.web_sessions.pop(session_id, None)
+        deps.drop_session(session_id)
         if not deleted:
             raise HTTPException(404, f"Session '{session_id}' not found")
         return {"status": "deleted", "session_id": session_id}
 
     deleted = SQLiteConversationStore.delete_session(session_id)
-    deps.web_sessions.pop(session_id, None)
+    deps.drop_session(session_id)
     if not deleted:
         raise HTTPException(404, f"Session '{session_id}' not found")
     return {"status": "deleted", "session_id": session_id}

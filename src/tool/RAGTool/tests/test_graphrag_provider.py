@@ -14,12 +14,12 @@ def test_custom_output_dir():
         custom_output_dir = Path(temp_dir) / "custom_output"
         mock_config = Mock()
         mock_config.output_dir = str(custom_output_dir)
-        
+
         # Patch the config module to return our mock config
-        with patch('src.tool.RAGTool.app.graph.graphrag_provider.config', mock_config):
+        with patch("src.tool.RAGTool.app.graph.graphrag_provider.config", mock_config):
             # Create provider instance
             provider = MicrosoftGraphRagProvider(workspace_dir="/fake/workspace")
-            
+
             # Verify that the provider uses the custom output_dir from config
             assert provider._output_dir == str(custom_output_dir)
 
@@ -32,11 +32,11 @@ def test_default_output_dir():
         default_output_dir = Path(temp_dir) / "default_output"
         mock_config = Mock()
         mock_config.output_dir = str(default_output_dir)
-        
+
         # Patch the config module to return our mock config
-        with patch('src.tool.RAGTool.app.graph.graphrag_provider.config', mock_config):
+        with patch("src.tool.RAGTool.app.graph.graphrag_provider.config", mock_config):
             # Create provider instance
             provider = MicrosoftGraphRagProvider(workspace_dir="/fake/workspace")
-            
+
             # Verify that the provider uses the output_dir from config
             assert provider._output_dir == str(default_output_dir)

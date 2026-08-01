@@ -8,8 +8,7 @@ import {
   useEffect,
   type ReactNode,
 } from "react";
-
-const API_URL = import.meta.env.VITE_API_URL || "";
+import { apiFetch, apiJson } from "@/lib/api";
 
 export type Step = {
   type: string;
@@ -69,7 +68,7 @@ type ChatContextValue = {
   currentSessionId: string | null;
   generatingSessions: Set<string>;
   setSessionGenerating: (sessionId: string, generating: boolean) => void;
-  createSession: () => string;
+  createSession: () => Promise<string>;
   switchSession: (id: string) => void;
   getSession: () => Session | undefined;
   updateSession: (updates: Partial<Session>) => void;
@@ -84,11 +83,7 @@ export function useChat() {
   return useContext(ChatContext);
 }
 
-function emptySession(
-  id: string,
-  title: string = "New chat",
-  msgs: Message[] = [],
-): Session {
+function emptySession(id: string, title: string = "New chat", msgs: Message[] = []): Session {
   if (msgs.length > 0) {
     return { id, title, messages: msgs };
   }
@@ -106,12 +101,8 @@ function emptySession(
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(
-    null,
-  );
-  const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(
-    new Set(),
-  );
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
   const [loaded, setLoaded] = useState(false);
   const sessionsRef = useRef(sessions);
   const currentIdRef = useRef(currentSessionId);
@@ -123,7 +114,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`${API_URL}/api/sessions`);
+        const res = await apiFetch("/api/sessions");
         if (!res.ok) throw new Error("failed");
         const data = await res.json();
         if (cancelled) return;
@@ -156,52 +147,34 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setSessionGenerating = useCallback(
-    (sessionId: string, generating: boolean) => {
-      setGeneratingSessions((prev) => {
-        const next = new Set(prev);
-        if (generating) {
-          next.add(sessionId);
-        } else {
-          next.delete(sessionId);
-        }
-        return next;
-      });
-    },
-    [],
-  );
-
-  const createSession = useCallback(() => {
-    const localId = `pending_${Date.now().toString(36)}`;
-    const newSession = emptySession(localId);
-    setSessions((prev) => [newSession, ...prev]);
-    setCurrentSessionId(localId);
-    currentIdRef.current = localId;
-
-    // Create session on server and update local ID
-    (async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/sessions`, {
-          method: "POST",
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const serverId: string = data.session_id;
-        setSessions((prev) =>
-          prev.map((s) =>
-            s.id === localId ? { ...s, id: serverId } : s,
-          ),
-        );
-        if (currentIdRef.current === localId) {
-          setCurrentSessionId(serverId);
-          currentIdRef.current = serverId;
-        }
-      } catch {
-        // Server not available — keep local ID
+  const setSessionGenerating = useCallback((sessionId: string, generating: boolean) => {
+    setGeneratingSessions((prev) => {
+      const next = new Set(prev);
+      if (generating) {
+        next.add(sessionId);
+      } else {
+        next.delete(sessionId);
       }
-    })();
+      return next;
+    });
+  }, []);
 
-    return localId;
+  const createSession = useCallback(async () => {
+    let sessionId: string;
+    try {
+      const data = await apiJson<{ session_id: string }>("/api/sessions", {
+        method: "POST",
+      });
+      sessionId = data.session_id;
+    } catch {
+      sessionId = `local_${Date.now().toString(36)}`;
+    }
+
+    const newSession = emptySession(sessionId);
+    setSessions((prev) => [newSession, ...prev]);
+    setCurrentSessionId(sessionId);
+    currentIdRef.current = sessionId;
+    return sessionId;
   }, []);
 
   const switchSession = useCallback((id: string) => {
@@ -215,56 +188,46 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const updateSession = useCallback((updates: Partial<Session>) => {
     const id = currentIdRef.current;
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
-    );
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
   }, []);
 
-  const updateSessionById = useCallback(
-    (id: string, updates: Partial<Session>) => {
-      setSessions((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
-      );
-    },
-    [],
-  );
+  const updateSessionById = useCallback((id: string, updates: Partial<Session>) => {
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+  }, []);
 
-  const deleteSession = useCallback(
-    async (id: string) => {
-      try {
-        await fetch(`${API_URL}/api/sessions/${id}`, { method: "DELETE" });
-      } catch {
-        // server not available, delete locally anyway
-      }
-      setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        if (next.length > 0) {
-          if (currentIdRef.current === id) {
-            setCurrentSessionId(next[0].id);
-            currentIdRef.current = next[0].id;
-          }
-        } else {
-          // All deleted — create a new one
-          const fallback = emptySession("local_fallback");
-          setCurrentSessionId(fallback.id);
-          currentIdRef.current = fallback.id;
-          return [fallback];
+  const deleteSession = useCallback(async (id: string) => {
+    try {
+      await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
+    } catch {
+      // server not available, delete locally anyway
+    }
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (next.length > 0) {
+        if (currentIdRef.current === id) {
+          setCurrentSessionId(next[0].id);
+          currentIdRef.current = next[0].id;
         }
-        return next;
-      });
-      // Clean up generating state
-      setGeneratingSessions((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-    },
-    [],
-  );
+      } else {
+        // All deleted — create a new one
+        const fallback = emptySession("local_fallback");
+        setCurrentSessionId(fallback.id);
+        currentIdRef.current = fallback.id;
+        return [fallback];
+      }
+      return next;
+    });
+    // Clean up generating state
+    setGeneratingSessions((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   const renameSession = useCallback(async (id: string, title: string) => {
     try {
-      await fetch(`${API_URL}/api/sessions/${id}`, {
+      await apiFetch(`/api/sessions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
@@ -272,9 +235,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     } catch {
       // server not available
     }
-    setSessions((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, title } : s)),
-    );
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
   }, []);
 
   const value = useMemo<ChatContextValue>(

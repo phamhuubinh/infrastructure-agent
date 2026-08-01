@@ -45,13 +45,15 @@ class Bm25IndexTest(unittest.TestCase):
         initial_doc_ids_len = len(self.index._doc_ids)
         initial_doc_term_freqs_len = len(self.index._doc_term_freqs)
         initial_doc_lengths_len = len(self.index._doc_lengths)
-        
+
         # Delete one document
         self.index.delete("d1")
-        
+
         # Check that all three lists have been reduced by 1
         self.assertEqual(len(self.index._doc_ids), initial_doc_ids_len - 1)
-        self.assertEqual(len(self.index._doc_term_freqs), initial_doc_term_freqs_len - 1)
+        self.assertEqual(
+            len(self.index._doc_term_freqs), initial_doc_term_freqs_len - 1
+        )
         self.assertEqual(len(self.index._doc_lengths), initial_doc_lengths_len - 1)
 
 

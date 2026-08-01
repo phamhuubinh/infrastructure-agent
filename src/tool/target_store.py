@@ -25,26 +25,37 @@ class TargetStore:
 
         raw = self._path.read_text()
         try:
-            data: dict[str, object] = json.loads(raw)
+            parsed: object = json.loads(raw)
         except json.JSONDecodeError:
             logging.getLogger(__name__).error(
                 "Failed to decode JSON from %s, returning default targets", self._path
             )
             return dict(DEFAULT_TARGETS)
-        entries: dict[str, dict[str, object]] = data.get("targets", data)
+        if not isinstance(parsed, dict):
+            return dict(DEFAULT_TARGETS)
+        entries = parsed.get("targets", parsed)
+        if not isinstance(entries, dict):
+            return dict(DEFAULT_TARGETS)
         targets: dict[str, ExecutionBackend] = {}
-        for name, cfg in entries.items():
+        for raw_name, cfg in entries.items():
+            name = str(raw_name)
             backend_type = (
                 cfg.get("backend", "local") if isinstance(cfg, dict) else "local"
             )
             if not isinstance(cfg, dict):
                 targets[name] = LocalExecutionBackend()
             elif backend_type == "ssh":
+                port_value = cfg.get("port", 22)
+                port = int(port_value) if isinstance(port_value, (str, int)) else 22
+                identity_value = cfg.get("identity_file")
+                identity_file = (
+                    identity_value if isinstance(identity_value, str) else None
+                )
                 targets[name] = SSHExecutionBackend(
                     host=str(cfg.get("host", "")),
                     user=str(cfg.get("user", "root")),
-                    port=int(cfg.get("port", 22)),
-                    identity_file=cfg.get("identity_file"),
+                    port=port,
+                    identity_file=identity_file,
                     strict_host_key_checking=bool(
                         cfg.get("strict_host_key_checking", False)
                     ),

@@ -29,7 +29,6 @@ class RAGResult:
 
     answer: str
     chunks: list[RetrievedChunk]
-    retrieval_only: bool = False
 
 
 class DeterministicRAGPipeline:
@@ -58,17 +57,9 @@ class DeterministicRAGPipeline:
         return results
 
     def answer(self, query: str, top_k: int | None = None) -> RAGResult:
-        """Retrieve + optionally generate an answer.
-
-        If QueryPipeline has no LLM client configured, returns
-        retrieval-only results.
-        """
+        """Retrieve context and generate an answer with the configured model."""
         result: QueryResult = self._query_pipeline.answer(query)
         chunks = result.retrieved
         if top_k is not None:
             chunks = chunks[:top_k]
-        return RAGResult(
-            answer=result.answer,
-            chunks=chunks,
-            retrieval_only=result.retrieval_only,
-        )
+        return RAGResult(answer=result.answer, chunks=chunks)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +27,17 @@ class ServerConfig(BaseModel):
 class ServersConfig(BaseModel):
     """Top-level servers.json schema."""
 
-    active_server: str
-    servers: dict[str, ServerConfig]
+    active_server: str = ""
+    servers: dict[str, ServerConfig] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def active_must_exist(self) -> ServersConfig:
+        if not self.servers:
+            if self.active_server:
+                raise ValueError(
+                    "active_server must be empty when no model is configured"
+                )
+            return self
         if self.active_server not in self.servers:
             available = ", ".join(sorted(self.servers))
             raise ValueError(
@@ -111,6 +118,11 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _servers_path() -> Path:
+    configured = os.environ.get("ORION_SERVERS_FILE", "").strip()
+    return Path(configured) if configured else _project_root() / "servers.json"
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     """Load and parse a JSON file, returning the parsed dict."""
     raw = path.read_text()
@@ -130,15 +142,13 @@ def validate_all_configs() -> None:
     errors: list[str] = []
 
     # --- servers.json ---
-    servers_path = root / "servers.json"
+    servers_path = _servers_path()
     if servers_path.exists():
         try:
             data = _load_json(servers_path)
             ServersConfig.model_validate(data)
         except Exception as exc:
             errors.append(f"servers.json: {exc}")
-    else:
-        errors.append("servers.json: file not found")
 
     # --- tools.json ---
     tools_path = root / "tools.json"

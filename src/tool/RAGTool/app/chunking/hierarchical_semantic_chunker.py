@@ -154,8 +154,11 @@ class HierarchicalSemanticChunker:
         return chunks
 
     def _embed_one(self, text: str) -> np.ndarray | None:
+        embedder = self._embedder
+        if embedder is None:
+            return None
         try:
-            vecs = self._embedder.embed([text])
+            vecs = embedder.embed([text])
             return np.asarray(vecs[0])
         except Exception:
             return None

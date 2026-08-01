@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time as _time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 class TimeRangeResolver:
@@ -93,29 +93,27 @@ class TimeRangeResolver:
 
         if fn_type == "yesterday":
             dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
-            yesterday = dt.replace(
-                day=dt.day - 1, hour=0, minute=0, second=0, microsecond=0
-            )
-            yesterday_end = yesterday.replace(hour=23, minute=59, second=59)
+            today = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday = today - timedelta(days=1)
+            yesterday_end = today - timedelta(seconds=1)
             return (int(yesterday.timestamp()), int(yesterday_end.timestamp()))
 
         if fn_type == "week_start":
             dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
             weekday = dt.weekday()  # Monday=0
-            start = dt.replace(
-                day=dt.day - weekday, hour=0, minute=0, second=0, microsecond=0
+            start = dt.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+                days=weekday
             )
             return (int(start.timestamp()), now_ts)
 
         if fn_type == "last_week":
             dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
             weekday = dt.weekday()
-            last_monday = dt.replace(
-                day=dt.day - weekday - 7, hour=0, minute=0, second=0, microsecond=0
-            )
-            last_sunday = last_monday.replace(
-                day=last_monday.day + 6, hour=23, minute=59, second=59
-            )
+            this_monday = dt.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) - timedelta(days=weekday)
+            last_monday = this_monday - timedelta(days=7)
+            last_sunday = this_monday - timedelta(seconds=1)
             return (int(last_monday.timestamp()), int(last_sunday.timestamp()))
 
         return (now_ts, now_ts)

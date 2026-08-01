@@ -1,125 +1,51 @@
 # CI/CD Pipeline
 
-> GitHub Actions CI pipeline structure, jobs, and workflows.
-
----
-
-## Workflow Overview
-
-The CI pipeline runs on every push and pull request to `main`. It is defined in `.github/workflows/ci.yml`.
-
-```mermaid
-graph LR
-    Push[Push / PR] --> Lint[Lint & Typecheck]
-    Push --> Test[Unit Tests]
-    Push --> Security[Security Scan]
-    Test --> Coverage[Coverage Report]
-    Security --> Build[Build Docker Images]
-    Build --> Smoke[Smoke Tests]
-    Smoke --> UITest[UI Tests]
-```
-
----
+`.github/workflows/ci.yml` runs on pushes and pull requests to `main`.
 
 ## Jobs
 
-### 1. Lint & Typecheck
+### Python matrix
 
-- Runs `ruff check` on all Python source files
-- Validates code style, import ordering, and type annotations
-- Fast (< 30s), runs first to fail fast
+Python 3.10, 3.11, and 3.12 each run:
 
-### 2. Unit Tests
+- `ruff check .`
+- `python -m mypy src --ignore-missing-imports`
+- Bandit, Safety, and `pip-audit`
+- `pytest tests/` with XML and HTML coverage artifacts
 
-- Runs `pytest tests/ -q -x -k "not slow"`
-- Uses Python 3.11
-- Excludes slow/integration tests for speed
-- Targets: ~855 tests, ~24s runtime
+`pip-audit` uses its supported default exit behavior. It does not use the nonexistent `--fail-on=high` option.
 
-### 3. Security Scan
+### RAG
 
-Three tools run in parallel:
+Python 3.12 installs `src/tool/RAGTool/requirements.txt` and runs the independent offline RAG suite under `src/tool/RAGTool/tests/`.
 
-| Tool | Scope | Fail Condition |
-|------|-------|----------------|
-| **Bandit** | Static analysis of `src/` | Any high-severity finding |
-| **Safety** | Dependency vulnerability check | CVEs with CVSS ≥ 7.0 (`--audit-level=high`) |
-| **pip-audit** | Installed package audit | High-severity CVEs (`--fail-on=high`) |
+### UI
 
-### 4. Docker Build
+Node 22 runs `npm ci`, ESLint, Vitest, and the production client/SSR build.
 
-- Builds all images: `api`, `ui`, `rag`
-- Uses Docker layer caching for speed
-- Verifies builds succeed without errors
+### Containers
 
-### 5. Smoke Tests
+One job builds the API, UI, and RAG images. A second loads those images, starts the full Compose stack with CI-only secrets, waits for `/api/health`, runs smoke tests through direct API and reverse-proxy URLs, prints logs on failure, and removes containers/volumes afterward.
 
-- Starts Docker Compose services
-- Waits for all health checks to pass
-- Runs `docker compose exec api pytest tests/test_smoke_containers.py`
-- Tears down containers after tests
-
-### 6. UI Tests
-
-- Installs frontend dependencies (`npm ci`)
-- Runs Vitest test suite
-- Uploads test results as artifacts
-
----
-
-## Running Locally
+## Local equivalents
 
 ```bash
-# Run all CI checks
-make ci
-
-# Individual steps
 ruff check .
-python3 -m pytest tests/ -q --tb=short -x
-make security-scan
-docker compose build
+python3 -m mypy src --ignore-missing-imports
+python3 -m pytest tests/ -q --tb=short
+python3 -m pytest src/tool/RAGTool/tests -q --tb=short
+
+cd ui
+npm ci
+npm run lint
+npm test -- --run
+npm run build
 ```
 
----
-
-## Caching Strategy
-
-- **pip cache**: Cached across runs using `actions/cache@v4` with `uv.lock` as key
-- **npm cache**: Cached using `actions/setup-node` built-in caching
-- **Docker layers**: Cached via Docker BuildKit and GitHub Actions cache backend
-
----
-
-## Security Scan Configuration
-
-Bandit exclusions in `pyproject.toml`:
-
-```toml
-[tool.bandit]
-exclude_dirs = [".venv", "tests", "src/tool/RAGTool"]
-skips = ["B101", "B104", "B603"]
-```
-
-- `B101`: `assert` usage (acceptable in test-like code)
-- `B104`: Binding to all interfaces (intentional for local dev)
-- `B603`: `subprocess` without `shell=True` (false positive)
-
----
-
-## Release Workflow
-
-Releases are triggered by pushing a version tag:
+Compose validation:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+POSTGRES_PASSWORD=test-only ORION_API_KEY=test-only docker compose config --quiet
 ```
 
-This triggers:
-1. Full CI pipeline (lint, test, security, build)
-2. Docker image tagging with version
-3. GitHub Release creation with CHANGELOG
-
----
-
-> **Last updated:** 2026-08-02
+> Last updated: 2026-08-02

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.assessment_result import AssessmentResult
+from src.model.output_sanitizer import sanitize_model_output
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
 from src.shared.logger import info as _info
@@ -77,7 +78,9 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
                 messages=[{"role": "user", "content": prompt}],
             )
             latency = round((_time.perf_counter() - t0) * 1000, 1)
-            content = response.content[0].text if response.content else ""
+            content = sanitize_model_output(
+                response.content[0].text if response.content else ""
+            )
             self._last_usage = {
                 "input_tokens": getattr(response.usage, "input_tokens", 0),
                 "output_tokens": getattr(response.usage, "output_tokens", 0),
@@ -172,7 +175,9 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
             )
 
         latency = round((_time.perf_counter() - t0) * 1000, 1)
-        content = response.content[0].text if response.content else ""
+        content = sanitize_model_output(
+            response.content[0].text if response.content else ""
+        )
 
         pt = getattr(response.usage, "input_tokens", None) if response.usage else None
         ct = getattr(response.usage, "output_tokens", None) if response.usage else None

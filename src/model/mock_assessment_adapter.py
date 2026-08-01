@@ -17,7 +17,7 @@ class MockAssessmentAdapter(AssessmentModelAdapter):
 
         resolver = IntentResolver()
         req = resolver.resolve(prompt)
-        if req.confidence.name in ("HIGH", "MEDIUM"):
+        if req.confidence is not None and req.confidence.name in ("HIGH", "MEDIUM"):
             return "yes"
         return "I'm a mock assistant. I can help with infrastructure questions."
 

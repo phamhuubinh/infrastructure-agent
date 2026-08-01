@@ -164,7 +164,7 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         lines = output.splitlines()
         active = False
         default_policy = ""
-        rules: list[str] = []
+        ufw_rules: list[str] = []
         in_rules = False
         saw_status = False
         for line in lines:
@@ -175,25 +175,25 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             if lower.startswith("default:"):
                 default_policy = line.strip()
             if in_rules and line.strip():
-                rules.append(line.strip())
+                ufw_rules.append(line.strip())
             if not in_rules and ("----" in line or "action" in lower):
                 in_rules = True
         ufw_result = {
             "backend": "ufw",
             "active": active,
             "default_policy": default_policy,
-            "rules": rules,
-            "rule_count": len(rules),
+            "rules": ufw_rules,
+            "rule_count": len(ufw_rules),
         }
         # If ufw is active with rules, return immediately.
-        if active and rules:
+        if active and ufw_rules:
             return ufw_result
 
     # Try iptables — always attempt this, even if ufw was 'inactive'.
     # iptables rules may exist independently of ufw.
     ok, output = run(["iptables", "-L", "-n", "-v", "--line-numbers"])
     if ok:
-        rules: list[str] = []
+        iptables_rules: list[str] = []
         in_rules = False
         chain = "unknown"
         policy = "unknown"
@@ -212,12 +212,12 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 in_rules = True
                 continue
             if in_rules and stripped:
-                rules.append(f"[{chain}] {stripped}")
+                iptables_rules.append(f"[{chain}] {stripped}")
         iptables_result = {
             "backend": "iptables",
             "active": True,
-            "rules": rules,
-            "rule_count": len(rules),
+            "rules": iptables_rules,
+            "rule_count": len(iptables_rules),
             "chains": chains_seen,
             "default_policy": f"{chain}: {policy}",
         }
@@ -225,12 +225,12 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         if ufw_result is not None and not ufw_result["active"]:
             return {
                 "backend": "ufw (inactive) + iptables",
-                "active": bool(rules),
+                "active": bool(iptables_rules),
                 "ufw_status": ufw_result,
-                "iptables_rules": rules,
-                "iptables_rule_count": len(rules),
-                "rules": rules,
-                "rule_count": len(rules),
+                "iptables_rules": iptables_rules,
+                "iptables_rule_count": len(iptables_rules),
+                "rules": iptables_rules,
+                "rule_count": len(iptables_rules),
             }
         return iptables_result
 
@@ -241,12 +241,12 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     # Try nft as final fallback.
     ok, output = run(["nft", "list", "ruleset"])
     if ok:
-        rules = [ln.strip() for ln in output.splitlines() if ln.strip()]
+        nft_rules = [ln.strip() for ln in output.splitlines() if ln.strip()]
         return {
             "backend": "nftables",
-            "active": bool(rules),
-            "rules": rules,
-            "rule_count": len(rules),
+            "active": bool(nft_rules),
+            "rules": nft_rules,
+            "rule_count": len(nft_rules),
         }
 
     return {"backend": "unknown", "active": False}

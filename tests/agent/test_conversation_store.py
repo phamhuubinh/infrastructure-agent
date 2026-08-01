@@ -120,8 +120,9 @@ def test_creates_store_dir(tmp_path: Path) -> None:
     assert store_dir.exists()
 
 
-def test_default_store_dir() -> None:
-    expected = os.path.join(os.path.expanduser("~"), ".orion", "sessions")
+def test_default_store_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    expected = os.path.join(str(tmp_path), ".orion", "sessions")
     store = ConversationStore("test-session")
     assert str(store._store_dir) == expected
 

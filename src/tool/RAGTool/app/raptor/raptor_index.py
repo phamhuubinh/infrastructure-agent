@@ -99,7 +99,9 @@ class RaptorIndex:
         try:
             labels = gmm.fit_predict(vectors)
         except ValueError as e:
-            logging.error(f"GMM clustering failed: {e}. Falling back to single cluster.")
+            logging.error(
+                f"GMM clustering failed: {e}. Falling back to single cluster."
+            )
             # If GMM fails (e.g., singular matrix with degenerate embeddings),
             # fall back to putting all nodes in a single cluster
             labels = np.zeros(len(nodes), dtype=int)

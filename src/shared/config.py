@@ -20,7 +20,6 @@ import yaml
 from src.shared.config_errors import (
     ConfigurationError,
     InvalidConfigValueError,
-    MissingConfigFileError,
 )
 
 # ---------------------------------------------------------------------------
@@ -89,7 +88,7 @@ class OrionConfig:
                 levels up from this file (src/shared/config.py → repo root).
 
         Raises:
-            SystemExit: if any required configuration is missing or invalid.
+            SystemExit: if any present configuration is invalid.
         """
         config = cls()
         errors: list[ConfigurationError] = []
@@ -97,18 +96,14 @@ class OrionConfig:
             project_root = Path(__file__).resolve().parent.parent.parent
         config.project_root = project_root
 
-        # --- 1. servers.json (required) -------------------------------------
-        servers_path = project_root / "servers.json"
-        if not servers_path.exists():
-            errors.append(
-                MissingConfigFileError(
-                    file="servers.json",
-                    key="(file)",
-                    expected="existing file",
-                    received="not found",
-                )
-            )
-        else:
+        # --- 1. servers.json (optional; empty means setup mode) --------------
+        configured_servers_path = os.environ.get("ORION_SERVERS_FILE", "").strip()
+        servers_path = (
+            Path(configured_servers_path)
+            if configured_servers_path
+            else project_root / "servers.json"
+        )
+        if servers_path.exists():
             try:
                 raw = cls._load_json(servers_path)
                 if raw is None:
@@ -202,6 +197,7 @@ class OrionConfig:
         config.orion_env = {
             key: value for key, value in os.environ.items() if key.startswith("ORION_")
         }
+        cls._apply_llm_env_overrides(config)
 
         # --- 10. health_patterns.yaml (optional) ----------------------------
         health = cls._load_yaml(project_root / "config" / "health_patterns.yaml")
@@ -232,6 +228,22 @@ class OrionConfig:
     # ------------------------------------------------------------------
     # File loaders (static helpers)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_llm_env_overrides(config: OrionConfig) -> None:
+        """Apply runtime deployment overrides to the active LLM server."""
+        server = config.servers.get(config.active_server_name)
+        if not isinstance(server, dict):
+            return
+        mappings = {
+            "ORION_LLM_BASE_URL": "base_url",
+            "ORION_LLM_MODEL": "model",
+            "ORION_LLM_API_KEY": "api_key",
+        }
+        for env_name, field_name in mappings.items():
+            value = os.environ.get(env_name, "").strip()
+            if value:
+                server[field_name] = value
 
     @staticmethod
     def _load_json(path: Path) -> dict[str, Any] | None:

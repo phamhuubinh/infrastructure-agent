@@ -61,5 +61,5 @@ class FallbackChain:
                 )
         raise RuntimeError(
             "All providers exhausted. Errors:\n  "
-            + "\n  ".join(f"[{i+1}] {e}" for i, e in enumerate(errors))
+            + "\n  ".join(f"[{i + 1}] {e}" for i, e in enumerate(errors))
         )

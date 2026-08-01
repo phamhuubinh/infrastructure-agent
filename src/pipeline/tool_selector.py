@@ -60,10 +60,6 @@ _TOOL_DIRECTIVES: dict[str, ToolCategory] = {
     "web": ToolCategory.INTERNET,
     "online": ToolCategory.INTERNET,
     "trực tuyến": ToolCategory.INTERNET,
-    "knowledge base": ToolCategory.KNOWLEDGE_BASE,
-    "kiến thức": ToolCategory.KNOWLEDGE_BASE,
-    "tìm kiếm": ToolCategory.KNOWLEDGE_BASE,
-    "search": ToolCategory.KNOWLEDGE_BASE,
 }
 
 

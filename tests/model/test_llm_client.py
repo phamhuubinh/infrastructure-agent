@@ -45,6 +45,10 @@ class TestLLMClient:
         client = LLMClient(base_url="http://test:8000/")
         assert client._base_url == "http://test:8000"
 
+    def test_openai_v1_suffix_is_normalized(self) -> None:
+        client = LLMClient(base_url="https://api.openai.com/v1/")
+        assert client._base_url == "https://api.openai.com"
+
     @mock.patch("urllib.request.urlopen")
     def test_generate_success(self, mock_urlopen: mock.Mock) -> None:
         mock_urlopen.return_value = _mock_response(
@@ -63,6 +67,25 @@ class TestLLMClient:
         body = json.loads(call_args.data)
         assert body["model"] == "gpt-4"
         assert body["messages"][0]["content"] == "test prompt"
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_removes_internal_reasoning(self, mock_urlopen: mock.Mock) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "<think>hidden\\nreasoning</think>\\nVisible answer"}}]}'
+        )
+
+        assert LLMClient().generate("hello") == "Visible answer"
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_rejects_reasoning_only_response(
+        self, mock_urlopen: mock.Mock
+    ) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "<think>hidden</think>"}}]}'
+        )
+
+        with pytest.raises(RuntimeError, match="no user-visible content"):
+            LLMClient().generate("hello")
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_with_api_key(self, mock_urlopen: mock.Mock) -> None:

@@ -22,17 +22,17 @@ def query(body: dict, request: Request):
 
     try:
         deps = request.app.state.deps
-        session_id = body.get("session_id")
-        deps.get_or_create_session(session_id)
-
-        # Switch server if requested
         server_name = body.get("server_name") or body.get("active_server")
-        if server_name:
-            deps.switch_server(server_name)
-
-        result = deps.agent.run_with_steps(question)
+        session_id, agent, session_lock = deps.prepare_query(
+            session_id,
+            server_name=server_name,
+        )
+        set_context(request_id=request_id, session_id=session_id)
+        with session_lock:
+            result = agent.run_with_steps(question)
 
         return {
+            "session_id": session_id,
             "steps": result["steps"],
             "assessment": result["response"],
         }

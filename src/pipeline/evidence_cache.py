@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time as _time
 from dataclasses import dataclass
 
@@ -23,8 +24,8 @@ class EvidenceCache:
     to avoid re-collecting the same data. Evidence expires
     after a configurable TTL (default 60s).
 
-    Thread-safe — uses a simple dict with no locking needed
-    for single-threaded agent usage.
+    Thread-safe so a session remains safe if multiple application threads
+    inspect or clear its cache.
     """
 
     def __init__(self, ttl: float = 60.0) -> None:
@@ -36,6 +37,7 @@ class EvidenceCache:
         """
         self._ttl = ttl
         self._cache: dict[CacheKey, tuple[float, object]] = {}
+        self._lock = threading.RLock()
 
     def get(self, target: str, evidence_name: str) -> object | None:
         """Retrieve cached evidence for a specific target if still fresh.
@@ -48,14 +50,15 @@ class EvidenceCache:
             Cached evidence package if fresh, None otherwise.
         """
         key = CacheKey(target=target, evidence_name=evidence_name)
-        entry = self._cache.get(key)
-        if entry is None:
-            return None
-        timestamp, data = entry
-        if _time.monotonic() - timestamp > self._ttl:
-            del self._cache[key]
-            return None
-        return data
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            timestamp, data = entry
+            if _time.monotonic() - timestamp > self._ttl:
+                del self._cache[key]
+                return None
+            return data
 
     def put(self, target: str, evidence_name: str, data: object) -> None:
         """Store evidence in the cache.
@@ -66,23 +69,31 @@ class EvidenceCache:
             data: The evidence package to cache.
         """
         key = CacheKey(target=target, evidence_name=evidence_name)
-        self._cache[key] = (_time.monotonic(), data)
+        with self._lock:
+            self._cache[key] = (_time.monotonic(), data)
 
     def clear(self) -> None:
         """Remove all cached entries."""
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
     def __len__(self) -> int:
         """Number of cached entries (including expired ones until accessed)."""
-        return len(self._cache)
+        with self._lock:
+            return len(self._cache)
 
     def prune_expired(self) -> int:
         """Remove all expired entries. Returns count of removed items."""
         now = _time.monotonic()
-        expired = [k for k, (ts, _) in self._cache.items() if now - ts > self._ttl]
-        for k in expired:
-            del self._cache[k]
-        return len(expired)
+        with self._lock:
+            expired = [
+                key
+                for key, (timestamp, _) in self._cache.items()
+                if now - timestamp > self._ttl
+            ]
+            for key in expired:
+                del self._cache[key]
+            return len(expired)
 
     @property
     def ttl(self) -> float:

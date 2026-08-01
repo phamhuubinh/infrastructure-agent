@@ -9,6 +9,7 @@ from src.agent.runtime_factory import (
     _build_assessment_adapter,
     _register_single_tool,
     _register_tools,
+    create_deterministic_agent,
 )
 from src.shared.config import OrionConfig, _reset_config
 from src.shared.config_errors import InvalidConfigValueError
@@ -31,9 +32,25 @@ def _reset_orion_config() -> None:
 
 
 def test_config_missing_servers_file() -> None:
-    """OrionConfig.load raises SystemExit(1) when servers.json is missing."""
-    with pytest.raises(SystemExit, match="1"):
-        OrionConfig.load(project_root=Path("/nonexistent/path"))
+    """A missing model registry loads as valid setup mode."""
+    config = OrionConfig.load(project_root=Path("/nonexistent/path"))
+    assert config.servers == {}
+    assert config.active_server_name == ""
+
+
+def test_agent_starts_with_setup_adapter_when_no_model_is_configured(
+    tmp_path: Path,
+) -> None:
+    mock_config = OrionConfig(servers={}, active_server_name="", tools={})
+    with mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config):
+        agent = create_deterministic_agent(
+            target_store_path=str(tmp_path / "targets.json")
+        )
+
+    from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
+
+    assert isinstance(agent.assessment_model, UnconfiguredAssessmentAdapter)
+    assert agent.health_check() is False
 
 
 def test_config_unknown_server_in_build_adapter() -> None:
@@ -42,8 +59,9 @@ def test_config_unknown_server_in_build_adapter() -> None:
         servers={"sv1": {"base_url": "http://localhost:8000"}},
         active_server_name="sv1",
     )
-    with mock.patch("src.shared.config._config", mock_config), mock.patch(
-        "src.agent.runtime_factory.get_config", return_value=mock_config
+    with (
+        mock.patch("src.shared.config._config", mock_config),
+        mock.patch("src.agent.runtime_factory.get_config", return_value=mock_config),
     ):
         with pytest.raises(InvalidConfigValueError, match="sv2"):
             _build_assessment_adapter("sv2")
@@ -58,6 +76,28 @@ def test_config_active_server_default() -> None:
         active_server_name="sv1",
     )
     assert config.active_server["base_url"] == "http://localhost:8000"
+
+
+def test_config_applies_active_server_environment_overrides() -> None:
+    config = OrionConfig(
+        servers={"sv1": {"base_url": "http://old", "model": "old"}},
+        active_server_name="sv1",
+    )
+    with mock.patch.dict(
+        "os.environ",
+        {
+            "ORION_LLM_BASE_URL": "http://docker-host:8000",
+            "ORION_LLM_MODEL": "new-model",
+            "ORION_LLM_API_KEY": "secret",
+        },
+    ):
+        OrionConfig._apply_llm_env_overrides(config)
+
+    assert config.active_server == {
+        "base_url": "http://docker-host:8000",
+        "model": "new-model",
+        "api_key": "secret",
+    }
 
 
 # ---------------------------------------------------------------------------

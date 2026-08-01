@@ -65,7 +65,7 @@ Produce only the new merged summary, nothing else."""
 
 def list_sessions(store_dir: str | None = None) -> list[dict]:
     store_path = Path(store_dir or Path.home() / ".orion" / "sessions")
-    sessions = []
+    sessions: list[dict[str, Any]] = []
     if not store_path.exists():
         return sessions
     for f in sorted(
@@ -213,8 +213,11 @@ class ConversationStore:
 
         with self._lock:
             len_before = len(all_turns)
-            # Keep only turns that arrived after the snapshot was taken
-            self._mem = self._mem[len_before:]
+            # Remove the summarized prefix only if it is still present. A
+            # concurrent summarizer may already have removed the same
+            # snapshot; slicing again would discard newer turns.
+            if self._mem[:len_before] == all_turns:
+                self._mem = self._mem[len_before:]
             self._summary = new_summary
             self._dirty = True
             self._save()

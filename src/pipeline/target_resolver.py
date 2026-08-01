@@ -273,8 +273,7 @@ class TargetResolver:
         # Step 0: Check localhost synonyms first.
         for word in words:
             if self._is_localhost_synonym(word):
-                update: StateUpdate = {"target": "localhost"}
-                return update
+                return {"target": "localhost"}
 
         # Step 0.5: Check bad-target cache.
         for word in words:
@@ -286,8 +285,7 @@ class TargetResolver:
             alias_target = self._aliases.get(word)
             if alias_target:
                 if alias_target in known_names:
-                    update: StateUpdate = {"target": alias_target}
-                    return update
+                    return {"target": alias_target}
                 self._bad_targets.add(alias_target)
                 raise UnknownTargetError(alias_target, known_names, domain_names)
 
@@ -295,14 +293,12 @@ class TargetResolver:
         for word in words:
             normalized = self.normalize_target_name(word)
             if normalized != word and normalized in known_names:
-                update: StateUpdate = {"target": normalized}
-                return update
+                return {"target": normalized}
 
         # Step 3: Exact substring match.
         for name in sorted(known_names, key=len, reverse=True):
             if name.lower() in raw:
-                update: StateUpdate = {"target": name}
-                return update
+                return {"target": name}
 
         # Step 4: Fuzzy match for typos.
         best_name: str | None = None
@@ -314,8 +310,7 @@ class TargetResolver:
                     best_ratio = ratio
                     best_name = name
         if best_name is not None and best_ratio >= 0.6:
-            update: StateUpdate = {"target": best_name}
-            return update
+            return {"target": best_name}
 
         # Step 4.5: Detect potential hostnames.
         _prepositions = frozenset({"on", "for", "at", "from"})
@@ -341,12 +336,10 @@ class TargetResolver:
                     for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")
                 ):
                     if "grafana" in known_names:
-                        update: StateUpdate = {"target": "grafana"}
-                        return update
+                        return {"target": "grafana"}
                 for preferred in ("zabbix", "grafana"):
                     if preferred in known_names:
-                        update: StateUpdate = {"target": preferred}
-                        return update
+                        return {"target": preferred}
 
         # Step 6: Preposition-based target.
         for i, word in enumerate(words):
@@ -359,14 +352,12 @@ class TargetResolver:
                     and normalized_candidate not in self._skip_words
                 ):
                     if normalized_candidate in known_names:
-                        update: StateUpdate = {"target": normalized_candidate}
-                        return update
+                        return {"target": normalized_candidate}
                     self._bad_targets.add(candidate)
                     raise UnknownTargetError(candidate, known_names, domain_names)
 
         # Step 7: Fallback.
-        update: StateUpdate = {"target": "localhost"}
-        return update
+        return {"target": "localhost"}
 
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.

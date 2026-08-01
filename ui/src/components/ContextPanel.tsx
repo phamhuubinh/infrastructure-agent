@@ -17,6 +17,7 @@ import {
   Wrench,
   Activity,
   MessageSquare,
+  type LucideIcon,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -77,7 +78,7 @@ type Session = {
   messages: Message[];
 };
 
-const stepLabels: Record<string, { icon: any; label: string; color: string }> = {
+const stepLabels: Record<string, { icon: LucideIcon; label: string; color: string }> = {
   intent: { icon: Target, label: "Intent Resolution", color: "text-blue-400" },
   evidence: { icon: Layers, label: "Evidence Collection", color: "text-amber-400" },
   prompt: { icon: FileText, label: "Prompt Assembly", color: "text-purple-400" },
@@ -412,7 +413,7 @@ function Metric({
 }: {
   label: string;
   value: string;
-  icon: any;
+  icon: LucideIcon;
   highlight?: string;
 }) {
   return (
@@ -490,7 +491,7 @@ function EvidenceDetail({ step }: { step: Step }) {
       {step.items && step.items.length > 0 && (
         <div className="space-y-1">
           {step.items.map((item, i) => (
-            <div key={(item as any).capability + "_" + (item as any).evidence || i}>
+            <div key={`${item.capability}_${item.evidence}_${i}`}>
               <button
                 onClick={() => setSelectedItem(selectedItem === i ? null : i)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/40 transition-colors text-left"

@@ -10,7 +10,8 @@ from src.shared.logger import info as _info
 
 
 def _get_api_key() -> str | None:
-    return os.environ.get("ORION_API_KEY")
+    value = os.environ.get("ORION_API_KEY", "").strip()
+    return value or None
 
 
 def _is_public_path(path: str) -> bool:

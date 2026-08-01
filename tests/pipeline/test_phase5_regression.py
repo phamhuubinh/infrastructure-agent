@@ -133,12 +133,12 @@ def test_mem_keyword_standalone() -> None:
 # ------------------------------------------------------------------
 # Task 503: _build_chat_context limits context
 # ------------------------------------------------------------------
-def test_build_chat_context_limits_pairs() -> None:
+def test_build_chat_context_limits_pairs(tmp_path: Path) -> None:
     """Test that context building limits to 4 recent pairs."""
     from src.agent.conversation_store import ConversationStore
     from src.agent.deterministic_agent import DeterministicAgent
 
-    store = ConversationStore("test-session-1")
+    store = ConversationStore("test-session-1", store_dir=str(tmp_path))
     # Add 10 user+assistant turns
     for i in range(10):
         store.add_turn(f"question {i}", f"answer {i}")
@@ -153,12 +153,12 @@ def test_build_chat_context_limits_pairs() -> None:
     assert "question 9" in context  # Latest should be present
 
 
-def test_build_chat_context_truncates_long_messages() -> None:
+def test_build_chat_context_truncates_long_messages(tmp_path: Path) -> None:
     """Test that long assistant messages are truncated (shown by '...' marker)."""
     from src.agent.conversation_store import ConversationStore
     from src.agent.deterministic_agent import DeterministicAgent
 
-    store = ConversationStore("test-session-2")
+    store = ConversationStore("test-session-2", store_dir=str(tmp_path))
     long_answer = "x" * 1000
     store.add_turn("short question", long_answer)
 

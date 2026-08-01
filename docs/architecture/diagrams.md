@@ -82,13 +82,13 @@ graph TB
         GT[GrafanaTool]
         ZT[ZabbixTool]
         IT[InternetTool]
-        KBT[KnowledgeBaseTool]
     end
 
     subgraph "Assessment"
         AM[AssessmentModelAdapter]
         LLM[LLMAssessmentAdapter]
         Mock[MockAssessmentAdapter]
+        Setup[UnconfiguredAdapter]
         PB[PromptBuilder]
     end
 
@@ -109,15 +109,16 @@ graph TB
     KT --> GT
     KT --> ZT
     KT --> IT
-    KT --> KBT
 
     DA --> AM
     AM --> LLM
     AM --> Mock
+    AM --> Setup
 
     API --> DB
-    KBT --> RAG
-    API --> Proxy
+    API --> RAG
+    Proxy --> API
+    Proxy --> UI
 ```
 
 ---
@@ -135,7 +136,6 @@ graph LR
         GT2[GrafanaTool<br/>HTTP API]
         ZT2[ZabbixTool<br/>JSON-RPC]
         IT2[InternetTool<br/>HTTP Fetch]
-        KBT2[KnowledgeBaseTool<br/>RAG Proxy]
     end
 
     subgraph "External"
@@ -143,20 +143,17 @@ graph LR
         Grafana[Grafana<br/>HTTPS:443]
         Zabbix[Zabbix<br/>HTTPS:443]
         Web[Internet<br/>HTTPS]
-        RAG2[RAG Service<br/>HTTP:8000]
     end
 
     KT2 -->|capability: disk| LT2
     KT2 -->|capability: dashboards| GT2
     KT2 -->|capability: hosts| ZT2
     KT2 -->|capability: web_fetch| IT2
-    KT2 -->|capability: knowledge_search| KBT2
 
     LT2 --> SSH
     GT2 --> Grafana
     ZT2 --> Zabbix
     IT2 --> Web
-    KBT2 --> RAG2
 ```
 
 ---
@@ -166,19 +163,19 @@ graph LR
 ```mermaid
 graph TB
     subgraph "Host Machine"
-        Browser[Browser<br/>https://localhost]
+        Browser[Browser<br/>http://localhost]
         Terminal[Terminal<br/>orion run]
     end
 
     subgraph "Docker Compose"
-        Nginx[Nginx<br/>:443 → :61888]
+        Nginx[Nginx<br/>:80]
         API2[FastAPI API<br/>:61888]
-        UI2[React UI<br/>:5173]
+        UI2[React UI SSR<br/>:3000 internal]
         DB2[(PostgreSQL<br/>:5432)]
-        RAG3[RAG Service<br/>:8000]
+        RAG3[RAG Service<br/>:8080 internal]
     end
 
-    Browser -->|HTTPS| Nginx
+    Browser -->|HTTP| Nginx
     Nginx -->|proxy_pass| API2
     Nginx -->|proxy_pass| UI2
     Terminal -->|CLI| API2

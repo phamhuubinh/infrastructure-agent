@@ -28,11 +28,10 @@ def test_select_zabbix_by_directive() -> None:
     assert s.select("memory dùng zabbix", "memory") == ToolCategory.ZABBIX
 
 
-def test_select_knowledge_base_by_directive() -> None:
+def test_rag_directive_is_not_routed_from_chat() -> None:
     s = ToolSelector()
     assert (
-        s.select("tìm kiếm kubernetes architecture", "kubernetes")
-        == ToolCategory.KNOWLEDGE_BASE
+        s.select("tìm kiếm kubernetes architecture", "kubernetes") == ToolCategory.LINUX
     )
 
 

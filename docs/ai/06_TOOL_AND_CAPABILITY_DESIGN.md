@@ -7,7 +7,9 @@ Every Child Tool should: collect operational evidence, normalize outputs, expose
 Child Tools should never: interpret evidence, make recommendations, generate conclusions, or communicate with the Assessment Model directly. All Child Tool output flows back through the pipeline (`05_EXECUTION_PIPELINE.md`), not to the model.
 ## Domain ownership
 Each Child Tool owns exactly one infrastructure domain and must never access another domain.
-Implemented today (`src/tool/`): `LinuxTool` (SSH execution), `GrafanaTool`, `ZabbixTool`, `InternetTool` (HTTP fetch with SSRF protection), `KnowledgeBaseTool` (RAG service proxy), all behind `KnowledgeTool`.
+Implemented chat-runtime domains (`src/tool/`): `LinuxTool` (SSH execution), `GrafanaTool`, `ZabbixTool`, and `InternetTool` (HTTP fetch with SSRF protection), all behind `KnowledgeTool`.
+
+RAG is intentionally not a Child Tool. It is a project-scoped application service reached through `/api/rag/*`. This boundary prevents uploaded document context from entering an infrastructure chat session implicitly.
 Possible future domains (not implemented, listed only as examples of the pattern — do not build until there is a real need): `DockerTool`, `VMwareTool`, `GraylogTool`.
 ## InternetTool and SSRF protection
 `InternetTool` (`src/tool/internet_tool.py`) fetches external URLs and returns content as text or parsed JSON. It is **opt-in per request** — never invoked automatically by the pipeline (see `04_ROADMAP.md`, WP4 rule). SSRF protection is built-in at two levels:
@@ -16,7 +18,7 @@ Possible future domains (not implemented, listed only as examples of the pattern
 This is the only Child Tool that makes outbound network calls beyond the local infrastructure domain.
 
 ## KnowledgeTool is the single entry point
-`KnowledgeTool` (`src/tool/knowledge_tool.py`) aggregates Child Tool capability metadata and dispatches execution. The pipeline never calls a Child Tool directly. This is intentional — it keeps capability metadata as a single source of truth and avoids duplicated dispatch logic across the pipeline.
+`KnowledgeTool` (`src/tool/knowledge_tool.py`) aggregates infrastructure Child Tool capability metadata and dispatches chat investigation execution. The pipeline never calls a Child Tool directly. The separate RAG application flow does not pass through `KnowledgeTool`.
 ## Capability ownership
 Every capability belongs to exactly one Child Tool (e.g. `running_services` belongs to `LinuxTool`). Capability implementations must never be duplicated across tools.
 ## Deterministic execution

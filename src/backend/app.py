@@ -16,6 +16,7 @@ from src.backend.routers import (
     documents,
     health,
     knowledge,
+    models,
     query,
     sessions,
 )
@@ -77,12 +78,13 @@ def _register_routers(app: FastAPI) -> None:
     app.include_router(sessions.router)
     app.include_router(query.router)
     app.include_router(knowledge.router)
+    app.include_router(models.router)
     app.include_router(documents.router)
 
 
 def create_app(
     target_store_path: str = "targets.json",
-    server_name: str = "sv1",
+    server_name: str | None = None,
     model: str | None = None,
     database_url: str | None = None,
 ) -> tuple:
@@ -119,7 +121,7 @@ def create_app(
 def run_web(
     port: int = 61888,
     target_store_path: str = "targets.json",
-    server_name: str = "sv1",
+    server_name: str | None = None,
     model: str | None = None,
     database_url: str | None = None,
 ) -> None:

@@ -7,6 +7,9 @@ Does NOT test main() — that is covered by test_main_integration.py.
 """
 
 import json
+from pathlib import Path
+
+import pytest
 
 from benchmark.assessment_evaluator import metrics_to_dict
 from benchmark.metadata import collect_benchmark_metadata
@@ -85,8 +88,14 @@ def test_human_report_shows_assessment_metrics() -> None:
     assert "comp=1.00" in report
 
 
-def test_collect_benchmark_metadata_includes_provider() -> None:
+def test_collect_benchmark_metadata_includes_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """collect_benchmark_metadata() must capture provider from servers.json."""
+    (tmp_path / "servers.json").write_text(
+        json.dumps({"servers": {"sv1": {"provider": "openai"}}})
+    )
+    monkeypatch.chdir(tmp_path)
     metadata = collect_benchmark_metadata(server_name="sv1")
     assert metadata.get("provider") == "openai", (
         f"Expected 'openai', got '{metadata.get('provider')}'"

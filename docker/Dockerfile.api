@@ -8,14 +8,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml .
 COPY src/ src/
+COPY config/ config/
 
 RUN pip install --no-cache-dir -e ".[web]"
 
 COPY targets.json .
 
-# Generate a default servers.json for environments that don't supply it
-RUN printf '{"active_server":"local","servers":{"local":{"provider":"openai","base_url":"http://localhost:8000","model":"gpt-4","timeout":300}}}\n' > /app/servers.json
+# The persistent model registry is initialized empty. Users can configure it
+# during installation or later through CLI/Web Settings.
+RUN printf '{"active_server":"","servers":{},"fallback_chain":[]}\n' > /app/servers.default.json
+COPY docker/entrypoint.api.sh /usr/local/bin/orion-api-entrypoint
+RUN chmod +x /usr/local/bin/orion-api-entrypoint
 
 EXPOSE 61888
 
+ENTRYPOINT ["orion-api-entrypoint"]
 CMD ["uvicorn", "src.backend.api:app", "--host", "0.0.0.0", "--port", "61888"]

@@ -73,8 +73,8 @@ def _format_query(target: dict[str, object]) -> dict[str, object]:
     ds_type = ""
     ds_uid = ""
     if isinstance(ds, dict):
-        ds_type = ds.get("type", "")
-        ds_uid = ds.get("uid", "")
+        ds_type = str(ds.get("type", ""))
+        ds_uid = str(ds.get("uid", ""))
     query_lang = _detect_query_language(target)
     metrics = _extract_metrics(target)
     return {
@@ -177,11 +177,13 @@ def _format_panel(p: dict[str, object]) -> dict[str, object]:
     )
     all_metrics: list[str] = []
     for t in targets:
-        all_metrics.extend(t.get("metrics", []))
+        metrics = t.get("metrics", [])
+        if isinstance(metrics, list):
+            all_metrics.extend(str(metric) for metric in metrics)
     field_config = _format_field_config(p.get("fieldConfig", {}))
     transformations = _format_transformations(p.get("transformations", []))
     grid_pos = p.get("gridPos", {})
-    viz_type = p.get("type", "")
+    viz_type = str(p.get("type", ""))
     viz_category = _visualization_category(viz_type)
     lib_panel = p.get("libraryPanel", {})
     links = p.get("links", [])
@@ -245,7 +247,7 @@ def _panel_signals(
     viz_type: str, metrics: list[str], field_config: dict[str, object]
 ) -> list[str]:
     signals: list[str] = []
-    unit = field_config.get("unit", "")
+    unit = str(field_config.get("unit", ""))
     full_text = " ".join(metrics).lower() + " " + unit.lower()
     if "cpu" in full_text or "cpu" in viz_type.lower():
         signals.append("CPU Utilization")
@@ -349,13 +351,16 @@ def _dashboard_details(api: GrafanaProvider, uid: str = "") -> dict[str, object]
     by_signal: dict[str, int] = {}
     all_signals: set[str] = set()
     for p in all_panels:
-        t = p.get("type", "unknown")
+        t = str(p.get("type", "unknown"))
         by_type[t] = by_type.get(t, 0) + 1
-        dom = p.get("datasource_domain", "Unknown")
+        dom = str(p.get("datasource_domain", "Unknown"))
         by_domain[dom] = by_domain.get(dom, 0) + 1
-        for sig in p.get("observed_signals", []):
-            all_signals.add(sig)
-            by_signal[sig] = by_signal.get(sig, 0) + 1
+        observed_signals = p.get("observed_signals", [])
+        if isinstance(observed_signals, list):
+            for raw_signal in observed_signals:
+                sig = str(raw_signal)
+                all_signals.add(sig)
+                by_signal[sig] = by_signal.get(sig, 0) + 1
     variable_list = templating.get("list", [])
     annotation_list = annotations.get("list", [])
     return {

@@ -92,9 +92,8 @@ class ReadOnlyInspector(ToolInspector):
        ``_MUTATING_CAPABILITIES``, deny.
     2. Heuristic allow: If the capability name starts with a known
        read-only prefix (e.g., ``get_``, ``list_``), allow.
-    3. Default: Allow with a warning. The whitelist of read-only
-       prefixes is conservative; unknown capabilities may be
-       read-only monitoring functions not yet categorized.
+    3. Default: Deny. New capabilities must be explicitly named with a
+       read-only prefix or added to the reviewed policy.
     """
 
     @property
@@ -122,15 +121,12 @@ class ReadOnlyInspector(ToolInspector):
                 inspector_name=self.name,
             )
 
-        # 3. Default allow — unknown capability, assumed read-only.
-        #    This is permissive by design: Orion's static capability registry
-        #    means new capabilities are added intentionally by developers,
-        #    not auto-discovered or generated at runtime.
+        # 3. Fail closed for unknown capabilities.
         return InspectionResult(
-            verdict=InspectionVerdict.ALLOW,
+            verdict=InspectionVerdict.DENY,
             reason=(
                 f"Capability '{context.capability_name}' has no explicit "
-                f"read-only classification. Allowed by default."
+                f"read-only classification. Denied by default."
             ),
             inspector_name=self.name,
         )
