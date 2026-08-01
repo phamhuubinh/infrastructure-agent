@@ -6905,5 +6905,197 @@
         }
       ]
     }
+  },
+  "a20ac1919f7e1800": {
+    "ts": "2026-08-01T03:09:27.141095+00:00",
+    "query": "Enterprise AI agent framework trends 2024: multi-tenancy, security, and streaming integration",
+    "result": {
+      "results": [
+        {
+          "title": "Top 10 AI SOC Agents, Platforms and Solutions in 2026",
+          "url": "https://www.conifers.ai/blog/top-ai-soc-agents/",
+          "snippet": "30 thg 5, 2026 ... Patent-Pending Mesh Agentic Architecture: The platform combines multiple AI techniques including LLMs, DSLMs, machine learning, statistical ..."
+        },
+        {
+          "title": "why your enterprise AI platform needs seven boundaries, not one ...",
+          "url": "https://dev.to/aws-builders/beyond-mcp-why-your-enterprise-ai-platform-needs-seven-boundaries-not-one-protocol-16n3",
+          "snippet": "18 thg 7, 2026 ... MCP is becoming the default answer to every enterprise-agent architecture question. Access internal data? MCP. Call company APIs? MCP."
+        },
+        {
+          "title": "TRiSM for Agentic AI: A review of Trust, Risk, and Security ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2666651026000069",
+          "snippet": "Agent loop with multi-agent & streaming, N/A, Python tools, hot-reloading ... multi-agent framework (Zhang et al., 2024). Mitigations include adversarial ..."
+        },
+        {
+          "title": "Multiagent Frameworks for AI Orchestration: A Comparative Study",
+          "url": "https://www.linkedin.com/posts/vishsrik_top-4-multi-agent-frameworks-you-need-to-activity-7351109453351456769-K47Z",
+          "snippet": "15 thg 7, 2025 ... ... FY2024, where agents collaborate to generate a detailed business intelligence report. ... Multi-Agent AI Workflow Observability Framework ..."
+        },
+        {
+          "title": "Top Agentic AI Frameworks in 2025: Which One Fits Your Needs?",
+          "url": "https://medium.com/data-science-collective/top-agentic-ai-frameworks-in-2025-which-one-fits-your-needs-0eb95dcd7c58",
+          "snippet": "22 thg 10, 2025 ... Multi-Agent Collaboration: Purpose-built for coordinating multiple specialized agents (e.g., AutoGen, CrewAI, OpenAI Agents SDK). 4. Enterprise ..."
+        },
+        {
+          "title": "The Case Against Building Your Own Agent Platform - O'Reilly",
+          "url": "https://www.oreilly.com/radar/the-case-against-building-your-own-agent-platform/",
+          "snippet": "17 thg 6, 2026 ... Vendor lock-in at the AI layer is subtler and more dangerous than in traditional software. If your agentic workflows are built on a vendor's ..."
+        },
+        {
+          "title": "(PDF) Implementing Agentic AI Into ERP Software - ResearchGate",
+          "url": "https://www.researchgate.net/publication/396614324_Implementing_Agentic_AI_into_ERP_Software",
+          "snippet": "18 thg 7, 2026 ... To answer this, we employ a multi-faceted methodology encompassing the extraction of business requirements from real-world use cases, the design ..."
+        },
+        {
+          "title": "A Deep Dive Into MCP and the Future of AI Tooling",
+          "url": "https://a16z.com/a-deep-dive-into-mcp-and-the-future-of-ai-tooling/",
+          "snippet": "20 thg 3, 2025 ... As the foundational models get more intelligent, agents' ability to interact with external tools, data, and APIs becomes increasingly fragmented ..."
+        }
+      ]
+    }
+  },
+  "e3411dccce14e4dc": {
+    "ts": "2026-08-01T03:09:28.356559+00:00",
+    "query": "RAG architecture best practices for enterprise caching and evaluation scalability",
+    "result": {
+      "results": [
+        {
+          "title": "Best Practices for Designing Enterprise RAG Systems - Alps Agility",
+          "url": "https://www.alpsagility.com/best-practices-designing-rag",
+          "snippet": "22 thg 5, 2026 ... Retrieval-Augmented Generation is moving from prototype to production. Learn the architecture best practices for building scalable, accurate, ..."
+        },
+        {
+          "title": "RAG for Enterprise Response: Architecture Guide - Redis",
+          "url": "https://redis.io/blog/rag-for-enterprise-response/",
+          "snippet": "1 thg 3, 2026 ... How to design your enterprise RAG retrieval architecture · Chunking strategy · Hybrid search with re-ranking · Metadata filtering · Vector indexing."
+        },
+        {
+          "title": "Understanding Caching in Retrieval-Augmented Generation (RAG ...",
+          "url": "https://medium.com/@shekhar.manna83/understanding-caching-in-retrieval-augmented-generation-rag-systems-implementation-d5d1918cc4bd",
+          "snippet": "23 thg 6, 2025 ... By implementing these caching strategies, RAG systems can achieve the performance and scalability required for production deployments while ..."
+        },
+        {
+          "title": "What are the key components of a scalable RAG architecture for ...",
+          "url": "https://www.linkedin.com/pulse/what-key-components-scalable-rag-architecture-enterprises-n8n-fzpnf",
+          "snippet": "10 thg 6, 2026 ... Flexible AI workflow automation for technical… ... Enterprise retrieval-augmented generation (RAG) is the architectural pattern that connects ..."
+        },
+        {
+          "title": "RAG Architecture Explained: A Comprehensive Guide [2026] - Orq.ai",
+          "url": "https://orq.ai/blog/rag-architecture",
+          "snippet": "28 thg 5, 2025 ... Best Practices for Scalable RAG Deployment · Follow a modular RAG pattern: Separate your retriever, generator, and orchestration logic for easier ..."
+        },
+        {
+          "title": "Demystifying RAG Architecture for Enterprise Data - Ozigi Blog",
+          "url": "https://blog.ozigi.app/blog/rag-architecture-for-enterprise-data",
+          "snippet": "9 thg 4, 2026 ... This is where Retrieval-Augmented Generation (RAG) architecture emerges as a critical enabler. RAG provides a robust, scalable, and cost- ..."
+        },
+        {
+          "title": "RAG Best Practices for Enterprise AI Systems | VDF AI",
+          "url": "https://vdf.ai/blog/rag-technology-best-practices/",
+          "snippet": "10 thg 12, 2024 ... Enterprise RAG best practices come down to four things: preserve context when you chunk, treat retrieval quality as a first-class metric, govern ..."
+        },
+        {
+          "title": "Mastering RAG: How To Architect An Enterprise RAG System",
+          "url": "https://galileo.ai/blog/mastering-rag-how-to-architect-an-enterprise-rag-system",
+          "snippet": "23 thg 1, 2024 ... Through these case studies, they identified seven failure points that often arise when engineering a RAG system. Missing content (FP1). A ..."
+        }
+      ]
+    }
+  },
+  "e19745692b118c5e": {
+    "ts": "2026-08-01T03:09:29.219676+00:00",
+    "query": "Recent security vulnerabilities in LangChain/LlamaIndex RAG pipelines and mitigation strategies",
+    "result": {
+      "results": [
+        {
+          "title": "Anatomy of a RAG Killer: Deep Dive into CVE-2025-66516 and the ...",
+          "url": "https://www.penligent.ai/hackinglabs/anatomy-of-a-rag-killer-deep-dive-into-cve-2025-66516-and-the-apache-tika-rce/",
+          "snippet": "3 thg 1, 2026 ... In the rush to deploy Retrieval-Augmented Generation (RAG) pipelines, the industry collectively ignored a fundamental truth: The parser is ..."
+        },
+        {
+          "title": "RAG Poisoning and EU AI Act Article 10: Data Governance Is Not ...",
+          "url": "https://aminrj.com/posts/rag-poisoning-article-10-data-governance/",
+          "snippet": "26 thg 3, 2026 ... Most teams skip it because it is not part of the default LangChain or LlamaIndex pipeline. ... RAG mitigation strategies lab. It adds ..."
+        },
+        {
+          "title": "LLM Framework Security: Developer's Deep Dive - Medium",
+          "url": "https://medium.com/@michael.hannecke/hidden-dangers-in-llm-frameworks-a-practical-security-guide-for-developers-and-architects-7f7ac74b5372",
+          "snippet": "4 thg 11, 2025 ... LangChain: The Pioneer's Growing Pains. LangChain, despite its popularity, has faced significant security challenges: · The Pattern · LlamaIndex: ..."
+        },
+        {
+          "title": "Cache Related Security Threats in LLM Serving Frameworks",
+          "url": "https://www.ndss-symposium.org/wp-content/uploads/2026-f2812-paper.pdf",
+          "snippet": "tion (RAG) pipelines to construct semantic fuzzy queries. These attack risks involve popular serving frameworks such as vLLM, SGLang, GPTCache, and LangChain."
+        },
+        {
+          "title": "LlamaIndex Vs LangChain: The Real Reason You Need Both",
+          "url": "https://vertexfrontier.com/llamaindex-vs-langchain/",
+          "snippet": "3 ngày trước ... Written by Senior LLMOps Engineer. Peer Reviewed. Benchmarked against production RAG systems processing 1M+ monthly queries. Technical accuracy ..."
+        },
+        {
+          "title": "Open-Source LLM Pipeline Security & Fairness Guide - NeuralTrust AI",
+          "url": "https://neuraltrust.ai/blog/llm-pipeline-security-fairness-walkthrough",
+          "snippet": "17 thg 6, 2025 ... Retrieval-Augmented Generation (RAG): ... LangChain / LlamaIndex: These frameworks build application logic and are also useful for testing."
+        },
+        {
+          "title": "From prompt injections to protocol exploits: Threats in LLM-powered ...",
+          "url": "https://www.sciencedirect.com/science/article/pii/S2405959525001997",
+          "snippet": "The Toxic Agent Flow attack is a critical vulnerability in the widely used GitHub MCP server, discovered by Invariant Labs [51], which allows attackers to ..."
+        },
+        {
+          "title": "Your RAG is Unfair: Exposing Fairness Vulnerabilities in Retrieval ...",
+          "url": "https://aclanthology.org/2025.emnlp-main.804.pdf",
+          "snippet": "4 thg 11, 2025 ... Tavily and LlamaIndex fur- ther simplify adoption by integrating RAG into existing AI pipelines (Tavily AI, 2024; Liu, 2022). Backdoor Threats ..."
+        }
+      ]
+    }
+  },
+  "0bc46a1a55107f09": {
+    "ts": "2026-08-01T03:11:02.263563+00:00",
+    "query": "Common security vulnerabilities in enterprise RAG pipelines 2024",
+    "result": {
+      "results": [
+        {
+          "title": "Securing RAG pipelines in enterprise SaaS - CSO Online",
+          "url": "https://www.csoonline.com/article/4163888/securing-rag-pipelines-in-enterprise-saas.html",
+          "snippet": "To secure RAG pipelines effectively against these evolving threats, organizations must thoroughly understand their architecture, map the threat models and implement defense-in-depth..."
+        },
+        {
+          "title": "RAG Security and Privacy: Formalizing the Threat Model and Attack ...",
+          "url": "https://arxiv.org/html/2509.20324v2",
+          "snippet": "4 thg 6, 2026 ... While several recent studies have explored specific vulnerabilities in RAG systems, such as privacy leakage [21] and retrieval manipulation [5] ..."
+        },
+        {
+          "title": "RAG Security: Attacks, Defenses & Architecture | Amine Raji, PhD",
+          "url": "https://aminrj.com/posts/rag-security-architecture/",
+          "snippet": "7 thg 3, 2026 ... Strategic rationale: Accelerate enterprise data pipeline ... This is the most common RAG vulnerability in enterprise deployments and the easiest ..."
+        },
+        {
+          "title": "Why RAG Security is Broken? (And How to Fix It) | by Riad Moudjahed",
+          "url": "https://medium.com/@riadmouja47/why-rag-security-is-broken-and-how-to-fix-it-8697845a1a3d",
+          "snippet": "2 thg 1, 2026 ... Typical RAG implementations harbor hidden vulnerabilities stemming from untrusted external data ingestion and weak pipeline isolation. These ..."
+        },
+        {
+          "title": "Prompt injection is exploiting enterprise AI's biggest design flaws by ...",
+          "url": "https://venturebeat.com/security/prompt-injection-is-exploiting-enterprise-ais-biggest-design-flaws-by-targeting-agents-rag-pipelines-and-model-routers",
+          "snippet": "Prompt injection is exploiting enterprise AI's biggest design flaws by targeting agents, RAG pipelines and model routers. Julie Brunias. 11:00 am, PT, June ..."
+        },
+        {
+          "title": "RAG Pipeline Attack Scenarios: Context & Data Leakage",
+          "url": "https://www.redfoxsec.com/blog/rag-pipeline-attack-scenarios-context-manipulation-and-data-leakage-explained",
+          "snippet": "But as adoption grows, so does the attack surface. Security researchers and red teamers are increasingly finding that RAG architectures introduce a category of ..."
+        },
+        {
+          "title": "Securing the RAG ingestion pipeline: Filtering mechanisms - AWS",
+          "url": "https://aws.amazon.com/blogs/security/securing-the-rag-ingestion-pipeline-filtering-mechanisms/",
+          "snippet": "19 thg 11, 2024 ... A risk that's particularly relevant for the RAG ingestion pipeline, and one of the most common risks we see nowadays, is prompt injection. In ..."
+        },
+        {
+          "title": "Prompt Injection Risks in Enterprise GenAI Tools | ServQual",
+          "url": "https://srql.com/knowledge/prompt-injection-risks-enterprise-genai-tools/",
+          "snippet": "Active, confirmed vulnerabilities in production tools. CVEs including EchoLeak (CVE-2025-32711) in M365 Copilot and CVE-2025-53773 in GitHub Copilot and Visual ..."
+        }
+      ]
+    }
   }
 }

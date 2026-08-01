@@ -20,6 +20,7 @@ class PaddleOcrProvider:
     def __init__(self, lang: str = "en") -> None:
         self._lang = lang
         self._engine = None
+        self.logger = logging.getLogger(__name__)
 
     def is_available(self) -> bool:
         try:
@@ -43,7 +44,7 @@ class PaddleOcrProvider:
         try:
             result = engine.ocr(str(image_path), cls=True)
         except Exception as e:
-            logging.error(f"OCR failed for {image_path}: {str(e)}")
+            self.logger.exception("OCR processing failed: %s", str(e))
             return OcrResult(text="", confidence=None)
         
         lines: list[str] = []
