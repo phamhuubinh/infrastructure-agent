@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+- Unused Dify API/Web services, their dedicated Redis service, reverse-proxy route, and environment wiring. Orion continues to use its first-party chat routing and RAG service.
+- Autonomous development supervisor, orchestrator state/transcripts, generated task logs, and related repository instructions. GitHub Actions CI remains unchanged.
+- Committed Python build metadata, stale machine-specific QA reports, benchmark history, and a duplicate BM25 edge-case script.
+
+### Changed
+- Moved project plans to `docs/project/`, OpenAPI schema to `docs/api/`, and manual QA runners to `scripts/qa/`; QA output now goes to ignored `artifacts/qa/`.
+
 ## [0.1.0] — 2026-07-22
 
 ### Added
@@ -78,5 +88,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Regression tests for previously fixed runtime bugs
 - Backend API test coverage increased
 - UI test stage added to CI
-
-## [Unreleased]

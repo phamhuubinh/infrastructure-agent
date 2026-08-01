@@ -169,6 +169,10 @@ def test_concurrent_writes(self):
 
 Tests run automatically in CI on every push. Failures block merging. See `docs/devops/ci.md` for the full CI pipeline.
 
+## Manual end-to-end QA
+
+The configured-target/model runners live in `scripts/qa/`. They can make real outbound requests and are intentionally separate from the deterministic unit test suite. Generated reports are written to the ignored `artifacts/qa/` directory.
+
 ---
 
-> **Last updated:** 2026-07-23
+> **Last updated:** 2026-08-02

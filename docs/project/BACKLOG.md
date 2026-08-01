@@ -1,9 +1,9 @@
 # Orion — Backlog
 
-> Consolidated backlog derived from `.workflow/state.json`.
+> Historical project backlog retained as a static reference.
 > Tasks are grouped by Epic, sorted by ID, then by Phase.
 
-Last updated: 2026-07-23
+Last updated: 2026-08-02
 
 ---
 
@@ -85,7 +85,7 @@ Last updated: 2026-07-23
 | 69  | P0       | ✅      | Create ADR-0002                              | ADR-0002 created: LLM used exclusively for assessment. |
 | 70  | P0       | ✅      | Create ADR-0003                              | ADR-0003 created: KnowledgeTool is single entry point. |
 | 71  | P1       | ✅      | Synchronize Architecture Decisions           | All ADR cross-references synchronized and standardized. |
-| 72  | P1       | ✅      | Rewrite BACKLOG.md                           | Backlog format standardized with auto-generation script. |
+| 72  | P1       | ✅      | Rewrite project backlog                      | Backlog format standardized for consistent project tracking. |
 | 73  | P1       | ✅      | Release CHANGELOG v0.1.0                     | CHANGELOG v0.1.0 released. All items from Unreleased moved to v0.1.0 following Keep a Changelog format. |
 
 ### Code Quality, Refactoring & Technical Debt
@@ -294,7 +294,7 @@ Last updated: 2026-07-23
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
 | 406 | P0       | ✅      | Add Python type checker (mypy/pyright) to CI | Added `mypy>=1.8` as optional dev/typecheck dependency in pyproject.toml. Makefile `typecheck` target now runs `mypy src/ --ignore-missing-imports` alongside TypeScript checks. Added `typecheck-py` target for strict Python-only type checking. |
-| 407 | P1       | ✅      | Synchronize test count across all docs | Three different test counts existed: 08_PROJECT_STATE.md said 764, .workflow/state.json said 859, actual collected count was 859. Updated 08_PROJECT_STATE.md to 859. Added `make count-tests` target for automated sync. |
+| 407 | P1       | ✅      | Synchronize test count across all docs | Different test counts existed across project documentation. Updated 08_PROJECT_STATE.md to the collected count and added the `make count-tests` target for repeatable verification. |
 
 ### Security
 
@@ -312,7 +312,7 @@ Last updated: 2026-07-23
 |-----|----------|--------|-------|-------------|
 | 413 | P0       | ✅      | Fix misleading "Not implemented" section in 08_PROJECT_STATE.md | Rewrote "Authentication / accounts — no login, no sessions" to accurately describe: optional API key auth exists (`ORION_API_KEY`), no multi-user accounts. Also updated "Remote hosting" to note Docker Compose provides local nginx+HTTPS. |
 | 414 | P1       | ✅      | Add troubleshooting/FAQ documentation | Created `docs/troubleshooting.md` with diagnostic steps for top 10 failure modes: Vite dev server issues, database connection refused, SSL cert warnings, LLM health check failures, Docker Compose startup, SSH connectivity, 401 auth errors, high memory usage, and slow queries. Includes General FAQ section. |
-| 415 | P2       | ✅      | Export and commit OpenAPI schema | Exported `openapi.json` via `make openapi` target. Schema generated from FastAPI app at time of export, committed for offline reference and API client generation. |
+| 415 | P2       | ✅      | Export and commit OpenAPI schema | Exported `docs/api/openapi.json` via `make openapi`. The schema is committed for offline reference and API client generation. |
 
 ### DevOps & CI/CD
 
@@ -339,7 +339,7 @@ Last updated: 2026-07-23
 
 ---
 
-*Source: `.workflow/state.json` — this file is auto-generated for human readability.*
+*This file is a static historical backlog.*
 
 ---
 
@@ -407,7 +407,7 @@ Last updated: 2026-07-23
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
 | 523 | P2       | ⬜      | Cập nhật 08_PROJECT_STATE.md | Phản ánh kiến trúc 6-stage pipeline mới: Normalizer → Target → CapabilityPlanner → Graph → Execute → Assess. |
-| 524 | P2       | ⬜      | Cập nhật .workflow/state.json | Thêm tất cả Phase 5 tasks vào state.json. |
+| 524 | P2       | ⬜      | Đồng bộ tài liệu trạng thái | Cập nhật backlog và `08_PROJECT_STATE.md` để phản ánh Phase 5. |
 
 ---
 
@@ -428,4 +428,3 @@ Last updated: 2026-07-23
 **Phase 5 breakdown:** 6× done (P0 bug fixes), 6× Normalization (P0-P1), 4× Target (P0-P1), 2× Config (P1), 1× LLM (P2), 4× Testing (P1), 2× Docs (P2)
 
 **Priority breakdown:** 10× P0, 8× P1, 5× P2
-

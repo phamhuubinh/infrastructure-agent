@@ -6,7 +6,7 @@ Evidence-driven investigation with AI-powered assessment.
 
 > **Current status:** local, single-user. Optional PostgreSQL session store (`ORION_DATABASE_URL`), optional API key auth (`ORION_API_KEY`), CLI + Web UI + Desktop App. No accounts, no remote hosting. See `docs/ai/08_PROJECT_STATE.md` for what actually exists.
 >
-> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + Dify + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for the work sequencing (WP1–WP5). Some platform capabilities (PostgreSQL session store, API key auth, Electron desktop) are partially implemented — check `08_PROJECT_STATE.md` for status.
+> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for the work sequencing (WP1–WP5). Some platform capabilities (PostgreSQL session store, API key auth, Electron desktop) are partially implemented — check `08_PROJECT_STATE.md` for status.
 
 ## Architecture
 
@@ -126,25 +126,8 @@ The `docs/` directory is the **Source of Truth** for architectural and design do
 
 `docs/adr/` holds longer-form narrative architecture decision records referenced from `docs/ai/09_ARCHITECTURE_DECISIONS.md`.
 
-## Autonomous Development Workflow
+Additional project references:
 
-The `.workflow/` directory contains the autonomous development supervisor:
-
-```
-.workflow/
-├── supervisor.sh       # Entry point — orchestrates the entire workflow
-├── state.json          # Persistent backlog & session state
-├── session.log         # Structured log of all iterations
-├── generate_backlog.py # Backlog generation script
-├── progress_report.md  # Sprint history and progress summary
-├── commands/           # Reusable task scripts
-│   ├── run-tests.sh    # Run all tests
-│   ├── lint.sh         # Run linter
-│   ├── typecheck.sh    # Run type checker
-│   └── benchmark.sh    # Run benchmarks
-├── task_logs/          # Per-task execution logs
-├── backups/            # State backup snapshots
-└── README.md           # Full workflow documentation
-```
-
-Each task produces one atomic git commit, test results, lint/typecheck results, and an updated `state.json`. Use `./.workflow/supervisor.sh` to start the autonomous loop.
+- `docs/api/` — API reference and generated OpenAPI schema
+- `docs/project/` — historical backlog and implementation plans
+- `scripts/qa/` — manual end-to-end QA runners; generated output goes to `artifacts/qa/`

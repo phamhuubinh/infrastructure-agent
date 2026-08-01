@@ -263,9 +263,9 @@ Normalizer (language) → CapabilityPlanner → Capability list
 2. **One commit per task** — atomic, verifiable through `git diff`
 3. **Deterministic before AI** — all new pipeline modules are deterministic
 4. **Backward compatibility** — old flow must still work when Normalizer confidence < 0.4
-5. **Test before commit** — run `bash .workflow/commands/run-tests.sh` after each task
-6. **Lint before commit** — run `bash .workflow/commands/lint.sh`
-7. **Update state** — after each task, update `.workflow/state.json` and `08_PROJECT_STATE.md`
+5. **Test before commit** — run `python3 -m pytest tests/ -q --tb=short -x` after each task
+6. **Lint before commit** — run `ruff check .`
+7. **Update state** — after each task, update `08_PROJECT_STATE.md` when project status changes
 
 ## Expected Outcomes
 

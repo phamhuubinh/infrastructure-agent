@@ -53,7 +53,7 @@ typecheck-py:
 
 .PHONY: openapi
 openapi:
-	ORION_ENV=development $(PYTHON) -c "import json; from src.backend.app import create_app; app, _, _ = create_app(); json.dump(app.openapi(), open('openapi.json', 'w'), indent=2)" && echo "openapi.json exported"
+	ORION_ENV=development $(PYTHON) -c "import json; from src.backend.app import create_app; app, _, _ = create_app(); json.dump(app.openapi(), open('docs/api/openapi.json', 'w'), indent=2)" && echo "docs/api/openapi.json exported"
 
 .PHONY: count-tests
 count-tests:

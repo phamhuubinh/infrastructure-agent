@@ -7,8 +7,8 @@
 - Docker Compose defining the running services.
 - PostgreSQL provisioned as the platform database.
 Exit criteria: Web UI reachable over HTTPS on the VM, backed by a Postgres instance, via Docker Compose. Local-only state (targets.json, in-memory pipeline state) is not required to be migrated yet at this stage — that begins as each subsequent WP touches that data.
-## WP2 — Dify integration
-- Dify integrated as the conversational/orchestration layer.
+## WP2 — Knowledge Base and RAG
+- First-party conversational routing remains in the Orion API/Agent.
 - Knowledge Base introduced.
 - RAG wired to the Knowledge Base.
 ## WP3 — Document processing

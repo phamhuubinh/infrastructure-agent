@@ -25,7 +25,6 @@
 - Test suite: **1,101 tests** across pipeline, tools, model, backend, agent, and benchmark modules (1,075 passing; 26 retry tests added via Task 006).
 - Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
 - Docker Compose deployment (local): nginx reverse proxy with HTTPS (self-signed cert), FastAPI API, React UI, PostgreSQL database (`docker-compose.yml`).
-- Dify conversational layer (`src/backend/dify_client.py`, `src/backend/dify_setup.py`): Dify API/Web Docker services with auto-setup (app creation, API key generation, dataset creation) and API proxy endpoints (`/api/dify/health`, `/api/dify/chat`, `/api/dify/knowledge/query`).
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 
 ## WP4: Platform capability migration (in progress)
@@ -46,6 +45,9 @@
 - New optional dependency group `[security]` (`bandit>=1.7`, `safety>=3.0`, `pip-audit>=2.7`).
 
 ## Cleanup completed (stabilization phase)
+- Reorganized repository support files: project plans under `docs/project/`, the generated OpenAPI schema under `docs/api/`, manual QA runners under `scripts/qa/`, and generated QA reports under ignored `artifacts/qa/`. Removed committed build metadata and stale generated reports.
+- Removed the autonomous development supervisor, orchestrator state/transcripts, generated task logs, and related repository instructions. Development remains manual and CI continues to run through GitHub Actions.
+- Removed the unused Dify API/Web services, their dedicated Redis service, reverse-proxy route, and environment wiring. Orion keeps its first-party chat routing and RAG service.
 - Removed dead code: `main.py`, `dump_assessment.py`, `api_server.py` (duplicate of `cli.py`).
 - Removed empty `__init__.py` files (PEP 420 namespace packages).
 - Removed stale `docs/engineering/` legacy architecture docs.
@@ -185,7 +187,7 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-07-27 (Post-Phase 6 bugfix round: 9 issues fixed across 8 files — identity prompt hardening, disk percentage parsing, target skip-words expansion, uptime/kernel/port evidence routing, UnknownTargetError domain-tool filtering, firewall iptables fallback, container capability_plans mismatch; all 1,130 tests passing).
+> **Last updated:** 2026-08-02 (Repository support files reorganized; unused Dify/Redis and autonomous development subsystems removed; GitHub Actions CI remains).
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

@@ -14,7 +14,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.agent.runtime_factory import create_deterministic_agent
 from src.shared.logger import set_enabled
@@ -200,7 +201,7 @@ for q in [
 
 def main():
     agent = create_deterministic_agent(
-        target_store_path="targets.json",
+        target_store_path=str(PROJECT_ROOT / "targets.json"),
         server_name="sv1",
     )
 
@@ -301,7 +302,8 @@ def main():
         "results": results,
     }
 
-    report_path = Path("report.json")
+    report_path = PROJECT_ROOT / "artifacts" / "qa" / "report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
     print(f"  Report saved to: {report_path.resolve()}")
 

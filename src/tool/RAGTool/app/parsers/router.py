@@ -15,7 +15,7 @@ import logging
 import os
 from pathlib import Path
 
-from app.parsers.base import DocumentParser, ParsedDocument, ParserError
+from src.tool.RAGTool.app.parsers.base import DocumentParser, ParsedDocument, ParserError
 
 logger = logging.getLogger(__name__)
 
@@ -74,14 +74,15 @@ class ParserRouter:
                     errors.append(f"{parser.name}: produced no blocks")
                     continue
                 if errors:
-                    # Log only the filename to prevent sensitive path disclosure
-                    filename = os.path.basename(path) if path and str(path) != "." else "[EMPTY_PATH]"
-                    logger.info(
-                        "Parsed '%s' with fallback parser '%s' after: %s",
-                        filename,
-                        parser.name,
-                        "; ".join(errors),
-                    )
+                    # Sanitize path to prevent sensitive path disclosure
+                    if not path or str(path) == ".":
+                        logger.info("Processing file: [No file path provided]")
+                    else:
+                        logger.info(
+                            "Processed file with fallback parser '%s' after: %s",
+                            parser.name,
+                            "; ".join(errors),
+                        )
                 return doc
             except ParserError as exc:
                 errors.append(f"{parser.name}: {exc}")

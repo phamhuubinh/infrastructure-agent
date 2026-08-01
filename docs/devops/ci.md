@@ -74,8 +74,8 @@ Three tools run in parallel:
 make ci
 
 # Individual steps
-bash .workflow/commands/lint.sh
-bash .workflow/commands/run-tests.sh
+ruff check .
+python3 -m pytest tests/ -q --tb=short -x
 make security-scan
 docker compose build
 ```
@@ -122,4 +122,4 @@ This triggers:
 
 ---
 
-> **Last updated:** 2026-07-23
+> **Last updated:** 2026-08-02

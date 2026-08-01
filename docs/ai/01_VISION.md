@@ -18,7 +18,6 @@ AI Platform (VM)
 ├── API
 ├── Auth
 ├── Agent            (this project's investigation pipeline)
-├── Dify
 ├── RAG
 ├── Document Service
 └── Database
@@ -34,5 +33,5 @@ See `03_PLATFORM_ARCHITECTURE.md` for the target architecture in detail and `04_
 - Local file-based state (targets.json, local config) → PostgreSQL-backed state, multi-user.
 - Single local process → API server + separate clients (Web UI, Desktop App).
 - No accounts → Auth.
-- Agent-only → Agent as one integrated capability inside a platform that also does chat (Dify), knowledge base/RAG, and document handling.
+- Agent-only → Agent as one integrated capability inside a platform that also provides general chat, knowledge base/RAG, and document handling through first-party services.
 Some of these (PostgreSQL session store, API key auth) are partially implemented. Check `08_PROJECT_STATE.md` before building against any of them.

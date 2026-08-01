@@ -1,7 +1,0 @@
-agent
-backend
-cli
-model
-pipeline
-shared
-tool

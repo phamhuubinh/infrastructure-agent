@@ -29,13 +29,11 @@ Services and ports:
 
 | Service | Internal Port | Exposed | Description |
 |---------|--------------|---------|-------------|
-| `nginx` | 443 | 443 | HTTPS reverse proxy |
+| `reverse-proxy` | 80/443 | 80/443 | HTTP redirect and HTTPS reverse proxy |
 | `api` | 61888 | — | FastAPI backend |
-| `ui` | 5173 | — | React frontend (dev mode) |
-| `db` | 5432 | — | PostgreSQL database |
-| `rag` | 8000 | — | RAG microservice |
-| `dify-api` | 5001 | — | Dify API |
-| `dify-web` | 3000 | — | Dify Web UI |
+| `ui` | 80 | — | Built React frontend |
+| `postgres` | 5432 | — | PostgreSQL database |
+| `rag-service` | 8080 | 8080 | RAG microservice |
 
 ## Service Details
 
@@ -54,22 +52,22 @@ docker compose exec api pytest tests/ -q
 
 ```bash
 # Connect to PostgreSQL
-docker compose exec db psql -U orion -d orion
+docker compose exec postgres psql -U orion -d orion
 
 # Reset database (WARNING: deletes all data)
-docker compose down -v db
-docker compose up -d db
+docker compose down -v postgres
+docker compose up -d postgres
 ```
 
 ### RAG Service
 
 ```bash
 # Check RAG health
-curl http://localhost:8000/health
+curl http://localhost:8080/health
 
 # Rebuild RAG service
-docker compose build rag
-docker compose up -d rag
+docker compose build rag-service
+docker compose up -d rag-service
 ```
 
 ## Configuration
@@ -83,12 +81,12 @@ Create a `.env` file (or export before `docker compose up`):
 ORION_API_KEY=your-secret-key
 
 # Database
-ORION_DATABASE_URL=postgresql://orion:orion@db:5432/orion
+ORION_DATABASE_URL=postgresql://orion:orion@postgres:5432/orion
 ORION_DB_POOL_SIZE=5
 ORION_DB_SSL=0
 
 # RAG Service
-ORION_RAG_SERVICE_URL=http://rag:8000
+RAG_SERVICE_URL=http://rag-service:8080
 
 # Logging
 ORION_LOG_FORMAT=json
@@ -121,7 +119,7 @@ docker compose logs api | grep -i error
 
 ```bash
 # Verify PostgreSQL is accepting connections
-docker compose exec db pg_isready -U orion
+docker compose exec postgres pg_isready -U orion
 
 # Check API can reach the database
 docker compose exec api python -c "
@@ -148,10 +146,10 @@ else:
 docker compose ps api ui
 
 # Check nginx config
-docker compose exec nginx nginx -t
+docker compose exec reverse-proxy nginx -t
 
 # Reload nginx
-docker compose exec nginx nginx -s reload
+docker compose exec reverse-proxy nginx -s reload
 ```
 
 ### Reset everything

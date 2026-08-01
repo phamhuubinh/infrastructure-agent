@@ -266,7 +266,7 @@ Requests must include the key in the `X-API-Key` or `Authorization: Bearer` head
 ### What's the difference between `--web` mode and Docker Compose?
 
 `--web` runs the backend + Vite dev server directly on your machine.
-Docker Compose runs Nginx (HTTPS), API, UI, PostgreSQL, Redis, Dify, and RAG as separate containers.
+Docker Compose runs Nginx (HTTPS), API, UI, PostgreSQL, and RAG as separate containers.
 
 ### How do I view the OpenAPI docs?
 
@@ -278,4 +278,4 @@ When running: http://localhost:61888/docs (or https://localhost/docs in Docker C
 - File rotation: enabled with `ORION_LOG_FILE=/path/to/logs/orion.log`, rotates at 10MB with 5 backups.
 - Structured JSON: set `ORION_LOG_FORMAT=json` for machine-readable logs.
 
-> **Last updated:** 2026-07-23
+> **Last updated:** 2026-08-02

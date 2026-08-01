@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 *.db
 *.sqlite
 *.log
@@ -14,6 +15,9 @@ __pycache__/
 .ruff_cache/
 
 .venv/
+build/
+dist/
+artifacts/
 
 .vscode/
 
@@ -34,12 +38,6 @@ tools.json
 # Server config — contains real IPs and model config
 servers.json
 
-# Workflow artifacts (state, backups, logs)
-.workflow/state.json
-.workflow/session.log
-.workflow/backups/
-.workflow/*.tmp
-
 # Benchmark output files
 benchmark_results_*
 
@@ -53,11 +51,3 @@ certs/
 .coverage
 coverage.xml
 htmlcov/
-qa_logs/
-orchestrator_transcript.jsonl
-orchestrator_transcript.jsonl
-.orchestrator_search_cache.json
-orchestrator_backlog.json
-ORCHESTRATOR_NEEDS_HUMAN.md
-.orchestrator_processed_directives.json
-qa_logs/
