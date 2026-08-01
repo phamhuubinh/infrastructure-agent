@@ -45,7 +45,9 @@ npm run build
 Compose validation:
 
 ```bash
-POSTGRES_PASSWORD=test-only ORION_API_KEY=test-only docker compose config --quiet
+POSTGRES_PASSWORD=test-only ORION_API_KEY=test-only \
+  ORION_TOOL_SECRETS_FILE=tests/data/empty_tool_credentials.json \
+  docker compose config --quiet
 ```
 
 > Last updated: 2026-08-02

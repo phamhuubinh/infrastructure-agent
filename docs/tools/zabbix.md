@@ -79,17 +79,18 @@ print(result.data)
 
 ## Configuration
 
-Secrets are stored in `config/secrets.local.json`:
+Secrets are stored outside the project in `/etc/orion/tool-credentials.json`:
 
 ```json
 {
   "zabbix": {
-    "base_url": "https://zabbix.example.com/api_jsonrpc.php",
-    "username": "api_user",
-    "password": "api_password"
+    "url": "https://zabbix.example.com/zabbix",
+    "token": "your-zabbix-api-token"
   }
 }
 ```
+
+Docker Compose mounts this ignored file read-only into the API container. After changing it, run `docker compose up -d --force-recreate api` so Compose remounts the secret.
 
 ## Notes
 

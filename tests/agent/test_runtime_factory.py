@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -13,6 +14,7 @@ from src.agent.runtime_factory import (
 )
 from src.shared.config import OrionConfig, _reset_config
 from src.shared.config_errors import InvalidConfigValueError
+from src.shared.secrets import DEFAULT_TOOL_SECRETS_PATH
 from src.tool.target_registry import TargetRegistry
 
 # ---------------------------------------------------------------------------
@@ -36,6 +38,10 @@ def test_config_missing_servers_file() -> None:
     config = OrionConfig.load(project_root=Path("/nonexistent/path"))
     assert config.servers == {}
     assert config.active_server_name == ""
+
+
+def test_default_tool_credentials_path_is_system_wide() -> None:
+    assert DEFAULT_TOOL_SECRETS_PATH == Path("/etc/orion/tool-credentials.json")
 
 
 def test_agent_starts_with_setup_adapter_when_no_model_is_configured(
@@ -98,6 +104,47 @@ def test_config_applies_active_server_environment_overrides() -> None:
         "model": "new-model",
         "api_key": "secret",
     }
+
+
+def test_config_uses_mounted_tool_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "tools.json").write_text(
+        json.dumps(
+            {
+                "grafana": {
+                    "tool": "grafana",
+                    "target": "grafana",
+                    "timeout": 10,
+                }
+            }
+        )
+    )
+    mounted_secret = tmp_path / "orion-tool-credentials.json"
+    mounted_secret.write_text(
+        json.dumps(
+            {
+                "grafana": {
+                    "url": "http://grafana.internal:3000",
+                    "token": "private-token",
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("ORION_SECRETS_PATH", str(mounted_secret))
+
+    config = OrionConfig.load(project_root=project_root)
+
+    assert config.tools["grafana"] == {
+        "tool": "grafana",
+        "target": "grafana",
+        "timeout": 10,
+        "url": "http://grafana.internal:3000",
+        "token": "private-token",
+    }
+    assert config.secrets["grafana"]["token"] == "private-token"
 
 
 # ---------------------------------------------------------------------------

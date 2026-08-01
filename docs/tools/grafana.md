@@ -79,16 +79,18 @@ print(result.data)
 
 ## Configuration
 
-Secrets are stored in `config/secrets.local.json`:
+Secrets are stored outside the project in `/etc/orion/tool-credentials.json`:
 
 ```json
 {
   "grafana": {
-    "base_url": "https://grafana.example.com",
-    "api_token": "glsa_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    "url": "https://grafana.example.com",
+    "token": "glsa_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   }
 }
 ```
+
+Docker Compose mounts this ignored file read-only into the API container. After changing it, run `docker compose up -d --force-recreate api` so Compose remounts the secret.
 
 ## Notes
 

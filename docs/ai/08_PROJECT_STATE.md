@@ -25,7 +25,7 @@
 - Session isolation: each chat session owns its Agent, conversation store, evidence cache, and execution lock. Switching a model in one session cannot mutate another session.
 - CI runs the Python suite and type-check, the independent RAG suite, UI lint/Vitest/build, security scans, image builds, and Compose smoke tests.
 - Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
-- Complete local installer (`install.sh`) and Docker Compose deployment: nginx HTTP reverse proxy, FastAPI API, React UI, PostgreSQL, and an internal-only persistent RAG service. Model selection is prompted but optional; CLI and Web UI configure and test user-managed endpoints without installing model runtimes or weights.
+- Complete local installer (`install.sh`) and Docker Compose deployment: nginx HTTP reverse proxy, FastAPI API, React UI, PostgreSQL, and an internal-only persistent RAG service. The safe `tools.json` registry is packaged with the API while the system-wide `/etc/orion/tool-credentials.json` is mounted read-only as a Compose secret; installation reports missing credentials per tool. Model selection is prompted but optional; CLI and Web UI configure and test user-managed endpoints without installing model runtimes or weights.
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 
 ## WP4: Platform capability migration (in progress)

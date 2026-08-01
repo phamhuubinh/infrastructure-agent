@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SYSTEM_TOOL_SECRETS_PATH="/etc/orion/tool-credentials.json"
 PURGE=false
 ASSUME_YES=false
 DRY_RUN=false
@@ -176,6 +177,16 @@ if [[ "$PURGE" == true ]]; then
     run rm -f -- "$PROJECT_DIR/.env"
     run rm -f -- "$PROJECT_DIR/servers.json"
     run rm -f -- "$PROJECT_DIR/config/secrets.local.json"
+
+    if [[ -f "$SYSTEM_TOOL_SECRETS_PATH" ]]; then
+        if ((EUID == 0)); then
+            run rm -f -- "$SYSTEM_TOOL_SECRETS_PATH"
+        elif command -v sudo >/dev/null 2>&1; then
+            run sudo rm -f -- "$SYSTEM_TOOL_SECRETS_PATH"
+        else
+            echo "Warning: could not remove $SYSTEM_TOOL_SECRETS_PATH without sudo." >&2
+        fi
+    fi
 
     if [[ -n "$user_home" && "$user_home" != "/" && -d "$user_home/.orion" ]]; then
         run rm -rf -- "$user_home/.orion"

@@ -75,8 +75,8 @@ _FALLBACK_TOOL_TYPES: dict[str, tuple[str, ...]] = {
 def _load_tools_config() -> dict[str, dict[str, Any]]:
     """Load infrastructure tool configuration from OrionConfig.
 
-    Credentials (url, token) are overlaid from config/secrets.local.json
-    on top of tools.json. This keeps secrets out of version control.
+    Credentials (url, token) are overlaid from the external credentials file
+    on top of tools.json. This keeps secrets outside the project and image.
 
     Returns an empty dict if tools.json does not exist.
     Warnings are emitted via _warn() for invalid entries.

@@ -12,5 +12,4 @@ certs
 .env
 docker-compose.env
 servers.json
-tools.json
 config/secrets.local.json

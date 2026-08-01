@@ -14,7 +14,7 @@ current trusted-network scope. See `docs/ai/09_ARCHITECTURE_DECISIONS.md` (AD-01
 the rationale. This must be revisited before any deployment outside a trusted internal network.
 
 ### Credential Management
-- Grafana and Zabbix tokens are stored in `config/secrets.local.json` (gitignored)
+- Grafana and Zabbix tokens are stored outside the project in `/etc/orion/tool-credentials.json`
 - Tokens were previously hardcoded in source code — assume any previously committed
   token is compromised and rotate it on the respective server
 - Never hardcode credentials in source files

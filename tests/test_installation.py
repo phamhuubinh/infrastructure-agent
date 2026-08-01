@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -16,6 +17,40 @@ def test_compose_does_not_bundle_a_model_runtime() -> None:
     assert "orion-models" not in compose.get("volumes", {})
     api_environment = services["api"]["environment"]
     assert not any(key.startswith("OLLAMA_") for key in api_environment)
+
+
+def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    api = compose["services"]["api"]
+    dockerfile = (ROOT / "docker/Dockerfile.api").read_text()
+    dockerignore = (ROOT / ".dockerignore").read_text().splitlines()
+    tool_config = json.loads((ROOT / "tools.json").read_text())
+
+    assert "COPY tools.json ." in dockerfile
+    assert "tools.json" not in dockerignore
+    assert api["environment"]["ORION_SECRETS_PATH"] == (
+        "/run/secrets/orion-tool-credentials.json"
+    )
+    assert api["secrets"] == [
+        {
+            "source": "orion-tool-credentials",
+            "target": "orion-tool-credentials.json",
+        }
+    ]
+    assert compose["secrets"]["orion-tool-credentials"]["file"] == (
+        "${ORION_TOOL_SECRETS_FILE:-/etc/orion/tool-credentials.json}"
+    )
+    for entry in tool_config.values():
+        assert "url" not in entry
+        assert "token" not in entry
+
+
+def test_ci_compose_uses_empty_tool_credentials_fixture() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.ci.yml").read_text())
+    secret_file = compose["secrets"]["orion-tool-credentials"]["file"]
+
+    assert secret_file == "./tests/data/empty_tool_credentials.json"
+    assert json.loads((ROOT / secret_file).read_text()) == {}
 
 
 def test_ui_image_runs_the_ssr_bundle() -> None:
@@ -62,3 +97,23 @@ def test_installer_creates_host_cli_launcher() -> None:
     assert 'exec docker "${compose_args[@]}" api orion "$@"' in launcher
     assert 'nohup xdg-open "$web_url"' in launcher
     assert 'nohup gio open "$web_url"' in launcher
+
+
+def test_installer_uses_external_tool_credentials_file() -> None:
+    installer = (ROOT / "install.sh").read_text()
+
+    assert "/etc/orion/tool-credentials.json" in installer
+    assert 'ensure_env_value "ORION_TOOL_SECRETS_FILE"' in installer
+    assert 'ensure_tool_credentials_file "$tool_secrets_path"' in installer
+    assert "printf '{}\\n'" in installer
+    assert 'install -D -m 600' in installer
+    assert "Grafana/Zabbix setup skipped" in installer
+    assert '(("grafana", "Grafana"), ("zabbix", "Zabbix"))' in installer
+    assert "connection disabled (missing:" in installer
+
+
+def test_uninstaller_purges_default_external_tool_credentials() -> None:
+    uninstaller = (ROOT / "uninstall.sh").read_text()
+
+    assert 'SYSTEM_TOOL_SECRETS_PATH="/etc/orion/tool-credentials.json"' in uninstaller
+    assert 'rm -f -- "$SYSTEM_TOOL_SECRETS_PATH"' in uninstaller

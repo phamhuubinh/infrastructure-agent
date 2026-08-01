@@ -10,3 +10,7 @@ services:
   rag-service:
     image: orion-rag-service:ci
     build: null
+
+secrets:
+  orion-tool-credentials:
+    file: ./tests/data/empty_tool_credentials.json

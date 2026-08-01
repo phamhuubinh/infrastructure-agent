@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite: 855 tests across pipeline, tools, model, backend, agent, benchmark
 
 ### Security
-- Secrets moved from source code to gitignored config/secrets.local.json
+- Secrets moved from source code to an external credentials file (now standardized at `/etc/orion/tool-credentials.json`)
 - InternetTool SSRF protection (private IP block + DNS resolution guard)
 - API auth via optional API key middleware
 - Security scanning in CI: Bandit (static analysis), Safety (dependency check), pip-audit (package CVEs)

@@ -164,7 +164,7 @@ Configuration is spread across 11 sources (verified by AC against `runtime_facto
 1. `servers.json`
 2. `tools.json`
 3. `targets.json`
-4. `config/secrets.local.json`
+4. External tool credentials (`/etc/orion/tool-credentials.json` by default)
 5. `config/conversational_patterns.yaml`
 6. `config/capability_plans.yaml`
 7. `config/concepts.yaml`

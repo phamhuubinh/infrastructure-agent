@@ -22,9 +22,9 @@ All configuration errors are collected before exit. The system does not fail on 
 
 ### Optional (warn + safe default)
 - `servers.json` / `ORION_SERVERS_FILE` — Model registry. A missing file is created as an empty registry; zero model entries is valid setup mode.
-- `tools.json` — Warns if missing or invalid JSON; returns empty dict.
+- `tools.json` — Tracked non-secret tool registry; warns if missing or invalid JSON and returns an empty dict.
 - `targets.json` — Warns if missing or invalid JSON; returns empty dict.
-- `config/secrets.local.json` — Warns if missing or invalid JSON; returns empty dict.
+- `/etc/orion/tool-credentials.json` or `ORION_SECRETS_PATH` — System-wide deployment tool URLs/tokens; returns an empty dict when absent or invalid. Docker maps the host path selected by `ORION_TOOL_SECRETS_FILE` to the runtime path.
 - `config/conversational_patterns.yaml` — Returns safe defaults on any failure.
 - `config/capability_plans.yaml` — Returns empty dict on any failure.
 - `config/concepts.yaml` — Returns empty dict on any failure.

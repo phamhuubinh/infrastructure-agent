@@ -63,12 +63,12 @@ AI is used only for assessment.
 
 ### Infrastructure tools (Zabbix, Grafana)
 
-Tool credentials are managed via two files:
+Infrastructure tool configuration is split by sensitivity:
 
-- **`tools.json`** — local tool registry (gitignored because deployments may include private endpoints).
-- **`config/secrets.local.json`** — actual credentials (NOT committed to git).
+- **`tools.json`** — tracked, non-secret tool registry included in the API image. Do not add URLs or tokens to it.
+- **`/etc/orion/tool-credentials.json`** — system-wide deployment endpoints and credentials, outside the source checkout. It is mounted read-only into the API container.
 
-Create `config/secrets.local.json` with this structure:
+Create `/etc/orion/tool-credentials.json` with this structure:
 
 ```json
 {
@@ -83,19 +83,21 @@ Create `config/secrets.local.json` with this structure:
 }
 ```
 
-A template is available at `config/secrets.local.example.json`.
+A template is available at `config/tool-credentials.example.json`.
+
+On a new machine, securely copy an existing credential file to `/etc/orion/tool-credentials.json` before running `./install.sh` if you want to reuse it. The path is independent of the operating-system account and Git never carries it. If the file is absent, the installer automatically creates a private empty `{}` file, skips Grafana/Zabbix setup, and continues installing Orion. It then reports exactly which tool is missing `url` or `token`. After adding credentials, run `docker compose up -d --force-recreate api` so Compose remounts the secret.
 
 ### Internet fetch
 
 The `InternetTool` fetches external URLs with built-in SSRF protection. It is opt-in per request — the pipeline never invokes it automatically.
 
-> **⚠️ Security note:** The Grafana token was previously hardcoded in source code and pushed to git history. It should be considered compromised. Revoke/rotate the token on your Grafana server and update `config/secrets.local.json` when convenient.
+> **⚠️ Security note:** The Grafana token was previously hardcoded in source code and pushed to git history. It should be considered compromised. Revoke/rotate the token on your Grafana server and update `/etc/orion/tool-credentials.json` when convenient.
 
 ## Quick Start
 
 ### Complete application install
 
-Docker Engine with Docker Compose is the only platform prerequisite. The installer creates the private runtime secrets and starts the complete Orion application: Web UI, API, PostgreSQL, RAG service, and reverse proxy. Model runtimes and model weights are managed separately by the user and are not installed by Orion:
+Docker Engine with Docker Compose is the only platform prerequisite. The installer creates the private Orion runtime secrets, initializes the system-wide Grafana/Zabbix credential file when needed, reports missing tool credentials, and starts the complete Orion application: Web UI, API, PostgreSQL, RAG service, and reverse proxy. Grafana/Zabbix setup may be skipped. Model runtimes and model weights are managed separately by the user and are not installed by Orion:
 
 ```bash
 ./install.sh
@@ -154,7 +156,7 @@ The **Phân tích tài liệu** page creates independent RAG projects, uploads e
 
 ### Docker Compose
 
-Use `./install.sh` for a complete first installation. Direct `docker compose up -d --build` remains available to operators who have already created `.env`.
+Use `./install.sh` for a complete first installation. Direct `docker compose up -d --build` remains available to operators who have already created `.env` and `/etc/orion/tool-credentials.json` (an empty `{}` is valid).
 
 The RAG service is internal-only in the root Compose stack. Browser requests always pass through the authenticated API.
 

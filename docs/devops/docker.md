@@ -10,7 +10,7 @@ docker compose ps
 orion help
 ```
 
-The installer creates `.env` with private random secrets, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Choosing **Skip** is supported. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP; terminate TLS in a production ingress/reverse proxy.
+The installer creates `.env` with private random secrets, initializes `/etc/orion/tool-credentials.json` as an empty private file when absent, reports missing Grafana/Zabbix fields, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Grafana/Zabbix and model setup may both be skipped. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP; terminate TLS in a production ingress/reverse proxy.
 
 `orion web` opens the packaged Web UI URL in the default desktop browser. On SSH/headless systems it prints the URL. It does not start a second backend or a Vite development server inside the API container.
 
@@ -41,9 +41,23 @@ POSTGRES_USER=orion
 POSTGRES_PASSWORD=replace-with-a-long-random-password
 POSTGRES_DB=orion
 ORION_API_KEY=replace-with-a-long-random-api-key
+ORION_TOOL_SECRETS_FILE=/etc/orion/tool-credentials.json
 ```
 
 `POSTGRES_PASSWORD` and `ORION_API_KEY` are required; Compose refuses blank values. The ignored legacy `docker-compose.env` file is not required.
+
+## Grafana and Zabbix credentials
+
+The tracked `tools.json` contains only safe tool metadata and is copied into the API image. Deployment-specific URLs and tokens belong in `/etc/orion/tool-credentials.json`, outside the checkout. Compose mounts that file read-only at `/run/secrets/orion-tool-credentials.json`; it is never copied into an image. `ORION_TOOL_SECRETS_FILE` can override the host path, but it must remain absolute.
+
+For a new installation, the recommended flow is:
+
+1. Create a dedicated read-only service-account/API token in Grafana and Zabbix.
+2. Copy an existing credential file to `/etc/orion/tool-credentials.json` through a secure channel, or enter the endpoints and tokens using `config/tool-credentials.example.json` as a reference.
+3. Keep the file readable only by the installation account (`0600`). The installer applies this mode when it creates the file.
+4. Run `./install.sh`. If the file is absent, installation continues with an empty private file and both tools disabled. If Orion was already running, use `docker compose up -d --force-recreate api` after changing credentials so Compose remounts the secret file.
+
+The same token may be reused by securely transferring `/etc/orion/tool-credentials.json`, but separate tokens per Orion installation are easier to revoke and audit. Orion does not create external service tokens automatically because doing so would require storing Grafana/Zabbix administrative credentials. An empty `{}` file is valid and leaves both tools disabled; the installer reports each missing `url`/`token` field.
 
 ## Model lifecycle
 
@@ -72,7 +86,7 @@ docker compose exec postgres pg_isready -U orion
 docker compose exec reverse-proxy nginx -t
 ```
 
-The API image seeds an empty model registry. Model credentials are written to the private persistent Orion volume, never to the tracked repository configuration.
+The API image seeds an empty model registry. Model credentials are written to the private persistent Orion volume, never to the tracked repository configuration. Grafana/Zabbix credentials remain in the system-wide host file and are mounted read-only.
 
 ## Uninstall
 

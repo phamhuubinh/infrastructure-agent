@@ -198,7 +198,7 @@ Last updated: 2026-08-02
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
-| 30  | P3       | ✅      | Make Secret Path Configurable                | Added ORION_SECRETS_PATH env var support. Falls back to default config/secrets.local.json. |
+| 30  | P3       | ✅      | Make Secret Path Configurable                | Added ORION_SECRETS_PATH env var support. The runtime default is `/etc/orion/tool-credentials.json`. |
 | 31  | P3       | ✅      | Improve Database Connection Security         | Added ORION_DB_SSL=1 for sslmode=require, and _connect_with_retry() with exponential backoff (3 attempts). |
 
 ### DevOps & CI/CD

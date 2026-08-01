@@ -21,6 +21,7 @@ from src.shared.config_errors import (
     ConfigurationError,
     InvalidConfigValueError,
 )
+from src.shared.secrets import DEFAULT_TOOL_SECRETS_PATH
 
 # ---------------------------------------------------------------------------
 # OrionConfig — aggregates all configuration sources
@@ -49,7 +50,7 @@ class OrionConfig:
     # --- targets.json -------------------------------------------------------
     targets: dict[str, Any] = field(default_factory=dict)
 
-    # --- config/secrets.local.json ------------------------------------------
+    # --- external tool credentials -----------------------------------------
     secrets: dict[str, Any] = field(default_factory=dict)
 
     # --- config/conversational_patterns.yaml --------------------------------
@@ -92,6 +93,7 @@ class OrionConfig:
         """
         config = cls()
         errors: list[ConfigurationError] = []
+        uses_default_project_root = project_root is None
         if project_root is None:
             project_root = Path(__file__).resolve().parent.parent.parent
         config.project_root = project_root
@@ -159,18 +161,25 @@ class OrionConfig:
                     )
                 )
 
-        # --- 2. tools.json (optional) + secrets overlay ---------------------
-        config.tools = cls._load_tools(
-            project_root / "tools.json", project_root / "config" / "secrets.local.json"
+        configured_secrets_path = os.environ.get("ORION_SECRETS_PATH", "").strip()
+        secrets_path = (
+            Path(configured_secrets_path)
+            if configured_secrets_path
+            else (
+                DEFAULT_TOOL_SECRETS_PATH
+                if uses_default_project_root
+                else project_root / "config" / "secrets.local.json"
+            )
         )
+
+        # --- 2. tools.json (optional) + secrets overlay ---------------------
+        config.tools = cls._load_tools(project_root / "tools.json", secrets_path)
 
         # --- 3. targets.json (optional) -------------------------------------
         config.targets = cls._load_targets(project_root / "targets.json")
 
         # --- 4. secrets (standalone, optional) ------------------------------
-        config.secrets = cls._load_secrets(
-            project_root / "config" / "secrets.local.json"
-        )
+        config.secrets = cls._load_secrets(secrets_path)
 
         # --- 5. conversational_patterns.yaml (optional) ---------------------
         (
