@@ -4,11 +4,30 @@ import json
 import os
 import socket
 import urllib.request
+from pathlib import Path
 
 import pytest
 
+
+def _load_api_key() -> str | None:
+    value = os.environ.get("ORION_API_KEY", "").strip()
+    if value:
+        return value
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.is_file():
+        return None
+    try:
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("ORION_API_KEY="):
+                return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
 API_URL = os.environ.get("API_URL", "http://localhost:61888")
-API_KEY = os.environ.get("ORION_API_KEY")
+API_KEY = _load_api_key()
 
 
 def _request(url: str) -> urllib.request.Request:

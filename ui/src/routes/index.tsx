@@ -1,15 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Share2, Sparkles, Send, AlertCircle, Square, ChevronDown, Loader2 } from "lucide-react";
+import { Send, AlertCircle, Square, ChevronDown, Loader2, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContextPanel } from "@/components/ContextPanel";
+import { OrionIcon } from "@/components/OrionIcon";
 import { cn } from "@/lib/utils";
 import { useChat, type Step, type Message } from "@/lib/chat-store";
 import { UserMessage, AssistantMessage } from "@/components/chat/Message";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { apiFetch } from "@/lib/api";
+import { apiErrorMessage, apiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,6 +41,7 @@ type SessionGenState = {
   error: string | null;
   abortRef: AbortController | null;
   idleTimerRef: number | null;
+  startedAt: number | null;
 };
 
 function ChatPage() {
@@ -48,7 +50,27 @@ function ChatPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedServer, setSelectedServer] = useState<string>("");
   const [loadingModels, setLoadingModels] = useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const regenerateRef = useRef<((assistantMessageIndex: number) => void) | null>(null);
   const session = chatCtx.sessions.find((s) => s.id === chatCtx.currentSessionId);
+
+  const regenerateMessage = useCallback((assistantMessageIndex: number) => {
+    regenerateRef.current?.(assistantMessageIndex);
+  }, []);
+
+  const handleConversationScroll = useCallback(() => {
+    const element = scrollAreaRef.current;
+    if (!element) return;
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 140);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    const element = scrollAreaRef.current;
+    if (!element) return;
+    element.scrollTo({ top: element.scrollHeight, behavior: "smooth" });
+  }, []);
 
   // Load available models on mount
   useEffect(() => {
@@ -93,35 +115,45 @@ function ChatPage() {
           setDrag(false);
         }}
       >
-        <div className="h-12 border-b border-border flex items-center gap-3 px-4 shrink-0">
-          <div className="min-w-0 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-sm font-medium truncate">{session?.title || "Orion"}</span>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Share">
-              <Share2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl w-full px-4 sm:px-6 py-8">
-            {session && session.messages.length <= 1 ? (
+        <div
+          ref={scrollAreaRef}
+          onScroll={handleConversationScroll}
+          className="flex-1 overflow-y-auto"
+        >
+          <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+            {!session || session.messages.length <= 1 ? (
               <EmptyState />
-            ) : session ? (
-              <Conversation messages={session.messages} />
-            ) : null}
+            ) : (
+              <Conversation
+                messages={session.messages}
+                onRegenerate={regenerateMessage}
+                regenerating={chatCtx.generatingSessions.has(session.id)}
+              />
+            )}
           </div>
         </div>
 
-        <div className="border-t border-border bg-gradient-to-b from-background/50 to-background px-4 sm:px-6 py-4">
-          <div className="mx-auto max-w-3xl w-full">
+        <div className="relative border-t border-border bg-gradient-to-b from-background/50 to-background px-4 py-4 sm:px-6 lg:px-8">
+          {showScrollToBottom && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={scrollToBottom}
+              className="absolute -top-12 left-1/2 z-20 h-9 w-9 -translate-x-1/2 rounded-full bg-background shadow-lg"
+              aria-label="Đi đến cuối cuộc trò chuyện"
+              title="Đi đến cuối cuộc trò chuyện"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+          )}
+          <div className="mx-auto w-full max-w-6xl">
             <ChatInput
               models={models}
               selectedServer={selectedServer}
               setSelectedServer={setSelectedServer}
               loadingModels={loadingModels}
+              regenerateRef={regenerateRef}
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.</span>
@@ -130,9 +162,9 @@ function ChatPage() {
         </div>
 
         {drag && (
-          <div className="absolute inset-0 pointer-events-none bg-primary/5 border-2 border-dashed border-primary/50 grid place-items-center">
+          <div className="pointer-events-none absolute inset-0 grid place-items-center border-2 border-dashed border-titanium/50 bg-titanium/5">
             <div className="text-center">
-              <div className="text-display text-3xl text-primary">Drop to attach</div>
+              <div className="text-display text-3xl text-titanium">Drop to attach</div>
               <div className="text-sm text-muted-foreground mt-1">PDF, images, code</div>
             </div>
           </div>
@@ -145,43 +177,12 @@ function ChatPage() {
 }
 
 function EmptyState() {
-  const { createSession } = useChat();
-  const suggestions = [
-    { label: "Health", prompt: "Đánh giá sức khỏe của localhost" },
-    { label: "Zabbix", prompt: "Zabbix đang có vấn đề gì?" },
-    { label: "Services", prompt: "Có service nào bị lỗi?" },
-    { label: "Security", prompt: "Security baseline có tốt không?" },
-  ];
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-6">
       <div className="relative">
-        <div className="absolute inset-0 blur-2xl bg-primary/20 rounded-full" />
-        <div className="relative h-14 w-14 rounded-2xl bg-gradient-to-br from-primary to-orange-500 grid place-items-center shadow-[var(--shadow-glow)]">
-          <Sparkles className="h-6 w-6 text-primary-foreground" />
-        </div>
+        <OrionIcon className="relative h-14 w-14" />
       </div>
-      <div>
-        <h1 className="text-display text-4xl">Orion</h1>
-        <p className="text-muted-foreground mt-1.5">Hỏi về hạ tầng của bạn.</p>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-3xl w-full">
-        {suggestions.map((s) => (
-          <button
-            key={s.label}
-            onClick={async () => {
-              await createSession();
-              document.dispatchEvent(
-                new CustomEvent("infra-send-prompt", {
-                  detail: s.prompt,
-                }),
-              );
-            }}
-            className="w-full text-left text-sm text-foreground/85 hover:text-foreground rounded-md px-3 py-2.5 hover:bg-surface-2 transition-colors border border-border"
-          >
-            {s.prompt}
-          </button>
-        ))}
-      </div>
+      <h1 className="text-display text-4xl">Orion</h1>
     </div>
   );
 }
@@ -194,7 +195,7 @@ function ThinkingDots() {
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce"
+            className="h-1.5 w-1.5 animate-bounce rounded-full bg-titanium/70"
             style={{ animationDelay: `${i * 150}ms` }}
           />
         ))}
@@ -203,11 +204,28 @@ function ThinkingDots() {
   );
 }
 
-function Conversation({ messages }: { messages: Message[] }) {
+function Conversation({
+  messages,
+  onRegenerate,
+  regenerating,
+}: {
+  messages: Message[];
+  onRegenerate: (assistantMessageIndex: number) => void;
+  regenerating: boolean;
+}) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const lastAssistantIndex = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].content) {
+        return i;
+      }
+    }
+    return -1;
   }, [messages]);
 
   return (
@@ -215,9 +233,17 @@ function Conversation({ messages }: { messages: Message[] }) {
       {messages.map((msg, i) => (
         <div key={i}>
           {msg.role === "user" ? (
-            <UserMessage content={msg.content}>{msg.content}</UserMessage>
+            <UserMessage content={msg.content} askedAt={msg.askedAt}>
+              {msg.content}
+            </UserMessage>
           ) : msg.content ? (
-            <AssistantMessage agent="Orion" content={msg.content}>
+            <AssistantMessage
+              agent="Orion"
+              content={msg.content}
+              responseTimeMs={msg.responseTimeMs}
+              onRegenerate={i === lastAssistantIndex ? () => onRegenerate(i) : undefined}
+              regenerateDisabled={regenerating}
+            >
               <Card className="p-4 border-border/50">
                 <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
                   <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
@@ -277,7 +303,7 @@ function ModelSelector({
         title={selectedModel ? `${selectedModel.model} (${selectedModel.provider})` : "Chọn model"}
       >
         {loadingModels ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Loader2 className="h-3 w-3 animate-spin text-titanium" />
         ) : selectedModel ? (
           <>
             <span
@@ -360,11 +386,13 @@ function ChatInput({
   selectedServer,
   setSelectedServer,
   loadingModels,
+  regenerateRef,
 }: {
   models: ModelInfo[];
   selectedServer: string;
   setSelectedServer: (name: string) => void;
   loadingModels: boolean;
+  regenerateRef: React.MutableRefObject<((assistantMessageIndex: number) => void) | null>;
 }) {
   const [value, setValue] = useState("");
   const selectedServerRef = useRef(selectedServer);
@@ -372,7 +400,7 @@ function ChatInput({
 
   const {
     currentSessionId,
-    sessions,
+    createSession,
     getSession,
     updateSession,
     updateSessionById,
@@ -394,6 +422,7 @@ function ChatInput({
         error: null,
         abortRef: null,
         idleTimerRef: null,
+        startedAt: null,
       };
     }
     let st = sessionGenRef.current.get(sid);
@@ -405,6 +434,7 @@ function ChatInput({
         error: null,
         abortRef: null,
         idleTimerRef: null,
+        startedAt: null,
       };
       sessionGenRef.current.set(sid, st);
     }
@@ -413,6 +443,10 @@ function ChatInput({
 
   // Compute the current session's gen state for rendering
   const gen = useMemo(() => getGen(currentSessionId), [currentSessionId]);
+
+  useEffect(() => {
+    setValue("");
+  }, [currentSessionId]);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -428,6 +462,10 @@ function ChatInput({
     if (g.idleTimerRef) clearTimeout(g.idleTimerRef);
     g.idleTimerRef = null;
   }, []);
+
+  function elapsedResponseTime(g: SessionGenState) {
+    return g.startedAt === null ? undefined : Math.round(performance.now() - g.startedAt);
+  }
 
   const handleStop = useCallback(() => {
     const sid = currentSessionId;
@@ -445,6 +483,7 @@ function ChatInput({
       const assistantMsg: Message = {
         role: "assistant",
         content: g.streamingContent || "(interrupted)",
+        responseTimeMs: elapsedResponseTime(g),
       };
       updateSession({
         messages: [...(getSession()?.messages || updated.messages), assistantMsg],
@@ -453,6 +492,7 @@ function ChatInput({
     g.streamingContent = "";
     g.loading = false;
     g.pipelineStatus = null;
+    g.startedAt = null;
     setSessionGenerating(sid!, false);
   }, [currentSessionId, getSession, updateSession, resetIdleTimer, setSessionGenerating]);
 
@@ -485,50 +525,95 @@ function ChatInput({
 
   /** Update messages for a specific session by its ID (for background sessions). */
   const setSidMessages = useCallback(
-    (sid: string, content: string, steps: Step[] | undefined) => {
-      const s = sessions.find((s) => s.id === sid);
-      if (!s) return;
-      const msgs = [...s.messages];
+    (
+      sid: string,
+      baseMessages: Message[],
+      content: string,
+      steps: Step[] | undefined,
+      responseTimeMs?: number,
+    ) => {
+      const msgs = [...baseMessages];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
-        msgs[msgs.length - 1] = { ...last, content, steps };
+        msgs[msgs.length - 1] = { ...last, content, steps, responseTimeMs };
       } else {
-        msgs.push({ role: "assistant", content, steps });
+        msgs.push({ role: "assistant", content, steps, responseTimeMs });
       }
       updateSessionById(sid, { messages: msgs });
     },
-    [sessions, updateSessionById],
+    [updateSessionById],
   );
 
-  async function handleSubmit(text?: string) {
-    const question = (text ?? value).trim();
-    const sid = currentSessionId;
-    if (!sid) return;
+  async function handleSubmit(text?: string, regenerateAssistantIndex?: number) {
+    const startedAt = performance.now();
+    let sid = currentSessionId;
+    let session = getSession();
+    const isRegeneration = regenerateAssistantIndex !== undefined;
+    let question = (text ?? value).trim();
+    let askedAt = new Date().toISOString();
+    let regenerateTurnIndex: number | undefined;
+    let originalMessages: Message[] | null = null;
+    let retainedMessages: Message[] | null = null;
 
-    const g = getGen(sid);
-    if (!question || g.loading) return;
+    if (isRegeneration) {
+      if (!sid || !session) return;
+      const assistantMessage = session.messages[regenerateAssistantIndex];
+      if (assistantMessage?.role !== "assistant") return;
 
-    const session = getSession();
+      let userMessageIndex = regenerateAssistantIndex - 1;
+      while (userMessageIndex >= 0 && session.messages[userMessageIndex].role !== "user") {
+        userMessageIndex -= 1;
+      }
+      if (userMessageIndex < 0) return;
+
+      const userMessage = session.messages[userMessageIndex];
+      question = userMessage.content.trim();
+      if (!question) return;
+      askedAt = userMessage.askedAt || askedAt;
+      regenerateTurnIndex =
+        session.messages.slice(0, userMessageIndex + 1).filter((message) => message.role === "user")
+          .length - 1;
+      originalMessages = session.messages;
+      retainedMessages = session.messages.slice(0, userMessageIndex + 1);
+    } else if (!question) {
+      return;
+    }
+
+    if (!sid || !session) {
+      sid = await createSession();
+      session = getSession();
+    }
     if (!session) return;
 
-    if (session.title === "New chat") {
+    const g = getGen(sid);
+    if (g.loading) return;
+
+    if (!isRegeneration && session.title === "New chat") {
       const newTitle = question.length > 60 ? question.slice(0, 57) + "..." : question;
       updateSession({ title: newTitle });
       renameSession(session.id, newTitle);
     }
 
-    setValue("");
+    if (!isRegeneration) setValue("");
     g.error = null;
     g.pipelineStatus = "Đang phân tích intent...";
     g.streamingContent = "";
+    g.startedAt = startedAt;
 
-    const userMsg: Message = { role: "user", content: question };
     const thinkingMsg: Message = {
       role: "assistant",
       content: "",
       steps: [],
     };
-    updateSession({ messages: [...session.messages, userMsg, thinkingMsg] });
+    const historyMessages = isRegeneration ? retainedMessages!.slice(0, -1) : session.messages;
+    const requestMessages = isRegeneration
+      ? [...retainedMessages!, thinkingMsg]
+      : [
+          ...session.messages,
+          { role: "user", content: question, askedAt } satisfies Message,
+          thinkingMsg,
+        ];
+    updateSession({ messages: requestMessages });
     g.loading = true;
     setSessionGenerating(sid, true);
 
@@ -536,7 +621,7 @@ function ChatInput({
     g.abortRef = controller;
 
     try {
-      const history = session.messages.map((m) => ({
+      const history = historyMessages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
@@ -552,13 +637,17 @@ function ChatInput({
           messages: history,
           session_id: sessionId,
           server_name: selectedServerRef.current || undefined,
+          asked_at: askedAt,
+          ...(regenerateTurnIndex !== undefined
+            ? { regenerate_turn_index: regenerateTurnIndex }
+            : {}),
         }),
         signal: controller.signal,
       });
 
       clearTimeout(connTimeout);
 
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await apiErrorMessage(res));
 
       g.pipelineStatus = "Đang nhận phản hồi...";
 
@@ -568,11 +657,12 @@ function ChatInput({
         const data = await res.json();
         g.pipelineStatus = null;
 
-        const msgs = [...(getSession()?.messages || session.messages)];
+        const msgs = [...requestMessages];
         msgs[msgs.length - 1] = {
           role: "assistant",
           content: data.assessment || "(empty response)",
           steps: data.steps,
+          responseTimeMs: data.response_time_ms ?? elapsedResponseTime(g),
         };
         updateSessionById(sid, { messages: msgs });
         g.loading = false;
@@ -608,7 +698,7 @@ function ChatInput({
               if (parsed.content) {
                 fullContent += parsed.content;
                 g.streamingContent = fullContent;
-                setSidMessages(sid, fullContent, steps);
+                setSidMessages(sid, requestMessages, fullContent, steps);
               }
               if (parsed.steps) {
                 steps = parsed.steps;
@@ -621,16 +711,33 @@ function ChatInput({
       }
 
       resetIdleTimer(g);
-      setSidMessages(sid, fullContent || "(empty response)", steps);
+      setSidMessages(
+        sid,
+        requestMessages,
+        fullContent || "(empty response)",
+        steps,
+        elapsedResponseTime(g),
+      );
       g.streamingContent = "";
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (error.name === "AbortError") {
         if (g.streamingContent) {
-          setSidMessages(sid, g.streamingContent, undefined);
+          setSidMessages(
+            sid,
+            requestMessages,
+            g.streamingContent,
+            undefined,
+            elapsedResponseTime(g),
+          );
+        } else if (originalMessages) {
+          updateSessionById(sid, { messages: originalMessages });
         }
       } else {
         g.error = error.message || "Request failed";
+        if (originalMessages) {
+          updateSessionById(sid, { messages: originalMessages });
+        }
       }
     } finally {
       g.abortRef = null;
@@ -638,11 +745,15 @@ function ChatInput({
       g.loading = false;
       g.pipelineStatus = null;
       g.streamingContent = "";
+      g.startedAt = null;
       setSessionGenerating(sid, false);
     }
   }
 
   handleSubmitRef.current = handleSubmit;
+  regenerateRef.current = (assistantMessageIndex) => {
+    void handleSubmit(undefined, assistantMessageIndex);
+  };
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -657,7 +768,7 @@ function ChatInput({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Hỏi về hạ tầng…"
+        placeholder="Nhắn tin cho Orion"
         rows={2}
         className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[14.5px] leading-relaxed placeholder:text-muted-foreground outline-none max-h-64"
       />
@@ -671,9 +782,6 @@ function ChatInput({
           />
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <kbd className="hidden sm:inline text-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted-foreground border border-border">
-            ⏎
-          </kbd>
           {gen.loading ? (
             <Button
               size="icon"
@@ -687,7 +795,7 @@ function ChatInput({
           ) : (
             <Button
               size="icon"
-              className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+              className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
               onClick={() => handleSubmit()}
               disabled={!value.trim()}
               aria-label="Send message"
@@ -702,14 +810,6 @@ function ChatInput({
           <div className="text-xs text-destructive flex items-center gap-2">
             <AlertCircle className="h-3 w-3" />
             {gen.error}
-          </div>
-        </div>
-      )}
-      {gen.pipelineStatus && (
-        <div className="absolute bottom-14 left-4 right-4">
-          <div className="text-xs text-muted-foreground flex items-center gap-2">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {gen.pipelineStatus}
           </div>
         </div>
       )}

@@ -193,6 +193,24 @@ def analyze_project(project_id: str, body: dict, request: Request):
 
 
 # Compatibility route for older clients. It remains outside the chat endpoint.
+# Calls the RAG /query endpoint directly (not /projects/default/analyses) because
+# the RAG tool's /query endpoint uses its own internal LLM client when no
+# analysis_model is provided in the body, without needing Orion's model config.
 @router.post("/api/knowledge/query")
 def knowledge_query(body: dict, request: Request):
-    return analyze_project("default", body, request)
+    query = str(body.get("query", "")).strip()
+    if not query:
+        raise HTTPException(400, "Query is required")
+    try:
+        top_k = int(body.get("top_k", 5))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "top_k must be an integer") from exc
+    if not 1 <= top_k <= 20:
+        raise HTTPException(400, "top_k must be between 1 and 20")
+    return _json_request(
+        _rag_url(request),
+        "/query",
+        method="POST",
+        body={"query": query, "top_k": top_k},
+        timeout=120,
+    )
