@@ -1,5 +1,8 @@
 # Orion Implementation Backlog
 
+> **Historical implementation plan and completed work record, retained as a static reference.**
+> The current, single active backlog is `docs/project/DETERMINISTIC_REASONING_BACKLOG.md` (see `docs/project/README.md`). Current implementation status lives in `docs/ai/08_PROJECT_STATE.md`.
+
 > **Source Documents Merged:**
 > - `FINAL_ARCHITECTURE_REVIEW.md` (FAR) — Principal Architect review across 5 projects
 > - `ARCHITECTURE_CRITIQUE.md` (AC) — Peer critique with source-code verification

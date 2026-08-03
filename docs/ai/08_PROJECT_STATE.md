@@ -188,7 +188,12 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-> **Last updated:** 2026-08-02 (User-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
+## Deterministic Reasoning v1 (DR1) — corrective backlog (in progress, 2026-08-03)
+- **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).
+- Status of Phase 6 items with known behavioral gaps is tracked as **🔎 verify/fix** in the DR1 backlog (e.g. DR1-106 failure-to-zero, DR1-205 CPU collector, DR1-206 service fallback, DR1-301 LLM routing) — these are open corrective items, not claims that Phase 6 modules do not exist.
+- Remaining DR1 tasks (86 total) are pending and executed sequentially; each task updates this file only after its definition of done is verifiable.
+
+> **Last updated:** 2026-08-03 (DR1-001 complete: single active backlog finalized at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`; historical backlogs marked reference-only. Prior update 2026-08-02: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 
