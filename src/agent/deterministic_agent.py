@@ -15,6 +15,12 @@ from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
+from src.pipeline.execution_trace import (
+    AnswerStrategy,
+    ExecutionTrace,
+    LLMUsageReason,
+    now_ms,
+)
 from src.pipeline.intent_resolver import Confidence, Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
@@ -128,22 +134,37 @@ class DeterministicAgent:
           - response: assessment text
           - steps: list of pipeline step dicts for UI display
           - investigation: the InvestigationRequest (for CLI /evidence etc.)
+          - trace_id: unique id of this request's ExecutionTrace
+          - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
         if not self._should_pipeline(user_request):
             return {
                 "response": self.chat(user_request),
                 "steps": [],
                 "investigation": None,
+                "trace_id": None,
+                "execution_trace": None,
             }
 
+        t0 = now_ms()
+        strategy_out: list[str] = []
         try:
             investigation = self._execution_engine.execute(user_request)
-            response = self._assess(user_request, investigation)
+            response = self._assess(
+                user_request, investigation, _strategy_out=strategy_out
+            )
             steps = self._build_pipeline_steps(investigation)
+            trace = self._build_execution_trace(
+                investigation,
+                strategy_out=strategy_out,
+                total_duration_ms=now_ms() - t0,
+            )
             return {
                 "response": response,
                 "steps": steps,
                 "investigation": investigation,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
             }
         except UnknownTargetError as exc:
             _warning(
@@ -151,10 +172,19 @@ class DeterministicAgent:
                 error=str(exc)[:200],
                 message="Unknown target, not falling back to chat",
             )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                failure_stage="target",
+                failure_reason=str(exc)[:500],
+                llm_usage_reason=LLMUsageReason.NONE,
+                total_duration_ms=now_ms() - t0,
+            )
             return {
                 "response": str(exc),
                 "steps": [],
                 "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
             }
         except (ValueError, TypeError) as exc:
             _warning(
@@ -171,11 +201,56 @@ class DeterministicAgent:
                 error=str(exc)[:200],
                 message="Pipeline failed, falling back to chat",
             )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                failure_stage="pipeline",
+                failure_reason=str(exc)[:500],
+                answer_strategy=AnswerStrategy.CHAT,
+                llm_usage_reason=LLMUsageReason.ROUTING_FALLBACK,
+                total_duration_ms=now_ms() - t0,
+            )
+            response = self.chat(user_request)
             return {
-                "response": self.chat(user_request),
+                "response": response,
                 "steps": [],
                 "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
             }
+
+    def _build_execution_trace(
+        self,
+        investigation: InvestigationRequest,
+        *,
+        strategy_out: list[str] | None = None,
+        total_duration_ms: float | None = None,
+    ) -> ExecutionTrace:
+        """Build an ExecutionTrace for a completed investigation.
+
+        ``strategy_out`` is an optional list populated by ``_assess`` with
+        the answer strategy name actually used, so the trace reflects the
+        real response path (deterministic responder vs LLM assessment).
+        """
+        strategy_name = strategy_out[0] if strategy_out else None
+        answer_strategy = None
+        if strategy_name:
+            answer_strategy = AnswerStrategy[strategy_name]
+
+        if answer_strategy == AnswerStrategy.LLM_ASSESSMENT:
+            llm_reason = (
+                LLMUsageReason.INSUFFICIENT_EVIDENCE
+                if not investigation.evidence_complete
+                else LLMUsageReason.EXPECTED_ASSESSMENT
+            )
+        else:
+            llm_reason = LLMUsageReason.NONE
+
+        return ExecutionTrace.from_investigation(
+            investigation,
+            answer_strategy=answer_strategy,
+            llm_usage_reason=llm_reason,
+            total_duration_ms=total_duration_ms,
+        )
 
     def _build_pipeline_steps(self, investigation: InvestigationRequest) -> list[dict]:
         """Serialize pipeline stages into step dicts for UI."""
@@ -270,14 +345,24 @@ class DeterministicAgent:
 
         return steps
 
-    def _assess(self, user_request: str, investigation: InvestigationRequest) -> str:
+    def _assess(
+        self,
+        user_request: str,
+        investigation: InvestigationRequest,
+        _strategy_out: list[str] | None = None,
+    ) -> str:
         # Phase 6: Answer-type routing — skip LLM for simple fact/list queries.
         from src.pipeline.answer_type import AnswerType
+
+        def _record(strategy: str) -> None:
+            if _strategy_out is not None:
+                _strategy_out[:] = [strategy]
 
         answer_type = getattr(investigation, "answer_type", None)
         if answer_type is not None and answer_type != AnswerType.ASSESSMENT:
             deterministic = self._deterministic_responder.try_response(investigation)
             if deterministic is not None:
+                _record(AnswerStrategy.DETERMINISTIC_RESPONDER.name)
                 if self._conversation_store:
                     self._conversation_store.add_turn(user_request, deterministic)
                 return deterministic
@@ -285,6 +370,7 @@ class DeterministicAgent:
         # Deterministic shortcuts: skip LLM if evidence is simple enough.
         deterministic = self._deterministic_responder.try_response(investigation)
         if deterministic is not None:
+            _record(AnswerStrategy.DETERMINISTIC_RESPONDER.name)
             if self._conversation_store:
                 self._conversation_store.add_turn(user_request, deterministic)
             return deterministic
@@ -303,6 +389,7 @@ class DeterministicAgent:
                     missing_evidence=assessment_request.missing_evidence,
                 )
 
+        _record(AnswerStrategy.LLM_ASSESSMENT.name)
         response = self._assessment_model.assess(assessment_request)
 
         # Append tool-specific deep links when available.

@@ -101,7 +101,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | ID | Priority | Status | Epic | Task | Dependencies |
 |---|---|---|---|---|---|
 | DR1-001 | P0 | ✅ | EPIC 0 | Chốt backlog hiện hành và nguồn sự thật | Không |
-| DR1-002 | P0 | ⬜ | EPIC 0 | Định nghĩa ExecutionTrace schema | DR1-001 |
+| DR1-002 | P0 | ✅ | EPIC 0 | Định nghĩa ExecutionTrace schema | DR1-001 |
 | DR1-003 | P0 | 🔎 | EPIC 0 | Sửa QA runner giữ nguyên câu hỏi nhiều dòng | Không |
 | DR1-004 | P0 | ⬜ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
 | DR1-005 | P0 | ⬜ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
@@ -218,27 +218,28 @@ Backlog lịch sử vẫn chứa task pending đã được tài liệu khác b�
 ---
 ### DR1-002 — Định nghĩa ExecutionTrace schema
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-001
 - **Files dự kiến:** `src/pipeline/execution_trace.py (new)`, `src/pipeline/investigation_request.py`, `src/agent/deterministic_agent.py`
 
 **Vấn đề**  
 QA hiện chủ yếu nhìn response cuối nên không biết lỗi nằm ở normalizer, target resolver, capability planner, collector hay assessment.
 
-**Cách làm**
-1. Tạo dataclass/TypedDict cho `ExecutionTrace`.
-2. Ghi request frame, stage status/confidence, capability plan, parameters, command/capability results, facts, findings, answer strategy, LLM usage reason và timings.
-3. Dùng `null` cho stage chưa chạy; không dùng confidence 0.0 để biểu diễn “không chạy”.
-4. Gắn `trace_id` vào response metadata nhưng không lộ secret/raw command nhạy cảm.
+**Cách làm (đã thực hiện 2026-08-03)**
+1. ✅ Tạo `src/pipeline/execution_trace.py` với `ExecutionTrace`, `StageTrace`, `StageStatus`, `AnswerStrategy`, `LLMUsageReason` và `from_investigation()`.
+2. ✅ Ghi stage status/confidence, target, parameters, planned capabilities, evidence names, runtime metrics, answer strategy, LLM usage reason và total duration.
+3. ✅ `confidence` dùng `None` cho stage chưa sinh score (test riêng đảm bảo không convert sang 0.0).
+4. ✅ `run_with_steps()` trả `trace_id` + `execution_trace` (serialized, credential-free); `_assess()` ghi answer strategy thực tế; unknown-target/pipeline-failure tạo trace với `failure_stage`/`failure_reason`.
 
 **Acceptance criteria**
-- [ ] Mọi request pipeline sinh đúng một trace.
-- [ ] Trace đủ xác định `failure_stage` và `failure_reason`.
-- [ ] Trace serialization không chứa credential.
+- [x] Mọi request pipeline sinh đúng một trace (test `test_trace_from_investigation_produces_single_trace` + integration `run_with_steps`).
+- [x] Trace đủ xác định `failure_stage` và `failure_reason`.
+- [x] Trace serialization không chứa credential (`test_trace_serialization_is_json_safe_and_credential_free`, `...never_contains_raw_sensitive_fields`).
 
 **Tests/verification**
-- `tests/pipeline/test_execution_trace.py`
-- `tests/agent/test_deterministic_agent.py`
+- ✅ `tests/pipeline/test_execution_trace.py` — 11 tests mới.
+- ✅ `tests/agent/test_deterministic_agent.py` — thêm `test_run_with_steps_returns_execution_trace`.
+- ✅ 31 tests pass trên 2 module chạm tới; `ruff check .` clean. Không cần benchmark (không đổi scoring/prompt/evidence logic).
 
 ---
 ### DR1-003 — Sửa QA runner giữ nguyên câu hỏi nhiều dòng

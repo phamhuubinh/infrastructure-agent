@@ -190,10 +190,11 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 
 ## Deterministic Reasoning v1 (DR1) — corrective backlog (in progress, 2026-08-03)
 - **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).
+- **DR1-002 ✅ complete**: `ExecutionTrace` schema added (`src/pipeline/execution_trace.py`) — every pipeline request emits one trace with stage status/confidence, target, params, plan, evidence names, answer strategy, `llm_usage_reason`, `failure_stage`/`failure_reason` and safe serialization. `run_with_steps()` now returns `trace_id` + `execution_trace` (additive, backward-compatible).
 - Status of Phase 6 items with known behavioral gaps is tracked as **🔎 verify/fix** in the DR1 backlog (e.g. DR1-106 failure-to-zero, DR1-205 CPU collector, DR1-206 service fallback, DR1-301 LLM routing) — these are open corrective items, not claims that Phase 6 modules do not exist.
-- Remaining DR1 tasks (86 total) are pending and executed sequentially; each task updates this file only after its definition of done is verifiable.
+- Remaining DR1 tasks (84 total pending/verify) are executed sequentially; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-03 (DR1-001 complete: single active backlog finalized at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`; historical backlogs marked reference-only. Prior update 2026-08-02: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
+> **Last updated:** 2026-08-03 (DR1-002 complete: ExecutionTrace schema + trace_id in `run_with_steps()`. DR1-001 complete: single active backlog finalized; historical backlogs marked reference-only. Prior update 2026-08-02: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

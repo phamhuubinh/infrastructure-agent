@@ -36,6 +36,41 @@ def test_deterministic_agent_runs_pipeline() -> None:
     assert len(result) > 50
 
 
+def test_run_with_steps_returns_execution_trace() -> None:
+    """run_with_steps attaches a trace_id and serialized ExecutionTrace."""
+    from src.pipeline.target_resolver import TargetResolver
+
+    original_resolve = TargetResolver.resolve
+
+    def patched_resolve(self, request):
+        request.target = "localhost"
+
+    TargetResolver.resolve = patched_resolve
+    try:
+        with mock.patch(
+            "src.model.llm_client.LLMClient.generate",
+            return_value="Mocked assessment: the system appears healthy.",
+        ):
+            agent = create_deterministic_agent()
+            result = agent.run_with_steps("check the server health")
+    finally:
+        TargetResolver.resolve = original_resolve
+
+    # The dict return must expose a trace with a unique id.
+    assert result["trace_id"]
+    assert isinstance(result["trace_id"], str)
+    trace = result["execution_trace"]
+    assert trace is not None
+    # Trace is JSON-safe and records stages + llm usage reason.
+    assert len(trace["stages"]) >= 5
+    assert trace["llm_usage_reason"] in (
+        "EXPECTED_ASSESSMENT",
+        "INSUFFICIENT_EVIDENCE",
+        "NONE",
+    )
+    assert trace["answer_strategy"] in ("LLM_ASSESSMENT", "DETERMINISTIC_RESPONDER")
+
+
 def test_pipeline_only() -> None:
     from src.pipeline.target_resolver import TargetResolver
 
@@ -306,9 +341,7 @@ def test_agent_sets_summarize_fn_on_conversation_store(tmp_path: Path) -> None:
     """Agent should call set_summarize_fn on the conversation store."""
     from src.agent.conversation_store import ConversationStore
 
-    store = ConversationStore(
-        "test_summarize_fn_integration", store_dir=str(tmp_path)
-    )
+    store = ConversationStore("test_summarize_fn_integration", store_dir=str(tmp_path))
     assert store._summarize_fn is None
 
     agent = create_deterministic_agent(conversation_store=store)
