@@ -55,6 +55,8 @@ export type Message = {
   role: "user" | "assistant";
   content: string;
   steps?: Step[];
+  responseTimeMs?: number;
+  askedAt?: string;
 };
 
 export type Session = {
@@ -69,6 +71,7 @@ type ChatContextValue = {
   generatingSessions: Set<string>;
   setSessionGenerating: (sessionId: string, generating: boolean) => void;
   createSession: () => Promise<string>;
+  startNewChat: () => void;
   switchSession: (id: string) => void;
   getSession: () => Session | undefined;
   updateSession: (updates: Partial<Session>) => void;
@@ -84,18 +87,17 @@ export function useChat() {
 }
 
 function emptySession(id: string, title: string = "New chat", msgs: Message[] = []): Session {
-  if (msgs.length > 0) {
-    return { id, title, messages: msgs };
-  }
   return {
     id,
     title,
-    messages: [
-      {
-        role: "assistant",
-        content: "Gõ câu hỏi để bắt đầu điều tra hạ tầng.",
-      },
-    ],
+    messages: msgs.map((message) => {
+      const storedMessage = message as Message & { response_time_ms?: number; asked_at?: string };
+      return {
+        ...message,
+        responseTimeMs: message.responseTimeMs ?? storedMessage.response_time_ms,
+        askedAt: message.askedAt ?? storedMessage.asked_at,
+      };
+    }),
   };
 }
 
@@ -118,10 +120,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error("failed");
         const data = await res.json();
         if (cancelled) return;
-        const serverSessions: Session[] = (data.sessions || []).map(
-          (s: { id: string; title?: string; messages?: Message[] }) =>
+        const serverSessions: Session[] = (data.sessions || [])
+          .map((s: { id: string; title?: string; messages?: Message[] }) =>
             emptySession(s.id, s.title || "New chat", s.messages || []),
-        );
+          )
+          .filter((session: Session) => session.messages.length > 0);
         if (serverSessions.length > 0) {
           setSessions(serverSessions);
           setCurrentSessionId(serverSessions[0].id);
@@ -132,12 +135,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           setCurrentSessionId(null);
         }
       } catch {
-        // Server not available — start with local fallback
+        // Server not available — keep the unsaved draft screen available.
         if (cancelled) return;
-        const fallback = emptySession("local_fallback");
-        setSessions([fallback]);
-        setCurrentSessionId(fallback.id);
-        currentIdRef.current = fallback.id;
+        sessionsRef.current = [];
+        setSessions([]);
+        setCurrentSessionId(null);
+        currentIdRef.current = null;
       }
       setLoaded(true);
     }
@@ -171,10 +174,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     const newSession = emptySession(sessionId);
-    setSessions((prev) => [newSession, ...prev]);
+    const nextSessions = [newSession, ...sessionsRef.current];
+    sessionsRef.current = nextSessions;
+    setSessions(nextSessions);
     setCurrentSessionId(sessionId);
     currentIdRef.current = sessionId;
     return sessionId;
+  }, []);
+
+  const startNewChat = useCallback(() => {
+    setCurrentSessionId(null);
+    currentIdRef.current = null;
   }, []);
 
   const switchSession = useCallback((id: string) => {
@@ -203,17 +213,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
     setSessions((prev) => {
       const next = prev.filter((s) => s.id !== id);
+      sessionsRef.current = next;
       if (next.length > 0) {
         if (currentIdRef.current === id) {
           setCurrentSessionId(next[0].id);
           currentIdRef.current = next[0].id;
         }
       } else {
-        // All deleted — create a new one
-        const fallback = emptySession("local_fallback");
-        setCurrentSessionId(fallback.id);
-        currentIdRef.current = fallback.id;
-        return [fallback];
+        setCurrentSessionId(null);
+        currentIdRef.current = null;
       }
       return next;
     });
@@ -245,6 +253,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       generatingSessions,
       setSessionGenerating,
       createSession,
+      startNewChat,
       switchSession,
       getSession,
       updateSession,
@@ -258,6 +267,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       generatingSessions,
       setSessionGenerating,
       createSession,
+      startNewChat,
       switchSession,
       getSession,
       updateSession,

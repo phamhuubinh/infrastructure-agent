@@ -1,0 +1,62 @@
+# Bộ câu hỏi v5 — Kịch bản vận hành thật (incident triage, multi-target, enterprise-readiness)
+# Khác biệt với 4 bộ trước: mô phỏng đúng cách 1 sysadmin thật sẽ hỏi khi xử lý sự cố thực tế,
+# câu dài hơn, có ngữ cảnh nghiệp vụ, và câu hỏi đánh giá độ trưởng thành của hệ thống giám sát.
+# Dùng: python3 orion_qa_runner.py --questions-file cauhoi_v5_workflow.txt --output orion_qa_transcript_v6.md
+# LƯU Ý: mỗi câu hỏi PHẢI nằm trên đúng 1 dòng, không được xuống dòng giữa chừng — runner đọc
+# theo dòng, câu bị xuống dòng sẽ bị tách thành 2 câu riêng.
+
+# --- Kịch bản: nhận được cảnh báo, cần điều tra nhanh (incident response) ---
+Tôi vừa nhận cảnh báo disk gần đầy trên monitor, cho tôi biết ngay tình trạng hiện tại
+Zabbix vừa báo DHCP down trên Firewall_Pfsense, có thông tin chi tiết gì thêm không
+Có 1 switch bị mất kết nối, làm sao biết switch nào đang có vấn đề
+Người dùng báo web chậm, giúp tôi xác định nguyên nhân từ phía server
+Trước khi tôi liên hệ nhà cung cấp, cho tôi 1 bản tóm tắt sự cố để báo cáo
+
+# --- So sánh nhiều target cùng lúc (multi-target reasoning) ---
+Giữa localhost và monitor, máy nào có nguy cơ hết tài nguyên trước?
+Tất cả server đang quản lý có máy nào cần chú ý ngay không?
+So sánh uptime của localhost và monitor
+Máy nào trong 2 máy đang có nhiều service chạy hơn?
+Nếu phải ưu tiên nâng cấp phần cứng cho 1 trong 2 máy, nên chọn máy nào?
+
+# --- Câu hỏi cần Orion tự quyết định phạm vi điều tra (không chỉ định rõ) ---
+Trước khi tôi đi ngủ, kiểm tra giúp mọi thứ có ổn để qua đêm không
+Cuối tuần không ai trực, hệ thống có an toàn để chạy không giám sát không
+Tôi sắp đi công tác 1 tuần, có gì cần xử lý trước khi đi không
+Deploy bản mới xong, kiểm tra giúp mọi thứ vẫn hoạt động bình thường
+Sáng nay vừa restart lại toàn bộ, xác nhận giúp mọi service đã lên đủ
+
+# --- Câu hỏi về độ tin cậy của chính hệ thống giám sát (meta-monitoring) ---
+Zabbix có đang tự giám sát chính nó không, hay nếu Zabbix chết thì không ai biết
+Có host nào đã lâu không gửi dữ liệu về không (agent bị chết)
+Nếu Orion bị mất kết nối SSH giữa chừng, câu trả lời có đáng tin không
+Độ trễ giữa lúc sự cố xảy ra và lúc Zabbix phát hiện là bao lâu
+Có báo động giả (false positive) nào gần đây không
+
+# --- Câu hỏi về capacity planning ---
+Với tốc độ tăng trưởng hiện tại, bao lâu nữa disk sẽ đầy
+RAM hiện tại có đủ dùng cho 6 tháng tới không nếu traffic tăng gấp đôi
+Có cần nâng cấp CPU không dựa trên xu hướng load hiện tại
+Server nào sắp chạm giới hạn tài nguyên trước tiên
+
+# --- Câu hỏi đánh giá "độ trưởng thành" hạ tầng (enterprise-readiness style, không cần config thật) ---
+Dựa trên dữ liệu đang có, hạ tầng này có điểm yếu nào rõ ràng không
+Nếu 1 khách hàng enterprise audit hệ thống này, họ sẽ chê điểm gì đầu tiên
+So với 1 setup chuẩn production, đang thiếu gì
+Có single point of failure nào đang tồn tại không
+Mức độ sẵn sàng cho việc scale lên nhiều server hơn thế nào
+
+# --- Câu hỏi dài, nhiều mệnh đề, đòi hỏi tổng hợp thông tin từ nhiều nguồn ---
+Tôi cần chuẩn bị 1 buổi báo cáo cho sếp về tình trạng hạ tầng tuần này, hãy tổng hợp giúp tôi CPU, RAM, disk, các sự cố đã xảy ra, và service nào hay gặp vấn đề nhất
+Có 1 dự án mới sắp deploy thêm 3 service nữa lên máy monitor, với tài nguyên hiện tại có đủ không, cần lưu ý gì trước khi deploy
+So sánh chi tiết giữa tuần này và tuần trước về mọi chỉ số quan trọng, có xu hướng xấu đi ở đâu không
+
+# --- Câu hỏi kiểm tra khả năng ưu tiên hóa khi có nhiều vấn đề cùng lúc ---
+Nếu có 5 việc cần làm cùng lúc: disk gần đầy, 1 service down, CPU cao, log lỗi tăng, và 1 switch mất kết nối - nên xử lý theo thứ tự nào
+Tài nguyên có hạn, chỉ có thể xử lý 1 vấn đề tối nay, vấn đề nào ảnh hưởng nhiều người dùng nhất
+
+# --- Follow-up dạng "tôi đã làm rồi, giờ sao" (test hiểu ngữ cảnh hành động đã thực hiện) ---
+Tôi vừa restart service nginx xong, xác nhận giúp nó đã chạy lại bình thường
+Tôi đã dọn bớt log rồi, disk usage giờ còn bao nhiêu
+Tôi vừa tăng RAM cho VM, có thấy cải thiện gì chưa
+Đã áp dụng patch bảo mật xong, có gì cần kiểm tra lại không

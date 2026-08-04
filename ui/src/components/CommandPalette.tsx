@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   CommandDialog,
   CommandInput,
@@ -8,12 +9,13 @@ import {
   CommandEmpty,
 } from "@/components/ui/command";
 import { useChat } from "@/lib/chat-store";
-import { MessageSquare, Plus, Search, Sparkles } from "lucide-react";
+import { MessageSquare, Plus } from "lucide-react";
 
 export function CommandPalette() {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const { sessions, currentSessionId, createSession, switchSession } = useChat();
+  const { sessions, currentSessionId, startNewChat, switchSession } = useChat();
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -42,7 +44,8 @@ export function CommandPalette() {
         <CommandGroup heading="Thao tác">
           <CommandItem
             onSelect={() => {
-              createSession();
+              startNewChat();
+              void navigate({ to: "/" });
               setOpen(false);
               setSearch("");
             }}

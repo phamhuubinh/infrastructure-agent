@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.agent.conversation_store import regeneration_start_index
 from src.shared.logger import info
 
 
@@ -52,7 +53,7 @@ class SQLiteConversationStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._summarize_fn = summarize_fn
-        self._mem: list[dict[str, str]] = []
+        self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
         self._title: str = ""
         self._lock = threading.RLock()
@@ -123,7 +124,7 @@ class SQLiteConversationStore:
         return self._session_id
 
     @property
-    def history(self) -> list[dict[str, str]]:
+    def history(self) -> list[dict[str, Any]]:
         with self._lock:
             if self._summary:
                 return [
@@ -158,6 +159,39 @@ class SQLiteConversationStore:
             self._mem.append({"role": "assistant", "content": assistant})
             self._save()
             self._check_compress()
+
+    def truncate_for_regeneration(
+        self, turn_index: int
+    ) -> list[dict[str, Any]] | None:
+        with self._lock:
+            start = regeneration_start_index(self._mem, turn_index)
+            if start is None:
+                return None
+            snapshot = list(self._mem)
+            self._mem = self._mem[:start]
+            self._save()
+            return snapshot
+
+    def restore_messages(self, messages: list[dict[str, Any]]) -> None:
+        with self._lock:
+            self._mem = list(messages)
+            self._save()
+
+    def set_last_response_time(
+        self, response_time_ms: int, asked_at: str | None = None
+    ) -> None:
+        with self._lock:
+            assistant_updated = False
+            for message in reversed(self._mem):
+                role = message.get("role")
+                if not assistant_updated and role == "assistant":
+                    message["response_time_ms"] = max(0, int(response_time_ms))
+                    assistant_updated = True
+                elif assistant_updated and asked_at is not None and role == "user":
+                    message["asked_at"] = asked_at
+                    break
+            if assistant_updated:
+                self._save()
 
     def add_classifier_turn(self, user: str, label: str) -> None:
         with self._lock:

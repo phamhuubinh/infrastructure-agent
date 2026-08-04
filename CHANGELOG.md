@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Moved project plans to `docs/project/`, OpenAPI schema to `docs/api/`, and manual QA runners to `scripts/qa/`; QA output now goes to ignored `artifacts/qa/`.
+- Restored foreground `orion web` lifecycle semantics for Docker installs: it follows only current API/UI logs without replaying historical proxy noise and stops Web services on `Ctrl+C`, while `orion log` follows the complete stack without stopping it.
+- Made uninstall clean model/session/RAG volumes and private runtime state by default, with a separate interactive choice for removing shared Grafana/Zabbix credentials.
 
 ## [0.1.0] — 2026-07-22
 

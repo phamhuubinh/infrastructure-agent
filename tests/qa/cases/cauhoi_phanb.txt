@@ -1,0 +1,39 @@
+# Bộ câu hỏi kiểm tra Phần B (network, security, cache)
+# Dùng: python3 orion_qa_runner.py --questions-file cauhoi_phanb.txt --output orion_qa_transcript_phanb.md
+
+# --- B1: Network monitoring ---
+Kiểm tra network interfaces
+Những cổng nào đang listen?
+Có cổng nào đang mở không?
+Băng thông đang sử dụng bao nhiêu?
+Chẩn đoán vì sao mạng chậm
+Kiểm tra độ trễ đến localhost
+Ping thử localhost xem có phản hồi không
+Interface nào đang có packet drop không?
+Show network traffic statistics
+What's the current bandwidth usage?
+
+# --- B2: Security audit (mỗi concept hỏi riêng để xác nhận KHÔNG còn trả lời giống nhau) ---
+Kiểm tra trạng thái firewall
+Iptables đang có rule nào?
+Firewall default policy là gì?
+Trạng thái SSH service?
+SSH có cho phép root login không?
+SSH có bật password authentication không?
+SELinux đang bật hay tắt?
+SELinux có được cài trên máy này không?
+AppArmor profile hiện tại?
+Kiểm tra security tổng quan (firewall + ssh + selinux cùng lúc)
+
+# --- B3: Evidence cache — hỏi 2 câu gần giống nhau LIÊN TIẾP, cách nhau vài giây ---
+# (Xem lại file transcript, so elapsed time của câu 2 so với câu 1 cùng cặp — câu 2 phải nhanh hơn rõ rệt)
+Có vấn đề gì không?
+Có ổn không?
+Kiểm tra CPU trên localhost
+Xem CPU hiện tại trên localhost
+Check memory on monitor server
+Check disk on monitor server
+
+# --- Kiểm tra chéo: đảm bảo cache không lẫn giữa 2 target khác nhau ---
+Kiểm tra CPU trên localhost
+Kiểm tra CPU trên monitor

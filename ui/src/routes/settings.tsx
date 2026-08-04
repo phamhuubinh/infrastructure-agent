@@ -119,7 +119,7 @@ export function SettingsPage() {
 
           <Card className="p-5 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+              <div className="rounded-lg bg-surface-3 p-2 text-foreground">
                 <BrainCircuit className="h-5 w-5" />
               </div>
               <div>
@@ -172,7 +172,7 @@ export function SettingsPage() {
                         }
                       >
                         {busy === `test-${item.name}` ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="h-4 w-4 animate-spin text-titanium" />
                         ) : (
                           <PlugZap className="h-4 w-4" />
                         )}
@@ -261,7 +261,7 @@ export function SettingsPage() {
                 onClick={() => void saveConnection()}
               >
                 {busy === "save" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin text-titanium" />
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
@@ -272,7 +272,7 @@ export function SettingsPage() {
 
           <Card className="p-5 space-y-4">
             <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+              <div className="rounded-lg bg-surface-3 p-2 text-foreground">
                 <KeyRound className="h-5 w-5" />
               </div>
               <div>

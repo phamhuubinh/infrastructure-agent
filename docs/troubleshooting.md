@@ -31,7 +31,7 @@ Common issues encountered when running Orion and how to resolve them.
 1. Ensure Node.js 18+ is installed: `node --version`.
 2. Run `cd ui && npm install` to install frontend dependencies.
 3. Check if port 5173 is in use: `lsof -i :5173` and kill the process if needed.
-4. Use a different frontend port: `ORION_FRONTEND_PORT=5174 orion web`.
+4. Use a different frontend port: `ORION_FRONTEND_PORT=5174 python3 -m src.cli web`.
 
 ### Vite port conflict
 
@@ -40,7 +40,7 @@ Common issues encountered when running Orion and how to resolve them.
 **Resolution:**
 Set a different port:
 ```bash
-ORION_FRONTEND_PORT=5174 orion web
+ORION_FRONTEND_PORT=5174 python3 -m src.cli web
 ```
 
 ---
@@ -216,10 +216,10 @@ Orion auto-creates tables on first connection. Verify:
 
 ```bash
 pip install -e ".[test]"
-orion web
+python3 -m src.cli web
 ```
 
-This starts the API + frontend in development mode on localhost.
+This starts the API + Vite frontend in development mode on localhost, stays attached to the terminal, and stops both when you press `Ctrl+C`. The installed `orion web` command instead controls the packaged Docker Web services.
 
 ### How do I add a new target server?
 
@@ -241,15 +241,14 @@ Edit `targets.json`:
 
 ```bash
 export ORION_API_KEY="your-secure-random-key"
-orion web
+python3 -m src.cli web
 ```
 
 Requests must include the key in the `X-API-Key` or `Authorization: Bearer` header.
 
-### What's the difference between `--web` mode and Docker Compose?
+### What's the difference between source Web mode and Docker Compose?
 
-`--web` runs the backend + Vite dev server directly on your machine.
-Docker Compose runs Nginx (local HTTP), API, UI, PostgreSQL, and RAG as separate containers. RAG is reachable only from the internal Compose network.
+`python3 -m src.cli web` runs the backend + Vite dev server directly on your machine. The installed `orion web` launcher controls the Docker Web services and shows their logs until `Ctrl+C`; `orion log` shows logs for the complete stack without stopping it on `Ctrl+C`. Docker Compose runs Nginx (local HTTP), API, UI, PostgreSQL, and RAG as separate containers. RAG is reachable only from the internal Compose network.
 
 ### How do I view the OpenAPI docs?
 
@@ -257,6 +256,7 @@ When running: `http://localhost:61888/docs` directly or `http://localhost/docs` 
 
 ### Where are logs stored?
 
+- Installed Docker stack: `orion log` follows all service logs.
 - Console: printed to stderr by default.
 - File rotation: enabled with `ORION_LOG_FILE=/path/to/logs/orion.log`, rotates at 10MB with 5 backups.
 - Structured JSON: set `ORION_LOG_FORMAT=json` for machine-readable logs.

@@ -4,6 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
+> **Cập nhật gần nhất:** 2026-08-04 — DR1-003 hoàn thành: nhập external HTTP QA runner + 4 suite TXT, dọn implementation JSONL sai.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -102,7 +103,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 |---|---|---|---|---|---|
 | DR1-001 | P0 | ✅ | EPIC 0 | Chốt backlog hiện hành và nguồn sự thật | Không |
 | DR1-002 | P0 | ✅ | EPIC 0 | Định nghĩa ExecutionTrace schema | DR1-001 |
-| DR1-003 | P0 | 🔎 | EPIC 0 | Sửa QA runner giữ nguyên câu hỏi nhiều dòng | Không |
+| DR1-003 | P0 | ✅ | EPIC 0 | Nhập external HTTP QA runner và 4 bộ câu hỏi TXT; loại bỏ implementation JSONL hiểu sai | Không |
 | DR1-004 | P0 | ⬜ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
 | DR1-005 | P0 | ⬜ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
 | DR1-006 | P1 | ⬜ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
@@ -242,28 +243,91 @@ QA hiện chủ yếu nhìn response cuối nên không biết lỗi nằm ở n
 - ✅ 31 tests pass trên 2 module chạm tới; `ruff check .` clean. Không cần benchmark (không đổi scoring/prompt/evidence logic).
 
 ---
-### DR1-003 — Sửa QA runner giữ nguyên câu hỏi nhiều dòng
+### DR1-003 — Nhập external HTTP QA runner và 4 bộ câu hỏi TXT
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** Không
-- **Files dự kiến:** `scripts/qa/run_acceptance.py`, `scripts/qa/run_tests.py`, `scripts/qa/run_tests_v2.py`, `scripts/qa/README.md`
+- **Files giữ lại/thêm:**
+  - `scripts/qa/orion_qa_runner.py`
+  - `tests/qa/cases/cauhoi_kiemtra_v2.txt`
+  - `tests/qa/cases/cauhoi_phanb.txt`
+  - `tests/qa/cases/cauhoi_v4_adversarial.txt`
+  - `tests/qa/cases/cauhoi_v5_workflow.txt`
+- **Files cần xóa nếu chỉ được tạo bởi implementation DR1-003 cũ:**
+  - `scripts/qa/case_loader.py`
+  - `tests/data/qa_cases/v5_multiline.jsonl`
+  - `tests/qa/test_acceptance_parser.py`
+- **Files cần hoàn nguyên đúng các hunk thuộc implementation DR1-003 cũ:**
+  - `scripts/qa/run_acceptance.py`
+  - `scripts/qa/run_tests.py`
+  - `scripts/qa/run_tests_v2.py`
+  - `scripts/qa/README.md`
 
-**Vấn đề**  
-Transcript v5 cho thấy câu nhiều dòng bị tách thành request độc lập, tạo response rỗng và routing sai.
+**Vấn đề**
+DR1-003 trước đây bị triển khai sai scope thành JSONL case loader và sửa nhiều runner nội bộ. Bộ QA thực tế đang được sử dụng là một HTTP runner độc lập cùng bốn suite TXT, mỗi câu hỏi nằm trên một dòng. Task này phải đưa đúng bộ đó vào repository, dọn phần implementation hiểu sai và không mở rộng sang golden dataset hay stage-level evaluator.
+
+**Phạm vi bắt buộc**
+1. Giữ `orion_qa_runner.py` là runner HTTP độc lập, không import `src/` và không phụ thuộc orchestrator.
+2. Giữ nguyên bốn file TXT; dòng bắt đầu bằng `#` là comment, mỗi câu hỏi hợp lệ nằm trên một dòng.
+3. Một lần chạy dùng chung một `session_id` cho toàn suite để kiểm tra hội thoại nhiều lượt.
+4. Transcript được ghi vào `artifacts/qa/transcripts/` hoặc path do `--output` chỉ định.
+5. `orion_orchestrator_v3.py` không được đưa vào repository.
+6. Không chuyển TXT sang JSONL trong task này.
+7. Không sửa source agent, pipeline, Tool, model hoặc behavior sản phẩm trong task này.
+8. Không tạo golden expectations, stage evaluator, baseline metrics hoặc CI gate trong task này; các phần đó thuộc DR1-004 trở đi.
 
 **Cách làm**
-1. Định nghĩa format case rõ ràng: JSONL/YAML hoặc delimiter không mơ hồ.
-2. Parser phải preserve newline trong prompt.
-3. Validate case trước khi gửi: không cho prompt trống/cụt.
-4. Ghi `case_id`, group và expected frame cùng request.
+1. Kiểm tra năm file cần giữ đã nằm đúng path và nội dung không bị thay đổi ngoài việc di chuyển.
+2. Xóa ba file JSONL/parser test nêu trên nếu chúng chỉ được tạo cho DR1-003 cũ.
+3. Với `run_acceptance.py`, `run_tests.py`, `run_tests_v2.py`, `scripts/qa/README.md`: xem diff và chỉ hoàn nguyên các hunk do DR1-003 cũ tạo ra; không dùng `git checkout` mù quáng và không làm mất thay đổi không liên quan.
+4. Chạy `python3 scripts/qa/orion_qa_runner.py --help`.
+5. Load cả bốn suite bằng chính `load_questions()` của runner và xác nhận số câu > 0, không có lỗi parse.
+6. Khởi động Orion bằng runner hoặc dùng `--no-start` khi Docker/API đã chạy, rồi smoke test ít nhất một suite TXT qua `/api/query`.
+7. Ghi transcript không rỗng vào `artifacts/qa/transcripts/`.
+8. Chạy `git diff --check` và rà `git status --short`; diff của task không được chứa thay đổi source agent/pipeline hoặc file ngoài scope.
+9. Đồng bộ mô tả DR1-003 trong `docs/ai/08_PROJECT_STATE.md`; xóa mô tả sai rằng JSONL loader là implementation được chấp nhận của DR1-003.
+10. Chỉ đổi trạng thái sang ✅ sau khi có lệnh chạy, kết quả smoke test, danh sách file thay đổi và bằng chứng diff sạch theo scope.
 
 **Acceptance criteria**
-- [ ] Không còn case bị tách ở dấu xuống dòng.
-- [ ] Prompt gửi đi byte-for-byte tương đương prompt trong fixture.
-- [ ] Case malformed fail trước khi gọi API.
+- [x] `scripts/qa/orion_qa_runner.py` tồn tại và `--help` chạy thành công.
+- [x] Bốn suite TXT tồn tại đúng trong `tests/qa/cases/` và mỗi suite load được ít nhất một câu hỏi (66/28/61/38 câu).
+- [x] `orion_orchestrator_v3.py` không nằm trong repository.
+- [x] Không còn `scripts/qa/case_loader.py`, `tests/data/qa_cases/v5_multiline.jsonl`, `tests/qa/test_acceptance_parser.py` từ implementation DR1-003 sai.
+- [x] Các runner nội bộ chỉ được hoàn nguyên đúng hunk cũ; không mất thay đổi không liên quan.
+- [x] Ít nhất một suite chạy thành công qua Orion API với một `session_id` dùng xuyên suốt (`cauhoi_kiemtra_v2.txt`: Done. 66/66 succeeded, HTTP 200).
+- [x] Transcript được tạo, không rỗng và nằm trong `artifacts/qa/transcripts/` (orion_qa_transcript_v2.md — 1747 dòng, 54 KB).
+- [x] Không sửa source agent, pipeline, Tool hoặc model trong task này.
+- [x] `git diff --check` thành công.
+- [x] `docs/project/DETERMINISTIC_REASONING_BACKLOG.md` và `docs/ai/08_PROJECT_STATE.md` mô tả cùng một scope/trạng thái cho DR1-003.
 
 **Tests/verification**
-- `tests/qa/test_acceptance_parser.py với các case v5 bị tách`
+```bash
+python3 scripts/qa/orion_qa_runner.py --help
+
+python3 - <<'PY'
+from pathlib import Path
+import importlib.util
+
+runner_path = Path("scripts/qa/orion_qa_runner.py")
+spec = importlib.util.spec_from_file_location("orion_qa_runner", runner_path)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+
+for path in sorted(Path("tests/qa/cases").glob("*.txt")):
+    questions = module.load_questions(str(path))
+    assert questions, f"Suite rỗng: {path}"
+    print(f"{path}: {len(questions)} câu")
+PY
+
+python3 scripts/qa/orion_qa_runner.py \
+  --questions-file tests/qa/cases/cauhoi_kiemtra_v2.txt \
+  --output artifacts/qa/transcripts/orion_qa_transcript_v2.md
+
+test -s artifacts/qa/transcripts/orion_qa_transcript_v2.md
+git diff --check
+git status --short
+```
 
 ---
 ### DR1-004 — Chuyển transcript QA thành golden dataset theo stage
@@ -2107,8 +2171,8 @@ Cần tránh báo completed chỉ vì code compile.
 ### PR 1 — Observability baseline
 
 - DR1-001 → DR1-006
-- Chỉ thêm trace, golden schema, sửa runner và lưu baseline.
-- **Exit:** có stage-level baseline và case nhiều dòng không bị tách.
+- Chốt trace; dọn implementation DR1-003 sai; nhập external HTTP runner + 4 suite TXT; sau đó xây golden schema và baseline.
+- **Exit:** external runner smoke-test thành công, tài liệu không còn mô tả DR1-003 theo JSONL loader, và có stage-level baseline cho DR1-004/005.
 
 ### PR 2 — Explicit execution failures
 

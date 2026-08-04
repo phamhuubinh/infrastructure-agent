@@ -163,6 +163,45 @@ def test_add_turn_persists_to_disk(tmp_path: Path) -> None:
     assert len(data["messages"]) == 2
 
 
+def test_response_time_persists_with_assistant_message(tmp_path: Path) -> None:
+    store = ConversationStore("response-time", store_dir=str(tmp_path))
+    store.add_turn("hello", "world")
+    store.set_last_response_time(1234, asked_at="2026-08-02T09:12:34.000Z")
+
+    reloaded = ConversationStore("response-time", store_dir=str(tmp_path))
+    assert reloaded.history[-2]["asked_at"] == "2026-08-02T09:12:34.000Z"
+    assert reloaded.history[-1]["response_time_ms"] == 1234
+
+
+def test_regeneration_truncates_selected_turn_and_can_restore(tmp_path: Path) -> None:
+    store = ConversationStore("regenerate", store_dir=str(tmp_path))
+    store.add_classifier_turn("q1", "first")
+    store.add_turn("q1", "a1")
+    store.add_classifier_turn("q2", "second")
+    store.add_turn("q2", "a2")
+
+    snapshot = store.truncate_for_regeneration(0)
+
+    assert snapshot is not None
+    assert store.history == []
+    store.restore_messages(snapshot)
+    assert store.history == snapshot
+
+
+def test_regeneration_keeps_turns_before_selected_turn(tmp_path: Path) -> None:
+    store = ConversationStore("regenerate-later", store_dir=str(tmp_path))
+    store.add_turn("q1", "a1")
+    store.add_turn("q2", "a2")
+
+    snapshot = store.truncate_for_regeneration(1)
+
+    assert snapshot is not None
+    assert store.history == [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": "a1"},
+    ]
+
+
 def test_add_turn_updates_timestamp(tmp_path: Path) -> None:
     store = ConversationStore("ts-test", store_dir=str(tmp_path))
     store.add_turn("q", "a")

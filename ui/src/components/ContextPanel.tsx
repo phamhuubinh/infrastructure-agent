@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ComponentType } from "react";
 import {
   FileText,
   Braces,
@@ -12,18 +12,19 @@ import {
   Clock,
   Target,
   Layers,
-  Sparkles,
   Zap,
   Wrench,
   Activity,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
   type LucideIcon,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { OrionIcon } from "@/components/OrionIcon";
 
 type Step = {
   type: string;
@@ -78,94 +79,189 @@ type Session = {
   messages: Message[];
 };
 
-const stepLabels: Record<string, { icon: LucideIcon; label: string; color: string }> = {
+const stepLabels: Record<
+  string,
+  { icon: ComponentType<{ className?: string }>; label: string; color: string }
+> = {
   intent: { icon: Target, label: "Intent Resolution", color: "text-blue-400" },
   evidence: { icon: Layers, label: "Evidence Collection", color: "text-amber-400" },
   prompt: { icon: FileText, label: "Prompt Assembly", color: "text-purple-400" },
-  assessment: { icon: Sparkles, label: "AI Assessment", color: "text-green-400" },
+  assessment: { icon: OrionIcon, label: "AI Assessment", color: "text-green-400" },
 };
 
 export function ContextPanel({ session }: { session: Session }) {
-  const assistantMsgs = session.messages.filter(
-    (m) => m.role === "assistant" && m.steps && m.steps.length > 0,
-  );
+  let latestQuestion = "";
+  const responses = session.messages.flatMap((message, messageIndex) => {
+    if (message.role === "user") {
+      latestQuestion = message.content;
+      return [];
+    }
+    if (!message.steps?.length) return [];
+    return [{ message, messageIndex, question: latestQuestion }];
+  });
 
   const [selectedIdx, setSelectedIdx] = useState<number | null>(
-    assistantMsgs.length > 0 ? assistantMsgs.length - 1 : null,
+    responses.length > 0 ? responses.length - 1 : null,
   );
+  const [collapsed, setCollapsed] = useState(false);
+  const activeResponseRef = useRef<HTMLButtonElement>(null);
 
-  const current = selectedIdx != null ? assistantMsgs[selectedIdx] : null;
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("orion-context-panel-collapsed") === "true");
+  }, []);
+
+  useEffect(() => {
+    setSelectedIdx(responses.length > 0 ? responses.length - 1 : null);
+  }, [session.id, responses.length]);
+
+  useEffect(() => {
+    activeResponseRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIdx]);
+
+  function togglePanel() {
+    setCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem("orion-context-panel-collapsed", String(next));
+      return next;
+    });
+  }
+
+  const current = selectedIdx != null ? responses[selectedIdx]?.message : null;
   const steps = current?.steps || [];
 
-  return (
-    <aside className="hidden lg:flex w-[380px] shrink-0 flex-col border-l border-border bg-surface">
-      <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          {steps.length > 0 ? (
-            <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-          ) : (
-            <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-          )}
-          <span className="text-sm font-medium">Ngữ cảnh</span>
-          <span className="text-mono text-[11px] text-muted-foreground">
-            · {session.id.slice(0, 12)}
-          </span>
-        </div>
-      </div>
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={togglePanel}
+        className="fixed right-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground lg:grid"
+        aria-label="Mở bảng chi tiết"
+        title="Mở bảng chi tiết"
+      >
+        <PanelRightOpen className="h-4 w-4" />
+      </button>
+    );
+  }
 
-      {assistantMsgs.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center px-4">
-          <div className="text-center">
-            <Info className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Gửi câu hỏi để xem chi tiết pipeline.</p>
+  return (
+    <aside className="hidden w-[400px] shrink-0 flex-col border-l border-border bg-surface lg:flex">
+      {responses.length === 0 ? (
+        <>
+          <div className="flex justify-end border-b border-border p-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={togglePanel}
+              className="h-8 w-8 text-muted-foreground"
+              aria-label="Đóng bảng chi tiết"
+              title="Đóng bảng chi tiết"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </Button>
           </div>
-        </div>
+          <div className="flex-1 flex items-center justify-center px-4">
+            <div className="text-center">
+              <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl border border-border bg-surface-2">
+                <Info className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">Chưa có dữ liệu phân tích</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Gửi câu hỏi để xem chi tiết xử lý.
+              </p>
+            </div>
+          </div>
+        </>
       ) : (
         <>
-          <div className="px-3 pt-3 pb-1 shrink-0">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">
-              Responses ({assistantMsgs.length})
+          <div className="shrink-0 border-b border-border bg-background/40 p-3">
+            <div className="mb-2.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold">Phản hồi</span>
+                <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {responses.length}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={togglePanel}
+                className="h-8 w-8 text-muted-foreground"
+                aria-label="Đóng bảng chi tiết"
+                title="Đóng bảng chi tiết"
+              >
+                <PanelRightClose className="h-4 w-4" />
+              </Button>
             </div>
-            <ScrollArea className="max-h-[140px]">
-              <div className="space-y-0.5 pr-3">
-                {assistantMsgs.map((msg, i) => {
-                  const isActive = i === selectedIdx;
-                  const preview = msg.steps?.[0]?.intent || msg.content?.slice(0, 60);
-                  return (
-                    <button
-                      key={msg.content.slice(0, 30) + msg.role + i}
-                      onClick={() => setSelectedIdx(i)}
+            <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+              {responses.map(({ message, messageIndex, question }, i) => {
+                const isActive = i === selectedIdx;
+                const intent = message.steps?.find((step) => step.type === "intent")?.intent;
+                return (
+                  <button
+                    key={messageIndex}
+                    ref={isActive ? activeResponseRef : undefined}
+                    onClick={() => setSelectedIdx(i)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-all",
+                      isActive
+                        ? "border-primary/30 bg-primary/10 text-foreground shadow-sm"
+                        : "border-transparent text-muted-foreground hover:border-border hover:bg-surface-2 hover:text-foreground",
+                    )}
+                  >
+                    <span
                       className={cn(
-                        "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors",
-                        isActive
-                          ? "bg-primary/10 text-primary"
-                          : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+                        "grid h-7 w-7 shrink-0 place-items-center rounded-md",
+                        isActive ? "bg-primary text-primary-foreground" : "bg-surface-2",
                       )}
                     >
-                      <MessageSquare className="h-3 w-3 shrink-0" />
-                      <span className="text-[11px] truncate flex-1">
-                        {preview || `Response ${i + 1}`}
+                      <MessageSquare className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-medium">
+                        {question || `Câu hỏi ${i + 1}`}
                       </span>
-                      {isActive && <ChevronRight className="h-3 w-3 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </ScrollArea>
+                      {intent && (
+                        <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                          {intent.replaceAll("_", " ")}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0",
+                        isActive ? "text-foreground" : "text-muted-foreground/50",
+                      )}
+                    />
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <Separator />
-
           <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
-            <TabsList className="mx-3 mt-3 bg-surface-2 border border-border h-9 p-1 grid grid-cols-3 shrink-0">
-              <TabsTrigger value="overview" className="text-xs data-[state=active]:bg-surface-3">
+            <TabsList className="mx-3 mt-3 grid h-10 shrink-0 grid-cols-3 border border-border bg-surface-2 p-1">
+              <TabsTrigger
+                value="overview"
+                className="gap-1.5 text-[11px] data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
                 <Info className="h-3.5 w-3.5" />
+                Tổng quan
               </TabsTrigger>
-              <TabsTrigger value="json" className="text-xs data-[state=active]:bg-surface-3">
+              <TabsTrigger
+                value="json"
+                className="gap-1.5 text-[11px] data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
                 <Braces className="h-3.5 w-3.5" />
+                JSON
               </TabsTrigger>
-              <TabsTrigger value="logs" className="text-xs data-[state=active]:bg-surface-3">
+              <TabsTrigger
+                value="logs"
+                className="gap-1.5 text-[11px] data-[state=active]:bg-background data-[state=active]:shadow-sm"
+              >
                 <FileText className="h-3.5 w-3.5" />
+                Nhật ký
               </TabsTrigger>
             </TabsList>
 
@@ -239,8 +335,8 @@ function PipelineStepCard({ step, index }: { step: Step; index: number }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left"
       >
-        <div className="h-7 w-7 rounded-md bg-primary/10 grid place-items-center shrink-0">
-          <cfg.icon className="h-3.5 w-3.5 text-primary" />
+        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3">
+          <cfg.icon className="h-3.5 w-3.5 text-foreground" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -273,7 +369,7 @@ function StepSummary({ step }: { step: Step }) {
     case "intent":
       return (
         <div className="flex gap-1.5 mt-0.5 flex-wrap">
-          <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+          <span className="rounded bg-primary px-1.5 py-0.5 text-xs text-primary-foreground">
             {step.intent}
           </span>
           {step.confidence && (
@@ -357,7 +453,7 @@ function IntentDetail({ step }: { step: Step }) {
             {step.matched_keywords.map((kw) => (
               <span
                 key={kw}
-                className="text-[11px] bg-primary/10 text-primary px-1.5 py-0.5 rounded text-mono"
+                className="rounded bg-primary px-1.5 py-0.5 text-mono text-[11px] text-primary-foreground"
               >
                 {kw}
               </span>
@@ -393,7 +489,7 @@ function IntentDetail({ step }: { step: Step }) {
                 key={i}
                 className="flex items-center gap-1.5 text-[12px] text-mono text-muted-foreground"
               >
-                <Zap className="h-3 w-3 text-primary" />
+                <Zap className="h-3 w-3 text-foreground" />
                 <span>{p.capability}</span>
                 <span className="text-[10px] text-muted-foreground">({p.evidence})</span>
               </div>

@@ -12,7 +12,7 @@ orion help
 
 The installer creates `.env` with private random secrets, initializes `/etc/orion/tool-credentials.json` as an empty private file when absent, reports missing Grafana/Zabbix fields, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Grafana/Zabbix and model setup may both be skipped. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP; terminate TLS in a production ingress/reverse proxy.
 
-`orion web` opens the packaged Web UI URL in the default desktop browser. On SSH/headless systems it prints the URL. It does not start a second backend or a Vite development server inside the API container.
+`orion web` starts the packaged Web services when needed, opens the Web UI, and follows only API/UI logs generated from that invocation onward. `Ctrl+C` stops those Web services. On SSH/headless systems it prints the URL instead of opening a browser. It does not start a second backend or a Vite development server inside the API container. `orion log` follows logs from all Compose services; `Ctrl+C` exits that viewer without stopping Orion.
 
 | Service | Internal port | Host exposure | Purpose |
 |---|---:|---:|---|
@@ -30,7 +30,7 @@ The RAG service is deliberately not published. Browser traffic goes through `/ap
 - `orion-pgdata:/var/lib/postgresql/data` — PostgreSQL.
 - `orion-ragdata:/data` — RAG project metadata, uploaded corpus, vector data, and BM25 indexes.
 
-`docker compose down` preserves these volumes. `docker compose down -v` deletes all persisted local data and cannot be undone.
+`docker compose down` preserves these volumes. `docker compose down -v` deletes Compose-managed persisted data and cannot be undone. The supported `./uninstall.sh` flow performs the complete cleanup, including legacy volumes and host-side private files.
 
 ## Generated environment
 
@@ -79,7 +79,8 @@ RAG retrieval itself uses bundled hash embeddings, persistent vectors, BM25, and
 ## Common commands
 
 ```bash
-docker compose logs -f api rag-service
+orion web
+orion log
 docker compose build api ui rag-service
 docker compose up -d api ui rag-service
 docker compose exec postgres pg_isready -U orion
@@ -90,6 +91,6 @@ The API image seeds an empty model registry. Model credentials are written to th
 
 ## Uninstall
 
-`./uninstall.sh` removes the running app and Orion-built images while preserving persistent data. `./uninstall.sh --purge` also deletes Orion volumes, local sessions/documents/logs, `.env`, private local configuration, and legacy Ollama artifacts created by older Orion versions. The source checkout is never deleted.
+`./uninstall.sh` is intentionally destructive: after a `y/yes` confirmation it removes the running app, Orion-built images, every current/legacy Orion volume, model connections, sessions, RAG documents/indexes, logs, `.env`, legacy private configuration, the CLI launcher, and legacy Ollama artifacts created by older Orion versions. It then asks separately whether `/etc/orion/tool-credentials.json` should be removed; `n/no` preserves it. `./uninstall.sh --yes` performs non-interactive runtime cleanup and always preserves the shared credential file; use `./uninstall.sh --dry-run` to inspect the actions. The source checkout and independently operated external model runtimes are never deleted. A later `./install.sh` gets empty data stores and newly generated runtime secrets while reusing retained monitoring credentials.
 
 > Last updated: 2026-08-02

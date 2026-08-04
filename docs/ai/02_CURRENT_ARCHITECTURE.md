@@ -1,16 +1,25 @@
 # 02 - Current Architecture (Local, Today)
-This describes the system **as it runs today**: local process, single user, optional PostgreSQL and API key auth, no network exposure other than outbound calls to targets/Grafana/Zabbix/LLM/Internet APIs.
+This describes the system **as it runs today**: single-user and single-machine, with a packaged Docker Compose runtime plus a source-development mode. The default installation exposes only local HTTP ports; outbound calls go to targets/Grafana/Zabbix/LLM/Internet APIs.
 ## Runtime shape
 ```
-CLI (src/cli/main.py)
-   │
-   ├── local mode:  runs the pipeline directly in-process
-   └── web mode:    starts a backend API process + Vite dev server (ui/)
-                     for the TanStack Start / React frontend
+Installed runtime (install.sh + Docker Compose)
+   ├── nginx reverse proxy     localhost:80
+   ├── FastAPI                 localhost:61888
+   ├── packaged SSR UI         internal port 3000
+   ├── PostgreSQL              internal only
+   └── RAG service             internal only
+
+Host launcher (scripts/orion)
+   ├── orion web   starts/attaches API + UI + proxy logs; Ctrl+C stops Web
+   └── orion log   follows every Compose service; Ctrl+C only exits logs
+
+Source development (src/cli/main.py)
+   ├── local mode              runs the pipeline directly in-process
+   └── python3 -m src.cli web  starts local FastAPI + Vite dev server
 ```
 In local CLI mode, there is one process holding runtime state in memory. Targets are read from `targets.json` (`src/tool/target_store.py` / `target_registry.py`), while conversations persist in SQLite under `~/.orion/sessions.db`.
 
-In `web` mode, a FastAPI backend (`src/backend/api.py`) handles requests. Each chat session owns its conversation store, Agent instance, evidence cache, and execution lock. Sessions use SQLite at `~/.orion/sessions.db` by default or PostgreSQL when `ORION_DATABASE_URL` is set. Optional `ORION_API_KEY` enables API key authentication.
+In both Web runtimes, a FastAPI backend (`src/backend/api.py`) handles requests. Each chat session owns its conversation store, Agent instance, evidence cache, and execution lock. Source development uses SQLite at `~/.orion/sessions.db` by default; the Compose installation supplies PostgreSQL through `ORION_DATABASE_URL`. Optional API-key middleware is disabled by default in source development and enabled behind the local reverse proxy in the packaged stack.
 
 Document analysis is a separate Web UI flow. A RAG project owns its documents, dense-vector collection, BM25 index, and analysis history under `RAG_DATA_DIR`. The API proxies `/api/rag/*` to the internal RAG service and passes the active model as request-scoped internal configuration. Chat never calls these endpoints and the Agent runtime refuses to register `knowledge_base` tools.
 ## Investigation pipeline (deterministic)
@@ -60,17 +69,17 @@ Every step above "Assessment (Agent)" is deterministic code — no LLM call. The
 ## Tool layer
 - `src/tool/tool.py` — abstract `Tool` interface (`NotImplementedError` on base class is intentional).
 - `src/tool/knowledge_tool.py` — the **only** entry point the pipeline calls; aggregates Child Tool capabilities, dispatches execution. Nothing else in the pipeline talks to a Child Tool directly.
-- `src/tool/linux_tool.py` — SSH-based command execution against registered targets, via `src/tool/execution_backend.py`.
-- `src/tool/grafana_tool.py` — Grafana HTTP API queries.
-- `src/tool/zabbix_tool.py` — Zabbix API queries.
+- `src/tool/linux/` — SSH-based command execution against registered targets, via `src/tool/execution_backend.py`.
+- `src/tool/grafana/` — Grafana HTTP API queries.
+- `src/tool/zabbix/` — Zabbix API queries.
 - `src/tool/internet_tool.py` — HTTP fetch with SSRF protection (private IP block + DNS resolution guard).
 - `src/backend/routers/knowledge.py` and `src/tool/RAGTool/` — the only active RAG integration; it is not a Chat tool.
 - `src/tool/target_registry.py` / `target_store.py` — local JSON-backed list of investigable targets (host, port, user, identity file path).
-Credential handling for Grafana/Zabbix tokens: see `07_DEVELOPMENT_RULES.md` and `09_ARCHITECTURE_DECISIONS.md` for the current rule and the reasoning — tokens must not be hardcoded in tool source files.
+Credential handling for Grafana/Zabbix tokens: `tools.json` contains only safe registry metadata; deployment URLs/tokens live in `/etc/orion/tool-credentials.json` and are mounted into the API container. See `07_DEVELOPMENT_RULES.md` and `09_ARCHITECTURE_DECISIONS.md` for the rule and reasoning.
 ## Frontend
 - `ui/` — TanStack Start (React) app. Talks only to the backend API. It supports model add/install/test/select/delete controls, API-key configuration, isolated Chat sessions, and isolated RAG projects. It remains single-user; there are no accounts.
 ## What is intentionally out of scope right now
-- No external database is required by default; SQLite stores chat sessions and the RAG service stores project metadata/indexes on its own volume. PostgreSQL remains optional.
+- No externally managed database is required. Source mode defaults to SQLite; the Docker installer starts a bundled PostgreSQL service. The RAG service stores project metadata/indexes on its own volume.
 - No authentication / accounts (optional `ORION_API_KEY` middleware available for API endpoint protection).
 - No remote hosting.
 - No multi-user accounts, remote deployment, or background job queue.

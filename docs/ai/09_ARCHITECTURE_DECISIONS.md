@@ -80,7 +80,7 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 ## AD-019 — Local-first, platform-second sequencing
 **Decision:** The project stays on the local architecture (`02_CURRENT_ARCHITECTURE.md`) until public VM access triggers `04_ROADMAP.md` WP1. The platform architecture (`03_PLATFORM_ARCHITECTURE.md`) is accepted as the long-term target but is not built speculatively ahead of that trigger.
 **Reason:** Avoid building multi-user infrastructure with no environment to run it on yet, and avoid diverging effort from the working local tool.
-**Consequence:** A single-user PostgreSQL session store and API key auth are in place for the `--web` mode. Multi-user state, accounts, and remote hosting remain out of scope until WP1 (see `04_ROADMAP.md`).
+**Consequence:** A single-user PostgreSQL session store and API key auth are in place for the packaged Web API runtime; source Web mode can use the same features through configuration. Multi-user state, accounts, and remote hosting remain out of scope until WP1 (see `04_ROADMAP.md`).
 ## AD-020 — Agent is an execution engine, not a reasoning component
 **Decision:** The Agent executes pipeline-generated actions and returns raw observations; it never reasons, plans, generates commands, or analyzes results. All intelligence belongs to the reasoning model.
 **Context:** The project originally explored an autonomous-agent architecture where the Agent would reason and plan independently.

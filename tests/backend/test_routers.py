@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import threading
 import urllib.error
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
+from fastapi import HTTPException
 
 from src.backend.app import create_app
 
@@ -372,13 +374,85 @@ def test_query_success(app):
     client = TestClient(app_obj)
     resp = client.post(
         "/api/query",
-        json={"question": "Is server sv1 healthy?", "session_id": "test-sess"},
+        json={
+            "question": "Is server sv1 healthy?",
+            "session_id": "test-sess",
+            "asked_at": "2026-08-02T09:12:34.000Z",
+        },
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["assessment"] == "Server is healthy"
     assert data["session_id"] == "test-sess"
     assert len(data["steps"]) == 1
+    assert data["response_time_ms"] >= 0
+    mock_agent.conversation_store.set_last_response_time.assert_called_once_with(
+        data["response_time_ms"], asked_at="2026-08-02T09:12:34.000Z"
+    )
+
+
+def test_query_regenerates_from_selected_turn():
+    from src.backend.routers.query import query
+
+    mock_agent = mock.MagicMock()
+    snapshot = [{"role": "user", "content": "old"}]
+    mock_agent.conversation_store.truncate_for_regeneration.return_value = snapshot
+    mock_agent.run_with_steps.return_value = {"steps": [], "response": "new answer"}
+    deps = SimpleNamespace(
+        prepare_query=mock.MagicMock(
+            return_value=("test-sess", mock_agent, threading.RLock())
+        )
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=deps)))
+
+    response = query(
+        {
+            "question": "regenerate this",
+            "session_id": "test-sess",
+            "regenerate_turn_index": 1,
+        },
+        request,
+    )
+
+    assert response["assessment"] == "new answer"
+    mock_agent.conversation_store.truncate_for_regeneration.assert_called_once_with(1)
+    mock_agent.conversation_store.restore_messages.assert_not_called()
+
+
+def test_query_rejects_invalid_regeneration_index():
+    from src.backend.routers.query import query
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=None)))
+    with pytest.raises(HTTPException) as exc_info:
+        query({"question": "test", "regenerate_turn_index": -1}, request)
+    assert exc_info.value.status_code == 400
+
+
+def test_query_restores_history_when_regeneration_fails():
+    from src.backend.routers.query import query
+
+    mock_agent = mock.MagicMock()
+    snapshot = [{"role": "user", "content": "old"}]
+    mock_agent.conversation_store.truncate_for_regeneration.return_value = snapshot
+    mock_agent.run_with_steps.side_effect = RuntimeError("model failed")
+    deps = SimpleNamespace(
+        prepare_query=mock.MagicMock(
+            return_value=("test-sess", mock_agent, threading.RLock())
+        )
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=deps)))
+
+    with pytest.raises(RuntimeError, match="model failed"):
+        query(
+            {
+                "question": "regenerate this",
+                "session_id": "test-sess",
+                "regenerate_turn_index": 0,
+            },
+            request,
+        )
+
+    mock_agent.conversation_store.restore_messages.assert_called_once_with(snapshot)
 
 
 def test_query_generates_session_id_when_not_provided(app):
@@ -401,6 +475,7 @@ def test_query_generates_session_id_when_not_provided(app):
         resp = client.post("/api/query", json={"question": "test"})
         assert resp.status_code == 200
         assert resp.json()["session_id"] == "generated-session"
+        assert resp.json()["asked_at"]
 
 
 # ── Service Status ────────────────────────────────────────────────────

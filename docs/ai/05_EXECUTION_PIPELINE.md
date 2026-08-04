@@ -32,7 +32,7 @@ Execution Graph        (execution_graph.py)
 KnowledgeTool           (knowledge_tool.py — single entry point)
     │
     ▼
-Child Tools              (linux_tool.py / grafana_tool.py / zabbix_tool.py / internet_tool.py)
+Child Tools              (linux/ / grafana/ / zabbix/ / internet_tool.py)
     │
     ▼
 Evidence Merge          (evidence_merge.py, evidence_package.py, evidence_completeness.py)

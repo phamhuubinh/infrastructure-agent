@@ -5,6 +5,7 @@ const { join } = require("node:path");
 
 const DIST_CLIENT = join(__dirname, "..", "ui", "dist", "client");
 const DIST_SERVER = join(__dirname, "..", "ui", "dist", "server");
+const APP_ICON = join(DIST_CLIENT, "orion-icon.png");
 const BACKEND_PORT = 61888;
 
 const MIME = {
@@ -103,6 +104,7 @@ async function start() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    icon: APP_ICON,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

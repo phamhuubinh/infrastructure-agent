@@ -21,6 +21,47 @@ from src.tool.target_store import TargetStore
 _last_request = None
 
 
+def _list_saved_sessions() -> list[dict]:
+    """List sessions from every persistence backend active in this runtime."""
+    sessions_by_id = {
+        str(session["id"]): session
+        for session in SQLiteConversationStore.list_sessions()
+    }
+
+    # Packaged Orion stores Web sessions in PostgreSQL while terminal sessions
+    # created by older/current CLI runs may still live in SQLite. Merge both so
+    # `orion session list` reflects what users see across Web and terminal.
+    from src.backend.db import _get_dsn, list_sessions_db
+
+    dsn = _get_dsn()
+    if dsn:
+        for session in list_sessions_db(dsn):
+            sessions_by_id[str(session["id"])] = session
+
+    return sorted(
+        sessions_by_id.values(),
+        key=lambda session: str(session.get("updated", "")),
+        reverse=True,
+    )[:50]
+
+
+def _print_saved_sessions(sessions: list[dict]) -> None:
+    if not sessions:
+        print("No sessions found.")
+        return
+    print(f"{'ID':<24} {'Source':<10} {'Turns':<6} {'Updated':<20} Title / Preview")
+    print("-" * 110)
+    for session in sessions:
+        label = str(session.get("title") or session.get("preview") or "")[:60]
+        print(
+            f"{str(session['id']):<24} "
+            f"{str(session.get('source', '')):<10} "
+            f"{str(session.get('turns', 0)):<6} "
+            f"{str(session.get('updated', ''))[:19]:<20} "
+            f"{label}"
+        )
+
+
 def _run_web_command(args: argparse.Namespace) -> None:
     packaged_url = os.environ.get("ORION_PACKAGED_WEB_URL", "").strip()
     if packaged_url:
@@ -345,6 +386,22 @@ def main() -> None:
         print(f"Configuration error:\n{exc}", file=sys.stderr)
         sys.exit(1)
 
+    if os.environ.get("ORION_PACKAGED_WEB_URL", "").strip():
+        web_help = (
+            "  web                   Start packaged Web UI and follow Web logs\n"
+            "    Ctrl+C                Stop API, UI, and reverse proxy\n"
+            "  log                   Follow logs from every Compose service\n"
+            "    Ctrl+C                Exit logs; keep Orion running\n"
+        )
+    else:
+        web_help = (
+            "  web                   Start local API + Vite Web UI\n"
+            "    --port <port>         Port (default: 61888)\n"
+            "    --server <name>       Model connection\n"
+            "    --model <name>        Override model name\n"
+            "  log                   Tail structured log output\n"
+        )
+
     parser = argparse.ArgumentParser(
         description="Orion — Infrastructure Investigation Platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -370,12 +427,8 @@ def main() -> None:
             "    --status              One-line per-iteration status\n"
             "  resume <id>           Resume session\n"
             "    (same options as run)\n"
-            "  web                   Start web UI\n"
-            "    --port <port>         Port (default: 61888)\n"
-            "    --server <name>       Model connection\n"
-            "    --model <name>        Override model name\n"
-            "  log                   Tail structured log output\n"
-            "  add-target            Add a remote SSH target\n"
+            + web_help
+            + "  add-target            Add a remote SSH target\n"
             "  remove-target         Remove a remote SSH target\n"
             "  list-targets          List all configured targets\n"
         ),
@@ -578,17 +631,7 @@ def main() -> None:
                 print("No sessions database found.")
             return
 
-        sessions = SQLiteConversationStore.list_sessions()
-        if not sessions:
-            print("No sessions found.")
-            return
-        print(f"{'ID':<24} {'Source':<10} {'Turns':<6} {'Updated':<20} Preview")
-        print("-" * 100)
-        for s in sessions:
-            preview = s["preview"][:50]
-            print(
-                f"{s['id']:<24} {s['source']:<10} {s['turns']:<6} {s['updated'][:19]:<20} {preview}"
-            )
+        _print_saved_sessions(_list_saved_sessions())
         return
 
     if args.command == "resume":

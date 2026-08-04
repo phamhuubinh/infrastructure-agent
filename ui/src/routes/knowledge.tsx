@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch, apiJson } from "@/lib/api";
+import { apiErrorMessage, apiFetch, apiJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/knowledge")({
@@ -128,7 +128,7 @@ export function KnowledgePage() {
         method: "POST",
         body: form,
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error(await apiErrorMessage(response));
       await loadProjects(selected.id);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Upload thất bại.");
@@ -195,7 +195,7 @@ export function KnowledgePage() {
         <aside className="border-b md:border-b-0 md:border-r border-border p-3 overflow-y-auto space-y-3 max-h-72 md:max-h-none">
           <Card className="p-3 space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <FolderPlus className="h-4 w-4 text-primary" /> Project mới
+              <FolderPlus className="h-4 w-4 text-foreground" /> Project mới
             </div>
             <Input
               value={name}
@@ -222,7 +222,7 @@ export function KnowledgePage() {
 
           <div className="space-y-1">
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin mx-auto my-6" />
+              <Loader2 className="mx-auto my-6 h-4 w-4 animate-spin text-titanium" />
             ) : (
               projects
                 .filter((project) => project.id !== "default")
@@ -233,7 +233,7 @@ export function KnowledgePage() {
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-left transition-colors",
                       project.id === selectedId
-                        ? "border-primary/50 bg-primary/10"
+                        ? "border-primary bg-primary text-primary-foreground"
                         : "border-transparent hover:bg-surface-2",
                     )}
                   >
@@ -305,7 +305,7 @@ export function KnowledgePage() {
                     />
                     <span className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">
                       {busy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin text-titanium" />
                       ) : (
                         <Upload className="h-4 w-4" />
                       )}
@@ -325,7 +325,7 @@ export function KnowledgePage() {
                         key={document.id}
                         className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
                       >
-                        <FileText className="h-4 w-4 text-primary shrink-0" />
+                        <FileText className="h-4 w-4 shrink-0 text-foreground" />
                         <div className="min-w-0 flex-1">
                           <div className="text-sm truncate">{document.filename}</div>
                           <div className="text-[11px] text-muted-foreground">
@@ -367,7 +367,7 @@ export function KnowledgePage() {
                     onClick={() => void runAnalysis()}
                   >
                     {busy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin text-titanium" />
                     ) : (
                       <Send className="h-4 w-4" />
                     )}

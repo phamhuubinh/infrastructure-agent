@@ -71,7 +71,7 @@ def test_orion_has_no_model_install_api_or_cli() -> None:
     assert 'model_sub.add_parser("install"' not in cli
 
 
-def test_uninstaller_is_valid_and_documents_purge_mode() -> None:
+def test_uninstaller_is_valid_and_documents_full_cleanup() -> None:
     script = ROOT / "uninstall.sh"
     subprocess.run(["bash", "-n", str(script)], check=True)
     subprocess.run(["bash", "-n", str(ROOT / "scripts/orion")], check=True)
@@ -83,8 +83,28 @@ def test_uninstaller_is_valid_and_documents_purge_mode() -> None:
         text=True,
     )
 
-    assert "--purge" in result.stdout
+    assert "Completely remove Orion" in result.stdout
+    assert "runtime cleanup is now the default" in result.stdout
+    assert "model" in result.stdout
+    assert "connections, sessions, RAG projects" in result.stdout
+    assert "--yes preserves it" in result.stdout
     assert "source directory" in result.stdout
+
+    non_interactive = subprocess.run(
+        ["bash", str(script)],
+        capture_output=True,
+        text=True,
+    )
+    assert non_interactive.returncode == 2
+    assert "requires --yes" in non_interactive.stderr
+
+    dry_run = subprocess.run(
+        ["bash", str(script), "--dry-run"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Dry run complete" in dry_run.stdout
 
 
 def test_installer_creates_host_cli_launcher() -> None:
@@ -97,6 +117,65 @@ def test_installer_creates_host_cli_launcher() -> None:
     assert 'exec docker "${compose_args[@]}" api orion "$@"' in launcher
     assert 'nohup xdg-open "$web_url"' in launcher
     assert 'nohup gio open "$web_url"' in launcher
+    assert "docker compose up -d --no-build reverse-proxy" in launcher
+    assert "web_log_since=\"$(date -u '+%Y-%m-%dT%H:%M:%SZ')\"" in launcher
+    assert (
+        'docker compose logs --follow --since "$web_log_since" ui api' in launcher
+    )
+    assert "docker compose stop reverse-proxy ui api" in launcher
+    assert "exec docker compose logs --follow --tail=100" in launcher
+
+
+def test_host_web_launcher_separates_web_and_all_service_logs(tmp_path: Path) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    calls = tmp_path / "docker-calls"
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_CALLS\"\n"
+        "exit 0\n"
+    )
+    docker.chmod(0o755)
+    env = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "DOCKER_CALLS": str(calls),
+        "ORION_DISABLE_BROWSER": "1",
+    }
+
+    web = subprocess.run(
+        ["bash", str(ROOT / "scripts/orion"), "web"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    web_calls = calls.read_text().splitlines()
+    assert "compose up -d --no-build reverse-proxy" in web_calls
+    assert any(
+        call.startswith("compose logs --follow --since ")
+        and call.endswith(" ui api")
+        for call in web_calls
+    )
+    assert not any(
+        call.startswith("compose logs") and "reverse-proxy" in call
+        for call in web_calls
+    )
+    assert "compose stop reverse-proxy ui api" in web_calls
+    assert "Press Ctrl+C to stop the Web UI" in web.stdout
+
+    calls.write_text("")
+    logs = subprocess.run(
+        ["bash", str(ROOT / "scripts/orion"), "log"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    log_calls = calls.read_text().splitlines()
+    assert "compose logs --follow --tail=100" in log_calls
+    assert not any(call.startswith("compose stop") for call in log_calls)
+    assert "Orion keeps running" in logs.stdout
 
 
 def test_installer_uses_external_tool_credentials_file() -> None:
@@ -112,8 +191,25 @@ def test_installer_uses_external_tool_credentials_file() -> None:
     assert "connection disabled (missing:" in installer
 
 
-def test_uninstaller_purges_default_external_tool_credentials() -> None:
+def test_uninstaller_removes_runtime_state_and_preserves_shared_credentials() -> None:
     uninstaller = (ROOT / "uninstall.sh").read_text()
 
     assert 'SYSTEM_TOOL_SECRETS_PATH="/etc/orion/tool-credentials.json"' in uninstaller
     assert 'rm -f -- "$SYSTEM_TOOL_SECRETS_PATH"' in uninstaller
+    assert "REMOVE_CREDENTIALS=false" in uninstaller
+    assert 'confirm_yes_no "Continue uninstall?"' in uninstaller
+    assert 'confirm_yes_no "Also remove $SYSTEM_TOOL_SECRETS_PATH?"' in uninstaller
+    assert 'y|yes) return 0' in uninstaller
+    assert '""|n|no) return 1' in uninstaller
+    assert "Type 'remove Orion'" not in uninstaller
+    assert "Preserving shared Grafana/Zabbix credentials" in uninstaller
+    assert "compose_args=(down --remove-orphans --rmi local --volumes)" in uninstaller
+    assert 'rm -f -- "$PROJECT_DIR/.env"' in uninstaller
+    assert 'rm -rf -- "$user_home/.orion"' in uninstaller
+    assert 'rm -rf -- "/tmp/orion-rag"' in uninstaller
+    assert '"orion_agent_orion-sessions"' in uninstaller
+    assert '"orion_agent_orion-models"' in uninstaller
+    assert '"orion_agent_dify-storage"' in uninstaller
+    assert '"orion_agent_redis-data"' in uninstaller
+    assert 'label=com.docker.compose.project=${compose_project}' in uninstaller
+    assert "Persistent data was preserved" not in uninstaller

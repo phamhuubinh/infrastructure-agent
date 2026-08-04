@@ -212,7 +212,7 @@ Normalizer (language) → CapabilityPlanner → Capability list
 | ID | Task | Files | Effort |
 |----|------|-------|--------|
 | 630 | Create TimeRangeResolver ("1 giờ"→3600s, "today"→day start, "7d"→7 days ago) | `src/pipeline/time_range_resolver.py` (new) | 2h |
-| 631 | Add Grafana time series query with time_range support | `src/tool/grafana_tool.py` | 2h |
+| 631 | Add Grafana time series query with time_range support | `src/tool/grafana/` | 2h |
 | 632 | Build visualization response (Grafana embed link/image instead of text) | `src/agent/deterministic_agent.py` | 2h |
 
 ## Summary

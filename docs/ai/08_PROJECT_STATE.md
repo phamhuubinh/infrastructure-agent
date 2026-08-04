@@ -11,7 +11,7 @@
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
 - Assessment layer: `LLMAssessmentAdapter` (real), `MockAssessmentAdapter` (tests), and an explicit unconfigured/setup adapter, behind the `AssessmentModelAdapter` interface (`src/model/*`). Orion starts without a model.
 - CLI entry point with local mode, `web` mode, and model management (`src/cli/main.py`).
-- Web UI (TanStack Start / React) with isolated Chat sessions, a dedicated project-based document-analysis page, API-key settings, and model add/install/test/select/delete controls.
+- Web UI (TanStack Start / React) with isolated Chat sessions, a dedicated project-based document-analysis page, API-key settings, and model add/install/test/select/delete controls. Docker packages its Nitro SSR server as the `ui` service; source development uses Vite.
 - Step-by-step pipeline visualization in Web UI (intent → evidence → prompt → assessment with expandable details).
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
 - Chat interface with routing: keyword match + model classify to distinguish infrastructure queries from general chat.
@@ -25,7 +25,7 @@
 - Session isolation: each chat session owns its Agent, conversation store, evidence cache, and execution lock. Switching a model in one session cannot mutate another session.
 - CI runs the Python suite and type-check, the independent RAG suite, UI lint/Vitest/build, security scans, image builds, and Compose smoke tests.
 - Unified retry policy: `src/pipeline/retry.py` with `RetryPolicy` dataclass + `RetryExecutor` (exponential backoff + jitter), integrated into `ExecutionRuntime` tool dispatch and `db.py` database connection retry.
-- Complete local installer (`install.sh`) and Docker Compose deployment: nginx HTTP reverse proxy, FastAPI API, React UI, PostgreSQL, and an internal-only persistent RAG service. The safe `tools.json` registry is packaged with the API while the system-wide `/etc/orion/tool-credentials.json` is mounted read-only as a Compose secret; installation reports missing credentials per tool. Model selection is prompted but optional; CLI and Web UI configure and test user-managed endpoints without installing model runtimes or weights.
+- Complete local installer (`install.sh`) and Docker Compose deployment: nginx HTTP reverse proxy, FastAPI API, React UI, PostgreSQL, and an internal-only persistent RAG service. The host launcher keeps `orion web` attached only to current API/UI logs and stops those Web services on `Ctrl+C`; `orion log` follows every Compose service without stopping them. The safe `tools.json` registry is packaged with the API while the system-wide `/etc/orion/tool-credentials.json` is mounted read-only as a Compose secret; installation reports missing credentials per tool. Model selection is prompted but optional; CLI and Web UI configure and test user-managed endpoints without installing model runtimes or weights. Uninstall always removes Orion runtime state (volumes, model registry, sessions, RAG data, logs, runtime secrets, and launcher) while preserving the source checkout and independently operated external model runtimes. Interactive uninstall separately offers to remove the shared Grafana/Zabbix credential file; non-interactive `--yes` preserves it.
 - Desktop App (`desktop/`): Electron wrapper for the Web UI. Serves the built TanStack Start SSR app from an embedded Node.js server and proxies `/api` calls to `127.0.0.1:61888`. Launch with `make desktop-start` (requires `make desktop-install` first).
 
 ## WP4: Platform capability migration (in progress)
@@ -114,7 +114,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 ## Not implemented (do not assume otherwise)
 - **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
 - **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local HTTP; production TLS termination is not part of this stack.
-- **Production SSR deployment** — TanStack Start SSR requires Nitro runtime; `--web` mode runs in dev mode with Vite.
+- **Public production ingress/TLS** — the Nitro SSR UI is packaged for the local Docker stack, but public hosting, TLS termination, and multi-user hardening remain out of scope.
 
 ## Known issues / open items being tracked
 - **SSH host key checking** is currently disabled by design for the local trusted-network use case — this is an intentional trade-off, recorded in `09_ARCHITECTURE_DECISIONS.md`, not an oversight.
@@ -191,10 +191,11 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 ## Deterministic Reasoning v1 (DR1) — corrective backlog (in progress, 2026-08-03)
 - **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).
 - **DR1-002 ✅ complete**: `ExecutionTrace` schema added (`src/pipeline/execution_trace.py`) — every pipeline request emits one trace with stage status/confidence, target, params, plan, evidence names, answer strategy, `llm_usage_reason`, `failure_stage`/`failure_reason` and safe serialization. `run_with_steps()` now returns `trace_id` + `execution_trace` (additive, backward-compatible).
+- **DR1-003 ✅ complete**: the standalone HTTP QA runner `scripts/qa/orion_qa_runner.py` (stdlib-only, no `src/` import) is the accepted implementation with four TXT question suites under `tests/qa/cases/` (`cauhoi_kiemtra_v2`, `cauhoi_phanb`, `cauhoi_v4_adversarial`, `cauhoi_v5_workflow`). One run uses a single `session_id` across the suite, writes a transcript to `artifacts/qa/transcripts/` (or `--output`), and auto-starts/stops Orion via docker compose unless `--no-start` is used. The previous JSONL loader implementation (`scripts/qa/case_loader.py`, `--cases`, `tests/data/qa_cases/v5_multiline.jsonl`, `tests/qa/test_acceptance_parser.py`) was removed and the internal runners were reverted to their DR1-003-old hunks only.
 - Status of Phase 6 items with known behavioral gaps is tracked as **🔎 verify/fix** in the DR1 backlog (e.g. DR1-106 failure-to-zero, DR1-205 CPU collector, DR1-206 service fallback, DR1-301 LLM routing) — these are open corrective items, not claims that Phase 6 modules do not exist.
-- Remaining DR1 tasks (84 total pending/verify) are executed sequentially; each task updates this file only after its definition of done is verifiable.
+- Remaining DR1 tasks (83 total pending/verify) are executed sequentially; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-03 (DR1-002 complete: ExecutionTrace schema + trace_id in `run_with_steps()`. DR1-001 complete: single active backlog finalized; historical backlogs marked reference-only. Prior update 2026-08-02: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
+> **Last updated:** 2026-08-04 (DR1-003 complete: standalone HTTP QA runner + 4 TXT suites; JSONL misimplementation removed. DR1-002 complete: ExecutionTrace + trace_id. DR1-001 complete: single active backlog finalized. Prior update 2026-08-03: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

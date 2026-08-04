@@ -19,7 +19,7 @@ function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <div className="text-mono text-xs text-primary mb-3">ERR · 404</div>
+        <div className="mb-3 text-mono text-xs text-muted-foreground">ERR · 404</div>
         <h1 className="text-display text-6xl text-foreground">Not found</h1>
         <p className="mt-3 text-sm text-muted-foreground">
           The page you're looking for doesn't exist or has been moved.
@@ -27,7 +27,7 @@ function NotFoundComponent() {
         <div className="mt-6">
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
           >
             Back to chat
           </Link>
@@ -57,7 +57,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
               router.invalidate();
               reset();
             }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
           >
             Try again
           </button>
@@ -89,7 +89,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap",
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      {
+        rel: "icon",
+        href: "/orion-icon-light.png",
+        type: "image/png",
+        sizes: "512x512",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        rel: "icon",
+        href: "/orion-icon-dark.png",
+        type: "image/png",
+        sizes: "512x512",
+        media: "(prefers-color-scheme: dark)",
+      },
+      { rel: "shortcut icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "apple-touch-icon", href: "/orion-icon.png" },
     ],
   }),
   shellComponent: RootShell,

@@ -121,22 +121,24 @@ In the Docker installation, loopback model URLs such as `http://localhost:11434`
 ### Uninstall
 
 ```bash
-./uninstall.sh              # remove the app, preserve persistent data
-./uninstall.sh --purge      # also remove all Orion data and private configuration
+./uninstall.sh              # confirm, then completely remove Orion and its data
+./uninstall.sh --yes        # same cleanup without an interactive confirmation
+./uninstall.sh --dry-run    # show everything that would be removed
 ```
 
-Both modes preserve this source directory. Purge mode requires confirmation; use `--yes` only for non-interactive automation.
+Uninstall always deletes Orion containers, project-built images, Docker volumes, model connections, sessions, RAG projects/documents, logs, `.env`, and the host launcher. Interactive uninstall asks separately whether `/etc/orion/tool-credentials.json` should also be removed; answer `n` to keep the shared Grafana/Zabbix credentials. `--yes` preserves that file automatically. The source directory and model runtimes operated independently by the user are also preserved. The next `./install.sh` starts with new volumes, new runtime secrets, no model, and no sessions while reusing the monitoring credentials when retained.
 
 ### CLI
 
 ```bash
 orion help
 orion run
-orion web       # open the packaged Web UI in the default browser
+orion web       # start Web UI, show Web logs; Ctrl+C stops Web
+orion log       # show logs from every Orion service
 orion model list
 ```
 
-The host command is a lightweight launcher for the CLI inside the running API container; it does not install Python packages or a virtual environment on the host. In the packaged installation, `orion web` opens the already-running Web UI at `http://localhost` with the desktop's default browser. On SSH/headless systems it prints the URL instead of attempting to start a development Vite server inside the container.
+The host command is a lightweight Docker launcher; it does not install Python packages or a virtual environment on the host. In the packaged installation, `orion web` starts the Web services when needed, opens `http://localhost`, and follows only API/UI logs generated from that invocation onward. Pressing `Ctrl+C` stops those Web services. `orion log` follows logs from every Compose service; pressing `Ctrl+C` there only exits the log viewer and leaves Orion running. On SSH/headless systems, `orion web` prints the URL instead of opening a browser.
 
 ### Web UI
 
@@ -167,6 +169,8 @@ python3 -m src.cli web
 # Backend API: http://localhost:61888
 # Frontend: auto-starts Vite dev server at http://localhost:5173
 ```
+
+This source-development command also owns both local processes: it stays attached to the terminal and `Ctrl+C` stops them. To work only on the frontend against an already-installed Docker backend, run `npm --prefix ui run dev` and open `http://localhost:5173`; the Vite proxy reads `ORION_API_KEY` from the ignored root `.env` server-side and does not expose it to browser code.
 
 ### Production build
 

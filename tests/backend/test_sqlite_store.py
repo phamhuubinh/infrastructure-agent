@@ -87,6 +87,36 @@ def test_add_turn_persists_to_db(db_path: Path) -> None:
     assert store2.history[1] == {"role": "assistant", "content": "a1"}
 
 
+def test_response_time_persists_with_assistant_message(db_path: Path) -> None:
+    store = SQLiteConversationStore("response-time", db_path=db_path)
+    store.add_turn("hello", "world")
+    store.set_last_response_time(1234, asked_at="2026-08-02T09:12:34.000Z")
+
+    reloaded = SQLiteConversationStore("response-time", db_path=db_path)
+    assert reloaded.history[-2]["asked_at"] == "2026-08-02T09:12:34.000Z"
+    assert reloaded.history[-1]["response_time_ms"] == 1234
+
+
+def test_regeneration_truncation_and_restore_persist(db_path: Path) -> None:
+    store = SQLiteConversationStore("regenerate", db_path=db_path)
+    store.add_turn("q1", "a1")
+    store.add_classifier_turn("q2", "second")
+    store.add_turn("q2", "a2")
+
+    snapshot = store.truncate_for_regeneration(1)
+
+    assert snapshot is not None
+    truncated = SQLiteConversationStore("regenerate", db_path=db_path)
+    assert truncated.history == [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": "a1"},
+    ]
+
+    truncated.restore_messages(snapshot)
+    restored = SQLiteConversationStore("regenerate", db_path=db_path)
+    assert restored.history == snapshot
+
+
 # ---------------------------------------------------------------------------
 # add_classifier_turn
 # ---------------------------------------------------------------------------

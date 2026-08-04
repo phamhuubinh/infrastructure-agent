@@ -1,24 +1,21 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   MessageSquare,
-  Target,
   BookOpen,
-  BarChart3,
   Settings,
-  Search,
-  Plus,
-  Sparkles,
+  SquarePen,
   MoreHorizontal,
   Trash2,
   Pencil,
   Sun,
   Moon,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,62 +34,77 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { useChat } from "@/lib/chat-store";
+import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
   { to: "/", label: "Trò chuyện", icon: MessageSquare },
-  { to: "/targets", label: "Mục tiêu", icon: Target },
   { to: "/knowledge", label: "Kiến thức", icon: BookOpen },
-  { to: "/analytics", label: "Phân tích", icon: BarChart3 },
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const [query, setQuery] = useState("");
-  const { sessions, currentSessionId, createSession, switchSession, generatingSessions } =
-    useChat();
+  const [collapsed, setCollapsed] = useState(false);
+  const { sessions, currentSessionId, startNewChat, switchSession, generatingSessions } = useChat();
 
-  const filtered = useMemo(
-    () =>
-      query
-        ? sessions.filter((s) => s.title.toLowerCase().includes(query.toLowerCase()))
-        : sessions,
-    [sessions, query],
-  );
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("orion-sidebar-collapsed") === "true");
+  }, []);
+
+  function toggleSidebar() {
+    setCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem("orion-sidebar-collapsed", String(next));
+      return next;
+    });
+  }
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        className="fixed left-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:grid"
+        aria-label="Mở thanh bên"
+        title="Mở thanh bên"
+      >
+        <PanelLeftOpen className="h-4 w-4" />
+      </button>
+    );
+  }
 
   return (
     <aside className="hidden md:flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       {/* Brand */}
       <div className="p-3 border-b border-sidebar-border">
         <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-2">
-          <div className="h-7 w-7 rounded-md bg-gradient-to-br from-primary to-orange-500 grid place-items-center text-primary-foreground shadow-sm">
-            <Sparkles className="h-3.5 w-3.5" />
-          </div>
+          <OrionIcon className="h-7 w-7 shrink-0" />
           <div className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-medium truncate">Orion</div>
+            <div className="truncate text-xl font-semibold leading-none">Orion</div>
           </div>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            aria-label="Thu gọn thanh bên"
+            title="Thu gọn thanh bên"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
-      {/* New chat + Search */}
-      <div className="p-3 space-y-2 border-b border-sidebar-border">
+      {/* New chat */}
+      <div className="p-3 border-b border-sidebar-border">
         <Button
+          asChild
           variant="default"
-          className="w-full justify-start gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-[var(--shadow-glow)]"
-          onClick={() => createSession()}
+          className="w-full justify-start gap-2 bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover active:bg-primary-active"
         >
-          <Plus className="h-4 w-4" /> Tạo mới
+          <Link to="/" onClick={startNewChat}>
+            <SquarePen className="h-4 w-4" /> Đoạn chat mới
+          </Link>
         </Button>
-
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Tìm kiếm hội thoại…"
-            className="h-8 pl-8 bg-sidebar-accent/40 border-sidebar-border text-sm"
-          />
-        </div>
       </div>
 
       {/* Nav */}
@@ -110,7 +122,7 @@ export function AppSidebar() {
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
               )}
             >
-              <item.icon className={cn("h-4 w-4", active && "text-primary")} />
+              <item.icon className={cn("h-4 w-4", active && "text-foreground")} />
               <span>{item.label}</span>
             </Link>
           );
@@ -119,12 +131,12 @@ export function AppSidebar() {
 
       {/* Conversations */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 mt-2 space-y-0.5">
-        {filtered.length === 0 && (
+        {sessions.length === 0 && (
           <div className="px-2.5 py-4 text-[11px] text-muted-foreground text-center">
             Chưa có hội thoại nào. Hãy bắt đầu một cuộc trò chuyện mới.
           </div>
         )}
-        {filtered.map((s) => (
+        {sessions.map((s) => (
           <ChatRow
             key={s.id}
             id={s.id}
@@ -136,14 +148,9 @@ export function AppSidebar() {
         ))}
       </div>
 
-      {/* Theme toggle + User */}
-      <div className="p-2 border-t border-sidebar-border space-y-1">
+      {/* Theme toggle */}
+      <div className="p-2 border-t border-sidebar-border">
         <ThemeToggle />
-        <div className="w-full flex items-center gap-2.5 rounded-lg px-2 py-2">
-          <div className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-medium truncate">Orion</div>
-          </div>
-        </div>
       </div>
     </aside>
   );
@@ -217,7 +224,7 @@ function ChatRow({
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
       )}
     >
-      {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0 ml-1" />}
+      {isGenerating && <Loader2 className="ml-1 h-3.5 w-3.5 shrink-0 animate-spin text-titanium" />}
       {!isGenerating && !renaming && <span className="w-4 shrink-0" />}
       {renaming ? (
         <input
@@ -228,7 +235,7 @@ function ChatRow({
             if (e.key === "Enter") handleRename();
             if (e.key === "Escape") setRenaming(false);
           }}
-          className="flex-1 bg-transparent px-1.5 py-1.5 text-sm outline-none border border-primary/50 rounded"
+          className="flex-1 rounded border border-ring bg-transparent px-1.5 py-1.5 text-sm outline-none"
           autoFocus
         />
       ) : (

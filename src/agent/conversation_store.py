@@ -21,11 +21,21 @@ class ConversationStoreProtocol(Protocol):
     """
 
     @property
-    def history(self) -> list[dict[str, str]]: ...
+    def history(self) -> list[dict[str, Any]]: ...
 
     def set_title(self, value: str) -> None: ...
 
     def add_turn(self, user: str, assistant: str) -> None: ...
+
+    def truncate_for_regeneration(
+        self, turn_index: int
+    ) -> list[dict[str, Any]] | None: ...
+
+    def restore_messages(self, messages: list[dict[str, Any]]) -> None: ...
+
+    def set_last_response_time(
+        self, response_time_ms: int, asked_at: str | None = None
+    ) -> None: ...
 
     def add_classifier_turn(self, user: str, label: str) -> None: ...
 
@@ -61,6 +71,40 @@ New conversation turns to incorporate:
 {new_turns}
 
 Produce only the new merged summary, nothing else."""
+
+
+def regeneration_start_index(
+    messages: list[dict[str, Any]], turn_index: int
+) -> int | None:
+    """Locate the raw-message offset for a visible user/assistant turn."""
+    if turn_index < 0:
+        return None
+
+    visible_turn = 0
+    for index, message in enumerate(messages[:-1]):
+        next_message = messages[index + 1]
+        if message.get("role") != "user" or next_message.get("role") != "assistant":
+            continue
+        if next_message.get("content", "").startswith("[classified as"):
+            continue
+        if visible_turn != turn_index:
+            visible_turn += 1
+            continue
+
+        start = index
+        if (
+            index >= 2
+            and messages[index - 2].get("role") == "user"
+            and messages[index - 2].get("content") == message.get("content")
+            and messages[index - 1].get("role") == "assistant"
+            and messages[index - 1]
+            .get("content", "")
+            .startswith("[classified as")
+        ):
+            start = index - 2
+        return start
+
+    return None
 
 
 def list_sessions(store_dir: str | None = None) -> list[dict]:
@@ -124,7 +168,7 @@ class ConversationStore:
         self._store_dir = Path(store_dir or Path.home() / ".orion" / "sessions")
         self._store_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._mem: list[dict[str, str]] = []
+        self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
         self._title: str = ""
         self._dirty = False
@@ -136,7 +180,7 @@ class ConversationStore:
         return self._session_id
 
     @property
-    def history(self) -> list[dict[str, str]]:
+    def history(self) -> list[dict[str, Any]]:
         with self._lock:
             if self._summary:
                 return [
@@ -160,6 +204,49 @@ class ConversationStore:
                     message=f"failed to save session {self._session_id}",
                 )
             self._check_compress()
+
+    def truncate_for_regeneration(
+        self, turn_index: int
+    ) -> list[dict[str, Any]] | None:
+        with self._lock:
+            start = regeneration_start_index(self._mem, turn_index)
+            if start is None:
+                return None
+            snapshot = list(self._mem)
+            self._mem = self._mem[:start]
+            self._dirty = True
+            self._save()
+            return snapshot
+
+    def restore_messages(self, messages: list[dict[str, Any]]) -> None:
+        with self._lock:
+            self._mem = list(messages)
+            self._dirty = True
+            self._save()
+
+    def set_last_response_time(
+        self, response_time_ms: int, asked_at: str | None = None
+    ) -> None:
+        with self._lock:
+            assistant_updated = False
+            for message in reversed(self._mem):
+                role = message.get("role")
+                if not assistant_updated and role == "assistant":
+                    message["response_time_ms"] = max(0, int(response_time_ms))
+                    assistant_updated = True
+                elif assistant_updated and asked_at is not None and role == "user":
+                    message["asked_at"] = asked_at
+                    break
+            if not assistant_updated:
+                return
+            self._dirty = True
+            try:
+                self._save()
+            except OSError:
+                info(
+                    "conversation",
+                    message=f"failed to save turn timing for {self._session_id}",
+                )
 
     def add_classifier_turn(self, user: str, label: str) -> None:
         with self._lock:
