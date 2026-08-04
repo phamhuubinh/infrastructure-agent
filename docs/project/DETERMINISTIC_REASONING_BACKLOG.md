@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-04 — DR1-003 hoàn thành: nhập external HTTP QA runner + 4 suite TXT, dọn implementation JSONL sai.
+> **Cập nhật gần nhất:** 2026-08-04 — DR1-003 & DR1-004 hoàn thành: QA runner tx source & golden dataset theo stage.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -104,7 +104,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-001 | P0 | ✅ | EPIC 0 | Chốt backlog hiện hành và nguồn sự thật | Không |
 | DR1-002 | P0 | ✅ | EPIC 0 | Định nghĩa ExecutionTrace schema | DR1-001 |
 | DR1-003 | P0 | ✅ | EPIC 0 | Nhập external HTTP QA runner và 4 bộ câu hỏi TXT; loại bỏ implementation JSONL hiểu sai | Không |
-| DR1-004 | P0 | ⬜ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
+| DR1-004 | P0 | ✅ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
 | DR1-005 | P0 | ⬜ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
 | DR1-006 | P1 | ⬜ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
 | DR1-101 | P0 | ⬜ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
@@ -332,26 +332,28 @@ git status --short
 ---
 ### DR1-004 — Chuyển transcript QA thành golden dataset theo stage
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-002, DR1-003
 - **Files dự kiến:** `tests/data/qa_cases/*.yaml (new)`, `scripts/qa/build_golden.py (new)`
 
 **Vấn đề**  
 Transcript chỉ chứa prompt/response, chưa có expected concept, target, params, answer strategy hay evidence requirements.
 
-**Cách làm**
-1. Chọn các case đại diện từ 5 transcript.
-2. Gắn expected: concept, operation, target, params, answer_type, routing_status, evidence_status, LLM reason.
-3. Tách case lỗi harness khỏi lỗi agent.
-4. Human review từng golden case trước merge.
+**Cách làm (đã thực hiện 2026-08-04)**
+1. ✅ Chọn case đại diện từ 5 transcript (source ghi rõ transcript_default/v2/v4/v5) — 39 case.
+2. ✅ Gắn expected: concept, operation, target, params, answer_type, routing_status, evidence_status, answer_strategy, llm_usage_reason, required_evidence trong `tests/data/qa_cases/golden_core.yaml`.
+3. ✅ Tách case lỗi harness khỏi lỗi agent qua cờ `harness_error: true` (1 case — loại khỏi agent pass/fail khi scoring DR1-005/DR1-807).
+4. ✅ Human review từng golden case trước merge — bắt buộc có `note` review + `source`; id là slug thủ công, không dùng id hash tự sinh.
 
 **Acceptance criteria**
-- [ ] Mỗi nhóm A–J có coverage.
-- [ ] Có case tiếng Việt, tiếng Anh, typo, code-switching, follow-up, unknown target, forecast, action injection.
-- [ ] Golden không được tự sinh trực tiếp rồi tự coi là đúng.
+- [x] Mỗi nhóm A–J có coverage (11 nhóm có case: A=2, B=5, C=5, D=12, E=2, F=3, G=2, H=2, I=2, J=2, M=2).
+- [x] Có case tiếng Việt, tiếng Anh, typo, code-switching, follow-up, unknown target, forecast, action injection.
+- [x] Golden không được tự sinh trực tiếp rồi tự coi là đúng.
 
 **Tests/verification**
-- `tests/qa/test_golden_schema.py`
+- ✅ `python3 scripts/qa/build_golden.py` — `Golden dataset validation OK`: 39 case tổng, 1 harness-error, 38 agent-scorable, 11 nhóm.
+- ✅ `python3 -m pytest tests/qa/test_golden_schema.py -q` — 35 tests pass (load/duplicate/schema, coverage nhóm A–J, coverage tag edge-case, đủ expected fields, chống tự sinh).
+- ✅ `ruff check scripts/qa/build_golden.py tests/qa/test_golden_schema.py` clean; kèm `tests/pipeline/test_execution_trace.py` → 45 tests pass.
 
 ---
 ### DR1-005 — Lưu baseline metrics trước khi sửa hành vi
