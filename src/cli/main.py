@@ -204,7 +204,15 @@ def _list_targets(args: argparse.Namespace) -> None:
         print("No targets configured.")
         return
     for name in names:
-        print(name)
+        backend = registry.backend(name)
+        if backend is None:
+            print(name)
+            continue
+        identity = registry.identity(name)
+        print(
+            f"{identity.name}\t{identity.display_name}\t"
+            f"{identity.backend_type}\t{identity.execution_scope}"
+        )
 
 
 # ============================================================

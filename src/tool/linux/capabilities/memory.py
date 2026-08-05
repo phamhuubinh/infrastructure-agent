@@ -64,18 +64,26 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     result: dict[str, object] = {}
     if total is not None:
         result["total_kb"] = total
+        result["total_bytes"] = total * 1024
     if free is not None:
         result["free_kb"] = free
+        result["free_bytes"] = free * 1024
     if available is not None:
         result["available_kb"] = available
+        result["available_bytes"] = available * 1024
     if total is not None and available is not None and total > 0:
-        result["used_kb"] = max(total - available, 0)
+        used = max(total - available, 0)
+        result["used_kb"] = used
+        result["used_bytes"] = used * 1024
         result["usage_percent"] = round((1 - available / total) * 100, 1)
     if swap_total is not None and swap_free is not None:
         swap_used = max(swap_total - swap_free, 0)
         result["swap_total_kb"] = swap_total
         result["swap_used_kb"] = swap_used
         result["swap_free_kb"] = swap_free
+        result["swap_total_bytes"] = swap_total * 1024
+        result["swap_used_bytes"] = swap_used * 1024
+        result["swap_free_bytes"] = swap_free * 1024
         if swap_total > 0:
             result["swap_usage_percent"] = round(
                 (swap_used / swap_total) * 100, 1
@@ -100,6 +108,9 @@ def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         "total_kb": total,
         "used_kb": used,
         "free_kb": free,
+        "total_bytes": total * 1024,
+        "used_bytes": used * 1024,
+        "free_bytes": free * 1024,
     }
     if total > 0:
         result["usage_percent"] = round((used / total) * 100, 1)

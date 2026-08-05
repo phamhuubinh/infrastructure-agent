@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-108 hoàn thành: cache chỉ nhận/trả evidence VALID/VALID_EMPTY; failed/partial không tạo cache hit và request sau sẽ recollect khi nguồn phục hồi. DR1-101–107 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-201–211 hoàn thành: Docker runtime, target identity/preflight, capability metadata, Linux collectors/output schemas và read-only security boundary đã được triển khai, kiểm thử và smoke-test. DR1-001–108 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -115,17 +115,17 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-106 | P0 | ✅ | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
 | DR1-107 | P1 | ✅ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
 | DR1-108 | P0 | ✅ | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
-| DR1-201 | P0 | ⬜ | EPIC 2 | Khai báo dependency tối thiểu cho Docker runtime | DR1-101 |
-| DR1-202 | P0 | ⬜ | EPIC 2 | Làm rõ semantics của target `localhost` | DR1-201 |
-| DR1-203 | P1 | ⬜ | EPIC 2 | Thêm target preflight và environment fingerprint | DR1-101, DR1-202 |
-| DR1-204 | P1 | ⬜ | EPIC 2 | Bổ sung capability preconditions và required binaries | DR1-203 |
-| DR1-205 | P1 | 🔎 | EPIC 2 | Làm CPU collector ổn định bằng `/proc/stat` | DR1-104 |
-| DR1-206 | P0 | 🔎 | EPIC 2 | Service status có bounded multi-strategy fallback | DR1-107, DR1-204 |
-| DR1-207 | P1 | ⬜ | EPIC 2 | Thu log theo service và time range | DR1-206, DR1-403, DR1-406 |
-| DR1-208 | P1 | 🔎 | EPIC 2 | Network collector có `/proc` và `/sys` fallback | DR1-204 |
-| DR1-209 | P1 | 🔎 | EPIC 2 | Tách filesystem usage, inode, I/O và disk health | DR1-104 |
-| DR1-210 | P1 | ⬜ | EPIC 2 | Chuẩn hóa Linux capability outputs trước pipeline | DR1-104, DR1-205..209 |
-| DR1-211 | P0 | 🔎 | EPIC 2 | Khóa ranh giới read-only, không chạy raw command từ LLM | DR1-204 |
+| DR1-201 | P0 | ✅ | EPIC 2 | Khai báo dependency tối thiểu cho Docker runtime | DR1-101 |
+| DR1-202 | P0 | ✅ | EPIC 2 | Làm rõ semantics của target `localhost` | DR1-201 |
+| DR1-203 | P1 | ✅ | EPIC 2 | Thêm target preflight và environment fingerprint | DR1-101, DR1-202 |
+| DR1-204 | P1 | ✅ | EPIC 2 | Bổ sung capability preconditions và required binaries | DR1-203 |
+| DR1-205 | P1 | ✅ | EPIC 2 | Làm CPU collector ổn định bằng `/proc/stat` | DR1-104 |
+| DR1-206 | P0 | ✅ | EPIC 2 | Service status có bounded multi-strategy fallback | DR1-107, DR1-204 |
+| DR1-207 | P1 | ✅ | EPIC 2 | Thu log theo service và time range | DR1-206, DR1-403, DR1-406 |
+| DR1-208 | P1 | ✅ | EPIC 2 | Network collector có `/proc` và `/sys` fallback | DR1-204 |
+| DR1-209 | P1 | ✅ | EPIC 2 | Tách filesystem usage, inode, I/O và disk health | DR1-104 |
+| DR1-210 | P1 | ✅ | EPIC 2 | Chuẩn hóa Linux capability outputs trước pipeline | DR1-104, DR1-205..209 |
+| DR1-211 | P0 | ✅ | EPIC 2 | Khóa ranh giới read-only, không chạy raw command từ LLM | DR1-204 |
 | DR1-301 | P0 | 🔎 | EPIC 3 | Loại LLM khỏi quyết định routing investigation | DR1-002 |
 | DR1-302 | P0 | ⬜ | EPIC 3 | Tạo RequestFrame thống nhất | DR1-301 |
 | DR1-303 | P1 | 🔎 | EPIC 3 | Mở rộng deterministic normalizer cho typo và code-switching | DR1-302 |
@@ -749,7 +749,7 @@ Cache lỗi dưới key evidence làm các turn sau tiếp tục dùng dữ li�
 ## 5. EPIC 2 — Runtime và Child Tool correctness
 ### DR1-201 — Khai báo dependency tối thiểu cho Docker runtime
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101
 - **Files dự kiến:** `docker/Dockerfile.api`, `pyproject.toml`, `docs/devops/docker.md`
 
@@ -762,17 +762,18 @@ Image gọi nhiều binary nhưng Dockerfile không bảo đảm có `ssh`, `ip`
 3. Thêm smoke check binary trong CI.
 
 **Acceptance criteria**
-- [ ] Container API có đủ binary cho capability core.
-- [ ] Optional missing dẫn tới UNSUPPORTED, không zero.
+- [x] Container API có đủ binary cho capability core.
+- [x] Optional missing dẫn tới UNSUPPORTED, không zero.
 
 **Tests/verification**
-- `tests/test_smoke_containers.py`
-- `CI docker build + command availability smoke`
+- ✅ `docker compose build --quiet api`.
+- ✅ Container smoke tìm thấy `ssh`, `ps`, `top`, `ip`, `ping`, `lsblk`, `df`, `ss`.
+- ✅ `tests/test_smoke_containers.py` và `tests/test_installation.py` kiểm dependency/runtime health contract.
 
 ---
 ### DR1-202 — Làm rõ semantics của target `localhost`
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-201
 - **Files dự kiến:** `targets.json`, `src/tool/target_registry.py`, `docs/tools/linux.md`, `docs/ai/02_CURRENT_ARCHITECTURE.md`
 
@@ -785,17 +786,17 @@ Image gọi nhiều binary nhưng Dockerfile không bảo đảm có `ssh`, `ip`
 3. Đổi display name thành `orion-api` nếu giữ nghĩa container.
 
 **Acceptance criteria**
-- [ ] UI/CLI mô tả đúng môi trường thực thi.
-- [ ] Không còn câu trả lời gọi dữ liệu container là dữ liệu host vật lý.
+- [x] UI/CLI mô tả đúng môi trường thực thi.
+- [x] Không còn câu trả lời gọi dữ liệu container là dữ liệu host vật lý.
 
 **Tests/verification**
-- `tests/tool/test_target_registry.py`
-- `integration target identity test`
+- ✅ `tests/tool/test_target_registry.py` và `tests/tool/test_target_store.py` bao phủ display name, execution scope và metadata persistence.
+- ✅ Linux evidence mang target identity `orion-api`; physical host phải đăng ký target SSH riêng.
 
 ---
 ### DR1-203 — Thêm target preflight và environment fingerprint
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101, DR1-202
 - **Files dự kiến:** `src/tool/target_preflight.py (new)`, `src/tool/target_registry.py`, `src/pipeline/execution_engine.py`
 
@@ -808,16 +809,16 @@ Capability cần biết target reachable, OS/init system và command availabilit
 3. Preflight failure tạo structured evidence limitation, không chạy hàng loạt command vô ích.
 
 **Acceptance criteria**
-- [ ] SSH chết chỉ tạo một transport failure và skip dependent commands.
-- [ ] Capability planner thấy environment support.
+- [x] SSH chết chỉ tạo một transport failure và skip dependent commands.
+- [x] Capability planner thấy environment support.
 
 **Tests/verification**
-- `tests/tool/test_target_preflight.py`
+- ✅ `tests/tool/test_target_preflight.py` bao phủ fingerprint, config-hash cache/TTL và transport short-circuit.
 
 ---
 ### DR1-204 — Bổ sung capability preconditions và required binaries
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-203
 - **Files dự kiến:** `src/shared/capability.py hoặc capability metadata hiện có`, `src/pipeline/capability_library.py`, `src/tool/linux/__init__.py`
 
@@ -830,17 +831,17 @@ Metadata hiện mô tả capability nhưng chưa đủ để chọn strategy the
 3. Validator kiểm precondition trước dispatch.
 
 **Acceptance criteria**
-- [ ] Unsupported capability fail trước execution với lý do rõ.
-- [ ] Metadata là một nguồn sự thật.
+- [x] Unsupported capability fail trước execution với lý do rõ.
+- [x] Metadata là một nguồn sự thật.
 
 **Tests/verification**
-- `tests/pipeline/test_capability_library.py`
-- `tests/shared/test_capability.py`
+- ✅ `tests/shared/test_capability.py`, `tests/tool/test_knowledge_tool.py` và capability-library regressions.
+- ✅ KnowledgeTool export metadata từ Child Tool và validate environment trước dispatch.
 
 ---
 ### DR1-205 — Làm CPU collector ổn định bằng `/proc/stat`
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-104
 - **Files dự kiến:** `src/tool/linux/capabilities/cpu.py`
 
@@ -853,16 +854,16 @@ Parser `top -bn1` phụ thuộc locale/format và có thể sinh user/system/idl
 3. Giữ `top` chỉ cho top process hoặc fallback có parser được test.
 
 **Acceptance criteria**
-- [ ] CPU usage tổng xấp xỉ 100% distribution trong tolerance.
-- [ ] Không kết luận idle khi idle fact thiếu.
+- [x] CPU usage tổng xấp xỉ 100% distribution trong tolerance.
+- [x] Không kết luận idle khi idle fact thiếu.
 
 **Tests/verification**
-- `tests/tool/test_linux_tool.py với fixture `/proc/stat``
+- ✅ `tests/tool/test_linux_tool_cpu.py` dùng hai fixture `/proc/stat`, kiểm distribution, load và failure semantics.
 
 ---
 ### DR1-206 — Service status có bounded multi-strategy fallback
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-107, DR1-204
 - **Files dự kiến:** `src/tool/linux/capabilities/service.py`
 
@@ -875,16 +876,16 @@ Parser `top -bn1` phụ thuộc locale/format và có thể sinh user/system/idl
 3. Kết quả process/port phải ghi confidence thấp hơn và không đồng nhất “process tồn tại” với “service healthy”.
 
 **Acceptance criteria**
-- [ ] Nginx trên systemd trả service status; môi trường không systemd trả partial/alternative evidence.
-- [ ] SSH timeout không chạy tiếp fallback.
+- [x] Nginx trên systemd trả service status; môi trường không systemd trả partial/alternative evidence.
+- [x] SSH timeout không chạy tiếp fallback.
 
 **Tests/verification**
-- `tests/tool/test_linux_tool_service.py với systemd/sysv/openrc/process/transport failure`
+- ✅ `tests/tool/test_linux_tool_service.py` bao phủ systemd/SysV/OpenRC/process/port và transport short-circuit.
 
 ---
 ### DR1-207 — Thu log theo service và time range
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-206, DR1-403, DR1-406
 - **Files dự kiến:** `src/tool/linux/capabilities/service.py hoặc logs.py (new)`
 
@@ -897,17 +898,17 @@ Generic `journalctl -n 50` không trả đúng log của service người dùng 
 3. Không cho user chèn raw shell fragment.
 
 **Acceptance criteria**
-- [ ] “nginx crash” thu đúng unit log hoặc báo unsupported.
-- [ ] Parameter injection bị reject.
+- [x] “nginx crash” thu đúng unit log hoặc báo unsupported.
+- [x] Parameter injection bị reject.
 
 **Tests/verification**
-- `tests/tool/test_service_logs.py`
-- `security parameter tests`
+- ✅ `tests/tool/test_linux_tool_service.py` kiểm exact unit, bounded time/limit, allowlisted file fallback và injection rejection.
+- ✅ `tests/pipeline/test_security_pipeline.py` kiểm raw mutating parameters bị chặn.
 
 ---
 ### DR1-208 — Network collector có `/proc` và `/sys` fallback
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-204
 - **Files dự kiến:** `src/tool/linux/capabilities/network.py`
 
@@ -920,16 +921,16 @@ Generic `journalctl -n 50` không trả đúng log của service người dùng 
 3. Ghi source strategy trong provenance.
 
 **Acceptance criteria**
-- [ ] Có interface stats khi `ip` không cài.
-- [ ] Không tuyên bố “không có network” từ collector failure.
+- [x] Có interface stats khi `ip` không cài.
+- [x] Không tuyên bố “không có network” từ collector failure.
 
 **Tests/verification**
-- `tests/tool/test_linux_tool_network.py`
+- ✅ `tests/tool/test_linux_tool_network.py` bao phủ `/proc/net/dev`, `/sys/class/net`, route/socket fallback và collection-source provenance.
 
 ---
 ### DR1-209 — Tách filesystem usage, inode, I/O và disk health
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-104
 - **Files dự kiến:** `src/tool/linux/capabilities/disk.py`
 
@@ -942,16 +943,16 @@ Filesystem read-only/usage hiện có thể bị diễn giải thành physical d
 3. Không claim SMART healthy khi tool không chạy.
 
 **Acceptance criteria**
-- [ ] Disk 37% chỉ là capacity fact, không phải health finding.
-- [ ] Health absent → unsupported/not collected.
+- [x] Disk 37% chỉ là capacity fact, không phải health finding.
+- [x] Health absent → unsupported/not collected.
 
 **Tests/verification**
-- `tests/tool/test_linux_tool_disk.py`
+- ✅ `tests/tool/test_linux_tool_disk.py` kiểm capacity/inode/I/O/device-health tách biệt và không suy diễn health từ capacity.
 
 ---
 ### DR1-210 — Chuẩn hóa Linux capability outputs trước pipeline
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-104, DR1-205..209
 - **Files dự kiến:** `src/tool/linux/capabilities/*.py`
 
@@ -964,16 +965,17 @@ Các capability dùng key/unit không nhất quán, làm prompt và rule phải 
 3. Validate schema trước CapabilityResult VALID.
 
 **Acceptance criteria**
-- [ ] Output capability pass schema validation.
-- [ ] Không còn key aliases trong prompt builder để chữa schema.
+- [x] Output capability pass schema validation.
+- [x] Không còn key aliases trong prompt builder để chữa schema.
 
 **Tests/verification**
-- `schema contract tests cho mọi core capability`
+- ✅ `tests/tool/test_linux_output_schema.py` kiểm schema core và fail-before-VALID.
+- ✅ Prompt builder chỉ đọc canonical keys có suffix unit rõ (`_bytes`, `_seconds`, `_percent`).
 
 ---
 ### DR1-211 — Khóa ranh giới read-only, không chạy raw command từ LLM
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-204
 - **Files dự kiến:** `src/pipeline/security/*`, `src/model/assessment_model_adapter.py`, `src/agent/deterministic_agent.py`, `docs/adr/ADR-0002-llm-assessment-only.md`
 
@@ -987,12 +989,13 @@ Transcript có hallucination “đã xóa /tmp”; cần bảo đảm architectu
 4. Assessment adapter không có tool access.
 
 **Acceptance criteria**
-- [ ] Prompt injection yêu cầu `rm -rf` không tạo command execution.
-- [ ] Trace chứng minh 100% capability path qua inspector chain.
+- [x] Prompt injection yêu cầu `rm -rf` không tạo command execution.
+- [x] Trace chứng minh 100% capability path qua inspector chain.
 
 **Tests/verification**
-- `tests/pipeline/security/*`
-- `adversarial QA cases`
+- ✅ `tests/pipeline/test_security_pipeline.py` kiểm mandatory fail-closed inspector chain, mutation metadata và raw-command injection.
+- ✅ `tests/pipeline/test_execution_trace.py` kiểm security inspection counters/receipt trong trace.
+- ✅ Assessment adapter không nhận tool/callback execution; prompt và ADR ghi rõ read-only boundary.
 
 ---
 

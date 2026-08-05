@@ -60,6 +60,7 @@ class InspectionContext:
     resource: str = ""
     arguments: dict[str, object] = field(default_factory=dict)
     tool_name: str = ""
+    mutation_risk: str = "unknown"
 
 
 class ToolInspector(ABC):

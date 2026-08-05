@@ -142,3 +142,26 @@ def test_registry_remove_persists(tmp_path: Path) -> None:
 
     reloaded = TargetRegistry(store=store)
     assert "prod" not in reloaded.target_names()
+
+
+def test_target_metadata_loads_explicit_localhost_semantics(tmp_path: Path) -> None:
+    path = tmp_path / "targets.json"
+    path.write_text(
+        json.dumps(
+            {
+                "targets": {
+                    "localhost": {
+                        "backend": "local",
+                        "display_name": "orion-api",
+                        "execution_scope": "orion-runtime",
+                        "description": "API container, not physical host",
+                    }
+                }
+            }
+        )
+    )
+
+    metadata = TargetStore(path=str(path)).load_metadata()
+
+    assert metadata["localhost"]["display_name"] == "orion-api"
+    assert metadata["localhost"]["execution_scope"] == "orion-runtime"

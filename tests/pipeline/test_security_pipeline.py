@@ -337,6 +337,63 @@ def test_param_safety_denies_long_parameter() -> None:
     assert "maximum length" in result.reason.lower()
 
 
+def test_param_safety_denies_raw_mutating_command() -> None:
+    inspector = ParameterSafetyInspector()
+    result = inspector.inspect(
+        InspectionContext(arguments={"command": "rm -rf /tmp/example"})
+    )
+
+    assert result.denied
+    assert "raw mutating command" in result.reason.lower()
+
+
+def test_knowledge_tool_always_records_full_security_receipt(monkeypatch) -> None:
+    from src.shared.execution.tool_result import ToolResult
+    from src.tool.knowledge_tool import KnowledgeTool
+
+    tool = KnowledgeTool()
+    monkeypatch.setattr(
+        "src.tool.linux.LinuxTool.execute",
+        lambda self, arguments: ToolResult(success=True, data={"ok": True}),
+    )
+
+    result = tool.execute({"source": "localhost", "resource": "get_system"})
+
+    assert result.security_inspected is True
+    assert result.security_allowed is True
+    assert result.security_inspectors == (
+        "ReadOnlyInspector",
+        "ParameterSafetyInspector",
+        "TargetInspector",
+    )
+
+
+def test_prompt_injection_cannot_create_raw_command_execution(monkeypatch) -> None:
+    from src.tool.knowledge_tool import KnowledgeTool
+    from src.tool.linux import LinuxTool
+
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        LinuxTool,
+        "execute",
+        lambda self, arguments: calls.append(arguments),
+    )
+    tool = KnowledgeTool()
+
+    result = tool.execute(
+        {
+            "source": "localhost",
+            "resource": "get_system",
+            "command": "rm -rf /tmp/orion-test",
+        }
+    )
+
+    assert result.success is False
+    assert result.security_inspected is True
+    assert result.security_allowed is False
+    assert calls == []
+
+
 def test_param_safety_allows_long_parameter_at_limit() -> None:
     inspector = ParameterSafetyInspector()
     ctx = InspectionContext(arguments={"comment": "x" * 1000})

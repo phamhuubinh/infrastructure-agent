@@ -13,6 +13,13 @@ from src.pipeline.security.tool_inspector import (
 # These are intentionally broad — false positives are acceptable
 # because they result in a DENY that can be investigated.
 _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
+    # Raw mutating command text is never a valid capability parameter.
+    (
+        r"(?i)^\s*(?:sudo\s+)?(?:rm|mv|chmod|chown|kill|reboot|shutdown|"
+        r"systemctl\s+(?:start|stop|restart|enable|disable)|"
+        r"apt(?:-get)?\s+(?:install|remove)|docker\s+(?:rm|stop|restart))\b",
+        "raw mutating command detected",
+    ),
     # Shell injection patterns.
     (r"[;|&`$]", "shell metacharacter detected"),
     # Command substitution.

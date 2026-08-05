@@ -47,15 +47,6 @@ def _normalize_evidence(data: Any) -> Any:
     return data
 
 
-def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
-    """Return the first present non-None field without inventing a default."""
-
-    for key in keys:
-        if key in data and data[key] is not None:
-            return data[key]
-    return None
-
-
 def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
     if not isinstance(pkg_data, dict):
         return ""
@@ -64,12 +55,12 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         parts = []
         for k in (
             "model",
-            "cores",
+            "logical_cores",
             "usage_percent",
-            "user",
-            "system",
-            "idle",
-            "iowait",
+            "user_percent",
+            "system_percent",
+            "idle_percent",
+            "iowait_percent",
             "load_1min",
             "load_5min",
             "load_15min",
@@ -81,17 +72,26 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
             return "CPU: " + ", ".join(parts)
         usage = pkg_data.get("usage", {})
         if isinstance(usage, dict):
-            for k in ("user", "system", "idle", "iowait"):
+            for k in (
+                "usage_percent",
+                "user_percent",
+                "system_percent",
+                "idle_percent",
+                "iowait_percent",
+            ):
                 v = usage.get(k)
                 if v is not None and not isinstance(v, str):
-                    parts.append(f"{k}={v}%")
+                    parts.append(f"{k}={v}")
         load = pkg_data.get("load", {})
-        if isinstance(load, dict):
+        if isinstance(load, dict) and any(
+            key in load for key in ("load_1min", "load_5min", "load_15min")
+        ):
             parts.append(
-                f"load={load.get('1min', '?')}/{load.get('5min', '?')}/{load.get('15min', '?')}"
+                f"load={load.get('load_1min', '?')}/"
+                f"{load.get('load_5min', '?')}/{load.get('load_15min', '?')}"
             )
         model = pkg_data.get("model")
-        cores = pkg_data.get("cores")
+        cores = pkg_data.get("logical_cores")
         if model is not None or cores is not None:
             core_text = f"{cores}c" if cores is not None else "?c"
             model_text = str(model).split()[0] if model else "?"
@@ -100,43 +100,22 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
 
     if evidence_name in ("Memory", "Memory Usage", "Memory Information"):
         parts = []
-        for k in ("total_kb", "used_kb", "available_kb", "usage_percent"):
-            v = pkg_data.get(k)
-            if v is not None:
-                parts.append(f"{k}={v}")
-        if parts:
-            return "Memory: " + ", ".join(parts)
-        # fallback: try other key names
-        for k in ("total", "used", "available", "usage", "used_pct"):
+        for k in ("total_bytes", "used_bytes", "available_bytes", "usage_percent"):
             v = pkg_data.get(k)
             if v is not None:
                 parts.append(f"{k}={v}")
         return "Memory: " + ", ".join(parts) if parts else ""
 
     if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
-        mount_list = _first_present(
-            pkg_data,
-            ("disks", "mounts", "filesystems"),
-        )
+        mount_list = pkg_data.get("filesystems")
         if not isinstance(mount_list, list):
             return ""
         lines = []
         for m in mount_list[:8]:
             if isinstance(m, dict):
-                mp = (
-                    m.get("target")
-                    or m.get("mountpoint")
-                    or m.get("mount")
-                    or m.get("name")
-                    or "?"
-                )
-                used = (
-                    m.get("use_percent")
-                    or m.get("used_pct")
-                    or m.get("usage_percent")
-                    or ""
-                )
-                size = _first_present(m, ("size_bytes", "total"))
+                mp = m.get("mountpoint") or "?"
+                used = m.get("usage_percent", "")
+                size = m.get("size_bytes")
                 if isinstance(size, (int, float)) and size > 0:
                     size_gb = round(size / (1024**3), 1)
                     lines.append(f"{mp} {used} ({size_gb}GB)")
@@ -282,6 +261,11 @@ def build_assessment_prompt(
         f"User request: {assessment_request.raw_request}",
         f"Investigation intent: {assessment_request.intent}",
         f"Evidence complete: {assessment_request.evidence_complete}",
+        (
+            "Safety boundary: Orion is read-only. No mutation was executed. "
+            "Never claim that a file, process, service, package, or system state "
+            "was changed; recommendations are proposals only."
+        ),
     ]
     if assessment_request.missing_evidence:
         lines.append(

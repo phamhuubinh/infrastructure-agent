@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from src.shared.capability import Capability
+
+if TYPE_CHECKING:
+    from src.tool.target_preflight import EnvironmentFingerprint
+
 # ---------------------------------------------------------------------------
 # Capability Library — single source of truth for ALL operational names
 # ---------------------------------------------------------------------------
@@ -189,6 +197,9 @@ COVERS_TO_OPERATIONAL: dict[str, str] = {
     "system-time": "Time Synchronization",
     "system-logs": "Log Discovery",
     "io": "I/O Performance Assessment",
+    "filesystem_inode": "Filesystem Inode Utilization",
+    "disk_io": "I/O Performance Assessment",
+    "disk_health": "SMART Health Assessment",
     "env": "Environment Variable Discovery",
     "secure-boot": "Secure Boot Status",
     "apparmor": "AppArmor Status",
@@ -275,6 +286,7 @@ _ADDITIONAL_OPERATIONAL: set[str] = {
     "Bandwidth Utilization",
     "Network Throughput",
     "Network Latency",
+    "Filesystem Inode Utilization",
 }
 # ------------------------------------------------------------------
 # Combined mapping: evidence name → operational capability name
@@ -314,3 +326,87 @@ if _unknown_covers:
 def lookup(evidence_name: str) -> str | None:
     """Look up the capability name for a given evidence name."""
     return CAPABILITY_BY_EVIDENCE.get(evidence_name)
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilitySupportDecision:
+    supported: bool
+    reason: str = ""
+    missing_binaries: tuple[str, ...] = ()
+
+
+def validate_capability_support(
+    capability: Capability,
+    fingerprint: EnvironmentFingerprint,
+) -> CapabilitySupportDecision:
+    """Validate declared capability preconditions before dispatch."""
+
+    if not fingerprint.reachable:
+        return CapabilitySupportDecision(
+            supported=False,
+            reason=fingerprint.limitation or "Target is unreachable.",
+        )
+
+    for precondition in capability.preconditions:
+        if precondition == "linux" and fingerprint.os_family != "linux":
+            return CapabilitySupportDecision(
+                supported=False,
+                reason=(
+                    f"Capability '{capability.name}' requires Linux; target reports "
+                    f"'{fingerprint.os_family}'."
+                ),
+            )
+        if precondition == "procfs" and not fingerprint.has_procfs:
+            return CapabilitySupportDecision(
+                supported=False,
+                reason=f"Capability '{capability.name}' requires readable procfs.",
+            )
+        if precondition == "sysfs" and not fingerprint.has_sysfs:
+            return CapabilitySupportDecision(
+                supported=False,
+                reason=f"Capability '{capability.name}' requires readable sysfs.",
+            )
+
+    if (
+        capability.supported_init_systems
+        and fingerprint.init_system not in capability.supported_init_systems
+    ):
+        return CapabilitySupportDecision(
+            supported=False,
+            reason=(
+                f"Capability '{capability.name}' does not support init system "
+                f"'{fingerprint.init_system}'."
+            ),
+        )
+
+    missing = tuple(
+        binary
+        for binary in capability.required_binaries
+        if not fingerprint.supports_binary(binary)
+    )
+    if missing:
+        return CapabilitySupportDecision(
+            supported=False,
+            reason=(
+                f"Capability '{capability.name}' is unsupported because required "
+                f"binary/binaries are unavailable: {', '.join(missing)}."
+            ),
+            missing_binaries=missing,
+        )
+
+    if capability.required_any_binaries and not any(
+        fingerprint.supports_binary(binary)
+        for binary in capability.required_any_binaries
+    ):
+        alternatives = capability.required_any_binaries
+        return CapabilitySupportDecision(
+            supported=False,
+            reason=(
+                f"Capability '{capability.name}' is unsupported because none of "
+                f"its required strategy binaries are available: "
+                f"{', '.join(alternatives)}."
+            ),
+            missing_binaries=alternatives,
+        )
+
+    return CapabilitySupportDecision(supported=True)

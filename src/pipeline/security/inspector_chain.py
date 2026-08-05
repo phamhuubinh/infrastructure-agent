@@ -78,3 +78,28 @@ class InspectorChain:
         which inspectors would have blocked the execution.
         """
         return [inspector.inspect(context) for inspector in self._inspectors]
+
+    def inspect_with_receipt(
+        self, context: InspectionContext
+    ) -> tuple[InspectionResult, tuple[str, ...]]:
+        """Inspect and return the exact ordered inspectors that ran.
+
+        The receipt is deliberately name-only: it is safe for execution traces
+        and proves that a dispatch crossed the complete security boundary
+        without exposing user parameters or target credentials.
+        """
+
+        executed: list[str] = []
+        for inspector in self._inspectors:
+            executed.append(inspector.name)
+            result = inspector.inspect(context)
+            if result.verdict != InspectionVerdict.ALLOW:
+                return result, tuple(executed)
+        return (
+            InspectionResult(
+                verdict=InspectionVerdict.ALLOW,
+                reason="All inspectors passed.",
+                inspector_name="InspectorChain",
+            ),
+            tuple(executed),
+        )

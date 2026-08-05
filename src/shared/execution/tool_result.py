@@ -22,6 +22,9 @@ class ToolResult:
     warnings: tuple[str, ...] = ()
     produced_fact_names: tuple[str, ...] = ()
     capability_error: CapabilityError | None = None
+    security_inspected: bool = False
+    security_allowed: bool = False
+    security_inspectors: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.capability_error is None and not self.success:

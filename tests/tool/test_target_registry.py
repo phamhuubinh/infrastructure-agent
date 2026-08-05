@@ -94,3 +94,14 @@ def test_register_tool_duplicate_raises() -> None:
 
     with pytest.raises(ValueError):
         registry.register_tool("linux", LinuxTool())
+
+
+def test_localhost_identity_is_orion_runtime_not_physical_host() -> None:
+    registry = TargetRegistry()
+    registry.add("localhost")
+
+    identity = registry.identity("localhost")
+
+    assert identity.display_name == "orion-api"
+    assert identity.execution_scope == "orion-runtime"
+    assert identity.backend_type == "local"

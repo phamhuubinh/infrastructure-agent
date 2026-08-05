@@ -34,10 +34,13 @@ def test_execute_dispatches_linux_source_to_linux_tool(monkeypatch) -> None:
     assert result.data == {"hostname": "test-host"}
 
 
-def test_execute_returns_child_tool_error_unchanged(monkeypatch) -> None:
+def test_unknown_capability_is_denied_before_child_dispatch(monkeypatch) -> None:
     tool = KnowledgeTool()
+    called = False
 
     def fake_execute(self, arguments):
+        nonlocal called
+        called = True
         return ToolResult(
             success=False,
             error="Unknown action: 'bogus'. Available actions: get_system.",
@@ -56,7 +59,30 @@ def test_execute_returns_child_tool_error_unchanged(monkeypatch) -> None:
     )
 
     assert result.success is False
-    assert result.error == "Unknown action: 'bogus'. Available actions: get_system."
+    assert "Security inspection blocked" in (result.error or "")
+    assert called is False
+
+
+def test_undeclared_get_prefixed_capability_is_denied_before_dispatch(
+    monkeypatch,
+) -> None:
+    tool = KnowledgeTool()
+    called = False
+
+    def fake_execute(self, arguments):
+        nonlocal called
+        called = True
+        return ToolResult(success=True, data={"unexpected": True})
+
+    monkeypatch.setattr("src.tool.linux_tool.LinuxTool.execute", fake_execute)
+
+    result = tool.execute(
+        {"source": "localhost", "resource": "get_undeclared_write_like_action"}
+    )
+
+    assert result.success is False
+    assert "no declared mutation-risk metadata" in (result.error or "")
+    assert called is False
 
 
 def test_execute_reports_unknown_source(monkeypatch) -> None:
@@ -83,6 +109,8 @@ def test_execute_reports_unknown_source(monkeypatch) -> None:
 
 
 def test_knowledge_tool_with_remote_target(monkeypatch) -> None:
+    from src.tool.target_preflight import EnvironmentFingerprint
+
     registry = TargetRegistry()
     registry.add("linux", LocalExecutionBackend())
     registry.add(
@@ -90,6 +118,18 @@ def test_knowledge_tool_with_remote_target(monkeypatch) -> None:
         SSHExecutionBackend(host="10.0.0.1", user="admin"),
     )
     tool = KnowledgeTool(target_registry=registry)
+    monkeypatch.setattr(
+        registry,
+        "preflight",
+        lambda name: EnvironmentFingerprint(
+            target=name,
+            config_hash="fixture",
+            reachable=True,
+            backend_type="ssh",
+            os_family="linux",
+            available_binaries=frozenset({"cat", "uname"}),
+        ),
+    )
 
     captured: dict[str, object] = {}
 
@@ -240,7 +280,14 @@ def test_get_capability_metadata_structure() -> None:
     assert "description" in sys_entry
     assert "supported_targets" in sys_entry
     assert "parameters" in sys_entry
+    assert "preconditions" in sys_entry
+    assert "required_binaries" in sys_entry
+    assert "required_any_binaries" in sys_entry
+    assert "optional_binaries" in sys_entry
     assert "estimated_cost" in sys_entry
+    assert "expected_reliability" in sys_entry
+    assert "produces_facts" in sys_entry
+    assert "mutation_risk" in sys_entry
     assert "handler" not in sys_entry
 
 
@@ -267,9 +314,8 @@ def test_get_capability_metadata_empty_registry() -> None:
 
 def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
     """
-    End-to-end sanity check with the real LinuxTool (no monkeypatch):
-    an unknown resource must surface LinuxTool's own error, proving the
-    request actually reached LinuxTool rather than being swallowed.
+    End-to-end sanity check with the real security boundary (no monkeypatch):
+    an unknown resource fails closed before reaching LinuxTool.
     """
     tool = KnowledgeTool()
 
@@ -281,5 +327,4 @@ def test_execute_forwards_to_real_linux_tool_end_to_end() -> None:
     )
 
     assert result.success is False
-    assert "Unknown action: 'this_capability_does_not_exist'" in result.error
-    assert "get_system" in result.error
+    assert "Security inspection blocked" in result.error

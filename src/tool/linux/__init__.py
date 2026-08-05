@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import time as _time
+from dataclasses import replace
 
 from src.shared.capability import Capability
 from src.shared.execution.command_result import CommandResult, CommandStatus
@@ -23,9 +24,12 @@ from .capabilities.cpu import (
 from .capabilities.disk import (
     _get_block_device,
     _get_disk,
+    _get_disk_device_health,
+    _get_disk_io,
     _get_disk_usage,
     _get_filesystem,
     _get_filesystem_health,
+    _get_filesystem_inode,
 )
 from .capabilities.memory import _get_memory, _get_swap
 from .capabilities.network import (
@@ -50,6 +54,7 @@ from .capabilities.service import (
     _get_docker,
     _get_lxd,
     _get_service,
+    _get_service_logs,
     _get_services,
     _search_service,
 )
@@ -69,6 +74,7 @@ from .capabilities.system import (
     _get_usb,
     _get_user,
 )
+from .output_schema import validate_linux_output
 
 _CAPABILITIES: dict[str, Capability] = {
     "get_system": Capability(
@@ -282,7 +288,7 @@ _CAPABILITIES: dict[str, Capability] = {
         "system",
         ("logs", "diagnostics"),
         ("get_log",),
-        ("system-logs", "service_logs"),
+        ("system-logs",),
     ),
     "get_log": Capability(
         "get_log",
@@ -462,7 +468,128 @@ _CAPABILITIES: dict[str, Capability] = {
         ("search_process", "get_process"),
         ("processes",),
     ),
+    "get_service_logs": Capability(
+        "get_service_logs",
+        _get_service_logs,
+        "system",
+        ("logs", "services", "diagnostics"),
+        ("get_service",),
+        ("service_logs",),
+        description="Collect bounded logs for one validated service and time range",
+    ),
+    "get_filesystem_inode": Capability(
+        "get_filesystem_inode",
+        _get_filesystem_inode,
+        "storage",
+        ("storage", "capacity"),
+        ("get_disk",),
+        ("filesystem_inode",),
+        description="Collect per-filesystem inode capacity and utilization",
+    ),
+    "get_disk_io": Capability(
+        "get_disk_io",
+        _get_disk_io,
+        "storage",
+        ("storage", "performance"),
+        ("get_disk",),
+        ("disk_io",),
+        description="Collect cumulative block-device I/O counters",
+    ),
+    "get_disk_device_health": Capability(
+        "get_disk_device_health",
+        _get_disk_device_health,
+        "storage",
+        ("storage", "health"),
+        ("get_block_device",),
+        ("disk_health",),
+        description="Collect SMART or NVMe health without inferring from capacity",
+    ),
 }
+
+
+_PRODUCED_FACTS: dict[str, tuple[str, ...]] = {
+    "get_cpu": ("cpu.identity", "cpu.logical_cores", "cpu.usage", "system.load"),
+    "get_cpu_usage": ("cpu.usage",),
+    "get_system_load": ("system.load",),
+    "get_memory": ("memory.capacity", "memory.usage", "swap.capacity"),
+    "get_swap": ("swap.capacity", "swap.usage"),
+    "get_disk": ("filesystem.capacity",),
+    "get_disk_usage": ("filesystem.capacity",),
+    "get_filesystem": ("filesystem.mount",),
+    "get_filesystem_inode": ("filesystem.inode",),
+    "get_disk_io": ("disk.io",),
+    "get_disk_device_health": ("disk.device_health",),
+    "get_filesystem_health": ("filesystem.mount_state",),
+    "get_network": ("network.interface", "network.route"),
+    "get_interface_stats": ("network.interface_stats",),
+    "get_listening_ports": ("network.listening_socket",),
+    "get_services": ("service.inventory", "service.state"),
+    "get_service": ("service.state",),
+    "get_service_logs": ("service.log",),
+    "get_journal": ("system.log",),
+}
+
+_REQUIRED_BINARIES: dict[str, tuple[str, ...]] = {
+    "get_bandwidth": ("sar",),
+    "get_block_device": ("lsblk",),
+    "get_disk": ("df",),
+    "get_disk_usage": ("df",),
+    "get_filesystem_inode": ("df",),
+    "get_ping_latency": ("ping",),
+    "get_hardware": ("dmidecode",),
+    "get_pci": ("lspci",),
+    "get_gpu": ("lspci",),
+    "get_usb": ("lsusb",),
+}
+
+_OPTIONAL_BINARIES: dict[str, tuple[str, ...]] = {
+    "get_disk_device_health": ("smartctl", "nvme"),
+    "get_disk_io": ("iostat",),
+    "get_firewall": ("ufw", "iptables", "nft"),
+    "get_cpu": ("lscpu", "top"),
+}
+
+_REQUIRED_ANY_BINARIES: dict[str, tuple[str, ...]] = {
+    "get_disk_device_health": ("smartctl", "nvme"),
+    "get_firewall": ("ufw", "iptables", "nft"),
+    "get_service": ("systemctl", "service", "rc-service", "pgrep", "ss"),
+    "get_services": ("systemctl", "service", "rc-status", "ps"),
+    "get_service_logs": ("journalctl", "tail"),
+}
+
+_PARAMETERS: dict[str, tuple[str, ...]] = {
+    "get_service": ("name",),
+    "search_service": ("query",),
+    "get_service_logs": ("service_name", "time_range", "since", "until", "limit"),
+    "get_journal": ("service_name", "time_range"),
+    "get_process_by_name": ("name",),
+    "search_process": ("query",),
+    "get_ping_latency": ("target", "count"),
+}
+
+# Enrich declarations in one place. KnowledgeTool only aggregates this
+# metadata and never maintains a second capability policy table.
+for _name, _capability in tuple(_CAPABILITIES.items()):
+    _CAPABILITIES[_name] = replace(
+        _capability,
+        supported_targets=("local", "ssh"),
+        parameters=_PARAMETERS.get(_name, _capability.parameters),
+        preconditions=("linux",),
+        required_binaries=_REQUIRED_BINARIES.get(_name, ()),
+        required_any_binaries=_REQUIRED_ANY_BINARIES.get(_name, ()),
+        optional_binaries=_OPTIONAL_BINARIES.get(_name, ()),
+        expected_reliability=(
+            0.7
+            if _name == "get_disk_device_health"
+            else 0.8
+            if _name in {"get_service_logs", "get_services", "get_service"}
+            else 0.9
+        ),
+        produces_facts=_PRODUCED_FACTS.get(
+            _name, (f"linux.{_name.removeprefix('get_')}",)
+        ),
+        mutation_risk="none",
+    )
 
 
 class LinuxTool(Tool):
@@ -484,8 +611,10 @@ class LinuxTool(Tool):
     def __init__(
         self,
         backend: ExecutionBackend | None = None,
+        target_identity: dict[str, str] | None = None,
     ) -> None:
         self._backend = backend or LocalExecutionBackend()
+        self._target_identity = dict(target_identity) if target_identity else None
 
     def _run(
         self,
@@ -542,6 +671,20 @@ class LinuxTool(Tool):
         extra = {k: v for k, v in arguments.items() if k != "action"}
         sig = inspect.signature(handler)
         filtered: dict[str, object] = {}
+        unexpected = sorted(
+            key
+            for key in extra
+            if key not in sig.parameters and key not in {"request_id"}
+        )
+        if unexpected:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Invalid parameter(s) for capability '{action}': "
+                    f"{', '.join(unexpected)}"
+                ),
+                capability_status=CapabilityStatus.INVALID_PARAMETERS,
+            )
         for k, v in extra.items():
             if k in sig.parameters:
                 filtered[k] = v
@@ -623,14 +766,50 @@ class LinuxTool(Tool):
                 legacy_command_results
             )
 
-        capability_result = (
-            output
-            if isinstance(output, CapabilityResult)
-            else CapabilityResult.from_legacy(
+        if isinstance(output, CapabilityResult):
+            capability_result = output
+            if not capability_result.command_results:
+                capability_result = replace(
+                    capability_result,
+                    command_results=effective_command_results,
+                )
+            if not capability_result.produced_fact_names:
+                capability_result = replace(
+                    capability_result,
+                    produced_fact_names=cap.produces_facts,
+                )
+        else:
+            capability_result = CapabilityResult.from_legacy(
                 output,
                 command_results=effective_command_results,
+                produced_fact_names=cap.produces_facts,
             )
-        )
+
+        if isinstance(capability_result.data, dict):
+            payload = dict(capability_result.data)
+            if self._target_identity is not None:
+                payload["target_identity"] = dict(self._target_identity)
+            if capability_result.status in (
+                CapabilityStatus.VALID,
+                CapabilityStatus.VALID_EMPTY,
+            ):
+                violations = validate_linux_output(action, payload)
+                if violations:
+                    capability_result = CapabilityResult(
+                        status=CapabilityStatus.PARSE_FAILED,
+                        data=None,
+                        command_results=capability_result.command_results,
+                        warnings=capability_result.warnings,
+                        produced_fact_names=(),
+                        error=(
+                            f"Linux capability output failed schema validation: "
+                            f"{'; '.join(violations)}"
+                        ),
+                    )
+                elif payload != capability_result.data:
+                    capability_result = replace(capability_result, data=payload)
+            elif payload != capability_result.data:
+                capability_result = replace(capability_result, data=payload)
 
         _dur = int((_time.monotonic() - _t0) * 1000)
         info(

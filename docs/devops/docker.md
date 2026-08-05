@@ -89,6 +89,28 @@ docker compose exec reverse-proxy nginx -t
 
 The API image seeds an empty model registry. Model credentials are written to the private persistent Orion volume, never to the tracked repository configuration. Grafana/Zabbix credentials remain in the system-wide host file and are mounted read-only.
 
+## Linux collector runtime dependencies
+
+The API image installs the minimum binaries required by core read-only Linux
+collection: OpenSSH client, procps (`ps`, `top`), iproute2 (`ip`, `ss`),
+iputils (`ping`), util-linux (`lsblk` and related utilities), and CA
+certificates. `/api/health` publishes a safe availability smoke check under
+`runtime_dependencies`; container smoke tests require every core binary.
+
+Optional collectors declare their binary requirements in Linux capability
+metadata and fail as `UNSUPPORTED` when unavailable. They are not silently
+converted to empty or zero measurements:
+
+| Package | Optional capabilities |
+|---|---|
+| `sysstat` | bandwidth and extended I/O (`sar`, `iostat`) |
+| `smartmontools` / `nvme-cli` | physical device health |
+| `dmidecode`, `pciutils`, `usbutils` | extended hardware inventory |
+| `iptables`, `nftables` | firewall detail strategies |
+
+These optional packages may be installed in a deployment-specific derived
+image. Their absence does not affect core API health.
+
 ## Uninstall
 
 `./uninstall.sh` is intentionally destructive: after a `y/yes` confirmation it removes the running app, Orion-built images, every current/legacy Orion volume, model connections, sessions, RAG documents/indexes, logs, `.env`, legacy private configuration, the CLI launcher, and legacy Ollama artifacts created by older Orion versions. It then asks separately whether `/etc/orion/tool-credentials.json` should be removed; `n/no` preserves it. `./uninstall.sh --yes` performs non-interactive runtime cleanup and always preserves the shared credential file; use `./uninstall.sh --dry-run` to inspect the actions. The source checkout and independently operated external model runtimes are never deleted. A later `./install.sh` gets empty data stores and newly generated runtime secrets while reusing retained monitoring credentials.

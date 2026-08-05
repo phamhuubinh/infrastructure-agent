@@ -59,6 +59,8 @@ def test_api_health_endpoint() -> None:
     assert resp.status == 200
     data = json.loads(resp.read().decode())
     assert data["status"] == "ok"
+    assert data["runtime_dependencies"]["ready"] is True
+    assert data["runtime_dependencies"]["missing_binaries"] == []
 
 
 def test_api_rag_health() -> None:

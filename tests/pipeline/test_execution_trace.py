@@ -161,6 +161,23 @@ def test_trace_from_investigation_records_runtime_metrics() -> None:
     assert dumped["runtime_metrics"]["tool_calls"] == 1
 
 
+def test_trace_records_security_inspector_coverage() -> None:
+    request = _make_investigation()
+    request.runtime_metrics = RuntimeMetrics(
+        total_nodes=2,
+        tool_calls=2,
+        security_inspections_total=2,
+        security_inspections_passed=2,
+        security_inspections_blocked=0,
+    )
+
+    metrics = ExecutionTrace.from_investigation(request).to_dict()["runtime_metrics"]
+
+    assert metrics["security_inspections_total"] == metrics["tool_calls"] == 2
+    assert metrics["security_inspections_passed"] == 2
+    assert metrics["security_inspections_blocked"] == 0
+
+
 def test_stage_trace_default_status_is_pending() -> None:
     """A freshly created StageTrace defaults to PENDING, not fake success."""
     stage = StageTrace(name="findings")

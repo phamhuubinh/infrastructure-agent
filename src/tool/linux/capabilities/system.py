@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 from .common import _parse_colon_output
 
@@ -135,10 +136,23 @@ def _get_gpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"gpus": gpus}
 
 
-def _get_journal(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_journal(
+    run: Callable[..., tuple[bool, str]],
+    service_name: str = "",
+    time_range: str | None = None,
+) -> Any:
     """
     Subsystem: recent systemd journal entries.
     """
+    if service_name:
+        from .service import _get_service_logs
+
+        return _get_service_logs(
+            run,
+            service_name=service_name,
+            time_range=time_range,
+        )
+
     ok, output = run(
         [
             "journalctl",

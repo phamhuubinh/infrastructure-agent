@@ -19,6 +19,12 @@ Source development (src/cli/main.py)
 ```
 In local CLI mode, there is one process holding runtime state in memory. Targets are read from `targets.json` (`src/tool/target_store.py` / `target_registry.py`), while conversations persist in SQLite under `~/.orion/sessions.db`.
 
+Target identity is explicit: the configured key `localhost` means the Orion
+runtime environment. It is displayed as `orion-api` in the Compose install and
+therefore describes the API container, not the physical Docker host. Physical
+hosts must be registered as explicit SSH targets; no host namespace is mounted
+implicitly.
+
 In both Web runtimes, a FastAPI backend (`src/backend/api.py`) handles requests. Each chat session owns its conversation store, Agent instance, evidence cache, and execution lock. Source development uses SQLite at `~/.orion/sessions.db` by default; the Compose installation supplies PostgreSQL through `ORION_DATABASE_URL`. Optional API-key middleware is disabled by default in source development and enabled behind the local reverse proxy in the packaged stack.
 
 Document analysis is a separate Web UI flow. A RAG project owns its documents, dense-vector collection, BM25 index, and analysis history under `RAG_DATA_DIR`. The API proxies `/api/rag/*` to the internal RAG service and passes the active model as request-scoped internal configuration. Chat never calls these endpoints and the Agent runtime refuses to register `knowledge_base` tools.
@@ -42,6 +48,8 @@ Execution Engine       (src/pipeline/execution_engine.py, execution_runtime.py, 
     ├── Evidence Cache  (src/pipeline/evidence_cache.py — per-session, TTL 60s)
     ↓  calls
 KnowledgeTool           (src/tool/knowledge_tool.py — single entry point into Child Tools)
+    ├── mandatory read-only / parameter / target inspector chain
+    ├── target preflight + capability precondition validation
     ↓  dispatches to
 Child Tools: LinuxTool (SSH) / GrafanaTool / ZabbixTool / InternetTool
     ↓

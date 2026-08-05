@@ -319,6 +319,10 @@ def test_get_memory_parses_meminfo(monkeypatch) -> None:
         "free_kb": 2048000,
         "available_kb": 8192000,
         "usage_percent": 50.0,
+        "total_bytes": 16777216000,
+        "used_bytes": 8388608000,
+        "free_bytes": 2097152000,
+        "available_bytes": 8388608000,
     }
 
 
@@ -1724,6 +1728,9 @@ def test_get_swap_parses_meminfo(monkeypatch) -> None:
         "used_kb": 1048576,
         "free_kb": 1048576,
         "usage_percent": 50.0,
+        "total_bytes": 2147483648,
+        "used_bytes": 1073741824,
+        "free_bytes": 1073741824,
     }
 
 

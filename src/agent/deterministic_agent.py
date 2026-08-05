@@ -837,6 +837,24 @@ class DeterministicAgent:
                     f"Please rephrase your question."
                 )
 
+        # A chat request can discuss shell commands, but it cannot ask Orion to
+        # execute a mutation.  This path has no tool access; rejecting explicit
+        # imperatives also prevents the model from hallucinating an action
+        # receipt for prompt-injection text.
+        mutation_request = re.search(
+            r"(?i)\b(run|execute|do|chạy|thực hiện|hãy|giúp tôi)\b.{0,80}"
+            r"\b(rm|mv|chmod|chown|reboot|shutdown|kill|sudo|"
+            r"systemctl\s+(?:start|stop|restart|enable|disable)|"
+            r"apt(?:-get)?\s+(?:install|remove)|docker\s+(?:rm|stop|restart))\b",
+            user_request,
+        )
+        if mutation_request:
+            return (
+                "Orion is read-only and did not execute that command or change "
+                "the system. I can explain the command or suggest a safe, "
+                "operator-reviewed procedure."
+            )
+
         # Check for excessively long single "words" (possible injection).
         # A legitimate Vietnamese sentence won't have >500-char tokens.
         tokens = user_request.split()

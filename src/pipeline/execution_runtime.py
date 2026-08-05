@@ -42,6 +42,9 @@ class RuntimeMetrics:
     evidence_complete: bool = False
     timed_out: bool = False
     early_completed: bool = False
+    security_inspections_total: int = 0
+    security_inspections_passed: int = 0
+    security_inspections_blocked: int = 0
 
 
 class ExecutionRuntime:
@@ -310,6 +313,7 @@ class ExecutionRuntime:
             try:
                 result = fut.result(timeout=remaining_timeout)
                 metrics.tool_calls += 1
+                self._record_security_metrics(metrics, result)
                 results[cap_name] = result
                 if result.success:
                     record_success(cap_name)
@@ -373,6 +377,7 @@ class ExecutionRuntime:
                             capability_error=internal_error(message),
                         )
                     results[cap_name] = result
+                    self._record_security_metrics(metrics, result)
                     if result.success:
                         record_success(cap_name)
             except concurrent.futures.TimeoutError:
@@ -415,6 +420,32 @@ class ExecutionRuntime:
             "resource": resource,
         }
 
+        params: dict[str, object] = {}
+        to_dict = getattr(extracted_params, "to_dict", None)
+        if callable(to_dict):
+            raw_params = to_dict()
+            if isinstance(raw_params, dict):
+                params = raw_params
+        elif isinstance(extracted_params, dict):
+            params = extracted_params
+
+        service_name = params.get("service_name")
+        if resource == "get_service" and service_name is not None:
+            arguments["name"] = service_name
+        elif resource == "search_service" and service_name is not None:
+            arguments["query"] = service_name
+        elif resource in {"get_journal", "get_service_logs"}:
+            if service_name is not None:
+                arguments["service_name"] = service_name
+            if params.get("time_range") is not None:
+                arguments["time_range"] = params["time_range"]
+        elif resource in {"get_process_by_name", "search_process"}:
+            process_name = params.get("process_name")
+            if process_name is not None:
+                arguments["name" if resource == "get_process_by_name" else "query"] = (
+                    process_name
+                )
+
         try:
             return self._retry.execute(
                 lambda: self._knowledge_tool.execute(arguments),
@@ -429,3 +460,13 @@ class ExecutionRuntime:
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 capability_error=internal_error(message),
             )
+
+    @staticmethod
+    def _record_security_metrics(metrics: RuntimeMetrics, result: ToolResult) -> None:
+        if not result.security_inspected:
+            return
+        metrics.security_inspections_total += 1
+        if result.security_allowed:
+            metrics.security_inspections_passed += 1
+        else:
+            metrics.security_inspections_blocked += 1

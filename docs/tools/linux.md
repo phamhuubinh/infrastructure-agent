@@ -21,6 +21,19 @@ The Linux Tool connects to remote targets over SSH and executes diagnostic comma
 | `package` | Installed packages, package search | `package` |
 | `security` | SSH config, Secure Boot, AppArmor, SELinux, firewall, certificates | `security` |
 
+Core output uses explicit units (`*_bytes`, `*_seconds`, `*_percent`) and is
+schema-validated before a capability can return `VALID`. Capacity, inode
+capacity, cumulative device I/O, and physical device health are separate facts;
+a filesystem usage percentage or read-only mount flag is never presented as a
+SMART/NVMe health result.
+
+Service collection uses bounded strategies in order: systemd, SysV, OpenRC,
+process presence, then known listening ports. Process/port fallbacks are
+`PARTIAL`, carry lower confidence, and never claim that a service is healthy.
+Service log collection accepts a validated unit, bounded line limit, and time
+range. It uses `journalctl -u`; file fallback is restricted to reviewed paths
+and reports unsupported when it cannot honor a requested time bound.
+
 ## Usage Examples
 
 ### Via CLI
@@ -86,6 +99,21 @@ print(result.data)  # CPU diagnostic data
 ```
 
 ## Configuration
+
+### Meaning of `localhost`
+
+`localhost` always means the environment running Orion, not an implicit
+physical host. In the packaged Compose deployment its display name is
+`orion-api`, and Linux evidence comes from the API container namespaces. In
+source CLI mode it means the local Orion process environment. To monitor the
+physical Docker host or another server, register an explicit SSH target; Orion
+does not mount host PID/network/filesystem namespaces behind `localhost`.
+
+Every Linux target is preflighted before capability dispatch. The short-lived
+environment fingerprint records reachability, OS, init system, privilege
+level, procfs/sysfs availability, and available command strategies. An
+unreachable SSH target stops after one transport probe; missing optional
+binaries produce structured `UNSUPPORTED` evidence.
 
 Targets are defined in `targets.json`:
 

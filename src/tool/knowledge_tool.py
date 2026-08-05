@@ -1,16 +1,59 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from src.pipeline.capability_library import COVERS_TO_OPERATIONAL
+from src.pipeline.capability_library import (
+    COVERS_TO_OPERATIONAL,
+    validate_capability_support,
+)
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 from src.tool.target_registry import TargetRegistry
 from src.tool.tool import Tool
 
 if TYPE_CHECKING:
     from src.pipeline.security.inspector_chain import InspectorChain
+
+
+def _declared_capability(tool: Tool, resource: str) -> Capability | None:
+    mod = inspect.getmodule(type(tool))
+    if mod is None:
+        return None
+    raw = getattr(mod, "_CAPABILITIES", None)
+    if not isinstance(raw, dict):
+        return None
+    capability = raw.get(resource)
+    return capability if isinstance(capability, Capability) else None
+
+
+def _default_inspector_chain(registry: TargetRegistry) -> InspectorChain:
+    from src.pipeline.security.inspector_chain import InspectorChain
+    from src.pipeline.security.parameter_safety_inspector import (
+        ParameterSafetyInspector,
+    )
+    from src.pipeline.security.read_only_inspector import ReadOnlyInspector
+    from src.pipeline.security.target_inspector import TargetInspector
+
+    target_inspector = TargetInspector(safe_targets=set(registry.target_names()))
+    return InspectorChain(
+        [ReadOnlyInspector(), ParameterSafetyInspector(), target_inspector]
+    )
+
+
+def _complete_inspector_chain(
+    registry: TargetRegistry, chain: InspectorChain | None
+) -> InspectorChain:
+    if chain is None:
+        return _default_inspector_chain(registry)
+    required = _default_inspector_chain(registry)
+    present = {inspector.name for inspector in chain.inspectors}
+    for inspector in required.inspectors:
+        if inspector.name not in present:
+            chain.add(inspector)
+    return chain
 
 
 def _tool_capabilities(tool: Tool) -> list[str]:
@@ -53,7 +96,11 @@ class KnowledgeTool(Tool):
             target_registry = TargetRegistry()
             target_registry.add("localhost")
         self._registry = target_registry
-        self._inspector_chain = inspector_chain
+        # Security is fail-closed and mandatory on every dispatch path.  Tests,
+        # CLI, API, and direct runtime construction all receive the same chain.
+        self._inspector_chain = _complete_inspector_chain(
+            target_registry, inspector_chain
+        )
 
     @staticmethod
     def get_operational_name(covers_tag: str) -> str | None:
@@ -98,33 +145,75 @@ class KnowledgeTool(Tool):
                 error=f"Unknown source: '{source}'. Available sources: {available}.",
             )
 
-        # Security inspection: run the inspector chain before dispatching.
-        if self._inspector_chain is not None:
-            from src.pipeline.security.tool_inspector import InspectionContext
+        declared = _declared_capability(child_tool, resource)
 
-            ctx = InspectionContext(
-                capability_name=resource,
-                target=source,
-                resource=resource,
-                arguments={
-                    k: v
-                    for k, v in arguments.items()
-                    if k not in ("source", "resource")
-                },
-                tool_name=type(child_tool).__name__,
+        # Security inspection: mandatory before preflight or child dispatch.
+        from src.pipeline.security.tool_inspector import InspectionContext
+
+        ctx = InspectionContext(
+            capability_name=resource,
+            target=source,
+            resource=resource,
+            arguments={
+                k: v
+                for k, v in arguments.items()
+                if k not in ("source", "resource")
+            },
+            tool_name=type(child_tool).__name__,
+            mutation_risk=(declared.mutation_risk if declared else "undeclared"),
+        )
+        inspection, inspection_receipt = self._inspector_chain.inspect_with_receipt(
+            ctx
+        )
+        if inspection.denied or not inspection.allowed:
+            return ToolResult(
+                success=False,
+                error=f"Security inspection blocked: {inspection.reason}",
+                security_inspected=True,
+                security_allowed=False,
+                security_inspectors=inspection_receipt,
             )
-            result = self._inspector_chain.inspect(ctx)
-            if result.denied:
+
+        # Linux target preflight and metadata validation occur after security
+        # inspection but before any capability-owned command is executed.
+        backend = self._registry.backend(source)
+        fingerprint = None
+        if backend is not None:
+            fingerprint = self._registry.preflight(source)
+            if not fingerprint.reachable:
                 return ToolResult(
                     success=False,
-                    error=f"Security inspection blocked: {result.reason}",
+                    error=fingerprint.limitation,
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
+                    command_results=fingerprint.command_results,
+                    security_inspected=True,
+                    security_allowed=True,
+                    security_inspectors=inspection_receipt,
                 )
+            if declared is not None:
+                support = validate_capability_support(declared, fingerprint)
+                if not support.supported:
+                    return ToolResult(
+                        success=False,
+                        error=support.reason,
+                        capability_status=CapabilityStatus.UNSUPPORTED,
+                        warnings=(support.reason,),
+                        security_inspected=True,
+                        security_allowed=True,
+                        security_inspectors=inspection_receipt,
+                    )
 
         child_args: dict[str, object] = {"action": resource}
         extra = {k: v for k, v in arguments.items() if k not in ("source", "resource")}
         child_args.update(extra)
 
-        return child_tool.execute(child_args)
+        child_result = child_tool.execute(child_args)
+        return replace(
+            child_result,
+            security_inspected=True,
+            security_allowed=True,
+            security_inspectors=inspection_receipt,
+        )
 
     def get_capability_metadata(self) -> dict[str, list[dict[str, object]]]:
         """Return full capability metadata for every registered target.
@@ -160,7 +249,15 @@ class KnowledgeTool(Tool):
                 "description": value.description,
                 "supported_targets": list(value.supported_targets),
                 "parameters": list(value.parameters),
+                "preconditions": list(value.preconditions),
+                "required_binaries": list(value.required_binaries),
+                "required_any_binaries": list(value.required_any_binaries),
+                "optional_binaries": list(value.optional_binaries),
+                "supported_init_systems": list(value.supported_init_systems),
                 "estimated_cost": value.estimated_cost,
+                "expected_reliability": value.expected_reliability,
+                "produces_facts": list(value.produces_facts),
+                "mutation_risk": value.mutation_risk,
             }
 
         result: dict[str, list[dict[str, object]]] = {}

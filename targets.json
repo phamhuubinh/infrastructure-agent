@@ -2,7 +2,10 @@
   "default": "localhost",
   "targets": {
     "localhost": {
-      "backend": "local"
+      "backend": "local",
+      "display_name": "orion-api",
+      "execution_scope": "orion-runtime",
+      "description": "The Orion API runtime. In Docker this is the API container, not the physical Docker host."
     },
     "monitor": {
       "backend": "ssh",

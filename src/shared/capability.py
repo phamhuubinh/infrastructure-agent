@@ -17,5 +17,20 @@ class Capability:
     description: str = ""
     supported_targets: tuple[str, ...] = ()
     parameters: tuple[str, ...] = ()
+    preconditions: tuple[str, ...] = ()
+    required_binaries: tuple[str, ...] = ()
+    required_any_binaries: tuple[str, ...] = ()
+    optional_binaries: tuple[str, ...] = ()
+    supported_init_systems: tuple[str, ...] = ()
     estimated_cost: float = 0.0
+    expected_reliability: float = 1.0
+    produces_facts: tuple[str, ...] = ()
     mutation_risk: str = "none"
+
+    def __post_init__(self) -> None:
+        if self.estimated_cost < 0:
+            raise ValueError("estimated_cost must be non-negative")
+        if not 0.0 <= self.expected_reliability <= 1.0:
+            raise ValueError("expected_reliability must be between 0.0 and 1.0")
+        if self.mutation_risk not in {"none", "low", "medium", "high"}:
+            raise ValueError("mutation_risk must be none, low, medium, or high")

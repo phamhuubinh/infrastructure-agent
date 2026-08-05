@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Callable
 
 
@@ -13,6 +14,7 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, output = run(["ip", "-o", "addr", "show"])
 
     result: dict[str, object] = {}
+    sources: dict[str, str] = {}
     if ok:
         for line in output.splitlines():
             parts = line.split()
@@ -29,12 +31,43 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             )
         result["interfaces"] = interfaces
         result["interface_count"] = len(interface_names)
+        sources["interfaces"] = "ip_addr"
+
+    # Kernel fallback remains available in minimal containers where iproute2
+    # is absent.  It reports link identity/statistics only and never invents
+    # an IP address.
+    if not interfaces:
+        proc_ok, proc_output = run(["cat", "/proc/net/dev"])
+        if proc_ok:
+            stats = _parse_proc_net_dev(proc_output)
+            for item in stats:
+                name = str(item["name"])
+                interface: dict[str, object] = {
+                    "name": name,
+                    "family": "link",
+                    "statistics": {k: v for k, v in item.items() if k != "name"},
+                }
+                address_ok, address = run(["cat", f"/sys/class/net/{name}/address"])
+                if address_ok and address.strip():
+                    interface["address"] = address.strip()
+                interfaces.append(interface)
+                interface_names.add(name)
+            result["interfaces"] = interfaces
+            result["interface_count"] = len(interface_names)
+            sources["interfaces"] = "proc_net_dev+sysfs"
 
     routes: list[str] = []
     ok, output = run(["ip", "route"])
     if ok:
         routes = [line.strip() for line in output.splitlines() if line.strip()]
         result["routes"] = routes
+        sources["routes"] = "ip_route"
+    else:
+        route_ok, route_output = run(["cat", "/proc/net/route"])
+        if route_ok:
+            routes = _parse_proc_net_route(route_output)
+            result["routes"] = routes
+            sources["routes"] = "proc_net_route"
 
     ok2, link_output = run(["ip", "-o", "link", "show"])
     active_interfaces = 0
@@ -45,8 +78,50 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 if ifname2:
                     active_interfaces += 1
         result["active_interfaces"] = active_interfaces
+        sources["link_state"] = "ip_link"
+    elif interface_names:
+        active_interfaces = 0
+        state_collected = False
+        for name in sorted(interface_names):
+            state_ok, state = run(["cat", f"/sys/class/net/{name}/operstate"])
+            if state_ok:
+                state_collected = True
+                if state.strip() in {"up", "unknown"}:
+                    active_interfaces += 1
+        if state_collected:
+            result["active_interfaces"] = active_interfaces
+            sources["link_state"] = "sysfs_operstate"
+
+    if result:
+        result["collection_sources"] = sources
 
     return result
+
+
+def _parse_proc_net_route(output: str) -> list[str]:
+    routes: list[str] = []
+    for line in output.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 8:
+            continue
+        iface, destination_hex, gateway_hex, flags_hex = parts[:4]
+        try:
+            flags = int(flags_hex, 16)
+            destination = str(
+                ipaddress.IPv4Address(int(destination_hex, 16).to_bytes(4, "little"))
+            )
+            gateway = str(
+                ipaddress.IPv4Address(int(gateway_hex, 16).to_bytes(4, "little"))
+            )
+        except (ValueError, OverflowError):
+            continue
+        if not flags & 0x1:
+            continue
+        if destination == "0.0.0.0":
+            routes.append(f"default via {gateway} dev {iface}")
+        else:
+            routes.append(f"{destination} dev {iface}")
+    return routes
 
 
 def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -76,9 +151,11 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """Subsystem: per-interface traffic statistics (bytes/packets/errors/drops)."""
     interfaces: list[dict[str, object]] = []
+    strategy = "ip_link"
     ok, output = run(["ip", "-s", "link"])
     if ok:
         current_iface: dict[str, object] = {}
+        pending_direction: str | None = None
         for line in output.splitlines():
             line = line.strip()
             # New interface block starts with a digit+colon (e.g., "1: lo:")
@@ -89,10 +166,24 @@ def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
                 parts = line.split(":", 2)
                 if len(parts) >= 2:
                     current_iface["name"] = parts[1].strip()
+                pending_direction = None
             elif "RX:" in line and current_iface:
-                current_iface.update(_parse_ip_stats_line(line))
+                pending_direction = "rx"
             elif "TX:" in line and current_iface:
-                current_iface.update(_parse_ip_stats_line(line))
+                pending_direction = "tx"
+            elif pending_direction and current_iface:
+                values = line.split()
+                if len(values) >= 4:
+                    try:
+                        for index, key in enumerate(
+                            ("bytes", "packets", "errors", "dropped")
+                        ):
+                            current_iface[f"{pending_direction}_{key}"] = int(
+                                values[index]
+                            )
+                    except ValueError:
+                        pass
+                pending_direction = None
         if current_iface:
             interfaces.append(current_iface)
 
@@ -101,14 +192,20 @@ def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
         ok2, dev_output = run(["cat", "/proc/net/dev"])
         if ok2:
             interfaces = _parse_proc_net_dev(dev_output)
+            strategy = "proc_net_dev"
 
     if interfaces:
         return {
             "interface_stats": interfaces,
             "interface_stat_count": len(interfaces),
+            "collection_strategy": strategy,
         }
     if ok or ok2:
-        return {"interface_stats": [], "interface_stat_count": 0}
+        return {
+            "interface_stats": [],
+            "interface_stat_count": 0,
+            "collection_strategy": strategy,
+        }
     return {}
 
 
@@ -122,7 +219,10 @@ def _parse_ip_stats_line(line: str) -> dict[str, object]:
     prefix = f"{direction}_"
     for i, key in enumerate(("bytes", "packets", "errors", "dropped")):
         if i + 1 < len(parts):
-            result[f"{prefix}{key}"] = parts[i + 1]
+            try:
+                result[f"{prefix}{key}"] = int(parts[i + 1])
+            except ValueError:
+                continue
     return result
 
 
@@ -136,17 +236,22 @@ def _parse_proc_net_dev(output: str) -> list[dict[str, object]]:
         name = name.strip()
         values = stats.split()
         if len(values) >= 10:
-            interfaces.append(
-                {
-                    "name": name,
-                    "rx_bytes": values[0],
-                    "rx_packets": values[1],
-                    "rx_errors": values[2],
-                    "rx_dropped": values[3],
-                    "tx_bytes": values[8],
-                    "tx_packets": values[9],
-                }
-            )
+            try:
+                interfaces.append(
+                    {
+                        "name": name,
+                        "rx_bytes": int(values[0]),
+                        "rx_packets": int(values[1]),
+                        "rx_errors": int(values[2]),
+                        "rx_dropped": int(values[3]),
+                        "tx_bytes": int(values[8]),
+                        "tx_packets": int(values[9]),
+                        "tx_errors": int(values[10]) if len(values) > 10 else 0,
+                        "tx_dropped": int(values[11]) if len(values) > 11 else 0,
+                    }
+                )
+            except ValueError:
+                continue
     return interfaces
 
 
@@ -288,10 +393,62 @@ def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
                             {
                                 "address": addr,
                                 "port": port_str,
+                                "port_number": int(port_str) if port_str.isdigit() else None,
                                 "protocol": proto,
                                 "process": process,
                             }
                         )
     if not succeeded:
-        return {}
-    return {"ports": ports, "port_count": len(ports)}
+        proc_succeeded = False
+        for proto, path in (
+            ("tcp", "/proc/net/tcp"),
+            ("tcp", "/proc/net/tcp6"),
+            ("udp", "/proc/net/udp"),
+            ("udp", "/proc/net/udp6"),
+        ):
+            proc_ok, proc_output = run(["cat", path])
+            if not proc_ok:
+                continue
+            proc_succeeded = True
+            ports.extend(_parse_proc_sockets(proc_output, proto))
+        if not proc_succeeded:
+            return {}
+        return {
+            "ports": ports,
+            "port_count": len(ports),
+            "collection_strategy": "proc_net_sockets",
+            "process_attribution": "unavailable",
+        }
+    return {
+        "ports": ports,
+        "port_count": len(ports),
+        "collection_strategy": "ss",
+    }
+
+
+def _parse_proc_sockets(output: str, protocol: str) -> list[dict[str, object]]:
+    ports: list[dict[str, object]] = []
+    for line in output.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 4 or ":" not in parts[1]:
+            continue
+        _, port_hex = parts[1].rsplit(":", 1)
+        state = parts[3]
+        # TCP 0A is LISTEN. UDP sockets have no LISTEN state and are retained
+        # when bound because /proc provides no process-health guarantee.
+        if protocol == "tcp" and state != "0A":
+            continue
+        try:
+            port = int(port_hex, 16)
+        except ValueError:
+            continue
+        ports.append(
+            {
+                "address": parts[1],
+                "port": str(port),
+                "port_number": port,
+                "protocol": protocol,
+                "process": "",
+            }
+        )
+    return ports

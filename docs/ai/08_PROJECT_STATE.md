@@ -228,9 +228,20 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-106 ✅ complete**: Linux command failures, including legacy tuple backends, can no longer become zero/empty/unknown measurements; core collectors omit unavailable facts, prompt summaries do not invent defaults, and deterministic responses require `VALID`/`VALID_EMPTY` evidence plus the specific fact needed for a claim.
 - **DR1-107 ✅ complete**: capability failures now carry machine-readable code/category/recoverable metadata across capability, tool, and evidence boundaries; backend enum mappings distinguish transport/environment/command/parameter/parser/source-API/internal failures, and runtime result retries use only the structured recoverable flag.
 - **DR1-108 ✅ complete**: EvidenceCache and both ExecutionEngine paths accept and reuse only `VALID`/`VALID_EMPTY` packages; failed/partial evidence never removes a runtime node or creates a negative cache hit, so a later request recollects after source recovery.
+- **DR1-201 ✅ complete**: the API image installs the core Linux runtime binaries and exposes dependency readiness in `/api/health`; image build and in-container command smoke checks pass, while optional binary absence maps to `UNSUPPORTED` instead of fabricated values.
+- **DR1-202 ✅ complete**: `localhost` explicitly means the Orion API runtime/container, displayed as `orion-api`; monitoring a physical host requires an explicit SSH target, and target identity is carried into Linux evidence and CLI output.
+- **DR1-203 ✅ complete**: `TargetPreflight` fingerprints reachability, OS, init system, privilege, binaries, procfs/sysfs and caches by target/config hash with short TTL; a failed transport probe short-circuits dependent collection.
+- **DR1-204 ✅ complete**: capability metadata now declares preconditions, all/any/optional binaries, init support, cost, reliability and produced facts; environment compatibility is validated before Child Tool dispatch from the single exported metadata source.
+- **DR1-205 ✅ complete**: CPU utilization uses two `/proc/stat` snapshots with explicit percentage fields and `/proc/loadavg`/core metadata; locale-stable `top` remains only a bounded fallback.
+- **DR1-206 ✅ complete**: service discovery/status uses a bounded systemd → SysV → OpenRC → process → port strategy, stops on transport/permission failures and marks indirect evidence partial with lower confidence.
+- **DR1-207 ✅ complete**: service-log collection accepts validated service/time/limit parameters, queries an exact journal unit, permits only allowlisted file-log fallbacks and rejects shell-fragment injection.
+- **DR1-208 ✅ complete**: network interfaces, statistics, routes and listening sockets have `/proc`/`/sys` fallbacks with explicit collection-source provenance and failure-safe semantics.
+- **DR1-209 ✅ complete**: filesystem capacity, inode usage, cumulative disk I/O and device health are separate capabilities/facts; absent SMART/NVMe tooling is unsupported and capacity never implies physical health.
+- **DR1-210 ✅ complete**: core Linux payloads use explicit bytes/seconds/percent schemas validated before `VALID`; the assessment prompt reads canonical unit-bearing keys rather than guessing aliases.
+- **DR1-211 ✅ complete**: KnowledgeTool dispatch is fail-closed through a mandatory inspector chain with per-result receipts and trace counters; declared mutation risk/raw mutating parameters are blocked, and assessment remains tool-less/read-only.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-108 complete: failed/partial evidence excluded from cache; DR1-101–107 and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-201–211 complete: runtime/target correctness, Linux collectors/schemas and read-only boundary verified; DR1-001–108 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

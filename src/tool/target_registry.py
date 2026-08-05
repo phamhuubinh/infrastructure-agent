@@ -1,13 +1,34 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from src.tool.execution_backend import (
     ExecutionBackend,
     LocalExecutionBackend,
     SSHExecutionBackend,
 )
 from src.tool.linux import LinuxTool
+from src.tool.target_preflight import DEFAULT_TARGET_PREFLIGHT, EnvironmentFingerprint
 from src.tool.target_store import TargetStore
 from src.tool.tool import Tool
+
+
+@dataclass(frozen=True, slots=True)
+class TargetIdentity:
+    name: str
+    display_name: str
+    execution_scope: str
+    backend_type: str
+    description: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "display_name": self.display_name,
+            "execution_scope": self.execution_scope,
+            "backend_type": self.backend_type,
+            "description": self.description,
+        }
 
 
 class TargetRegistry:
@@ -30,9 +51,13 @@ class TargetRegistry:
         self._store = store
         self._backends: dict[str, ExecutionBackend] = {}
         self._domain_tools: dict[str, Tool] = {}
+        self._linux_tools: dict[str, LinuxTool] = {}
+        self._metadata: dict[str, dict[str, str]] = {}
+        self._preflight = DEFAULT_TARGET_PREFLIGHT
 
         if store is not None:
             self._backends = store.load()
+            self._metadata = store.load_metadata()
 
     def add(
         self,
@@ -55,6 +80,18 @@ class TargetRegistry:
                 raise ValueError(msg)
             backend._strict_host_key_checking = strict_host_key_checking
         self._backends[name] = backend
+        self._metadata.setdefault(
+            name,
+            {
+                "display_name": "orion-api" if name == "localhost" else name,
+                "execution_scope": (
+                    "orion-runtime"
+                    if isinstance(backend, LocalExecutionBackend)
+                    else "remote-host"
+                ),
+                "description": "",
+            },
+        )
 
         if self._store is not None:
             self._store.save(self._backends)
@@ -68,6 +105,9 @@ class TargetRegistry:
             raise KeyError(msg)
 
         del self._backends[name]
+        self._linux_tools.pop(name, None)
+        self._metadata.pop(name, None)
+        self._preflight.invalidate(name)
 
         if self._store is not None:
             self._store.save(self._backends)
@@ -110,7 +150,14 @@ class TargetRegistry:
         # Fall back to target backend → LinuxTool.
         backend = self._backends.get(name)
         if backend is not None:
-            return LinuxTool(backend=backend)
+            tool = self._linux_tools.get(name)
+            if tool is None:
+                tool = LinuxTool(
+                    backend=backend,
+                    target_identity=self.identity(name).to_dict(),
+                )
+                self._linux_tools[name] = tool
+            return tool
 
         msg = f"Unknown target or domain tool: '{name}'."
         raise KeyError(msg)
@@ -120,3 +167,31 @@ class TargetRegistry:
 
     def backend(self, name: str) -> ExecutionBackend | None:
         return self._backends.get(name)
+
+    def identity(self, name: str) -> TargetIdentity:
+        backend = self._backends.get(name)
+        if backend is None:
+            raise KeyError(f"Unknown infrastructure target: '{name}'.")
+        metadata = self._metadata.get(name, {})
+        return TargetIdentity(
+            name=name,
+            display_name=str(metadata.get("display_name", name)),
+            execution_scope=str(
+                metadata.get(
+                    "execution_scope",
+                    "orion-runtime"
+                    if isinstance(backend, LocalExecutionBackend)
+                    else "remote-host",
+                )
+            ),
+            backend_type=("ssh" if isinstance(backend, SSHExecutionBackend) else "local"),
+            description=str(metadata.get("description", "")),
+        )
+
+    def preflight(
+        self, name: str, *, force: bool = False
+    ) -> EnvironmentFingerprint:
+        backend = self._backends.get(name)
+        if backend is None:
+            raise KeyError(f"Unknown infrastructure target: '{name}'.")
+        return self._preflight.inspect(name, backend, force=force)

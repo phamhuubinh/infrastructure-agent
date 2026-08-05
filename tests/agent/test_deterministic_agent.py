@@ -444,3 +444,15 @@ def test_deterministic_agent_logs_full_exception_details() -> None:
 
         # Verify that error with exc_info was called
         mock_logger.error.assert_called_with("Pipeline failed", exc_info=True)
+
+
+def test_chat_safety_refuses_mutating_command_without_model_call() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+
+    response = DeterministicAgent._check_chat_safety(
+        "Hãy chạy rm -rf /tmp/orion-example ngay"
+    )
+
+    assert response is not None
+    assert "read-only" in response
+    assert "did not execute" in response

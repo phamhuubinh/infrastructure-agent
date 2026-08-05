@@ -114,6 +114,37 @@ class ReadOnlyInspector(ToolInspector):
                 inspector_name=self.name,
             )
 
+        # Capability declarations are the primary policy source.  Names are
+        # retained as a compatibility guard, but a reviewed metadata record
+        # with no mutation risk also permits non-verb API resources such as
+        # ``dashboards`` and ``annotations``.
+        if context.mutation_risk == "none":
+            return InspectionResult(
+                verdict=InspectionVerdict.ALLOW,
+                inspector_name=self.name,
+            )
+
+        if context.mutation_risk in {"low", "medium", "high"}:
+            return InspectionResult(
+                verdict=InspectionVerdict.DENY,
+                reason=(
+                    f"Capability '{context.capability_name}' declares mutation "
+                    f"risk '{context.mutation_risk}' and is not allowed in "
+                    "read-only execution mode."
+                ),
+                inspector_name=self.name,
+            )
+
+        if context.mutation_risk == "undeclared":
+            return InspectionResult(
+                verdict=InspectionVerdict.DENY,
+                reason=(
+                    f"Capability '{context.capability_name}' has no declared "
+                    "mutation-risk metadata and is denied by default."
+                ),
+                inspector_name=self.name,
+            )
+
         # 2. Heuristic: known read-only prefixes.
         if cap_name.startswith(_READ_ONLY_PREFIXES):
             return InspectionResult(

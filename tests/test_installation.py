@@ -213,3 +213,15 @@ def test_uninstaller_removes_runtime_state_and_preserves_shared_credentials() ->
     assert '"orion_agent_redis-data"' in uninstaller
     assert 'label=com.docker.compose.project=${compose_project}' in uninstaller
     assert "Persistent data was preserved" not in uninstaller
+def test_api_image_installs_core_linux_collector_binaries() -> None:
+    dockerfile = Path("docker/Dockerfile.api").read_text()
+
+    for package in (
+        "ca-certificates",
+        "iproute2",
+        "iputils-ping",
+        "openssh-client",
+        "procps",
+        "util-linux",
+    ):
+        assert package in dockerfile

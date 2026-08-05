@@ -64,7 +64,13 @@ class TestLLMAssessmentAdapter:
                     capability_name="CPU Information",
                     evidence_name="CPU",
                     success=True,
-                    data={"cores": 4, "usage": 25},
+                    data={
+                        "logical_cores": 4,
+                        "usage": {
+                            "usage_percent": 25.0,
+                            "idle_percent": 75.0,
+                        },
+                    },
                 ),
             ),
         )
@@ -75,7 +81,7 @@ class TestLLMAssessmentAdapter:
         client.generate.assert_called_once()
         prompt = client.generate.call_args[0][0]
         assert "CPU" in prompt
-        assert "cores" in prompt
+        assert "logical_cores" in prompt
 
     def test_assess_empty_evidence(self) -> None:
         client = mock.Mock(spec=LLMClient)

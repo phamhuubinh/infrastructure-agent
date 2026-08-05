@@ -33,6 +33,18 @@ Specifically:
 5. **The boundary is enforced by the adapter contract.** `AssessmentAdapter` (`src/pipeline/assessment_adapter.py`) is the only bridge between the deterministic pipeline and the model layer. It constructs an `AssessmentRequest` from the investigation's evidence — and nothing else. The model layer never imports from `src/pipeline/`, `src/tool/`, or `src/execution/`.
 
 6. **The `assess_raw()` method is a narrow escape hatch.** It exists on the interface for general chat and question classification where no evidence package exists. It is not used in the investigation pipeline.
+
+7. **Execution is read-only and fail-closed.** `KnowledgeTool` installs the
+   read-only, parameter-safety, and target inspectors even when a caller does
+   not supply a chain. Every dispatch receives a name-only inspector receipt;
+   execution traces count passed and blocked receipts. Capability mutation
+   risk comes from Child Tool metadata and unknown capabilities are denied.
+
+8. **Models cannot supply commands.** The assessment adapter exposes no tool,
+   registry, backend, subprocess, or raw-command API. Linux command templates
+   remain inside reviewed Child Tool capabilities and receive only validated,
+   typed parameters. Chat rejects explicit requests for Orion to execute
+   mutating commands and model prompts state that no action was performed.
 ---
 # Consequences
 
@@ -42,6 +54,8 @@ Specifically:
 - The pipeline is deterministic and testable without an LLM.
 - The model layer is decoupled from execution internals. A model swap requires no change to the pipeline.
 - Regression testing is reliable because evidence collection always produces the same result regardless of model choice.
+- Prompt-injection text cannot cross the model/Tool boundary or create a raw
+  shell dispatch.
 
 ## Negative
 - The model cannot recover from incomplete evidence by requesting more data — it must assess what it receives.

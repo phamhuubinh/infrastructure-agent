@@ -268,6 +268,15 @@ class ExecutionTrace:
                 "evidence_complete": getattr(metrics, "evidence_complete", None),
                 "timed_out": getattr(metrics, "timed_out", None),
                 "early_completed": getattr(metrics, "early_completed", None),
+                "security_inspections_total": getattr(
+                    metrics, "security_inspections_total", None
+                ),
+                "security_inspections_passed": getattr(
+                    metrics, "security_inspections_passed", None
+                ),
+                "security_inspections_blocked": getattr(
+                    metrics, "security_inspections_blocked", None
+                ),
             }
 
         return cls(

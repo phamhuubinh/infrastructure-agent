@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 
@@ -52,10 +53,34 @@ class MetricsCollector:
 
 metrics = MetricsCollector.get()
 
+CORE_RUNTIME_BINARIES: tuple[str, ...] = (
+    "df",
+    "ip",
+    "lsblk",
+    "ping",
+    "ps",
+    "ssh",
+    "ss",
+    "top",
+)
+
+
+def _runtime_dependency_status() -> dict[str, object]:
+    missing = [name for name in CORE_RUNTIME_BINARIES if shutil.which(name) is None]
+    return {
+        "ready": not missing,
+        "required_binaries": list(CORE_RUNTIME_BINARIES),
+        "missing_binaries": missing,
+    }
+
 
 @router.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "runtime_dependencies": _runtime_dependency_status(),
+    }
 
 
 @router.get("/api/metrics")
