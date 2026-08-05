@@ -222,9 +222,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-006 ✅ complete**: all historical Phase 6 IDs 601–632 were reconciled against current source/tests. `docs/ai/10_PHASE6_PLAN.md` now maps each delivered artifact to any open DR1 behavior correction; the Phase 6 section above explicitly separates delivery completion from current acceptance.
 - **DR1-101 ✅ complete**: all execution backends now return immutable `CommandResult` with `CommandStatus`, exit code, separate stdout/stderr, error type, safe command/target metadata, duration, redacted serialization, and a temporary tuple-unpack compatibility adapter.
 - **DR1-102 ✅ complete**: `LocalExecutionBackend` uses a stable C locale and preserves structured success/empty/non-zero/not-found/permission/timeout outcomes, including exit code and separate streams.
+- **DR1-103 ✅ complete**: `SSHExecutionBackend` distinguishes a missing local ssh client, authentication failure, unreachable/DNS/network failure, connection timeout, remote command-not-found, permission denial, and other remote non-zero exits while retaining remote exit/stderr safely.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-102 complete: local command execution failure semantics; DR1-101 structured result contract and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-103 complete: structured SSH failure semantics; DR1-101/102 and DR1-001–006 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

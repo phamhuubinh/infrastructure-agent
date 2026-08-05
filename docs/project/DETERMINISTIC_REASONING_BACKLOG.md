@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-102 hoàn thành: LocalExecutionBackend giữ stdout/stderr/exit code, phân biệt empty/non-zero/not-found/permission/timeout và chạy với locale ổn định. DR1-101 hoàn thành trước đó: structured command-result contract.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-103 hoàn thành: SSHExecutionBackend phân biệt local ssh missing, auth, unreachable/DNS, connection timeout, remote command missing/permission/non-zero và giữ remote stderr/exit code. DR1-101/102 hoàn thành trước đó: structured/local execution contracts.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -109,7 +109,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-006 | P1 | ✅ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
 | DR1-101 | P0 | ✅ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
 | DR1-102 | P0 | ✅ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
-| DR1-103 | P0 | ⬜ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
+| DR1-103 | P0 | ✅ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
 | DR1-104 | P0 | ⬜ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
 | DR1-105 | P0 | ⬜ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
 | DR1-106 | P0 | 🔎 | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
@@ -568,25 +568,28 @@ Local backend hiện có thể trả chuỗi rỗng khi command non-zero, khiế
 ---
 ### DR1-103 — Sửa SSHExecutionBackend trả lỗi có cấu trúc
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101
-- **Files dự kiến:** `src/tool/execution_backend.py`
+- **Files:** `src/tool/execution_backend.py`, `src/shared/execution/command_result.py`, `tests/tool/test_execution_backend.py`
 
 **Vấn đề**  
 SSH failure hiện dễ bị gom thành generic false/empty, không biết auth, DNS, timeout hay remote command lỗi.
 
-**Cách làm**
-1. Tách lỗi local `ssh` binary không có với lỗi remote.
-2. Map exit code/message SSH sang SSH_AUTH_FAILED, SSH_UNREACHABLE, TIMEOUT.
-3. Giữ remote exit code và remote stderr.
-4. Không retry command khác nếu connection layer đã chết.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ FileNotFoundError của local `ssh` binary → COMMAND_NOT_FOUND; OSError local khác →
+   UNSUPPORTED_ENVIRONMENT.
+2. ✅ Adapter classifier tập trung map auth/public-key/password, connection/DNS/network,
+   connection timeout, remote command-not-found và permission; không có retry command khác.
+3. ✅ Mọi remote failure giữ exit code/stdout/stderr, trong khi auth message được chuẩn hóa để
+   không phản chiếu credential/raw prompt.
 
 **Acceptance criteria**
-- [ ] Phân biệt được auth fail, host unreachable, remote command not found.
-- [ ] Không log private key/password.
+- [x] Phân biệt được auth fail, host unreachable, remote command not found.
+- [x] Không log private key/password.
 
 **Tests/verification**
-- `tests/tool/test_execution_backend.py với mocked ssh outputs`
+- ✅ Mocked SSH + backend/Linux regression selection — 144 passed.
+- ✅ `ruff check` các file chạm tới — clean.
 
 ---
 ### DR1-104 — Tạo CapabilityResult và CapabilityStatus

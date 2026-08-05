@@ -261,10 +261,14 @@ class TestSSHExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["bogus"])
+        result = backend.run(["bogus"])
+        ok, out = result
 
         assert ok is False
         assert "command not found" in out
+        assert result.status is CommandStatus.COMMAND_NOT_FOUND
+        assert result.exit_code == 1
+        assert result.stderr == "remote: command not found"
 
     def test_run_password_prompt_detected(
         self, monkeypatch: pytest.MonkeyPatch
@@ -280,24 +284,30 @@ class TestSSHExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["ls"])
+        result = backend.run(["ls"])
+        ok, out = result
 
         assert ok is False
         assert "password" in out
         assert "SSH authentication failed" in out
+        assert result.status is CommandStatus.SSH_AUTH_FAILED
+        assert result.exit_code == 255
 
     def test_run_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(*args, **kwargs):
             msg = "ssh: command not found"
-            raise OSError(msg)
+            raise FileNotFoundError(msg)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["ls"])
+        result = backend.run(["ls"])
+        ok, out = result
 
         assert ok is False
         assert out == ""
+        assert result.status is CommandStatus.COMMAND_NOT_FOUND
+        assert result.error_type == "FileNotFoundError"
 
     def test_run_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(*args, **kwargs):
@@ -306,10 +316,13 @@ class TestSSHExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["sleep", "100"], timeout=5)
+        result = backend.run(["sleep", "100"], timeout=5)
+        ok, out = result
 
         assert ok is False
         assert out == ""
+        assert result.status is CommandStatus.TIMEOUT
+        assert result.error_type == "TimeoutExpired"
 
     def test_run_timeout_parameter_passed(
         self, monkeypatch: pytest.MonkeyPatch
@@ -349,3 +362,45 @@ class TestSSHExecutionBackend:
 
         assert ok is True
         assert out == "result"
+
+    @pytest.mark.parametrize(
+        ("stderr", "expected"),
+        [
+            ("Permission denied (publickey).", CommandStatus.SSH_AUTH_FAILED),
+            ("ssh: connect to host x port 22: Connection refused", CommandStatus.SSH_UNREACHABLE),
+            ("ssh: Could not resolve hostname x", CommandStatus.SSH_UNREACHABLE),
+            ("ssh: connect to host x port 22: Connection timed out", CommandStatus.TIMEOUT),
+        ],
+    )
+    def test_run_maps_connection_layer_failures(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        stderr: str,
+        expected: CommandStatus,
+    ) -> None:
+        class FakeCompleted:
+            returncode = 255
+            stdout = ""
+
+        FakeCompleted.stderr = stderr
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
+
+        result = SSHExecutionBackend(host="x").run(["uname", "-r"])
+
+        assert result.status is expected
+        assert result.exit_code == 255
+
+    def test_remote_permission_denied_is_not_ssh_auth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeCompleted:
+            returncode = 126
+            stdout = ""
+            stderr = "sh: /root/script: Permission denied"
+
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
+
+        result = SSHExecutionBackend(host="x").run(["/root/script"])
+
+        assert result.status is CommandStatus.PERMISSION_DENIED
+        assert result.exit_code == 126

@@ -66,8 +66,11 @@ class CommandResult:
 
         if self.success:
             return self.stdout
+        if self.status is CommandStatus.COMMAND_NOT_FOUND:
+            if self.target == "localhost" or self.error_type == "FileNotFoundError":
+                return ""
+            return self.stderr or self.stdout
         if self.status in (
-            CommandStatus.COMMAND_NOT_FOUND,
             CommandStatus.TIMEOUT,
             CommandStatus.UNSUPPORTED_ENVIRONMENT,
         ):

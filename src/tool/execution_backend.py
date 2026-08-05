@@ -18,6 +18,55 @@ def _stream_text(value: str | bytes | None) -> str:
     return value.strip()
 
 
+_SSH_AUTH_MARKERS = (
+    "permission denied (publickey",
+    "permission denied, please try again",
+    "authentication failed",
+    "too many authentication failures",
+    "password:",
+)
+_SSH_UNREACHABLE_MARKERS = (
+    "connection refused",
+    "connection closed",
+    "connection reset",
+    "could not resolve hostname",
+    "name or service not known",
+    "no route to host",
+    "network is unreachable",
+    "host is down",
+)
+_SSH_TIMEOUT_MARKERS = (
+    "connection timed out",
+    "operation timed out",
+    "connect to host",
+)
+_REMOTE_COMMAND_NOT_FOUND_MARKERS = (
+    "command not found",
+    "not found",
+)
+
+
+def _classify_ssh_failure(exit_code: int, stderr: str) -> CommandStatus:
+    """Classify an ssh CLI/remote failure at the transport adapter boundary."""
+
+    lowered = stderr.lower()
+    if any(marker in lowered for marker in _SSH_AUTH_MARKERS):
+        return CommandStatus.SSH_AUTH_FAILED
+    if any(marker in lowered for marker in _SSH_UNREACHABLE_MARKERS):
+        return CommandStatus.SSH_UNREACHABLE
+    if "timed out" in lowered or (
+        exit_code == 255 and any(marker in lowered for marker in _SSH_TIMEOUT_MARKERS)
+    ):
+        return CommandStatus.TIMEOUT
+    if exit_code == 127 or any(
+        marker in lowered for marker in _REMOTE_COMMAND_NOT_FOUND_MARKERS
+    ):
+        return CommandStatus.COMMAND_NOT_FOUND
+    if exit_code == 126 or "permission denied" in lowered:
+        return CommandStatus.PERMISSION_DENIED
+    return CommandStatus.NON_ZERO_EXIT
+
+
 class ExecutionBackend(ABC):
     """Interface for command execution transport."""
 
@@ -250,7 +299,11 @@ class SSHExecutionBackend(ExecutionBackend):
                 message="Failed",
             )
             return CommandResult(
-                status=CommandStatus.COMMAND_NOT_FOUND,
+                status=(
+                    CommandStatus.COMMAND_NOT_FOUND
+                    if isinstance(exc, FileNotFoundError)
+                    else CommandStatus.UNSUPPORTED_ENVIRONMENT
+                ),
                 stderr=str(exc),
                 error_type=type(exc).__name__,
                 target=host,
@@ -261,22 +314,23 @@ class SSHExecutionBackend(ExecutionBackend):
             _dur = int((_time.monotonic() - _t0) * 1000)
             completed_stderr = getattr(completed, "stderr", "")
             err_msg = completed_stderr.strip() or completed.stdout.strip()
-            if "password" in completed_stderr.lower():
+            status = _classify_ssh_failure(completed.returncode, err_msg)
+            if status is CommandStatus.SSH_AUTH_FAILED:
                 error(
                     "exec",
                     command=cmd_str,
                     status="failed",
-                    error="SSH authentication failed (password prompted)",
+                    error="SSH authentication failed",
                     host=host,
                     message="Failed",
                 )
                 return CommandResult(
-                    status=CommandStatus.SSH_AUTH_FAILED,
+                    status=status,
                     exit_code=completed.returncode,
                     stdout=completed.stdout.strip(),
                     stderr=(
-                        "SSH authentication failed (password prompted). "
-                        "Use SSH key authentication."
+                        "SSH authentication failed (password/public-key rejected). "
+                        "Use valid SSH key authentication."
                     ),
                     error_type="SSHAuthenticationError",
                     target=host,
@@ -296,11 +350,15 @@ class SSHExecutionBackend(ExecutionBackend):
                 message="Non-zero exit",
             )
             return CommandResult(
-                status=CommandStatus.NON_ZERO_EXIT,
+                status=status,
                 exit_code=completed.returncode,
                 stdout=completed.stdout.strip(),
                 stderr=err_msg,
-                error_type="RemoteNonZeroExit",
+                error_type=(
+                    "RemoteNonZeroExit"
+                    if status is CommandStatus.NON_ZERO_EXIT
+                    else status.name
+                ),
                 target=host,
                 duration_ms=_dur,
             )
