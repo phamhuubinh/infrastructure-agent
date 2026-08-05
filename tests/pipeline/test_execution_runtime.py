@@ -13,6 +13,11 @@ from src.pipeline.retry import RetryExecutor, RetryPolicy
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
+from src.tool.errors import (
+    CapabilityError,
+    CapabilityErrorCategory,
+    CapabilityErrorCode,
+)
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 
@@ -157,6 +162,47 @@ class TestFailureHandling:
         # Good one may succeed or fail at system level, but must have executed
         assert isinstance(results["System Information"], ToolResult)
         assert results["Unknown Capability Y"].success is False
+
+    def test_declared_alternative_is_traced_and_counted(self) -> None:
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.source_kind.return_value = "linux"
+        mock_kt.execute.side_effect = [
+            ToolResult(
+                success=False,
+                error="command unavailable",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+                capability_error=CapabilityError(
+                    CapabilityErrorCode.COMMAND_NOT_FOUND,
+                    CapabilityErrorCategory.ENVIRONMENT,
+                    "command unavailable",
+                    False,
+                ),
+            ),
+            ToolResult(
+                success=True,
+                data={"usage": {"usage_percent": 88.0}},
+                capability_status=CapabilityStatus.VALID,
+                produced_fact_names=("cpu.usage",),
+            ),
+        ]
+        router = CapabilityRouter()
+        router.build_routes(KnowledgeTool())
+        runtime = ExecutionRuntime(
+            knowledge_tool=mock_kt,
+            router=router,
+            retry_executor=RetryExecutor(RetryPolicy(max_attempts=1)),
+        )
+
+        results, metrics = runtime.execute(
+            _graph_from_steps([_step("CPU Utilization", "CPU Usage")])
+        )
+
+        result = results["CPU Utilization"]
+        assert result.success
+        assert result.recovered_by == "CPU Information"
+        assert len(result.recovery_attempts) == 1
+        assert metrics.recovery_successes == 1
+        assert metrics.tool_calls == 2
 
 
 # ---------------------------------------------------------------------------
@@ -677,6 +723,31 @@ class TestMockedExecution:
         assert "System Information" in results
         assert results["System Information"].success is False
         assert "timed out" in (results["System Information"].error or "").lower()
+
+    def test_parallel_timeout_does_not_wait_for_running_workers(self) -> None:
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.source_kind.return_value = "linux"
+        import time as _time
+
+        def _slow(_args):
+            _time.sleep(1)
+            return ToolResult(success=True)
+
+        mock_kt.execute.side_effect = _slow
+        router = CapabilityRouter()
+        router.build_routes(KnowledgeTool())
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+        graph = _graph_from_steps(
+            [_step("System Information"), _step("CPU Information")]
+        )
+
+        started = _time.perf_counter()
+        results, metrics = runtime.execute(graph, overall_timeout=0.1)
+        elapsed = _time.perf_counter() - started
+
+        assert elapsed < 0.5
+        assert metrics.timed_out
+        assert all(not result.success for result in results.values())
 
     def test_mock_executes_dependency_order(self) -> None:
         mock_kt = mock.Mock(spec=KnowledgeTool)

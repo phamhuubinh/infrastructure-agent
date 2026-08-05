@@ -52,6 +52,11 @@ class PipelineState:
     fact_set: FactSet = FactSet()
     contradictions: tuple = ()
     evidence_completeness: Any = None
+    atomic_findings: tuple = ()
+    findings: tuple = ()
+    health_summary: Any = None
+    evidence_expansion: tuple = ()
+    execution_budget: Any = None
 
     def apply(self, update: StateUpdate) -> PipelineState:
         """Return a new PipelineState with update applied."""
@@ -98,4 +103,9 @@ class PipelineState:
             fact_set=self.fact_set,
             contradictions=self.contradictions,
             evidence_completeness=self.evidence_completeness,
+            atomic_findings=self.atomic_findings,
+            findings=self.findings,
+            health_summary=self.health_summary,
+            evidence_expansion=self.evidence_expansion,
+            execution_budget=self.execution_budget,
         )

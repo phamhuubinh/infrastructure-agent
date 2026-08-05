@@ -18,12 +18,15 @@ from src.pipeline.execution_graph import (
 from src.pipeline.execution_plan import ExecutionPlan, ExecutionStep
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import RuntimeMetrics
+from src.pipeline.fact_set import FactSet
+from src.pipeline.finding import FindingDecision
 from src.pipeline.intent_resolver import Intent, IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
+from tests.pipeline.reasoning_fact_factory import fact
 
 
 def _real_kt() -> KnowledgeTool:
@@ -84,6 +87,29 @@ def _plan_with_steps(*names: str) -> ExecutionPlan:
         for n in names
     ]
     return ExecutionPlan(steps=tuple(steps))
+
+
+def test_reasoning_flow_attaches_findings_and_global_health() -> None:
+    request = InvestigationRequest(raw_request="check server health")
+    request.target = "server-1"
+    request.fact_set = FactSet(
+        (
+            fact("cpu.usage", 95.0),
+            fact("system.load_1m", 8.0, unit="load"),
+            fact("cpu.logical_cores", 4, unit="count"),
+            fact("cpu.iowait", 25.0),
+        )
+    )
+
+    _engine()._apply_reasoning(request)
+
+    assert any(
+        finding.type == "cpu_saturation"
+        and finding.decision is FindingDecision.SUPPORTED
+        for finding in request.findings
+    )
+    assert request.health_summary is not None
+    assert request.health_summary.status.value == "critical"
 
 
 # ---------------------------------------------------------------------------

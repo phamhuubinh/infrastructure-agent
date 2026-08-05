@@ -42,6 +42,8 @@ class Capability:
     estimated_cost: float = 0.0
     expected_reliability: float = 1.0
     produces_facts: tuple[str, ...] = ()
+    alternatives: tuple[str, ...] = ()
+    recoverable_errors: tuple[str, ...] = ()
     mutation_risk: str = "none"
 
     def __post_init__(self) -> None:
@@ -51,3 +53,5 @@ class Capability:
             raise ValueError("expected_reliability must be between 0.0 and 1.0")
         if self.mutation_risk not in {"none", "low", "medium", "high"}:
             raise ValueError("mutation_risk must be none, low, medium, or high")
+        if self.name in self.alternatives:
+            raise ValueError("capability cannot declare itself as an alternative")

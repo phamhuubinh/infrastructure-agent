@@ -41,4 +41,6 @@ class AssessmentAdapter:
                 for package in request.evidence
                 for failure in package.collection_failures
             ),
+            findings=tuple(request.findings),
+            health_summary=request.health_summary,
         )

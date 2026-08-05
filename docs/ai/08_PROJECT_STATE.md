@@ -131,9 +131,9 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 | 605–608 | CapabilityPlanner/config/library wiring | DR1-301–309 completed canonical deterministic routing; DR1-401–405 now add pre-plan context and bounded multi-intent merging |
 | 609–611 | Parameter parser plus runtime method plumbing | DR1-403/404 completed metadata-driven binding, required/type/pattern/range validation and safe bound-parameter traces |
 | 612–617 | Answer-type/tool selectors and `source_tool` field | DR1-308 completed request/routing/evidence/strategy taxonomy; DR1-508/509 completed fact provenance and claim links; deterministic response filtering remains DR1-707 |
-| 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers; DR1-501/502/505 completed canonical fact validity/freshness/completeness; findings/response guards remain DR1-601–707 |
+| 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers; DR1-501/502/505 completed canonical validity/completeness; DR1-601–609 now provide Findings and health aggregation; final response filtering remains DR1-707 |
 | 623–625 | Per-session TTL cache and engine wiring | DR1-108 rejects failed/partial entries; DR1-507 completed params/timeframe/schema-aware keys, TTL classes and explicit stale policy |
-| 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
+| 626–629 | Severity field, threshold and correlation classes, prompt changes | DR1-601–605 completed canonical atomic/composite Findings and integrated them into assessment/trace; prompt/claim guards remain DR1-702–706 |
 | 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | DR1-406/407 completed temporal requirements/guards; DR1-503/509 completed Grafana fact normalization and provenance links; deterministic response filtering remains DR1-707 |
 
 Therefore “Phase 6 delivery completed” is retained as history, while the named remaining owners
@@ -264,9 +264,12 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-506 ✅ complete**: tolerance-aware reconciliation retains both sources and their provenance, marks conflicting facts `CONTRADICTORY`, and propagates contradictory evidence status instead of silently selecting a value.
 - **DR1-507 ✅ complete**: cache identity includes target/capability/normalized parameters/timeframe/schema; TTL varies by fact class and stale reuse is opt-in with explicit stale facts.
 - **DR1-508/509 ✅ complete**: evidence packages carry bounded raw data, canonical facts, failures and schema/source metadata; assessment consumes facts first, while safe provenance IDs and claim links redact secrets.
-- Remaining DR1 tasks continue at DR1-601 from the active backlog; each task updates this file only after its definition of done is verifiable.
+- **DR1-601–605 ✅ complete**: atomic thresholds now consume valid/fresh canonical facts (including derived per-core load); weighted composite rules preserve false/unknown/stale/failed semantics without implicit renormalization and emit immutable source-linked Findings into investigation, assessment and trace flows.
+- **DR1-606–608 ✅ complete**: capability metadata declares reviewed recovery alternatives/error contracts; runtime recovery is loop-free and depth-two bounded with no transport-timeout expansion, while weighted missing-evidence selection and per-request round/capability/duration/cost budgets deterministically bound additional collection.
+- **DR1-609/610 ✅ complete**: multi-source health aggregation prioritizes active incidents and evidence gaps before warnings/healthy facts per target and globally; versioned Pydantic-validated YAML rules require owner/rationale/source cases and explicit approval, with no production auto-learning path.
+- Remaining DR1 tasks continue at DR1-701 from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-501–509 complete: canonical facts, source normalization, FactSet/completeness/reconciliation, cache freshness, bounded evidence and safe provenance verified; DR1-001–407 remain complete.)
+> **Last updated:** 2026-08-05 (EPIC 6 / DR1-601–610 complete: deterministic rules, Findings, recovery, evidence expansion budgets, health aggregation and reviewed rule config verified; DR1-001–509 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

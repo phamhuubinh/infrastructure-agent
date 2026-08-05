@@ -11,17 +11,26 @@ from src.pipeline.evidence_completeness import (
     EvidenceCompletenessResult,
     RequirementStatus,
 )
+from src.pipeline.evidence_correlation import EvidenceCorrelation
+from src.pipeline.evidence_expander import EvidenceExpander, ExpansionCandidate
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.evidence_requirement import EvidenceRequirement
+from src.pipeline.execution_budget import (
+    BudgetStopReason,
+    ExecutionBudget,
+    ExecutionBudgetConfig,
+)
 from src.pipeline.execution_graph import (
     ExecutionGraph,
     ExecutionGraphBuilder,
     ExecutionNode,
 )
+from src.pipeline.execution_plan import ExecutionStep
 from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
+from src.pipeline.health_aggregator import HealthAggregator
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.parameter_binder import MissingParameterError, ParameterBindingError
@@ -33,7 +42,10 @@ from src.pipeline.routing_decision import (
     RoutingStatus,
 )
 from src.pipeline.target_resolver import TargetResolver
+from src.pipeline.threshold_evaluator import ThresholdEvaluator
+from src.shared.config_schema import load_rule_configs
 from src.shared.execution.tool_result import ToolResult
+from src.tool.errors import CapabilityErrorCategory
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -69,6 +81,7 @@ class ExecutionEngine:
         knowledge_tool: KnowledgeTool,
         evidence_merge: EvidenceMerge,
         evidence_cache: EvidenceCache | None = None,
+        execution_budget_config: ExecutionBudgetConfig | None = None,
     ) -> None:
         self._intent_resolver = intent_resolver
         self._target_resolver = target_resolver
@@ -83,6 +96,22 @@ class ExecutionEngine:
         self._evidence_cache = evidence_cache
         self._runtime = ExecutionRuntime(knowledge_tool=knowledge_tool)
         self._runtime.router.build_routes(knowledge_tool)
+        rule_configs = load_rule_configs()
+        atomic_rules = tuple(
+            rule.to_domain()
+            for config in rule_configs
+            for rule in config.atomic_rules
+        )
+        composite_rules = tuple(
+            rule.to_domain()
+            for config in rule_configs
+            for rule in config.composite_rules
+        )
+        self._threshold_evaluator = ThresholdEvaluator(atomic_rules or None)
+        self._correlation = EvidenceCorrelation(composite_rules)
+        self._evidence_expander = EvidenceExpander()
+        self._health_aggregator = HealthAggregator()
+        self._budget_config = execution_budget_config or ExecutionBudgetConfig()
 
     # ------------------------------------------------------------------
     # Immutable PipelineState execution path.
@@ -182,6 +211,8 @@ class ExecutionEngine:
             target_score=state.target_score,
             target_margin=state.target_margin,
             routing_status=state.routing_status,
+            extracted_params=state.extracted_params,
+            selected_tool=state.selected_tool,
             required_evidence=list(state.required_evidence),
             optional_evidence=list(state.optional_evidence),
             capability_references=list(state.capability_references),
@@ -203,9 +234,19 @@ class ExecutionEngine:
             timeframe=getattr(state.request_frame, "timeframe", None),
             requirements=state.required_evidence,
         )
+        budget = ExecutionBudget(self._budget_config)
+        temp_req.execution_budget = budget
+        graph = self._bounded_graph(graph, budget)
 
         # Execute graph
         if graph.nodes:
+            budget.start_round(
+                len(graph.nodes),
+                sum(
+                    node.execution_step.capability.estimated_cost
+                    for node in graph.nodes
+                ),
+            )
             required_evidence = {
                 ref.evidence_name for ref in state.capability_references if ref.required
             }
@@ -219,7 +260,9 @@ class ExecutionEngine:
                 required_evidence_names=required_evidence,
                 extracted_params=extracted_params,
                 timeframe=getattr(state.request_frame, "timeframe", None),
+                overall_timeout=budget.remaining_duration,
             )
+            budget.capabilities += metrics.recovery_attempts
         else:
             results, metrics = {}, RuntimeMetrics()
 
@@ -237,12 +280,29 @@ class ExecutionEngine:
 
         # Completeness check
         self._evidence_completeness.check(temp_req)
+        self._apply_reasoning(temp_req)
+        self._expand_evidence(
+            temp_req,
+            budget=budget,
+            target=target,
+            timeframe=getattr(state.request_frame, "timeframe", None),
+            metrics=metrics,
+        )
         evidence_status = self._evidence_status(temp_req)
         state = state.apply(
             {
+                "evidence": tuple(temp_req.evidence),
+                "fact_set": temp_req.fact_set,
+                "contradictions": temp_req.contradictions,
                 "evidence_complete": temp_req.evidence_complete,
                 "missing_evidence": temp_req.missing_evidence,
                 "evidence_status": evidence_status,
+                "evidence_completeness": temp_req.evidence_completeness,
+                "atomic_findings": temp_req.atomic_findings,
+                "findings": temp_req.findings,
+                "health_summary": temp_req.health_summary,
+                "evidence_expansion": temp_req.evidence_expansion,
+                "execution_budget": budget,
             }
         )
 
@@ -365,8 +425,19 @@ class ExecutionEngine:
             requirements=request.required_evidence,
         )
 
+        budget = ExecutionBudget(self._budget_config)
+        request.execution_budget = budget
+        graph = self._bounded_graph(graph, budget)
+
         # Stage 5: Execute the graph through the runtime.
         if graph.nodes:
+            budget.start_round(
+                len(graph.nodes),
+                sum(
+                    node.execution_step.capability.estimated_cost
+                    for node in graph.nodes
+                ),
+            )
             required_evidence = {
                 ref.evidence_name
                 for ref in request.capability_references
@@ -384,7 +455,9 @@ class ExecutionEngine:
                 extracted_params=extracted_params,
                 timeframe=timeframe,
                 bound_params_out=request.bound_params,
+                overall_timeout=budget.remaining_duration,
             )
+            budget.capabilities += metrics.recovery_attempts
         else:
             results, metrics = {}, RuntimeMetrics()
 
@@ -393,6 +466,14 @@ class ExecutionEngine:
         request.evidence = cached_evidence + request.evidence
         self._evidence_merge.rebuild_fact_set(request)
         self._evidence_completeness.check(request)
+        self._apply_reasoning(request)
+        self._expand_evidence(
+            request,
+            budget=budget,
+            target=target,
+            timeframe=timeframe,
+            metrics=metrics,
+        )
         request.evidence_status = self._evidence_status(request)
 
         # Phase 6: Cache collected evidence for reuse across turns.
@@ -415,6 +496,173 @@ class ExecutionEngine:
         request.runtime_metrics = metrics
 
         return request
+
+    def _apply_reasoning(self, request: InvestigationRequest):
+        """Attach canonical atomic/composite findings and health summary."""
+
+        request.fact_set = self._threshold_evaluator.derive_facts(request.fact_set)
+        request.atomic_findings = self._threshold_evaluator.evaluate_fact_set(
+            request.fact_set
+        )
+        evaluations = self._correlation.evaluate_facts(request.fact_set)
+        composite_findings = tuple(item.finding for item in evaluations)
+        request.findings = tuple(request.atomic_findings) + composite_findings
+        request.health_summary = self._health_aggregator.aggregate(
+            request.fact_set,
+            request.findings,
+            request.evidence_completeness,
+            default_target=request.target or "localhost",
+        )
+        return evaluations
+
+    def _expand_evidence(
+        self,
+        request: InvestigationRequest,
+        *,
+        budget: ExecutionBudget,
+        target: str,
+        timeframe: object,
+        metrics: RuntimeMetrics,
+    ) -> None:
+        """Run at most one weighted expansion round under the shared budget."""
+
+        if request.evidence_complete:
+            budget.stop(evidence_sufficient=True)
+            return
+        transport_failed = any(
+            package.capability_error is not None
+            and package.capability_error.category is CapabilityErrorCategory.TRANSPORT
+            for package in request.evidence
+        )
+        if transport_failed:
+            budget.stop(transport_failed=True)
+            return
+
+        evaluations = self._correlation.evaluate_facts(request.fact_set)
+        planned = {reference.name for reference in request.capability_references}
+        candidates = self._evidence_expander.select(
+            evaluations,
+            already_planned=planned,
+        )
+        if not candidates:
+            budget.stop(recoverable_path=False)
+            return
+        estimated_cost = sum(candidate.estimated_cost for candidate in candidates)
+        if not budget.start_round(len(candidates), estimated_cost):
+            return
+
+        references = tuple(self._expansion_reference(item) for item in candidates)
+        request.capability_references.extend(references)
+        graph = ExecutionGraph(
+            nodes=tuple(
+                ExecutionNode(execution_step=ExecutionStep(capability=reference))
+                for reference in references
+            )
+        )
+        results, expansion_metrics = self._runtime.execute(
+            graph,
+            target=target,
+            overall_timeout=budget.remaining_duration,
+            required_evidence_names={item.evidence_name for item in candidates},
+            extracted_params=request.extracted_params,
+            timeframe=timeframe,
+            bound_params_out=request.bound_params,
+        )
+        budget.capabilities += expansion_metrics.recovery_attempts
+        previous_evidence = list(request.evidence)
+        self._merge(request, results)
+        request.evidence = previous_evidence + request.evidence
+        self._evidence_merge.rebuild_fact_set(request)
+        self._evidence_completeness.check(request)
+        request.evidence_expansion = candidates
+        self._apply_reasoning(request)
+        self._merge_runtime_metrics(metrics, expansion_metrics, candidates)
+        budget.stop(
+            evidence_sufficient=request.evidence_complete,
+            recoverable_path=False,
+            transport_failed=any(
+                package.capability_error is not None
+                and package.capability_error.category
+                is CapabilityErrorCategory.TRANSPORT
+                for package in request.evidence
+            ),
+        )
+
+    @staticmethod
+    def _expansion_reference(candidate: ExpansionCandidate) -> CapabilityReference:
+        return CapabilityReference(
+            name=candidate.capability,
+            evidence_name=candidate.evidence_name,
+            required=False,
+            estimated_cost=candidate.estimated_cost,
+        )
+
+    @staticmethod
+    def _merge_runtime_metrics(
+        metrics: RuntimeMetrics,
+        extra: RuntimeMetrics,
+        candidates: tuple[ExpansionCandidate, ...],
+    ) -> None:
+        old_total = metrics.total_nodes
+        new_total = old_total + extra.total_nodes
+        metrics.execution_duration += extra.execution_duration
+        metrics.total_nodes = new_total
+        metrics.successful_nodes += extra.successful_nodes
+        metrics.failed_nodes += extra.failed_nodes
+        if new_total:
+            metrics.parallel_ratio = (
+                metrics.parallel_ratio * old_total
+                + extra.parallel_ratio * extra.total_nodes
+            ) / new_total
+        metrics.tool_calls += extra.tool_calls
+        metrics.timed_out = metrics.timed_out or extra.timed_out
+        metrics.security_inspections_total += extra.security_inspections_total
+        metrics.security_inspections_passed += extra.security_inspections_passed
+        metrics.security_inspections_blocked += extra.security_inspections_blocked
+        metrics.recovery_attempts += extra.recovery_attempts
+        metrics.recovery_successes += extra.recovery_successes
+        metrics.expansion_rounds += 1
+        metrics.expanded_capabilities = tuple(
+            dict.fromkeys(
+                metrics.expanded_capabilities
+                + tuple(candidate.capability for candidate in candidates)
+            )
+        )
+
+    @staticmethod
+    def _bounded_graph(
+        graph: ExecutionGraph,
+        budget: ExecutionBudget,
+    ) -> ExecutionGraph:
+        """Fit the primary plan inside hard capability/cost limits."""
+
+        selected: list[ExecutionNode] = []
+        cost = 0.0
+        for node in graph.nodes:
+            node_cost = node.execution_step.capability.estimated_cost
+            if len(selected) >= budget.config.max_capabilities:
+                break
+            if cost + node_cost > budget.config.max_estimated_cost:
+                continue
+            selected.append(node)
+            cost += node_cost
+        selected_names = {
+            node.execution_step.capability.name for node in selected
+        }
+        bounded = tuple(
+            ExecutionNode(
+                execution_step=node.execution_step,
+                depends_on=tuple(
+                    dependency
+                    for dependency in node.depends_on
+                    if dependency in selected_names
+                ),
+            )
+            for node in selected
+        )
+        if len(bounded) < len(graph.nodes):
+            budget.stop_reason = BudgetStopReason.BUDGET_EXHAUSTED
+        return ExecutionGraph(nodes=bounded)
 
     @staticmethod
     def _clarification_field(parameter: str) -> str:

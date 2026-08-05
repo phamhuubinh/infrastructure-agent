@@ -303,9 +303,30 @@ class ExecutionTrace:
             status=StageStatus.SUCCEEDED,
             evidence_names=[pkg.evidence_name for pkg in request.evidence],
             message=(
-                "evidence collected"
-                if request.evidence_complete
-                else "evidence incomplete"
+                (
+                    "evidence collected"
+                    if request.evidence_complete
+                    else "evidence incomplete"
+                )
+                + (
+                    f"; stop={request.execution_budget.stop_reason.value}"
+                    if request.execution_budget is not None
+                    and request.execution_budget.stop_reason is not None
+                    else ""
+                )
+            ),
+        )
+
+        stages["reason"] = StageTrace(
+            name="reason",
+            status=StageStatus.SUCCEEDED,
+            findings=[
+                str(getattr(finding, "id", finding))
+                for finding in request.findings
+            ],
+            message=(
+                f"{len(request.findings)} deterministic finding(s); "
+                f"health={getattr(getattr(request.health_summary, 'status', None), 'value', 'unknown')}"
             ),
         )
 
@@ -336,6 +357,17 @@ class ExecutionTrace:
                 ),
                 "security_inspections_blocked": getattr(
                     metrics, "security_inspections_blocked", None
+                ),
+                "recovery_attempts": getattr(metrics, "recovery_attempts", None),
+                "recovery_successes": getattr(metrics, "recovery_successes", None),
+                "expansion_rounds": getattr(metrics, "expansion_rounds", None),
+                "expanded_capabilities": getattr(
+                    metrics, "expanded_capabilities", None
+                ),
+                "budget": (
+                    request.execution_budget.to_dict()
+                    if request.execution_budget is not None
+                    else None
                 ),
             }
 

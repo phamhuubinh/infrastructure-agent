@@ -2,11 +2,39 @@ from __future__ import annotations
 
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.evidence_package import EvidencePackage
+from src.pipeline.fact_set import FactSet
+from src.pipeline.health_aggregator import HealthAggregator
 from src.pipeline.investigation_request import InvestigationRequest
 from src.tool.capability_result import CapabilityStatus
+from tests.pipeline.reasoning_fact_factory import fact
 
 
 class TestDeterministicResponder:
+    def test_health_response_never_hides_active_monitoring_problem(self) -> None:
+        inv = InvestigationRequest(raw_request="check server health")
+        inv.fact_set = FactSet(
+            (
+                fact(
+                    "monitoring.problem_active",
+                    {
+                        "active": True,
+                        "name": "DHCP link down",
+                        "severity": "high",
+                    },
+                    unit="event",
+                ),
+                fact("monitoring.host_enabled", True, unit="boolean"),
+            )
+        )
+        inv.health_summary = HealthAggregator().aggregate(inv.fact_set)
+
+        result = DeterministicResponder().try_response(inv)
+
+        assert result is not None
+        assert "Critical" in result
+        assert "DHCP link down" in result
+        assert "Healthy" not in result
+
     def test_no_evidence_returns_none(self) -> None:
         inv = InvestigationRequest(raw_request="check system")
         result = DeterministicResponder().try_response(inv)

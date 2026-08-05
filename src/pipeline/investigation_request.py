@@ -11,8 +11,13 @@ from src.pipeline.routing_decision import EvidenceStatus, RoutingStatus
 
 if TYPE_CHECKING:
     from src.pipeline.capability_reference import CapabilityReference
+    from src.pipeline.evidence_completeness import EvidenceCompletenessResult
+    from src.pipeline.evidence_expander import ExpansionCandidate
+    from src.pipeline.execution_budget import ExecutionBudget
     from src.pipeline.execution_graph import ExecutionGraph
     from src.pipeline.execution_plan import ExecutionPlan
+    from src.pipeline.finding import Finding
+    from src.pipeline.health_aggregator import HealthSummary
     from src.pipeline.intent_resolver import Confidence, Intent
 
 
@@ -83,7 +88,12 @@ class InvestigationRequest:
     temporal_evidence_failures: tuple[str, ...] = ()
     fact_set: FactSet = field(default_factory=FactSet)
     contradictions: tuple[object, ...] = ()
-    evidence_completeness: object | None = None
+    evidence_completeness: EvidenceCompletenessResult | None = None
+    atomic_findings: tuple[Finding, ...] = ()
+    findings: tuple[Finding, ...] = ()
+    health_summary: HealthSummary | None = None
+    evidence_expansion: tuple[ExpansionCandidate, ...] = ()
+    execution_budget: ExecutionBudget | None = None
 
     def __post_init__(self) -> None:
         if self.request_frame is None and isinstance(

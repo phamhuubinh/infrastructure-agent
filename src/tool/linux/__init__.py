@@ -620,6 +620,17 @@ _PARAMETER_SPECS: dict[str, tuple[ParameterSpec, ...]] = {
 
 # Enrich declarations in one place. KnowledgeTool only aggregates this
 # metadata and never maintains a second capability policy table.
+_ALTERNATIVES = {
+    "get_cpu_usage": ("CPU Information",),
+    "get_system_load": ("CPU Information",),
+    "get_swap": ("Memory Information",),
+    "get_disk_usage": ("Storage Information",),
+}
+_ALTERNATIVE_ERRORS = (
+    "command_not_found",
+    "unsupported_environment",
+    "parse_error",
+)
 for _name, _capability in tuple(_CAPABILITIES.items()):
     _CAPABILITIES[_name] = replace(
         _capability,
@@ -639,6 +650,10 @@ for _name, _capability in tuple(_CAPABILITIES.items()):
         ),
         produces_facts=_PRODUCED_FACTS.get(
             _name, (f"linux.{_name.removeprefix('get_')}",)
+        ),
+        alternatives=_ALTERNATIVES.get(_name, ()),
+        recoverable_errors=(
+            _ALTERNATIVE_ERRORS if _name in _ALTERNATIVES else ()
         ),
         mutation_risk="none",
     )

@@ -278,6 +278,8 @@ class KnowledgeTool(Tool):
                 "estimated_cost": value.estimated_cost,
                 "expected_reliability": value.expected_reliability,
                 "produces_facts": list(value.produces_facts),
+                "alternatives": list(value.alternatives),
+                "recoverable_errors": list(value.recoverable_errors),
                 "mutation_risk": value.mutation_risk,
             }
 

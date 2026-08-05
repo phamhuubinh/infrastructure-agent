@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_package import EvidencePackage
+from src.pipeline.finding import Finding, FindingDecision
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 
@@ -137,6 +138,26 @@ class TestAssessmentAdapter:
         assert result.evidence[0].data["model"] == "Intel Xeon"
         assert result.evidence[1].success is False
         assert result.evidence[1].error == "Connection refused"
+
+    def test_build_carries_deterministic_findings(self) -> None:
+        inv = InvestigationRequest(raw_request="check CPU")
+        inv.findings = (
+            Finding(
+                id="finding:cpu:localhost",
+                type="cpu_saturation",
+                score=1.0,
+                decision=FindingDecision.SUPPORTED,
+                severity="critical",
+                confidence=1.0,
+                coverage=1.0,
+                maximum_observable_score=1.0,
+                maximum_possible_score=1.0,
+            ),
+        )
+
+        result = AssessmentAdapter().build(inv)
+
+        assert result.findings == inv.findings
 
 
 import pytest  # noqa: E402

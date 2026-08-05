@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,140 @@ class TargetsConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Deterministic rule config (config/rules/*.yaml)
+# ---------------------------------------------------------------------------
+
+
+class WeightedConditionConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    id: str = Field(min_length=1)
+    metric: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$")
+    operator: Literal["gt", "ge", "lt", "le", "eq", "ne"]
+    threshold: Any
+    weight: float = Field(gt=0)
+    required: bool = True
+    subject: str | None = None
+    target: str | None = None
+    max_age_seconds: float | None = Field(default=None, ge=0)
+
+
+class AtomicRuleConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    id: str = Field(min_length=1)
+    metric: str = Field(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$")
+    operator: Literal["gt", "ge", "lt", "le", "eq", "ne"]
+    threshold: float
+    severity: Literal["info", "warning", "critical"]
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    owner: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
+    source_cases: tuple[str, ...] = Field(min_length=1)
+    required_context: tuple[str, ...] = ()
+    review_status: Literal["approved"]
+
+    def to_domain(self):
+        from src.pipeline.threshold_evaluator import AtomicRule
+
+        return AtomicRule(
+            id=self.id,
+            metric=self.metric,
+            operator=self.operator,
+            threshold=self.threshold,
+            severity=self.severity,
+            version=self.version,
+            required_context=self.required_context,
+            owner=self.owner,
+            rationale=self.rationale,
+            source_cases=self.source_cases,
+        )
+
+
+class CompositeRuleConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    id: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    conditions: tuple[WeightedConditionConfig, ...] = Field(min_length=1)
+    decision_threshold: float = Field(gt=0)
+    minimum_coverage: float = Field(default=0.0, ge=0, le=1)
+    renormalize_missing: bool = False
+    severity: Literal["info", "warning", "critical"]
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    owner: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
+    source_cases: tuple[str, ...] = Field(min_length=1)
+    review_status: Literal["approved"]
+
+    @model_validator(mode="after")
+    def threshold_must_fit_total_weight(self) -> CompositeRuleConfig:
+        total = sum(condition.weight for condition in self.conditions)
+        if self.decision_threshold > total:
+            raise ValueError("decision_threshold exceeds total condition weight")
+        ids = [condition.id for condition in self.conditions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("condition ids must be unique")
+        return self
+
+    def to_domain(self):
+        from src.pipeline.composite_rule import CompositeRule, WeightedCondition
+
+        return CompositeRule(
+            id=self.id,
+            type=self.type,
+            conditions=tuple(
+                WeightedCondition(**condition.model_dump())
+                for condition in self.conditions
+            ),
+            decision_threshold=self.decision_threshold,
+            minimum_coverage=self.minimum_coverage,
+            renormalize_missing=self.renormalize_missing,
+            severity=self.severity,
+            version=self.version,
+            owner=self.owner,
+            rationale=self.rationale,
+            source_cases=self.source_cases,
+        )
+
+
+class RuleConfigFile(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    schema_version: Literal["reasoning.v1"]
+    atomic_rules: tuple[AtomicRuleConfig, ...] = ()
+    composite_rules: tuple[CompositeRuleConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def rule_ids_must_be_unique(self) -> RuleConfigFile:
+        ids = [rule.id for rule in self.atomic_rules + self.composite_rules]
+        if len(ids) != len(set(ids)):
+            raise ValueError("rule ids must be unique within a config file")
+        return self
+
+
+def load_rule_configs(path: Path | None = None) -> tuple[RuleConfigFile, ...]:
+    """Load every reviewed rule file in deterministic filename order."""
+
+    rules_dir = path or (_project_root() / "config" / "rules")
+    if not rules_dir.exists():
+        return ()
+    loaded: list[RuleConfigFile] = []
+    seen: set[str] = set()
+    for rule_path in sorted(rules_dir.glob("*.yaml")):
+        data = yaml.safe_load(rule_path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError(f"{rule_path.name} must contain a YAML object")
+        config = RuleConfigFile.model_validate(data)
+        for rule in config.atomic_rules + config.composite_rules:
+            if rule.id in seen:
+                raise ValueError(f"duplicate rule id across config files: {rule.id}")
+            seen.add(rule.id)
+        loaded.append(config)
+    return tuple(loaded)
+
+
+# ---------------------------------------------------------------------------
 # Validation entry point
 # ---------------------------------------------------------------------------
 
@@ -167,6 +302,12 @@ def validate_all_configs() -> None:
             TargetsConfig.model_validate(data)
         except Exception as exc:
             errors.append(f"targets.json: {exc}")
+
+    # --- config/rules/*.yaml ---
+    try:
+        load_rule_configs(root / "config" / "rules")
+    except Exception as exc:
+        errors.append(f"config/rules: {exc}")
 
     if errors:
         raise ConfigValidationError(errors)

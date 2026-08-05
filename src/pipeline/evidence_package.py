@@ -48,6 +48,8 @@ class EvidencePackage:
     timeframe: object | None = None
     schema_version: str = "1"
     stale: bool = False
+    recovery_attempts: tuple[dict[str, object], ...] = ()
+    recovered_by: str | None = None
 
     def __post_init__(self) -> None:
         if self.raw_data is None and self.data is not None:
@@ -128,6 +130,8 @@ class EvidencePackage:
             "collection_failures": list(self.collection_failures),
             "schema_version": self.schema_version,
             "stale": self.stale,
+            "recovery_attempts": list(self.recovery_attempts),
+            "recovered_by": self.recovered_by,
             "facts": [fact.to_dict() for fact in self.facts],
             "source_links": list(self.source_links),
         }

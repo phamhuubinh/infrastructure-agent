@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.pipeline.evidence_package import EvidencePackage
     from src.pipeline.fact import Fact
+    from src.pipeline.finding import Finding
+    from src.pipeline.health_aggregator import HealthSummary
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,3 +34,5 @@ class AssessmentRequest:
     missing_evidence: tuple[str, ...] = ()
     facts: tuple[Fact, ...] = ()
     collection_failures: tuple[str, ...] = ()
+    findings: tuple[Finding, ...] = ()
+    health_summary: HealthSummary | None = None

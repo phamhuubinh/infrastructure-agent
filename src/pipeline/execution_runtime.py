@@ -6,8 +6,14 @@ import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from src.pipeline.capability_recovery import (
+    CapabilityRecovery,
+    CapabilityRecoverySpec,
+)
+from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
+from src.pipeline.execution_plan import ExecutionStep
 from src.pipeline.parameter_binder import ParameterBinder, ParameterBindingError
 from src.pipeline.retry import RetryExecutor, RetryPolicy, is_recoverable_result
 from src.shared.execution.tool_result import ToolResult
@@ -46,6 +52,10 @@ class RuntimeMetrics:
     security_inspections_total: int = 0
     security_inspections_passed: int = 0
     security_inspections_blocked: int = 0
+    recovery_attempts: int = 0
+    recovery_successes: int = 0
+    expansion_rounds: int = 0
+    expanded_capabilities: tuple[str, ...] = ()
 
 
 class ExecutionRuntime:
@@ -325,6 +335,9 @@ class ExecutionRuntime:
             try:
                 result = fut.result(timeout=remaining_timeout)
                 metrics.tool_calls += 1
+                metrics.tool_calls += len(result.recovery_attempts)
+                metrics.recovery_attempts += len(result.recovery_attempts)
+                metrics.recovery_successes += int(result.recovered_by is not None)
                 self._record_security_metrics(metrics, result)
                 results[cap_name] = result
                 if result.success:
@@ -353,9 +366,8 @@ class ExecutionRuntime:
         bound_params_out: dict[str, dict[str, object]] | None = None,
     ) -> None:
         """Execute a batch of ready nodes in parallel."""
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=len(ready),
-        ) as executor:
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(ready))
+        try:
             future_map: dict[concurrent.futures.Future, ExecutionNode] = {}
             for node in ready:
                 future = executor.submit(
@@ -369,7 +381,7 @@ class ExecutionRuntime:
                 future_map[future] = node
                 metrics.tool_calls += 1
 
-            parallel_timeout = max(timeout_deadline - _time.perf_counter(), 1.0)
+            parallel_timeout = max(timeout_deadline - _time.perf_counter(), 0.0)
             try:
                 for future in concurrent.futures.as_completed(
                     future_map, timeout=parallel_timeout
@@ -393,6 +405,9 @@ class ExecutionRuntime:
                             capability_error=internal_error(message),
                         )
                     results[cap_name] = result
+                    metrics.tool_calls += len(result.recovery_attempts)
+                    metrics.recovery_attempts += len(result.recovery_attempts)
+                    metrics.recovery_successes += int(result.recovered_by is not None)
                     self._record_security_metrics(metrics, result)
                     if result.success:
                         record_success(cap_name)
@@ -408,6 +423,10 @@ class ExecutionRuntime:
                                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                             )
                 metrics.timed_out = True
+        finally:
+            # Context-manager shutdown waits for running calls and would violate
+            # the investigation's hard wall-clock budget after a timeout.
+            executor.shutdown(wait=False, cancel_futures=True)
 
     def _execute_node(
         self,
@@ -416,6 +435,7 @@ class ExecutionRuntime:
         extracted_params: object = None,
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
+        allow_recovery: bool = True,
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name
@@ -468,7 +488,7 @@ class ExecutionRuntime:
                 context=cap_name,
                 should_retry_result=is_recoverable_result,
             )
-            return replace(
+            result = replace(
                 result,
                 source=source,
                 source_kind=self._knowledge_tool.source_kind(source),
@@ -482,6 +502,17 @@ class ExecutionRuntime:
                 ),
                 schema_version="1",
             )
+            if allow_recovery and not result.success:
+                result = self._recover_node(
+                    cap_name,
+                    result,
+                    metadata,
+                    target=target,
+                    extracted_params=extracted_params,
+                    timeframe=timeframe,
+                    bound_params_out=bound_params_out,
+                )
+            return result
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
             message = f"KnowledgeTool dispatch failed for {cap_name}: {exc}"
             return ToolResult(
@@ -502,6 +533,90 @@ class ExecutionRuntime:
                 produced_fact_names=self._produced_fact_names(metadata),
                 schema_version="1",
             )
+
+    def _recover_node(
+        self,
+        capability_name: str,
+        result: ToolResult,
+        metadata: dict[str, object],
+        *,
+        target: str,
+        extracted_params: object,
+        timeframe: object,
+        bound_params_out: dict[str, dict[str, object]] | None,
+    ) -> ToolResult:
+        alternatives = self._metadata_strings(metadata, "alternatives")
+        recoverable_errors = self._metadata_strings(
+            metadata, "recoverable_errors"
+        )
+        specs: dict[str, CapabilityRecoverySpec] = {
+            capability_name: CapabilityRecoverySpec(
+                capability_name, alternatives, recoverable_errors
+            )
+        }
+        # Load at most one further declaration so the generic engine can use
+        # its depth-two contract without recursively expanding the runtime.
+        for name in alternatives:
+            routed = self._router.resolve_with_metadata(
+                name, self._routing_params(extracted_params, timeframe)
+            )
+            if routed is None:
+                continue
+            _, alternative_metadata = routed
+            specs[name] = CapabilityRecoverySpec(
+                name=name,
+                alternatives=self._metadata_strings(
+                    alternative_metadata, "alternatives"
+                ),
+                recoverable_errors=self._metadata_strings(
+                    alternative_metadata, "recoverable_errors"
+                ),
+            )
+
+        recovery = CapabilityRecovery(specs, max_depth=2)
+
+        def execute_alternative(name: str) -> ToolResult:
+            node = ExecutionNode(
+                execution_step=ExecutionStep(
+                    capability=CapabilityReference(
+                        name=name,
+                        evidence_name=name,
+                    )
+                )
+            )
+            return self._execute_node(
+                node,
+                target=target,
+                extracted_params=extracted_params,
+                timeframe=timeframe,
+                bound_params_out=bound_params_out,
+                allow_recovery=False,
+            )
+
+        outcome = recovery.recover(
+            capability_name,
+            result,
+            execute_alternative,
+            available_capabilities=set(self._router.available_routes()),
+        )
+        if not outcome.attempts:
+            return result
+        return replace(
+            outcome.result,
+            recovery_attempts=tuple(
+                attempt.to_dict() for attempt in outcome.attempts
+            ),
+            recovered_by=outcome.recovered_by,
+        )
+
+    @staticmethod
+    def _metadata_strings(
+        metadata: dict[str, object], key: str
+    ) -> tuple[str, ...]:
+        raw = metadata.get(key, ())
+        if not isinstance(raw, (list, tuple)):
+            return ()
+        return tuple(item for item in raw if isinstance(item, str))
 
     def validate_graph_parameters(
         self,

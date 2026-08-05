@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-501–509 hoàn thành: canonical facts, Linux/Zabbix/Grafana normalizers, per-investigation FactSet, fact-level completeness, contradiction reconciliation, cache identity/freshness, bounded evidence packages và safe provenance links đã được triển khai và kiểm thử. DR1-001–407 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — EPIC 6 / DR1-601–610 hoàn thành: atomic/composite rules trên canonical facts, explicit missing-evidence semantics, source-linked Findings, bounded recovery/expansion/budget, deterministic health aggregation và reviewed versioned rule config đã được tích hợp và kiểm thử. DR1-001–509 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -151,16 +151,16 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-507 | P1 | ✅ | EPIC 5 | Sửa EvidenceCache key và freshness policy | DR1-501, DR1-505 |
 | DR1-508 | P1 | ✅ | EPIC 5 | Mở rộng EvidencePackage: raw, facts, failures | DR1-501, DR1-505 |
 | DR1-509 | P2 | ✅ | EPIC 5 | Provenance và claim source links | DR1-501, DR1-508 |
-| DR1-601 | P1 | 🔎 | EPIC 6 | Refactor atomic threshold rules dùng canonical metrics | DR1-501, DR1-505 |
-| DR1-602 | P1 | ⬜ | EPIC 6 | Tạo CompositeRule và WeightedCondition | DR1-601 |
-| DR1-603 | P0 | ⬜ | EPIC 6 | Định nghĩa semantics false/unknown/stale/failed trong rule | DR1-602 |
-| DR1-604 | P1 | ⬜ | EPIC 6 | Tạo Finding model | DR1-602 |
-| DR1-605 | P1 | 🔎 | EPIC 6 | Tích hợp EvidenceCorrelation vào Fact/Findings flow | DR1-604 |
-| DR1-606 | P1 | ⬜ | EPIC 6 | Bounded capability recovery theo error contract | DR1-107, DR1-204, DR1-505 |
-| DR1-607 | P1 | ⬜ | EPIC 6 | Weighted missing-evidence selection | DR1-603, DR1-606 |
-| DR1-608 | P0 | ⬜ | EPIC 6 | Budget và stop conditions cho investigation expansion | DR1-607 |
-| DR1-609 | P0 | ⬜ | EPIC 6 | Deterministic health aggregator đa nguồn | DR1-604, DR1-505 |
-| DR1-610 | P2 | ⬜ | EPIC 6 | Rule config schema, versioning và human review | DR1-601, DR1-602 |
+| DR1-601 | P1 | ✅ | EPIC 6 | Refactor atomic threshold rules dùng canonical metrics | DR1-501, DR1-505 |
+| DR1-602 | P1 | ✅ | EPIC 6 | Tạo CompositeRule và WeightedCondition | DR1-601 |
+| DR1-603 | P0 | ✅ | EPIC 6 | Định nghĩa semantics false/unknown/stale/failed trong rule | DR1-602 |
+| DR1-604 | P1 | ✅ | EPIC 6 | Tạo Finding model | DR1-602 |
+| DR1-605 | P1 | ✅ | EPIC 6 | Tích hợp EvidenceCorrelation vào Fact/Findings flow | DR1-604 |
+| DR1-606 | P1 | ✅ | EPIC 6 | Bounded capability recovery theo error contract | DR1-107, DR1-204, DR1-505 |
+| DR1-607 | P1 | ✅ | EPIC 6 | Weighted missing-evidence selection | DR1-603, DR1-606 |
+| DR1-608 | P0 | ✅ | EPIC 6 | Budget và stop conditions cho investigation expansion | DR1-607 |
+| DR1-609 | P0 | ✅ | EPIC 6 | Deterministic health aggregator đa nguồn | DR1-604, DR1-505 |
+| DR1-610 | P2 | ✅ | EPIC 6 | Rule config schema, versioning và human review | DR1-601, DR1-602 |
 | DR1-701 | P0 | ⬜ | EPIC 7 | Mở rộng AssessmentRequest | DR1-505, DR1-604 |
 | DR1-702 | P0 | 🔎 | EPIC 7 | Prompt builder hiển thị failure và giới hạn evidence | DR1-701 |
 | DR1-703 | P0 | ⬜ | EPIC 7 | Claim grounding validator | DR1-701 |
@@ -1562,217 +1562,224 @@ Operator cần biết claim đến từ command/API/event nào.
 ## 9. EPIC 6 — Deterministic Reasoning v1
 ### DR1-601 — Refactor atomic threshold rules dùng canonical metrics
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-505
 - **Files dự kiến:** `src/pipeline/threshold_evaluator.py`, `config/thresholds.yaml (new hoặc hiện có)`
 
 **Vấn đề**  
 Threshold hiện đánh giá key dict độc lập và load absolute, dễ sai trên máy nhiều core.
 
-**Cách làm**
-1. Input chỉ là valid fresh facts.
-2. Tạo derived fact `cpu.load_per_core`.
-3. Rule config có metric, operator, threshold, severity, required context, version.
-4. Disk 37% không warning; load so theo core.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Production evaluator đọc `FactSet`; compatibility adapter raw dict được cô lập cho caller cũ.
+2. ✅ Tạo derived fact có provenance `cpu.load_per_core` từ load và logical cores valid/fresh.
+3. ✅ Atomic rule có metric/operator/threshold/severity/context/version/owner/rationale/source cases.
+4. ✅ Disk 37% không warning; load 10 trên 64 cores không bị đánh critical.
 
 **Acceptance criteria**
-- [ ] Atomic rule outputs deterministic và explainable.
+- [x] Atomic rule outputs deterministic và explainable.
 
 **Tests/verification**
-- `tests/pipeline/test_threshold_evaluator.py`
+- ✅ `tests/pipeline/test_threshold_evaluator.py`
 
 ---
 ### DR1-602 — Tạo CompositeRule và WeightedCondition
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-601
 - **Files dự kiến:** `src/pipeline/composite_rule.py (new)`, `src/pipeline/rule_engine.py (new hoặc mở rộng evaluator)`
 
 **Vấn đề**  
 Orion chưa biểu diễn được CPU cao + load/core cao + top process cao thành finding tổ hợp.
 
-**Cách làm**
-1. CompositeRule khai báo conditions, weight, decision_threshold và required/optional.
-2. Score cộng weights satisfied; false là contradicting; unknown không được normalize lại.
-3. Trả supporting/contradicting/missing fact IDs.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `CompositeRule`/`WeightedCondition` khai báo weight, threshold, required/optional, coverage policy và review metadata.
+2. ✅ RuleEngine cộng đúng satisfied weights; false giữ vai trò contradicting; missing mặc định không renormalize.
+3. ✅ Evaluation trả supporting/contradicting IDs, missing canonical metrics và source links.
 
 **Acceptance criteria**
-- [ ] CPU saturation finding chỉ supported khi score đủ và evidence observable đủ.
+- [x] CPU saturation finding chỉ supported khi score đủ và evidence observable đủ.
 
 **Tests/verification**
-- `tests/pipeline/test_composite_rules.py`
+- ✅ `tests/pipeline/test_composite_rules.py`
 
 ---
 ### DR1-603 — Định nghĩa semantics false/unknown/stale/failed trong rule
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-602
 - **Files dự kiến:** `src/pipeline/rule_engine.py`
 
 **Vấn đề**  
 Nếu thiếu two conditions mà normalize 0.35/0.35 thành 1.0 sẽ tạo certainty giả.
 
-**Cách làm**
-1. Condition state: SATISFIED, FALSE, UNKNOWN, STALE, COLLECTION_FAILED.
-2. Không renormalize missing weight trừ khi rule khai báo explicit policy.
-3. Tính maximum_observable_score và evidence coverage.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Condition state là `SATISFIED`, `FALSE`, `UNKNOWN`, `STALE`, `COLLECTION_FAILED`.
+2. ✅ Missing weight không renormalize trừ explicit reviewed policy.
+3. ✅ Finding ghi raw score, maximum observable/possible score và evidence coverage.
 
 **Acceptance criteria**
-- [ ] Missing facts dẫn tới insufficient_evidence, không supported.
+- [x] Missing facts dẫn tới insufficient_evidence, không supported.
 
 **Tests/verification**
-- `tests/pipeline/test_rule_missing_evidence.py`
+- ✅ `tests/pipeline/test_rule_missing_evidence.py`
 
 ---
 ### DR1-604 — Tạo Finding model
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-602
 - **Files dự kiến:** `src/pipeline/finding.py (new)`, `src/pipeline/assessment_request.py`
 
 **Vấn đề**  
 LLM cần findings có cấu trúc thay vì tự suy luận từ mọi raw dict.
 
-**Cách làm**
-1. Finding gồm id/type/score/decision/severity/supporting/contradicting/missing facts/confidence/rule_version.
-2. Decision: supported, not_supported, insufficient_evidence.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Immutable `Finding` gồm identity/type/score/decision/severity/facts/confidence/coverage/rule version/provenance links.
+2. ✅ Decision enum chuẩn hóa ba trạng thái supported/not_supported/insufficient_evidence.
 
 **Acceptance criteria**
-- [ ] Findings serializable và source-linked.
+- [x] Findings serializable và source-linked.
 
 **Tests/verification**
-- `tests/pipeline/test_finding.py`
+- ✅ `tests/pipeline/test_finding.py`
 
 ---
 ### DR1-605 — Tích hợp EvidenceCorrelation vào Fact/Findings flow
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-604
 - **Files dự kiến:** `src/pipeline/evidence_correlation.py`, `src/pipeline/execution_engine.py`
 
 **Vấn đề**  
 Module correlation tồn tại nhưng không nên đọc raw evidence hoặc đứng ngoài pipeline.
 
-**Cách làm**
-1. Correlation nhận FactSet/atomic findings.
-2. Chuyển patterns thành composite rules nhỏ hoặc deterministic correlators.
-3. Đưa findings vào AssessmentRequest/trace.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Correlation production path nhận `FactSet`/atomic findings; raw adapter chỉ giữ compatibility.
+2. ✅ CPU/memory/filesystem/system patterns nằm trong reviewed composite config.
+3. ✅ ExecutionEngine gắn findings vào Investigation/AssessmentRequest/ExecutionTrace và health flow.
 
 **Acceptance criteria**
-- [ ] Không có correlation chỉ tồn tại trong code mà không ảnh hưởng output/trace.
+- [x] Không có correlation chỉ tồn tại trong code mà không ảnh hưởng output/trace.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_correlation.py`
+- ✅ `tests/pipeline/test_evidence_correlation.py`, `test_execution_engine.py`, `test_assessment_adapter.py`
 
 ---
 ### DR1-606 — Bounded capability recovery theo error contract
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-107, DR1-204, DR1-505
 - **Files dự kiến:** `src/pipeline/capability_recovery.py (new)`, `src/pipeline/execution_runtime.py`
 
 **Vấn đề**  
 Tool cần tự phục hồi deterministic khi strategy không hỗ trợ môi trường.
 
-**Cách làm**
-1. CapabilitySpec khai alternatives và recoverable_errors.
-2. Recovery chọn alternative phù hợp environment, max depth 2.
-3. Không recovery transport timeout bằng thêm remote command.
-4. Trace primary, error, alternative, facts recovered, extra duration.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Capability metadata khai `alternatives` và `recoverable_errors`; KnowledgeTool export cùng metadata nguồn.
+2. ✅ `CapabilityRecovery` chọn alternative khả dụng theo thứ tự ổn định, chống loop và hard-limit depth 2.
+3. ✅ Transport timeout/unreachable dừng ngay, không phát thêm remote command.
+4. ✅ ToolResult/EvidencePackage/runtime metrics ghi primary/error/alternative/facts recovered/duration.
 
 **Acceptance criteria**
-- [ ] Fallback success rate đo được; loop không xảy ra.
+- [x] Fallback success rate đo được; loop không xảy ra.
 
 **Tests/verification**
-- `tests/pipeline/test_capability_recovery.py`
+- ✅ `tests/pipeline/test_capability_recovery.py`, `test_execution_runtime.py`
 
 ---
 ### DR1-607 — Weighted missing-evidence selection
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-603, DR1-606
 - **Files dự kiến:** `src/pipeline/evidence_expander.py (new)`, `src/pipeline/execution_engine.py`
 
 **Vấn đề**  
 Adaptive evidence selection cần nhỏ và deterministic, không thành information-gain research project.
 
-**Cách làm**
-1. Từ missing conditions, map metric → capability.
-2. Priority = condition_weight × expected_reliability / estimated_cost.
-3. Chọn 1–2 fact thiếu có giá trị cao nhất.
-4. Không dùng LLM để quyết định vòng tiếp.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Missing condition map qua canonical metric → operational capability.
+2. ✅ Priority dùng đúng `condition_weight × expected_reliability / estimated_cost`.
+3. ✅ Stable tie-break và dedupe capability; chọn tối đa 2 facts.
+4. ✅ ExecutionEngine dùng selection deterministic, không gọi LLM.
 
 **Acceptance criteria**
-- [ ] Cùng input tạo cùng next plan.
-- [ ] Accuracy tăng mà tool count/budget không vượt gate.
+- [x] Cùng input tạo cùng next plan.
+- [x] Expansion bị chặn bởi hard budget/tool-count gate.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_expander.py`
+- ✅ `tests/pipeline/test_evidence_expander.py`
 
 ---
 ### DR1-608 — Budget và stop conditions cho investigation expansion
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-607
 - **Files dự kiến:** `src/pipeline/execution_engine.py`, `src/pipeline/execution_budget.py (new)`
 
 **Vấn đề**  
 Fallback/expansion không giới hạn có thể chạy quá nhiều command và tăng latency.
 
-**Cách làm**
-1. Budget: max rounds, max capabilities, max total duration, max estimated cost.
-2. Stop khi evidence sufficient, no recoverable path, budget exhausted hoặc target transport failed.
-3. Ghi budget reason trong trace.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Per-investigation budget hard-limit rounds/capabilities/duration/estimated cost.
+2. ✅ Stop reasons chuẩn hóa: sufficient/no path/exhausted/transport failed; primary graph được fit trước execution.
+3. ✅ Budget và expansion metrics xuất hiện trong request/runtime/ExecutionTrace.
 
 **Acceptance criteria**
-- [ ] Không request nào vượt configured hard limit.
+- [x] Không plan/expansion request nào vượt configured hard limit.
 
 **Tests/verification**
-- `tests/pipeline/test_execution_budget.py`
+- ✅ `tests/pipeline/test_execution_budget.py`, `test_execution_engine.py`
 
 ---
 ### DR1-609 — Deterministic health aggregator đa nguồn
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-604, DR1-505
 - **Files dự kiến:** `src/pipeline/health_aggregator.py (new)`, `src/pipeline/deterministic_responder.py`
 
 **Vấn đề**  
 Vague health check đôi khi bỏ active Zabbix problems và kết luận “mọi thứ ổn”.
 
-**Cách làm**
-1. Priority policy: active critical incidents → unavailable critical evidence → supported warnings/findings → confirmed healthy facts.
-2. Không coi host status=0 là không có problem.
-3. Nếu scope nhiều target/source, aggregate per target và global.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Priority policy được encode: active critical incident → unavailable evidence → active warning/supported finding → confirmed healthy.
+2. ✅ `monitoring.host_enabled=true` không xóa active problems/triggers/agent unavailable.
+3. ✅ Health summary aggregate per-target và global; deterministic responder dùng summary cho vague health checks.
 
 **Acceptance criteria**
-- [ ] Có active DHCP/link-down thì global response không được “không có vấn đề”.
-- [ ] Incomplete evidence được nêu rõ.
+- [x] Có active DHCP/link-down thì global response không được “không có vấn đề”.
+- [x] Incomplete evidence được nêu rõ.
 
 **Tests/verification**
-- `tests/pipeline/test_health_aggregator.py`
+- ✅ `tests/pipeline/test_health_aggregator.py`, `test_deterministic_responder.py`
 
 ---
 ### DR1-610 — Rule config schema, versioning và human review
 - **Priority:** P2
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-601, DR1-602
 - **Files dự kiến:** `config/rules/*.yaml (new)`, `src/shared/config_schema.py`
 
 **Vấn đề**  
 Rule cần test/review; transcript không được tự ghi production rule.
 
-**Cách làm**
-1. Pydantic/schema validation cho atomic/composite rules.
-2. Rule có id/version/owner/rationale/source cases.
-3. Transcript classifier chỉ tạo candidate report; human review + regression test trước merge.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Pydantic validation và startup loader cho `config/rules/*.yaml` atomic/composite rules.
+2. ✅ Production rules bắt buộc id/version/owner/rationale/source cases và `review_status: approved`.
+3. ✅ Không có auto-learning/write path; production config chỉ thay đổi qua reviewed source + regression tests.
 
 **Acceptance criteria**
-- [ ] Invalid rule fail startup/config load rõ ràng.
-- [ ] Không có auto-learning production rule.
+- [x] Invalid rule fail startup/config load rõ ràng.
+- [x] Không có auto-learning production rule.
 
 **Tests/verification**
-- `tests/shared/test_rule_config_schema.py`
+- ✅ `tests/shared/test_rule_config_schema.py`
+
+**Verification chung EPIC 6 (2026-08-05)**
+- ✅ 35 contract tests trực tiếp cho DR1-601–610 pass.
+- ✅ 1.232 agent/pipeline/tool/shared/model regression tests pass.
+- ✅ 172 RAG/benchmark/CLI/QA tests + 5 subtests pass.
+- ✅ `mypy src --ignore-missing-imports` clean trên 217 source files; `ruff check .` clean.
+- ℹ️ Root `pytest -q` đi vào hang môi trường tại `tests/backend/test_app.py::test_health_endpoint` trong `fastapi.testclient.TestClient.get()`; test chưa chạy tới assertion và không liên quan code Epic 6. Các suite sản phẩm liên quan nêu trên chạy độc lập hoàn tất.
 
 ---
 

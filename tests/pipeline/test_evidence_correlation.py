@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.pipeline.evidence_correlation import EvidenceCorrelation
+from src.pipeline.fact_set import FactSet
+from src.pipeline.finding import FindingDecision
+from tests.pipeline.reasoning_fact_factory import fact
 
 
 @dataclass
@@ -44,3 +47,20 @@ def test_single_issue_no_multi_correlation() -> None:
     findings = ec.correlate([], {"CPU": "warning"})
     # Single CPU warning should not trigger a "system_overload" alone
     assert not any(f["type"] == "system_overload" for f in findings)
+
+
+def test_canonical_correlation_returns_findings_used_by_pipeline() -> None:
+    facts = FactSet(
+        (
+            fact("cpu.usage", 92.0),
+            fact("system.load_1m", 8.0, unit="load"),
+            fact("cpu.logical_cores", 4, unit="count"),
+            fact("cpu.iowait", 25.0),
+        )
+    )
+
+    findings = EvidenceCorrelation().correlate_facts(facts)
+
+    cpu = next(finding for finding in findings if finding.type == "cpu_saturation")
+    assert cpu.decision is FindingDecision.SUPPORTED
+    assert cpu.source_links

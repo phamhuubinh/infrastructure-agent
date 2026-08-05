@@ -120,6 +120,8 @@ class EvidenceMerge:
                     parameters=result.parameters,
                     timeframe=getattr(request.request_frame, "timeframe", None),
                     schema_version=result.schema_version,
+                    recovery_attempts=result.recovery_attempts,
+                    recovered_by=result.recovered_by,
                 )
             )
 

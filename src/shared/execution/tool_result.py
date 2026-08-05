@@ -30,6 +30,8 @@ class ToolResult:
     resource: str | None = None
     parameters: tuple[tuple[str, object], ...] = ()
     schema_version: str = "legacy"
+    recovery_attempts: tuple[dict[str, object], ...] = ()
+    recovered_by: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

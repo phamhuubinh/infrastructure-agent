@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from src.pipeline.health_aggregator import HealthStatus
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.temporal_evidence_guard import TemporalEvidenceGuard
 
@@ -41,6 +44,20 @@ class DeterministicResponder:
             return TemporalEvidenceGuard.refusal(temporal.failures)
 
         raw = investigation.raw_request.lower()
+        is_overall_health = any(
+            phrase in raw
+            for phrase in (
+                "health",
+                "healthy",
+                "sức khỏe",
+                "tình trạng tổng thể",
+                "kiểm tra máy",
+                "check server",
+                "check system",
+            )
+        )
+        if is_overall_health and investigation.health_summary is not None:
+            return self._health_response(investigation)
 
         # Extract params for service-specific queries.
         params = getattr(investigation, "extracted_params", None)
@@ -207,6 +224,69 @@ class DeterministicResponder:
                     return result
 
         return None
+
+    @staticmethod
+    def _health_response(investigation: InvestigationRequest) -> str:
+        summary = investigation.health_summary
+        assert summary is not None
+        status = summary.status
+        facts_by_id = {fact.id: fact for fact in investigation.fact_set}
+        if status is HealthStatus.CRITICAL:
+            incident_ids = {
+                fact_id
+                for target in summary.targets
+                for fact_id in target.active_incident_fact_ids
+            }
+            labels: list[str] = []
+            for fact_id in sorted(incident_ids):
+                fact = facts_by_id.get(fact_id)
+                value = getattr(fact, "value", None)
+                if isinstance(value, Mapping):
+                    label = value.get("name") or value.get("description")
+                    if label:
+                        labels.append(str(label))
+            finding_types = sorted(
+                {
+                    finding.type
+                    for finding in investigation.findings
+                    if finding.decision.value == "supported"
+                    and finding.severity == "critical"
+                }
+            )
+            issues = labels + finding_types
+            detail = ", ".join(issues[:10]) or "active critical incident"
+            return (
+                "## System Health: Critical\n\n"
+                f"Active issue(s) were detected: **{detail}**. "
+                "The system must not be reported as healthy while these "
+                "incidents/findings remain active."
+            )
+        if status is HealthStatus.UNAVAILABLE:
+            missing = ", ".join(summary.incomplete_evidence) or "health evidence"
+            return (
+                "## System Health: Incomplete Evidence\n\n"
+                f"Health cannot be confirmed because **{missing}** is unavailable, "
+                "stale, failed, or contradictory."
+            )
+        if status is HealthStatus.WARNING:
+            warning_types = sorted(
+                {
+                    finding.type
+                    for finding in investigation.findings
+                    if finding.decision.value == "supported"
+                }
+            )
+            return (
+                "## System Health: Warning\n\n"
+                "Supported finding(s): **"
+                + ", ".join(warning_types)
+                + "**."
+            )
+        return (
+            "## System Health: Healthy\n\n"
+            "No active monitoring incident or supported warning was found "
+            "within the complete collected evidence scope."
+        )
 
     def _check_zombie_processes(self, data: dict) -> str | None:
         zombies = _first_present(data, "zombie_count", "zombie", "zombies")
