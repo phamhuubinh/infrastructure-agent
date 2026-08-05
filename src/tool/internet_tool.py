@@ -11,6 +11,7 @@ from urllib import request
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.errors import source_api_error
 from src.tool.tool import Tool
 
 _MAX_RESPONSE_BYTES = 512 * 1024  # 512 KB
@@ -211,4 +212,9 @@ class InternetTool(Tool):
                 "InternetTool",
             )
         except (ValueError, TypeError, RuntimeError, OSError) as exc:
-            return ToolResult(success=False, error=f"InternetTool error: {exc}")
+            message = f"InternetTool error: {exc}"
+            return ToolResult(
+                success=False,
+                error=message,
+                capability_error=source_api_error(message),
+            )

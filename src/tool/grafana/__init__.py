@@ -4,6 +4,7 @@ from urllib import parse as urllib_parse
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.errors import source_api_error
 from src.tool.tool import Tool
 
 from .alerts import alert_rules
@@ -132,7 +133,12 @@ class GrafanaTool(Tool):
                 provider=api,
             )
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
-            return ToolResult(success=False, error=str(exc))
+            message = str(exc)
+            return ToolResult(
+                success=False,
+                error=message,
+                capability_error=source_api_error(message),
+            )
 
     def build_links(
         self,

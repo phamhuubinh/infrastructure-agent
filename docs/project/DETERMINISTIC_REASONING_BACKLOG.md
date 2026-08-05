@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-106 hoàn thành: command failure không còn sinh số 0/danh sách rỗng/unknown giả; prompt và deterministic responder chỉ dùng evidence VALID/VALID_EMPTY. DR1-101–105 hoàn thành trước đó: structured command/capability/evidence failure contracts.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-107 hoàn thành: taxonomy lỗi machine-readable phân biệt transport/environment/command/parameter/parser/source API/internal và retry chỉ dựa trên cờ recoverable. DR1-101–106 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -113,7 +113,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-104 | P0 | ✅ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
 | DR1-105 | P0 | ✅ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
 | DR1-106 | P0 | ✅ | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
-| DR1-107 | P1 | ⬜ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
+| DR1-107 | P1 | ✅ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
 | DR1-108 | P0 | 🔎 | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
 | DR1-201 | P0 | ⬜ | EPIC 2 | Khai báo dependency tối thiểu cho Docker runtime | DR1-101 |
 | DR1-202 | P0 | ⬜ | EPIC 2 | Làm rõ semantics của target `localhost` | DR1-201 |
@@ -677,24 +677,43 @@ Các giá trị mặc định 0/[] đang được diễn giải như phép đo t
 ---
 ### DR1-107 — Chuẩn hóa taxonomy lỗi capability
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-104
-- **Files dự kiến:** `src/tool/errors.py (new hoặc mở rộng)`, `src/pipeline/retry.py`
+- **Files:** `src/tool/errors.py (new)`, `src/tool/capability_result.py`, `src/shared/execution/tool_result.py`, `src/pipeline/{evidence_package,evidence_merge,retry,execution_runtime}.py`, Child Tool adapters
 
 **Vấn đề**  
 Fallback/retry chỉ an toàn khi error contract thống nhất.
 
-**Cách làm**
-1. Định nghĩa machine-readable error codes và `recoverable` flag.
-2. Phân biệt transport, environment, command, parameter, parser và source API errors.
-3. Document mapping backend → capability error.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Tạo immutable `CapabilityError` với code/category/message/recoverable/command_id,
+   serialization redacted và repr không chứa message; cấu trúc này truyền qua
+   CapabilityResult → ToolResult → EvidencePackage.
+2. ✅ Backend mapping dùng enum, không đọc substring: timeout và SSH unreachable recoverable;
+   command-not-found/permission/auth/unsupported/non-zero/parse không recoverable.
+3. ✅ Capability mapping phân biệt invalid parameters, unsupported environment, parse failure,
+   generic collection, internal adapter error và explicit source API error.
+4. ✅ RetryExecutor hỗ trợ result policy; ExecutionRuntime chỉ retry ToolResult có structured
+   `capability_error.recoverable=True`, giữ nguyên exception retry policy hiện hữu.
+
+| Backend/capability outcome | Error category | Recoverable |
+|---|---|---:|
+| `TIMEOUT`, `SSH_UNREACHABLE` | transport | yes |
+| `SSH_AUTH_FAILED` | transport | no |
+| `COMMAND_NOT_FOUND`, `PERMISSION_DENIED`, `UNSUPPORTED_ENVIRONMENT` | environment | no |
+| `NON_ZERO_EXIT`, generic collection failure | command | no |
+| `PARSE_ERROR` / `PARSE_FAILED` | parser | no |
+| invalid parameters | parameter | no |
+| provider/API exception | source_api | yes |
+| unexpected adapter/runtime exception | internal | no |
 
 **Acceptance criteria**
-- [ ] Không fallback dựa trên substring rời rạc ngoài adapter mapping.
-- [ ] Mỗi error code có test.
+- [x] Không fallback dựa trên substring rời rạc ngoài adapter mapping.
+- [x] Mỗi error code có test.
 
 **Tests/verification**
-- `tests/tool/test_error_mapping.py`
+- ✅ `tests/tool/test_error_mapping.py` bao phủ mọi error code và redaction.
+- ✅ Tool/Pipeline/Model regressions — 937 passed.
+- ✅ `ruff check` và focused `mypy` source chạm tới — clean.
 
 ---
 ### DR1-108 — Không cache failed/partial evidence như valid

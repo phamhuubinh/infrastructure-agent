@@ -93,6 +93,7 @@ class RetryExecutor:
         self,
         fn: Callable[[], T],
         context: str = "",
+        should_retry_result: Callable[[T], bool] | None = None,
     ) -> T:
         """Execute *fn*, retrying on transient failures.
 
@@ -110,7 +111,16 @@ class RetryExecutor:
         last_exc: Exception | None = None
         for attempt in range(1, self.policy.max_attempts + 1):
             try:
-                return fn()
+                result = fn()
+                if (
+                    should_retry_result is not None
+                    and should_retry_result(result)
+                    and attempt < self.policy.max_attempts
+                ):
+                    delay = self.policy.compute_delay(attempt)
+                    _time.sleep(delay)
+                    continue
+                return result
             except self.policy.retryable_exceptions as exc:
                 last_exc = exc
                 if attempt == self.policy.max_attempts:
@@ -123,3 +133,10 @@ class RetryExecutor:
             f" [context: {context}]" if context else ""
         )  # noqa: W503
         raise RuntimeError(msg) from last_exc
+
+
+def is_recoverable_result(result: object) -> bool:
+    """Return retry policy from a structured result, never from error text."""
+
+    error = getattr(result, "capability_error", None)
+    return bool(error is not None and getattr(error, "recoverable", False))

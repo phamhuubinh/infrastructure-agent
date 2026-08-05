@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.errors import source_api_error
 from src.tool.tool import Tool
 
 from .client import _ZabbixAPI
@@ -184,7 +185,12 @@ class ZabbixTool(Tool):
                 provider=api,
             )
         except (RuntimeError, TypeError, ValueError, OSError) as exc:
-            return ToolResult(success=False, error=str(exc))
+            message = str(exc)
+            return ToolResult(
+                success=False,
+                error=message,
+                capability_error=source_api_error(message),
+            )
 
 
 __all__ = ["ZabbixTool", "_CAPABILITIES"]

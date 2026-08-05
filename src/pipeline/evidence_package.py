@@ -5,6 +5,7 @@ from typing import Any
 
 from src.shared.execution.command_result import CommandResult
 from src.tool.capability_result import CapabilityStatus
+from src.tool.errors import CapabilityError, capability_error_from_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,7 @@ class EvidencePackage:
     warnings: tuple[str, ...] = ()
     produced_fact_names: tuple[str, ...] = ()
     collection_failures: tuple[str, ...] = ()
+    capability_error: CapabilityError | None = None
 
     def __post_init__(self) -> None:
         status = self.status
@@ -56,6 +58,16 @@ class EvidencePackage:
         )
         if not self.success and not self.collection_failures and self.error:
             object.__setattr__(self, "collection_failures", (self.error,))
+        if not self.success and self.capability_error is None:
+            object.__setattr__(
+                self,
+                "capability_error",
+                capability_error_from_status(
+                    status.value,
+                    command_results=self.command_results,
+                    message=self.error,
+                ),
+            )
 
     @property
     def valid_for_requirements(self) -> bool:

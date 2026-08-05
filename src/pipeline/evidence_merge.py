@@ -82,6 +82,7 @@ class EvidenceMerge:
                         if result.error is not None and not is_valid
                         else ()
                     ),
+                    capability_error=result.capability_error,
                 )
             )
 

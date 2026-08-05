@@ -5,6 +5,7 @@ from abc import ABC
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
+from src.tool.errors import CapabilityErrorCode
 from src.tool.tool import Tool
 
 
@@ -51,3 +52,19 @@ def test_dispatch_accepts_capability_result_failure() -> None:
     assert result.success is False
     assert result.capability_status is CapabilityStatus.COLLECTION_FAILED
     assert result.error == "collector failed"
+
+
+def test_dispatch_classifies_external_handler_exception_as_source_api() -> None:
+    def fail() -> dict[str, object]:
+        raise ConnectionError("provider unavailable")
+
+    result = DummyTool._dispatch(
+        {"collect": Capability(name="collect", handler=fail)},
+        {"action": "collect"},
+        "DummyTool",
+    )
+
+    assert result.success is False
+    assert result.capability_error is not None
+    assert result.capability_error.code is CapabilityErrorCode.SOURCE_API_ERROR
+    assert result.capability_error.recoverable is True

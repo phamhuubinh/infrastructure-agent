@@ -8,6 +8,7 @@ from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error, info
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
+from src.tool.errors import internal_error
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
@@ -600,11 +601,13 @@ class LinuxTool(Tool):
                 host=host,
                 message="Failed",
             )
+            message = f"Error executing capability '{action}': {exc}"
             return ToolResult(
                 success=False,
-                error=f"Error executing capability '{action}': {exc}",
+                error=message,
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 command_results=tuple(command_results),
+                capability_error=internal_error(message),
             )
 
         # Legacy tuple adapters cannot declare intentional fallback attempts.

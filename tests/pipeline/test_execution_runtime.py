@@ -9,6 +9,8 @@ from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph
 from src.pipeline.execution_plan import ExecutionStep
 from src.pipeline.execution_runtime import ExecutionRuntime
+from src.pipeline.retry import RetryExecutor, RetryPolicy
+from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
@@ -589,6 +591,63 @@ class TestMockedExecution:
         assert "System Information" in results
         assert results["System Information"].success is False
         assert results["System Information"].error == "mock error"
+
+    def test_retries_only_recoverable_capability_failure(self) -> None:
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.side_effect = [
+            ToolResult(
+                success=False,
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+                command_results=(CommandResult(status=CommandStatus.TIMEOUT),),
+            ),
+            ToolResult(success=True, data={"hostname": "recovered"}),
+        ]
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        retry = RetryExecutor(
+            RetryPolicy(max_attempts=3, backoff_base=0, backoff_max=0, jitter=0)
+        )
+        runtime = ExecutionRuntime(
+            knowledge_tool=mock_kt,
+            router=router,
+            retry_executor=retry,
+        )
+
+        results, _ = runtime.execute(
+            _graph_from_steps([_step("System Information")])
+        )
+
+        assert results["System Information"].success is True
+        assert mock_kt.execute.call_count == 2
+
+    def test_does_not_retry_nonrecoverable_capability_failure(self) -> None:
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(
+            success=False,
+            capability_status=CapabilityStatus.COLLECTION_FAILED,
+            command_results=(
+                CommandResult(status=CommandStatus.PERMISSION_DENIED),
+            ),
+        )
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        retry = RetryExecutor(
+            RetryPolicy(max_attempts=3, backoff_base=0, backoff_max=0, jitter=0)
+        )
+        runtime = ExecutionRuntime(
+            knowledge_tool=mock_kt,
+            router=router,
+            retry_executor=retry,
+        )
+
+        results, _ = runtime.execute(
+            _graph_from_steps([_step("System Information")])
+        )
+
+        assert results["System Information"].success is False
+        assert mock_kt.execute.call_count == 1
 
     def test_timeout_returns_partial_results(self) -> None:
         """When a single node exceeds overall_timeout, partial results returned."""

@@ -7,6 +7,7 @@ import pytest
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
+from src.tool.errors import CapabilityErrorCode
 
 
 def test_valid_and_valid_empty_are_distinct_successes() -> None:
@@ -35,6 +36,8 @@ def test_failed_command_cannot_be_wrapped_as_success() -> None:
     assert result.success is False
     assert result.data is None
     assert result.command_results == (command,)
+    assert result.capability_error is not None
+    assert result.capability_error.code is CapabilityErrorCode.NON_ZERO_EXIT
 
 
 def test_mixed_command_outcomes_preserve_partial_data() -> None:
@@ -51,6 +54,8 @@ def test_mixed_command_outcomes_preserve_partial_data() -> None:
     assert result.status is CapabilityStatus.PARTIAL
     assert result.success is False
     assert result.data == {"value": "valid"}
+    assert result.capability_error is not None
+    assert result.capability_error.code is CapabilityErrorCode.TIMEOUT
 
 
 def test_tool_result_maps_capability_status_without_losing_commands() -> None:
@@ -67,6 +72,7 @@ def test_tool_result_maps_capability_status_without_losing_commands() -> None:
     assert result.capability_status is CapabilityStatus.UNSUPPORTED
     assert result.command_results == (command,)
     assert result.error == "unsupported"
+    assert result.capability_error is capability.capability_error
 
 
 def test_capability_result_is_immutable() -> None:

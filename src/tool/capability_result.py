@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Any
 
 from src.shared.execution.command_result import CommandResult
+from src.tool.errors import CapabilityError, capability_error_from_status
 
 
 class CapabilityStatus(str, Enum):
@@ -33,6 +34,19 @@ class CapabilityResult:
     warnings: tuple[str, ...] = ()
     produced_fact_names: tuple[str, ...] = ()
     error: str | None = None
+    capability_error: CapabilityError | None = None
+
+    def __post_init__(self) -> None:
+        if self.capability_error is None and not self.success:
+            object.__setattr__(
+                self,
+                "capability_error",
+                capability_error_from_status(
+                    self.status.value,
+                    command_results=self.command_results,
+                    message=self.error,
+                ),
+            )
 
     @property
     def success(self) -> bool:

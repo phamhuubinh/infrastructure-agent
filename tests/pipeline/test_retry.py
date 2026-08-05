@@ -6,7 +6,10 @@ import time as _time
 
 import pytest
 
-from src.pipeline.retry import RetryExecutor, RetryPolicy
+from src.pipeline.retry import RetryExecutor, RetryPolicy, is_recoverable_result
+from src.shared.execution.command_result import CommandResult, CommandStatus
+from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 
 # ---------------------------------------------------------------------------
 # RetryPolicy
@@ -133,6 +136,54 @@ class TestRetryExecutorSuccess:
         executor = RetryExecutor(policy)
         assert executor.policy.max_attempts == 5
         assert executor.policy.backoff_base == 0.5
+
+    def test_retries_recoverable_structured_result(self) -> None:
+        call_count = [0]
+
+        def flaky_result() -> ToolResult:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return ToolResult(
+                    success=False,
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
+                    command_results=(CommandResult(status=CommandStatus.TIMEOUT),),
+                )
+            return ToolResult(success=True, data={"ok": True})
+
+        executor = RetryExecutor(
+            RetryPolicy(max_attempts=3, backoff_base=0, backoff_max=0, jitter=0)
+        )
+        result = executor.execute(
+            flaky_result,
+            should_retry_result=is_recoverable_result,
+        )
+
+        assert result.success is True
+        assert call_count[0] == 2
+
+    def test_does_not_retry_nonrecoverable_structured_result(self) -> None:
+        call_count = [0]
+
+        def denied_result() -> ToolResult:
+            call_count[0] += 1
+            return ToolResult(
+                success=False,
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+                command_results=(
+                    CommandResult(status=CommandStatus.PERMISSION_DENIED),
+                ),
+            )
+
+        executor = RetryExecutor(
+            RetryPolicy(max_attempts=3, backoff_base=0, backoff_max=0, jitter=0)
+        )
+        result = executor.execute(
+            denied_result,
+            should_retry_result=is_recoverable_result,
+        )
+
+        assert result.success is False
+        assert call_count[0] == 1
 
 
 class TestRetryExecutorFailure:

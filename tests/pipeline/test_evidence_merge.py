@@ -4,8 +4,10 @@ from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.investigation_request import InvestigationRequest
+from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
+from src.tool.errors import CapabilityErrorCode
 
 
 class TestEvidenceMerge:
@@ -55,6 +57,27 @@ class TestEvidenceMerge:
         assert pkg.data is None
         assert pkg.success is False
         assert pkg.error == "Timeout"
+
+    def test_structured_error_propagates_to_evidence(self) -> None:
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = [
+            CapabilityReference(name="CPU Information", evidence_name="CPU"),
+        ]
+        results = {
+            "CPU Information": ToolResult(
+                success=False,
+                error="timed out",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+                command_results=(CommandResult(status=CommandStatus.TIMEOUT),),
+            ),
+        }
+
+        EvidenceMerge().merge(req, results)
+
+        pkg = req.evidence[0]
+        assert pkg.capability_error is not None
+        assert pkg.capability_error.code is CapabilityErrorCode.TIMEOUT
+        assert pkg.capability_error.recoverable is True
 
     def test_multiple_capabilities(self) -> None:
         req = InvestigationRequest(raw_request="test")

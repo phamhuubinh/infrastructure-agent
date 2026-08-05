@@ -226,9 +226,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-104 ✅ complete**: Child Tool dispatch now supports immutable `CapabilityResult`/`CapabilityStatus` (`VALID`, `VALID_EMPTY`, `PARTIAL`, collection/unsupported/parameter/parse failures), retains command results/warnings/fact names, and wraps legacy payload handlers without turning structured failures into success.
 - **DR1-105 ✅ complete**: capability status, command results, warnings, produced-fact names, and collection failures now propagate through `ToolResult` and `EvidencePackage`; partial payloads remain inspectable but only `VALID`/`VALID_EMPTY` evidence satisfies requirements.
 - **DR1-106 ✅ complete**: Linux command failures, including legacy tuple backends, can no longer become zero/empty/unknown measurements; core collectors omit unavailable facts, prompt summaries do not invent defaults, and deterministic responses require `VALID`/`VALID_EMPTY` evidence plus the specific fact needed for a claim.
+- **DR1-107 ✅ complete**: capability failures now carry machine-readable code/category/recoverable metadata across capability, tool, and evidence boundaries; backend enum mappings distinguish transport/environment/command/parameter/parser/source-API/internal failures, and runtime result retries use only the structured recoverable flag.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-106 complete: failure-to-zero/default-empty removed; DR1-101–105 and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-107 complete: structured error taxonomy and recoverable retry policy; DR1-101–106 and DR1-001–006 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

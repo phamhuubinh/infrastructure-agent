@@ -8,10 +8,11 @@ from dataclasses import dataclass
 
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
-from src.pipeline.retry import RetryExecutor, RetryPolicy
+from src.pipeline.retry import RetryExecutor, RetryPolicy, is_recoverable_result
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import warning as _warning
 from src.tool.capability_result import CapabilityStatus
+from src.tool.errors import internal_error
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -364,10 +365,12 @@ class ExecutionRuntime:
                         OSError,
                         concurrent.futures.CancelledError,
                     ) as exc:
+                        message = f"Execution runtime error: {exc}"
                         result = ToolResult(
                             success=False,
-                            error=f"Execution runtime error: {exc}",
+                            error=message,
                             capability_status=CapabilityStatus.COLLECTION_FAILED,
+                            capability_error=internal_error(message),
                         )
                     results[cap_name] = result
                     if result.success:
@@ -416,10 +419,13 @@ class ExecutionRuntime:
             return self._retry.execute(
                 lambda: self._knowledge_tool.execute(arguments),
                 context=cap_name,
+                should_retry_result=is_recoverable_result,
             )
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
+            message = f"KnowledgeTool dispatch failed for {cap_name}: {exc}"
             return ToolResult(
                 success=False,
-                error=f"KnowledgeTool dispatch failed for {cap_name}: {exc}",
+                error=message,
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
+                capability_error=internal_error(message),
             )
