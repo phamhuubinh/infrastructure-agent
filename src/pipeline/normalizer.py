@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from src.pipeline.semantic_request import SemanticRequest
+from src.pipeline.answer_type import AnswerTypeClassifier
+from src.pipeline.parameter_extractor import ParameterExtractor
+from src.pipeline.request_frame import RequestFrame
+from src.pipeline.semantic_candidate_retriever import (
+    SemanticCandidateRetriever,
+    normalize_lexical_text,
+)
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState
@@ -53,8 +59,14 @@ class Normalizer:
         """
         from src.shared.pipeline_state import StateUpdate
 
-        semantic = self.normalize(state.user_request)
-        update: StateUpdate = {"semantic_request": semantic}
+        frame = self.normalize(state.user_request)
+        update: StateUpdate = {
+            "request_frame": frame,
+            # Compatibility field: both names point to the same canonical frame.
+            "semantic_request": frame,
+            "extracted_params": frame.parameters,
+            "answer_type": frame.answer_type,
+        }
         return update
 
     def __init__(self, config_path: str | None = None) -> None:
@@ -72,6 +84,10 @@ class Normalizer:
         self._loaded = False
         self._concept_map: dict[str, dict[str, object]] = {}
         self._action_map: dict[str, dict[str, object]] = {}
+        self._concept_aliases: dict[str, set[str]] = {}
+        self._action_aliases: dict[str, set[str]] = {}
+        self._concept_retriever: SemanticCandidateRetriever | None = None
+        self._action_retriever: SemanticCandidateRetriever | None = None
 
     def _ensure_loaded(self) -> None:
         """Lazy-load the concepts YAML config."""
@@ -96,13 +112,16 @@ class Normalizer:
                     continue
                 synonyms = meta.get("synonyms", [])
                 for syn in synonyms:
-                    syn_lower = str(syn).lower().strip()
+                    syn_lower = normalize_lexical_text(str(syn))
                     if syn_lower:
                         self._concept_map[syn_lower] = {
                             "concept": concept_name,
                             "category": meta.get("category", ""),
                             "display": meta.get("display", concept_name),
                         }
+                        self._concept_aliases.setdefault(concept_name, set()).add(
+                            syn_lower
+                        )
 
         actions = data.get("actions", {})
         for action_name, meta in actions.items():
@@ -110,55 +129,173 @@ class Normalizer:
                 continue
             synonyms = meta.get("synonyms", [])
             for syn in synonyms:
-                syn_lower = str(syn).lower().strip()
+                syn_lower = normalize_lexical_text(str(syn))
                 if syn_lower:
                     self._action_map[syn_lower] = {
                         "action": action_name,
                     }
+                    self._action_aliases.setdefault(action_name, set()).add(
+                        syn_lower
+                    )
 
-    def normalize(self, user_request: str) -> SemanticRequest:
-        """Convert raw user text into a SemanticRequest.
+        self._concept_retriever = SemanticCandidateRetriever(self._concept_aliases)
+        self._action_retriever = SemanticCandidateRetriever(self._action_aliases)
+
+    def normalize(self, user_request: str) -> RequestFrame:
+        """Convert raw user text into the canonical RequestFrame.
 
         Args:
             user_request: The raw user input string.
 
         Returns:
-            A SemanticRequest with concept, action, confidence, and
-            matched synonyms.  Falls back to concept="machine",
+            A RequestFrame with concepts, operation, confidence, and
+            match evidence. Falls back to concept="machine",
             action="inspect" when nothing matches.
         """
         if not user_request or not user_request.strip():
-            return SemanticRequest(
-                concept=_DEFAULT_CONCEPT,
-                action=_DEFAULT_ACTION,
+            params = ParameterExtractor().extract(user_request)
+            return RequestFrame(
+                raw_request=user_request,
+                concepts=(_DEFAULT_CONCEPT,),
+                operation=_DEFAULT_ACTION,
+                parameters=params,
+                answer_type=AnswerTypeClassifier().classify(user_request),
                 confidence=0.0,
-                matched_synonyms=[],
             )
 
         self._ensure_loaded()
-        tokens = self._tokenize(user_request.lower())
+        normalized_text = normalize_lexical_text(user_request)
+        tokens = self._tokenize(normalized_text)
 
-        concept, concept_syns = self._match_best(tokens, self._concept_map, "concept")
+        concept_matches = self._match_all(tokens, self._concept_map, "concept")
         action, action_syns = self._match_best(tokens, self._action_map, "action")
 
-        if concept is None:
-            concept = _DEFAULT_CONCEPT
+        concept_candidates = (
+            self._concept_retriever.retrieve(normalized_text)
+            if self._concept_retriever is not None
+            else ()
+        )
+        action_candidates = (
+            self._action_retriever.retrieve(normalized_text)
+            if self._action_retriever is not None
+            else ()
+        )
+        ambiguity: list[str] = []
+
+        # A strong typo for a specific subsystem can disambiguate a generic
+        # exact word such as "version" ("kernl version" -> kernel, not package).
+        if (
+            len(concept_matches) == 1
+            and concept_matches[0][0] == "package"
+            and concept_candidates
+        ):
+            specific_fuzzy = next(
+                (
+                    candidate
+                    for candidate in concept_candidates
+                    if candidate.source == "lexical_fuzzy"
+                    and candidate.score >= 0.80
+                    and self._CONCEPT_PRIORITY.get(candidate.label, 0)
+                    > self._CONCEPT_PRIORITY["package"]
+                ),
+                None,
+            )
+            if specific_fuzzy is not None:
+                concept_matches = [
+                    (specific_fuzzy.label, specific_fuzzy.matched_text)
+                ]
+
+        if not concept_matches and self._concept_retriever is not None:
+            validation = self._concept_retriever.validate(
+                concept_candidates,
+                threshold=0.72,
+                margin_threshold=0.08,
+            )
+            if validation.accepted and validation.candidate is not None:
+                concept_matches = [
+                    (validation.candidate.label, validation.candidate.matched_text)
+                ]
+            elif validation.reason == "ambiguous_margin":
+                ambiguity.append("concept")
+
+        if action is None and self._action_retriever is not None:
+            validation = self._action_retriever.validate(
+                action_candidates,
+                threshold=0.70,
+                margin_threshold=0.06,
+            )
+            if validation.accepted and validation.candidate is not None:
+                action = validation.candidate.label
+                action_syns = [validation.candidate.matched_text]
+            elif validation.reason == "ambiguous_margin":
+                ambiguity.append("operation")
+
+        # Explicit subsystem concepts are canonical. A generic machine match
+        # is retained only when no more specific concept was mentioned.
+        has_specific = any(
+            self._CONCEPT_PRIORITY.get(concept, 0) >= 3
+            for concept, _ in concept_matches
+        )
+        if has_specific:
+            generic_matches = {
+                "service": {
+                    "service",
+                    "services",
+                    "running",
+                    "dang chay",
+                    "trang thai",
+                },
+                "package": {
+                    "version",
+                    "phien ban",
+                    "installed",
+                    "cai dat",
+                },
+            }
+            concept_matches = [
+                (concept, synonym)
+                for concept, synonym in concept_matches
+                if synonym not in generic_matches.get(concept, set())
+            ]
+        concepts = [concept for concept, _ in concept_matches]
+        if len(concepts) > 1 and _DEFAULT_CONCEPT in concepts:
+            concepts = [concept for concept in concepts if concept != _DEFAULT_CONCEPT]
+            concept_matches = [
+                item for item in concept_matches if item[0] != _DEFAULT_CONCEPT
+            ]
+        if not concepts:
+            concepts = [_DEFAULT_CONCEPT]
+
         if action is None:
             action = _DEFAULT_ACTION
 
+        concept_syns = [synonym for _, synonym in concept_matches]
         all_syns = concept_syns + action_syns
         # Confidence: fraction of found synonym groups.
         # 2 groups (concept + action) → 1.0 if both found, 0.5 if one found.
         confidence = (len(concept_syns) > 0) * 0.5 + (len(action_syns) > 0) * 0.5
 
         target_raw = self._extract_target(user_request)
+        params = ParameterExtractor().extract(user_request)
+        answer_type = AnswerTypeClassifier().classify(
+            user_request,
+            concepts=tuple(concepts),
+            operation=action,
+        )
 
-        return SemanticRequest(
-            concept=concept,
-            action=action,
+        return RequestFrame(
+            raw_request=user_request,
+            concepts=tuple(concepts),
+            operation=action,
             target_raw=target_raw,
+            parameters=params,
+            answer_type=answer_type,
+            timeframe=getattr(params, "time_range", None),
             confidence=confidence,
-            matched_synonyms=all_syns,
+            ambiguity=tuple(ambiguity),
+            lexical_tokens=tuple(tokens),
+            matched_synonyms=tuple(all_syns),
+            concept_candidates=concept_candidates,
         )
 
     # ------------------------------------------------------------------
@@ -228,32 +365,13 @@ class Normalizer:
         action-level single-word synonyms (e.g. "check" → inspect)
         can both match from the same input.
         """
-        words = text.split()
-        tokens: list[str] = []
-        skip_count = 0
-        for i, word in enumerate(words):
-            if skip_count > 0:
-                skip_count -= 1
-                continue
-            found_phrase = False
-            # Try 3-word phrase first.
-            if i + 2 < len(words):
-                phrase3 = f"{word} {words[i + 1]} {words[i + 2]}"
-                if phrase3 in Normalizer._PHRASES:
-                    tokens.append(phrase3)
-                    skip_count = 2
-                    found_phrase = True
-            # Try 2-word phrase.
-            if not found_phrase and i + 1 < len(words):
-                phrase2 = f"{word} {words[i + 1]}"
-                if phrase2 in Normalizer._PHRASES:
-                    tokens.append(phrase2)
-                    skip_count = 1
-                    found_phrase = True
-            # Always also emit the individual cleaned word.
-            cleaned = word.strip(",.!?;:'\"()[]{}<>")
-            if cleaned:
-                tokens.append(cleaned)
+        words = [word for word in normalize_lexical_text(text).split() if word]
+        tokens: list[str] = list(words)
+        for size in (2, 3, 4):
+            tokens.extend(
+                " ".join(words[index : index + size])
+                for index in range(len(words) - size + 1)
+            )
         return tokens
 
     # ------------------------------------------------------------------
@@ -279,6 +397,7 @@ class Normalizer:
         "kernel": 3,
         "uptime": 3,
         "load": 3,
+        "performance": 3,
         # System concepts.
         "service": 2,
         "process": 2,
@@ -334,6 +453,31 @@ class Normalizer:
         value = str(lookup[best_syn].get(field, ""))
         return value, [best_syn]
 
+    def _match_all(
+        self,
+        tokens: list[str],
+        lookup: dict[str, dict[str, object]],
+        field: str,
+    ) -> list[tuple[str, str]]:
+        """Return one strongest exact synonym for every explicit concept."""
+        best: dict[str, str] = {}
+        for synonym, metadata in lookup.items():
+            if synonym not in tokens:
+                continue
+            label = str(metadata.get(field, ""))
+            current = best.get(label)
+            if current is None or len(synonym) > len(current):
+                best[label] = synonym
+        token_positions = {token: index for index, token in enumerate(tokens)}
+        return sorted(
+            best.items(),
+            key=lambda item: (
+                token_positions.get(item[1], len(tokens)),
+                -self._CONCEPT_PRIORITY.get(item[0], self._DEFAULT_CONCEPT_PRIORITY),
+                item[0],
+            ),
+        )
+
     # ------------------------------------------------------------------
     # Target extraction
     # ------------------------------------------------------------------
@@ -352,10 +496,13 @@ class Normalizer:
         # Preposition markers: "on <X>", "for <X>", "at <X>", "from <X>",
         # "trên <X>", "của <X>"
         pattern = re.compile(
-            r"(?:on|for|at|from|trên|của)\s+([a-z0-9_-]{2,30})",
+            r"\b(?:on|for|at|from|trên|của)\s+([a-z0-9_-]{2,30})",
             re.IGNORECASE,
         )
         match = pattern.search(raw)
         if match:
-            return match.group(1).strip()
+            candidate = match.group(1).strip()
+            if candidate.casefold() in {"server", "host", "machine", "máy"}:
+                return None
+            return candidate
         return None

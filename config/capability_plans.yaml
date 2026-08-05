@@ -118,6 +118,22 @@ plans:
     summarize:
       - CPU
 
+  performance:
+    inspect:
+      - CPU
+      - Memory
+      - Storage
+    diagnose:
+      - CPU
+      - Memory
+      - Storage
+      - Processes
+      - Network
+    summarize:
+      - CPU
+      - Memory
+      - Storage
+
   alerts:
     inspect:
       - Active Problems

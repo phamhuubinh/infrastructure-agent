@@ -16,6 +16,13 @@ from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.request_frame import RequestFrame
+from src.pipeline.routing_decision import (
+    EvidenceStatus,
+    RoutingClarificationError,
+    RoutingDecision,
+    RoutingStatus,
+)
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.execution.tool_result import ToolResult
 from src.tool.knowledge_tool import KnowledgeTool
@@ -82,9 +89,7 @@ class ExecutionEngine:
         Returns:
             A PipelineState with all accumulated fields.
         """
-        from src.pipeline.answer_type import AnswerTypeClassifier
         from src.pipeline.normalizer import Normalizer
-        from src.pipeline.parameter_extractor import ParameterExtractor
         from src.pipeline.tool_selector import ToolSelector
         from src.shared.pipeline_state import PipelineState
 
@@ -99,19 +104,31 @@ class ExecutionEngine:
         update = self._intent_resolver.resolve_state(state)
         state = state.apply(update)
 
-        # Phase 6: Extract parameters
-        param_extractor = ParameterExtractor()
-        state = state.apply({"extracted_params": param_extractor.extract(user_request)})
-
-        # Phase 6: Classify answer type
-        classifier = AnswerTypeClassifier()
-        state = state.apply({"answer_type": classifier.classify(user_request)})
+        if state.routing_status is RoutingStatus.CLARIFICATION_REQUIRED:
+            frame = state.request_frame
+            labels = tuple(
+                str(getattr(candidate, "label", candidate))
+                for candidate in getattr(frame, "concept_candidates", ())[:3]
+            )
+            raise RoutingClarificationError(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=frame,
+                    reason="ambiguous request semantics",
+                    missing_field=(frame.ambiguity[0] if frame.ambiguity else "concept"),
+                    candidates=labels,
+                )
+            )
 
         # Phase 6: Select tool
         tool_selector = ToolSelector()
-        semantic = state.semantic_request
+        semantic = state.request_frame
         state = state.apply(
-            {"selected_tool": tool_selector.select(user_request, semantic.concept)}
+            {
+                "selected_tool": tool_selector.select(
+                    semantic.raw_request, semantic.concept
+                )
+            }
         )
 
         # Stage 2: Resolve target
@@ -126,7 +143,7 @@ class ExecutionEngine:
         state = state.apply(update)
 
         # Phase 6: Augment with CapabilityPlanner
-        semantic = state.semantic_request
+        semantic = state.request_frame
         if semantic.confidence >= 0.4:
             planned_names = set(self._capability_planner.plan(semantic))
             if planned_names:
@@ -147,6 +164,15 @@ class ExecutionEngine:
             confidence=state.confidence,
             matched_keywords=state.matched_keywords,
             target=state.target or None,
+            request_frame=state.request_frame,
+            semantic_request=state.request_frame,
+            intent_candidates=state.intent_candidates,
+            intent_score=state.intent_score,
+            intent_margin=state.intent_margin,
+            target_candidates=state.target_candidates,
+            target_score=state.target_score,
+            target_margin=state.target_margin,
+            routing_status=state.routing_status,
             required_evidence=list(state.required_evidence),
             optional_evidence=list(state.optional_evidence),
             capability_references=list(state.capability_references),
@@ -188,10 +214,12 @@ class ExecutionEngine:
 
         # Completeness check
         self._evidence_completeness.check(temp_req)
+        evidence_status = self._evidence_status(temp_req)
         state = state.apply(
             {
                 "evidence_complete": temp_req.evidence_complete,
                 "missing_evidence": temp_req.missing_evidence,
+                "evidence_status": evidence_status,
             }
         )
 
@@ -208,7 +236,7 @@ class ExecutionEngine:
 
         return state
 
-    def execute(self, user_request: str) -> InvestigationRequest:
+    def execute(self, user_request: str | RequestFrame) -> InvestigationRequest:
         """Execute a full 6-stage investigation from request to evidence.
 
         Stage 0: Normalize → SemanticRequest (language only, no capabilities).
@@ -222,31 +250,37 @@ class ExecutionEngine:
         from src.pipeline.normalizer import Normalizer
 
         normalizer = Normalizer()
-        semantic = normalizer.normalize(user_request)
-
-        # Stage 1: Resolve intent using the classic keyword-based resolver.
-        request = self._intent_resolver.resolve(user_request)
-
-        # Attach the semantic request to the investigation for downstream use.
-        request.semantic_request = semantic
-
-        # Phase 6: Extract parameters from the user request.
-        from src.pipeline.parameter_extractor import ParameterExtractor
-
-        param_extractor = ParameterExtractor()
-        request.extracted_params = param_extractor.extract(user_request)
-
-        # Phase 6: Classify answer type.
-        from src.pipeline.answer_type import AnswerTypeClassifier
-
-        classifier = AnswerTypeClassifier()
-        request.answer_type = classifier.classify(user_request)
+        semantic = (
+            user_request
+            if isinstance(user_request, RequestFrame)
+            else normalizer.normalize(user_request)
+        )
+        # Stage 1: Resolve intent from the same canonical frame.
+        request = self._intent_resolver.resolve(semantic)
+        if request.routing_status is RoutingStatus.CLARIFICATION_REQUIRED:
+            labels = tuple(
+                str(getattr(candidate, "label", candidate))
+                for candidate in semantic.concept_candidates[:3]
+            )
+            raise RoutingClarificationError(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=semantic,
+                    reason="ambiguous request semantics",
+                    missing_field=(
+                        semantic.ambiguity[0] if semantic.ambiguity else "concept"
+                    ),
+                    candidates=labels,
+                )
+            )
 
         # Phase 6: Select tool for evidence collection.
         from src.pipeline.tool_selector import ToolSelector
 
         tool_selector = ToolSelector()
-        request.selected_tool = tool_selector.select(user_request, semantic.concept)
+        request.selected_tool = tool_selector.select(
+            semantic.raw_request, semantic.concept
+        )
 
         # Stage 2: Resolve target.
         self._target_resolver.resolve(request)
@@ -306,6 +340,7 @@ class ExecutionEngine:
         self._merge(request, results)
         request.evidence = cached_evidence + request.evidence
         self._evidence_completeness.check(request)
+        request.evidence_status = self._evidence_status(request)
 
         # Phase 6: Cache collected evidence for reuse across turns.
         if self._evidence_cache is not None:
@@ -319,6 +354,14 @@ class ExecutionEngine:
         request.runtime_metrics = metrics
 
         return request
+
+    @staticmethod
+    def _evidence_status(request: InvestigationRequest) -> EvidenceStatus:
+        if request.evidence_complete:
+            return EvidenceStatus.SUFFICIENT
+        if any(package.valid_for_requirements for package in request.evidence):
+            return EvidenceStatus.PARTIAL
+        return EvidenceStatus.UNAVAILABLE
 
     def _without_cached_nodes(
         self,

@@ -11,8 +11,10 @@ from src.model.protocol.prompt_builder_v2 import (
     _normalize_evidence,
     build_assessment_prompt,
 )
+from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.clarification_responder import ClarificationResponder
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_trace import (
@@ -21,10 +23,16 @@ from src.pipeline.execution_trace import (
     LLMUsageReason,
     now_ms,
 )
-from src.pipeline.intent_resolver import Confidence, Intent
+from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
-from src.pipeline.target_resolver import UnknownTargetError
+from src.pipeline.routing_decision import (
+    EvidenceStatus,
+    RoutingClarificationError,
+    RoutingDecision,
+    RoutingStatus,
+)
+from src.pipeline.target_resolver import AmbiguousTargetError, UnknownTargetError
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
 
@@ -56,6 +64,7 @@ class DeterministicAgent:
         self._assessment_model = assessment_model
         self._assessment_adapter = AssessmentAdapter()
         self._deterministic_responder = DeterministicResponder()
+        self._clarification_responder = ClarificationResponder()
         self._conversation_store = conversation_store
         self._evidence_cache = evidence_cache
         if self._conversation_store:
@@ -97,19 +106,45 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
-        if not self._should_pipeline(user_request):
+        decision = self._route_request(user_request)
+        if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
+        if decision.status in {
+            RoutingStatus.CLARIFICATION_REQUIRED,
+            RoutingStatus.UNSUPPORTED,
+        }:
+            return self._clarification_responder.respond(decision)
 
         try:
-            investigation = self._execution_engine.execute(user_request)
+            investigation = self._execution_engine.execute(decision.request_frame)
             return self._assess(user_request, investigation)
+        except RoutingClarificationError as exc:
+            return self._clarification_responder.respond(exc.decision)
+        except AmbiguousTargetError as exc:
+            return self._clarification_responder.respond(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=decision.request_frame,
+                    reason=str(exc),
+                    missing_field="target",
+                    candidates=exc.candidates,
+                )
+            )
         except UnknownTargetError as exc:
             _warning(
                 "agent",
                 error=str(exc)[:200],
                 message="Unknown target, not falling back to chat",
             )
-            return str(exc)
+            return self._clarification_responder.respond(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=decision.request_frame,
+                    reason=str(exc),
+                    missing_field="target",
+                    candidates=tuple(exc.available),
+                )
+            )
         except (ValueError, TypeError) as exc:
             _warning(
                 "agent",
@@ -119,13 +154,12 @@ class DeterministicAgent:
             logging.getLogger("agent").error("Pipeline failed", exc_info=True)
             raise
         except Exception as exc:
-            _warning(
-                "agent",
-                error=str(exc)[:200],
-                message="Pipeline failed, falling back to chat",
-            )
+            _warning("agent", error=str(exc)[:200], message="Pipeline failed")
             logging.getLogger("agent").error("Pipeline failed", exc_info=True)
-            return self.chat(user_request)
+            return (
+                "Không thể hoàn tất điều tra deterministic do lỗi pipeline. "
+                "Không có model hoặc lệnh bổ sung nào được chạy."
+            )
 
     def run_with_steps(self, user_request: str) -> dict:
         """Run pipeline + assessment, return structured result with steps.
@@ -137,7 +171,8 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
-        if not self._should_pipeline(user_request):
+        decision = self._route_request(user_request)
+        if decision.status is RoutingStatus.GENERAL_CHAT:
             return {
                 "response": self.chat(user_request),
                 "steps": [],
@@ -146,10 +181,36 @@ class DeterministicAgent:
                 "execution_trace": None,
             }
 
+        if decision.status in {
+            RoutingStatus.CLARIFICATION_REQUIRED,
+            RoutingStatus.UNSUPPORTED,
+        }:
+            strategy = (
+                AnswerStrategy.CLARIFICATION
+                if decision.status is RoutingStatus.CLARIFICATION_REQUIRED
+                else AnswerStrategy.REFUSAL
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=strategy,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=decision.status,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=decision.request_frame.answer_type,
+                actual_request_frame=decision.request_frame.to_dict(),
+            )
+            return {
+                "response": self._clarification_responder.respond(decision),
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+
         t0 = now_ms()
         strategy_out: list[str] = []
         try:
-            investigation = self._execution_engine.execute(user_request)
+            investigation = self._execution_engine.execute(decision.request_frame)
             response = self._assess(
                 user_request, investigation, _strategy_out=strategy_out
             )
@@ -166,21 +227,58 @@ class DeterministicAgent:
                 "trace_id": trace.trace_id,
                 "execution_trace": trace.to_dict(),
             }
-        except UnknownTargetError as exc:
+        except RoutingClarificationError as exc:
+            trace = ExecutionTrace(
+                user_request=user_request,
+                failure_stage="routing",
+                failure_reason=exc.decision.reason,
+                answer_strategy=AnswerStrategy.CLARIFICATION,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.CLARIFICATION_REQUIRED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=exc.decision.request_frame.answer_type,
+                actual_request_frame=exc.decision.request_frame.to_dict(),
+                total_duration_ms=now_ms() - t0,
+            )
+            return {
+                "response": self._clarification_responder.respond(exc.decision),
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+        except (UnknownTargetError, AmbiguousTargetError) as exc:
             _warning(
                 "agent",
                 error=str(exc)[:200],
                 message="Unknown target, not falling back to chat",
             )
+            candidates = (
+                exc.candidates
+                if isinstance(exc, AmbiguousTargetError)
+                else tuple(exc.available)
+            )
+            target_decision = RoutingDecision(
+                status=RoutingStatus.CLARIFICATION_REQUIRED,
+                request_frame=decision.request_frame,
+                reason=str(exc),
+                missing_field="target",
+                candidates=tuple(candidates),
+            )
             trace = ExecutionTrace(
                 user_request=user_request,
                 failure_stage="target",
                 failure_reason=str(exc)[:500],
+                answer_strategy=AnswerStrategy.CLARIFICATION,
                 llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.CLARIFICATION_REQUIRED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=decision.request_frame.answer_type,
+                actual_request_frame=decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
             )
             return {
-                "response": str(exc),
+                "response": self._clarification_responder.respond(target_decision),
                 "steps": [],
                 "investigation": None,
                 "trace_id": trace.trace_id,
@@ -190,7 +288,7 @@ class DeterministicAgent:
             _warning(
                 "agent",
                 error=str(exc)[:200],
-                message="Pipeline failed, falling back to chat",
+                message="Pipeline failed without model fallback",
             )
             # Log full exception details with exc_info=True and re-raise
             logging.getLogger("agent").error("Pipeline failed", exc_info=True)
@@ -205,11 +303,18 @@ class DeterministicAgent:
                 user_request=user_request,
                 failure_stage="pipeline",
                 failure_reason=str(exc)[:500],
-                answer_strategy=AnswerStrategy.CHAT,
-                llm_usage_reason=LLMUsageReason.ROUTING_FALLBACK,
+                answer_strategy=AnswerStrategy.REFUSAL,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.FALLBACK,
+                evidence_status=EvidenceStatus.UNAVAILABLE,
+                request_class=decision.request_frame.answer_type,
+                actual_request_frame=decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
             )
-            response = self.chat(user_request)
+            response = (
+                "Không thể hoàn tất điều tra deterministic do lỗi pipeline. "
+                "Không có model hoặc lệnh bổ sung nào được chạy."
+            )
             return {
                 "response": response,
                 "steps": [],
@@ -244,6 +349,9 @@ class DeterministicAgent:
             )
         else:
             llm_reason = LLMUsageReason.NONE
+
+        investigation.answer_strategy = answer_strategy
+        investigation.llm_usage_reason = llm_reason
 
         return ExecutionTrace.from_investigation(
             investigation,
@@ -352,17 +460,21 @@ class DeterministicAgent:
         _strategy_out: list[str] | None = None,
     ) -> str:
         # Phase 6: Answer-type routing — skip LLM for simple fact/list queries.
-        from src.pipeline.answer_type import AnswerType
-
         def _record(strategy: str) -> None:
             if _strategy_out is not None:
                 _strategy_out[:] = [strategy]
+            investigation.answer_strategy = AnswerStrategy[strategy]
 
         answer_type = getattr(investigation, "answer_type", None)
         if answer_type is not None and answer_type != AnswerType.ASSESSMENT:
             deterministic = self._deterministic_responder.try_response(investigation)
             if deterministic is not None:
-                _record(AnswerStrategy.DETERMINISTIC_RESPONDER.name)
+                strategy = (
+                    AnswerStrategy.DETERMINISTIC_FACT
+                    if answer_type is AnswerType.FACT
+                    else AnswerStrategy.DETERMINISTIC_TEMPLATE
+                )
+                _record(strategy.name)
                 if self._conversation_store:
                     self._conversation_store.add_turn(user_request, deterministic)
                 return deterministic
@@ -370,7 +482,12 @@ class DeterministicAgent:
         # Deterministic shortcuts: skip LLM if evidence is simple enough.
         deterministic = self._deterministic_responder.try_response(investigation)
         if deterministic is not None:
-            _record(AnswerStrategy.DETERMINISTIC_RESPONDER.name)
+            strategy = (
+                AnswerStrategy.DETERMINISTIC_FACT
+                if answer_type is AnswerType.FACT
+                else AnswerStrategy.DETERMINISTIC_TEMPLATE
+            )
+            _record(strategy.name)
             if self._conversation_store:
                 self._conversation_store.add_turn(user_request, deterministic)
             return deterministic
@@ -390,6 +507,11 @@ class DeterministicAgent:
                 )
 
         _record(AnswerStrategy.LLM_ASSESSMENT.name)
+        investigation.llm_usage_reason = (
+            LLMUsageReason.INSUFFICIENT_EVIDENCE
+            if not investigation.evidence_complete
+            else LLMUsageReason.EXPECTED_ASSESSMENT
+        )
         response = self._assessment_model.assess(assessment_request)
 
         # Append tool-specific deep links when available.
@@ -411,66 +533,128 @@ class DeterministicAgent:
         return _req.intent == Intent.KNOWLEDGE_ASSESSMENT
 
     def _should_pipeline(self, user_request: str) -> bool:
-        """Determine if request should go through the investigation pipeline.
+        """Compatibility wrapper around the canonical deterministic decision."""
+        return self._route_request(user_request).resolved
 
-        Multi-tier routing:
-        1. Code/script generation requests → chat (no pipeline)
-        2. KNOWLEDGE_ASSESSMENT → chat (no pipeline)
-        3. Conceptual questions (X là gì? / giải thích) → chat
-        4. Conversational / yes-no questions → chat (no pipeline)
-        5. HIGH/MEDIUM confidence infrastructure intent → pipeline
-        6. LOW confidence or MACHINE_ASSESSMENT fallback → Tier-2 LLM classifier
+    def _route_request(self, user_request: str) -> RoutingDecision:
+        """Classify routing without invoking the assessment model."""
+        from src.pipeline.intent_resolver import IntentResolver
 
-        Returns:
-            True if the request should go through the investigation pipeline.
-        """
-        from src.pipeline.intent_resolver import Confidence, Intent, IntentResolver
+        frame = Normalizer().normalize(user_request)
+        resolution = IntentResolver().resolve_frame(frame)
+        frame = frame.evolve(
+            intent_candidates=resolution.candidates,
+            routing_status=resolution.routing_status,
+        )
 
-        # A5: Code/script generation requests should NOT go through pipeline.
-        # "viết/tạo/generate/write + script/config/file" → chat only.
         if self._is_code_generation_request(user_request):
-            return False
+            return RoutingDecision(RoutingStatus.GENERAL_CHAT, frame, "code request")
 
-        # A14: Bare hostname/alias typed standalone should route to pipeline.
-        # e.g., "srv01", "monitor123" — user wants to investigate that target.
-        if self._is_bare_target_candidate(user_request):
-            return True
+        if frame.answer_type is AnswerType.ACTION:
+            return RoutingDecision(
+                RoutingStatus.UNSUPPORTED,
+                frame.evolve(routing_status=RoutingStatus.UNSUPPORTED),
+                "read-only boundary",
+            )
 
-        resolver = IntentResolver()
-        request = resolver.resolve(user_request)
-
-        # Knowledge questions go to chat.
-        if request.intent == Intent.KNOWLEDGE_ASSESSMENT:
-            return False
-
-        # A7: Conceptual questions ("X là gì?", "giải thích X", "sự khác biệt")
-        # should go to chat for definition/explanation, NOT through pipeline.
-        if self._is_conceptual_question(user_request):
-            return False
-
-        # Conversational / yes-no questions with MACHINE_ASSESSMENT intent
-        # go to chat. These match generic keywords (e.g. "server") but the
-        # user is asking a clarification question, not requesting an assessment.
-        # Specific intents (CPU_ASSESSMENT, MEMORY_ASSESSMENT, etc.) are
-        # NOT blocked — "mem như thế nào?" should still go to pipeline.
-        #
-        # Exception: vague health-check questions with infrastructure keywords
-        # should still go to pipeline (e.g. "có vấn đề gì không?", "có ổn không?").
-        # These are genuine infrastructure requests, not casual conversation.
-        if request.intent == Intent.MACHINE_ASSESSMENT and self._is_conversational(
-            user_request, request
+        if (
+            frame.answer_type is AnswerType.EXPLANATION
+            or resolution.intent is Intent.KNOWLEDGE_ASSESSMENT
         ):
-            if self._is_vague_health_check(user_request):
-                return True
-            return False
+            return RoutingDecision(
+                RoutingStatus.GENERAL_CHAT,
+                frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
+                "general explanation",
+            )
 
-        # High/medium confidence infrastructure intents go to pipeline.
-        if request.confidence in (Confidence.HIGH, Confidence.MEDIUM):
-            return True
+        lower = user_request.casefold().strip()
+        general_patterns = (
+            "hello",
+            "xin chào",
+            "cảm ơn",
+            "thank",
+            "bài thơ",
+            "poem",
+            "chính trị",
+            "politics",
+            "thời tiết",
+            "weather",
+            "bitcoin",
+            "bạn là ai",
+            "who are you",
+            "công ty nào",
+            "company are you",
+        )
+        if lower in {"hi", "hello", "chào", "thanks", "thank you"} or any(
+            pattern in lower for pattern in general_patterns
+        ):
+            return RoutingDecision(
+                RoutingStatus.GENERAL_CHAT,
+                frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
+                "general chat",
+            )
 
-        # LOW confidence or MACHINE_ASSESSMENT fallback → ask classifier.
-        is_infra, _ = self.classify(user_request)
-        return is_infra
+        # A bare technical name is an explicit target, even though it has no
+        # concept words. TargetResolver will validate it before any collection.
+        if self._is_bare_target_candidate(user_request):
+            return RoutingDecision(
+                RoutingStatus.RESOLVED,
+                frame.evolve(routing_status=RoutingStatus.RESOLVED),
+            )
+
+        request = InvestigationRequest(
+            raw_request=user_request,
+            intent=resolution.intent,
+        )
+        if (
+            resolution.intent is Intent.MACHINE_ASSESSMENT
+            and frame.concepts == ("machine",)
+            and self._is_conversational(user_request, request)
+        ):
+            if not self._is_vague_health_check(user_request):
+                return RoutingDecision(
+                    RoutingStatus.GENERAL_CHAT,
+                    frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
+                    "conversational question",
+                )
+
+        if frame.answer_type is AnswerType.FORECAST and not frame.timeframe:
+            return RoutingDecision(
+                RoutingStatus.CLARIFICATION_REQUIRED,
+                frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
+                "forecast requires a bounded timeframe",
+                "timeframe",
+            )
+
+        params = frame.parameters
+        service_name = getattr(params, "service_name", None)
+        if "service" in frame.concepts and service_name is None and any(
+            marker in lower for marker in ("service kia", "service đó", "dịch vụ kia", "dịch vụ đó")
+        ):
+            return RoutingDecision(
+                RoutingStatus.CLARIFICATION_REQUIRED,
+                frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
+                "service reference has no bound name",
+                "service",
+            )
+
+        if resolution.routing_status is RoutingStatus.CLARIFICATION_REQUIRED:
+            candidates = tuple(
+                candidate.intent.name for candidate in resolution.candidates[:3]
+            )
+            missing = frame.ambiguity[0] if frame.ambiguity else "concept"
+            return RoutingDecision(
+                RoutingStatus.CLARIFICATION_REQUIRED,
+                frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
+                resolution.reason,
+                missing,
+                candidates,
+            )
+
+        return RoutingDecision(
+            RoutingStatus.RESOLVED,
+            frame.evolve(routing_status=RoutingStatus.RESOLVED),
+        )
 
     # ------------------------------------------------------------------
     # Conversational config – loaded from unified OrionConfig.
@@ -713,58 +897,21 @@ class DeterministicAgent:
     def classify(self, user_request: str) -> tuple[bool, str | None]:
         """Classify whether a question is infrastructure-related.
 
-        Two-tier approach:
-        1. Keyword-based IntentResolver (fast, no model call).
-           If confidence is HIGH or MEDIUM → infra = True.
-        2. If confidence is LOW → ask the model directly (cheap classifier call).
-           Model says 'yes' → infra = True, 'no' → infra = False.
-
-        The LLM classifier is only invoked when concept confidence from
-        the Normalizer is < 0.4 (i.e., truly ambiguous). CPU/RAM/Disk
-        classification is always deterministic — LLM is never used for those.
+        This compatibility API delegates to deterministic routing. Ambiguous
+        input returns ``(False, "clarification")`` and never invokes a model.
 
         Returns:
             (is_infra: bool, reason: str | None)
             reason is set to "chat" if classified as general chat.
         """
-        from src.pipeline.intent_resolver import IntentResolver
-
-        resolver = IntentResolver()
-        request = resolver.resolve(user_request)
-
-        # Tier 1: keyword matching is confident enough
-        if request.confidence in (Confidence.HIGH, Confidence.MEDIUM):
+        decision = self._route_request(user_request)
+        if decision.status is RoutingStatus.RESOLVED:
             return (True, None)
-
-        # Check Normalizer confidence before falling through to LLM.
-        # Only invoke LLM for truly ambiguous (confidence < 0.4) queries.
-        normalizer = Normalizer()
-        semantic = normalizer.normalize(user_request)
-        if semantic.confidence >= 0.4:
-            # The Normalizer found reasonable concept + action.
-            # Deterministic classification: ask infrastructure.
-            return (True, None)
-
-        # Tier 2: ask the model (only for truly ambiguous cases, < 0.4 confidence).
-        # Light prompt: ~100 tokens, response is 1 word.
-        classifier_prompt = (
-            f"Classify: infrastructure or general?\nQ: {user_request[:200]}\nA:"
-        )
-        try:
-            answer = self._assessment_model.assess_raw(classifier_prompt)
-            answer_clean = answer.strip().lower()[:20]
-            is_infra = answer_clean.startswith("infrastructure")
-            if self._conversation_store:
-                label = "infrastructure" if is_infra else "general"
-                self._conversation_store.add_classifier_turn(user_request, label)
-            return (is_infra, None)
-        except Exception as exc:
-            _warning(
-                "agent",
-                error=str(exc)[:80],
-                message="Tier-2 LLM classification failed, falling back to general chat",
-            )
-            return (False, "chat")
+        if decision.status is RoutingStatus.CLARIFICATION_REQUIRED:
+            return (False, "clarification")
+        if decision.status is RoutingStatus.UNSUPPORTED:
+            return (False, "unsupported")
+        return (False, "chat")
 
     def chat(self, user_request: str) -> str:
         """Send a free-form chat message to the model without pipeline context.

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.request_frame import RequestFrame
+from src.pipeline.routing_decision import RoutingStatus
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState, StateUpdate
@@ -33,6 +36,34 @@ class Confidence(Enum):
     HIGH = auto()
     MEDIUM = auto()
     LOW = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class IntentCandidate:
+    intent: Intent
+    score: float
+    matched_keywords: tuple[str, ...] = ()
+    compatible: bool = True
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "label": self.intent.name,
+            "score": round(self.score, 4),
+            "matched_keywords": list(self.matched_keywords),
+            "compatible": self.compatible,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class IntentResolution:
+    intent: Intent
+    confidence: Confidence
+    score: float
+    candidates: tuple[IntentCandidate, ...]
+    ambiguity_margin: float | None
+    routing_status: RoutingStatus
+    matched_keywords: tuple[str, ...] = ()
+    reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +492,107 @@ def _confidence_from_count(match_count: int) -> Confidence:
     return Confidence.LOW
 
 
+_CONCEPT_INTENTS: dict[str, tuple[Intent, ...]] = {
+    "cpu": (Intent.CPU_ASSESSMENT, Intent.PERFORMANCE_ASSESSMENT),
+    "memory": (Intent.MEMORY_ASSESSMENT, Intent.PERFORMANCE_ASSESSMENT),
+    "disk": (
+        Intent.DISK_ASSESSMENT,
+        Intent.STORAGE_ASSESSMENT,
+        Intent.FILESYSTEM_ASSESSMENT,
+    ),
+    "network": (Intent.NETWORK_ASSESSMENT_SINGLE, Intent.NETWORK_ASSESSMENT),
+    "process": (Intent.PROCESS_ASSESSMENT,),
+    "service": (Intent.SERVICE_ASSESSMENT, Intent.APPLICATION_DISCOVERY),
+    "log": (Intent.TROUBLESHOOTING, Intent.SECURITY_ASSESSMENT),
+    "package": (Intent.APPLICATION_DISCOVERY,),
+    "container": (Intent.APPLICATION_DISCOVERY, Intent.SERVICE_ASSESSMENT),
+    "alerts": (
+        Intent.MONITORING_ASSESSMENT,
+        Intent.NETWORK_ASSESSMENT,
+        Intent.TROUBLESHOOTING,
+    ),
+    "dashboards": (Intent.MONITORING_ASSESSMENT,),
+    "monitors": (Intent.MONITORING_ASSESSMENT,),
+    "firewall": (Intent.SECURITY_ASSESSMENT, Intent.NETWORK_ASSESSMENT),
+    "ssh": (Intent.SECURITY_ASSESSMENT,),
+    "selinux": (Intent.SECURITY_ASSESSMENT,),
+    "apparmor": (Intent.SECURITY_ASSESSMENT,),
+    "performance": (Intent.PERFORMANCE_ASSESSMENT,),
+    "machine": (Intent.MACHINE_ASSESSMENT,),
+    "hostname": (Intent.MACHINE_ASSESSMENT,),
+    "kernel": (Intent.MACHINE_ASSESSMENT,),
+    "uptime": (Intent.CPU_ASSESSMENT, Intent.MACHINE_ASSESSMENT),
+    "load": (Intent.CPU_ASSESSMENT, Intent.PERFORMANCE_ASSESSMENT),
+}
+
+_MULTI_RESOURCE_CONCEPTS = frozenset(
+    {"cpu", "memory", "disk", "network", "process", "filesystem", "storage"}
+)
+
+
+def _intent_is_compatible(intent: Intent, frame: RequestFrame) -> bool:
+    if frame.operation == "configure":
+        return intent is Intent.CONFIGURATION_ASSESSMENT
+    if intent in {Intent.CONFIGURATION_ASSESSMENT, Intent.TROUBLESHOOTING}:
+        return True
+    if frame.concepts == ("machine",):
+        # Machine is the language fallback and must not veto a strong
+        # domain-specific intent candidate.
+        return True
+    compatible = {
+        candidate
+        for concept in frame.concepts
+        for candidate in _CONCEPT_INTENTS.get(concept, ())
+    }
+    if frame.operation == "diagnose":
+        compatible.add(Intent.TROUBLESHOOTING)
+    return not compatible or intent in compatible
+
+
+def _rank_intent_candidates(
+    tokens: list[str],
+    frame: RequestFrame,
+    selected: Intent,
+) -> tuple[IntentCandidate, ...]:
+    ranked: list[IntentCandidate] = []
+    for intent, groups in _INTENT_KEYWORDS.items():
+        matched = _matched_groups(tokens, groups)
+        if not matched:
+            continue
+        compatible = _intent_is_compatible(intent, frame)
+        score = min(0.99, 0.35 + 0.14 * len(matched) + (0.2 if compatible else 0.0))
+        ranked.append(IntentCandidate(intent, score, matched, compatible))
+
+    if not any(item.intent is selected for item in ranked):
+        ranked.append(
+            IntentCandidate(
+                selected,
+                max(0.5, frame.confidence),
+                tuple(frame.matched_synonyms),
+                True,
+            )
+        )
+
+    ranked.sort(
+        key=lambda item: (
+            item.intent is not selected,
+            -item.score,
+            -_INTENT_PRIORITY[item.intent],
+            item.intent.name,
+        )
+    )
+    # Priority/compatibility tie-breaking is part of the score contract, so
+    # the selected candidate must not appear numerically below runner-up.
+    if len(ranked) > 1 and ranked[0].score <= ranked[1].score:
+        ranked[0] = IntentCandidate(
+            ranked[0].intent,
+            min(1.0, ranked[1].score + 0.02),
+            ranked[0].matched_keywords,
+            ranked[0].compatible,
+        )
+    return tuple(ranked[:5])
+
+
 class IntentResolver:
     """Resolve user intent using deterministic keyword rules.
 
@@ -483,35 +615,101 @@ class IntentResolver:
 
         Thin adapter that delegates to resolve() using state.user_request.
         """
-        user_request = state.user_request
-        if not user_request or not user_request.strip():
-            update: StateUpdate = {
-                "intent": Intent.MACHINE_ASSESSMENT,
-                "confidence": Confidence.LOW,
-                "matched_keywords": (),
-            }
-            return update
+        frame = state.request_frame
+        if not isinstance(frame, RequestFrame):
+            from src.pipeline.normalizer import Normalizer
 
-        tokens = _tokenize(user_request)
-        result = _resolve_intent(tokens)
-
-        if result is not None:
-            intent, confidence, keywords = result
-            update = {
-                "intent": intent,
-                "confidence": confidence,
-                "matched_keywords": keywords,
-            }
-            return update
-
-        update = {
-            "intent": Intent.MACHINE_ASSESSMENT,
-            "confidence": Confidence.LOW,
-            "matched_keywords": (),
+            frame = Normalizer().normalize(state.user_request)
+        result = self.resolve_frame(frame)
+        enriched = frame.evolve(
+            intent_candidates=result.candidates,
+            routing_status=result.routing_status,
+        )
+        update: StateUpdate = {
+            "request_frame": enriched,
+            "semantic_request": enriched,
+            "intent": result.intent,
+            "confidence": result.confidence,
+            "matched_keywords": result.matched_keywords,
+            "intent_candidates": result.candidates,
+            "intent_score": result.score,
+            "intent_margin": result.ambiguity_margin,
+            "routing_status": result.routing_status,
         }
         return update
 
-    def resolve(self, user_request: str) -> InvestigationRequest:
+    def resolve_frame(self, frame: RequestFrame) -> IntentResolution:
+        """Resolve intent from an already-normalized canonical frame."""
+        tokens = list(frame.lexical_tokens or frame.matched_synonyms)
+        legacy = _resolve_intent(tokens)
+        resource_concepts = _MULTI_RESOURCE_CONCEPTS.intersection(frame.concepts)
+
+        if len(resource_concepts) >= 2:
+            intent = Intent.PERFORMANCE_ASSESSMENT
+            confidence = Confidence.MEDIUM
+            keywords = tuple(frame.matched_synonyms)
+        elif "ip address" in tokens:
+            intent = Intent.NETWORK_ASSESSMENT
+            confidence = Confidence.LOW
+            keywords = ("ip address",)
+        elif frame.operation == "configure":
+            intent = Intent.CONFIGURATION_ASSESSMENT
+            confidence = Confidence.MEDIUM
+            keywords = tuple(frame.matched_synonyms)
+        elif legacy is not None:
+            intent, confidence, keywords = legacy
+            if not _intent_is_compatible(intent, frame):
+                compatible = tuple(
+                    candidate
+                    for concept in frame.concepts
+                    for candidate in _CONCEPT_INTENTS.get(concept, ())
+                )
+                if compatible:
+                    intent = compatible[0]
+                    confidence = (
+                        Confidence.MEDIUM
+                        if frame.confidence >= 1.0
+                        else Confidence.LOW
+                    )
+                    keywords = tuple(frame.matched_synonyms)
+        else:
+            compatible = tuple(
+                candidate
+                for concept in frame.concepts
+                for candidate in _CONCEPT_INTENTS.get(concept, ())
+            )
+            intent = compatible[0] if compatible else Intent.MACHINE_ASSESSMENT
+            confidence = (
+                Confidence.MEDIUM if frame.confidence >= 1.0 else Confidence.LOW
+            )
+            keywords = tuple(frame.matched_synonyms)
+
+        candidates = _rank_intent_candidates(tokens, frame, intent)
+        score = candidates[0].score if candidates else frame.confidence
+        margin = (
+            score - candidates[1].score if len(candidates) > 1 else score
+        )
+        unresolved = bool(frame.ambiguity) or (
+            not frame.matched_synonyms
+            and frame.concepts == ("machine",)
+            and frame.confidence == 0.0
+        )
+        return IntentResolution(
+            intent=intent,
+            confidence=confidence,
+            score=score,
+            candidates=candidates,
+            ambiguity_margin=margin,
+            routing_status=(
+                RoutingStatus.CLARIFICATION_REQUIRED
+                if unresolved
+                else RoutingStatus.RESOLVED
+            ),
+            matched_keywords=keywords,
+            reason="ambiguous concept or operation" if unresolved else None,
+        )
+
+    def resolve(self, user_request: str | RequestFrame) -> InvestigationRequest:
         """Resolve a user request and return an InvestigationRequest.
 
         Args:
@@ -521,29 +719,28 @@ class IntentResolver:
             An InvestigationRequest with intent, confidence, and matched keywords.
             Falls back to MACHINE_ASSESSMENT with LOW confidence when no keywords match.
         """
-        if not user_request or not user_request.strip():
-            return InvestigationRequest(
-                raw_request=user_request,
-                intent=Intent.MACHINE_ASSESSMENT,
-                confidence=Confidence.LOW,
-                matched_keywords=(),
-            )
+        if isinstance(user_request, RequestFrame):
+            frame = user_request
+        else:
+            from src.pipeline.normalizer import Normalizer
 
-        tokens = _tokenize(user_request)
-        result = _resolve_intent(tokens)
-
-        if result is not None:
-            intent, confidence, keywords = result
-            return InvestigationRequest(
-                raw_request=user_request,
-                intent=intent,
-                confidence=confidence,
-                matched_keywords=keywords,
-            )
-
+            frame = Normalizer().normalize(user_request)
+        result = self.resolve_frame(frame)
+        enriched = frame.evolve(
+            intent_candidates=result.candidates,
+            routing_status=result.routing_status,
+        )
         return InvestigationRequest(
-            raw_request=user_request,
-            intent=Intent.MACHINE_ASSESSMENT,
-            confidence=Confidence.LOW,
-            matched_keywords=(),
+            raw_request=frame.raw_request,
+            intent=result.intent,
+            confidence=result.confidence,
+            matched_keywords=result.matched_keywords,
+            request_frame=enriched,
+            semantic_request=enriched,
+            intent_candidates=result.candidates,
+            intent_score=result.score,
+            intent_margin=result.ambiguity_margin,
+            routing_status=result.routing_status,
+            extracted_params=enriched.parameters,
+            answer_type=enriched.answer_type,
         )

@@ -61,6 +61,55 @@ _COMPARISON_KEYWORDS: frozenset[str] = frozenset(
         "difference",
     }
 )
+_FORECAST_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "forecast",
+        "predict",
+        "prediction",
+        "dự đoán",
+        "dự báo",
+        "next week",
+        "next month",
+        "tuần tới",
+        "tháng tới",
+        "sau bao lâu",
+        "bao lâu nữa",
+    }
+)
+_ACTION_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "restart",
+        "start service",
+        "stop service",
+        "delete",
+        "remove",
+        "rm -rf",
+        "kill process",
+        "reboot",
+        "shutdown",
+        "xóa",
+        "xoá",
+        "khởi động lại",
+        "tắt firewall",
+        "sửa config",
+        "thay đổi config",
+    }
+)
+_EXPLANATION_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "what is",
+        "what are",
+        "how does",
+        "how do",
+        "explain",
+        "define",
+        "definition",
+        "là gì",
+        "nghĩa là gì",
+        "giải thích",
+        "dùng để làm gì",
+    }
+)
 _ASSESSMENT_KEYWORDS: frozenset[str] = frozenset(
     {
         "assess",
@@ -99,6 +148,9 @@ class AnswerType(Enum):
     TABLE = auto()
     CHART = auto()
     COMPARISON = auto()
+    FORECAST = auto()
+    ACTION = auto()
+    EXPLANATION = auto()
     ASSESSMENT = auto()
 
 
@@ -109,16 +161,21 @@ class AnswerTypeClassifier:
     No AI reasoning involved.
     """
 
-    def classify(self, raw_request: str) -> AnswerType:
+    def classify(
+        self,
+        raw_request: str,
+        *,
+        concepts: tuple[str, ...] = (),
+        operation: str | None = None,
+    ) -> AnswerType:
         """Determine the expected answer format for a user request.
 
         Priority order (highest wins):
-        1. CHART — explicit visualization request
-        2. TABLE — explicit table/compare request
-        3. COMPARISON — diff/vs request
-        4. LIST — explicit list/top request
-        5. FACT — simple single-value question
-        6. ASSESSMENT — default fallback for everything else
+        1. ACTION / FORECAST — explicit unsafe or temporal request class
+        2. EXPLANATION — definitions live in general chat, not investigation
+        3. CHART / COMPARISON / TABLE / LIST — explicit response format
+        4. FACT — simple single-concept inspection
+        5. ASSESSMENT — diagnosis, synthesis, or unknown request
 
         Args:
             raw_request: The raw user request string.
@@ -130,6 +187,12 @@ class AnswerTypeClassifier:
 
         # Check in priority order. Each check returns immediately on match
         # because Chart > Table > Comparison > List > Fact > Assessment.
+
+        if self._match_any(lower, _ACTION_KEYWORDS):
+            return AnswerType.ACTION
+
+        if self._match_any(lower, _FORECAST_KEYWORDS) or operation == "forecast":
+            return AnswerType.FORECAST
 
         if self._match_any(lower, _CHART_KEYWORDS):
             return AnswerType.CHART
@@ -143,11 +206,33 @@ class AnswerTypeClassifier:
         if self._match_any(lower, _LIST_KEYWORDS):
             return AnswerType.LIST
 
+        # Current-value infrastructure facts remain facts even when phrased
+        # with "là gì"/"what is".
+        if any(
+            keyword in lower
+            for keyword in (
+                "hostname",
+                "tên máy",
+                "kernel",
+                "uptime",
+                "thời gian chạy",
+            )
+        ):
+            return AnswerType.FACT
+
+        if self._match_any(lower, _EXPLANATION_KEYWORDS):
+            return AnswerType.EXPLANATION
+
         if self._match_any(lower, _FACT_KEYWORDS):
             return AnswerType.FACT
 
         if self._match_any(lower, _ASSESSMENT_KEYWORDS):
+            if operation == "inspect" and len(concepts) == 1 and concepts[0] != "machine":
+                return AnswerType.FACT
             return AnswerType.ASSESSMENT
+
+        if operation == "inspect" and len(concepts) == 1 and concepts[0] != "machine":
+            return AnswerType.FACT
 
         # Default: assessment — when nothing specific is detected.
         return AnswerType.ASSESSMENT

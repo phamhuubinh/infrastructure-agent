@@ -32,7 +32,7 @@ Specifically:
 
 5. **The boundary is enforced by the adapter contract.** `AssessmentAdapter` (`src/pipeline/assessment_adapter.py`) is the only bridge between the deterministic pipeline and the model layer. It constructs an `AssessmentRequest` from the investigation's evidence — and nothing else. The model layer never imports from `src/pipeline/`, `src/tool/`, or `src/execution/`.
 
-6. **The `assess_raw()` method is a narrow escape hatch.** It exists on the interface for general chat and question classification where no evidence package exists. It is not used in the investigation pipeline.
+6. **The `assess_raw()` method is a narrow general-chat escape hatch.** It is never used to classify or route an investigation. Ambiguous infrastructure requests receive deterministic clarification instead of a model decision.
 
 7. **Execution is read-only and fail-closed.** `KnowledgeTool` installs the
    read-only, parameter-safety, and target inspectors even when a caller does

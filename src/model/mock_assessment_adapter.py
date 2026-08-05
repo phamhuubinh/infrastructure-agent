@@ -13,11 +13,15 @@ class MockAssessmentAdapter(AssessmentModelAdapter):
 
     def assess_raw(self, prompt: str) -> str:
         """Mock raw chat — just echo back a friendly response."""
-        from src.pipeline.intent_resolver import IntentResolver
+        from src.pipeline.intent_resolver import Intent, IntentResolver
 
         resolver = IntentResolver()
         req = resolver.resolve(prompt)
-        if req.confidence is not None and req.confidence.name in ("HIGH", "MEDIUM"):
+        if (
+            req.intent is not Intent.KNOWLEDGE_ASSESSMENT
+            and req.confidence is not None
+            and req.confidence.name in ("HIGH", "MEDIUM")
+        ):
             return "yes"
         return "I'm a mock assistant. I can help with infrastructure questions."
 

@@ -179,6 +179,31 @@ class TestExtractActual:
         assert actual["evidence_status"] == "sufficient"
         assert actual["_context"] == "investigated"
 
+    def test_extracts_first_class_status_and_frame_from_trace(self):
+        result = {
+            "investigation": None,
+            "execution_trace": {
+                "routing_status": "CLARIFICATION_REQUIRED",
+                "evidence_status": "NOT_APPLICABLE",
+                "request_class": "FORECAST",
+                "answer_strategy": "CLARIFICATION",
+                "llm_usage_reason": "NONE",
+                "actual_request_frame": {
+                    "concepts": ["cpu"],
+                    "operation": "forecast",
+                    "parameters": {},
+                },
+            },
+        }
+
+        actual = rb.extract_actual(result)
+
+        assert actual["concepts"] == ["cpu"]
+        assert actual["operation"] == "forecast"
+        assert actual["answer_type"] == "FORECAST"
+        assert actual["routing_status"] == "clarification_required"
+        assert actual["evidence_status"] == "not_applicable"
+
     def test_real_chat_shape_execution_trace_is_none(self):
         """Real shape from deterministic_agent.py: when routing decides chat
         without ever entering the pipeline, `execution_trace` is `None`
@@ -766,7 +791,8 @@ class TestSummarizeAndMarkdown:
         assert "## Behavioral mismatches" in markdown
         assert "## Trace observability gaps" in markdown
         assert "`x-1` (A, context=chat)" in markdown
-        assert "## Approximate fields (not authoritative)" in markdown
+        assert "## Approximate fields" in markdown
+        assert "first-class trace fields" in markdown
 
 
 if __name__ == "__main__":

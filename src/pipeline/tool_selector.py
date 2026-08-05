@@ -24,6 +24,7 @@ _CONCEPT_TOOL_MAP: dict[str, ToolCategory] = {
     "kernel": ToolCategory.LINUX,
     "uptime": ToolCategory.LINUX,
     "load": ToolCategory.LINUX,
+    "performance": ToolCategory.LINUX,
     "service": ToolCategory.LINUX,
     "process": ToolCategory.LINUX,
     "package": ToolCategory.LINUX,

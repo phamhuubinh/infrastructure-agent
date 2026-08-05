@@ -19,6 +19,7 @@ class PipelineState:
     """
 
     user_request: str = ""
+    request_frame: Any = None
     semantic_request: Any = None
     intent: Any = None
     confidence: Any = None
@@ -36,6 +37,16 @@ class PipelineState:
     evidence_complete: bool = False
     missing_evidence: tuple[str, ...] = ()
     runtime_metrics: Any = None
+    intent_candidates: tuple = ()
+    intent_score: float | None = None
+    intent_margin: float | None = None
+    target_candidates: tuple = ()
+    target_score: float | None = None
+    target_margin: float | None = None
+    routing_status: Any = None
+    evidence_status: Any = None
+    answer_strategy: Any = None
+    llm_usage_reason: Any = None
 
     def apply(self, update: StateUpdate) -> PipelineState:
         """Return a new PipelineState with update applied."""
@@ -55,6 +66,18 @@ class PipelineState:
             confidence=self.confidence,
             matched_keywords=self.matched_keywords,
             target=self.target or None,
+            request_frame=self.request_frame,
+            semantic_request=self.request_frame or self.semantic_request,
+            intent_candidates=self.intent_candidates,
+            intent_score=self.intent_score,
+            intent_margin=self.intent_margin,
+            target_candidates=self.target_candidates,
+            target_score=self.target_score,
+            target_margin=self.target_margin,
+            routing_status=self.routing_status,
+            evidence_status=self.evidence_status,
+            answer_strategy=self.answer_strategy,
+            llm_usage_reason=self.llm_usage_reason,
             required_evidence=list(self.required_evidence),
             optional_evidence=list(self.optional_evidence),
             capability_references=list(self.capability_references),

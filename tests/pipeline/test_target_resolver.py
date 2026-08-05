@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from src.pipeline.investigation_request import InvestigationRequest
-from src.pipeline.target_resolver import TargetResolver, UnknownTargetError
+from src.pipeline.target_resolver import (
+    AmbiguousTargetError,
+    TargetResolver,
+    UnknownTargetError,
+)
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
@@ -97,3 +101,36 @@ def test_monitoring_assignment_falls_back_to_zabbix() -> None:
     req = intent_resolver.resolve("show alerts")
     resolver.resolve(req)
     assert req.target == "zabbix"
+
+
+def test_close_fuzzy_targets_require_clarification() -> None:
+    resolver = _resolver_with_targets("localhost", "server01", "server02")
+    req = InvestigationRequest(raw_request="check cpu on server0")
+
+    with pytest.raises(AmbiguousTargetError) as exc:
+        resolver.resolve(req)
+
+    assert exc.value.candidates[:2] == ("server01", "server02")
+    assert req.target is None
+
+
+def test_unknown_alphabetic_hostname_never_falls_back_to_localhost() -> None:
+    resolver = _resolver_with_targets("localhost")
+    req = InvestigationRequest(raw_request="check cpu on webserver")
+
+    with pytest.raises(UnknownTargetError):
+        resolver.resolve(req)
+
+    assert req.target is None
+
+
+def test_target_resolution_exposes_score_candidates_and_margin() -> None:
+    resolver = _resolver_with_targets("localhost", "server01")
+    req = InvestigationRequest(raw_request="check cpu on server01")
+
+    resolver.resolve(req)
+
+    assert req.target == "server01"
+    assert req.target_score == 1.0
+    assert req.target_margin == 1.0
+    assert req.target_candidates[0].target == "server01"

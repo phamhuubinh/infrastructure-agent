@@ -16,29 +16,28 @@ This ADR documents the actual architecture as implemented in `src/agent/determin
 The Agent uses a deterministic single-pass pipeline for infrastructure investigation.
 
 ## Pipeline Stages
-1. **Normalize** (`src/pipeline/normalizer.py`) — Semantic normalization of user request (language, concept extraction, action classification). Config-driven via `config/concepts.yaml`.
-2. **Intent Resolution** (`src/pipeline/intent_resolver.py`) — Deterministic keyword-based intent classification. 11 intent types (CPU, MEMORY, DISK, NETWORK, PROCESS, SERVICE, TROUBLESHOOTING, APPLICATION, MONITORING, PERFORMANCE, SECURITY).
-3. **Target Resolution** (`src/pipeline/target_resolver.py`) — Resolve investigation target (localhost, specific hostname, or registered target). Fuzzy name matching for typo tolerance.
+1. **Normalize** (`src/pipeline/normalizer.py`) — Build one immutable `RequestFrame` with concepts, operation, target raw/resolved slots, parameters, answer class, timeframe, confidence, ambiguity and ranked lexical evidence.
+2. **Intent Resolution** (`src/pipeline/intent_resolver.py`) — Deterministic intent candidates with scores, compatibility, confidence and top-candidate margin.
+3. **Target Resolution** (`src/pipeline/target_resolver.py`) — Exact/scoped aliases precede fuzzy candidates; both threshold and margin are required and explicit unknown/ambiguous targets cannot fall back to localhost.
 4. **Evidence Planning** (`src/pipeline/evidence_planner.py`, `capability_planner.py`) — Determine what evidence is needed. Concept + action → capability plan. Config-driven via `config/capability_plans.yaml`.
 5. **Execution** (`src/pipeline/execution_engine.py`, `execution_plan.py`, `execution_graph.py`, `execution_runtime.py`) — Compile execution graph (DAG), execute nodes via KnowledgeTool, collect evidence.
 6. **Assessment** (`DeterministicAgent._assess()`) — Build assessment request from collected evidence, run through LLM for interpretation. Short-circuit via `DeterministicResponder` for simple factual queries.
 
 ## Pipeline Routing
-The `_should_pipeline()` method in `DeterministicAgent` determines whether a user request enters the pipeline or falls through to general chat. The decision tree has 4 tiers:
+`DeterministicAgent._route_request()` returns a first-class routing decision before execution:
 
-1. **Knowledge questions** (`KNOWLEDGE_ASSESSMENT` intent) → chat (no pipeline)
-2. **Conversational / yes-no questions** with `MACHINE_ASSESSMENT` intent → chat, unless they are vague health checks (e.g., "có vấn đề gì không?") which route to pipeline
-3. **HIGH/MEDIUM confidence** infrastructure intents → pipeline
-4. **LOW confidence** or `MACHINE_ASSESSMENT` fallback → Tier-2 LLM classifier decides
+1. **Resolved infrastructure** → deterministic investigation pipeline.
+2. **Clarification required** → bounded template for the exact missing/ambiguous field; no evidence/model call.
+3. **Unsupported action** → deterministic read-only refusal.
+4. **Knowledge/general conversation** → separate chat subsystem.
 
 ## Single-Pass Model
 The pipeline executes exactly once per user request. There is no iteration, no "decide whether to continue," and no model-guided tool selection. If the evidence is insufficient, the assessment output flags it — the user can request re-investigation, which triggers a new pipeline invocation.
 
 ## LLM Role
-The LLM is used in exactly three places, all outside the pipeline execution:
+The LLM is used in exactly two places, both outside deterministic routing/execution:
 1. **Assessment** — interpreting collected evidence (per ADR-0002)
-2. **Tier-2 Classification** — classifying ambiguous queries (LOW confidence) as infrastructure vs. general
-3. **Chat** — `assess_raw()` for general conversation and `chat()` method
+2. **Chat** — `assess_raw()` for the separately routed general conversation subsystem
 
 The LLM never participates in pipeline execution, tool selection, or evidence planning.
 ---

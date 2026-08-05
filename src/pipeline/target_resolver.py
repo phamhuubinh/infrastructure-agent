@@ -3,12 +3,16 @@ from __future__ import annotations
 import difflib
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 import yaml
 
+from src.pipeline.alias_store import AliasStore
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.request_frame import RequestFrame
+from src.pipeline.semantic_candidate_retriever import normalize_lexical_text
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState, StateUpdate
@@ -42,6 +46,41 @@ class UnknownTargetError(ValueError):
                 )
         else:
             super().__init__(f"Unknown target: '{raw_target}'.\nNo targets configured.")
+
+
+class AmbiguousTargetError(ValueError):
+    """Raised when multiple validated target candidates are too close."""
+
+    def __init__(self, raw_target: str, candidates: tuple[str, ...]) -> None:
+        self.raw_target = raw_target
+        self.candidates = candidates[:3]
+        super().__init__(
+            f"Ambiguous target: '{raw_target}'. Candidates: "
+            f"{', '.join(self.candidates)}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TargetCandidate:
+    target: str
+    score: float
+    source: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "label": self.target,
+            "score": round(self.score, 4),
+            "source": self.source,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TargetResolution:
+    target: str
+    score: float
+    candidates: tuple[TargetCandidate, ...]
+    ambiguity_margin: float | None
+    request_frame: RequestFrame
 
 
 class TargetResolver:
@@ -154,6 +193,13 @@ class TargetResolver:
         self,
         target_registry=None,
         config_path: str | None = None,
+        *,
+        fuzzy_threshold: float = 0.78,
+        ambiguity_margin: float = 0.10,
+        alias_store: AliasStore | None = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        project_id: str | None = None,
     ) -> None:
         from src.tool.target_registry import TargetRegistry
 
@@ -167,6 +213,12 @@ class TargetResolver:
         self._skip_words: frozenset[str] = frozenset()
         self._localhost_synonyms: list[str] = []
         self._target_patterns: list[dict[str, str]] = []
+        self._alias_store = alias_store
+        self._fuzzy_threshold = fuzzy_threshold
+        self._ambiguity_margin = ambiguity_margin
+        self._session_id = session_id
+        self._user_id = user_id
+        self._project_id = project_id
         # Per-session cache of bad targets (words that previously failed resolution).
         # Prevents repeating the same UnknownTargetError across multiple turns.
         self._bad_targets: set[str] = set()
@@ -179,6 +231,8 @@ class TargetResolver:
             with open(self._config_path, encoding="utf-8") as fh:
                 data = yaml.safe_load(fh) or {}
             self._aliases = dict(data.get("aliases", self._DEFAULT_ALIASES))
+            if self._alias_store is None:
+                self._alias_store = AliasStore.from_config(self._aliases)
             self._skip_words = frozenset(data.get("skip_words", []))
             self._localhost_synonyms = list(
                 data.get("localhost_synonyms", self._DEFAULT_LOCALHOST_SYNONYMS)
@@ -188,6 +242,8 @@ class TargetResolver:
             )
         else:
             self._aliases = dict(self._DEFAULT_ALIASES)
+            if self._alias_store is None:
+                self._alias_store = AliasStore.from_config(self._aliases)
             self._skip_words = self._DEFAULT_SKIP_WORDS
             self._localhost_synonyms = list(self._DEFAULT_LOCALHOST_SYNONYMS)
             self._target_patterns = list(self._DEFAULT_TARGET_PATTERNS)
@@ -246,118 +302,232 @@ class TargetResolver:
                 return word
         return None
 
-    # ------------------------------------------------------------------
-    # Immutable pipeline state interface.
-    # ------------------------------------------------------------------
+    def _known_targets(self) -> tuple[list[str], list[str]]:
+        if self._registry is None:
+            return [], []
+        return (
+            self._registry.target_names(),
+            list(self._registry._domain_tools.keys()),
+        )
 
-    def _domain_tool_names(self) -> list[str]:
-        """Return the list of domain tool names from the registry."""
-        if self._registry is not None:
-            return list(self._registry._domain_tools.keys())
-        return []
+    def _explicit_target_candidate(
+        self,
+        frame: RequestFrame,
+        known_names: list[str],
+    ) -> str | None:
+        """Extract only explicit target mentions from the canonical frame."""
+        if frame.target_raw:
+            return frame.target_raw.casefold()
 
-    def resolve_state(self, state: PipelineState) -> StateUpdate:
-        """Return an immutable StateUpdate with the resolved target."""
-        self._ensure_loaded()
-        raw = state.user_request.lower()
-        intent = state.intent
-
-        known_names: list[str] = []
-        domain_names: list[str] = []
-        if self._registry is not None:
-            known_names = self._registry.target_names()
-            domain_names = list(self._registry._domain_tools.keys())
-
+        raw = normalize_lexical_text(frame.raw_request)
         words = self._extract_words(raw)
+        known_by_normalized = {
+            normalize_lexical_text(name): name for name in known_names
+        }
 
-        # Step 0: Check localhost synonyms first.
+        # Exact registered names are stronger than any fuzzy or default route.
         for word in words:
-            if self._is_localhost_synonym(word):
-                return {"target": "localhost"}
+            if word in known_by_normalized:
+                return word
 
-        # Step 0.5: Check bad-target cache.
-        for word in words:
-            if word in self._bad_targets:
-                raise UnknownTargetError(word, known_names, domain_names)
+        # Local aliases may be multi-word phrases ("máy này" -> "may nay").
+        for synonym in self._localhost_synonyms:
+            normalized = normalize_lexical_text(synonym)
+            if normalized and re.search(rf"\b{re.escape(normalized)}\b", raw):
+                # A more specific explicit hostname after "trên máy" wins.
+                host_after_machine = re.search(
+                    r"\b(?:on|for|at|from|tren|cua)\s+"
+                    r"(?:may|server|host)\s+([a-z0-9._-]+)\b",
+                    raw,
+                )
+                if host_after_machine and host_after_machine.group(1) not in {
+                    "nay",
+                    "hien",
+                    "ho",
+                    "cai",
+                    "giup",
+                }:
+                    return host_after_machine.group(1)
+                return "localhost"
 
-        # Step 1: Check aliases.
-        for word in words:
-            alias_target = self._aliases.get(word)
-            if alias_target:
-                if alias_target in known_names:
-                    return {"target": alias_target}
-                self._bad_targets.add(alias_target)
-                raise UnknownTargetError(alias_target, known_names, domain_names)
-
-        # Step 2: Try normalized target names via pattern matching.
-        for word in words:
-            normalized = self.normalize_target_name(word)
-            if normalized != word and normalized in known_names:
-                return {"target": normalized}
-
-        # Step 3: Exact substring match.
-        for name in sorted(known_names, key=len, reverse=True):
-            if name.lower() in raw:
-                return {"target": name}
-
-        # Step 4: Fuzzy match for typos.
-        best_name: str | None = None
-        best_ratio: float = 0.0
-        for name in known_names:
+        if self._alias_store is not None:
             for word in words:
-                ratio = difflib.SequenceMatcher(None, name.lower(), word).ratio()
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_name = name
-        if best_name is not None and best_ratio >= 0.6:
-            return {"target": best_name}
+                if self._alias_store.resolve(
+                    word,
+                    session_id=self._session_id,
+                    user_id=self._user_id,
+                    project_id=self._project_id,
+                ):
+                    return word
 
-        # Step 4.5: Detect potential hostnames.
-        _prepositions = frozenset({"on", "for", "at", "from"})
-        _hostname_pattern = re.compile(r"^[a-z][a-z0-9._-]*$", re.IGNORECASE)
+        preposition = re.search(
+            r"\b(?:on|for|at|from|tren|cua)\s+([a-z0-9._-]+)\b",
+            raw,
+        )
+        if preposition:
+            candidate = preposition.group(1)
+            if candidate not in self._skip_words and candidate not in {
+                "server",
+                "host",
+                "may",
+            }:
+                return candidate
+
+        # Technical hostname tokens must never be silently replaced by localhost.
         for word in words:
             if (
                 len(word) > 2
                 and word not in self._skip_words
-                and word not in _prepositions
-                and not self._is_localhost_synonym(word)
-                and _hostname_pattern.match(word)
+                and re.fullmatch(r"[a-z][a-z0-9._-]*", word)
                 and not word.isalpha()
             ):
-                self._bad_targets.add(word)
-                raise UnknownTargetError(word, known_names, domain_names)
+                return word
 
-        # Step 5: Intent + keyword-based defaults.
-        if intent is not None and self._registry is not None:
-            intent_name = intent.name
-            if intent_name == "MONITORING_ASSESSMENT":
-                if any(
-                    kw in raw
-                    for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")
-                ):
-                    if "grafana" in known_names:
-                        return {"target": "grafana"}
-                for preferred in ("zabbix", "grafana"):
-                    if preferred in known_names:
-                        return {"target": preferred}
+        stripped = raw.strip()
+        if " " not in stripped and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", stripped):
+            return stripped
+        return None
 
-        # Step 6: Preposition-based target.
-        for i, word in enumerate(words):
-            if word in _prepositions and i + 1 < len(words):
-                candidate = words[i + 1]
-                normalized_candidate = self.normalize_target_name(candidate)
-                if (
-                    len(candidate) > 2
-                    and candidate not in self._skip_words
-                    and normalized_candidate not in self._skip_words
-                ):
-                    if normalized_candidate in known_names:
-                        return {"target": normalized_candidate}
+    def _resolve_explicit(
+        self,
+        raw_target: str,
+        known_names: list[str],
+        domain_names: list[str],
+    ) -> tuple[str, float, tuple[TargetCandidate, ...], float | None]:
+        candidate = normalize_lexical_text(raw_target)
+        if candidate in self._bad_targets:
+            raise UnknownTargetError(raw_target, known_names, domain_names)
+
+        if candidate == "localhost" or self._is_localhost_synonym(candidate):
+            result = TargetCandidate("localhost", 1.0, "localhost_alias")
+            return "localhost", 1.0, (result,), 1.0
+
+        known_by_normalized = {
+            normalize_lexical_text(name): name for name in known_names
+        }
+        if candidate in known_by_normalized:
+            target = known_by_normalized[candidate]
+            result = TargetCandidate(target, 1.0, "exact")
+            return target, 1.0, (result,), 1.0
+
+        if self._alias_store is not None:
+            alias = self._alias_store.resolve(
+                candidate,
+                session_id=self._session_id,
+                user_id=self._user_id,
+                project_id=self._project_id,
+            )
+            if alias is not None:
+                if alias.target not in known_names:
                     self._bad_targets.add(candidate)
-                    raise UnknownTargetError(candidate, known_names, domain_names)
+                    raise UnknownTargetError(raw_target, known_names, domain_names)
+                result = TargetCandidate(alias.target, 1.0, "scoped_alias")
+                return alias.target, 1.0, (result,), 1.0
 
-        # Step 7: Fallback.
-        return {"target": "localhost"}
+        normalized = self.normalize_target_name(candidate)
+        if normalized in known_by_normalized:
+            target = known_by_normalized[normalized]
+            result = TargetCandidate(target, 0.99, "name_pattern")
+            return target, 0.99, (result,), 0.99
+
+        ranked = tuple(
+            sorted(
+                (
+                    TargetCandidate(
+                        target=name,
+                        score=difflib.SequenceMatcher(
+                            None, candidate, normalize_lexical_text(name)
+                        ).ratio(),
+                        source="lexical_fuzzy",
+                    )
+                    for name in known_names
+                ),
+                key=lambda item: (-item.score, item.target),
+            )
+        )
+        top = ranked[0] if ranked else None
+        second = ranked[1] if len(ranked) > 1 else None
+        margin = (
+            top.score - second.score
+            if top is not None and second is not None
+            else (top.score if top is not None else None)
+        )
+        if top is not None and top.score >= self._fuzzy_threshold:
+            if second is not None and margin is not None and margin < self._ambiguity_margin:
+                raise AmbiguousTargetError(
+                    raw_target, tuple(item.target for item in ranked[:3])
+                )
+            return top.target, top.score, ranked[:3], margin
+
+        self._bad_targets.add(candidate)
+        raise UnknownTargetError(raw_target, known_names, domain_names)
+
+    def resolve_frame(
+        self,
+        frame: RequestFrame,
+        *,
+        intent: object | None = None,
+    ) -> TargetResolution:
+        """Resolve a target with exact/alias precedence and threshold+margin guard."""
+        self._ensure_loaded()
+        known_names, domain_names = self._known_targets()
+        explicit = self._explicit_target_candidate(frame, known_names)
+        if explicit is not None:
+            target, score, candidates, margin = self._resolve_explicit(
+                explicit, known_names, domain_names
+            )
+            enriched = frame.evolve(
+                target_raw=frame.target_raw or explicit,
+                target_resolved=target,
+                target_candidates=candidates,
+            )
+            return TargetResolution(target, score, candidates, margin, enriched)
+
+        intent_name = getattr(intent, "name", "")
+        if intent_name == "MONITORING_ASSESSMENT":
+            raw = normalize_lexical_text(frame.raw_request)
+            preferred_names = (
+                ("grafana", "zabbix")
+                if any(term in raw for term in ("dashboard", "panel", "bieu do", "do thi"))
+                else ("zabbix", "grafana")
+            )
+            for preferred in preferred_names:
+                if preferred in known_names:
+                    result = TargetCandidate(preferred, 0.9, "intent_default")
+                    enriched = frame.evolve(
+                        target_resolved=preferred,
+                        target_candidates=(result,),
+                    )
+                    return TargetResolution(preferred, 0.9, (result,), 0.9, enriched)
+
+        result = TargetCandidate("localhost", 0.8, "implicit_default")
+        enriched = frame.evolve(
+            target_resolved="localhost",
+            target_candidates=(result,),
+        )
+        return TargetResolution("localhost", 0.8, (result,), 0.8, enriched)
+
+    # ------------------------------------------------------------------
+    # Immutable pipeline state interface.
+    # ------------------------------------------------------------------
+
+    def resolve_state(self, state: PipelineState) -> StateUpdate:
+        """Return an immutable StateUpdate with the resolved target."""
+        frame = state.request_frame
+        if not isinstance(frame, RequestFrame):
+            from src.pipeline.normalizer import Normalizer
+
+            frame = Normalizer().normalize(state.user_request)
+        resolution = self.resolve_frame(frame, intent=state.intent)
+        return {
+            "request_frame": resolution.request_frame,
+            "semantic_request": resolution.request_frame,
+            "target": resolution.target,
+            "target_candidates": resolution.candidates,
+            "target_score": resolution.score,
+            "target_margin": resolution.ambiguity_margin,
+        }
+
 
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.
@@ -373,130 +543,14 @@ class TargetResolver:
                                 resolved target does not exist, or if no matching
                                 target is found and no default applies.
         """
-        self._ensure_loaded()
-        raw = request.raw_request.lower()
-        intent = request.intent
+        frame = request.request_frame
+        if not isinstance(frame, RequestFrame):
+            from src.pipeline.normalizer import Normalizer
 
-        known_names: list[str] = []
-        domain_names: list[str] = []
-        if self._registry is not None:
-            known_names = self._registry.target_names()
-            domain_names = list(self._registry._domain_tools.keys())
-
-        words = self._extract_words(raw)
-
-        # Step 0: Check localhost synonyms first — but ONLY if no other
-        # hostname-looking word appears. Pattern "trên máy X" (where X is
-        # an unrecognized hostname) should prioritize X over localhost.
-        _has_unrecognized_host = self._find_unrecognized_hostname(words)
-        for word in words:
-            if self._is_localhost_synonym(word):
-                if _has_unrecognized_host:
-                    break
-                if "localhost" in known_names:
-                    request.target = "localhost"
-                    return
-                request.target = "localhost"
-                return
-
-        # Step 0.5: Check bad-target cache — if this word failed before, skip it.
-        for word in words:
-            if word in self._bad_targets:
-                raise UnknownTargetError(word, known_names, domain_names)
-
-        # Step 1: Check aliases (fastest path).
-        for word in words:
-            alias_target = self._aliases.get(word)
-            if alias_target:
-                if alias_target in known_names:
-                    request.target = alias_target
-                    return
-                self._bad_targets.add(alias_target)
-                raise UnknownTargetError(alias_target, known_names, domain_names)
-
-        # Step 2: Try normalized target names via pattern matching.
-        for word in words:
-            normalized = self.normalize_target_name(word)
-            if normalized != word and normalized in known_names:
-                request.target = normalized
-                return
-
-        # Step 3: Exact substring match (fast path).
-        for name in sorted(known_names, key=len, reverse=True):
-            if name.lower() in raw:
-                request.target = name
-                return
-
-        # Step 4: Fuzzy match for typos (slow path).
-        best_name: str | None = None
-        best_ratio: float = 0.0
-        for name in known_names:
-            for word in words:
-                ratio = difflib.SequenceMatcher(None, name.lower(), word).ratio()
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_name = name
-        if best_name is not None and best_ratio >= 0.6:
-            request.target = best_name
-            return
-
-        # Step 4.5: Detect potential hostnames that failed all resolution steps.
-        # Words like "serverabcxyz" or "server01" should raise an error, not
-        # fall through to localhost. Only flag words that look like technical
-        # hostnames (contain digits, hyphens, or dots) — pure alphabetic words
-        # like "disks" or "check" are not hostnames.
-        _prepositions = frozenset({"on", "for", "at", "from"})
-        _hostname_pattern = re.compile(r"^[a-z][a-z0-9._-]*$", re.IGNORECASE)
-        for word in words:
-            if (
-                len(word) > 2
-                and word not in self._skip_words
-                and word not in _prepositions
-                and not self._is_localhost_synonym(word)
-                and _hostname_pattern.match(word)
-                and not word.isalpha()
-            ):
-                self._bad_targets.add(word)
-                raise UnknownTargetError(word, known_names, domain_names)
-
-        # Step 5: Intent + keyword-based defaults.
-        if intent is not None and self._registry is not None:
-            intent_name = intent.name
-
-            # Dashboard/panel questions -> prefer grafana
-            if intent_name == "MONITORING_ASSESSMENT":
-                if any(
-                    kw in raw
-                    for kw in ("dashboard", "panel", "grafana", "biểu đồ", "đồ thị")
-                ):
-                    if "grafana" in known_names:
-                        request.target = "grafana"
-                        return
-                # Everything else monitoring -> prefer zabbix
-                for preferred in ("zabbix", "grafana"):
-                    if preferred in known_names:
-                        request.target = preferred
-                        return
-
-        # Step 6: Check if user explicitly named a target via preposition.
-        # If the request mentions "on <name>" or "for <name>" and that
-        # name looks like a hostname, raise UnknownTargetError.
-        for i, word in enumerate(words):
-            if word in _prepositions and i + 1 < len(words):
-                candidate = words[i + 1]
-                # Also try normalized form before skipping.
-                normalized_candidate = self.normalize_target_name(candidate)
-                if (
-                    len(candidate) > 2
-                    and candidate not in self._skip_words
-                    and normalized_candidate not in self._skip_words
-                ):
-                    # If the normalized form matches a known name, use it.
-                    if normalized_candidate in known_names:
-                        request.target = normalized_candidate
-                        return
-                    self._bad_targets.add(candidate)
-                    raise UnknownTargetError(candidate, known_names, domain_names)
-
-        # Step 7: Fallback — no explicit target found.
-        request.target = "localhost"
+            frame = Normalizer().normalize(request.raw_request)
+        resolution = self.resolve_frame(frame, intent=request.intent)
+        request.target = resolution.target
+        request.set_request_frame(resolution.request_frame)
+        request.target_candidates = resolution.candidates
+        request.target_score = resolution.score
+        request.target_margin = resolution.ambiguity_margin

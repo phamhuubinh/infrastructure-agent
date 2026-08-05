@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import yaml
 
+from src.pipeline.request_frame import RequestFrame
 from src.pipeline.semantic_request import SemanticRequest
 
 if TYPE_CHECKING:
@@ -79,7 +80,7 @@ class CapabilityPlanner:
         update: StateUpdate = {"planned_capability_names": planned}
         return update
 
-    def plan(self, semantic: SemanticRequest) -> list[str]:
+    def plan(self, semantic: SemanticRequest | RequestFrame) -> list[str]:
         """Return the list of capability names for a given concept+action.
 
         Args:

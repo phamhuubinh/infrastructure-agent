@@ -97,6 +97,12 @@ class ParameterExtractor:
             "failed",
             "active",
             "inactive",
+            "down",
+            "up",
+            "crashed",
+            "crash",
+            "lỗi",
+            "loi",
             "the",
             "what",
             "which",
@@ -107,6 +113,14 @@ class ParameterExtractor:
             "week",
             "use",
             "only",
+            "giúp",
+            "giup",
+            "tui",
+            "hộ",
+            "ho",
+            "kia",
+            "đó",
+            "do",
         }
     )
 
@@ -230,7 +244,7 @@ class ParameterExtractor:
                 return "postgresql"
             if candidate in ("apache", "apache2", "httpd"):
                 return "apache2"
-            return candidate
+            return None
 
         # Fall back: look for known service names anywhere.
         m = self._SERVICE_NAMES.search(text)

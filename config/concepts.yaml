@@ -47,6 +47,7 @@ concepts:
         - disks
         - storage
         - ổ cứng
+        - ổ
         - ssd
         - hdd
         - đĩa
@@ -83,6 +84,10 @@ concepts:
         - routing
         - port
         - ports
+        - cổng
+        - listen
+        - listening
+        - listening ports
         - connectivity
         - bandwidth
         - băng thông
@@ -140,13 +145,26 @@ concepts:
         - cpu load
         - server load
         - system load
-        - tải
         - tải cpu
         - tải hệ thống
         - tải trung bình
         - mức tải
       category: infrastructure
       display: Load
+    performance:
+      synonyms:
+        - performance
+        - slow
+        - slowness
+        - lag
+        - laggy
+        - bottleneck
+        - spike
+        - bị ì
+        - chạy chậm
+        - phản hồi chậm
+      category: infrastructure
+      display: Performance
 
   monitoring:
     alerts:
@@ -233,6 +251,8 @@ concepts:
         - elasticsearch
         - elastic
         - trạng thái
+        - web service
+        - web server
       category: system
       display: Service
     process:
@@ -370,6 +390,16 @@ actions:
       - vì sao
       - như thế nào
       - làm sao
+      - debug
+      - fail
+      - failed
+      - crash
+      - crashed
+      - down
+      - bị lỗi
+      - bi loi
+      - bị ì
+      - bi i
   compare:
     synonyms:
       - compare
@@ -409,3 +439,5 @@ actions:
       - estimate
       - dự đoán
       - dự báo
+      - sau bao lâu
+      - bao lâu nữa

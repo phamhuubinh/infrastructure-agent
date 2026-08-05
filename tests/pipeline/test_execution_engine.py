@@ -124,7 +124,10 @@ class TestFullPipeline:
         result = engine.execute("test machine")
 
         assert isinstance(result, InvestigationRequest)
-        intent.resolve.assert_called_once_with("test machine")
+        intent.resolve.assert_called_once()
+        canonical_frame = intent.resolve.call_args.args[0]
+        assert canonical_frame.raw_request == "test machine"
+        assert canonical_frame.concepts == ("machine",)
         target.resolve.assert_called_once()
         evidence.plan.assert_called_once()
         cap_res.resolve.assert_called_once()

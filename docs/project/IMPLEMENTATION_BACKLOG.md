@@ -392,7 +392,7 @@ However, Orion's prompts have genuine strengths that must be preserved:
 **Problem Statement:**
 `LLMClient` supports only OpenAI-compatible endpoints with a single server configuration. No failover, no multi-provider abstraction, no credential pool. ADR-0001 states the architecture should be "model-agnostic" — the `AssessmentModelAdapter` ABC exists (with two implementations: `LLMAssessmentAdapter` and `MockAssessmentAdapter`), proving the abstraction works. But only one production implementation exists.
 
-The `classify()` Tier-2 LLM fallback (for low-confidence keyword matching) and the `chat()` path both use the same single provider. Production deployments need redundancy. Air-gapped deployments need local models. Cost optimization needs provider choice.
+The investigation `classify()` path is deterministic after DR1-301; the `chat()` and post-evidence assessment paths still use the same single provider. Production deployments need redundancy. Air-gapped deployments need local models. Cost optimization needs provider choice.
 
 **Expected Benefit:**
 - Production redundancy via provider failover chain.

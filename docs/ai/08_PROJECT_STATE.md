@@ -5,7 +5,7 @@
 **Local MVP with Docker Compose.** Single-user, single-machine. Docker Compose provides an HTTP reverse proxy for local use; production TLS is expected to terminate outside this stack.
 
 ## Implemented
-- 6-stage deterministic pipeline: Normalize → Target → Plan → Graph → Execute → Assess (`src/pipeline/*`). Includes SemanticRequest normalization layer (language-only, config-driven via `config/concepts.yaml`) and CapabilityPlanner (concept+action → capability plan, config-driven via `config/capability_plans.yaml`).
+- 6-stage deterministic pipeline: Normalize → Target → Plan → Graph → Execute → Assess (`src/pipeline/*`). A canonical immutable `RequestFrame` carries concepts/operation/target/params/answer type/timeframe and ranked ambiguity evidence through routing; CapabilityPlanner maps concept+action via `config/capability_plans.yaml`.
 - `KnowledgeTool` as the single dispatch entry point to Child Tools (`src/tool/knowledge_tool.py`).
 - Chat Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, and `InternetTool` (HTTP fetch with SSRF protection). RAG is explicitly excluded from chat registration.
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
@@ -14,8 +14,8 @@
 - Web UI (TanStack Start / React) with isolated Chat sessions, a dedicated project-based document-analysis page, API-key settings, and model add/install/test/select/delete controls. Docker packages its Nitro SSR server as the `ui` service; source development uses Vite.
 - Step-by-step pipeline visualization in Web UI (intent → evidence → prompt → assessment with expandable details).
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
-- Chat interface with routing: keyword match + model classify to distinguish infrastructure queries from general chat.
-- Fuzzy target name matching for typo-tolerant server resolution.
+- Chat interface with fully deterministic routing statuses; no model classifier participates in infrastructure routing. General chat remains a separate model-backed subsystem.
+- Target resolution uses exact/scoped aliases before fuzzy matching and requires both score threshold and candidate margin; explicit unknown/ambiguous targets clarify without localhost execution.
 - Deterministic responder (`src/pipeline/deterministic_responder.py`) — generates responses without LLM for simple evidence (service status, zombie processes) before the full assessment step.
 - Capability reference model (`src/pipeline/capability_reference.py`) — typed dataclass for capability references across the pipeline.
 - Assessment request model (`src/pipeline/assessment_request.py`) — typed request envelope used by `AssessmentAdapter`.
@@ -123,10 +123,10 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 
 | Historical IDs | Artifact present | Current behavior gap / corrective owner |
 |---|---|---|
-| 601–604 | Identity/language prompts, separate unknown-target catch, hostname guard | Target confidence/clarification and output validation: DR1-306, DR1-309, DR1-703, DR1-706 |
-| 605–608 | CapabilityPlanner/config/library wiring | Split routing flow and incomplete normalization/route contracts: DR1-301, DR1-302, DR1-303, DR1-308 |
+| 601–604 | Identity/language prompts, separate unknown-target catch, hostname guard | DR1-306/309 completed target confidence + deterministic clarification; output validation remains DR1-703, DR1-706 |
+| 605–608 | CapabilityPlanner/config/library wiring | DR1-301–308 completed canonical deterministic routing; context/parameter binding remains DR1-401–406 |
 | 609–611 | Parameter parser plus runtime method plumbing | `_execute_node()` does not bind extracted values into child-tool arguments: DR1-403, DR1-404 |
-| 612–617 | Answer-type/tool selectors and `source_tool` field | Selected tool is not route authority; response strategy and provenance are not canonical: DR1-301, DR1-308, DR1-508, DR1-509, DR1-707 |
+| 612–617 | Answer-type/tool selectors and `source_tool` field | DR1-308 completed request/routing/evidence/strategy taxonomy; selected-tool provenance remains DR1-508, DR1-509, DR1-707 |
 | 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers and requires valid evidence; canonical fact freshness/provenance still remains: DR1-501, DR1-502, DR1-505, DR1-707 |
 | 623–625 | Per-session TTL cache and engine wiring | DR1-108 now rejects failed/partial cache entries; cache key still omits params/timeframe/schema/freshness policy: DR1-507 |
 | 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
@@ -239,9 +239,18 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-209 ✅ complete**: filesystem capacity, inode usage, cumulative disk I/O and device health are separate capabilities/facts; absent SMART/NVMe tooling is unsupported and capacity never implies physical health.
 - **DR1-210 ✅ complete**: core Linux payloads use explicit bytes/seconds/percent schemas validated before `VALID`; the assessment prompt reads canonical unit-bearing keys rather than guessing aliases.
 - **DR1-211 ✅ complete**: KnowledgeTool dispatch is fail-closed through a mandatory inspector chain with per-result receipts and trace counters; declared mutation risk/raw mutating parameters are blocked, and assessment remains tool-less/read-only.
+- **DR1-301 ✅ complete**: investigation routing no longer invokes a Tier-2 model classifier; ambiguous/unsupported paths short-circuit deterministically and pipeline failures do not fall back to chat/model.
+- **DR1-302 ✅ complete**: immutable `RequestFrame` is the canonical request contract across normalizer, intent, target and engine stages, with safe actual/expected frame trace serialization and a backward-compatible `semantic_request` alias.
+- **DR1-303 ✅ complete**: deterministic normalization now handles accentless Vietnamese, reviewed code-switch aliases and bounded typo matching while preserving ranked match evidence and multiple explicit concepts.
+- **DR1-304 ✅ complete**: standard-library semantic candidate retrieval combines exact, weighted token, character n-gram and edit signals; deterministic validation requires threshold, top margin and compatibility.
+- **DR1-305 ✅ complete**: intent resolution exposes ranked candidates, score, enum confidence and ambiguity margin, validates concept/operation compatibility and prevents state words such as `down` becoming service names.
+- **DR1-306 ✅ complete**: target resolution applies exact/scoped-alias/name-pattern precedence, fuzzy threshold + margin, alphabetic/numeric unknown-host guards and localhost fallback only when no explicit target exists.
+- **DR1-307 ✅ complete**: target aliases have session/user/project/global scope and observed/suggested/approved/active/deprecated lifecycle; global activation requires reviewer/evidence metadata and transcript observations do not auto-promote.
+- **DR1-308 ✅ complete**: request class, routing status, evidence status and answer strategy are first-class contracts on investigation/trace; the QA runner consumes them directly rather than deriving routing/evidence heuristically.
+- **DR1-309 ✅ complete**: bounded deterministic templates clarify missing target/service/path/timeframe/concept/operation with at most three validated candidates before any model or evidence execution.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-201–211 complete: runtime/target correctness, Linux collectors/schemas and read-only boundary verified; DR1-001–108 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-301–309 complete: canonical request frame, deterministic routing/candidates/target aliases/taxonomy/clarification verified; DR1-001–211 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

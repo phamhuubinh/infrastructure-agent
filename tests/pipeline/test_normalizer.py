@@ -208,3 +208,25 @@ def test_normalize_summarize() -> None:
     result = n.normalize("tổng quan hệ thống")
     assert result.concept == "machine"
     assert result.action == "summarize"
+
+
+def test_normalize_typo_service() -> None:
+    result = Normalizer().normalize("sevice nao bi loi")
+    assert result.concepts == ("service",)
+    assert result.operation == "diagnose"
+
+
+def test_normalize_typo_kernel_with_generic_version_word() -> None:
+    result = Normalizer().normalize("kernl version?")
+    assert result.concepts == ("kernel",)
+
+
+def test_normalize_code_switching_web_slowness() -> None:
+    result = Normalizer().normalize("web bị ì, debug giúp")
+    assert result.concepts == ("performance",)
+    assert result.operation == "diagnose"
+
+
+def test_normalize_preserves_multiple_explicit_concepts() -> None:
+    result = Normalizer().normalize("Kiểm tra CPU, RAM và Disk.")
+    assert result.concepts == ("cpu", "memory", "disk")

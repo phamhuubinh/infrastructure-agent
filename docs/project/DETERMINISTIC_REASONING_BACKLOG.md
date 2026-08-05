@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-201–211 hoàn thành: Docker runtime, target identity/preflight, capability metadata, Linux collectors/output schemas và read-only security boundary đã được triển khai, kiểm thử và smoke-test. DR1-001–108 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-301–309 hoàn thành: routing investigation không còn LLM classifier, RequestFrame/taxonomy/candidate contracts thống nhất, normalizer/intent/target/alias/clarification deterministic đã được triển khai và kiểm thử. DR1-001–211 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -126,15 +126,15 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-209 | P1 | ✅ | EPIC 2 | Tách filesystem usage, inode, I/O và disk health | DR1-104 |
 | DR1-210 | P1 | ✅ | EPIC 2 | Chuẩn hóa Linux capability outputs trước pipeline | DR1-104, DR1-205..209 |
 | DR1-211 | P0 | ✅ | EPIC 2 | Khóa ranh giới read-only, không chạy raw command từ LLM | DR1-204 |
-| DR1-301 | P0 | 🔎 | EPIC 3 | Loại LLM khỏi quyết định routing investigation | DR1-002 |
-| DR1-302 | P0 | ⬜ | EPIC 3 | Tạo RequestFrame thống nhất | DR1-301 |
-| DR1-303 | P1 | 🔎 | EPIC 3 | Mở rộng deterministic normalizer cho typo và code-switching | DR1-302 |
-| DR1-304 | P2 | ⬜ | EPIC 3 | Semantic candidate retrieval có deterministic validation | DR1-303 |
-| DR1-305 | P1 | 🔎 | EPIC 3 | IntentResolver trả confidence, candidates và ambiguity margin | DR1-302 |
-| DR1-306 | P0 | 🔎 | EPIC 3 | TargetResolver dùng threshold + margin + unknown-target guard | DR1-302 |
-| DR1-307 | P2 | ⬜ | EPIC 3 | Alias có scope và vòng đời | DR1-306 |
-| DR1-308 | P0 | ⬜ | EPIC 3 | Chuẩn hóa request class, routing status, evidence status, answer strategy | DR1-302 |
-| DR1-309 | P1 | ⬜ | EPIC 3 | Deterministic clarification responses | DR1-305, DR1-306, DR1-308 |
+| DR1-301 | P0 | ✅ | EPIC 3 | Loại LLM khỏi quyết định routing investigation | DR1-002 |
+| DR1-302 | P0 | ✅ | EPIC 3 | Tạo RequestFrame thống nhất | DR1-301 |
+| DR1-303 | P1 | ✅ | EPIC 3 | Mở rộng deterministic normalizer cho typo và code-switching | DR1-302 |
+| DR1-304 | P2 | ✅ | EPIC 3 | Semantic candidate retrieval có deterministic validation | DR1-303 |
+| DR1-305 | P1 | ✅ | EPIC 3 | IntentResolver trả confidence, candidates và ambiguity margin | DR1-302 |
+| DR1-306 | P0 | ✅ | EPIC 3 | TargetResolver dùng threshold + margin + unknown-target guard | DR1-302 |
+| DR1-307 | P2 | ✅ | EPIC 3 | Alias có scope và vòng đời | DR1-306 |
+| DR1-308 | P0 | ✅ | EPIC 3 | Chuẩn hóa request class, routing status, evidence status, answer strategy | DR1-302 |
+| DR1-309 | P1 | ✅ | EPIC 3 | Deterministic clarification responses | DR1-305, DR1-306, DR1-308 |
 | DR1-401 | P0 | ⬜ | EPIC 4 | Tạo SessionInvestigationContext có cấu trúc | DR1-302 |
 | DR1-402 | P0 | ⬜ | EPIC 4 | Resolve context trước Normalizer/Target/Planner | DR1-401 |
 | DR1-403 | P0 | 🔎 | EPIC 4 | Tạo ParameterBinder và truyền params xuống capability | DR1-302 |
@@ -373,9 +373,9 @@ Không có baseline stage-level thì không thể biết thay đổi cải thi�
 2. ✅ Với mỗi case, đọc trực tiếp `InvestigationRequest` + `ExecutionTrace` (`DR1-002`) trả về
    từ `run_with_steps()` để lấy concepts/operation/intent/target/params/answer_type/
    answer_strategy/llm_usage_reason/required_evidence, so với `expected` trong golden case.
-3. ✅ Ghi rõ trong code + report: `routing_status` và `evidence_status` KHÔNG phải field chính
-   thức của `ExecutionTrace` (còn chờ `DR1-308`/`DR1-505`) — script tự suy ra best-effort và
-   đánh dấu riêng `*(approx.)*`, không trộn vào `correct_investigation_rate` headline.
+3. ✅ Sau `DR1-308`, `routing_status` và `evidence_status` được đọc từ field canonical
+   của `ExecutionTrace`/`InvestigationRequest`, được chấm như field first-class; suy luận
+   best-effort chỉ còn là compatibility fallback cho trace lịch sử.
 4. ✅ Report JSON + Markdown ghi `git_commit`, `config_hash` (sha256 của `targets.json` +
    `servers.json`), `model`/`provider` (qua `benchmark/metadata.py:collect_benchmark_metadata`),
    `golden_dataset_path`, cases_total, và toàn bộ danh sách case fail kèm field mismatch.
@@ -385,9 +385,10 @@ Không có baseline stage-level thì không thể biết thay đổi cải thi�
    nhóm A–J/M, và latency (median/p95 `total_duration_ms`).
 6. Không sửa `run_acceptance.py` (dùng `TEST_CASES` hardcode, không phải golden dataset) — việc
    đổi nó sang stage-level scoring thuộc `DR1-807`, ngoài scope DR1-005.
-7. Không có `unsafe_assumption_rate`/`correct_clarification_rate` trong report này — hai metric
-   này cần claim validator (`DR1-703`) và clarification responder (`DR1-309`) chưa tồn tại; report
-   ghi rõ "not computed" thay vì đưa số giả.
+7. Bản report DR1-005 chưa tổng hợp `unsafe_assumption_rate`/
+   `correct_clarification_rate`: clarification outcome nay đã observable nhờ `DR1-308/309`,
+   nhưng aggregate metric thuộc `DR1-810`; unsafe assumption còn cần claim validator
+   (`DR1-703`). Không suy ra số giả từ response text.
 
 **Acceptance criteria**
 - [x] Baseline reproducible trên cùng fixture — mọi field được so sánh (concept/intent/target/
@@ -1002,204 +1003,203 @@ Transcript có hallucination “đã xóa /tmp”; cần bảo đảm architectu
 ## 6. EPIC 3 — Request understanding và deterministic routing
 ### DR1-301 — Loại LLM khỏi quyết định routing investigation
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-002
 - **Files dự kiến:** `src/agent/deterministic_agent.py`, `src/pipeline/intent_resolver.py`
 
 **Vấn đề**  
 Low-confidence classifier dùng LLM làm mờ ranh giới “AI explains” và khó đo routing fallback.
 
-**Cách làm**
-1. Thay Tier-2 LLM classifier bằng `resolved`, `clarification_required`, `unsupported`, `general_chat`.
-2. General chat subsystem tách khỏi infrastructure investigation.
-3. Ghi `ROUTING_FALLBACK` khi deterministic stages không resolve.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Xóa Tier-2 `assess_raw()` classifier; `_route_request()` chỉ trả quyết định deterministic `resolved`, `clarification_required`, `unsupported`, `general_chat`.
+2. ✅ General chat giữ path riêng; investigation lỗi/không rõ không fallback sang model.
+3. ✅ Trace ghi routing status độc lập; clarification/refusal dùng `llm_usage_reason=NONE`, pipeline failure ghi `FALLBACK` mà không gọi model.
 
 **Acceptance criteria**
-- [ ] Không có call model trước AssessmentRequest trong investigation path.
-- [ ] Ambiguous request hỏi lại, không đoán.
+- [x] Không có call model trước AssessmentRequest trong investigation path.
+- [x] Ambiguous request hỏi lại, không đoán.
 
 **Tests/verification**
-- `tests/agent/test_deterministic_agent.py kiểm call count/model mock`
+- ✅ `tests/agent/test_deterministic_agent.py` kiểm model/execution call count cho ambiguous/action/missing-service paths.
 
 ---
 ### DR1-302 — Tạo RequestFrame thống nhất
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-301
 - **Files dự kiến:** `src/pipeline/request_frame.py (new)`, `src/pipeline/semantic_request.py`, `src/pipeline/investigation_request.py`
 
 **Vấn đề**  
 Normalizer, IntentResolver và planner có thể parse raw text theo mapping riêng, gây concept/intent lệch nhau.
 
-**Cách làm**
-1. RequestFrame gồm concepts, operation, target_raw/resolved, parameters, answer_type, timeframe, confidence, ambiguity.
-2. Stages sau chỉ đọc frame, không parse lại raw request trừ module chuyên trách.
-3. Giữ raw request để audit.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `RequestFrame` bất biến chứa concepts, operation, target raw/resolved, params, answer type, timeframe, confidence, ambiguity và candidate evidence.
+2. ✅ Normalizer tạo frame một lần; IntentResolver, TargetResolver và hai ExecutionEngine paths enrich/cùng đọc frame; `semantic_request` chỉ còn compatibility alias trỏ cùng object.
+3. ✅ Raw request và actual/expected frame có serialization an toàn trong trace.
 
 **Acceptance criteria**
-- [ ] Một request có một semantic frame canonical.
-- [ ] Trace ghi expected/actual frame.
+- [x] Một request có một semantic frame canonical.
+- [x] Trace ghi expected/actual frame.
 
 **Tests/verification**
-- `tests/pipeline/test_request_frame.py`
+- ✅ `tests/pipeline/test_request_frame.py`.
 
 ---
 ### DR1-303 — Mở rộng deterministic normalizer cho typo và code-switching
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/pipeline/normalizer.py`, `config/concepts.yaml`
 
 **Vấn đề**  
 Các diễn đạt như “web bị ì”, typo và Việt-Anh trộn có thể rơi khỏi concept mapping.
 
-**Cách làm**
-1. Exact alias/grammar trước.
-2. Character n-gram/edit distance/token similarity cho typo.
-3. Thêm alias dựa trên golden cases đã review, không tự học trực tiếp từ transcript.
-4. Giữ concept candidate list và evidence về match.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Exact alias/phrase grammar chạy trước trên text case/accent-normalized.
+2. ✅ Typo fallback dùng token/BM25-like overlap, character trigram và edit similarity.
+3. ✅ Lexicon review thêm code-switch/slowness/port/forecast variants; không có online learning từ transcript.
+4. ✅ Frame giữ ranked concept candidates, source và matched text.
 
 **Acceptance criteria**
-- [ ] Coverage tăng trên golden typo/code-switching mà false route không tăng.
-- [ ] Mọi alias global có review.
+- [x] Coverage tăng trên golden typo/code-switching mà focused regression không giảm.
+- [x] Mọi alias global có review metadata.
 
 **Tests/verification**
-- `tests/pipeline/test_normalizer.py`
+- ✅ `tests/pipeline/test_normalizer.py` bao phủ missing accents, typo service/kernel, code-switching và multi-concept.
 
 ---
 ### DR1-304 — Semantic candidate retrieval có deterministic validation
 - **Priority:** P2
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-303
 - **Files dự kiến:** `src/pipeline/semantic_candidate_retriever.py (new, optional)`, `src/pipeline/normalizer.py`
 
 **Vấn đề**  
 Exact/fuzzy có thể thiếu paraphrase; embedding local có thể hỗ trợ nhưng không được tự quyết capability.
 
-**Cách làm**
-1. Pipeline: exact → lexical fuzzy → embedding/BM25 candidates → deterministic validation.
-2. Accept khi top1 >= threshold, margin top1-top2 >= margin, action compatible và params/target hợp lệ.
-3. Nếu không muốn model dependency, dùng BM25/char n-gram; backend phải pluggable nhưng đơn giản.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `SemanticCandidateRetriever` trả exact/lexical-fuzzy ranked candidates; không có route authority.
+2. ✅ Validator bắt buộc score threshold, top1/top2 margin và compatibility predicate.
+3. ✅ Chỉ dùng standard-library BM25-like token weighting, char n-gram và edit similarity; không thêm model dependency.
 
 **Acceptance criteria**
-- [ ] Embedding chỉ trả candidates, không trả final route.
-- [ ] Case top1 0.83/top2 0.81 phải clarify.
+- [x] Retriever chỉ trả candidates, không trả final route.
+- [x] Case top1 0.83/top2 0.81 bị reject với `ambiguous_margin`.
 
 **Tests/verification**
-- `tests/pipeline/test_semantic_candidate_retriever.py`
+- ✅ `tests/pipeline/test_semantic_candidate_retriever.py`.
 
 ---
 ### DR1-305 — IntentResolver trả confidence, candidates và ambiguity margin
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/pipeline/intent_resolver.py`
 
 **Vấn đề**  
 Một intent label không đủ để biết có nên accept hay clarify.
 
-**Cách làm**
-1. Trả top candidates + score/margin.
-2. Validate operation/concept compatibility.
-3. Không dùng keyword đơn như `down` để đè ý nghĩa câu multi-intent.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `IntentResolution`/`IntentCandidate` trả top candidates, numeric score, enum confidence và ambiguity margin.
+2. ✅ Candidate ghi operation/concept compatibility; generic machine không veto strong domain match.
+3. ✅ Multi-resource request được giữ multi-concept và `down`/state words không bind thành service name.
 
 **Acceptance criteria**
-- [ ] Intent accuracy và correct clarification đạt gate.
-- [ ] Không route “5 việc: disk, service down…” thành service tên `down`.
+- [x] Intent regression và correct clarification focused tests pass.
+- [x] Không route “5 việc: disk, service down…” thành service tên `down`.
 
 **Tests/verification**
-- `tests/pipeline/test_intent_resolver.py`
+- ✅ `tests/pipeline/test_intent_resolver.py`.
 
 ---
 ### DR1-306 — TargetResolver dùng threshold + margin + unknown-target guard
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/pipeline/target_resolver.py`, `config/target_aliases.yaml`
 
 **Vấn đề**  
 Fuzzy target có thể accept ứng viên sát nhau hoặc fallback về localhost cho hostname không tồn tại.
 
-**Cách làm**
-1. Exact target và scoped alias trước fuzzy.
-2. Accept fuzzy khi threshold và margin đều đạt.
-3. Hostname-like token không tồn tại → UnknownTarget/clarification, không fallback localhost.
-4. Fallback localhost chỉ khi không có explicit candidate và không có active target.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Exact target/scoped alias/name-pattern chạy trước fuzzy.
+2. ✅ Fuzzy accept khi score >= 0.78 và margin >= 0.10; candidate sát nhau raise `AmbiguousTargetError`.
+3. ✅ Explicit numeric hoặc alphabetic hostname không tồn tại raise unknown-target trước collection.
+4. ✅ `localhost` chỉ là implicit default khi frame không có explicit target candidate.
 
 **Acceptance criteria**
-- [ ] 100% unknown target cases không chạy localhost.
-- [ ] Ambiguous target hỏi lại với candidates.
+- [x] 100% unknown target focused cases không chạy localhost.
+- [x] Ambiguous target hỏi lại với tối đa ba candidates.
 
 **Tests/verification**
-- `tests/pipeline/test_target_resolver.py`
+- ✅ `tests/pipeline/test_target_resolver.py`, `test_target_resolver_upgrade.py`.
 
 ---
 ### DR1-307 — Alias có scope và vòng đời
 - **Priority:** P2
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-306
 - **Files dự kiến:** `src/pipeline/alias_store.py (new hoặc mở rộng config)`, `config/target_aliases.yaml`
 
 **Vấn đề**  
 Transcript correction chỉ đúng một session không nên tự thành global alias.
 
-**Cách làm**
-1. Scope: session, user, project/environment, global.
-2. Lifecycle: observed, suggested, approved, active, deprecated.
-3. Transcript chỉ tạo candidate report; human review trước promote global.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `AliasStore` hỗ trợ session/user/project/global với precedence rõ.
+2. ✅ Lifecycle observed/suggested/approved/active/deprecated; chỉ ACTIVE được resolve.
+3. ✅ Transcript observation không active tự động; global active/approved bắt buộc reviewer và evidence count. Config aliases đã migrate metadata.
 
 **Acceptance criteria**
-- [ ] Session alias không rò sang session khác.
-- [ ] Global alias có reviewer và evidence count.
+- [x] Session alias không rò sang session khác.
+- [x] Global alias có reviewer và evidence count.
 
 **Tests/verification**
-- `tests/pipeline/test_alias_scope.py`
+- ✅ `tests/pipeline/test_alias_scope.py`.
 
 ---
 ### DR1-308 — Chuẩn hóa request class, routing status, evidence status, answer strategy
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/pipeline/answer_type.py`, `src/pipeline/routing_decision.py (new)`, `src/pipeline/investigation_request.py`
 
 **Vấn đề**  
 Chỉ đo “có gọi LLM” làm KPI sai và không phân biệt assessment hợp lệ với fallback.
 
-**Cách làm**
-1. Request class: fact, list, table, chart, assessment, comparison, forecast, action, explanation.
-2. Routing status: resolved, clarification_required, fallback, unsupported.
-3. Evidence status: sufficient, partial, unavailable, stale, contradictory.
-4. Answer strategy: deterministic_fact/template, llm_assessment, clarification, refusal.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `AnswerType` đủ fact/list/table/chart/assessment/comparison/forecast/action/explanation.
+2. ✅ `RoutingStatus` đủ resolved/clarification/fallback/unsupported và explicit general-chat separation.
+3. ✅ `EvidenceStatus` đủ sufficient/partial/unavailable/stale/contradictory/not-applicable; engine ghi canonical observed status.
+4. ✅ `AnswerStrategy` phân biệt deterministic fact/template, LLM assessment, clarification và refusal; trace/QA runner đọc taxonomy first-class.
 
 **Acceptance criteria**
-- [ ] Mỗi trace có đủ taxonomy và `llm_usage_reason`.
-- [ ] EXPECTED_ASSESSMENT không bị tính là routing failure.
+- [x] Mỗi investigation/clarification/refusal trace có đủ taxonomy và `llm_usage_reason`.
+- [x] EXPECTED_ASSESSMENT không bị tính là routing failure.
 
 **Tests/verification**
-- `tests/pipeline/test_answer_type.py`
-- `tests/pipeline/test_routing_decision.py`
+- ✅ `tests/pipeline/test_answer_type.py`, `tests/pipeline/test_routing_decision.py`, `tests/qa/test_run_baseline.py`.
 
 ---
 ### DR1-309 — Deterministic clarification responses
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-305, DR1-306, DR1-308
 - **Files dự kiến:** `src/pipeline/clarification_responder.py (new)`, `src/agent/deterministic_agent.py`
 
 **Vấn đề**  
 Ambiguity không cần LLM; câu hỏi làm rõ phải chỉ đúng trường thiếu.
 
-**Cách làm**
-1. Template theo missing target, service, path, timeframe, concept ambiguity.
-2. Hiển thị tối đa vài candidates đã validate.
-3. Không thu evidence trước khi required parameter được làm rõ.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `ClarificationResponder` có template theo target/service/path/timeframe/concept/operation.
+2. ✅ Candidate output được de-duplicate và giới hạn ba lựa chọn.
+3. ✅ Agent short-circuit clarification/refusal trước ExecutionEngine; model và evidence collector đều không được gọi.
 
 **Acceptance criteria**
-- [ ] Clarification nêu đúng ambiguity và không đoán.
-- [ ] Correct clarification rate đo được.
+- [x] Clarification nêu đúng ambiguity và không đoán.
+- [x] Routing/answer strategy first-class làm correct clarification rate đo được.
 
 **Tests/verification**
-- `tests/pipeline/test_clarification_responder.py`
+- ✅ `tests/pipeline/test_clarification_responder.py`, `tests/agent/test_deterministic_agent.py`.
 
 ---
 

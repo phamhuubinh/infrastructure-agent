@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.pipeline.request_frame import RequestFrame
+
 
 @dataclass
 class SemanticRequest:
@@ -31,3 +33,15 @@ class SemanticRequest:
     target: str | None = None
     confidence: float = 0.0
     matched_synonyms: list[str] = field(default_factory=list)
+
+    def to_request_frame(self, raw_request: str = "") -> RequestFrame:
+        """Convert the legacy object to the canonical RequestFrame."""
+        return RequestFrame(
+            raw_request=raw_request,
+            concepts=(self.concept,),
+            operation=self.action,
+            target_raw=self.target_raw,
+            target_resolved=self.target,
+            confidence=self.confidence,
+            matched_synonyms=tuple(self.matched_synonyms),
+        )

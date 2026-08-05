@@ -391,7 +391,7 @@ Last updated: 2026-08-02
 
 | ID  | Priority | Status | Title | Description |
 |-----|----------|--------|-------|-------------|
-| 518 | P2       | ⬜      | Refine LLM classifier cho ambiguous case | Chỉ gọi LLM khi concept confidence < 0.4. Prompt nhẹ (~100 tokens), response 1 từ. Không dùng LLM phân loại CPU/RAM/Disk — những case đó deterministic. |
+| 518 | P2       | ✅      | Loại LLM classifier khỏi investigation routing | Superseded và hoàn thành bởi DR1-301: ambiguous case dùng deterministic clarification, không gọi model. |
 
 ### Testing (P1)
 

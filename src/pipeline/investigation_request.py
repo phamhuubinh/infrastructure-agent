@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_requirement import EvidenceRequirement
+from src.pipeline.request_frame import RequestFrame, RequestFrameExpectation
+from src.pipeline.routing_decision import EvidenceStatus, RoutingStatus
 
 if TYPE_CHECKING:
     from src.pipeline.capability_reference import CapabilityReference
@@ -48,7 +50,21 @@ class InvestigationRequest:
     confidence: Confidence | None = None
     matched_keywords: tuple[str, ...] = ()
     target: str | None = None
+    request_frame: RequestFrame | None = None
+    # Deprecated compatibility alias. Production pipeline code keeps this
+    # reference identical to ``request_frame``.
     semantic_request: object | None = None
+    expected_request_frame: RequestFrameExpectation | None = None
+    intent_candidates: tuple[object, ...] = ()
+    intent_score: float | None = None
+    intent_margin: float | None = None
+    target_candidates: tuple[object, ...] = ()
+    target_score: float | None = None
+    target_margin: float | None = None
+    routing_status: RoutingStatus | None = None
+    evidence_status: EvidenceStatus | None = None
+    answer_strategy: object | None = None
+    llm_usage_reason: object | None = None
     required_evidence: list[EvidenceRequirement] = field(default_factory=list)
     optional_evidence: list[EvidenceRequirement] = field(default_factory=list)
     capability_references: list[CapabilityReference] = field(default_factory=list)
@@ -61,3 +77,16 @@ class InvestigationRequest:
     answer_type: object = field(default_factory=lambda: None)
     selected_tool: object = field(default_factory=lambda: None)
     runtime_metrics: object = field(default_factory=lambda: None)
+
+    def __post_init__(self) -> None:
+        if self.request_frame is None and isinstance(
+            self.semantic_request, RequestFrame
+        ):
+            self.request_frame = self.semantic_request
+        elif self.semantic_request is None and self.request_frame is not None:
+            self.semantic_request = self.request_frame
+
+    def set_request_frame(self, frame: RequestFrame) -> None:
+        """Set the single canonical frame and its compatibility alias."""
+        self.request_frame = frame
+        self.semantic_request = frame

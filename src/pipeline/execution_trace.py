@@ -39,6 +39,7 @@ class AnswerStrategy(Enum):
     DETERMINISTIC_FACT = auto()
     LLM_ASSESSMENT = auto()
     DETERMINISTIC_RESPONDER = auto()
+    DETERMINISTIC_TEMPLATE = auto()
     CLARIFICATION = auto()
     REFUSAL = auto()
     CHAT = auto()
@@ -92,6 +93,8 @@ class StageTrace:
     findings: list[str] | None = None
     message: str | None = None
     duration_ms: float | None = None
+    candidates: list[dict[str, Any]] | None = None
+    ambiguity_margin: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +126,11 @@ class ExecutionTrace:
     llm_usage_reason: LLMUsageReason = LLMUsageReason.NONE
     total_duration_ms: float | None = None
     runtime_metrics: dict[str, Any] | None = None
+    request_class: object | None = None
+    routing_status: object | None = None
+    evidence_status: object | None = None
+    expected_request_frame: dict[str, Any] | None = None
+    actual_request_frame: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Serialization
@@ -134,6 +142,9 @@ class ExecutionTrace:
         Never includes credentials, raw command output, or memory addresses.
         Only safe, bounded values are emitted.
         """
+        def _name(value: object) -> object:
+            return value.name if isinstance(value, Enum) else value
+
         return {
             "trace_id": self.trace_id,
             "user_request": self.user_request,
@@ -153,6 +164,8 @@ class ExecutionTrace:
                         if stage.duration_ms is not None
                         else None
                     ),
+                    "candidates": stage.candidates,
+                    "ambiguity_margin": stage.ambiguity_margin,
                 }
                 for name, stage in self.stages.items()
             },
@@ -162,6 +175,11 @@ class ExecutionTrace:
                 self.answer_strategy.name if self.answer_strategy else None
             ),
             "llm_usage_reason": self.llm_usage_reason.name,
+            "request_class": _name(self.request_class),
+            "routing_status": _name(self.routing_status),
+            "evidence_status": _name(self.evidence_status),
+            "expected_request_frame": self.expected_request_frame,
+            "actual_request_frame": self.actual_request_frame,
             "total_duration_ms": (
                 round(self.total_duration_ms, 3)
                 if self.total_duration_ms is not None
@@ -208,11 +226,26 @@ class ExecutionTrace:
 
         stages: dict[str, StageTrace] = {}
 
+        frame = getattr(request, "request_frame", None)
+
+        def _candidate_dict(candidate: object) -> dict[str, Any]:
+            to_dict = getattr(candidate, "to_dict", None)
+            if callable(to_dict):
+                value = to_dict()
+                if isinstance(value, dict):
+                    return value
+            return {"label": str(candidate)}
+
         stages["normalize"] = StageTrace(
             name="normalize",
             status=StageStatus.SUCCEEDED,
-            confidence=None,
+            confidence=getattr(frame, "confidence", None),
             message="normalized",
+            candidates=[
+                _candidate_dict(candidate)
+                for candidate in getattr(frame, "concept_candidates", ())
+            ]
+            or None,
         )
 
         stages["intent"] = StageTrace(
@@ -221,6 +254,11 @@ class ExecutionTrace:
             confidence=request.confidence.name if request.confidence else None,
             target=request.target,
             message=request.intent.name if request.intent else None,
+            candidates=[
+                _candidate_dict(candidate) for candidate in request.intent_candidates
+            ]
+            or None,
+            ambiguity_margin=request.intent_margin,
         )
 
         stages["target"] = StageTrace(
@@ -228,6 +266,11 @@ class ExecutionTrace:
             status=StageStatus.SUCCEEDED,
             target=request.target,
             message=request.target or "localhost",
+            candidates=[
+                _candidate_dict(candidate) for candidate in request.target_candidates
+            ]
+            or None,
+            ambiguity_margin=request.target_margin,
         )
 
         stages["plan"] = StageTrace(
@@ -279,6 +322,7 @@ class ExecutionTrace:
                 ),
             }
 
+        expected = getattr(request, "expected_request_frame", None)
         return cls(
             trace_id=trace_id or str(uuid4()),
             user_request=request.raw_request,
@@ -287,6 +331,15 @@ class ExecutionTrace:
             llm_usage_reason=llm_usage_reason or LLMUsageReason.NONE,
             total_duration_ms=total_duration_ms,
             runtime_metrics=runtime_metrics,
+            request_class=getattr(request, "answer_type", None),
+            routing_status=getattr(request, "routing_status", None),
+            evidence_status=getattr(request, "evidence_status", None),
+            expected_request_frame=(
+                expected.to_dict() if expected is not None else None
+            ),
+            actual_request_frame=(
+                frame.to_dict() if frame is not None else None
+            ),
         )
 
 

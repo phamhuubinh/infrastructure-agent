@@ -53,8 +53,9 @@ _CORE_FIELDS = (
     "llm_usage_reason",
 )
 
-_APPROXIMATE_FIELDS = ("routing_status", "evidence_status")
-_ALL_SCORED_FIELDS = _CORE_FIELDS + _APPROXIMATE_FIELDS + (
+_STATUS_FIELDS = ("routing_status", "evidence_status")
+_APPROXIMATE_FIELDS: tuple[str, ...] = ()
+_ALL_SCORED_FIELDS = _CORE_FIELDS + _STATUS_FIELDS + (
     "params",
     "required_evidence",
 )
@@ -90,7 +91,12 @@ def _derive_routing_status(
     investigation: Any,
     trace_dict: dict[str, Any],
 ) -> str:
-    """Derive a best-effort routing status until DR1-308 lands."""
+    """Read canonical routing status, with fallback for historical results."""
+    canonical = trace_dict.get("routing_status") or _enum_name(
+        getattr(investigation, "routing_status", None)
+    )
+    if canonical:
+        return str(canonical).lower()
     failure_stage = trace_dict.get("failure_stage")
     answer_strategy = trace_dict.get("answer_strategy")
 
@@ -105,8 +111,16 @@ def _derive_routing_status(
     return "resolved"
 
 
-def _derive_evidence_status(investigation: Any) -> str:
-    """Derive a best-effort evidence status until DR1-505 lands."""
+def _derive_evidence_status(
+    investigation: Any,
+    trace_dict: dict[str, Any],
+) -> str:
+    """Read canonical evidence status, with fallback for historical results."""
+    canonical = trace_dict.get("evidence_status") or _enum_name(
+        getattr(investigation, "evidence_status", None)
+    )
+    if canonical:
+        return str(canonical).lower()
     if investigation is None:
         return "not_applicable"
     if not getattr(investigation, "required_evidence", None):
@@ -124,10 +138,26 @@ def extract_actual(result: dict[str, Any]) -> dict[str, Any]:
     trace_dict = result.get("execution_trace") or {}
 
     semantic = (
-        getattr(investigation, "semantic_request", None) if investigation else None
+        getattr(investigation, "request_frame", None)
+        or getattr(investigation, "semantic_request", None)
+        if investigation
+        else None
     )
-    concept = getattr(semantic, "concept", None) if semantic else None
-    operation = getattr(semantic, "action", None) if semantic else None
+    traced_frame = trace_dict.get("actual_request_frame") or {}
+    concepts = (
+        list(getattr(semantic, "concepts", ()))
+        if semantic is not None
+        else list(traced_frame.get("concepts", ()))
+    )
+    if not concepts and semantic is not None:
+        concept = getattr(semantic, "concept", None)
+        concepts = [concept] if concept else []
+    operation = (
+        getattr(semantic, "operation", None)
+        or getattr(semantic, "action", None)
+        if semantic is not None
+        else traced_frame.get("operation")
+    )
 
     params: dict[str, str] = {}
     extracted = (
@@ -141,6 +171,8 @@ def extract_actual(result: dict[str, Any]) -> dict[str, Any]:
                 params = raw_params
         except Exception:
             params = {}
+    elif isinstance(traced_frame.get("parameters"), dict):
+        params = traced_frame["parameters"]
 
     required_evidence: list[str] = []
     if investigation is not None:
@@ -149,22 +181,26 @@ def extract_actual(result: dict[str, Any]) -> dict[str, Any]:
         ]
 
     return {
-        "concepts": [concept] if concept else [],
+        "concepts": concepts,
         "operation": operation,
         "intent": (
             _enum_name(getattr(investigation, "intent", None))
             if investigation
             else None
         ),
-        "target": getattr(investigation, "target", None) if investigation else None,
+        "target": (
+            semantic.target_raw
+            if semantic is not None and hasattr(semantic, "target_raw")
+            else (getattr(investigation, "target", None) if investigation else None)
+        ),
         "params": params,
         "answer_type": (
             _enum_name(getattr(investigation, "answer_type", None))
             if investigation
-            else None
+            else trace_dict.get("request_class")
         ),
         "routing_status": _derive_routing_status(investigation, trace_dict),
-        "evidence_status": _derive_evidence_status(investigation),
+        "evidence_status": _derive_evidence_status(investigation, trace_dict),
         "answer_strategy": trace_dict.get("answer_strategy"),
         "llm_usage_reason": trace_dict.get("llm_usage_reason"),
         "required_evidence": required_evidence,
@@ -594,10 +630,7 @@ def _summarize(
     meta["golden_dataset_path"] = str(golden_path)
     meta["golden_dataset_cases_total"] = total
     meta["not_authoritative_fields"] = list(_APPROXIMATE_FIELDS)
-    meta["not_authoritative_reason"] = (
-        "routing_status/evidence_status are not first-class ExecutionTrace fields "
-        "yet — derived heuristically until DR1-308/DR1-505 land."
-    )
+    meta["not_authoritative_reason"] = None
 
     # Three separate diagnostic buckets, kept apart on purpose:
     #   - behavioral_mismatches: real disagreements between expected and
@@ -605,9 +638,7 @@ def _summarize(
     #   - trace_observability_gaps: fields we structurally could not observe
     #     for this case (short-circuit or missing trace value). These are
     #     instrumentation gaps (DR1-308/505/etc), not (necessarily) bugs.
-    #   - approximate_fields: routing_status/evidence_status are always
-    #     "observable" (heuristically derived) but not yet authoritative —
-    #     see `not_authoritative_reason` above.
+    #   - approximate_fields: retained for backward-compatible report shape.
     behavioral_mismatches = [
         {
             "id": report["id"],
@@ -685,8 +716,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Golden dataset: {meta.get('golden_dataset_path', 'unknown')} "
         f"({meta.get('golden_dataset_cases_total', 0)} scorable cases)",
         "",
-        "> `routing_status` / `evidence_status` are best-effort approximations "
-        "until DR1-308 / DR1-505 land — not authoritative.",
+        "> `routing_status` and `evidence_status` are first-class trace fields.",
         "",
     ]
 
@@ -803,11 +833,13 @@ def render_markdown(report: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "## Approximate fields (not authoritative)",
+        "## Approximate fields",
         "",
-        f"`{', '.join(report['diagnostics']['approximate_fields'])}` are always "
-        "derivable today but heuristic, not first-class ExecutionTrace fields — "
-        f"{meta.get('not_authoritative_reason', '')}",
+        (
+            f"`{', '.join(report['diagnostics']['approximate_fields'])}`"
+            if report["diagnostics"]["approximate_fields"]
+            else "None; routing and evidence statuses are first-class trace fields."
+        ),
         "",
     ]
 

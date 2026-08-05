@@ -481,3 +481,29 @@ class TestHeuristicPromotion:
     ) -> None:
         result = resolver.resolve("cpu is slow")
         assert result.intent == Intent.PERFORMANCE_ASSESSMENT
+
+
+def test_intent_resolution_exposes_ranked_candidates_and_margin() -> None:
+    result = IntentResolver().resolve("check cpu usage")
+
+    assert result.intent_candidates
+    assert result.intent_candidates[0].intent is result.intent
+    assert result.intent_score is not None
+    assert result.intent_margin is not None
+
+
+def test_multi_issue_request_does_not_bind_down_as_service_name() -> None:
+    result = IntentResolver().resolve(
+        "5 việc: disk gần đầy, service down, CPU cao, log lỗi, switch mất kết nối"
+    )
+
+    assert result.extracted_params.service_name is None
+    assert result.intent is not Intent.SERVICE_ASSESSMENT
+
+
+def test_unknown_intent_requires_clarification_instead_of_guessing() -> None:
+    from src.pipeline.routing_decision import RoutingStatus
+
+    result = IntentResolver().resolve("foo bar baz qux")
+
+    assert result.routing_status is RoutingStatus.CLARIFICATION_REQUIRED
