@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.temporal_evidence_guard import TemporalEvidenceGuard
 
 
 def _safe_parse_pct(value: object) -> float | None:
@@ -35,6 +36,10 @@ class DeterministicResponder:
     """
 
     def try_response(self, investigation: InvestigationRequest) -> str | None:
+        temporal = TemporalEvidenceGuard().evaluate(investigation)
+        if not temporal.sufficient:
+            return TemporalEvidenceGuard.refusal(temporal.failures)
+
         raw = investigation.raw_request.lower()
 
         # Extract params for service-specific queries.

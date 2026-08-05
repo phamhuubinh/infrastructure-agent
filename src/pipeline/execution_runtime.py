@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
+from src.pipeline.parameter_binder import ParameterBinder, ParameterBindingError
 from src.pipeline.retry import RetryExecutor, RetryPolicy, is_recoverable_result
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import warning as _warning
@@ -73,6 +74,7 @@ class ExecutionRuntime:
             RetryPolicy(max_attempts=3),
         )
         self._evidence_name_by_cap: dict[str, str] = {}
+        self._parameter_binder = ParameterBinder()
 
     @property
     def router(self) -> CapabilityRouter:
@@ -86,6 +88,8 @@ class ExecutionRuntime:
         overall_timeout: float = 120.0,
         required_evidence_names: set[str] | None = None,
         extracted_params: object = None,
+        timeframe: object = None,
+        bound_params_out: dict[str, dict[str, object]] | None = None,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -185,6 +189,8 @@ class ExecutionRuntime:
                     _timeout_deadline,
                     overall_timeout,
                     extracted_params=extracted_params,
+                    timeframe=timeframe,
+                    bound_params_out=bound_params_out,
                 )
             else:
                 self._execute_batch_parallel(
@@ -196,6 +202,8 @@ class ExecutionRuntime:
                     _timeout_deadline,
                     overall_timeout,
                     extracted_params=extracted_params,
+                    timeframe=timeframe,
+                    bound_params_out=bound_params_out,
                 )
 
         metrics.execution_duration = _time.perf_counter() - t0
@@ -289,6 +297,8 @@ class ExecutionRuntime:
         timeout_deadline: float,
         overall_timeout: float,
         extracted_params: object = None,
+        timeframe: object = None,
+        bound_params_out: dict[str, dict[str, object]] | None = None,
     ) -> None:
         """Execute a single ready node with per-node timeout."""
         cap_name = node.execution_step.capability.name
@@ -309,6 +319,8 @@ class ExecutionRuntime:
                 node,
                 target=target,
                 extracted_params=extracted_params,
+                timeframe=timeframe,
+                bound_params_out=bound_params_out,
             )
             try:
                 result = fut.result(timeout=remaining_timeout)
@@ -337,6 +349,8 @@ class ExecutionRuntime:
         timeout_deadline: float,
         overall_timeout: float,
         extracted_params: object = None,
+        timeframe: object = None,
+        bound_params_out: dict[str, dict[str, object]] | None = None,
     ) -> None:
         """Execute a batch of ready nodes in parallel."""
         with concurrent.futures.ThreadPoolExecutor(
@@ -349,6 +363,8 @@ class ExecutionRuntime:
                     node,
                     target=target,
                     extracted_params=extracted_params,
+                    timeframe=timeframe,
+                    bound_params_out=bound_params_out,
                 )
                 future_map[future] = node
                 metrics.tool_calls += 1
@@ -398,53 +414,48 @@ class ExecutionRuntime:
         node: ExecutionNode,
         target: str = "localhost",
         extracted_params: object = None,
+        timeframe: object = None,
+        bound_params_out: dict[str, dict[str, object]] | None = None,
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name
 
-        route = self._router.resolve(cap_name)
-        if route is None:
+        routed = self._router.resolve_with_metadata(
+            cap_name, self._routing_params(extracted_params, timeframe)
+        )
+        if routed is None:
             return ToolResult(
                 success=False,
                 error=f"No route configured for capability: {cap_name}",
                 capability_status=CapabilityStatus.UNSUPPORTED,
             )
 
-        source, resource = route
+        (source, resource), metadata = routed
 
         if source == "localhost" and target != "localhost":
             source = target
 
-        arguments: dict[str, object] = {
-            "source": source,
-            "resource": resource,
-        }
-
-        params: dict[str, object] = {}
-        to_dict = getattr(extracted_params, "to_dict", None)
-        if callable(to_dict):
-            raw_params = to_dict()
-            if isinstance(raw_params, dict):
-                params = raw_params
-        elif isinstance(extracted_params, dict):
-            params = extracted_params
-
-        service_name = params.get("service_name")
-        if resource == "get_service" and service_name is not None:
-            arguments["name"] = service_name
-        elif resource == "search_service" and service_name is not None:
-            arguments["query"] = service_name
-        elif resource in {"get_journal", "get_service_logs"}:
-            if service_name is not None:
-                arguments["service_name"] = service_name
-            if params.get("time_range") is not None:
-                arguments["time_range"] = params["time_range"]
-        elif resource in {"get_process_by_name", "search_process"}:
-            process_name = params.get("process_name")
-            if process_name is not None:
-                arguments["name" if resource == "get_process_by_name" else "query"] = (
-                    process_name
-                )
+        try:
+            bound = self._parameter_binder.bind(
+                source=source,
+                resource=resource,
+                metadata=metadata,
+                extracted_params=extracted_params,
+                timeframe=timeframe,
+            )
+        except ParameterBindingError as exc:
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                capability_status=CapabilityStatus.INVALID_PARAMETERS,
+            )
+        arguments = bound.arguments
+        if bound_params_out is not None:
+            bound_params_out[cap_name] = {
+                key: value
+                for key, value in arguments.items()
+                if key not in {"source", "resource"}
+            }
 
         try:
             return self._retry.execute(
@@ -460,6 +471,40 @@ class ExecutionRuntime:
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 capability_error=internal_error(message),
             )
+
+    def validate_graph_parameters(
+        self,
+        graph: ExecutionGraph,
+        *,
+        target: str,
+        extracted_params: object = None,
+        timeframe: object = None,
+    ) -> None:
+        """Fail before dispatch if any planned capability has invalid arguments."""
+        routing_params = self._routing_params(extracted_params, timeframe)
+        for node in graph.nodes:
+            cap_name = node.execution_step.capability.name
+            routed = self._router.resolve_with_metadata(cap_name, routing_params)
+            if routed is None:
+                continue
+            (source, resource), metadata = routed
+            if source == "localhost" and target != "localhost":
+                source = target
+            self._parameter_binder.bind(
+                source=source,
+                resource=resource,
+                metadata=metadata,
+                extracted_params=extracted_params,
+                timeframe=timeframe,
+            )
+
+    @staticmethod
+    def _routing_params(
+        extracted_params: object, timeframe: object
+    ) -> dict[str, object]:
+        params = ParameterBinder._as_dict(extracted_params)
+        params["__timeframe__"] = timeframe
+        return params
 
     @staticmethod
     def _record_security_metrics(metrics: RuntimeMetrics, result: ToolResult) -> None:

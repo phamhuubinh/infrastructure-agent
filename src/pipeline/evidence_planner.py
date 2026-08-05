@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from src.pipeline.answer_type import AnswerType
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.time_range_resolver import TemporalRequirement, TimeRange
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState, StateUpdate
@@ -224,6 +227,11 @@ class EvidencePlanner:
             EvidenceRequirement(name=name, required=False) for name in optional_names
         )
 
+        required = self._temporalize(
+            required,
+            getattr(state.request_frame, "timeframe", None),
+            getattr(state.request_frame, "answer_type", None),
+        )
         return {
             "required_evidence": required,
             "optional_evidence": optional,
@@ -254,4 +262,61 @@ class EvidencePlanner:
         request.optional_evidence = _build_requirements(
             optional_names,
             required=False,
+        )
+        params = getattr(request, "extracted_params", None)
+        if getattr(params, "ping_target", None):
+            self._append_required(request, "Network Latency")
+        if getattr(params, "port", None):
+            self._append_required(request, "Listening Ports")
+        request.required_evidence = list(
+            self._temporalize(
+                tuple(request.required_evidence),
+                getattr(request.request_frame, "timeframe", None),
+                request.answer_type,
+            )
+        )
+
+    @staticmethod
+    def _append_required(request: InvestigationRequest, name: str) -> None:
+        if not any(item.name == name for item in request.required_evidence):
+            request.required_evidence.append(EvidenceRequirement(name=name))
+        request.optional_evidence = [
+            item for item in request.optional_evidence if item.name != name
+        ]
+
+    @staticmethod
+    def _temporalize(
+        requirements: tuple[EvidenceRequirement, ...],
+        timeframe: object,
+        answer_type: object,
+    ) -> tuple[EvidenceRequirement, ...]:
+        if not isinstance(timeframe, TimeRange) and answer_type not in {
+            AnswerType.COMPARISON,
+            AnswerType.FORECAST,
+        }:
+            return requirements
+        resolved = timeframe if isinstance(timeframe, TimeRange) else None
+        temporal_kind = (
+            TemporalRequirement.FORECAST
+            if answer_type is AnswerType.FORECAST
+            else TemporalRequirement.COMPARISON
+            if answer_type is AnswerType.COMPARISON
+            else resolved.requirement
+            if resolved is not None
+            else TemporalRequirement.HISTORICAL
+        )
+        minimum_windows = 2 if temporal_kind is TemporalRequirement.COMPARISON else 1
+        minimum_points = 6 if temporal_kind is TemporalRequirement.FORECAST else 2
+        return tuple(
+            replace(
+                requirement,
+                timeframe=resolved,
+                requires_time_series=True,
+                minimum_windows=minimum_windows,
+                minimum_points=minimum_points,
+                requires_growth_model=(
+                    temporal_kind is TemporalRequirement.FORECAST
+                ),
+            )
+            for requirement in requirements
         )

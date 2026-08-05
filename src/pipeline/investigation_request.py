@@ -77,6 +77,9 @@ class InvestigationRequest:
     answer_type: object = field(default_factory=lambda: None)
     selected_tool: object = field(default_factory=lambda: None)
     runtime_metrics: object = field(default_factory=lambda: None)
+    subrequests: tuple[RequestFrame, ...] = ()
+    bound_params: dict[str, dict[str, object]] = field(default_factory=dict)
+    temporal_evidence_failures: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.request_frame is None and isinstance(

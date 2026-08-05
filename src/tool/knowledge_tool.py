@@ -249,6 +249,21 @@ class KnowledgeTool(Tool):
                 "description": value.description,
                 "supported_targets": list(value.supported_targets),
                 "parameters": list(value.parameters),
+                "parameter_specs": [
+                    {
+                        "name": spec.name,
+                        "source": spec.source,
+                        "required": spec.required,
+                        "value_type": spec.value_type,
+                        "default": spec.default,
+                        "has_default": spec.has_default,
+                        "enum": list(spec.enum),
+                        "pattern": spec.pattern,
+                        "minimum": spec.minimum,
+                        "maximum": spec.maximum,
+                    }
+                    for spec in value.parameter_specs
+                ],
                 "preconditions": list(value.preconditions),
                 "required_binaries": list(value.required_binaries),
                 "required_any_binaries": list(value.required_any_binaries),

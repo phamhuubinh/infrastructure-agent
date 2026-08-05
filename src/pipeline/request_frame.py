@@ -43,6 +43,9 @@ class RequestFrame:
     intent_candidates: tuple[object, ...] = ()
     target_candidates: tuple[object, ...] = ()
     routing_status: object | None = None
+    context_applied: tuple[str, ...] = ()
+    context_snapshot: dict[str, object] = field(default_factory=dict)
+    subframes: tuple[RequestFrame, ...] = ()
 
     @property
     def concept(self) -> str:
@@ -82,6 +85,11 @@ class RequestFrame:
                 if isinstance(value, dict):
                     raw_params = {str(k): _enum_name(v) for k, v in value.items()}
 
+        timeframe: object = self.timeframe
+        timeframe_to_dict = getattr(timeframe, "to_dict", None)
+        if callable(timeframe_to_dict):
+            timeframe = timeframe_to_dict()
+
         return {
             "raw_request": self.raw_request,
             "concepts": list(self.concepts),
@@ -90,7 +98,7 @@ class RequestFrame:
             "target_resolved": self.target_resolved,
             "parameters": raw_params,
             "answer_type": _enum_name(self.answer_type),
-            "timeframe": self.timeframe,
+            "timeframe": timeframe,
             "confidence": self.confidence,
             "ambiguity": list(self.ambiguity),
             "lexical_tokens": list(self.lexical_tokens),
@@ -105,6 +113,16 @@ class RequestFrame:
                 _candidate(candidate) for candidate in self.target_candidates
             ],
             "routing_status": _enum_name(self.routing_status),
+            "context_applied": list(self.context_applied),
+            "context_snapshot": dict(self.context_snapshot),
+            "subframes": [
+                {
+                    "concepts": list(frame.concepts),
+                    "operation": frame.operation,
+                    "target_raw": frame.target_raw,
+                }
+                for frame in self.subframes
+            ],
         }
 
 

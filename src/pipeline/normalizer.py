@@ -14,6 +14,7 @@ from src.pipeline.semantic_candidate_retriever import (
     SemanticCandidateRetriever,
     normalize_lexical_text,
 )
+from src.pipeline.time_range_resolver import TimeRangeResolver
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState
@@ -160,6 +161,7 @@ class Normalizer:
                 operation=_DEFAULT_ACTION,
                 parameters=params,
                 answer_type=AnswerTypeClassifier().classify(user_request),
+                timeframe=TimeRangeResolver().resolve(user_request),
                 confidence=0.0,
             )
 
@@ -290,7 +292,7 @@ class Normalizer:
             target_raw=target_raw,
             parameters=params,
             answer_type=answer_type,
-            timeframe=getattr(params, "time_range", None),
+            timeframe=TimeRangeResolver().resolve(user_request),
             confidence=confidence,
             ambiguity=tuple(ambiguity),
             lexical_tokens=tuple(tokens),

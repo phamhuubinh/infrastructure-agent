@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.pipeline.capability_planner import CapabilityPlanner
+from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_completeness import EvidenceCompleteness
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
+from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.execution_graph import (
     ExecutionGraph,
     ExecutionGraphBuilder,
@@ -16,6 +20,7 @@ from src.pipeline.execution_planner import ExecutionPlanner
 from src.pipeline.execution_runtime import ExecutionRuntime, RuntimeMetrics
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.parameter_binder import MissingParameterError, ParameterBindingError
 from src.pipeline.request_frame import RequestFrame
 from src.pipeline.routing_decision import (
     EvidenceStatus,
@@ -203,6 +208,7 @@ class ExecutionEngine:
                 target=target,
                 required_evidence_names=required_evidence,
                 extracted_params=extracted_params,
+                timeframe=getattr(state.request_frame, "timeframe", None),
             )
         else:
             results, metrics = {}, RuntimeMetrics()
@@ -285,23 +291,9 @@ class ExecutionEngine:
         # Stage 2: Resolve target.
         self._target_resolver.resolve(request)
 
-        # Stage 3: Plan evidence + capabilities.
-        self._evidence_planner.plan(request)
-        self._capability_resolver.resolve(request)
-
-        # Phase 6: Augment capability resolution with CapabilityPlanner.
-        # When Normalizer confidence >= 0.4, use CapabilityPlanner to filter
-        # capability_references to only the planned capabilities.
-        if semantic.confidence >= 0.4:
-            planned_names = set(self._capability_planner.plan(semantic))
-            if planned_names:
-                filtered = [
-                    ref
-                    for ref in request.capability_references
-                    if ref.evidence_name in planned_names
-                ]
-                if filtered:
-                    request.capability_references = filtered
+        # Stage 3: Plan one or more bounded semantic subrequests and merge the
+        # resulting capability set deterministically.
+        self._plan_request(request, semantic)
 
         self._execution_planner.plan(request)
 
@@ -313,6 +305,33 @@ class ExecutionEngine:
         request.execution_graph = graph
 
         target = request.target or "localhost"
+        timeframe = getattr(request.request_frame, "timeframe", None)
+        try:
+            self._runtime.validate_graph_parameters(
+                graph,
+                target=target,
+                extracted_params=request.extracted_params,
+                timeframe=timeframe,
+            )
+        except MissingParameterError as exc:
+            field = self._clarification_field(exc.parameter)
+            raise RoutingClarificationError(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=request.request_frame or semantic,
+                    reason=str(exc),
+                    missing_field=field,
+                )
+            ) from exc
+        except ParameterBindingError as exc:
+            raise RoutingClarificationError(
+                RoutingDecision(
+                    status=RoutingStatus.CLARIFICATION_REQUIRED,
+                    request_frame=request.request_frame or semantic,
+                    reason=str(exc),
+                    missing_field=self._clarification_field(exc.parameter),
+                )
+            ) from exc
         graph, cached_evidence = self._without_cached_nodes(graph, target)
 
         # Stage 5: Execute the graph through the runtime.
@@ -332,6 +351,8 @@ class ExecutionEngine:
                 target=target,
                 required_evidence_names=required_evidence,
                 extracted_params=extracted_params,
+                timeframe=timeframe,
+                bound_params_out=request.bound_params,
             )
         else:
             results, metrics = {}, RuntimeMetrics()
@@ -354,6 +375,76 @@ class ExecutionEngine:
         request.runtime_metrics = metrics
 
         return request
+
+    @staticmethod
+    def _clarification_field(parameter: str) -> str:
+        if parameter in {"name", "query", "service_name"}:
+            return "service"
+        if parameter in {"since", "until", "time_range"}:
+            return "timeframe"
+        if parameter == "path":
+            return "path"
+        if parameter == "target":
+            return "target"
+        return parameter
+
+    def _plan_request(
+        self,
+        request: InvestigationRequest,
+        semantic: RequestFrame,
+    ) -> None:
+        subframes = semantic.subframes or (semantic,)
+        request.subrequests = tuple(subframes)
+        if len(subframes) == 1:
+            self._evidence_planner.plan(request)
+            self._capability_resolver.resolve(request)
+            self._filter_capabilities(request, subframes[0])
+            return
+
+        required_by_name: dict[str, EvidenceRequirement] = {}
+        optional_by_name: dict[str, EvidenceRequirement] = {}
+        references_by_name: dict[str, CapabilityReference] = {}
+        for subframe in subframes:
+            subrequest = self._intent_resolver.resolve(subframe)
+            self._evidence_planner.plan(subrequest)
+            self._capability_resolver.resolve(subrequest)
+            self._filter_capabilities(subrequest, subframe)
+            for requirement in subrequest.required_evidence:
+                required_by_name.setdefault(requirement.name, requirement)
+                optional_by_name.pop(requirement.name, None)
+            for requirement in subrequest.optional_evidence:
+                if requirement.name not in required_by_name:
+                    optional_by_name.setdefault(requirement.name, requirement)
+            for reference in subrequest.capability_references:
+                current = references_by_name.get(reference.name)
+                if current is None:
+                    references_by_name[reference.name] = reference
+                elif reference.required and not current.required:
+                    references_by_name[reference.name] = replace(
+                        current, required=True
+                    )
+
+        request.required_evidence = list(required_by_name.values())
+        request.optional_evidence = list(optional_by_name.values())
+        request.capability_references = list(references_by_name.values())
+
+    def _filter_capabilities(
+        self,
+        request: InvestigationRequest,
+        semantic: RequestFrame,
+    ) -> None:
+        if semantic.confidence < 0.4:
+            return
+        planned_names = set(self._capability_planner.plan(semantic))
+        if not planned_names:
+            return
+        filtered = [
+            ref
+            for ref in request.capability_references
+            if ref.evidence_name in planned_names
+        ]
+        if filtered:
+            request.capability_references = filtered
 
     @staticmethod
     def _evidence_status(request: InvestigationRequest) -> EvidenceStatus:

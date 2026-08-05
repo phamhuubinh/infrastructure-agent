@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.temporal_evidence_guard import TemporalEvidenceGuard
 
 
 class EvidenceCompleteness:
@@ -38,5 +39,9 @@ class EvidenceCompleteness:
             if req.name not in collected_names:
                 missing.append(req.name)
 
+        temporal = TemporalEvidenceGuard().evaluate(request)
+        request.temporal_evidence_failures = temporal.failures
+        missing.extend(temporal.failures)
+
         request.evidence_complete = len(missing) == 0
-        request.missing_evidence = tuple(missing)
+        request.missing_evidence = tuple(dict.fromkeys(missing))

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from src.pipeline.capability_library import lookup
+from src.pipeline.capability_library import VALID_OPERATIONAL_NAMES, lookup
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.investigation_request import InvestigationRequest
@@ -42,6 +42,8 @@ class CapabilityResolver:
 
         for evidence in all_evidence:
             cap_name = lookup(evidence.name)
+            if cap_name is None and evidence.name in VALID_OPERATIONAL_NAMES:
+                cap_name = evidence.name
             if cap_name is None:
                 continue
             if cap_name in seen:
@@ -78,6 +80,8 @@ class CapabilityResolver:
 
         for evidence in all_evidence:
             cap_name = lookup(evidence.name)
+            if cap_name is None and evidence.name in VALID_OPERATIONAL_NAMES:
+                cap_name = evidence.name
             if cap_name is None:
                 continue
             if cap_name in seen:

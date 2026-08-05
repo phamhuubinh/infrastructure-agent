@@ -54,6 +54,7 @@ plans:
     inspect:
       - Network
       - Listening Ports
+      - Network Latency
     diagnose:
       - Network
       - Listening Ports

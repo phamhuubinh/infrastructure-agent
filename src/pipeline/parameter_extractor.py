@@ -15,6 +15,7 @@ class ExtractedParams:
     port: str | None = None
     process_name: str | None = None
     path: str | None = None
+    ping_target: str | None = None
     time_range: str | None = None
 
     def __bool__(self) -> bool:
@@ -25,6 +26,7 @@ class ExtractedParams:
                 self.port,
                 self.process_name,
                 self.path,
+                self.ping_target,
                 self.time_range,
             )
         )
@@ -136,6 +138,13 @@ class ParameterExtractor:
     # Filesystem path patterns.
     _FILE_PATH: re.Pattern = re.compile(r"(/\w[\w./-]*)")
 
+    # Ping destination is a capability parameter, not the infrastructure
+    # source selected by TargetResolver.
+    _PING_TARGET: re.Pattern = re.compile(
+        r"\bping(?:\s+(?:to|tới|đến))?\s+([a-z0-9][a-z0-9._-]{0,253})\b",
+        re.IGNORECASE,
+    )
+
     # Time range patterns.
     _TIME_RANGE_VN: dict[str, str] = {
         "1 giờ": "1h",
@@ -157,6 +166,8 @@ class ParameterExtractor:
         "7 days": "7d",
         "30 ngày": "30d",
         "30 days": "30d",
+        "6 tháng": "6months",
+        "6 months": "6months",
     }
     _TIME_RANGE_PATTERN: re.Pattern = re.compile(
         r"\b(\d+\s*(?:giờ|tiếng|ngày|days?|hours?|h|d|w|weeks?|months?))\b",
@@ -178,6 +189,7 @@ class ParameterExtractor:
         port = self._extract_port(lower)
         process_name = self._extract_process(lower)
         path = self._extract_path(lower)
+        ping_target = self._extract_ping_target(lower)
         time_range = self._extract_time_range(lower)
 
         return ExtractedParams(
@@ -185,6 +197,7 @@ class ParameterExtractor:
             port=port,
             process_name=process_name,
             path=path,
+            ping_target=ping_target,
             time_range=time_range,
         )
 
@@ -282,6 +295,10 @@ class ParameterExtractor:
         if m:
             return m.group(1)
         return None
+
+    def _extract_ping_target(self, text: str) -> str | None:
+        match = self._PING_TARGET.search(text)
+        return match.group(1) if match else None
 
     def _extract_time_range(self, text: str) -> str | None:
         """Extract time range expressions.

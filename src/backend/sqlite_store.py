@@ -56,6 +56,9 @@ class SQLiteConversationStore:
         self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
         self._title: str = ""
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        self._investigation_context = SessionInvestigationContext()
         self._lock = threading.RLock()
 
         # Thread-local connections for WAL mode safety
@@ -99,11 +102,22 @@ class SQLiteConversationStore:
                 source TEXT NOT NULL DEFAULT 'terminal',
                 title TEXT DEFAULT '',
                 summary TEXT,
+                investigation_context TEXT NOT NULL DEFAULT '{}',
                 messages TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "investigation_context" not in columns:
+            conn.execute(
+                "ALTER TABLE sessions ADD COLUMN investigation_context TEXT "
+                "NOT NULL DEFAULT '{}'"
+            )
 
         # FTS5 full-text search — manually synced in _save().
         conn.execute("""
@@ -148,6 +162,20 @@ class SQLiteConversationStore:
     def summary(self) -> str | None:
         with self._lock:
             return self._summary
+
+    @property
+    def investigation_context(self) -> object:
+        with self._lock:
+            return self._investigation_context
+
+    def set_investigation_context(self, context: object) -> None:
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        if not isinstance(context, SessionInvestigationContext):
+            raise TypeError("context must be a SessionInvestigationContext")
+        with self._lock:
+            self._investigation_context = context
+            self._save()
 
     # ------------------------------------------------------------------
     # Turn management
@@ -294,7 +322,8 @@ class SQLiteConversationStore:
         with self._lock:
             conn = self._get_conn()
             row = conn.execute(
-                "SELECT source, title, summary, messages FROM sessions WHERE session_id = ?",
+                "SELECT source, title, summary, investigation_context, messages "
+                "FROM sessions WHERE session_id = ?",
                 (self._session_id,),
             ).fetchone()
 
@@ -304,6 +333,13 @@ class SQLiteConversationStore:
         self._source = row["source"] or "terminal"
         self._title = row["title"] or ""
         self._summary = row["summary"] or None
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        try:
+            raw_context = json.loads(row["investigation_context"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            raw_context = {}
+        self._investigation_context = SessionInvestigationContext.from_dict(raw_context)
 
         try:
             messages = json.loads(row["messages"])
@@ -336,12 +372,16 @@ class SQLiteConversationStore:
         # 1. Upsert the session row.
         conn.execute(
             """
-            INSERT INTO sessions (session_id, source, title, summary, messages, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO sessions (
+                session_id, source, title, summary, investigation_context,
+                messages, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 source = excluded.source,
                 title = excluded.title,
                 summary = excluded.summary,
+                investigation_context = excluded.investigation_context,
                 messages = excluded.messages,
                 updated_at = excluded.updated_at
             """,
@@ -350,6 +390,7 @@ class SQLiteConversationStore:
                 self._source,
                 self._title,
                 self._summary,
+                json.dumps(self._investigation_context.to_dict(), ensure_ascii=False),
                 json.dumps(self._mem, ensure_ascii=False),
                 now,
             ),

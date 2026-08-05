@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from src.pipeline.time_range_resolver import TimeRange
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,3 +22,8 @@ class EvidenceRequirement:
     name: str
     required: bool = True
     category: str = ""
+    timeframe: TimeRange | None = field(default=None, repr=False)
+    requires_time_series: bool = field(default=False, repr=False)
+    minimum_windows: int = field(default=1, repr=False)
+    minimum_points: int = field(default=1, repr=False)
+    requires_growth_model: bool = field(default=False, repr=False)

@@ -38,17 +38,20 @@ def _smartctl_json_output(attempt: object, legacy_output: str) -> str | None:
     return None
 
 
-def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_disk(
+    run: Callable[..., tuple[bool, str]], path: str | None = None
+) -> dict[str, object]:
     """
     Subsystem: mounted filesystem usage (size/used/available per mount).
     """
-    ok, output = run(
-        [
-            "df",
-            "-B1",
-            "--output=source,fstype,size,used,avail,pcent,target",
-        ]
-    )
+    command = [
+        "df",
+        "-B1",
+        "--output=source,fstype,size,used,avail,pcent,target",
+    ]
+    if path:
+        command.extend(["--", path])
+    ok, output = run(command)
 
     disks: list[dict[str, object]] = []
 
@@ -99,7 +102,9 @@ def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
-def _get_filesystem(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_filesystem(
+    run: Callable[..., tuple[bool, str]], path: str | None = None
+) -> dict[str, object]:
     """
     Subsystem: mounted filesystems (device, mountpoint, type).
     """
@@ -124,7 +129,20 @@ def _get_filesystem(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             }
         )
 
-    return {"mounts": mounts}
+    if path:
+        matches = [
+            item
+            for item in mounts
+            if path == item["mountpoint"]
+            or path.startswith(str(item["mountpoint"]).rstrip("/") + "/")
+        ]
+        if matches:
+            longest = max(matches, key=lambda item: len(str(item["mountpoint"])))
+            mounts = [longest]
+    result: dict[str, object] = {"mounts": mounts}
+    if path is not None:
+        result["requested_path"] = path
+    return result
 
 
 def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -154,8 +172,10 @@ def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]
     return {"devices": devices}
 
 
-def _get_disk_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    return _get_disk(run)
+def _get_disk_usage(
+    run: Callable[..., tuple[bool, str]], path: str | None = None
+) -> dict[str, object]:
+    return _get_disk(run, path=path)
 
 
 def _get_filesystem_inode(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:

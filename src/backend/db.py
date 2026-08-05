@@ -176,11 +176,16 @@ def init_db(dsn: str | None = None) -> None:
                     source TEXT NOT NULL DEFAULT 'api',
                     title TEXT DEFAULT '',
                     summary TEXT,
+                    investigation_context JSONB NOT NULL DEFAULT '{{}}'::jsonb,
                     messages JSONB NOT NULL DEFAULT '[]'::jsonb,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             """)
+            cur.execute(
+                f"ALTER TABLE {_SESSIONS_TABLE} ADD COLUMN IF NOT EXISTS "
+                "investigation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
+            )
         conn.commit()
     finally:
         _put_conn(conn)
@@ -194,7 +199,8 @@ def load_session(dsn: str, session_id: str) -> dict[str, Any] | None:
     def _do_load(conn, sid: str) -> dict[str, Any] | None:
         with conn.cursor() as cur:
             cur.execute(
-                f"SELECT session_id, source, title, summary, messages FROM {_SESSIONS_TABLE} WHERE session_id = %s",
+                f"SELECT session_id, source, title, summary, messages, "
+                f"investigation_context FROM {_SESSIONS_TABLE} WHERE session_id = %s",
                 (sid,),
             )
             row = cur.fetchone()
@@ -206,6 +212,9 @@ def load_session(dsn: str, session_id: str) -> dict[str, Any] | None:
                 "title": row[2] or "",
                 "summary": row[3],
                 "messages": row[4] if isinstance(row[4], list) else json.loads(row[4]),
+                "investigation_context": (
+                    row[5] if isinstance(row[5], dict) else json.loads(row[5] or "{}")
+                ),
             }
 
     return _execute_with_pool(dsn, _do_load, session_id)
@@ -220,14 +229,18 @@ def save_session(dsn: str, session_id: str, data: dict[str, Any]) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 f"""
-                INSERT INTO {_SESSIONS_TABLE} (session_id, source, title, summary, messages, updated_at)
-                VALUES (%s, %s, %s, %s, %s::jsonb, NOW())
+                INSERT INTO {_SESSIONS_TABLE} (
+                    session_id, source, title, summary, messages,
+                    investigation_context, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())
                 ON CONFLICT (session_id)
                 DO UPDATE SET
                     source = EXCLUDED.source,
                     title = EXCLUDED.title,
                     summary = EXCLUDED.summary,
                     messages = EXCLUDED.messages,
+                    investigation_context = EXCLUDED.investigation_context,
                     updated_at = NOW()
                 """,
                 (
@@ -236,6 +249,7 @@ def save_session(dsn: str, session_id: str, data: dict[str, Any]) -> None:
                     d.get("title", ""),
                     d.get("summary"),
                     json.dumps(d.get("messages", [])),
+                    json.dumps(d.get("investigation_context", {})),
                 ),
             )
         conn.commit()
@@ -505,6 +519,9 @@ class PostgresConversationStore(ConversationStore):
         self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
         self._title: str = ""
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        self._investigation_context = SessionInvestigationContext()
         self._dirty = False
         self._lock = threading.RLock()
         self._load()
@@ -604,12 +621,32 @@ class PostgresConversationStore(ConversationStore):
         with self._lock:
             return self._summary
 
+    @property
+    def investigation_context(self) -> object:
+        with self._lock:
+            return self._investigation_context
+
+    def set_investigation_context(self, context: object) -> None:
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        if not isinstance(context, SessionInvestigationContext):
+            raise TypeError("context must be a SessionInvestigationContext")
+        with self._lock:
+            self._investigation_context = context
+            self._dirty = True
+            self._save()
+
     def _load(self) -> None:
         data = load_session(self._dsn, self._session_id)
         if data is None:
             return
         self._mem = data.get("messages", [])
         self._summary = data.get("summary")
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        self._investigation_context = SessionInvestigationContext.from_dict(
+            data.get("investigation_context")
+        )
         self._title = data.get("title", "")
         loaded_source = data.get("source")
         if loaded_source:
@@ -619,7 +656,7 @@ class PostgresConversationStore(ConversationStore):
         with self._lock:
             if not self._dirty:
                 return
-            data = {
+            data: dict[str, Any] = {
                 "session_id": self._session_id,
                 "source": self._source,
                 "title": self._title,
@@ -627,5 +664,6 @@ class PostgresConversationStore(ConversationStore):
             }
             if self._summary:
                 data["summary"] = self._summary
+            data["investigation_context"] = self._investigation_context.to_dict()
             save_session(self._dsn, self._session_id, data)
             self._dirty = False

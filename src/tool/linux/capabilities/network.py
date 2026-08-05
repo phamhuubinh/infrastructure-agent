@@ -366,7 +366,9 @@ def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
-def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_listening_ports(
+    run: Callable[..., tuple[bool, str]], port: int | None = None
+) -> dict[str, object]:
     ports: list[dict[str, object]] = []
     succeeded = False
 
@@ -413,12 +415,16 @@ def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
             ports.extend(_parse_proc_sockets(proc_output, proto))
         if not proc_succeeded:
             return {}
+        if port is not None:
+            ports = [item for item in ports if item.get("port_number") == port]
         return {
             "ports": ports,
             "port_count": len(ports),
             "collection_strategy": "proc_net_sockets",
             "process_attribution": "unavailable",
         }
+    if port is not None:
+        ports = [item for item in ports if item.get("port_number") == port]
     return {
         "ports": ports,
         "port_count": len(ports),

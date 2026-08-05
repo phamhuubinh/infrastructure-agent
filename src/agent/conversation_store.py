@@ -43,10 +43,14 @@ class ConversationStoreProtocol(Protocol):
 
     def set_summary(self, summary: str) -> None: ...
 
+    def set_investigation_context(self, context: object) -> None: ...
+
     def summarize(self) -> None: ...
 
     @property
     def summary(self) -> str | None: ...
+    @property
+    def investigation_context(self) -> object: ...
     @property
     def title(self) -> str: ...
     @property
@@ -170,6 +174,9 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        self._investigation_context = SessionInvestigationContext()
         self._title: str = ""
         self._dirty = False
         self._summarize_fn = summarize_fn
@@ -324,6 +331,21 @@ class ConversationStore:
             self._summary = summary
 
     @property
+    def investigation_context(self) -> object:
+        with self._lock:
+            return self._investigation_context
+
+    def set_investigation_context(self, context: object) -> None:
+        from src.agent.session_investigation_context import SessionInvestigationContext
+
+        if not isinstance(context, SessionInvestigationContext):
+            raise TypeError("context must be a SessionInvestigationContext")
+        with self._lock:
+            self._investigation_context = context
+            self._dirty = True
+            self._save()
+
+    @property
     def title(self) -> str:
         with self._lock:
             return self._title
@@ -366,6 +388,13 @@ class ConversationStore:
                 data = json.loads(path.read_text())
                 self._mem = data.get("messages", [])
                 self._summary = data.get("summary")
+                from src.agent.session_investigation_context import (
+                    SessionInvestigationContext,
+                )
+
+                self._investigation_context = SessionInvestigationContext.from_dict(
+                    data.get("investigation_context")
+                )
                 self._title = data.get("title", "")
                 loaded_source = data.get("source")
                 if loaded_source:
@@ -400,6 +429,7 @@ class ConversationStore:
                 }
                 if self._summary:
                     data["summary"] = self._summary
+                data["investigation_context"] = self._investigation_context.to_dict()
                 self.store_path.write_text(json.dumps(data, indent=2))
                 self._dirty = False
             except OSError as exc:

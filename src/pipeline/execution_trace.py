@@ -88,6 +88,7 @@ class StageTrace:
     confidence: float | str | None = None
     target: str | None = None
     extracted_params: dict[str, str] | None = None
+    bound_params: dict[str, dict[str, object]] | None = None
     planned_capabilities: list[str] | None = None
     evidence_names: list[str] | None = None
     findings: list[str] | None = None
@@ -155,6 +156,7 @@ class ExecutionTrace:
                     "confidence": stage.confidence,
                     "target": stage.target,
                     "extracted_params": stage.extracted_params,
+                    "bound_params": stage.bound_params,
                     "planned_capabilities": stage.planned_capabilities,
                     "evidence_names": stage.evidence_names,
                     "findings": stage.findings,
@@ -248,6 +250,20 @@ class ExecutionTrace:
             or None,
         )
 
+        context_applied = frame.context_applied if frame is not None else ()
+        context_snapshot = frame.context_snapshot if frame is not None else {}
+        if frame is not None and (context_applied or context_snapshot):
+            stages["context"] = StageTrace(
+                name="context",
+                status=StageStatus.SUCCEEDED,
+                target=getattr(frame, "target_resolved", None),
+                message=(
+                    "applied: " + ", ".join(context_applied)
+                    if context_applied
+                    else "context available; no inheritance needed"
+                ),
+            )
+
         stages["intent"] = StageTrace(
             name="intent",
             status=StageStatus.SUCCEEDED,
@@ -277,6 +293,7 @@ class ExecutionTrace:
             name="plan",
             status=StageStatus.SUCCEEDED,
             extracted_params=_params(),
+            bound_params=(dict(request.bound_params) or None),
             planned_capabilities=_plan(),
             evidence_names=[req.name for req in request.required_evidence],
         )

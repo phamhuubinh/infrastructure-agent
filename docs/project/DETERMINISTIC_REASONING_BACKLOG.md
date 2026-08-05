@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-301–309 hoàn thành: routing investigation không còn LLM classifier, RequestFrame/taxonomy/candidate contracts thống nhất, normalizer/intent/target/alias/clarification deterministic đã được triển khai và kiểm thử. DR1-001–211 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-401–407 hoàn thành: session context có cấu trúc được resolve trước routing/planning, parameter binding/validation dựa trên capability metadata, multi-intent decomposition có giới hạn, TimeRange chuẩn hóa và temporal evidence guard fail-closed đã được triển khai và kiểm thử. DR1-001–309 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -135,13 +135,13 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-307 | P2 | ✅ | EPIC 3 | Alias có scope và vòng đời | DR1-306 |
 | DR1-308 | P0 | ✅ | EPIC 3 | Chuẩn hóa request class, routing status, evidence status, answer strategy | DR1-302 |
 | DR1-309 | P1 | ✅ | EPIC 3 | Deterministic clarification responses | DR1-305, DR1-306, DR1-308 |
-| DR1-401 | P0 | ⬜ | EPIC 4 | Tạo SessionInvestigationContext có cấu trúc | DR1-302 |
-| DR1-402 | P0 | ⬜ | EPIC 4 | Resolve context trước Normalizer/Target/Planner | DR1-401 |
-| DR1-403 | P0 | 🔎 | EPIC 4 | Tạo ParameterBinder và truyền params xuống capability | DR1-302 |
-| DR1-404 | P0 | ⬜ | EPIC 4 | Validate required parameters trước execution | DR1-403 |
-| DR1-405 | P1 | ⬜ | EPIC 4 | Decompose multi-intent thành subrequests có giới hạn | DR1-302, DR1-305 |
-| DR1-406 | P1 | 🔎 | EPIC 4 | Chuẩn hóa TimeRange và temporal requirements | DR1-302, DR1-403 |
-| DR1-407 | P0 | ⬜ | EPIC 4 | Guard comparison/forecast khi thiếu time series | DR1-406, DR1-505 |
+| DR1-401 | P0 | ✅ | EPIC 4 | Tạo SessionInvestigationContext có cấu trúc | DR1-302 |
+| DR1-402 | P0 | ✅ | EPIC 4 | Resolve context trước Normalizer/Target/Planner | DR1-401 |
+| DR1-403 | P0 | ✅ | EPIC 4 | Tạo ParameterBinder và truyền params xuống capability | DR1-302 |
+| DR1-404 | P0 | ✅ | EPIC 4 | Validate required parameters trước execution | DR1-403 |
+| DR1-405 | P1 | ✅ | EPIC 4 | Decompose multi-intent thành subrequests có giới hạn | DR1-302, DR1-305 |
+| DR1-406 | P1 | ✅ | EPIC 4 | Chuẩn hóa TimeRange và temporal requirements | DR1-302, DR1-403 |
+| DR1-407 | P0 | ✅ | EPIC 4 | Guard comparison/forecast khi thiếu time series | DR1-406, DR1-505 |
 | DR1-501 | P0 | ⬜ | EPIC 5 | Tạo canonical Fact model | DR1-104, DR1-302 |
 | DR1-502 | P0 | ⬜ | EPIC 5 | FactNormalizer cho Linux core capabilities | DR1-210, DR1-501 |
 | DR1-503 | P1 | ⬜ | EPIC 5 | FactNormalizer cho Zabbix và Grafana | DR1-501 |
@@ -1206,158 +1206,156 @@ Ambiguity không cần LLM; câu hỏi làm rõ phải chỉ đúng trường th
 ## 7. EPIC 4 — Context, parameter và temporal wiring
 ### DR1-401 — Tạo SessionInvestigationContext có cấu trúc
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/agent/session_investigation_context.py (new)`, `src/agent/conversation_store.py`
 
 **Vấn đề**  
 Conversation summary hiện chủ yếu phục vụ prompt; target/concept của turn trước không ảnh hưởng routing đúng lúc.
 
-**Cách làm**
-1. Lưu active_target, active_concept, active_service, active_path, active_time_range, incident IDs.
-2. Chỉ lưu semantic context nhỏ, không persist raw execution evidence trái stateless rule.
-3. Cập nhật context sau request resolved, không từ text LLM summary.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `SessionInvestigationContext` lưu active target/concept/service/path/TimeRange và incident IDs với serialization giới hạn.
+2. ✅ JSON, SQLite và PostgreSQL conversation stores persist context ở field riêng; không lưu raw execution evidence vào context.
+3. ✅ Agent chỉ cập nhật context từ `RequestFrame` đã resolve; đổi target xóa resource context thuộc target cũ.
 
 **Acceptance criteria**
-- [ ] Follow-up “Còn RAM?” kế thừa đúng target monitor.
-- [ ] Context reset/switch target rõ ràng.
+- [x] Follow-up “Còn RAM?” kế thừa đúng target monitor.
+- [x] Context reset/switch target rõ ràng.
 
 **Tests/verification**
-- `tests/agent/test_session_investigation_context.py`
+- ✅ `tests/agent/test_session_investigation_context.py`.
 
 ---
 ### DR1-402 — Resolve context trước Normalizer/Target/Planner
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-401
 - **Files dự kiến:** `src/agent/deterministic_agent.py`, `src/pipeline/execution_engine.py`
 
 **Vấn đề**  
 Context được đưa vào assessment sau khi execution đã chọn sai target thì không thể sửa.
 
-**Cách làm**
-1. Merge current message + structured context thành resolver input.
-2. Explicit target hiện tại luôn override active target.
-3. Pronoun/follow-up chỉ kế thừa khi confidence đủ và không có conflict.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `SessionContextResolver` enrich canonical frame trước intent/target/capability planning.
+2. ✅ Explicit target hiện tại luôn thắng; context target chỉ được inherit cho follow-up hoặc concept đủ confidence.
+3. ✅ Concept/service/path/time range chỉ được kế thừa bằng rule follow-up/reference giới hạn; trace có `context` stage và snapshot semantic an toàn.
 
 **Acceptance criteria**
-- [ ] Context được ghi trong trace trước capability plan.
-- [ ] Cross-turn target tests pass.
+- [x] Context được ghi trong trace trước capability plan.
+- [x] Cross-turn target tests pass.
 
 **Tests/verification**
-- `tests/agent/test_deterministic_agent.py`
-- `tests/pipeline/test_execution_engine.py`
+- ✅ `tests/agent/test_session_investigation_context.py`, `tests/agent/test_deterministic_agent.py`, `tests/pipeline/test_execution_trace.py`.
 
 ---
 ### DR1-403 — Tạo ParameterBinder và truyền params xuống capability
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-302
 - **Files dự kiến:** `src/pipeline/parameter_extractor.py`, `src/pipeline/parameter_binder.py (new)`, `src/pipeline/execution_runtime.py`
 
 **Vấn đề**  
 ParameterExtractor có thể lấy service_name/path/port nhưng runtime chỉ truyền source/resource.
 
-**Cách làm**
-1. Mapping explicit: service_name→name, process_name→query, path→path, port→port, ping_target→target, time_range→since/until.
-2. Binder đọc capability metadata, không hardcode command.
-3. Trace lưu extracted và bound params.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `ParameterSpec` + `ParameterBinder` map canonical source fields sang child arguments, gồm service/process/path/port/ping target/time bounds.
+2. ✅ Router giữ candidate metadata và chọn parameterized route phù hợp; runtime không còn nhánh hardcode resource→argument.
+3. ✅ `ExecutionTrace.plan` lưu cả extracted và bound params; Linux collectors nhận argument list đã bind.
 
 **Acceptance criteria**
-- [ ] “nginx status” gọi capability với `name=nginx`.
-- [ ] Ping/path/time range được truyền chính xác.
+- [x] “nginx status” gọi capability với `name=nginx`.
+- [x] Ping/path/time range được truyền chính xác.
 
 **Tests/verification**
-- `tests/pipeline/test_parameter_extractor.py`
-- `tests/pipeline/test_parameter_binder.py`
-- `tests/pipeline/test_execution_runtime.py`
+- ✅ `tests/pipeline/test_parameter_extractor.py`, `tests/pipeline/test_parameter_binder.py`, `tests/pipeline/test_execution_runtime.py`.
 
 ---
 ### DR1-404 — Validate required parameters trước execution
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-403
 - **Files dự kiến:** `src/pipeline/capability_planner.py`, `src/pipeline/security/parameter_safety_inspector.py`
 
 **Vấn đề**  
 Thiếu service/path/target hiện có thể chạy generic capability rồi suy đoán.
 
-**Cách làm**
-1. Capability metadata đánh dấu required/default/enum/pattern.
-2. Missing required → clarification; invalid → deterministic error.
-3. Sanitize/escape chỉ là lớp cuối; ưu tiên argument list thay shell concatenation.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Capability metadata xuất `parameter_specs` gồm source/required/default/type/enum/pattern/range.
+2. ✅ Engine validate toàn graph trước dispatch; missing/invalid params tạo deterministic clarification và runtime fail-closed nếu gọi trực tiếp.
+3. ✅ Binder + mandatory security inspector reject shell/path/newline injection; collectors tiếp tục dùng argument list.
 
 **Acceptance criteria**
-- [ ] Không capability nào nhận parameter thiếu hoặc chưa validate.
-- [ ] Injection strings bị reject.
+- [x] Không capability nào nhận parameter thiếu hoặc chưa validate.
+- [x] Injection strings bị reject.
 
 **Tests/verification**
-- `tests/pipeline/test_parameter_validation.py`
+- ✅ `tests/pipeline/test_parameter_validation.py`, `tests/pipeline/test_parameter_binder.py`.
 
 ---
 ### DR1-405 — Decompose multi-intent thành subrequests có giới hạn
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-302, DR1-305
 - **Files dự kiến:** `src/pipeline/request_decomposer.py (new)`, `src/pipeline/capability_planner.py`
 
 **Vấn đề**  
 Một câu hỏi chứa disk + service + CPU + logs bị keyword đơn route sai hoặc bỏ phần.
 
-**Cách làm**
-1. Parse coordinated concepts thành danh sách subframes chung target/timeframe.
-2. Lập plan hợp nhất, deduplicate capability và chạy parallel.
-3. Giới hạn số subrequests; câu quá rộng hỏi scope/ưu tiên.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `RequestDecomposer` tách các concept explicit thành tối đa bốn subframes dùng chung target/timeframe/params.
+2. ✅ Engine resolve evidence/capability từng subframe, merge required/optional contracts và deduplicate capability trước graph parallel.
+3. ✅ Request vượt budget trả deterministic scope clarification trước collection.
 
 **Acceptance criteria**
-- [ ] Multi-intent golden cases thu đủ required evidence.
-- [ ] Không tạo capability trùng.
+- [x] Multi-intent golden cases thu đủ required evidence.
+- [x] Không tạo capability trùng.
 
 **Tests/verification**
-- `tests/pipeline/test_request_decomposer.py`
+- ✅ `tests/pipeline/test_request_decomposer.py`; integration check CPU+RAM+Disk tạo required CPU Hardware/Memory/Storage và không lặp capability.
 
 ---
 ### DR1-406 — Chuẩn hóa TimeRange và temporal requirements
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-302, DR1-403
 - **Files dự kiến:** `src/pipeline/time_range_resolver.py`, `src/pipeline/evidence_planner.py`
 
 **Vấn đề**  
 Comparison/forecast đang dùng snapshot vì timeframe không được gắn vào evidence requirement đầy đủ.
 
-**Cách làm**
-1. TimeRange gồm start/end/granularity/timezone/source phrase.
-2. Question “hôm qua”, “7 ngày”, “6 tháng tới” tạo historical/forecast requirement khác snapshot.
-3. Dùng timezone request/session rõ ràng.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Canonical `TimeRange` gồm start/end/granularity/timezone/source phrase/temporal kind/windows và giữ tuple compatibility cho deep links.
+2. ✅ Relative, named historical, comparison và future phrases tạo HISTORICAL/COMPARISON/FORECAST requirements khác snapshot.
+3. ✅ Resolver nhận timezone + clock inject được để relative ranges deterministic/testable; binder truyền since/until.
 
 **Acceptance criteria**
-- [ ] Historical query không bị route thành current fact.
-- [ ] Relative range deterministic và testable.
+- [x] Historical query không bị route thành current fact.
+- [x] Relative range deterministic và testable.
 
 **Tests/verification**
-- `tests/pipeline/test_time_range_resolver.py`
+- ✅ `tests/pipeline/test_time_range_resolver.py`.
 
 ---
 ### DR1-407 — Guard comparison/forecast khi thiếu time series
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-406, DR1-505
 - **Files dự kiến:** `src/pipeline/evidence_completeness.py`, `src/pipeline/deterministic_responder.py`, `src/model/protocol/prompt_builder_v2.py`
 
 **Vấn đề**  
 Orion từng kết luận trend, capacity 6 tháng và false positive chỉ từ snapshot.
 
-**Cách làm**
-1. Comparison yêu cầu ít nhất hai windows tương thích.
-2. Forecast yêu cầu series đủ dài + growth model đã định nghĩa; nếu không trả insufficient evidence.
-3. Cấm claim “xu hướng ổn định/xấu đi” từ một điểm.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Temporal evidence requirements khai báo minimum points/windows; comparison cần ít nhất hai windows tương thích.
+2. ✅ Forecast cần tối thiểu sáu điểm và growth model có định danh; thiếu bất kỳ phần nào trở thành insufficient evidence.
+3. ✅ `TemporalEvidenceGuard` chạy trong completeness và trước mọi deterministic/LLM response, fail-closed với thông báo không suy xu hướng từ snapshot. DR1-505 vẫn mở cho canonical fact-level matching sâu hơn, nhưng không còn chặn guard từ chối evidence thiếu history.
 
 **Acceptance criteria**
-- [ ] 100% forecast/comparison golden cases thiếu history được từ chối đúng.
+- [x] 100% forecast/comparison golden cases thiếu history được từ chối đúng.
 
 **Tests/verification**
-- `tests/pipeline/test_temporal_evidence_guard.py`
+- ✅ `tests/pipeline/test_temporal_evidence_guard.py`.
+- ✅ Verification chung EPIC 4: 234 focused tests pass; 1.357 agent/pipeline/tool/shared/model/QA/benchmark/CLI tests pass (4 skipped, 5 subtests pass); 36 backend session-store tests pass; `ruff check .` clean.
 
 ---
 

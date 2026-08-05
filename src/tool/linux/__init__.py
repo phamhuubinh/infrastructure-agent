@@ -4,7 +4,7 @@ import inspect
 import time as _time
 from dataclasses import replace
 
-from src.shared.capability import Capability
+from src.shared.capability import Capability, ParameterSpec
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error, info
@@ -565,6 +565,57 @@ _PARAMETERS: dict[str, tuple[str, ...]] = {
     "get_process_by_name": ("name",),
     "search_process": ("query",),
     "get_ping_latency": ("target", "count"),
+    "get_disk": ("path",),
+    "get_disk_usage": ("path",),
+    "get_filesystem": ("path",),
+    "get_listening_ports": ("port",),
+}
+
+_SERVICE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$"
+_HOST_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,253}$"
+_PATH_PATTERN = r"^/(?:[A-Za-z0-9._-]+/?)*$"
+_PARAMETER_SPECS: dict[str, tuple[ParameterSpec, ...]] = {
+    "get_service": (
+        ParameterSpec("name", source="service_name", required=True, pattern=_SERVICE_PATTERN),
+    ),
+    "search_service": (
+        ParameterSpec("query", source="service_name", required=True, pattern=_SERVICE_PATTERN),
+    ),
+    "get_service_logs": (
+        ParameterSpec(
+            "service_name", source="service_name", required=True, pattern=_SERVICE_PATTERN
+        ),
+        ParameterSpec("time_range", source="time_range"),
+        ParameterSpec("since", source="timeframe.start", value_type="int"),
+        ParameterSpec("until", source="timeframe.end", value_type="int"),
+        ParameterSpec(
+            "limit", source="limit", value_type="int", default=50, has_default=True,
+            minimum=1, maximum=500
+        ),
+    ),
+    "get_journal": (
+        ParameterSpec("service_name", source="service_name", pattern=_SERVICE_PATTERN),
+        ParameterSpec("time_range", source="time_range"),
+    ),
+    "get_process_by_name": (
+        ParameterSpec("name", source="process_name", required=True, pattern=_SERVICE_PATTERN),
+    ),
+    "search_process": (
+        ParameterSpec("query", source="process_name", required=True, pattern=_SERVICE_PATTERN),
+    ),
+    "get_ping_latency": (
+        ParameterSpec("target", source="ping_target", required=True, pattern=_HOST_PATTERN),
+        ParameterSpec(
+            "count", source="count", value_type="int", default=4, has_default=True,
+            minimum=1, maximum=10
+        ),
+    ),
+    "get_disk": (ParameterSpec("path", source="path", pattern=_PATH_PATTERN),),
+    "get_disk_usage": (ParameterSpec("path", source="path", pattern=_PATH_PATTERN),),
+    "get_filesystem": (ParameterSpec("path", source="path", pattern=_PATH_PATTERN),),
+    "get_listening_ports": (
+        ParameterSpec("port", source="port", value_type="int", minimum=1, maximum=65535),
+    ),
 }
 
 # Enrich declarations in one place. KnowledgeTool only aggregates this
@@ -574,6 +625,7 @@ for _name, _capability in tuple(_CAPABILITIES.items()):
         _capability,
         supported_targets=("local", "ssh"),
         parameters=_PARAMETERS.get(_name, _capability.parameters),
+        parameter_specs=_PARAMETER_SPECS.get(_name, ()),
         preconditions=("linux",),
         required_binaries=_REQUIRED_BINARIES.get(_name, ()),
         required_any_binaries=_REQUIRED_ANY_BINARIES.get(_name, ()),

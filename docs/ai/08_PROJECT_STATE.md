@@ -16,6 +16,10 @@
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
 - Chat interface with fully deterministic routing statuses; no model classifier participates in infrastructure routing. General chat remains a separate model-backed subsystem.
 - Target resolution uses exact/scoped aliases before fuzzy matching and requires both score threshold and candidate margin; explicit unknown/ambiguous targets clarify without localhost execution.
+- Per-session `SessionInvestigationContext` persists only resolved target/concept/service/path/time semantics and incident IDs; deterministic follow-up resolution runs before target/capability planning, with explicit current targets taking precedence.
+- Capability parameters are selected, bound and validated from child-tool `ParameterSpec` metadata before dispatch. Missing required values clarify; invalid/injection values fail closed; traces expose safe extracted/bound arguments.
+- Coordinated requests are decomposed into at most four subframes with shared target/timeframe, merged evidence contracts and deduplicated parallel capabilities; broader requests ask the user to narrow scope.
+- Canonical timezone-aware `TimeRange` distinguishes historical/comparison/forecast requirements. `TemporalEvidenceGuard` rejects comparison from fewer than two compatible windows and forecast without a sufficiently long series plus defined growth model before any model response.
 - Deterministic responder (`src/pipeline/deterministic_responder.py`) — generates responses without LLM for simple evidence (service status, zombie processes) before the full assessment step.
 - Capability reference model (`src/pipeline/capability_reference.py`) — typed dataclass for capability references across the pipeline.
 - Assessment request model (`src/pipeline/assessment_request.py`) — typed request envelope used by `AssessmentAdapter`.
@@ -124,13 +128,13 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 | Historical IDs | Artifact present | Current behavior gap / corrective owner |
 |---|---|---|
 | 601–604 | Identity/language prompts, separate unknown-target catch, hostname guard | DR1-306/309 completed target confidence + deterministic clarification; output validation remains DR1-703, DR1-706 |
-| 605–608 | CapabilityPlanner/config/library wiring | DR1-301–308 completed canonical deterministic routing; context/parameter binding remains DR1-401–406 |
-| 609–611 | Parameter parser plus runtime method plumbing | `_execute_node()` does not bind extracted values into child-tool arguments: DR1-403, DR1-404 |
+| 605–608 | CapabilityPlanner/config/library wiring | DR1-301–309 completed canonical deterministic routing; DR1-401–405 now add pre-plan context and bounded multi-intent merging |
+| 609–611 | Parameter parser plus runtime method plumbing | DR1-403/404 completed metadata-driven binding, required/type/pattern/range validation and safe bound-parameter traces |
 | 612–617 | Answer-type/tool selectors and `source_tool` field | DR1-308 completed request/routing/evidence/strategy taxonomy; selected-tool provenance remains DR1-508, DR1-509, DR1-707 |
 | 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers and requires valid evidence; canonical fact freshness/provenance still remains: DR1-501, DR1-502, DR1-505, DR1-707 |
 | 623–625 | Per-session TTL cache and engine wiring | DR1-108 now rejects failed/partial cache entries; cache key still omits params/timeframe/schema/freshness policy: DR1-507 |
 | 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
-| 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | Deep links are not time-series evidence or an embed/image response; temporal sufficiency remains unguarded: DR1-308, DR1-406, DR1-407, DR1-503, DR1-707 |
+| 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | DR1-406/407 completed canonical temporal requirements and fail-closed comparison/forecast guards; Grafana fact normalization/embed response remain DR1-503, DR1-707 |
 
 Therefore “Phase 6 delivery completed” is retained as history, while the rows above remain open
 behavior corrections. No open DR1 item is to be treated as proof that its predecessor module is
@@ -248,9 +252,16 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-307 ✅ complete**: target aliases have session/user/project/global scope and observed/suggested/approved/active/deprecated lifecycle; global activation requires reviewer/evidence metadata and transcript observations do not auto-promote.
 - **DR1-308 ✅ complete**: request class, routing status, evidence status and answer strategy are first-class contracts on investigation/trace; the QA runner consumes them directly rather than deriving routing/evidence heuristically.
 - **DR1-309 ✅ complete**: bounded deterministic templates clarify missing target/service/path/timeframe/concept/operation with at most three validated candidates before any model or evidence execution.
-- Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
+- **DR1-401 ✅ complete**: session investigation context stores only resolved semantic routing fields and persists separately from prompt summaries/raw evidence across JSON, SQLite and PostgreSQL stores.
+- **DR1-402 ✅ complete**: structured context is applied before intent/target/capability planning; explicit targets override inherited targets, bounded follow-ups inherit only sufficiently supported target/concept/resource/time fields, and traces record the context stage.
+- **DR1-403 ✅ complete**: `ParameterSpec`/`ParameterBinder` and route candidate metadata map service/process/path/port/ping/time values into child arguments; `nginx status` dispatches `get_service(name="nginx")`, and traces retain safe bound params.
+- **DR1-404 ✅ complete**: graph parameters are validated before execution for required/default/type/enum/pattern/range and injection safety; missing or invalid values fail closed without reaching a child capability.
+- **DR1-405 ✅ complete**: up to four explicit coordinated concepts become isolated subframes with shared semantics; evidence/capability plans merge deterministically, deduplicate, and retain graph parallelism, while over-broad requests clarify scope.
+- **DR1-406 ✅ complete**: immutable timezone-aware `TimeRange` represents bounds, granularity, source phrase, temporal kind and comparison windows with injectable clocks; historical and future language creates series requirements rather than current snapshots.
+- **DR1-407 ✅ complete**: temporal completeness requires two compatible comparison windows or at least six forecast points plus a defined growth model; incomplete requests return a deterministic insufficient-evidence response before assessment. DR1-505 remains open for canonical fact-level completeness enrichment.
+- Remaining DR1 tasks continue at DR1-501 from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-301–309 complete: canonical request frame, deterministic routing/candidates/target aliases/taxonomy/clarification verified; DR1-001–211 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-401–407 complete: structured session context, metadata parameter binding/validation, bounded multi-intent planning and temporal evidence guards verified; DR1-001–309 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

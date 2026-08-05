@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
 
+from src.agent.session_investigation_context import (
+    SessionContextResolver,
+    SessionInvestigationContext,
+)
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.protocol.prompt_builder_v2 import (
     _normalize_evidence,
@@ -26,6 +30,7 @@ from src.pipeline.execution_trace import (
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
+from src.pipeline.request_decomposer import RequestDecomposer
 from src.pipeline.routing_decision import (
     EvidenceStatus,
     RoutingClarificationError,
@@ -66,6 +71,12 @@ class DeterministicAgent:
         self._deterministic_responder = DeterministicResponder()
         self._clarification_responder = ClarificationResponder()
         self._conversation_store = conversation_store
+        stored_context = getattr(conversation_store, "investigation_context", None)
+        self._session_context = (
+            stored_context
+            if isinstance(stored_context, SessionInvestigationContext)
+            else SessionInvestigationContext()
+        )
         self._evidence_cache = evidence_cache
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
@@ -94,6 +105,12 @@ class DeterministicAgent:
     def conversation_store(self, store: ConversationStoreProtocol | None) -> None:  # type: ignore[valid-type]
         """Set the conversation store after initialization."""
         self._conversation_store = store
+        stored_context = getattr(store, "investigation_context", None)
+        self._session_context = (
+            stored_context
+            if isinstance(stored_context, SessionInvestigationContext)
+            else SessionInvestigationContext()
+        )
         if store:
             store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -106,6 +123,9 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
+        reset_response = self._reset_context_response(user_request)
+        if reset_response is not None:
+            return reset_response
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
@@ -117,6 +137,7 @@ class DeterministicAgent:
 
         try:
             investigation = self._execution_engine.execute(decision.request_frame)
+            self._remember_investigation(investigation)
             return self._assess(user_request, investigation)
         except RoutingClarificationError as exc:
             return self._clarification_responder.respond(exc.decision)
@@ -171,6 +192,27 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
+        reset_response = self._reset_context_response(user_request)
+        if reset_response is not None:
+            frame = Normalizer().normalize(user_request).evolve(
+                routing_status=RoutingStatus.RESOLVED
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.RESOLVED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            return {
+                "response": reset_response,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return {
@@ -211,6 +253,7 @@ class DeterministicAgent:
         strategy_out: list[str] = []
         try:
             investigation = self._execution_engine.execute(decision.request_frame)
+            self._remember_investigation(investigation)
             response = self._assess(
                 user_request, investigation, _strategy_out=strategy_out
             )
@@ -540,7 +583,20 @@ class DeterministicAgent:
         """Classify routing without invoking the assessment model."""
         from src.pipeline.intent_resolver import IntentResolver
 
-        frame = Normalizer().normalize(user_request)
+        frame = SessionContextResolver().resolve(
+            Normalizer().normalize(user_request), self._session_context
+        )
+        decomposition = RequestDecomposer().decompose(frame)
+        if decomposition.too_broad:
+            return RoutingDecision(
+                RoutingStatus.CLARIFICATION_REQUIRED,
+                frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
+                decomposition.reason,
+                "concept",
+                frame.concepts[:3],
+            )
+        if len(decomposition.subframes) > 1:
+            frame = frame.evolve(subframes=decomposition.subframes)
         resolution = IntentResolver().resolve_frame(frame)
         frame = frame.evolve(
             intent_candidates=resolution.candidates,
@@ -623,6 +679,14 @@ class DeterministicAgent:
                 RoutingStatus.CLARIFICATION_REQUIRED,
                 frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
                 "forecast requires a bounded timeframe",
+                "timeframe",
+            )
+
+        if frame.answer_type is AnswerType.COMPARISON and not frame.timeframe:
+            return RoutingDecision(
+                RoutingStatus.CLARIFICATION_REQUIRED,
+                frame.evolve(routing_status=RoutingStatus.CLARIFICATION_REQUIRED),
+                "comparison requires two bounded time windows",
                 "timeframe",
             )
 
@@ -1065,7 +1129,44 @@ class DeterministicAgent:
 
         Useful for debugging and benchmarking.
         """
-        return self._execution_engine.execute(user_request)
+        decision = self._route_request(user_request)
+        if not decision.resolved:
+            raise RoutingClarificationError(decision)
+        investigation = self._execution_engine.execute(decision.request_frame)
+        self._remember_investigation(investigation)
+        return investigation
+
+    def _remember_investigation(self, investigation: InvestigationRequest) -> None:
+        """Persist resolved semantics, never raw evidence, for later routing."""
+        frame = investigation.request_frame
+        if frame is None:
+            return
+        context = self._session_context
+        if (
+            frame.target_resolved
+            and context.active_target
+            and frame.target_resolved != context.active_target
+            and "target" not in frame.context_applied
+        ):
+            context = context.switch_target(frame.target_resolved)
+        context = context.update_from_frame(frame)
+        self._session_context = context
+        setter = getattr(self._conversation_store, "set_investigation_context", None)
+        if callable(setter):
+            setter(context)
+
+    def _reset_context_response(self, user_request: str) -> str | None:
+        if not SessionContextResolver.is_reset_request(user_request):
+            return None
+        context = self._session_context.reset()
+        self._session_context = context
+        setter = getattr(self._conversation_store, "set_investigation_context", None)
+        if callable(setter):
+            setter(context)
+        response = "Đã xóa ngữ cảnh điều tra đang hoạt động."
+        if self._conversation_store:
+            self._conversation_store.add_turn(user_request, response)
+        return response
 
     def _build_tool_links(
         self,
@@ -1085,13 +1186,14 @@ class DeterministicAgent:
 
         tr_resolver = TimeRangeResolver()
         time_range = tr_resolver.resolve(user_request)
+        link_time_range = time_range.as_tuple() if time_range is not None else None
 
         for name in kt._registry.target_names():
             try:
                 tool = kt._registry.get_tool(name)
                 if isinstance(tool, Tool):
                     links = tool.build_links(
-                        evidence_list, user_request, time_range=time_range
+                        evidence_list, user_request, time_range=link_time_range
                     )
                     if links:
                         parts.append(links)

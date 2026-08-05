@@ -6,6 +6,22 @@ from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
+class ParameterSpec:
+    """Declarative validation/binding metadata for one capability argument."""
+
+    name: str
+    source: str | None = None
+    required: bool = False
+    value_type: str = "str"
+    default: object | None = None
+    has_default: bool = False
+    enum: tuple[object, ...] = ()
+    pattern: str | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Capability:
     name: str
     handler: Callable[..., Any]
@@ -17,6 +33,7 @@ class Capability:
     description: str = ""
     supported_targets: tuple[str, ...] = ()
     parameters: tuple[str, ...] = ()
+    parameter_specs: tuple[ParameterSpec, ...] = ()
     preconditions: tuple[str, ...] = ()
     required_binaries: tuple[str, ...] = ()
     required_any_binaries: tuple[str, ...] = ()
