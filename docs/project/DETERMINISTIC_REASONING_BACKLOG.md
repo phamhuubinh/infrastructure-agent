@@ -358,24 +358,112 @@ Transcript chỉ chứa prompt/response, chưa có expected concept, target, par
 ---
 ### DR1-005 — Lưu baseline metrics trước khi sửa hành vi
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-002, DR1-004
-- **Files dự kiến:** `benchmark_results/`, `scripts/qa/run_acceptance.py`
+- **Files:** `scripts/qa/run_baseline.py (new)`, `tests/qa/test_run_baseline.py (new)`
 
 **Vấn đề**  
 Không có baseline stage-level thì không thể biết thay đổi cải thiện hay chỉ chuyển lỗi sang stage khác.
 
-**Cách làm**
-1. Chạy golden suite trên commit hiện tại.
-2. Lưu JSON trace và summary theo commit SHA.
-3. Ghi concept/intent/target/parameter/plan accuracy, clarification, unsafe assumption, routing fallback, insufficient evidence, latency và tool count.
+**Cách làm (đã thực hiện 2026-08-04)**
+1. ✅ Tạo `scripts/qa/run_baseline.py` — chạy toàn bộ case không `harness_error: true` trong
+   `tests/data/qa_cases/golden_core.yaml` in-process qua `create_deterministic_agent()` (cùng
+   composition root với `run_acceptance.py`/`tests/agent/test_deterministic_agent.py`), không
+   cần Docker hay HTTP layer.
+2. ✅ Với mỗi case, đọc trực tiếp `InvestigationRequest` + `ExecutionTrace` (`DR1-002`) trả về
+   từ `run_with_steps()` để lấy concepts/operation/intent/target/params/answer_type/
+   answer_strategy/llm_usage_reason/required_evidence, so với `expected` trong golden case.
+3. ✅ Ghi rõ trong code + report: `routing_status` và `evidence_status` KHÔNG phải field chính
+   thức của `ExecutionTrace` (còn chờ `DR1-308`/`DR1-505`) — script tự suy ra best-effort và
+   đánh dấu riêng `*(approx.)*`, không trộn vào `correct_investigation_rate` headline.
+4. ✅ Report JSON + Markdown ghi `git_commit`, `config_hash` (sha256 của `targets.json` +
+   `servers.json`), `model`/`provider` (qua `benchmark/metadata.py:collect_benchmark_metadata`),
+   `golden_dataset_path`, cases_total, và toàn bộ danh sách case fail kèm field mismatch.
+5. ✅ Ghi stage accuracy (concept/operation/intent/target/params/answer_type/answer_strategy/
+   llm_usage_reason/required_evidence), outcome rates (deterministic_answer_coverage,
+   expected_assessment_rate, routing_fallback_rate, insufficient_evidence_rate), accuracy theo
+   nhóm A–J/M, và latency (median/p95 `total_duration_ms`).
+6. Không sửa `run_acceptance.py` (dùng `TEST_CASES` hardcode, không phải golden dataset) — việc
+   đổi nó sang stage-level scoring thuộc `DR1-807`, ngoài scope DR1-005.
+7. Không có `unsafe_assumption_rate`/`correct_clarification_rate` trong report này — hai metric
+   này cần claim validator (`DR1-703`) và clarification responder (`DR1-309`) chưa tồn tại; report
+   ghi rõ "not computed" thay vì đưa số giả.
 
 **Acceptance criteria**
-- [ ] Baseline reproducible trên cùng fixture.
-- [ ] Report có commit SHA, config hash, model/provider và target fixture.
+- [x] Baseline reproducible trên cùng fixture — mọi field được so sánh (concept/intent/target/
+      params/answer_type/answer_strategy/llm_usage_reason/required_evidence) đến từ pipeline
+      quyết định, không phụ thuộc nội dung text LLM sinh ra, nên deterministic giữa các lần chạy
+      cùng code + cùng config.
+- [x] Report có commit SHA, config hash, model/provider và target fixture (xem `metadata` trong
+      JSON output, ví dụ chạy thử: `git_commit`, `config_hash=86a9b900837fcdc4`,
+      `golden_dataset_path`, `golden_dataset_cases_total=38`).
 
 **Tests/verification**
-- `tests/benchmark/test_report_wiring.py`
+- ✅ `python3 -m pytest tests/qa/test_run_baseline.py -q` — 14 tests pass (load/skip
+  harness_error, extract_actual cho investigation/chat/unknown-target/partial-evidence,
+  score_case cho match/mismatch/order-independent list so sánh, config_hash, summarize,
+  render_markdown).
+- ✅ `ruff check scripts/qa/run_baseline.py tests/qa/test_run_baseline.py` — clean.
+- ✅ Chạy thử end-to-end trong môi trường chưa cấu hình model (`no model configured`):
+  `python3 scripts/qa/run_baseline.py --output-dir /tmp/baseline_test` — chạy hết 38/38 case,
+  không crash, sinh `baseline_<timestamp>.json` + `.md` hợp lệ. Baseline **thật** (có ý nghĩa số
+  liệu) cần chạy lại trên máy có model + targets đã cấu hình đầy đủ trước khi bắt đầu `DR1-101`.
+- `tests/benchmark/test_report_wiring.py` — không đụng, vẫn pass nguyên trạng (không sửa module
+  `benchmark/`, chỉ import `collect_benchmark_metadata` để tái dùng).
+
+**Cập nhật bổ sung 1 (2026-08-04, model preflight):** thêm `--smoke` mode và
+`BaselinePreflightError` — mặc định `run_baseline()` giờ bắt buộc phải resolve được model từ
+`servers.json` VÀ health-check pass trước khi chạy case nào, để tránh trường hợp môi trường chưa
+cấu hình model (setup mode) âm thầm sinh ra baseline "0%" trông như baseline thật. Report có thêm
+`meta["meaningful_baseline"]` — chỉ `true` khi chạy bằng model thật đã health-check OK.
+`--smoke` cho phép chạy thử pipeline/scorer bằng `UnconfiguredAssessmentAdapter` mà không giả vờ
+đó là baseline (markdown ghi rõ "Smoke run — not a meaningful baseline", không publish
+`correct_investigation_rate`).
+
+**Cập nhật bổ sung 2 (2026-08-04, tri-state scoring):** phát hiện: baseline chạy thật (38/38 case,
+0 exception) vẫn ra `correct_investigation_rate = 0%` — không phải do model, mà do scorer coi mọi
+field không quan sát được (vì `investigation`/`execution_trace` bị short-circuit) là mismatch.
+Đối chiếu trực tiếp `src/agent/deterministic_agent.py:run_with_steps()` xác nhận 4 trường hợp
+`investigation is None` có nguyên nhân cấu trúc khác nhau (không phải cùng 1 loại "thiếu dữ liệu"):
+route thẳng chat (`execution_trace` trả về `None` toàn bộ, không chỉ thiếu field), `UnknownTargetError`
+(pipeline đã tính concept/operation/intent trước khi raise nhưng investigation bị discard),
+`Exception` chung (fallback chat, không biết pipeline chạy tới đâu), và exception thoát khỏi chính
+runner (không biết gì cả). Sửa:
+- Mỗi field giờ có 1 trong 3 trạng thái: `match` / `mismatch` / `not_observable`
+  (`score_case()["field_status"]`, thay cho `field_matches` boolean cũ).
+- `investigation_context()` (hàm mới, public) phân loại 5 ngữ cảnh: `investigated`, `chat`,
+  `target_shortcircuit`, `pipeline_shortcircuit`, `runner_exception` — quyết định field nào bị ép
+  `not_observable` theo đúng field nào pipeline THẬT SỰ không tính được (không phải mọi field
+  investigation-derived đều bị ép — ví dụ `target` vẫn quan sát được ở `target_shortcircuit` vì
+  `None` chính là tín hiệu thật; `llm_usage_reason=NONE` vẫn quan sát được ở path này vì code thật
+  set giá trị đó tường minh).
+- `answer_strategy`/`llm_usage_reason` thiếu (giá trị `None` thật trong trace) → `not_observable`
+  bất kể context — không tự bịa `"NONE"`/`"CHAT"` mặc định (sửa cả `_runner_exception_result()`,
+  trước đó fabricate `llm_usage_reason="NONE"`).
+- Thêm 3 metric mới trong `summary`: `strict_correct_investigation_rate` (giữ nguyên bar cũ — mọi
+  core field phải `match`, `not_observable` vẫn tính là fail, không đổi để "tăng điểm"),
+  `observable_core_accuracy` (accuracy chỉ tính trên field thực sự quan sát được), và
+  `trace_completeness_rate` (bao nhiêu % field core là quan sát được, bất kể đúng/sai — đo độ hoàn
+  thiện của trace, không đo độ đúng của pipeline).
+- `report["diagnostics"]` tách 3 nhóm riêng: `behavioral_mismatches` (bug pipeline thật),
+  `trace_observability_gaps` (lỗ hổng instrumentation, không phải bug hành vi), và
+  `approximate_fields` (routing_status/evidence_status, không đổi, vẫn "not authoritative").
+- Chạy thử `--smoke` sau khi sửa: `observable_core_accuracy=52.92%`, `trace_completeness_rate=90.23%`
+  — khác hẳn `strict_correct_investigation_rate=0.00%` (đúng, vì smoke mode dùng
+  `UnconfiguredAssessmentAdapter` nên hầu hết case thật sự sai) — chứng minh scorer giờ phân biệt
+  được "field không quan sát được" khỏi "field sai thật", đúng yêu cầu.
+
+**Tests/verification (bổ sung):**
+- ✅ `python3 -m pytest tests/qa/test_run_baseline.py -q` — 30 tests pass, gồm 4 test bắt buộc:
+  chat path thiếu strategy → `not_observable` (`test_chat_path_missing_strategy_is_not_observable`),
+  unknown-target short-circuit → field upstream `not_observable`, `target`/`llm_usage_reason` vẫn
+  quan sát được (`test_unknown_target_shortcircuit_marks_upstream_fields_not_observable`), mismatch
+  thật vẫn bị báo `mismatch` (`test_target_mismatch_fails_core`), và `not_observable` không bị tính
+  vào mismatch ở metric tổng hợp (`test_not_observable_excluded_from_observable_accuracy_and_completeness`).
+- ✅ `ruff check scripts/qa/run_baseline.py tests/qa/test_run_baseline.py` — clean.
+- ✅ `python3 scripts/qa/run_baseline.py --smoke --output-dir /tmp/baseline_test2` — chạy hết
+  38/38 case, sinh report hợp lệ với 3 metric mới + 3 mục diagnostics.
+- Không sửa golden dataset, `ParameterExtractor`, hay agent source trong lần sửa này (đúng scope).
 
 ---
 ### DR1-006 — Reconcile trạng thái Phase 6 với behavior hiện tại
