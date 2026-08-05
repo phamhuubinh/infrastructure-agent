@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -182,6 +183,37 @@ _TEMPLATES: dict[Intent, tuple[tuple[str, ...], tuple[str, ...]]] = {
     ),
 }
 
+_CANONICAL_METRICS: dict[str, str] = {
+    "System Information": "system.hostname",
+    "CPU": "cpu.logical_cores",
+    "CPU Hardware": "cpu.logical_cores",
+    "CPU Runtime": "cpu.usage",
+    "CPU Usage": "cpu.usage",
+    "Memory": "memory.usage",
+    "Memory Usage": "memory.usage",
+    "Swap": "swap.total",
+    "Storage": "filesystem.usage",
+    "Disk Usage": "filesystem.usage",
+    "Filesystem": "filesystem.mount",
+    "Filesystems": "filesystem.mount",
+    "Mount Points": "filesystem.mount",
+    "Network": "network.interface",
+    "Network Usage": "network.rx_bytes",
+    "Services": "service.inventory",
+    "System Services": "service.inventory",
+    "Service Status": "service.status",
+    "Processes": "process.count",
+    "Running Processes": "process.count",
+    "Load Average": "system.load_1m",
+    "Active Problems": "monitoring.problem_active",
+    "Triggers": "monitoring.trigger_active",
+    "Alert Severity": "monitoring.trigger_active",
+    "Host Status": "monitoring.host_enabled",
+    "Dashboards": "monitoring.dashboard",
+    "Alert Rules": "monitoring.alert_rule",
+    "Event History": "monitoring.event",
+}
+
 
 def _build_requirements(
     names: tuple[str, ...],
@@ -190,7 +222,12 @@ def _build_requirements(
 ) -> list[EvidenceRequirement]:
     """Build a list of EvidenceRequirement from a tuple of names."""
     return [
-        EvidenceRequirement(name=name, required=required, category=category)
+        EvidenceRequirement(
+            name=name,
+            required=required,
+            category=category,
+            metric=_CANONICAL_METRICS.get(name, ""),
+        )
         for name in names
     ]
 
@@ -221,10 +258,20 @@ class EvidencePlanner:
         required_names, optional_names = _TEMPLATES[intent]
 
         required = tuple(
-            EvidenceRequirement(name=name, required=True) for name in required_names
+            EvidenceRequirement(
+                name=name,
+                required=True,
+                metric=_CANONICAL_METRICS.get(name, ""),
+            )
+            for name in required_names
         )
         optional = tuple(
-            EvidenceRequirement(name=name, required=False) for name in optional_names
+            EvidenceRequirement(
+                name=name,
+                required=False,
+                metric=_CANONICAL_METRICS.get(name, ""),
+            )
+            for name in optional_names
         )
 
         required = self._temporalize(
@@ -264,6 +311,23 @@ class EvidencePlanner:
             required=False,
         )
         params = getattr(request, "extracted_params", None)
+        service_name = getattr(params, "service_name", None)
+        if service_name:
+            canonical_service = re.sub(
+                r"[^a-z0-9_]+",
+                "_",
+                str(service_name).casefold().removesuffix(".service"),
+            ).strip("_")
+            request.required_evidence = [
+                replace(
+                    item,
+                    metric=f"service.{canonical_service or 'unknown'}.status",
+                    parameter_scope={"service_name": service_name},
+                )
+                if item.name == "Service Status"
+                else item
+                for item in request.required_evidence
+            ]
         if getattr(params, "ping_target", None):
             self._append_required(request, "Network Latency")
         if getattr(params, "port", None):
@@ -279,7 +343,9 @@ class EvidencePlanner:
     @staticmethod
     def _append_required(request: InvestigationRequest, name: str) -> None:
         if not any(item.name == name for item in request.required_evidence):
-            request.required_evidence.append(EvidenceRequirement(name=name))
+            request.required_evidence.append(
+                EvidenceRequirement(name=name, metric=_CANONICAL_METRICS.get(name, ""))
+            )
         request.optional_evidence = [
             item for item in request.optional_evidence if item.name != name
         ]

@@ -4,7 +4,7 @@ import concurrent.futures
 import threading
 import time as _time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
@@ -448,6 +448,11 @@ class ExecutionRuntime:
                 success=False,
                 error=str(exc),
                 capability_status=CapabilityStatus.INVALID_PARAMETERS,
+                source=source,
+                source_kind=self._knowledge_tool.source_kind(source),
+                resource=resource,
+                produced_fact_names=self._produced_fact_names(metadata),
+                schema_version="1",
             )
         arguments = bound.arguments
         if bound_params_out is not None:
@@ -458,10 +463,24 @@ class ExecutionRuntime:
             }
 
         try:
-            return self._retry.execute(
+            result = self._retry.execute(
                 lambda: self._knowledge_tool.execute(arguments),
                 context=cap_name,
                 should_retry_result=is_recoverable_result,
+            )
+            return replace(
+                result,
+                source=source,
+                source_kind=self._knowledge_tool.source_kind(source),
+                resource=resource,
+                parameters=tuple(
+                    sorted(
+                        (str(key), value)
+                        for key, value in arguments.items()
+                        if key not in {"source", "resource"}
+                    )
+                ),
+                schema_version="1",
             )
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
             message = f"KnowledgeTool dispatch failed for {cap_name}: {exc}"
@@ -470,6 +489,18 @@ class ExecutionRuntime:
                 error=message,
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 capability_error=internal_error(message),
+                source=source,
+                source_kind=self._knowledge_tool.source_kind(source),
+                resource=resource,
+                parameters=tuple(
+                    sorted(
+                        (str(key), value)
+                        for key, value in arguments.items()
+                        if key not in {"source", "resource"}
+                    )
+                ),
+                produced_fact_names=self._produced_fact_names(metadata),
+                schema_version="1",
             )
 
     def validate_graph_parameters(
@@ -497,6 +528,47 @@ class ExecutionRuntime:
                 extracted_params=extracted_params,
                 timeframe=timeframe,
             )
+
+    def cache_parameters(
+        self,
+        node: ExecutionNode,
+        *,
+        target: str,
+        extracted_params: object = None,
+        timeframe: object = None,
+    ) -> tuple[tuple[str, object], ...]:
+        """Return the same normalized bound parameters used for dispatch."""
+
+        cap_name = node.execution_step.capability.name
+        routed = self._router.resolve_with_metadata(
+            cap_name, self._routing_params(extracted_params, timeframe)
+        )
+        if routed is None:
+            return ()
+        (source, resource), metadata = routed
+        if source == "localhost" and target != "localhost":
+            source = target
+        bound = self._parameter_binder.bind(
+            source=source,
+            resource=resource,
+            metadata=metadata,
+            extracted_params=extracted_params,
+            timeframe=timeframe,
+        )
+        return tuple(
+            sorted(
+                (str(key), value)
+                for key, value in bound.arguments.items()
+                if key not in {"source", "resource"}
+            )
+        )
+
+    @staticmethod
+    def _produced_fact_names(metadata: dict[str, object]) -> tuple[str, ...]:
+        raw = metadata.get("produces_facts", ())
+        if not isinstance(raw, (list, tuple)):
+            return ()
+        return tuple(name for name in raw if isinstance(name, str))
 
     @staticmethod
     def _routing_params(

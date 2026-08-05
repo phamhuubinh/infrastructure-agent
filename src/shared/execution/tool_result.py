@@ -25,8 +25,18 @@ class ToolResult:
     security_inspected: bool = False
     security_allowed: bool = False
     security_inspectors: tuple[str, ...] = ()
+    source: str | None = None
+    source_kind: str | None = None
+    resource: str | None = None
+    parameters: tuple[tuple[str, object], ...] = ()
+    schema_version: str = "legacy"
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "parameters",
+            tuple(sorted((str(key), value) for key, value in self.parameters)),
+        )
         if self.capability_error is None and not self.success:
             status = (
                 self.capability_status.value

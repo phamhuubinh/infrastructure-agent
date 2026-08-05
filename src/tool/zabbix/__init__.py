@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
 from src.tool.errors import source_api_error
@@ -168,6 +170,26 @@ _CAPABILITIES: dict[str, Capability] = {
     ),
 }
 
+_PRODUCED_FACTS: dict[str, tuple[str, ...]] = {
+    "get_items": ("monitoring.item",),
+    "get_problems": ("monitoring.problem_active",),
+    "get_problem_timeline": ("monitoring.problem_active",),
+    "get_events": ("monitoring.event",),
+    "get_event_summary": ("monitoring.event",),
+    "get_hosts": ("monitoring.host_enabled",),
+    "get_host": ("monitoring.host_enabled",),
+    "search_hosts": ("monitoring.host_enabled",),
+    "get_triggers": ("monitoring.trigger_active",),
+}
+
+for _name, _capability in tuple(_CAPABILITIES.items()):
+    _CAPABILITIES[_name] = replace(
+        _capability,
+        produces_facts=_PRODUCED_FACTS.get(
+            _name, (f"zabbix.{_name.removeprefix('get_')}",)
+        ),
+    )
+
 
 class ZabbixTool(Tool):
     def __init__(self, url: str, token: str, timeout: int = 10) -> None:
@@ -191,6 +213,37 @@ class ZabbixTool(Tool):
                 error=message,
                 capability_error=source_api_error(message),
             )
+
+    def build_links(
+        self,
+        evidence_list: list,
+        user_request: str,
+        time_range: tuple[int, int] | None = None,
+    ) -> str:
+        """Build bounded Zabbix links only from canonical provenance."""
+
+        del user_request, time_range
+        links: dict[str, str] = {}
+        base = self._url.rstrip("/")
+        for package in evidence_list:
+            for fact in getattr(package, "facts", ()):
+                provenance = getattr(fact, "provenance", None)
+                if getattr(provenance, "source", None) != "zabbix":
+                    continue
+                reference = getattr(provenance, "source_reference", None)
+                if not isinstance(reference, str) or not reference.startswith("/"):
+                    continue
+                href = f"{base}/{reference.lstrip('/')}"
+                label = str(getattr(fact, "subject", getattr(fact, "metric", "Source")))
+                label = label.replace("[", "(").replace("]", ")")[:100]
+                links.setdefault(href, label)
+        if not links:
+            return ""
+        lines = ["**Zabbix Sources:**"]
+        lines.extend(
+            f"- [{label}]({href})" for href, label in list(links.items())[:8]
+        )
+        return "\n".join(lines)
 
 
 __all__ = ["ZabbixTool", "_CAPABILITIES"]

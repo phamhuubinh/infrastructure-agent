@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from src.shared.capability import Capability
@@ -110,8 +111,16 @@ class Tool(ABC):
             capability_result = (
                 output
                 if isinstance(output, CapabilityResult)
-                else CapabilityResult.from_legacy(output)
+                else CapabilityResult.from_legacy(
+                    output,
+                    produced_fact_names=cap_or_err.produces_facts,
+                )
             )
+            if not capability_result.produced_fact_names:
+                capability_result = replace(
+                    capability_result,
+                    produced_fact_names=cap_or_err.produces_facts,
+                )
             return ToolResult.from_capability_result(capability_result)
         except Exception as e:
             message = f"Error executing capability '{action}': {str(e)}"
@@ -120,4 +129,5 @@ class Tool(ABC):
                 error=message,
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 capability_error=source_api_error(message),
+                produced_fact_names=cap_or_err.produces_facts,
             )

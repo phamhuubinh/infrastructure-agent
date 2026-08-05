@@ -35,4 +35,10 @@ class AssessmentAdapter:
             evidence=tuple(request.evidence),
             evidence_complete=request.evidence_complete,
             missing_evidence=request.missing_evidence,
+            facts=tuple(request.fact_set.facts),
+            collection_failures=tuple(
+                failure
+                for package in request.evidence
+                for failure in package.collection_failures
+            ),
         )

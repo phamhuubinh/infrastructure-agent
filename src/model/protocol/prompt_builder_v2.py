@@ -272,12 +272,52 @@ def build_assessment_prompt(
             f"Missing evidence: {', '.join(assessment_request.missing_evidence)}"
         )
 
+    canonical_by_id = {
+        fact.id: fact
+        for fact in (
+            *assessment_request.facts,
+            *(
+                fact
+                for package in assessment_request.evidence
+                for fact in package.facts
+            ),
+        )
+        if fact.usable
+    }
+    if canonical_by_id:
+        lines.append("")
+        lines.append("--- Canonical facts ---")
+        fact_json = json.dumps(
+            [
+                canonical_by_id[fact_id].to_dict()
+                for fact_id in sorted(canonical_by_id)[:20]
+            ],
+            indent=1,
+            ensure_ascii=False,
+        )
+        if len(fact_json) > 2500:
+            fact_json = fact_json[:2500] + "\n ..."
+        lines.append(fact_json)
+    if assessment_request.collection_failures:
+        lines.append("")
+        lines.append("Collection failures (not measurements):")
+        lines.extend(
+            f"- {failure[:300]}"
+            for failure in assessment_request.collection_failures[:10]
+        )
+
     lines.append("")
     lines.append("--- Evidence ---")
     for pkg in assessment_request.evidence:
         if not pkg.valid_for_requirements:
             continue
         lines.append(f"=== {pkg.capability_name} ({pkg.evidence_name}) ===")
+
+        usable_facts = [fact.to_dict() for fact in pkg.facts if fact.usable]
+        if usable_facts:
+            lines.append("Canonical facts listed above; raw payload omitted.")
+            lines.append("")
+            continue
 
         # Try compact text summary first.
         summary = _summarize_evidence(pkg.data, pkg.evidence_name)

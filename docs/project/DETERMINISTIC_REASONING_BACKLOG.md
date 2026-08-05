@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-401–407 hoàn thành: session context có cấu trúc được resolve trước routing/planning, parameter binding/validation dựa trên capability metadata, multi-intent decomposition có giới hạn, TimeRange chuẩn hóa và temporal evidence guard fail-closed đã được triển khai và kiểm thử. DR1-001–309 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-501–509 hoàn thành: canonical facts, Linux/Zabbix/Grafana normalizers, per-investigation FactSet, fact-level completeness, contradiction reconciliation, cache identity/freshness, bounded evidence packages và safe provenance links đã được triển khai và kiểm thử. DR1-001–407 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -142,15 +142,15 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-405 | P1 | ✅ | EPIC 4 | Decompose multi-intent thành subrequests có giới hạn | DR1-302, DR1-305 |
 | DR1-406 | P1 | ✅ | EPIC 4 | Chuẩn hóa TimeRange và temporal requirements | DR1-302, DR1-403 |
 | DR1-407 | P0 | ✅ | EPIC 4 | Guard comparison/forecast khi thiếu time series | DR1-406, DR1-505 |
-| DR1-501 | P0 | ⬜ | EPIC 5 | Tạo canonical Fact model | DR1-104, DR1-302 |
-| DR1-502 | P0 | ⬜ | EPIC 5 | FactNormalizer cho Linux core capabilities | DR1-210, DR1-501 |
-| DR1-503 | P1 | ⬜ | EPIC 5 | FactNormalizer cho Zabbix và Grafana | DR1-501 |
-| DR1-504 | P1 | ⬜ | EPIC 5 | Investigation FactSet và indexing | DR1-501..503 |
-| DR1-505 | P0 | 🔎 | EPIC 5 | EvidenceCompleteness dựa trên required facts | DR1-501, DR1-504 |
-| DR1-506 | P1 | ⬜ | EPIC 5 | Detect và biểu diễn contradictory facts | DR1-504 |
-| DR1-507 | P1 | 🔎 | EPIC 5 | Sửa EvidenceCache key và freshness policy | DR1-501, DR1-505 |
-| DR1-508 | P1 | ⬜ | EPIC 5 | Mở rộng EvidencePackage: raw, facts, failures | DR1-501, DR1-505 |
-| DR1-509 | P2 | ⬜ | EPIC 5 | Provenance và claim source links | DR1-501, DR1-508 |
+| DR1-501 | P0 | ✅ | EPIC 5 | Tạo canonical Fact model | DR1-104, DR1-302 |
+| DR1-502 | P0 | ✅ | EPIC 5 | FactNormalizer cho Linux core capabilities | DR1-210, DR1-501 |
+| DR1-503 | P1 | ✅ | EPIC 5 | FactNormalizer cho Zabbix và Grafana | DR1-501 |
+| DR1-504 | P1 | ✅ | EPIC 5 | Investigation FactSet và indexing | DR1-501..503 |
+| DR1-505 | P0 | ✅ | EPIC 5 | EvidenceCompleteness dựa trên required facts | DR1-501, DR1-504 |
+| DR1-506 | P1 | ✅ | EPIC 5 | Detect và biểu diễn contradictory facts | DR1-504 |
+| DR1-507 | P1 | ✅ | EPIC 5 | Sửa EvidenceCache key và freshness policy | DR1-501, DR1-505 |
+| DR1-508 | P1 | ✅ | EPIC 5 | Mở rộng EvidencePackage: raw, facts, failures | DR1-501, DR1-505 |
+| DR1-509 | P2 | ✅ | EPIC 5 | Provenance và claim source links | DR1-501, DR1-508 |
 | DR1-601 | P1 | 🔎 | EPIC 6 | Refactor atomic threshold rules dùng canonical metrics | DR1-501, DR1-505 |
 | DR1-602 | P1 | ⬜ | EPIC 6 | Tạo CompositeRule và WeightedCondition | DR1-601 |
 | DR1-603 | P0 | ⬜ | EPIC 6 | Định nghĩa semantics false/unknown/stale/failed trong rule | DR1-602 |
@@ -1348,7 +1348,7 @@ Orion từng kết luận trend, capacity 6 tháng và false positive chỉ từ
 **Cách làm (đã thực hiện 2026-08-05)**
 1. ✅ Temporal evidence requirements khai báo minimum points/windows; comparison cần ít nhất hai windows tương thích.
 2. ✅ Forecast cần tối thiểu sáu điểm và growth model có định danh; thiếu bất kỳ phần nào trở thành insufficient evidence.
-3. ✅ `TemporalEvidenceGuard` chạy trong completeness và trước mọi deterministic/LLM response, fail-closed với thông báo không suy xu hướng từ snapshot. DR1-505 vẫn mở cho canonical fact-level matching sâu hơn, nhưng không còn chặn guard từ chối evidence thiếu history.
+3. ✅ `TemporalEvidenceGuard` chạy trong completeness và trước mọi deterministic/LLM response, fail-closed với thông báo không suy xu hướng từ snapshot. Canonical fact-level matching sâu hơn đã hoàn tất trong DR1-505.
 
 **Acceptance criteria**
 - [x] 100% forecast/comparison golden cases thiếu history được từ chối đúng.
@@ -1362,200 +1362,200 @@ Orion từng kết luận trend, capacity 6 tháng và false positive chỉ từ
 ## 8. EPIC 5 — Canonical Facts và evidence quality
 ### DR1-501 — Tạo canonical Fact model
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-104, DR1-302
 - **Files dự kiến:** `src/pipeline/fact.py (new)`, `src/pipeline/evidence_package.py`
 
 **Vấn đề**  
 Rule và LLM hiện nhận nhiều dict/key/unit khác nhau, khó kiểm soát validity và provenance.
 
-**Cách làm**
-1. Fact gồm id, subject, metric, value, unit, observed_at, collected_at, source, target, validity, freshness, confidence, provenance.
-2. Validity: VALID, VALID_EMPTY, COMMAND_FAILED, NOT_COLLECTED, UNSUPPORTED, STALE, SCHEMA_INVALID, CONTRADICTORY.
-3. Value 0 chỉ hợp lệ khi validity VALID.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `Fact` immutable chứa đầy đủ identity, metric/value/unit, timestamps, source/target, validity, freshness, confidence, dimensions và provenance; serialization trả cấu trúc JSON-safe.
+2. ✅ `FactValidity` triển khai đủ `VALID`, `VALID_EMPTY`, `COMMAND_FAILED`, `NOT_COLLECTED`, `UNSUPPORTED`, `STALE`, `SCHEMA_INVALID`, `CONTRADICTORY`.
+3. ✅ Zero chỉ được chấp nhận cho `VALID`; invalid/stale/contradictory facts không thể ngụy trang giá trị đo bằng `0`.
 
 **Acceptance criteria**
-- [ ] Fact immutable và serializable.
-- [ ] Không thể tạo VALID fact thiếu metric/unit cần thiết.
+- [x] Fact immutable và serializable.
+- [x] Không thể tạo VALID fact thiếu metric/unit cần thiết.
 
 **Tests/verification**
-- `tests/pipeline/test_fact.py`
+- ✅ `tests/pipeline/test_fact.py`.
 
 ---
 ### DR1-502 — FactNormalizer cho Linux core capabilities
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-210, DR1-501
 - **Files dự kiến:** `src/pipeline/fact_normalizers/linux.py (new)`
 
 **Vấn đề**  
 Linux evidence phải map sang metric canonical như cpu.usage, memory.usage, filesystem.usage.
 
-**Cách làm**
-1. Tạo normalizer per capability/schema version.
-2. Convert units deterministic.
-3. Gắn command/capability provenance.
-4. Parser/schema error tạo invalidity, không fact zero.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Linux normalizer dispatch theo capability/schema và chuẩn hóa CPU, memory, filesystem, service, network.
+2. ✅ Units được map deterministic (`percent`, `bytes`, `state`, `interface`) và metric dùng namespace canonical.
+3. ✅ Mỗi fact giữ capability/target/timestamp/source reference qua provenance.
+4. ✅ Failure/schema mismatch sinh fact invalid có failure metadata, không sinh measurement zero.
 
 **Acceptance criteria**
-- [ ] CPU/memory/disk/service/network fixtures sinh expected facts.
+- [x] CPU/memory/disk/service/network fixtures sinh expected facts.
 
 **Tests/verification**
-- `tests/pipeline/fact_normalizers/test_linux.py`
+- ✅ `tests/pipeline/fact_normalizers/test_linux.py`.
 
 ---
 ### DR1-503 — FactNormalizer cho Zabbix và Grafana
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501
 - **Files dự kiến:** `src/pipeline/fact_normalizers/zabbix.py (new)`, `src/pipeline/fact_normalizers/grafana.py (new)`
 
 **Vấn đề**  
 Cross-source correlation chỉ đúng khi cùng metric/target/time semantics.
 
-**Cách làm**
-1. Map Zabbix items/problems và Grafana series sang canonical metrics/events.
-2. Giữ event_id/item_id/dashboard/query provenance.
-3. Không trộn host status=0 với “healthy” nếu semantics chỉ là monitored/enabled.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Zabbix items/problems và Grafana series/queries được map sang facts canonical cùng target/time/unit semantics.
+2. ✅ Provenance giữ `item_id`, `event_id`, dashboard/query source reference và timestamp quan sát.
+3. ✅ Host status chỉ trở thành monitoring configuration state, không bị diễn giải thành health; empty payload được biểu diễn `VALID_EMPTY` rõ ràng.
 
 **Acceptance criteria**
-- [ ] Cùng cpu.usage từ Linux/Grafana có unit/time chuẩn.
-- [ ] Active problem facts giữ severity và observed time.
+- [x] Cùng cpu.usage từ Linux/Grafana có unit/time chuẩn.
+- [x] Active problem facts giữ severity và observed time.
 
 **Tests/verification**
-- `tests/pipeline/fact_normalizers/test_zabbix.py`
-- `.../test_grafana.py`
+- ✅ `tests/pipeline/fact_normalizers/test_zabbix.py`.
+- ✅ `tests/pipeline/fact_normalizers/test_grafana.py`.
 
 ---
 ### DR1-504 — Investigation FactSet và indexing
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501..503
 - **Files dự kiến:** `src/pipeline/fact_set.py (new)`, `src/pipeline/execution_engine.py`
 
 **Vấn đề**  
 Reasoning cần truy vấn fact theo target/metric/time/source mà không tạo persistence state lâu dài.
 
-**Cách làm**
-1. Tạo per-investigation FactSet immutable/append-only builder.
-2. Index theo metric, target, validity.
-3. Không lưu sang cross-session persistence; cache evidence vẫn theo policy riêng.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Tạo immutable `FactSet` và append-only `FactSetBuilder` cho từng investigation.
+2. ✅ Index/query theo metric, target, validity và source; thứ tự canonical hóa theo stable fact identity.
+3. ✅ FactSet nằm trong `InvestigationRequest`/`PipelineState`, không được lưu cross-session; evidence cache giữ policy riêng.
 
 **Acceptance criteria**
-- [ ] FactSet chỉ sống trong trace/investigation.
-- [ ] Parallel collection merge deterministic.
+- [x] FactSet chỉ sống trong trace/investigation.
+- [x] Parallel collection merge deterministic.
 
 **Tests/verification**
-- `tests/pipeline/test_fact_set.py`
+- ✅ `tests/pipeline/test_fact_set.py`.
 
 ---
 ### DR1-505 — EvidenceCompleteness dựa trên required facts
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-504
 - **Files dự kiến:** `src/pipeline/evidence_completeness.py`, `src/pipeline/evidence_requirement.py`
 
 **Vấn đề**  
 Hiện completeness chỉ so evidence_name và success, không biết đúng target/param/time/richness hay không.
 
-**Cách làm**
-1. Requirement khai báo metric, target, parameter scope, timeframe, validity, freshness.
-2. Đánh giá satisfied/missing/failed/stale/contradictory.
-3. Generic service inventory không thỏa `service.nginx.status`.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `EvidenceRequirement` khai báo canonical metric, target, parameter scope, timeframe, allowed validity và freshness limit.
+2. ✅ Completeness trả evaluation chi tiết `satisfied`/`missing`/`failed`/`stale`/`contradictory`, cùng matching fact IDs và lý do.
+3. ✅ Exact service facts dùng metric scoped như `service.nginx.status`; `service.inventory` không thể thỏa requirement này.
 
 **Acceptance criteria**
-- [ ] Complete chỉ true khi mọi required fact đạt contract.
-- [ ] Output giải thích missing facts.
+- [x] Complete chỉ true khi mọi required fact đạt contract.
+- [x] Output giải thích missing facts.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_completeness.py`
+- ✅ `tests/pipeline/test_evidence_completeness.py` và `tests/pipeline/test_evidence_completeness_facts.py`.
 
 ---
 ### DR1-506 — Detect và biểu diễn contradictory facts
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-504
 - **Files dự kiến:** `src/pipeline/fact_reconciler.py (new)`, `src/pipeline/evidence_merge.py`
 
 **Vấn đề**  
 Các source có thể cho số khác nhau hoặc data ở thời điểm khác; LLM không nên tự chọn.
 
-**Cách làm**
-1. So sánh facts cùng metric/target/window với tolerance.
-2. Ưu tiên freshness/source reliability chỉ theo config, không âm thầm overwrite.
-3. Đánh dấu contradiction và giữ cả provenance.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `FactReconciler` nhóm facts cùng metric/target/time window và so số theo absolute/relative tolerance cấu hình được.
+2. ✅ Merge không overwrite theo source/freshness; mọi candidate được giữ và sắp xếp deterministic.
+3. ✅ Cả hai phía mâu thuẫn được đánh dấu `CONTRADICTORY`, giữ provenance, và nâng evidence status của investigation.
 
 **Acceptance criteria**
-- [ ] Mâu thuẫn disk free/size được surface.
-- [ ] Evidence status trở thành contradictory, không “healthy”.
+- [x] Mâu thuẫn disk free/size được surface.
+- [x] Evidence status trở thành contradictory, không “healthy”.
 
 **Tests/verification**
-- `tests/pipeline/test_fact_reconciler.py`
+- ✅ `tests/pipeline/test_fact_reconciler.py` và `tests/pipeline/test_evidence_merge_facts.py`.
 
 ---
 ### DR1-507 — Sửa EvidenceCache key và freshness policy
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-505
 - **Files dự kiến:** `src/pipeline/evidence_cache.py`
 
 **Vấn đề**  
 Key target+evidence_name không phân biệt nginx/docker, / và /var, CPU 1h/7d.
 
-**Cách làm**
-1. Key gồm target, capability, normalized params, timeframe, schema version.
-2. TTL theo fact class; current snapshot ngắn, identity dài hơn.
-3. Không dùng stale fact trừ khi request cho phép và phải ghi stale.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Cache key gồm target, capability, normalized params, normalized timeframe và schema version; engine chỉ dùng legacy-key fallback khi request không có params/timeframe.
+2. ✅ TTL tách identity, snapshot và event classes; cache hit tái tạo đầy đủ provenance/facts.
+3. ✅ Stale cache miss theo mặc định; explicit opt-in trả evidence/facts được đánh dấu `STALE`.
 
 **Acceptance criteria**
-- [ ] Cache không cross-contaminate parameter/timeframe.
-- [ ] Cache hit giữ provenance và freshness.
+- [x] Cache không cross-contaminate parameter/timeframe.
+- [x] Cache hit giữ provenance và freshness.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_cache.py`
+- ✅ `tests/pipeline/test_evidence_cache.py` và `tests/pipeline/test_evidence_cache_policy.py`.
 
 ---
 ### DR1-508 — Mở rộng EvidencePackage: raw, facts, failures
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-505
 - **Files dự kiến:** `src/pipeline/evidence_package.py`, `src/pipeline/evidence_merge.py`
 
 **Vấn đề**  
 Cần giữ raw normalized evidence để debug nhưng reasoning phải dùng facts và failures rõ.
 
-**Cách làm**
-1. EvidencePackage có raw_data (bounded), facts, capability_status, collection_failures, schema_version.
-2. Frontend serialization không gửi raw lớn mặc định.
-3. Assessment nhận facts/findings trước raw.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `EvidencePackage` chứa bounded `raw_data`, immutable facts, capability status, collection failures, source identity và schema version.
+2. ✅ `to_dict()` bỏ raw mặc định và hỗ trợ byte-bound, JSON-safe serialization khi audit cần raw.
+3. ✅ Assessment contract/prompt nhận canonical facts và failures trước phần raw/legacy evidence.
 
 **Acceptance criteria**
-- [ ] Package đủ audit nhưng không làm response payload phình lớn.
+- [x] Package đủ audit nhưng không làm response payload phình lớn.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_package.py`
-- `serialization tests`
+- ✅ `tests/pipeline/test_evidence_package.py` và `tests/pipeline/test_evidence_package_facts.py`.
 
 ---
 ### DR1-509 — Provenance và claim source links
 - **Priority:** P2
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-508
 - **Files dự kiến:** `src/pipeline/provenance.py (new)`, `src/agent/deterministic_agent.py`
 
 **Vấn đề**  
 Operator cần biết claim đến từ command/API/event nào.
 
-**Cách làm**
-1. Provenance dùng safe IDs, capability, target, observed time, source reference.
-2. Build tool links từ provenance thay vì heuristic raw evidence.
-3. Không lộ command secret.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `Provenance` tạo safe stable IDs từ capability/source/target/time/reference và giữ schema/source kind có cấu trúc.
+2. ✅ Tool/claim links được dựng từ provenance source references; Grafana/Zabbix raw heuristics chỉ còn compatibility fallback tại merge boundary.
+3. ✅ Secret-like keys, credentials và query tokens được redact khỏi identifiers, serialized provenance và URLs.
 
 **Acceptance criteria**
-- [ ] Mỗi deterministic fact/finding có source traceable.
+- [x] Mỗi deterministic fact/finding có source traceable.
 
 **Tests/verification**
-- `tests/pipeline/test_provenance.py`
+- ✅ `tests/pipeline/test_provenance.py`.
+- ✅ Verification chung EPIC 5: 32 contract tests pass; 1.207 agent/pipeline/tool/shared/model regression tests pass; `mypy src --ignore-missing-imports` clean trên 210 source files; `ruff check .` clean.
 
 ---
 

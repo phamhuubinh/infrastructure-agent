@@ -448,6 +448,11 @@ class DeterministicAgent:
                     "error": pkg.error if not pkg.success else None,
                     "data_preview": data_str[:500] if data_str else None,
                     "data": truncated,
+                    "status": pkg.capability_status.value,
+                    "schema_version": pkg.schema_version,
+                    "facts": [fact.to_dict() for fact in pkg.facts[:20]],
+                    "collection_failures": list(pkg.collection_failures),
+                    "source_links": list(pkg.source_links),
                 }
             )
 
@@ -547,6 +552,8 @@ class DeterministicAgent:
                     evidence=assessment_request.evidence,
                     evidence_complete=assessment_request.evidence_complete,
                     missing_evidence=assessment_request.missing_evidence,
+                    facts=assessment_request.facts,
+                    collection_failures=assessment_request.collection_failures,
                 )
 
         _record(AnswerStrategy.LLM_ASSESSMENT.name)

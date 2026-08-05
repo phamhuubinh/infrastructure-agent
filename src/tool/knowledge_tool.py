@@ -120,6 +120,12 @@ class KnowledgeTool(Tool):
             caps[name] = _tool_capabilities(tool)
         return caps
 
+    def source_kind(self, source: str) -> str:
+        """Return a credential-free provider kind for normalization."""
+
+        tool = self._registry.get_tool(source)
+        return type(tool).__name__.removesuffix("Tool").casefold()
+
     def execute(
         self,
         arguments: dict[str, object],

@@ -6,6 +6,7 @@ from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.parameter_extractor import ExtractedParams
 
 
 @pytest.fixture
@@ -112,6 +113,20 @@ class TestServiceAssessment:
             "Running Processes",
             "Listening Ports",
         ]
+
+    def test_specific_service_uses_scoped_canonical_metric(
+        self, planner: EvidencePlanner
+    ) -> None:
+        req = _request(Intent.SERVICE_ASSESSMENT)
+        req.extracted_params = ExtractedParams(service_name="nginx.service")
+
+        planner.plan(req)
+
+        requirement = req.required_evidence[0]
+        assert requirement.metric == "service.nginx.status"
+        assert dict(requirement.parameter_scope) == {
+            "service_name": "nginx.service"
+        }
 
 
 # ---------------------------------------------------------------------------

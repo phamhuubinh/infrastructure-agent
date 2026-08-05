@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from src.pipeline.fact_set import FactSet
+
 if TYPE_CHECKING:
     pass
 
@@ -47,6 +49,9 @@ class PipelineState:
     evidence_status: Any = None
     answer_strategy: Any = None
     llm_usage_reason: Any = None
+    fact_set: FactSet = FactSet()
+    contradictions: tuple = ()
+    evidence_completeness: Any = None
 
     def apply(self, update: StateUpdate) -> PipelineState:
         """Return a new PipelineState with update applied."""
@@ -90,4 +95,7 @@ class PipelineState:
             extracted_params=self.extracted_params,
             answer_type=self.answer_type,
             selected_tool=self.selected_tool,
+            fact_set=self.fact_set,
+            contradictions=self.contradictions,
+            evidence_completeness=self.evidence_completeness,
         )

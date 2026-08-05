@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.pipeline.evidence_package import EvidencePackage
+    from src.pipeline.fact import Fact
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,3 +30,5 @@ class AssessmentRequest:
     evidence: tuple[EvidencePackage, ...] = ()
     evidence_complete: bool = False
     missing_evidence: tuple[str, ...] = ()
+    facts: tuple[Fact, ...] = ()
+    collection_failures: tuple[str, ...] = ()

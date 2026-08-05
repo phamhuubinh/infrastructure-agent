@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+from dataclasses import replace
 from urllib import parse as urllib_parse
 
 from src.shared.capability import Capability
@@ -116,6 +119,21 @@ _CAPABILITIES: dict[str, Capability] = {
     ),
 }
 
+_PRODUCED_FACTS: dict[str, tuple[str, ...]] = {
+    "dashboards": ("monitoring.dashboard",),
+    "dashboard_search": ("monitoring.dashboard",),
+    "dashboard_summary": ("monitoring.dashboard",),
+    "dashboard_details": ("monitoring.panel",),
+    "alert_rules": ("monitoring.alert_rule",),
+    "annotations": ("monitoring.annotation",),
+}
+
+for _name, _capability in tuple(_CAPABILITIES.items()):
+    _CAPABILITIES[_name] = replace(
+        _capability,
+        produces_facts=_PRODUCED_FACTS.get(_name, (f"grafana.{_name}",)),
+    )
+
 
 class GrafanaTool(Tool):
     def __init__(self, url: str, token: str, timeout: int = 10) -> None:
@@ -149,13 +167,31 @@ class GrafanaTool(Tool):
         from src.shared.secrets import get_tool_config
 
         config = get_tool_config("grafana")
-        grafana_url = config.get("url", "").rstrip("/") if config else ""
+        grafana_url = (
+            (config.get("url", "").rstrip("/") if config else "")
+            or self._url.rstrip("/")
+        )
         if not grafana_url:
             return ""
         dashboards: list[tuple[str, str]] = []
         query_params: dict[str, str] = {}
         for package in evidence_list:
-            if not getattr(package, "success", False) or package.evidence_name not in (
+            if not getattr(package, "success", False):
+                continue
+            for fact in getattr(package, "facts", ()):
+                provenance = getattr(fact, "provenance", None)
+                reference = getattr(provenance, "source_reference", None)
+                match = re.match(r"^/d/([^/?]+)", reference or "")
+                if not match:
+                    continue
+                value = getattr(fact, "value", None)
+                title = (
+                    value.get("title", "Dashboard")
+                    if isinstance(value, Mapping)
+                    else "Dashboard"
+                )
+                dashboards.append((str(title), match.group(1)))
+            if package.evidence_name not in (
                 "Dashboards",
                 "Dashboard Discovery",
             ):
@@ -173,6 +209,7 @@ class GrafanaTool(Tool):
                 query_params.update(raw_params)
         if not dashboards:
             return ""
+        dashboards = list(dict.fromkeys(dashboards))
         raw = user_request.lower()
         signal = next(
             (

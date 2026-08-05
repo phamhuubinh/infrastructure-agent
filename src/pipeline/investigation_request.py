@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_requirement import EvidenceRequirement
+from src.pipeline.fact_set import FactSet
 from src.pipeline.request_frame import RequestFrame, RequestFrameExpectation
 from src.pipeline.routing_decision import EvidenceStatus, RoutingStatus
 
@@ -80,6 +81,9 @@ class InvestigationRequest:
     subrequests: tuple[RequestFrame, ...] = ()
     bound_params: dict[str, dict[str, object]] = field(default_factory=dict)
     temporal_evidence_failures: tuple[str, ...] = ()
+    fact_set: FactSet = field(default_factory=FactSet)
+    contradictions: tuple[object, ...] = ()
+    evidence_completeness: object | None = None
 
     def __post_init__(self) -> None:
         if self.request_frame is None and isinstance(

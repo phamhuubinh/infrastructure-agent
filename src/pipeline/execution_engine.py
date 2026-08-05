@@ -6,7 +6,11 @@ from src.pipeline.capability_planner import CapabilityPlanner
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_cache import EvidenceCache
-from src.pipeline.evidence_completeness import EvidenceCompleteness
+from src.pipeline.evidence_completeness import (
+    EvidenceCompleteness,
+    EvidenceCompletenessResult,
+    RequirementStatus,
+)
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
@@ -192,7 +196,13 @@ class ExecutionEngine:
         state = state.apply({"execution_graph": graph})
 
         target = state.target or "localhost"
-        graph, cached_evidence = self._without_cached_nodes(graph, target)
+        graph, cached_evidence = self._without_cached_nodes(
+            graph,
+            target,
+            extracted_params=state.extracted_params,
+            timeframe=getattr(state.request_frame, "timeframe", None),
+            requirements=state.required_evidence,
+        )
 
         # Execute graph
         if graph.nodes:
@@ -216,7 +226,14 @@ class ExecutionEngine:
         # Merge evidence
         self._evidence_merge.merge(temp_req, results)
         temp_req.evidence = cached_evidence + temp_req.evidence
-        state = state.apply({"evidence": tuple(temp_req.evidence)})
+        self._evidence_merge.rebuild_fact_set(temp_req)
+        state = state.apply(
+            {
+                "evidence": tuple(temp_req.evidence),
+                "fact_set": temp_req.fact_set,
+                "contradictions": temp_req.contradictions,
+            }
+        )
 
         # Completeness check
         self._evidence_completeness.check(temp_req)
@@ -234,7 +251,15 @@ class ExecutionEngine:
             _target = state.target or "localhost"
             for pkg in temp_req.evidence:
                 if pkg.valid_for_requirements:
-                    self._evidence_cache.put(_target, pkg.evidence_name, pkg)
+                    self._evidence_cache.put(
+                        _target,
+                        pkg.evidence_name,
+                        pkg,
+                        capability=pkg.capability_name,
+                        params=pkg.parameters,
+                        timeframe=pkg.timeframe,
+                        schema_version=pkg.schema_version,
+                    )
 
         # Attach metrics
         metrics.evidence_complete = temp_req.evidence_complete
@@ -332,7 +357,13 @@ class ExecutionEngine:
                     missing_field=self._clarification_field(exc.parameter),
                 )
             ) from exc
-        graph, cached_evidence = self._without_cached_nodes(graph, target)
+        graph, cached_evidence = self._without_cached_nodes(
+            graph,
+            target,
+            extracted_params=request.extracted_params,
+            timeframe=timeframe,
+            requirements=request.required_evidence,
+        )
 
         # Stage 5: Execute the graph through the runtime.
         if graph.nodes:
@@ -360,6 +391,7 @@ class ExecutionEngine:
         # Stage 6: Merge evidence + completeness.
         self._merge(request, results)
         request.evidence = cached_evidence + request.evidence
+        self._evidence_merge.rebuild_fact_set(request)
         self._evidence_completeness.check(request)
         request.evidence_status = self._evidence_status(request)
 
@@ -368,7 +400,15 @@ class ExecutionEngine:
             _target = request.target or "localhost"
             for pkg in request.evidence:
                 if pkg.valid_for_requirements:
-                    self._evidence_cache.put(_target, pkg.evidence_name, pkg)
+                    self._evidence_cache.put(
+                        _target,
+                        pkg.evidence_name,
+                        pkg,
+                        capability=pkg.capability_name,
+                        params=pkg.parameters,
+                        timeframe=pkg.timeframe,
+                        schema_version=pkg.schema_version,
+                    )
 
         # Attach metrics to the request for observability.
         metrics.evidence_complete = request.evidence_complete
@@ -448,6 +488,16 @@ class ExecutionEngine:
 
     @staticmethod
     def _evidence_status(request: InvestigationRequest) -> EvidenceStatus:
+        if request.contradictions:
+            return EvidenceStatus.CONTRADICTORY
+        if any(package.stale for package in request.evidence):
+            return EvidenceStatus.STALE
+        completeness = request.evidence_completeness
+        if isinstance(completeness, EvidenceCompletenessResult):
+            if completeness.statuses(RequirementStatus.CONTRADICTORY):
+                return EvidenceStatus.CONTRADICTORY
+            if completeness.statuses(RequirementStatus.STALE):
+                return EvidenceStatus.STALE
         if request.evidence_complete:
             return EvidenceStatus.SUFFICIENT
         if any(package.valid_for_requirements for package in request.evidence):
@@ -458,6 +508,10 @@ class ExecutionEngine:
         self,
         graph: ExecutionGraph,
         target: str,
+        *,
+        extracted_params: object = None,
+        timeframe: object = None,
+        requirements: object = (),
     ) -> tuple[ExecutionGraph, list[EvidencePackage]]:
         if self._evidence_cache is None or not graph.nodes:
             return graph, []
@@ -467,10 +521,45 @@ class ExecutionEngine:
         remaining_nodes: list[ExecutionNode] = []
         for node in graph.nodes:
             evidence_name = node.execution_step.capability.evidence_name
-            cached = self._evidence_cache.get(target, evidence_name)
+            allow_stale = any(
+                getattr(requirement, "name", None) == evidence_name
+                and bool(getattr(requirement, "allow_stale", False))
+                for requirement in (
+                    requirements if isinstance(requirements, (list, tuple)) else ()
+                )
+            )
+            try:
+                params = self._runtime.cache_parameters(
+                    node,
+                    target=target,
+                    extracted_params=extracted_params,
+                    timeframe=timeframe,
+                )
+            except ParameterBindingError:
+                params = ()
+            cached = self._evidence_cache.get(
+                target,
+                evidence_name,
+                capability=node.execution_step.capability.name,
+                params=params,
+                timeframe=timeframe,
+                schema_version="1",
+                allow_stale=allow_stale,
+            )
+            if cached is None and not params and timeframe is None:
+                # Read-only migration path for entries written by the former
+                # target+evidence-name cache contract.
+                cached = self._evidence_cache.get(
+                    target,
+                    evidence_name,
+                    allow_stale=allow_stale,
+                )
             if (
                 isinstance(cached, EvidencePackage)
-                and cached.valid_for_requirements
+                and (
+                    cached.valid_for_requirements
+                    or (allow_stale and cached.stale)
+                )
             ):
                 cached_by_name.setdefault(evidence_name, cached)
                 cached_capabilities.add(node.execution_step.capability.name)

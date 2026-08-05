@@ -803,6 +803,7 @@ class LinuxTool(Tool):
                 capability_status=CapabilityStatus.COLLECTION_FAILED,
                 command_results=tuple(command_results),
                 capability_error=internal_error(message),
+                produced_fact_names=cap.produces_facts,
             )
 
         # Legacy tuple adapters cannot declare intentional fallback attempts.
@@ -852,7 +853,7 @@ class LinuxTool(Tool):
                         data=None,
                         command_results=capability_result.command_results,
                         warnings=capability_result.warnings,
-                        produced_fact_names=(),
+                        produced_fact_names=cap.produces_facts,
                         error=(
                             f"Linux capability output failed schema validation: "
                             f"{'; '.join(violations)}"

@@ -130,14 +130,14 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 | 601–604 | Identity/language prompts, separate unknown-target catch, hostname guard | DR1-306/309 completed target confidence + deterministic clarification; output validation remains DR1-703, DR1-706 |
 | 605–608 | CapabilityPlanner/config/library wiring | DR1-301–309 completed canonical deterministic routing; DR1-401–405 now add pre-plan context and bounded multi-intent merging |
 | 609–611 | Parameter parser plus runtime method plumbing | DR1-403/404 completed metadata-driven binding, required/type/pattern/range validation and safe bound-parameter traces |
-| 612–617 | Answer-type/tool selectors and `source_tool` field | DR1-308 completed request/routing/evidence/strategy taxonomy; selected-tool provenance remains DR1-508, DR1-509, DR1-707 |
-| 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers and requires valid evidence; canonical fact freshness/provenance still remains: DR1-501, DR1-502, DR1-505, DR1-707 |
-| 623–625 | Per-session TTL cache and engine wiring | DR1-108 now rejects failed/partial cache entries; cache key still omits params/timeframe/schema/freshness policy: DR1-507 |
+| 612–617 | Answer-type/tool selectors and `source_tool` field | DR1-308 completed request/routing/evidence/strategy taxonomy; DR1-508/509 completed fact provenance and claim links; deterministic response filtering remains DR1-707 |
+| 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers; DR1-501/502/505 completed canonical fact validity/freshness/completeness; findings/response guards remain DR1-601–707 |
+| 623–625 | Per-session TTL cache and engine wiring | DR1-108 rejects failed/partial entries; DR1-507 completed params/timeframe/schema-aware keys, TTL classes and explicit stale policy |
 | 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
-| 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | DR1-406/407 completed canonical temporal requirements and fail-closed comparison/forecast guards; Grafana fact normalization/embed response remain DR1-503, DR1-707 |
+| 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | DR1-406/407 completed temporal requirements/guards; DR1-503/509 completed Grafana fact normalization and provenance links; deterministic response filtering remains DR1-707 |
 
-Therefore “Phase 6 delivery completed” is retained as history, while the rows above remain open
-behavior corrections. No open DR1 item is to be treated as proof that its predecessor module is
+Therefore “Phase 6 delivery completed” is retained as history, while the named remaining owners
+track unresolved behavior corrections. No open DR1 item is to be treated as proof that its predecessor module is
 missing, and no historical ✅ is to be treated as proof that current QA acceptance passes.
 
 ## Not implemented (do not assume otherwise)
@@ -258,10 +258,15 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-404 ✅ complete**: graph parameters are validated before execution for required/default/type/enum/pattern/range and injection safety; missing or invalid values fail closed without reaching a child capability.
 - **DR1-405 ✅ complete**: up to four explicit coordinated concepts become isolated subframes with shared semantics; evidence/capability plans merge deterministically, deduplicate, and retain graph parallelism, while over-broad requests clarify scope.
 - **DR1-406 ✅ complete**: immutable timezone-aware `TimeRange` represents bounds, granularity, source phrase, temporal kind and comparison windows with injectable clocks; historical and future language creates series requirements rather than current snapshots.
-- **DR1-407 ✅ complete**: temporal completeness requires two compatible comparison windows or at least six forecast points plus a defined growth model; incomplete requests return a deterministic insufficient-evidence response before assessment. DR1-505 remains open for canonical fact-level completeness enrichment.
-- Remaining DR1 tasks continue at DR1-501 from the active backlog; each task updates this file only after its definition of done is verifiable.
+- **DR1-407 ✅ complete**: temporal completeness requires two compatible comparison windows or at least six forecast points plus a defined growth model; incomplete requests return a deterministic insufficient-evidence response before assessment. Canonical fact-level completeness enrichment is now complete in DR1-505.
+- **DR1-501/502/503 ✅ complete**: immutable canonical facts define explicit validity/freshness/provenance; Linux core and Zabbix/Grafana payloads normalize into consistent metrics, units, timestamps and source identities without failure-to-zero behavior.
+- **DR1-504/505 ✅ complete**: per-investigation immutable `FactSet` provides deterministic indexes/merge order, and completeness matches required metric/target/parameters/timeframe/validity/freshness with explicit missing/failed/stale/contradictory reasons.
+- **DR1-506 ✅ complete**: tolerance-aware reconciliation retains both sources and their provenance, marks conflicting facts `CONTRADICTORY`, and propagates contradictory evidence status instead of silently selecting a value.
+- **DR1-507 ✅ complete**: cache identity includes target/capability/normalized parameters/timeframe/schema; TTL varies by fact class and stale reuse is opt-in with explicit stale facts.
+- **DR1-508/509 ✅ complete**: evidence packages carry bounded raw data, canonical facts, failures and schema/source metadata; assessment consumes facts first, while safe provenance IDs and claim links redact secrets.
+- Remaining DR1 tasks continue at DR1-601 from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-401–407 complete: structured session context, metadata parameter binding/validation, bounded multi-intent planning and temporal evidence guards verified; DR1-001–309 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-501–509 complete: canonical facts, source normalization, FactSet/completeness/reconciliation, cache freshness, bounded evidence and safe provenance verified; DR1-001–407 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 
