@@ -220,9 +220,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-004 ✅ complete**: transcript Q&A converted into a human-reviewed, stage-level golden dataset `tests/data/qa_cases/golden_core.yaml` — 39 cases covering groups A–J (+M), with expected concept/operation/intent/target/params/answer_type/routing_status/evidence_status/answer_strategy/`llm_usage_reason`/required_evidence per case plus `harness_error` flags to separate harness bugs from agent defects. `scripts/qa/build_golden.py` validates schema and coverage; `tests/qa/test_golden_schema.py` (35 tests) enforces group/tag coverage and forbids auto-generated ids.
 - **DR1-005 ✅ complete**: the in-process baseline runner scores the golden suite by stage, records outcome rates/latency plus commit/config identity, and distinguishes behavioral mismatches from trace observability gaps with tri-state field status.
 - **DR1-006 ✅ complete**: all historical Phase 6 IDs 601–632 were reconciled against current source/tests. `docs/ai/10_PHASE6_PLAN.md` now maps each delivered artifact to any open DR1 behavior correction; the Phase 6 section above explicitly separates delivery completion from current acceptance.
+- **DR1-101 ✅ complete**: all execution backends now return immutable `CommandResult` with `CommandStatus`, exit code, separate stdout/stderr, error type, safe command/target metadata, duration, redacted serialization, and a temporary tuple-unpack compatibility adapter.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-006 complete: Phase 6 delivery artifacts reconciled with current behavior and mapped to corrective IDs; DR1-005 complete: stage-level baseline runner with tri-state observability scoring. Earlier DR1-001–004 remain complete as recorded above.)
+> **Last updated:** 2026-08-05 (DR1-101 complete: structured command-result contract introduced. DR1-001–006 remain complete as recorded above.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

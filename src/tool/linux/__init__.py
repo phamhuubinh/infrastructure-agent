@@ -4,6 +4,7 @@ import inspect
 import time as _time
 
 from src.shared.capability import Capability
+from src.shared.execution.command_result import CommandResult
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error, info
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
@@ -488,7 +489,7 @@ class LinuxTool(Tool):
         self,
         command: list[str],
         timeout: int = 15,
-    ) -> tuple[bool, str]:
+    ) -> CommandResult:
         return self._backend.run(command, timeout=timeout)
 
     def execute(

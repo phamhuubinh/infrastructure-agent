@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-006 hoàn thành: đối soát toàn bộ Phase 6 IDs 601–632 với source/test hiện tại, giữ trạng thái historical delivery nhưng liên kết rõ các behavior gap sang corrective DR1 IDs. DR1-005 hoàn thành trước đó: baseline runner theo stage với tri-state observability scoring.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-101 hoàn thành: thêm immutable `CommandResult`/`CommandStatus`, giữ exit code/stdout/stderr/error metadata và tuple-unpack adapter tương thích. DR1-006 hoàn thành trước đó: đối soát Phase 6 với corrective behavior backlog.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -107,7 +107,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-004 | P0 | ✅ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
 | DR1-005 | P0 | ✅ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
 | DR1-006 | P1 | ✅ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
-| DR1-101 | P0 | ⬜ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
+| DR1-101 | P0 | ✅ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
 | DR1-102 | P0 | ⬜ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
 | DR1-103 | P0 | ⬜ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
 | DR1-104 | P0 | ⬜ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
@@ -515,26 +515,29 @@ Tài liệu báo Phase 6 completed nhưng QA cho thấy parameter wiring, fallba
 ## 4. EPIC 1 — Execution contract và failure semantics
 ### DR1-101 — Tạo CommandStatus và CommandResult
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-002
-- **Files dự kiến:** `src/tool/execution_backend.py`, `src/shared/execution/command_result.py (new)`
+- **Files:** `src/tool/execution_backend.py`, `src/shared/execution/command_result.py (new)`, `src/tool/linux/__init__.py`, `tests/shared/execution/test_command_result.py (new)`
 
 **Vấn đề**  
 Contract `(bool, str)` làm mất exit code, stderr và loại lỗi; downstream không phân biệt dữ liệu rỗng với command failure.
 
-**Cách làm**
-1. Tạo enum `CommandStatus`: SUCCESS, EMPTY_SUCCESS, COMMAND_NOT_FOUND, PERMISSION_DENIED, TIMEOUT, SSH_AUTH_FAILED, SSH_UNREACHABLE, UNSUPPORTED_ENVIRONMENT, NON_ZERO_EXIT, PARSE_ERROR.
-2. Tạo immutable `CommandResult` gồm status, exit_code, stdout, stderr, error_type, command_id, target, duration_ms.
-3. Giữ adapter tương thích tạm thời nếu public interface đang dùng tuple.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Tạo đủ enum `CommandStatus` và immutable/slotted `CommandResult` với toàn bộ field contract.
+2. ✅ `ExecutionBackend.run()`, local backend và SSH backend trả `CommandResult`; LinuxTool truyền
+   object này xuống collector.
+3. ✅ `CommandResult.__iter__()` giữ tuple-unpack `(ok, output)` trong migration window; code mới
+   đọc named fields.
+4. ✅ `repr` không in nội dung stream; `to_dict()` redact password/token/Bearer/URL credentials.
 
 **Acceptance criteria**
-- [ ] Mọi backend trả CommandResult.
-- [ ] Exit code/stderr không bị bỏ.
-- [ ] Không chứa raw credential trong repr/serialization.
+- [x] Mọi backend trả CommandResult.
+- [x] Exit code/stderr không bị bỏ.
+- [x] Không chứa raw credential trong repr/serialization.
 
 **Tests/verification**
-- `tests/tool/test_execution_backend.py`
-- `tests/shared/execution/test_command_result.py`
+- ✅ `python3 -m pytest tests/shared/execution/test_command_result.py tests/tool/test_execution_backend.py tests/tool/test_execution_backend_thread_safety.py tests/tool/test_linux_tool.py tests/tool/test_linux_tool_process.py -q` — 136 passed.
+- ✅ `ruff check` các file chạm tới — clean.
 
 ---
 ### DR1-102 — Sửa LocalExecutionBackend giữ stderr và timeout

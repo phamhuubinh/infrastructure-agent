@@ -5,6 +5,7 @@ import subprocess
 import time as _time
 from abc import ABC, abstractmethod
 
+from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.logger import error, info, warning
 
 
@@ -16,7 +17,7 @@ class ExecutionBackend(ABC):
         self,
         command: list[str],
         timeout: int = 5,
-    ) -> tuple[bool, str]: ...
+    ) -> CommandResult: ...
 
 
 class LocalExecutionBackend(ExecutionBackend):
@@ -26,7 +27,7 @@ class LocalExecutionBackend(ExecutionBackend):
         self,
         command: list[str],
         timeout: int = 5,
-    ) -> tuple[bool, str]:
+    ) -> CommandResult:
         _t0 = _time.monotonic()
         cmd_str = " ".join(command) if command else ""
         try:
@@ -37,7 +38,7 @@ class LocalExecutionBackend(ExecutionBackend):
                 timeout=timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
             error(
                 "exec",
@@ -47,7 +48,35 @@ class LocalExecutionBackend(ExecutionBackend):
                 host="localhost",
                 message="Failed",
             )
-            return False, ""
+            return CommandResult(
+                status=CommandStatus.TIMEOUT,
+                stderr=str(exc),
+                error_type=type(exc).__name__,
+                target="localhost",
+                duration_ms=_dur,
+            )
+        except OSError as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            status = (
+                CommandStatus.COMMAND_NOT_FOUND
+                if isinstance(exc, FileNotFoundError)
+                else CommandStatus.UNSUPPORTED_ENVIRONMENT
+            )
+            error(
+                "exec",
+                command=cmd_str,
+                status=status.value,
+                error=str(exc),
+                host="localhost",
+                message="Failed",
+            )
+            return CommandResult(
+                status=status,
+                stderr=str(exc),
+                error_type=type(exc).__name__,
+                target="localhost",
+                duration_ms=_dur,
+            )
 
         if completed.returncode != 0:
             _dur = int((_time.monotonic() - _t0) * 1000)
@@ -63,7 +92,21 @@ class LocalExecutionBackend(ExecutionBackend):
                 host="localhost",
                 message="Non-zero exit",
             )
-            return False, ""
+            status = (
+                CommandStatus.PERMISSION_DENIED
+                if completed.returncode in (126, 127)
+                and "permission denied" in completed.stderr.lower()
+                else CommandStatus.NON_ZERO_EXIT
+            )
+            return CommandResult(
+                status=status,
+                exit_code=completed.returncode,
+                stdout=completed.stdout.strip(),
+                stderr=getattr(completed, "stderr", "").strip(),
+                error_type="NonZeroExit",
+                target="localhost",
+                duration_ms=_dur,
+            )
 
         _dur = int((_time.monotonic() - _t0) * 1000)
         info(
@@ -74,7 +117,15 @@ class LocalExecutionBackend(ExecutionBackend):
             host="localhost",
             message="Completed",
         )
-        return True, completed.stdout.strip()
+        stdout = completed.stdout.strip()
+        return CommandResult(
+            status=(CommandStatus.SUCCESS if stdout else CommandStatus.EMPTY_SUCCESS),
+            exit_code=completed.returncode,
+            stdout=stdout,
+            stderr=getattr(completed, "stderr", "").strip(),
+            target="localhost",
+            duration_ms=_dur,
+        )
 
 
 class SSHExecutionBackend(ExecutionBackend):
@@ -125,7 +176,7 @@ class SSHExecutionBackend(ExecutionBackend):
         self,
         command: list[str],
         timeout: int = 5,
-    ) -> tuple[bool, str]:
+    ) -> CommandResult:
         _t0 = _time.monotonic()
         ssh_cmd = self._build_ssh_command(command)
         cmd_str = " ".join(command) if command else ""
@@ -138,7 +189,7 @@ class SSHExecutionBackend(ExecutionBackend):
                 timeout=timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
             error(
                 "exec",
@@ -148,12 +199,36 @@ class SSHExecutionBackend(ExecutionBackend):
                 host=host,
                 message="Failed",
             )
-            return False, ""
+            return CommandResult(
+                status=CommandStatus.TIMEOUT,
+                stderr=str(exc),
+                error_type=type(exc).__name__,
+                target=host,
+                duration_ms=_dur,
+            )
+        except OSError as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error(
+                "exec",
+                command=cmd_str,
+                status="failed",
+                error=str(exc),
+                host=host,
+                message="Failed",
+            )
+            return CommandResult(
+                status=CommandStatus.COMMAND_NOT_FOUND,
+                stderr=str(exc),
+                error_type=type(exc).__name__,
+                target=host,
+                duration_ms=_dur,
+            )
 
         if completed.returncode != 0:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            err_msg = completed.stderr.strip() or completed.stdout.strip()
-            if "password" in completed.stderr.lower():
+            completed_stderr = getattr(completed, "stderr", "")
+            err_msg = completed_stderr.strip() or completed.stdout.strip()
+            if "password" in completed_stderr.lower():
                 error(
                     "exec",
                     command=cmd_str,
@@ -162,9 +237,17 @@ class SSHExecutionBackend(ExecutionBackend):
                     host=host,
                     message="Failed",
                 )
-                return (
-                    False,
-                    "SSH authentication failed (password prompted). Use SSH key authentication.",
+                return CommandResult(
+                    status=CommandStatus.SSH_AUTH_FAILED,
+                    exit_code=completed.returncode,
+                    stdout=completed.stdout.strip(),
+                    stderr=(
+                        "SSH authentication failed (password prompted). "
+                        "Use SSH key authentication."
+                    ),
+                    error_type="SSHAuthenticationError",
+                    target=host,
+                    duration_ms=_dur,
                 )
             # Non-zero exit is not necessarily an error
             # (e.g. service not running, command not found on target).
@@ -179,7 +262,15 @@ class SSHExecutionBackend(ExecutionBackend):
                 host=host,
                 message="Non-zero exit",
             )
-            return False, err_msg
+            return CommandResult(
+                status=CommandStatus.NON_ZERO_EXIT,
+                exit_code=completed.returncode,
+                stdout=completed.stdout.strip(),
+                stderr=err_msg,
+                error_type="RemoteNonZeroExit",
+                target=host,
+                duration_ms=_dur,
+            )
 
         _dur = int((_time.monotonic() - _t0) * 1000)
         info(
@@ -190,4 +281,12 @@ class SSHExecutionBackend(ExecutionBackend):
             host=host,
             message="Completed",
         )
-        return True, completed.stdout.strip()
+        stdout = completed.stdout.strip()
+        return CommandResult(
+            status=(CommandStatus.SUCCESS if stdout else CommandStatus.EMPTY_SUCCESS),
+            exit_code=completed.returncode,
+            stdout=stdout,
+            stderr=getattr(completed, "stderr", "").strip(),
+            target=host,
+            duration_ms=_dur,
+        )
