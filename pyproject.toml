@@ -75,3 +75,8 @@ skips = ["B101", "B301", "B303", "B403", "B601", "B602"]
 # B403: pickle import (known usage, excluded via dirs)
 # B601: paramiko (SSH lib, intentional)
 # B602: subprocess_with_shell_equals_true (SSH execution, intentional)
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
