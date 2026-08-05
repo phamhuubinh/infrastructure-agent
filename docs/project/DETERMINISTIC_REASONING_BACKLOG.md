@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-101 hoàn thành: thêm immutable `CommandResult`/`CommandStatus`, giữ exit code/stdout/stderr/error metadata và tuple-unpack adapter tương thích. DR1-006 hoàn thành trước đó: đối soát Phase 6 với corrective behavior backlog.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-102 hoàn thành: LocalExecutionBackend giữ stdout/stderr/exit code, phân biệt empty/non-zero/not-found/permission/timeout và chạy với locale ổn định. DR1-101 hoàn thành trước đó: structured command-result contract.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -108,7 +108,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-005 | P0 | ✅ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
 | DR1-006 | P1 | ✅ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
 | DR1-101 | P0 | ✅ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
-| DR1-102 | P0 | ⬜ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
+| DR1-102 | P0 | ✅ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
 | DR1-103 | P0 | ⬜ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
 | DR1-104 | P0 | ⬜ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
 | DR1-105 | P0 | ⬜ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
@@ -542,25 +542,28 @@ Contract `(bool, str)` làm mất exit code, stderr và loại lỗi; downstream
 ---
 ### DR1-102 — Sửa LocalExecutionBackend giữ stderr và timeout
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101
-- **Files dự kiến:** `src/tool/execution_backend.py`
+- **Files:** `src/tool/execution_backend.py`, `tests/tool/test_execution_backend.py`
 
 **Vấn đề**  
 Local backend hiện có thể trả chuỗi rỗng khi command non-zero, khiến failure thành empty evidence.
 
-**Cách làm**
-1. Dùng subprocess với capture_output, text, timeout và môi trường locale ổn định.
-2. Map FileNotFoundError → COMMAND_NOT_FOUND; TimeoutExpired → TIMEOUT; exit 0 + stdout rỗng → EMPTY_SUCCESS; exit khác 0 → NON_ZERO_EXIT/PERMISSION_DENIED.
-3. Đo duration bằng monotonic clock.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `subprocess.run` dùng capture/text/timeout/check=False và `LANG=LC_ALL=C` trên bản sao env.
+2. ✅ Map empty command/FileNotFoundError, PermissionError, TimeoutExpired, empty success và
+   non-zero/permission exit sang status riêng; giữ cả partial stdout/stderr khi timeout/non-zero.
+3. ✅ Mọi path đo duration bằng monotonic clock; tuple adapter cũ vẫn không biến error thành
+   evidence text cho local collectors.
 
 **Acceptance criteria**
-- [ ] `false` command trả NON_ZERO_EXIT, không trả success.
-- [ ] Command không tồn tại giữ được stderr/error_type.
-- [ ] Timeout không treo worker.
+- [x] `false` command trả NON_ZERO_EXIT, không trả success.
+- [x] Command không tồn tại giữ được stderr/error_type.
+- [x] Timeout không treo worker.
 
 **Tests/verification**
-- `tests/tool/test_execution_backend.py: local success/empty/nonzero/notfound/timeout/permission`
+- ✅ Focused backend/Linux regression selection — 139 passed.
+- ✅ `ruff check src/tool/execution_backend.py tests/tool/test_execution_backend.py` — clean.
 
 ---
 ### DR1-103 — Sửa SSHExecutionBackend trả lỗi có cấu trúc

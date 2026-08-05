@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 
+from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.tool.execution_backend import (
     ExecutionBackend,
     LocalExecutionBackend,
@@ -47,23 +48,31 @@ class TestLocalExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = LocalExecutionBackend()
-        ok, out = backend.run(["false"])
+        result = backend.run(["false"])
+        ok, out = result
 
         assert ok is False
         assert out == ""
+        assert result.status is CommandStatus.NON_ZERO_EXIT
+        assert result.exit_code == 1
+        assert result.stderr == "error occurred"
 
     def test_run_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(*args, **kwargs):
             msg = "command not found"
-            raise OSError(msg)
+            raise FileNotFoundError(msg)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = LocalExecutionBackend()
-        ok, out = backend.run(["nonexistent"])
+        result = backend.run(["nonexistent"])
+        ok, out = result
 
         assert ok is False
         assert out == ""
+        assert result.status is CommandStatus.COMMAND_NOT_FOUND
+        assert result.stderr == "command not found"
+        assert result.error_type == "FileNotFoundError"
 
     def test_run_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_run(*args, **kwargs):
@@ -72,16 +81,21 @@ class TestLocalExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = LocalExecutionBackend()
-        ok, out = backend.run(["sleep", "10"], timeout=1)
+        result = backend.run(["sleep", "10"], timeout=1)
+        ok, out = result
 
         assert ok is False
         assert out == ""
+        assert result.status is CommandStatus.TIMEOUT
+        assert result.error_type == "TimeoutExpired"
 
     def test_run_empty_command(self, monkeypatch: pytest.MonkeyPatch) -> None:
         backend = LocalExecutionBackend()
 
-        with pytest.raises(IndexError):
-            backend.run([])
+        result = backend.run([])
+
+        assert result.status is CommandStatus.COMMAND_NOT_FOUND
+        assert result.error_type == "EmptyCommand"
 
     def test_run_strips_stdout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeCompleted:
@@ -121,6 +135,56 @@ class TestLocalExecutionBackend:
         backend.run(["echo", "hello"], timeout=42)
 
         assert captured_timeout == 42
+
+    def test_empty_stdout_is_empty_success(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class FakeCompleted:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeCompleted())
+
+        result = LocalExecutionBackend().run(["true"])
+
+        assert isinstance(result, CommandResult)
+        assert result.status is CommandStatus.EMPTY_SUCCESS
+        assert result.exit_code == 0
+
+    def test_permission_error_is_structured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def fake_run(*args, **kwargs):
+            raise PermissionError("permission denied")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        result = LocalExecutionBackend().run(["/root/private-command"])
+
+        assert result.status is CommandStatus.PERMISSION_DENIED
+        assert result.stderr == "permission denied"
+
+    def test_stable_locale_is_passed_to_subprocess(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured_env: dict[str, str] = {}
+
+        class FakeCompleted:
+            returncode = 0
+            stdout = "ok"
+            stderr = ""
+
+        def fake_run(*args, **kwargs):
+            captured_env.update(kwargs["env"])
+            return FakeCompleted()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        LocalExecutionBackend().run(["echo", "ok"])
+
+        assert captured_env["LANG"] == "C"
+        assert captured_env["LC_ALL"] == "C"
 
 
 class TestSSHExecutionBackend:

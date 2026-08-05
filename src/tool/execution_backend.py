@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import time as _time
@@ -7,6 +8,14 @@ from abc import ABC, abstractmethod
 
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.logger import error, info, warning
+
+
+def _stream_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace").strip()
+    return value.strip()
 
 
 class ExecutionBackend(ABC):
@@ -30,6 +39,15 @@ class LocalExecutionBackend(ExecutionBackend):
     ) -> CommandResult:
         _t0 = _time.monotonic()
         cmd_str = " ".join(command) if command else ""
+        if not command:
+            return CommandResult(
+                status=CommandStatus.COMMAND_NOT_FOUND,
+                stderr="No command specified.",
+                error_type="EmptyCommand",
+                target="localhost",
+            )
+        stable_env = dict(os.environ)
+        stable_env.update({"LANG": "C", "LC_ALL": "C"})
         try:
             completed = subprocess.run(
                 command,
@@ -37,6 +55,7 @@ class LocalExecutionBackend(ExecutionBackend):
                 text=True,
                 timeout=timeout,
                 check=False,
+                env=stable_env,
             )
         except subprocess.TimeoutExpired as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
@@ -50,6 +69,24 @@ class LocalExecutionBackend(ExecutionBackend):
             )
             return CommandResult(
                 status=CommandStatus.TIMEOUT,
+                stdout=_stream_text(exc.stdout),
+                stderr=_stream_text(exc.stderr) or str(exc),
+                error_type=type(exc).__name__,
+                target="localhost",
+                duration_ms=_dur,
+            )
+        except PermissionError as exc:
+            _dur = int((_time.monotonic() - _t0) * 1000)
+            error(
+                "exec",
+                command=cmd_str,
+                status=CommandStatus.PERMISSION_DENIED.value,
+                error=str(exc),
+                host="localhost",
+                message="Failed",
+            )
+            return CommandResult(
+                status=CommandStatus.PERMISSION_DENIED,
                 stderr=str(exc),
                 error_type=type(exc).__name__,
                 target="localhost",
@@ -57,11 +94,7 @@ class LocalExecutionBackend(ExecutionBackend):
             )
         except OSError as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
-            status = (
-                CommandStatus.COMMAND_NOT_FOUND
-                if isinstance(exc, FileNotFoundError)
-                else CommandStatus.UNSUPPORTED_ENVIRONMENT
-            )
+            status = CommandStatus.COMMAND_NOT_FOUND
             error(
                 "exec",
                 command=cmd_str,
@@ -94,8 +127,8 @@ class LocalExecutionBackend(ExecutionBackend):
             )
             status = (
                 CommandStatus.PERMISSION_DENIED
-                if completed.returncode in (126, 127)
-                and "permission denied" in completed.stderr.lower()
+                if completed.returncode == 126
+                or "permission denied" in completed.stderr.lower()
                 else CommandStatus.NON_ZERO_EXIT
             )
             return CommandResult(
