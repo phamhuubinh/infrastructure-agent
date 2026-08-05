@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.investigation_request import InvestigationRequest
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 
 
 class EvidenceMerge:
@@ -51,14 +52,36 @@ class EvidenceMerge:
             seen.add(cap_name)
 
             ev_name = ev_name_by_cap.get(cap_name, cap_name)
+            status = result.capability_status or (
+                CapabilityStatus.VALID
+                if result.success
+                else CapabilityStatus.COLLECTION_FAILED
+            )
+            is_valid = status in (
+                CapabilityStatus.VALID,
+                CapabilityStatus.VALID_EMPTY,
+            )
             packages.append(
                 EvidencePackage(
                     capability_name=cap_name,
                     evidence_name=ev_name,
-                    data=result.data if result.success else None,
-                    success=result.success,
-                    error=result.error if not result.success else None,
+                    data=(
+                        result.data
+                        if is_valid or status is CapabilityStatus.PARTIAL
+                        else None
+                    ),
+                    success=is_valid,
+                    error=result.error if not is_valid else None,
                     source_tool=source_tool,
+                    status=status,
+                    command_results=result.command_results,
+                    warnings=result.warnings,
+                    produced_fact_names=result.produced_fact_names,
+                    collection_failures=(
+                        (result.error,)
+                        if result.error is not None and not is_valid
+                        else ()
+                    ),
                 )
             )
 

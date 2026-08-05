@@ -4,6 +4,7 @@ from src.pipeline.evidence_completeness import EvidenceCompleteness
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.investigation_request import InvestigationRequest
+from src.tool.capability_result import CapabilityStatus
 
 
 class TestEvidenceCompleteness:
@@ -151,3 +152,21 @@ class TestEvidenceCompleteness:
         checker = EvidenceCompleteness()
         checker.check(req)
         assert req.evidence_complete is True
+
+    def test_partial_evidence_does_not_satisfy_requirement(self) -> None:
+        req = InvestigationRequest(raw_request="test")
+        req.required_evidence = [EvidenceRequirement(name="CPU")]
+        req.evidence = [
+            EvidencePackage(
+                capability_name="CPU Information",
+                evidence_name="CPU",
+                data={"usage": 50},
+                status=CapabilityStatus.PARTIAL,
+                error="one command failed",
+            )
+        ]
+
+        EvidenceCompleteness().check(req)
+
+        assert req.evidence_complete is False
+        assert req.missing_evidence == ("CPU",)

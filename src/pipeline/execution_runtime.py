@@ -11,6 +11,7 @@ from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
 from src.pipeline.retry import RetryExecutor, RetryPolicy
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import warning as _warning
+from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -222,6 +223,7 @@ class ExecutionRuntime:
                 results[cap_name] = ToolResult(
                     success=False,
                     error="Skipped: all required evidence already collected",
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
                 )
         metrics.early_completed = True
         remaining.clear()
@@ -241,6 +243,7 @@ class ExecutionRuntime:
                 results[cap_name] = ToolResult(
                     success=False,
                     error=f"Execution timed out after {overall_timeout}s",
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
                 )
         metrics.timed_out = True
 
@@ -290,6 +293,7 @@ class ExecutionRuntime:
             results[cap_name] = ToolResult(
                 success=False,
                 error=f"Execution timed out after {overall_timeout}s",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
             )
             metrics.timed_out = True
             return
@@ -313,6 +317,7 @@ class ExecutionRuntime:
                 results[cap_name] = ToolResult(
                     success=False,
                     error=f"Execution timed out after {overall_timeout}s",
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
                 )
         finally:
             executor.shutdown(wait=False)
@@ -362,6 +367,7 @@ class ExecutionRuntime:
                         result = ToolResult(
                             success=False,
                             error=f"Execution runtime error: {exc}",
+                            capability_status=CapabilityStatus.COLLECTION_FAILED,
                         )
                     results[cap_name] = result
                     if result.success:
@@ -375,6 +381,7 @@ class ExecutionRuntime:
                             results[cname] = ToolResult(
                                 success=False,
                                 error=f"Execution timed out after {overall_timeout}s",
+                                capability_status=CapabilityStatus.COLLECTION_FAILED,
                             )
                 metrics.timed_out = True
 
@@ -392,6 +399,7 @@ class ExecutionRuntime:
             return ToolResult(
                 success=False,
                 error=f"No route configured for capability: {cap_name}",
+                capability_status=CapabilityStatus.UNSUPPORTED,
             )
 
         source, resource = route
@@ -413,4 +421,5 @@ class ExecutionRuntime:
             return ToolResult(
                 success=False,
                 error=f"KnowledgeTool dispatch failed for {cap_name}: {exc}",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
             )

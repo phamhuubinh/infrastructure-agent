@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.pipeline.evidence_package import EvidencePackage
+from src.tool.capability_result import CapabilityStatus
 
 
 class TestEvidencePackage:
@@ -11,6 +12,7 @@ class TestEvidencePackage:
         assert pkg.data is None
         assert pkg.success is True
         assert pkg.error is None
+        assert pkg.status is CapabilityStatus.VALID_EMPTY
 
     def test_successful_package(self) -> None:
         pkg = EvidencePackage(
@@ -34,6 +36,22 @@ class TestEvidencePackage:
         assert pkg.data is None
         assert pkg.success is False
         assert pkg.error == "Connection refused"
+        assert pkg.status is CapabilityStatus.COLLECTION_FAILED
+        assert pkg.collection_failures == ("Connection refused",)
+
+    def test_partial_package_preserves_data_but_is_not_valid(self) -> None:
+        pkg = EvidencePackage(
+            capability_name="CPU Information",
+            evidence_name="CPU",
+            data={"usage": 80},
+            status=CapabilityStatus.PARTIAL,
+            error="load sample timed out",
+        )
+
+        assert pkg.data == {"usage": 80}
+        assert pkg.success is False
+        assert pkg.valid_for_requirements is False
+        assert pkg.collection_failures == ("load sample timed out",)
 
     def test_is_frozen(self) -> None:
         pkg = EvidencePackage(capability_name="A", evidence_name="B")

@@ -10,6 +10,7 @@ from src.pipeline.execution_graph import ExecutionGraph
 from src.pipeline.execution_plan import ExecutionStep
 from src.pipeline.execution_runtime import ExecutionRuntime
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 
@@ -99,6 +100,10 @@ class TestSingleNode:
         assert "Unknown Capability" in results
         assert results["Unknown Capability"].success is False
         assert "No route configured" in (results["Unknown Capability"].error or "")
+        assert (
+            results["Unknown Capability"].capability_status
+            is CapabilityStatus.UNSUPPORTED
+        )
 
 
 # ---------------------------------------------------------------------------

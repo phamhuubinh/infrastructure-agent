@@ -5,6 +5,7 @@ from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.investigation_request import InvestigationRequest
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 
 
 class TestEvidenceMerge:
@@ -133,6 +134,37 @@ class TestEvidenceMerge:
         assert good[0].data == {"cores": 4}
         assert bad[0].error == "No such device"
         assert bad[0].data is None
+
+    def test_partial_failure_keeps_other_valid_evidence_and_partial_payload(
+        self,
+    ) -> None:
+        req = InvestigationRequest(raw_request="test")
+        req.capability_references = [
+            CapabilityReference(name="CPU Information", evidence_name="CPU"),
+            CapabilityReference(name="Memory Information", evidence_name="Memory"),
+        ]
+        results = {
+            "CPU Information": ToolResult(
+                success=True,
+                data={"usage": 20},
+                capability_status=CapabilityStatus.VALID,
+            ),
+            "Memory Information": ToolResult(
+                success=False,
+                data={"available_kb": 1024},
+                error="swap subcommand failed",
+                capability_status=CapabilityStatus.PARTIAL,
+            ),
+        }
+
+        EvidenceMerge().merge(req, results)
+
+        packages = {pkg.evidence_name: pkg for pkg in req.evidence}
+        assert packages["CPU"].valid_for_requirements is True
+        assert packages["CPU"].data == {"usage": 20}
+        assert packages["Memory"].status is CapabilityStatus.PARTIAL
+        assert packages["Memory"].data == {"available_kb": 1024}
+        assert packages["Memory"].collection_failures == ("swap subcommand failed",)
 
     def test_stores_evidence_on_request(self) -> None:
         req = InvestigationRequest(raw_request="test")

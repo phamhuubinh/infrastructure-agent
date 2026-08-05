@@ -224,9 +224,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-102 ✅ complete**: `LocalExecutionBackend` uses a stable C locale and preserves structured success/empty/non-zero/not-found/permission/timeout outcomes, including exit code and separate streams.
 - **DR1-103 ✅ complete**: `SSHExecutionBackend` distinguishes a missing local ssh client, authentication failure, unreachable/DNS/network failure, connection timeout, remote command-not-found, permission denial, and other remote non-zero exits while retaining remote exit/stderr safely.
 - **DR1-104 ✅ complete**: Child Tool dispatch now supports immutable `CapabilityResult`/`CapabilityStatus` (`VALID`, `VALID_EMPTY`, `PARTIAL`, collection/unsupported/parameter/parse failures), retains command results/warnings/fact names, and wraps legacy payload handlers without turning structured failures into success.
+- **DR1-105 ✅ complete**: capability status, command results, warnings, produced-fact names, and collection failures now propagate through `ToolResult` and `EvidencePackage`; partial payloads remain inspectable but only `VALID`/`VALID_EMPTY` evidence satisfies requirements.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-104 complete: structured capability-result contract; DR1-101–103 and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-105 complete: structured failure propagation through evidence; DR1-101–104 and DR1-001–006 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

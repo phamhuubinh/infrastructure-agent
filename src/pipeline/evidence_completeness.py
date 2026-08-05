@@ -29,7 +29,7 @@ class EvidenceCompleteness:
         """
         collected_names: set[str] = set()
         for pkg in request.evidence:
-            if pkg.success:
+            if pkg.valid_for_requirements:
                 collected_names.add(pkg.evidence_name)
 
         missing: list[str] = []

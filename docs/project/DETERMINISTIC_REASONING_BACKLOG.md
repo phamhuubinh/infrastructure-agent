@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-104 hoàn thành: thêm `CapabilityResult`/`CapabilityStatus`, Tool dispatch compatibility wrapper và command-result tracking cho Linux capabilities. DR1-101–103 hoàn thành trước đó: structured local/SSH command contracts.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-105 hoàn thành: capability status/commands/warnings/failures được truyền qua ToolResult → EvidencePackage; partial giữ payload nhưng không thỏa required evidence. DR1-101–104 hoàn thành trước đó: structured command/capability contracts.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -111,7 +111,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-102 | P0 | ✅ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
 | DR1-103 | P0 | ✅ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
 | DR1-104 | P0 | ✅ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
-| DR1-105 | P0 | ⬜ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
+| DR1-105 | P0 | ✅ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
 | DR1-106 | P0 | 🔎 | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
 | DR1-107 | P1 | ⬜ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
 | DR1-108 | P0 | 🔎 | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
@@ -621,25 +621,28 @@ Capability handler trả dict trực tiếp nên không biểu diễn valid_empt
 ---
 ### DR1-105 — Lan truyền failure đúng qua ToolResult và EvidencePackage
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-104
-- **Files dự kiến:** `src/tool/tool.py`, `src/pipeline/evidence_package.py`, `src/pipeline/execution_runtime.py`
+- **Files:** `src/shared/execution/tool_result.py`, `src/pipeline/evidence_package.py`, `src/pipeline/evidence_merge.py`, `src/pipeline/evidence_completeness.py`, `src/pipeline/execution_runtime.py`
 
 **Vấn đề**  
 Ngay cả khi handler không ném exception, lỗi thu thập có thể bị coi là thành công.
 
-**Cách làm**
-1. Map CapabilityStatus sang ToolResult/EvidencePackage status rõ ràng.
-2. EvidencePackage giữ `collection_failures` thay vì chỉ `success: bool`.
-3. Cho phép investigation tiếp tục với partial evidence theo `05_EXECUTION_PIPELINE.md`.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Map `CapabilityStatus` xuyên ToolResult/EvidenceMerge/EvidencePackage, giữ commands,
+   warnings, produced facts và collection failures.
+2. ✅ EvidencePackage chuẩn hóa legacy success sang VALID/VALID_EMPTY/COLLECTION_FAILED;
+   PARTIAL giữ data để assessment thấy phần thu được nhưng `success=False`.
+3. ✅ EvidenceCompleteness chỉ tính VALID/VALID_EMPTY; runtime gắn status rõ cho unsupported,
+   timeout, dispatch errors và vẫn trả result của mọi node.
 
 **Acceptance criteria**
-- [ ] Failure của một node không làm mất evidence node khác.
-- [ ] Evidence failed không được tính là collected required evidence.
+- [x] Failure của một node không làm mất evidence node khác.
+- [x] Evidence failed không được tính là collected required evidence.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_package.py`
-- `tests/pipeline/test_execution_runtime.py`
+- ✅ Evidence/package/merge/completeness/runtime/engine/Tool/Linux selection — 171 passed.
+- ✅ `ruff check` và focused `mypy` source chạm tới — clean.
 
 ---
 ### DR1-106 — Loại bỏ toàn bộ failure-to-zero/default-empty
