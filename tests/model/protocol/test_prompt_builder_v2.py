@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_package import EvidencePackage
+from src.tool.capability_result import CapabilityStatus
 
 
 class TestBuildAssessmentPrompt:
@@ -45,6 +46,41 @@ class TestBuildAssessmentPrompt:
         assert "Missing evidence: Memory" in prompt
         # Failed evidence should not appear in content
         assert "Failed to collect" not in prompt
+
+    def test_partial_evidence_is_not_presented_as_valid_measurement(self) -> None:
+        evidence = EvidencePackage(
+            capability_name="CPU",
+            evidence_name="CPU",
+            success=True,
+            status=CapabilityStatus.PARTIAL,
+            data={"cores": 0, "usage_percent": 0},
+            error="CPU commands failed",
+        )
+        req = AssessmentRequest(
+            raw_request="check cpu",
+            evidence=(evidence,),
+            evidence_complete=False,
+            missing_evidence=("CPU",),
+        )
+
+        prompt = build_assessment_prompt(req)
+
+        assert "=== CPU (CPU) ===" not in prompt
+        assert "usage_percent=0" not in prompt
+
+    def test_service_summary_does_not_invent_zero_counts(self) -> None:
+        evidence = EvidencePackage(
+            capability_name="Services",
+            evidence_name="Services",
+            success=True,
+            data={},
+        )
+        req = AssessmentRequest(raw_request="check services", evidence=(evidence,))
+
+        prompt = build_assessment_prompt(req)
+
+        assert "total=0" not in prompt
+        assert "running=0" not in prompt
 
     def test_empty_evidence(self) -> None:
         req = AssessmentRequest(raw_request="test")

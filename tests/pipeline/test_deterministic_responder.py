@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.investigation_request import InvestigationRequest
+from src.tool.capability_result import CapabilityStatus
 
 
 class TestDeterministicResponder:
@@ -22,6 +23,23 @@ class TestDeterministicResponder:
             ),
         ]
         result = DeterministicResponder().try_response(inv)
+        assert result is None
+
+    def test_partial_evidence_is_not_used_for_deterministic_fact(self) -> None:
+        inv = InvestigationRequest(raw_request="check zombie process")
+        inv.evidence = [
+            EvidencePackage(
+                capability_name="Process",
+                evidence_name="Processes",
+                success=True,
+                status=CapabilityStatus.PARTIAL,
+                data={"zombie_count": 3},
+                error="process listing truncated",
+            ),
+        ]
+
+        result = DeterministicResponder().try_response(inv)
+
         assert result is None
 
     def test_zombie_count_from_zombie_key(self) -> None:
@@ -192,12 +210,12 @@ class TestDeterministicResponder:
                 capability_name="Services",
                 evidence_name="Service Status",
                 success=True,
-                data={"total": 5},
+                data={"total": 5, "failed": 0},
             ),
         ]
         result = DeterministicResponder().try_response(inv)
         assert result is not None
-        assert "All **5 services** are running normally" in result
+        assert "No failed services were detected among **5 services**" in result
 
     def test_service_status_all_running_via_service_count(self) -> None:
         inv = InvestigationRequest(raw_request="check service status")
@@ -210,8 +228,7 @@ class TestDeterministicResponder:
             ),
         ]
         result = DeterministicResponder().try_response(inv)
-        assert result is not None
-        assert "All **3 services** are running normally" in result
+        assert result is None
 
     def test_service_status_all_running_via_service_list_length(self) -> None:
         inv = InvestigationRequest(raw_request="check service status")
@@ -224,8 +241,7 @@ class TestDeterministicResponder:
             ),
         ]
         result = DeterministicResponder().try_response(inv)
-        assert result is not None
-        assert "All **2 services** are running normally" in result
+        assert result is None
 
     def test_service_status_disabled(self) -> None:
         inv = InvestigationRequest(raw_request="check service status")
@@ -282,8 +298,7 @@ class TestDeterministicResponder:
             ),
         ]
         result = DeterministicResponder().try_response(inv)
-        assert result is not None
-        assert "No service status data available" in result
+        assert result is None
 
     def test_service_keyword_triggers_vietnamese(self) -> None:
         inv = InvestigationRequest(raw_request="kiểm tra trạng thái dịch vụ")

@@ -18,6 +18,15 @@ def _safe_parse_pct(value: object) -> float | None:
     return None
 
 
+def _first_present(data: dict, *keys: str) -> object | None:
+    """Return the first present non-None value, preserving legitimate zeroes."""
+
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
 class DeterministicResponder:
     """Generate deterministic responses without LLM when evidence is simple.
 
@@ -108,7 +117,7 @@ class DeterministicResponder:
         )
 
         for pkg in investigation.evidence:
-            if not pkg.success or not isinstance(pkg.data, dict):
+            if not pkg.valid_for_requirements or not isinstance(pkg.data, dict):
                 continue
 
             if (
@@ -195,15 +204,13 @@ class DeterministicResponder:
         return None
 
     def _check_zombie_processes(self, data: dict) -> str | None:
-        zombies = (
-            data.get("zombie_count") or data.get("zombie") or data.get("zombies") or 0
-        )
+        zombies = _first_present(data, "zombie_count", "zombie", "zombies")
         if not isinstance(zombies, (int, float)) or zombies <= 0:
             return None
 
         truncated = ""
-        zombie_processes = data.get("zombie_processes") or []
-        if zombie_processes:
+        zombie_processes = data.get("zombie_processes")
+        if isinstance(zombie_processes, list) and zombie_processes:
             truncated_list = list(zombie_processes)[:5]
             truncated = f": {', '.join(str(p) for p in truncated_list)}"
             if len(zombie_processes) > 5:
@@ -221,8 +228,13 @@ class DeterministicResponder:
     def _check_service_status(
         self, data: dict, service_name: str | None = None
     ) -> str | None:
-        failed_svcs = data.get("failed") or data.get("failed_services") or []
-        all_svcs = data.get("services") or data.get("service_list") or []
+        failed_value = _first_present(data, "failed_services", "failed")
+        failed_svcs = failed_value if isinstance(failed_value, list) else []
+        failed_count = (
+            failed_value if isinstance(failed_value, (int, float)) else None
+        )
+        services_value = _first_present(data, "services", "service_list")
+        all_svcs = services_value if isinstance(services_value, list) else []
 
         # If user asked about a specific service, look it up.
         if service_name:
@@ -248,13 +260,10 @@ class DeterministicResponder:
                     if any(ln in name for ln in lookup_names):
                         svc_entry = {"name": name, "status": status}
                         break
-                elif isinstance(svc, str):
-                    if any(ln in svc.lower() for ln in lookup_names):
-                        svc_entry = {"name": svc, "status": "unknown"}
-                        break
-
             if svc_entry:
-                svc_status = svc_entry.get("status", "unknown")
+                svc_status = svc_entry.get("status")
+                if not svc_status:
+                    return None
                 status_emoji = (
                     "✅" if svc_status in ("active", "running", "enabled") else "❌"
                 )
@@ -294,17 +303,27 @@ class DeterministicResponder:
                 f"for detailed error logs."
             )
 
-        total = data.get("total") or data.get("service_count")
-        if total is None:
-            total = len(all_svcs)
-        if isinstance(total, (int, float)) and total > 0:
+        if failed_count is not None and failed_count > 0:
             return (
-                f"## Service Status\n\n"
-                f"All **{int(total)} services** are running normally. "
-                f"No failed or degraded services detected."
+                "## Failed Services\n\n"
+                f"The collector reports **{int(failed_count)} failed services**."
             )
 
-        disabled = data.get("disabled") or data.get("disabled_services") or []
+        total = _first_present(data, "total", "service_count")
+        if total is None and services_value is not None:
+            total = len(all_svcs)
+        if (
+            isinstance(total, (int, float))
+            and total >= 0
+            and failed_count == 0
+        ):
+            return (
+                f"## Service Status\n\n"
+                f"No failed services were detected among **{int(total)} services**."
+            )
+
+        disabled_value = _first_present(data, "disabled", "disabled_services")
+        disabled = disabled_value if isinstance(disabled_value, list) else []
         if isinstance(disabled, list) and disabled:
             d_list = [str(s) for s in disabled[:10]]
             summary = ", ".join(d_list)
@@ -316,10 +335,7 @@ class DeterministicResponder:
                 f"{'are' if len(disabled) > 1 else 'is'} disabled: {summary}"
             )
 
-        return (
-            "## Service Status\n\n"
-            "No service status data available. Could not determine service state."
-        )
+        return None
 
     def _check_hostname(self, data: dict) -> str | None:
         hostname = data.get("hostname") or data.get("name")
@@ -353,13 +369,10 @@ class DeterministicResponder:
         return header + "\n".join(lines)
 
     def _check_ram_available(self, data: dict) -> str | None:
-        available_kb = (
-            data.get("available_kb")
-            or data.get("available")
-            or data.get("free_kb")
-            or data.get("free")
+        available_kb = _first_present(
+            data, "available_kb", "available", "free_kb", "free"
         )
-        total_kb = data.get("total_kb") or data.get("total")
+        total_kb = _first_present(data, "total_kb", "total")
         if available_kb is None:
             return None
         if isinstance(available_kb, (int, float)) and isinstance(
@@ -367,18 +380,20 @@ class DeterministicResponder:
         ):
             available_gb = round(available_kb / (1024**2), 1)
             total_gb = round(total_kb / (1024**2), 1)
-            pct = round((available_kb / total_kb) * 100, 1) if total_kb else 0
-            return (
+            response = (
                 f"## Available RAM\n\n"
-                f"**{available_gb} GB** available out of **{total_gb} GB** "
-                f"({pct}% free)"
+                f"**{available_gb} GB** available out of **{total_gb} GB**"
             )
+            if total_kb > 0:
+                pct = round((available_kb / total_kb) * 100, 1)
+                response += f" ({pct}% free)"
+            return response
         return f"## Available RAM\n\n**{available_kb} KB** available"
 
     def _check_load_average(self, data: dict) -> str | None:
-        load_1 = data.get("load_1min") or data.get("load1")
-        load_5 = data.get("load_5min") or data.get("load5")
-        load_15 = data.get("load_15min") or data.get("load15")
+        load_1 = _first_present(data, "load_1min", "load1")
+        load_5 = _first_present(data, "load_5min", "load5")
+        load_15 = _first_present(data, "load_15min", "load15")
         if load_1 is None and load_5 is None and load_15 is None:
             return None
         parts = []
@@ -392,8 +407,8 @@ class DeterministicResponder:
 
     def _check_uptime(self, data: dict) -> str | None:
         """Extract uptime from CPU or System Information evidence."""
-        uptime_sec = (
-            data.get("uptime_seconds") or data.get("uptime") or data.get("uptime_sec")
+        uptime_sec = _first_present(
+            data, "uptime_seconds", "uptime", "uptime_sec"
         )
         if uptime_sec is None:
             return None
@@ -414,8 +429,8 @@ class DeterministicResponder:
 
     def _check_swap(self, data: dict) -> str | None:
         """Extract swap usage from Memory evidence."""
-        swap_total = data.get("swap_total") or data.get("swap_total_kb")
-        swap_used = data.get("swap_used") or data.get("swap_used_kb")
+        swap_total = _first_present(data, "swap_total", "swap_total_kb")
+        swap_used = _first_present(data, "swap_used", "swap_used_kb")
 
         if swap_total is None and swap_used is None:
             return None
@@ -451,11 +466,13 @@ class DeterministicResponder:
 
     def _check_listening_ports(self, data: dict) -> str | None:
         """Extract listening ports from Network evidence."""
-        ports = (
-            data.get("listening_ports") or data.get("open_ports") or data.get("ports")
+        ports = _first_present(
+            data, "listening_ports", "open_ports", "ports"
         )
-        if not ports:
+        if ports is None:
             return None
+        if ports == [] or ports == {}:
+            return "## Listening Ports\n\nNo listening ports were detected."
 
         if isinstance(ports, list):
             port_lines = []
@@ -499,18 +516,19 @@ class DeterministicResponder:
 
     def _check_disk_full(self, data: dict) -> str | None:
         """Check if any filesystem is near capacity."""
-        filesystems = (
-            data.get("disks")
-            or data.get("filesystems")
-            or data.get("mounts")
-            or data.get("mount_points")
+        filesystems = _first_present(
+            data, "disks", "filesystems", "mounts", "mount_points"
         )
         if not filesystems:
             # Check for single filesystem data.
-            total = data.get("total") or data.get("total_kb")
-            used = data.get("used") or data.get("used_kb")
+            total = _first_present(data, "total", "total_kb")
+            used = _first_present(data, "used", "used_kb")
             if total is not None and used is not None:
-                pct = round((used / total) * 100, 1) if total > 0 else 0
+                if not isinstance(total, (int, float)) or total <= 0:
+                    return None
+                if not isinstance(used, (int, float)):
+                    return None
+                pct = round((used / total) * 100, 1)
                 mount = data.get(
                     "mount", data.get("mount_point", data.get("target", "/"))
                 )

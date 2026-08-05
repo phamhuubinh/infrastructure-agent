@@ -127,7 +127,7 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 | 605–608 | CapabilityPlanner/config/library wiring | Split routing flow and incomplete normalization/route contracts: DR1-301, DR1-302, DR1-303, DR1-308 |
 | 609–611 | Parameter parser plus runtime method plumbing | `_execute_node()` does not bind extracted values into child-tool arguments: DR1-403, DR1-404 |
 | 612–617 | Answer-type/tool selectors and `source_tool` field | Selected tool is not route authority; response strategy and provenance are not canonical: DR1-301, DR1-308, DR1-508, DR1-509, DR1-707 |
-| 618–622 | Five responder methods | They read legacy raw dictionaries without canonical validity/freshness and several use failure-to-zero/default-empty fallbacks: DR1-106, DR1-501, DR1-502, DR1-505, DR1-707 |
+| 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers and requires valid evidence; canonical fact freshness/provenance still remains: DR1-501, DR1-502, DR1-505, DR1-707 |
 | 623–625 | Per-session TTL cache and engine wiring | Key omits params/timeframe/schema and legacy `success` cannot represent partial validity: DR1-108, DR1-507 |
 | 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
 | 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | Deep links are not time-series evidence or an embed/image response; temporal sufficiency remains unguarded: DR1-308, DR1-406, DR1-407, DR1-503, DR1-707 |
@@ -225,9 +225,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-103 ✅ complete**: `SSHExecutionBackend` distinguishes a missing local ssh client, authentication failure, unreachable/DNS/network failure, connection timeout, remote command-not-found, permission denial, and other remote non-zero exits while retaining remote exit/stderr safely.
 - **DR1-104 ✅ complete**: Child Tool dispatch now supports immutable `CapabilityResult`/`CapabilityStatus` (`VALID`, `VALID_EMPTY`, `PARTIAL`, collection/unsupported/parameter/parse failures), retains command results/warnings/fact names, and wraps legacy payload handlers without turning structured failures into success.
 - **DR1-105 ✅ complete**: capability status, command results, warnings, produced-fact names, and collection failures now propagate through `ToolResult` and `EvidencePackage`; partial payloads remain inspectable but only `VALID`/`VALID_EMPTY` evidence satisfies requirements.
+- **DR1-106 ✅ complete**: Linux command failures, including legacy tuple backends, can no longer become zero/empty/unknown measurements; core collectors omit unavailable facts, prompt summaries do not invent defaults, and deterministic responses require `VALID`/`VALID_EMPTY` evidence plus the specific fact needed for a claim.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-105 complete: structured failure propagation through evidence; DR1-101–104 and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-106 complete: failure-to-zero/default-empty removed; DR1-101–105 and DR1-001–006 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

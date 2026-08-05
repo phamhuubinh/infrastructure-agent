@@ -47,6 +47,15 @@ def _normalize_evidence(data: Any) -> Any:
     return data
 
 
+def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first present non-None field without inventing a default."""
+
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
 def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
     if not isinstance(pkg_data, dict):
         return ""
@@ -81,10 +90,12 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
             parts.append(
                 f"load={load.get('1min', '?')}/{load.get('5min', '?')}/{load.get('15min', '?')}"
             )
-        model = pkg_data.get("model", "")
-        cores = pkg_data.get("cores", 0)
-        if model or cores:
-            parts.insert(0, f"{cores}c {model.split()[0] if model else '?'}")
+        model = pkg_data.get("model")
+        cores = pkg_data.get("cores")
+        if model is not None or cores is not None:
+            core_text = f"{cores}c" if cores is not None else "?c"
+            model_text = str(model).split()[0] if model else "?"
+            parts.insert(0, f"{core_text} {model_text}")
         return "CPU: " + ", ".join(parts) if parts else ""
 
     if evidence_name in ("Memory", "Memory Usage", "Memory Information"):
@@ -103,11 +114,9 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         return "Memory: " + ", ".join(parts) if parts else ""
 
     if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
-        mount_list = (
-            pkg_data.get("disks")
-            or pkg_data.get("mounts")
-            or pkg_data.get("filesystems")
-            or []
+        mount_list = _first_present(
+            pkg_data,
+            ("disks", "mounts", "filesystems"),
         )
         if not isinstance(mount_list, list):
             return ""
@@ -127,7 +136,7 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
                     or m.get("usage_percent")
                     or ""
                 )
-                size = m.get("size_bytes") or m.get("total") or 0
+                size = _first_present(m, ("size_bytes", "total"))
                 if isinstance(size, (int, float)) and size > 0:
                     size_gb = round(size / (1024**3), 1)
                     lines.append(f"{mp} {used} ({size_gb}GB)")
@@ -138,32 +147,39 @@ def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
         return "Disks:\n" + "\n".join(lines) if lines else ""
 
     if evidence_name in ("Services", "Service Status"):
-        total = pkg_data.get("total", 0)
-        failed_list = pkg_data.get("failed_services") or []
-        running = pkg_data.get("running", 0)
-        parts = [f"total={total}", f"running={running}"]
-        if failed_list:
+        parts = []
+        total = pkg_data.get("total")
+        running = pkg_data.get("running")
+        failed_list = pkg_data.get("failed_services")
+        if total is not None:
+            parts.append(f"total={total}")
+        if running is not None:
+            parts.append(f"running={running}")
+        if isinstance(failed_list, list) and failed_list:
             parts.append(
                 f"failed={len(failed_list)}:{','.join(str(s)[:15] for s in failed_list[:3])}"
             )
-        return "Services: " + ", ".join(parts)
+        return "Services: " + ", ".join(parts) if parts else ""
 
     if evidence_name == "Network":
-        ifaces = pkg_data.get("interfaces") or []
-        if not isinstance(ifaces, list):
+        ifaces = pkg_data.get("interfaces")
+        if ifaces is not None and not isinstance(ifaces, list):
             return ""
         parts = []
-        for iface in ifaces[:6]:
-            if isinstance(iface, dict):
-                name = iface.get("name", "?")
-                addr = iface.get("address", iface.get("addr", iface.get("ip", "")))
-                parts.append(f"{name}={addr}")
-        if len(ifaces) > 6:
-            parts.append(f"...+{len(ifaces) - 6}")
-        routes = pkg_data.get("routes", [])
-        if routes:
+        if isinstance(ifaces, list):
+            for iface in ifaces[:6]:
+                if isinstance(iface, dict):
+                    name = iface.get("name", "?")
+                    addr = iface.get(
+                        "address", iface.get("addr", iface.get("ip", ""))
+                    )
+                    parts.append(f"{name}={addr}")
+            if len(ifaces) > 6:
+                parts.append(f"...+{len(ifaces) - 6}")
+        routes = pkg_data.get("routes")
+        if isinstance(routes, list) and routes:
             parts.append(f"routes={len(routes)}")
-        return "Net: " + ", ".join(parts)
+        return "Net: " + ", ".join(parts) if parts else ""
 
     return ""
 
@@ -275,7 +291,7 @@ def build_assessment_prompt(
     lines.append("")
     lines.append("--- Evidence ---")
     for pkg in assessment_request.evidence:
-        if not pkg.success:
+        if not pkg.valid_for_requirements:
             continue
         lines.append(f"=== {pkg.capability_name} ({pkg.evidence_name}) ===")
 

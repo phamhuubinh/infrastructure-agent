@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-105 hoàn thành: capability status/commands/warnings/failures được truyền qua ToolResult → EvidencePackage; partial giữ payload nhưng không thỏa required evidence. DR1-101–104 hoàn thành trước đó: structured command/capability contracts.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-106 hoàn thành: command failure không còn sinh số 0/danh sách rỗng/unknown giả; prompt và deterministic responder chỉ dùng evidence VALID/VALID_EMPTY. DR1-101–105 hoàn thành trước đó: structured command/capability/evidence failure contracts.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -112,7 +112,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-103 | P0 | ✅ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
 | DR1-104 | P0 | ✅ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
 | DR1-105 | P0 | ✅ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
-| DR1-106 | P0 | 🔎 | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
+| DR1-106 | P0 | ✅ | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
 | DR1-107 | P1 | ⬜ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
 | DR1-108 | P0 | 🔎 | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
 | DR1-201 | P0 | ⬜ | EPIC 2 | Khai báo dependency tối thiểu cho Docker runtime | DR1-101 |
@@ -647,24 +647,32 @@ Ngay cả khi handler không ném exception, lỗi thu thập có thể bị coi
 ---
 ### DR1-106 — Loại bỏ toàn bộ failure-to-zero/default-empty
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-104, DR1-105
-- **Files dự kiến:** `src/tool/linux/capabilities/*.py`, `src/model/protocol/prompt_builder_v2.py`, `src/pipeline/deterministic_responder.py`
+- **Files:** `src/tool/linux/__init__.py`, `src/tool/linux/capabilities/{cpu,disk,memory,network,process,service}.py`, `src/model/protocol/prompt_builder_v2.py`, `src/pipeline/deterministic_responder.py`
 
 **Vấn đề**  
 Các giá trị mặc định 0/[] đang được diễn giải như phép đo thật: 0 service, 0 process, CPU 0%, không port.
 
-**Cách làm**
-1. Audit `get(..., 0)`, `or []`, fallback dict trong capability và prompt builder.
-2. Khi thiếu/failed dùng `None` + validity hoặc bỏ fact, không điền zero.
-3. Chỉ tạo `0` khi parser xác nhận output hợp lệ thực sự biểu diễn zero.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ LinuxTool ghi nhận cả backend legacy `(ok, output)`; nếu mọi command đều fail thì
+   capability là COLLECTION_FAILED với `data=None`, còn command thành công rỗng vẫn giữ
+   EMPTY_SUCCESS/valid-empty semantics.
+2. ✅ Collector CPU/memory/disk/network/process/service bỏ field khi probe/parser không tạo
+   được phép đo; số 0 và danh sách rỗng chỉ còn được tạo từ output command thành công.
+3. ✅ Prompt summary không tự chèn `total=0`, `running=0`, core count/size/network list;
+   deterministic responder bảo toàn zero hợp lệ bằng key-presence và chỉ đọc package
+   `valid_for_requirements`.
+4. ✅ Service responder không còn kết luận "all running" chỉ từ total/list length; cần fact
+   `failed=0` đã thu hợp lệ, và partial evidence không được dùng để trả deterministic fact.
 
 **Acceptance criteria**
-- [ ] Không có case command fail nào sinh fact value=0.
-- [ ] Deterministic responder từ chối trả fact nếu validity không VALID/VALID_EMPTY phù hợp.
+- [x] Không có case command fail nào sinh fact value=0.
+- [x] Deterministic responder từ chối trả fact nếu validity không VALID/VALID_EMPTY phù hợp.
 
 **Tests/verification**
-- `Regression tests từ transcript cho service/process/CPU/network`
+- ✅ Tool/Pipeline/Model regressions, gồm service/process/CPU/network — 913 passed.
+- ✅ `ruff check` và focused `mypy` source chạm tới — clean.
 
 ---
 ### DR1-107 — Chuẩn hóa taxonomy lỗi capability

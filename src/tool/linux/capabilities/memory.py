@@ -5,11 +5,13 @@ from collections.abc import Callable
 from .common import _parse_colon_output
 
 
-def _to_int(value: str) -> int:
+def _to_int(value: str | None) -> int | None:
+    if value is None:
+        return None
     try:
-        return int(value.split()[0]) if value.split() else 0
+        return int(value.split()[0]) if value.split() else None
     except ValueError:
-        return 0
+        return None
 
 
 def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -21,25 +23,22 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     """
     ok, output = run(["cat", "/proc/meminfo"])
 
-    raw = _parse_colon_output(output) if ok else {}
+    if not ok:
+        return {}
 
-    total = _to_int(raw.get("MemTotal", "0"))
-    available = _to_int(raw.get("MemAvailable", "0"))
-    free = _to_int(raw.get("MemFree", "0"))
-    usage_percent = round((1 - available / total) * 100, 1) if total > 0 else 0
+    raw = _parse_colon_output(output)
 
-    used = total - available if total > available else 0
+    total = _to_int(raw.get("MemTotal"))
+    available = _to_int(raw.get("MemAvailable"))
+    free = _to_int(raw.get("MemFree"))
 
     # Collect swap info from /proc/meminfo (always available, same file).
-    swap_total = _to_int(raw.get("SwapTotal", "0"))
-    swap_free = _to_int(raw.get("SwapFree", "0"))
-    swap_used = swap_total - swap_free
-    swap_usage_percent = (
-        round((swap_used / swap_total) * 100, 1) if swap_total > 0 else 0
-    )
+    swap_total = _to_int(raw.get("SwapTotal"))
+    swap_free = _to_int(raw.get("SwapFree"))
 
     # Collect top memory consumers via ps.
     top_consumers: list[dict[str, object]] = []
+    ps_ok = False
     try:
         ps_ok, ps_out = run(
             ["ps", "aux", "--sort=-%mem", "--no-headers"],
@@ -62,47 +61,46 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     except Exception:
         pass
 
-    result: dict[str, object] = {
-        "total_kb": total,
-        "used_kb": used,
-        "free_kb": free,
-        "available_kb": available,
-        "usage_percent": usage_percent,
-        "swap_total_kb": swap_total,
-        "swap_used_kb": swap_used,
-        "swap_free_kb": swap_free,
-        "swap_usage_percent": swap_usage_percent,
-        "top_consumers": top_consumers,
-    }
-
-    # Strip empty/none values for cleaner serialization.
-    if swap_total == 0:
-        del result["swap_total_kb"]
-        del result["swap_used_kb"]
-        del result["swap_free_kb"]
-        del result["swap_usage_percent"]
+    result: dict[str, object] = {}
+    if total is not None:
+        result["total_kb"] = total
+    if free is not None:
+        result["free_kb"] = free
+    if available is not None:
+        result["available_kb"] = available
+    if total is not None and available is not None and total > 0:
+        result["used_kb"] = max(total - available, 0)
+        result["usage_percent"] = round((1 - available / total) * 100, 1)
+    if swap_total is not None and swap_free is not None:
+        swap_used = max(swap_total - swap_free, 0)
+        result["swap_total_kb"] = swap_total
+        result["swap_used_kb"] = swap_used
+        result["swap_free_kb"] = swap_free
+        if swap_total > 0:
+            result["swap_usage_percent"] = round(
+                (swap_used / swap_total) * 100, 1
+            )
+    if ps_ok:
+        result["top_consumers"] = top_consumers
 
     return result
 
 
 def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, output = run(["cat", "/proc/meminfo"])
-    if ok:
-        total = 0
-        free = 0
-        for line in output.splitlines():
-            if line.startswith("SwapTotal:"):
-                parts = line.split()
-                total = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-            elif line.startswith("SwapFree:"):
-                parts = line.split()
-                free = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        used = total - free
-        usage_percent = round((used / total) * 100, 1) if total > 0 else 0
-        return {
-            "total_kb": total,
-            "used_kb": used,
-            "free_kb": free,
-            "usage_percent": usage_percent,
-        }
-    return {"total_kb": 0, "used_kb": 0, "free_kb": 0, "usage_percent": 0}
+    if not ok:
+        return {}
+    raw = _parse_colon_output(output)
+    total = _to_int(raw.get("SwapTotal"))
+    free = _to_int(raw.get("SwapFree"))
+    if total is None or free is None:
+        return {}
+    used = max(total - free, 0)
+    result: dict[str, object] = {
+        "total_kb": total,
+        "used_kb": used,
+        "free_kb": free,
+    }
+    if total > 0:
+        result["usage_percent"] = round((used / total) * 100, 1)
+    return result

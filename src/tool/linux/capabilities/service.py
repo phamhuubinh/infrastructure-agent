@@ -23,27 +23,29 @@ def _get_services(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     exited = 0
     failed = 0
 
-    if ok:
-        for line in output.splitlines():
-            parts = line.split(None, 4)
+    if not ok:
+        return {}
 
-            if len(parts) < 4:
-                continue
+    for line in output.splitlines():
+        parts = line.split(None, 4)
 
-            service = {
-                "name": parts[0],
-                "load": parts[1],
-                "active": parts[2],
-                "sub": parts[3],
-                "status": parts[3],
-            }
-            services.append(service)
-            if parts[2] == "active" and parts[3] == "running":
-                running += 1
-            elif parts[3] == "exited":
-                exited += 1
-            elif parts[3] == "failed":
-                failed += 1
+        if len(parts) < 4:
+            continue
+
+        service = {
+            "name": parts[0],
+            "load": parts[1],
+            "active": parts[2],
+            "sub": parts[3],
+            "status": parts[3],
+        }
+        services.append(service)
+        if parts[2] == "active" and parts[3] == "running":
+            running += 1
+        elif parts[3] == "exited":
+            exited += 1
+        elif parts[3] == "failed":
+            failed += 1
 
     failed_names = [s["name"] for s in services if s["sub"] == "failed"]
 
@@ -69,7 +71,7 @@ def _search_service(
         ["systemctl", "list-units", "--type=service", "--no-legend", "--no-pager"]
     )
     if not ok:
-        return {"matches": [], "count": 0, "query": query}
+        return {}
     matches = []
     query_lower = query.lower()
     for line in output.splitlines():
@@ -94,12 +96,7 @@ def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, output = run(["docker", "--version"])
 
     if not ok:
-        return {
-            "installed": False,
-            "version": None,
-            "containers": [],
-            "container_count": 0,
-        }
+        return {}
 
     version = output.strip()
     containers: list[dict[str, object]] = []
@@ -134,14 +131,13 @@ def _get_service(
     if not name:
         return {"error": "Missing service name."}
     ok, output = run(["systemctl", "is-active", name])
-    active_status = output.strip() if ok else "unknown"
     ok2, output2 = run(["systemctl", "is-enabled", name])
-    enabled_status = output2.strip() if ok2 else "unknown"
-    return {
-        "name": name,
-        "active": active_status,
-        "enabled": enabled_status,
-    }
+    result: dict[str, object] = {"name": name}
+    if ok and output.strip():
+        result["active"] = output.strip()
+    if ok2 and output2.strip():
+        result["enabled"] = output2.strip()
+    return result
 
 
 def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -151,7 +147,7 @@ def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, version = run(["lxd", "--version"])
 
     if not ok:
-        return {"installed": False, "version": None, "containers": []}
+        return {}
 
     containers: list[object] = []
 

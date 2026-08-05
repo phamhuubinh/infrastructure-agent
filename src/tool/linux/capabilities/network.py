@@ -12,6 +12,7 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     ok, output = run(["ip", "-o", "addr", "show"])
 
+    result: dict[str, object] = {}
     if ok:
         for line in output.splitlines():
             parts = line.split()
@@ -26,11 +27,14 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                     "address": parts[3],
                 }
             )
+        result["interfaces"] = interfaces
+        result["interface_count"] = len(interface_names)
 
     routes: list[str] = []
     ok, output = run(["ip", "route"])
     if ok:
         routes = [line.strip() for line in output.splitlines() if line.strip()]
+        result["routes"] = routes
 
     ok2, link_output = run(["ip", "-o", "link", "show"])
     active_interfaces = 0
@@ -40,13 +44,9 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 ifname2 = line.split(":")[1].strip() if ":" in line else ""
                 if ifname2:
                     active_interfaces += 1
+        result["active_interfaces"] = active_interfaces
 
-    return {
-        "interfaces": interfaces,
-        "interface_count": len(interface_names),
-        "active_interfaces": active_interfaces,
-        "routes": routes,
-    }
+    return result
 
 
 def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -69,7 +69,8 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             if len(parts) >= 2:
                 nameservers.append(parts[1])
 
-    return {"nameservers": nameservers}
+        return {"nameservers": nameservers}
+    return {}
 
 
 def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
@@ -101,7 +102,14 @@ def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
         if ok2:
             interfaces = _parse_proc_net_dev(dev_output)
 
-    return {"interface_stats": interfaces, "interface_stat_count": len(interfaces)}
+    if interfaces:
+        return {
+            "interface_stats": interfaces,
+            "interface_stat_count": len(interfaces),
+        }
+    if ok or ok2:
+        return {"interface_stats": [], "interface_stat_count": 0}
+    return {}
 
 
 def _parse_ip_stats_line(line: str) -> dict[str, object]:
@@ -255,10 +263,12 @@ def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ports: list[dict[str, object]] = []
+    succeeded = False
 
     for proto in ("tcp", "udp"):
         ok, output = run(["ss", f"-l{proto[0]}np"])
         if ok:
+            succeeded = True
             for line in output.splitlines()[1:]:
                 parts = line.split()
                 if len(parts) >= 4:
@@ -282,4 +292,6 @@ def _get_listening_ports(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
                                 "process": process,
                             }
                         )
+    if not succeeded:
+        return {}
     return {"ports": ports, "port_count": len(ports)}

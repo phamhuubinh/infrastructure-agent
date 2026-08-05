@@ -19,23 +19,27 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     processes: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
-            parts = line.split(None, 3)
+    if not ok:
+        return {}
 
-            if len(parts) < 4:
-                continue
+    for line in output.splitlines():
+        parts = line.split(None, 3)
 
-            pid, pcpu, pmem, args = parts
+        if len(parts) < 4:
+            continue
 
-            processes.append(
-                {
-                    "pid": int(pid) if pid.isdigit() else 0,
-                    "command": args,
-                    "cpu_percent": pcpu,
-                    "memory_percent": pmem,
-                }
-            )
+        pid, pcpu, pmem, args = parts
+        if not pid.isdigit():
+            continue
+
+        processes.append(
+            {
+                "pid": int(pid),
+                "command": args,
+                "cpu_percent": pcpu,
+                "memory_percent": pmem,
+            }
+        )
 
     def _try_float(v: object) -> float:
         try:
@@ -43,9 +47,9 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                 return float(v)
             if isinstance(v, str):
                 return float(v)
-            return 0.0
+            return float("-inf")
         except (ValueError, TypeError):
-            return 0.0
+            return float("-inf")
 
     # Sort by memory descending, take top 5 for summary
     sorted_procs = sorted(
@@ -97,7 +101,7 @@ def _search_process(
         return {"error": "Missing query parameter."}
     ok, output = run(["ps", "-eo", "pid,args", "--no-headers"])
     if not ok:
-        return {"matches": [], "count": 0, "query": query}
+        return {}
     matches = []
     query_lower = query.lower()
     for line in output.splitlines():

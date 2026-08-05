@@ -4,7 +4,7 @@ import inspect
 import time as _time
 
 from src.shared.capability import Capability
-from src.shared.execution.command_result import CommandResult
+from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error, info
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
@@ -548,11 +548,40 @@ class LinuxTool(Tool):
                 pass
 
         command_results: list[CommandResult] = []
+        legacy_command_results: list[CommandResult] = []
 
         def tracked_run(command: list[str], timeout: int = 15):
             result = self._run(command, timeout=timeout)
             if isinstance(result, CommandResult):
                 command_results.append(result)
+            elif (
+                isinstance(result, tuple)
+                and len(result) == 2
+                and isinstance(result[0], bool)
+                and isinstance(result[1], str)
+            ):
+                # Temporary compatibility backends and tests still return the
+                # historical ``(ok, output)`` pair.  Record that outcome too,
+                # otherwise a failed legacy command can be wrapped as VALID
+                # merely because its handler manufactured a default payload.
+                ok, output = result
+                legacy_command_results.append(
+                    CommandResult(
+                        status=(
+                            CommandStatus.SUCCESS
+                            if ok and output
+                            else CommandStatus.EMPTY_SUCCESS
+                            if ok
+                            else CommandStatus.NON_ZERO_EXIT
+                        ),
+                        exit_code=0 if ok else None,
+                        stdout=output if ok else "",
+                        stderr="" if ok else output,
+                        error_type=None if ok else "LegacyCommandFailure",
+                        command_id=f"legacy:{command[0] if command else 'empty'}",
+                        target=str(host),
+                    )
+                )
             return result
 
         try:
@@ -578,12 +607,25 @@ class LinuxTool(Tool):
                 command_results=tuple(command_results),
             )
 
+        # Legacy tuple adapters cannot declare intentional fallback attempts.
+        # If at least one legacy command succeeded, retain only those successes
+        # and let handlers omit fields from failed optional probes.  If every
+        # attempt failed, retain them all so manufactured defaults cannot pass.
+        effective_command_results = tuple(command_results)
+        if not effective_command_results and legacy_command_results:
+            legacy_successes = tuple(
+                result for result in legacy_command_results if result.success
+            )
+            effective_command_results = legacy_successes or tuple(
+                legacy_command_results
+            )
+
         capability_result = (
             output
             if isinstance(output, CapabilityResult)
             else CapabilityResult.from_legacy(
                 output,
-                command_results=tuple(command_results),
+                command_results=effective_command_results,
             )
         )
 

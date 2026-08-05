@@ -18,28 +18,32 @@ def _get_disk(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     disks: list[dict[str, object]] = []
 
-    if ok:
-        lines = output.splitlines()[1:]
+    if not ok:
+        return {}
 
-        for line in lines:
-            parts = line.split(None, 6)
+    lines = output.splitlines()[1:]
 
-            if len(parts) < 7:
-                continue
+    for line in lines:
+        parts = line.split(None, 6)
 
-            source, fstype, size, used, avail, pcent, target = parts
+        if len(parts) < 7:
+            continue
 
-            disks.append(
-                {
-                    "source": source,
-                    "fstype": fstype,
-                    "size_bytes": int(size) if size.isdigit() else 0,
-                    "used_bytes": int(used) if used.isdigit() else 0,
-                    "available_bytes": int(avail) if avail.isdigit() else 0,
-                    "use_percent": pcent,
-                    "target": target,
-                }
-            )
+        source, fstype, size, used, avail, pcent, target = parts
+        if not all(value.isdigit() for value in (size, used, avail)):
+            continue
+
+        disks.append(
+            {
+                "source": source,
+                "fstype": fstype,
+                "size_bytes": int(size),
+                "used_bytes": int(used),
+                "available_bytes": int(avail),
+                "use_percent": pcent,
+                "target": target,
+            }
+        )
 
     high_usage = [
         d
@@ -62,20 +66,22 @@ def _get_filesystem(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     mounts: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
-            parts = line.split()
+    if not ok:
+        return {}
 
-            if len(parts) < 3:
-                continue
+    for line in output.splitlines():
+        parts = line.split()
 
-            mounts.append(
-                {
-                    "device": parts[0],
-                    "mountpoint": parts[1],
-                    "fstype": parts[2],
-                }
-            )
+        if len(parts) < 3:
+            continue
+
+        mounts.append(
+            {
+                "device": parts[0],
+                "mountpoint": parts[1],
+                "fstype": parts[2],
+            }
+        )
 
     return {"mounts": mounts}
 
@@ -96,12 +102,13 @@ def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]
 
     devices: list[object] = []
 
-    if ok:
-        try:
-            data = json.loads(output)
-            devices = data.get("blockdevices", [])
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            devices = []
+    if not ok:
+        return {}
+    try:
+        data = json.loads(output)
+        devices = data.get("blockdevices", [])
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return {}
 
     return {"devices": devices}
 
@@ -113,18 +120,19 @@ def _get_disk_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 def _get_filesystem_health(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     ok, output = run(["cat", "/proc/mounts"])
     mounts: list[dict[str, object]] = []
-    if ok:
-        for line in output.splitlines():
-            parts = line.split()
-            if len(parts) >= 3:
-                mounts.append(
-                    {
-                        "device": parts[0],
-                        "mountpoint": parts[1],
-                        "fstype": parts[2],
-                        "options": parts[3] if len(parts) > 3 else "",
-                    }
-                )
+    if not ok:
+        return {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            mounts.append(
+                {
+                    "device": parts[0],
+                    "mountpoint": parts[1],
+                    "fstype": parts[2],
+                    "options": parts[3] if len(parts) > 3 else "",
+                }
+            )
     ro_mounts = [
         m
         for m in mounts

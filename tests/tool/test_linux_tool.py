@@ -2,7 +2,16 @@ from __future__ import annotations
 
 import pytest
 
+from src.tool.capability_result import CapabilityStatus
 from src.tool.linux_tool import LinuxTool
+
+
+def _assert_collection_failed_without_data(result) -> None:
+    assert result.success is False
+    assert result.capability_status is CapabilityStatus.COLLECTION_FAILED
+    assert result.data is None
+    assert result.command_results
+    assert all(not command.success for command in result.command_results)
 
 
 def test_execute_raises_on_missing_action() -> None:
@@ -86,7 +95,9 @@ def test_get_system_falls_back_to_lsb_release(monkeypatch) -> None:
     }
 
 
-def test_get_system_returns_unknown_when_all_sources_fail(monkeypatch) -> None:
+def test_get_system_does_not_fabricate_unknowns_when_all_sources_fail(
+    monkeypatch,
+) -> None:
     def fake_run(command, timeout=5):
         return False, ""
 
@@ -99,12 +110,7 @@ def test_get_system_returns_unknown_when_all_sources_fail(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_system"})
 
-    assert result.success is True
-    assert result.data == {
-        "os": {"name": "unknown", "version": "unknown", "id": "unknown"},
-        "hostname": "unknown",
-        "kernel": "unknown",
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_network_parses_interfaces_and_routes(monkeypatch) -> None:
@@ -138,7 +144,7 @@ def test_get_network_parses_interfaces_and_routes(monkeypatch) -> None:
     ]
 
 
-def test_get_network_returns_empty_lists_on_failure(monkeypatch) -> None:
+def test_get_network_does_not_fabricate_empty_facts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -148,13 +154,7 @@ def test_get_network_returns_empty_lists_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_network"})
 
-    assert result.success is True
-    assert result.data == {
-        "interfaces": [],
-        "routes": [],
-        "interface_count": 0,
-        "active_interfaces": 0,
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_services_parses_systemctl_output(monkeypatch) -> None:
@@ -180,7 +180,7 @@ def test_get_services_parses_systemctl_output(monkeypatch) -> None:
     assert result.data["running"] == 2
 
 
-def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_services_does_not_fabricate_zero_counts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -190,15 +190,7 @@ def test_get_services_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_services"})
 
-    assert result.success is True
-    assert result.data == {
-        "total": 0,
-        "running": 0,
-        "exited": 0,
-        "failed": 0,
-        "failed_services": [],
-        "services": [],
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_docker_reports_installed_version(monkeypatch) -> None:
@@ -226,7 +218,7 @@ def test_get_docker_reports_installed_version(monkeypatch) -> None:
     assert "containers" in result.data
 
 
-def test_get_docker_reports_not_installed(monkeypatch) -> None:
+def test_get_docker_does_not_report_not_installed_on_probe_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -236,9 +228,7 @@ def test_get_docker_reports_not_installed(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_docker"})
 
-    assert result.success is True
-    assert result.data["installed"] is False
-    assert result.data["container_count"] == 0
+    _assert_collection_failed_without_data(result)
 
 
 def test_execute_reports_unknown_action_includes_new_capabilities() -> None:
@@ -286,11 +276,11 @@ def test_get_cpu_parses_model_and_cores(monkeypatch) -> None:
     assert result.data["model"] == "Intel(R) Core(TM) i7-9700"
     assert result.data["cores"] == 4
     assert "threads" in result.data
-    assert "usage" in result.data
-    assert "load" in result.data
+    assert "usage" not in result.data
+    assert "load" not in result.data
 
 
-def test_get_cpu_returns_defaults_on_failure(monkeypatch) -> None:
+def test_get_cpu_does_not_fabricate_zero_values_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -300,12 +290,7 @@ def test_get_cpu_returns_defaults_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_cpu"})
 
-    assert result.success is True
-    assert result.data["model"] == "unknown"
-    assert result.data["cores"] == 0
-    assert "threads" in result.data
-    assert "usage" in result.data
-    assert "load" in result.data
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_memory_parses_meminfo(monkeypatch) -> None:
@@ -334,11 +319,10 @@ def test_get_memory_parses_meminfo(monkeypatch) -> None:
         "free_kb": 2048000,
         "available_kb": 8192000,
         "usage_percent": 50.0,
-        "top_consumers": [],
     }
 
 
-def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
+def test_get_memory_does_not_fabricate_zero_values_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -348,15 +332,7 @@ def test_get_memory_returns_zeros_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_memory"})
 
-    assert result.success is True
-    assert result.data == {
-        "total_kb": 0,
-        "used_kb": 0,
-        "free_kb": 0,
-        "available_kb": 0,
-        "usage_percent": 0,
-        "top_consumers": [],
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_disk_parses_df_output(monkeypatch) -> None:
@@ -383,7 +359,7 @@ def test_get_disk_parses_df_output(monkeypatch) -> None:
     assert result.data["disks"][0]["source"] == "/dev/sda1"
 
 
-def test_get_disk_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_disk_does_not_fabricate_empty_facts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -393,8 +369,7 @@ def test_get_disk_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_disk"})
 
-    assert result.success is True
-    assert result.data == {"disks": [], "disk_count": 0, "high_usage_count": 0}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_filesystem_parses_proc_mounts(monkeypatch) -> None:
@@ -423,7 +398,7 @@ def test_get_filesystem_parses_proc_mounts(monkeypatch) -> None:
     }
 
 
-def test_get_filesystem_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_filesystem_does_not_fabricate_empty_facts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -433,8 +408,7 @@ def test_get_filesystem_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_filesystem"})
 
-    assert result.success is True
-    assert result.data == {"mounts": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_dns_parses_resolv_conf(monkeypatch) -> None:
@@ -456,7 +430,7 @@ def test_get_dns_parses_resolv_conf(monkeypatch) -> None:
     assert result.data == {"nameservers": ["8.8.8.8", "1.1.1.1"]}
 
 
-def test_get_dns_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_dns_does_not_fabricate_empty_facts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -466,8 +440,7 @@ def test_get_dns_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_dns"})
 
-    assert result.success is True
-    assert result.data == {"nameservers": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_process_parses_ps_output(monkeypatch) -> None:
@@ -493,7 +466,7 @@ def test_get_process_parses_ps_output(monkeypatch) -> None:
     assert len(result.data["top_cpu"]) == 2
 
 
-def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_process_does_not_fabricate_zero_counts_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -503,12 +476,7 @@ def test_get_process_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_process"})
 
-    assert result.success is True
-    assert result.data["total"] == 0
-    assert result.data["top_memory"] == []
-    assert result.data["top_cpu"] == []
-    assert "summary" in result.data
-    assert "zombie_count" in result.data
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_user_parses_etc_passwd(monkeypatch) -> None:
@@ -550,7 +518,7 @@ def test_get_user_parses_etc_passwd(monkeypatch) -> None:
     }
 
 
-def test_get_user_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_user_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -560,8 +528,7 @@ def test_get_user_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_user"})
 
-    assert result.success is True
-    assert result.data == {"users": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_package_returns_count_summary(monkeypatch) -> None:
@@ -605,7 +572,9 @@ def test_get_package_falls_back_to_rpm(monkeypatch) -> None:
     assert result.data["package_count"] == 2
 
 
-def test_get_package_returns_empty_count_when_no_package_manager(monkeypatch) -> None:
+def test_get_package_does_not_fabricate_zero_when_all_probes_fail(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -615,8 +584,7 @@ def test_get_package_returns_empty_count_when_no_package_manager(monkeypatch) ->
     tool = LinuxTool()
     result = tool.execute({"action": "get_package"})
 
-    assert result.success is True
-    assert result.data["package_count"] == 0
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
@@ -646,7 +614,7 @@ def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
     }
 
 
-def test_get_ssh_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_ssh_does_not_fabricate_defaults_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -656,14 +624,7 @@ def test_get_ssh_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_ssh"})
 
-    assert result.success is True
-    assert result.data == {
-        "port": "22 (default, not set in sshd_config)",
-        "permit_root_login": "prohibit-password (default, not set in sshd_config)",
-        "password_authentication": "yes (default, not set in sshd_config)",
-        "active": "unknown",
-        "has_config": False,
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_hardware_reads_dmidecode(monkeypatch) -> None:
@@ -693,7 +654,7 @@ def test_get_hardware_reads_dmidecode(monkeypatch) -> None:
     }
 
 
-def test_get_hardware_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_hardware_does_not_fabricate_unknowns_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -703,12 +664,7 @@ def test_get_hardware_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_hardware"})
 
-    assert result.success is True
-    assert result.data == {
-        "manufacturer": "unknown",
-        "product": "unknown",
-        "serial": "unknown",
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_pci_parses_lspci_output(monkeypatch) -> None:
@@ -737,7 +693,7 @@ def test_get_pci_parses_lspci_output(monkeypatch) -> None:
     }
 
 
-def test_get_pci_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_pci_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -747,8 +703,7 @@ def test_get_pci_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_pci"})
 
-    assert result.success is True
-    assert result.data == {"devices": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_usb_parses_lsusb_output(monkeypatch) -> None:
@@ -779,7 +734,7 @@ def test_get_usb_parses_lsusb_output(monkeypatch) -> None:
     }
 
 
-def test_get_usb_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_usb_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -789,8 +744,7 @@ def test_get_usb_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_usb"})
 
-    assert result.success is True
-    assert result.data == {"devices": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_gpu_filters_vga_controllers(monkeypatch) -> None:
@@ -822,7 +776,7 @@ def test_get_gpu_filters_vga_controllers(monkeypatch) -> None:
     }
 
 
-def test_get_gpu_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_gpu_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -832,8 +786,7 @@ def test_get_gpu_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_gpu"})
 
-    assert result.success is True
-    assert result.data == {"gpus": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_block_device_parses_lsblk_json(monkeypatch) -> None:
@@ -868,7 +821,9 @@ def test_get_block_device_parses_lsblk_json(monkeypatch) -> None:
     }
 
 
-def test_get_block_device_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_block_device_does_not_fabricate_empty_facts_on_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -878,8 +833,7 @@ def test_get_block_device_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_block_device"})
 
-    assert result.success is True
-    assert result.data == {"devices": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_block_device_returns_empty_list_on_invalid_json(monkeypatch) -> None:
@@ -893,7 +847,7 @@ def test_get_block_device_returns_empty_list_on_invalid_json(monkeypatch) -> Non
     result = tool.execute({"action": "get_block_device"})
 
     assert result.success is True
-    assert result.data == {"devices": []}
+    assert result.data == {}
 
 
 def test_get_secureboot_reports_enabled(monkeypatch) -> None:
@@ -910,7 +864,7 @@ def test_get_secureboot_reports_enabled(monkeypatch) -> None:
     assert result.data == {"enabled": True}
 
 
-def test_get_secureboot_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_secureboot_does_not_fabricate_unknown_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -920,8 +874,7 @@ def test_get_secureboot_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_secureboot"})
 
-    assert result.success is True
-    assert result.data == {"enabled": "unknown"}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_apparmor_reports_enabled(monkeypatch) -> None:
@@ -952,7 +905,7 @@ def test_get_apparmor_reports_disabled(monkeypatch) -> None:
     assert result.data == {"enabled": False}
 
 
-def test_get_apparmor_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_apparmor_does_not_fabricate_unknown_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -962,8 +915,7 @@ def test_get_apparmor_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_apparmor"})
 
-    assert result.success is True
-    assert result.data == {"enabled": "unknown"}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_selinux_reports_status(monkeypatch) -> None:
@@ -989,7 +941,9 @@ def test_get_selinux_reports_status(monkeypatch) -> None:
     assert result.data == {"status": "Enforcing", "installed": True}
 
 
-def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_selinux_does_not_report_not_installed_on_probe_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -999,8 +953,7 @@ def test_get_selinux_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_selinux"})
 
-    assert result.success is True
-    assert result.data == {"status": "not installed", "installed": False}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_firewall_prefers_ufw_active(monkeypatch) -> None:
@@ -1102,7 +1055,9 @@ def test_get_firewall_falls_back_to_nftables(monkeypatch) -> None:
     assert result.data["active"] is True
 
 
-def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
+def test_get_firewall_does_not_report_inactive_when_all_probes_fail(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1112,8 +1067,7 @@ def test_get_firewall_returns_unknown_when_no_backend(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_firewall"})
 
-    assert result.success is True
-    assert result.data == {"backend": "unknown", "active": False}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_certificate_lists_filenames(monkeypatch) -> None:
@@ -1137,7 +1091,9 @@ def test_get_certificate_lists_filenames(monkeypatch) -> None:
     }
 
 
-def test_get_certificate_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_certificate_does_not_fabricate_empty_list_on_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1147,8 +1103,7 @@ def test_get_certificate_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_certificate"})
 
-    assert result.success is True
-    assert result.data == {"certificates": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_journal_returns_entries(monkeypatch) -> None:
@@ -1170,7 +1125,7 @@ def test_get_journal_returns_entries(monkeypatch) -> None:
     assert result.data == {"entries": ["Jul 07 10:00:00 host sshd[1]: started"]}
 
 
-def test_get_journal_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_journal_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1180,8 +1135,7 @@ def test_get_journal_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_journal"})
 
-    assert result.success is True
-    assert result.data == {"entries": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_log_prefers_syslog(monkeypatch) -> None:
@@ -1227,7 +1181,7 @@ def test_get_log_falls_back_to_messages(monkeypatch) -> None:
     assert result.data == {"source": "/var/log/messages", "lines": ["line one"]}
 
 
-def test_get_log_returns_unknown_when_no_log_file(monkeypatch) -> None:
+def test_get_log_does_not_fabricate_unknown_source_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1237,8 +1191,7 @@ def test_get_log_returns_unknown_when_no_log_file(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_log"})
 
-    assert result.success is True
-    assert result.data == {"source": "unknown", "lines": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_time_parses_timedatectl(monkeypatch) -> None:
@@ -1268,7 +1221,7 @@ def test_get_time_parses_timedatectl(monkeypatch) -> None:
     }
 
 
-def test_get_time_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_time_does_not_fabricate_unknown_fields_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1278,12 +1231,7 @@ def test_get_time_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_time"})
 
-    assert result.success is True
-    assert result.data == {
-        "local_time": "unknown",
-        "time_zone": "unknown",
-        "ntp_synchronized": "unknown",
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_locale_parses_key_value_pairs(monkeypatch) -> None:
@@ -1305,7 +1253,7 @@ def test_get_locale_parses_key_value_pairs(monkeypatch) -> None:
     assert result.data == {"locale": {"LANG": "en_US.UTF-8", "LC_TIME": "en_US.UTF-8"}}
 
 
-def test_get_locale_returns_empty_dict_on_failure(monkeypatch) -> None:
+def test_get_locale_does_not_fabricate_empty_dict_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1315,8 +1263,7 @@ def test_get_locale_returns_empty_dict_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_locale"})
 
-    assert result.success is True
-    assert result.data == {"locale": {}}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_environment_returns_names_not_values(monkeypatch) -> None:
@@ -1339,7 +1286,9 @@ def test_get_environment_returns_names_not_values(monkeypatch) -> None:
     assert "<redacted>" not in str(result.data)
 
 
-def test_get_environment_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_environment_does_not_fabricate_empty_list_on_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1349,8 +1298,7 @@ def test_get_environment_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_environment"})
 
-    assert result.success is True
-    assert result.data == {"variables": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_session_parses_who_output(monkeypatch) -> None:
@@ -1379,7 +1327,7 @@ def test_get_session_parses_who_output(monkeypatch) -> None:
     }
 
 
-def test_get_session_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_session_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1389,8 +1337,7 @@ def test_get_session_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_session"})
 
-    assert result.success is True
-    assert result.data == {"sessions": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_module_parses_lsmod_output(monkeypatch) -> None:
@@ -1415,7 +1362,7 @@ def test_get_module_parses_lsmod_output(monkeypatch) -> None:
     assert result.data == {"modules": [{"name": "nf_tables", "size": "200000"}]}
 
 
-def test_get_module_returns_empty_list_on_failure(monkeypatch) -> None:
+def test_get_module_does_not_fabricate_empty_list_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1425,11 +1372,10 @@ def test_get_module_returns_empty_list_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_module"})
 
-    assert result.success is True
-    assert result.data == {"modules": []}
+    _assert_collection_failed_without_data(result)
 
 
-def test_get_lxd_reports_not_installed(monkeypatch) -> None:
+def test_get_lxd_does_not_report_not_installed_on_probe_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1439,8 +1385,7 @@ def test_get_lxd_reports_not_installed(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_lxd"})
 
-    assert result.success is True
-    assert result.data == {"installed": False, "version": None, "containers": []}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_lxd_reports_installed_with_containers(monkeypatch) -> None:
@@ -1685,7 +1630,7 @@ def test_get_uptime_parses_proc_uptime(monkeypatch) -> None:
     assert result.data["uptime_days"] == 0.1
 
 
-def test_get_uptime_returns_zero_on_failure(monkeypatch) -> None:
+def test_get_uptime_does_not_fabricate_zero_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1695,8 +1640,7 @@ def test_get_uptime_returns_zero_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_uptime"})
 
-    assert result.success is True
-    assert result.data == {"uptime_seconds": 0, "uptime_hours": 0, "uptime_days": 0}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_boot_time_parses_who_b(monkeypatch) -> None:
@@ -1716,7 +1660,7 @@ def test_get_boot_time_parses_who_b(monkeypatch) -> None:
     assert result.data == {"boot_time": "system boot  2024-01-15 10:00"}
 
 
-def test_get_boot_time_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_boot_time_does_not_fabricate_unknown_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1726,8 +1670,7 @@ def test_get_boot_time_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_boot_time"})
 
-    assert result.success is True
-    assert result.data == {"boot_time": "unknown"}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_cpu_usage_parses_top_output(monkeypatch) -> None:
@@ -1749,7 +1692,7 @@ def test_get_cpu_usage_parses_top_output(monkeypatch) -> None:
     assert result.data["idle"] == 92.6
 
 
-def test_get_cpu_usage_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_cpu_usage_does_not_fabricate_zero_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1759,8 +1702,7 @@ def test_get_cpu_usage_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_cpu_usage"})
 
-    assert result.success is True
-    assert result.data == {"raw": "unknown", "user": 0, "system": 0, "idle": 0}
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_swap_parses_meminfo(monkeypatch) -> None:
@@ -1785,7 +1727,7 @@ def test_get_swap_parses_meminfo(monkeypatch) -> None:
     }
 
 
-def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
+def test_get_swap_does_not_fabricate_zero_values_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1795,13 +1737,7 @@ def test_get_swap_returns_zeros_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_swap"})
 
-    assert result.success is True
-    assert result.data == {
-        "total_kb": 0,
-        "used_kb": 0,
-        "free_kb": 0,
-        "usage_percent": 0,
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_service_checks_specific_service(monkeypatch) -> None:
@@ -1825,7 +1761,7 @@ def test_get_service_checks_specific_service(monkeypatch) -> None:
     assert result.data == {"name": "ssh", "active": "active", "enabled": "enabled"}
 
 
-def test_get_service_returns_unknown_on_failure(monkeypatch) -> None:
+def test_get_service_does_not_fabricate_unknown_status_on_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1835,12 +1771,7 @@ def test_get_service_returns_unknown_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_service", "name": "nonexistent"})
 
-    assert result.success is True
-    assert result.data == {
-        "name": "nonexistent",
-        "active": "unknown",
-        "enabled": "unknown",
-    }
+    _assert_collection_failed_without_data(result)
 
 
 def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
@@ -1871,7 +1802,9 @@ def test_get_listening_ports_parses_ss_output(monkeypatch) -> None:
     assert any(p["port"] == "443" for p in tcp_ports)
 
 
-def test_get_listening_ports_returns_empty_on_failure(monkeypatch) -> None:
+def test_get_listening_ports_does_not_fabricate_zero_count_on_failure(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(
         LinuxTool,
         "_run",
@@ -1881,6 +1814,4 @@ def test_get_listening_ports_returns_empty_on_failure(monkeypatch) -> None:
     tool = LinuxTool()
     result = tool.execute({"action": "get_listening_ports"})
 
-    assert result.success is True
-    assert result.data["port_count"] == 0
-    assert result.data["ports"] == []
+    _assert_collection_failed_without_data(result)
