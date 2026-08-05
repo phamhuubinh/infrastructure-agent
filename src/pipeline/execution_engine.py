@@ -199,7 +199,7 @@ class ExecutionEngine:
         if self._evidence_cache is not None:
             _target = state.target or "localhost"
             for pkg in temp_req.evidence:
-                if pkg.success:
+                if pkg.valid_for_requirements:
                     self._evidence_cache.put(_target, pkg.evidence_name, pkg)
 
         # Attach metrics
@@ -311,7 +311,7 @@ class ExecutionEngine:
         if self._evidence_cache is not None:
             _target = request.target or "localhost"
             for pkg in request.evidence:
-                if pkg.success:
+                if pkg.valid_for_requirements:
                     self._evidence_cache.put(_target, pkg.evidence_name, pkg)
 
         # Attach metrics to the request for observability.
@@ -334,7 +334,10 @@ class ExecutionEngine:
         for node in graph.nodes:
             evidence_name = node.execution_step.capability.evidence_name
             cached = self._evidence_cache.get(target, evidence_name)
-            if isinstance(cached, EvidencePackage) and cached.success:
+            if (
+                isinstance(cached, EvidencePackage)
+                and cached.valid_for_requirements
+            ):
                 cached_by_name.setdefault(evidence_name, cached)
                 cached_capabilities.add(node.execution_step.capability.name)
             else:

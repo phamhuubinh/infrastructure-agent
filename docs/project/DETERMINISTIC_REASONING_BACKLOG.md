@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-107 hoàn thành: taxonomy lỗi machine-readable phân biệt transport/environment/command/parameter/parser/source API/internal và retry chỉ dựa trên cờ recoverable. DR1-101–106 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-108 hoàn thành: cache chỉ nhận/trả evidence VALID/VALID_EMPTY; failed/partial không tạo cache hit và request sau sẽ recollect khi nguồn phục hồi. DR1-101–107 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -114,7 +114,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-105 | P0 | ✅ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
 | DR1-106 | P0 | ✅ | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
 | DR1-107 | P1 | ✅ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
-| DR1-108 | P0 | 🔎 | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
+| DR1-108 | P0 | ✅ | EPIC 1 | Không cache failed/partial evidence như valid | DR1-105 |
 | DR1-201 | P0 | ⬜ | EPIC 2 | Khai báo dependency tối thiểu cho Docker runtime | DR1-101 |
 | DR1-202 | P0 | ⬜ | EPIC 2 | Làm rõ semantics của target `localhost` | DR1-201 |
 | DR1-203 | P1 | ⬜ | EPIC 2 | Thêm target preflight và environment fingerprint | DR1-101, DR1-202 |
@@ -718,24 +718,31 @@ Fallback/retry chỉ an toàn khi error contract thống nhất.
 ---
 ### DR1-108 — Không cache failed/partial evidence như valid
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-105
-- **Files dự kiến:** `src/pipeline/evidence_cache.py`, `src/pipeline/execution_engine.py`
+- **Files:** `src/pipeline/evidence_cache.py`, `src/pipeline/execution_engine.py`, `tests/pipeline/test_evidence_cache.py`, `tests/pipeline/test_execution_engine.py`
 
 **Vấn đề**  
 Cache lỗi dưới key evidence làm các turn sau tiếp tục dùng dữ liệu không hợp lệ.
 
-**Cách làm**
-1. Cache chỉ VALID/VALID_EMPTY theo policy.
-2. PARTIAL chỉ cache nếu có explicit partial policy và key chứa required subset.
-3. Không cache transport failure; có thể dùng short negative backoff riêng nhưng không trả như evidence.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ EvidenceCache `put()` chỉ nhận EvidencePackage VALID/VALID_EMPTY và trả boolean policy
+   result; PARTIAL/failed bị từ chối, không tạo negative cache.
+2. ✅ `get()` kiểm tra lại validity và tự loại invalid entry từ state/phiên bản cũ để invalid
+   package không thể trở thành hit hợp lệ.
+3. ✅ Cả mutable và immutable ExecutionEngine chỉ ghi package `valid_for_requirements`;
+   `_without_cached_nodes()` chỉ bỏ runtime node khi cached package vẫn hợp lệ.
+4. ✅ Recovery regression chứng minh request lỗi đầu không cache, request sau recollect được
+   evidence mới khi nguồn phục hồi, và request kế tiếp mới dùng cache hit.
 
 **Acceptance criteria**
-- [ ] Failed package không xuất hiện như cache hit hợp lệ.
-- [ ] Retry request sau khi nguồn phục hồi thu được evidence mới.
+- [x] Failed package không xuất hiện như cache hit hợp lệ.
+- [x] Retry request sau khi nguồn phục hồi thu được evidence mới.
 
 **Tests/verification**
-- `tests/pipeline/test_evidence_cache.py`
+- ✅ Cache/engine/evidence focused selection — 59 passed.
+- ✅ Tool/Pipeline/Model regressions — 943 passed.
+- ✅ `ruff check`; focused `mypy --ignore-missing-imports` source chạm tới — clean.
 
 ---
 

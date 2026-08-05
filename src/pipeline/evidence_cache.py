@@ -4,6 +4,8 @@ import threading
 import time as _time
 from dataclasses import dataclass
 
+from src.pipeline.evidence_package import EvidencePackage
+
 
 @dataclass(frozen=True)
 class CacheKey:
@@ -58,19 +60,30 @@ class EvidenceCache:
             if _time.monotonic() - timestamp > self._ttl:
                 del self._cache[key]
                 return None
+            if isinstance(data, EvidencePackage) and not data.valid_for_requirements:
+                # Defense in depth for entries created by older versions or
+                # direct state restoration. Invalid evidence is never a hit.
+                del self._cache[key]
+                return None
             return data
 
-    def put(self, target: str, evidence_name: str, data: object) -> None:
-        """Store evidence in the cache.
+    def put(self, target: str, evidence_name: str, data: object) -> bool:
+        """Store cacheable data, rejecting failed or partial evidence.
 
         Args:
             target: The investigation target.
             evidence_name: The evidence name.
             data: The evidence package to cache.
+
+        Returns:
+            True when stored; False when evidence policy rejects the value.
         """
+        if isinstance(data, EvidencePackage) and not data.valid_for_requirements:
+            return False
         key = CacheKey(target=target, evidence_name=evidence_name)
         with self._lock:
             self._cache[key] = (_time.monotonic(), data)
+        return True
 
     def clear(self) -> None:
         """Remove all cached entries."""

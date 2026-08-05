@@ -8,6 +8,7 @@ from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.evidence_planner import EvidencePlanner
+from src.pipeline.evidence_requirement import EvidenceRequirement
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_graph import (
     ExecutionGraph,
@@ -21,6 +22,7 @@ from src.pipeline.intent_resolver import Intent, IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
 
 
@@ -266,6 +268,38 @@ class TestGraphBuilding:
         assert len(remaining.nodes) == 1
         assert remaining.nodes[0].depends_on == ()
 
+    def test_failed_or_partial_cache_write_never_removes_runtime_node(self) -> None:
+        cache = EvidenceCache()
+        failed = EvidencePackage(
+            capability_name="System Information",
+            evidence_name="System evidence",
+            status=CapabilityStatus.COLLECTION_FAILED,
+            success=False,
+            error="transport failure",
+        )
+        partial = EvidencePackage(
+            capability_name="System Information",
+            evidence_name="System evidence",
+            data={"hostname": "partial-host"},
+            status=CapabilityStatus.PARTIAL,
+            success=False,
+            error="kernel probe failed",
+        )
+        step = ExecutionStep(
+            capability=CapabilityReference(
+                name="System Information", evidence_name="System evidence"
+            )
+        )
+        graph = ExecutionGraph(nodes=(ExecutionNode(execution_step=step),))
+        engine = _engine(evidence_cache=cache)
+
+        assert cache.put("localhost", "System evidence", failed) is False
+        assert cache.put("localhost", "System evidence", partial) is False
+        remaining, cached = engine._without_cached_nodes(graph, "localhost")
+
+        assert remaining.nodes == graph.nodes
+        assert cached == []
+
 
 # ---------------------------------------------------------------------------
 # Evidence merge & completeness
@@ -316,6 +350,54 @@ class TestEvidencePipeline:
 
         assert result.runtime_metrics is not None
         assert result.runtime_metrics.evidence_complete is True
+
+    def test_request_recollects_after_failure_then_caches_recovery(self) -> None:
+        cache = EvidenceCache()
+        intent = mock.Mock(spec=IntentResolver)
+        builder = mock.Mock(spec=ExecutionGraphBuilder)
+        reference = CapabilityReference(
+            name="System Information",
+            evidence_name="System Information",
+            required=True,
+        )
+        plan = ExecutionPlan(steps=(ExecutionStep(capability=reference),))
+        graph = ExecutionGraph(
+            nodes=(ExecutionNode(execution_step=plan.steps[0]),)
+        )
+        builder.build.return_value = graph
+
+        def new_request(_text: str) -> InvestigationRequest:
+            request = _request_with_plan(plan)
+            request.capability_references = [reference]
+            request.required_evidence = [EvidenceRequirement("System Information")]
+            return request
+
+        intent.resolve.side_effect = new_request
+        engine = _engine(
+            intent_resolver=intent,
+            graph_builder=builder,
+            evidence_merge=EvidenceMerge(),
+            evidence_cache=cache,
+        )
+        execute_mock = engine.knowledge_tool.execute
+        execute_mock.side_effect = [
+            ToolResult(
+                success=False,
+                error="source temporarily unavailable",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+            ),
+            ToolResult(success=True, data={"hostname": "recovered-host"}),
+        ]
+
+        first = engine.execute("check system")
+        second = engine.execute("check system")
+        third = engine.execute("check system")
+
+        assert first.evidence[0].success is False
+        assert second.evidence[0].data == {"hostname": "recovered-host"}
+        assert third.evidence[0].data == {"hostname": "recovered-host"}
+        assert execute_mock.call_count == 2
+        assert len(cache) == 1
 
 
 # ---------------------------------------------------------------------------

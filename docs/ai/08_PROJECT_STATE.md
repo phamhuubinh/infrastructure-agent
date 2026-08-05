@@ -128,7 +128,7 @@ are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
 | 609–611 | Parameter parser plus runtime method plumbing | `_execute_node()` does not bind extracted values into child-tool arguments: DR1-403, DR1-404 |
 | 612–617 | Answer-type/tool selectors and `source_tool` field | Selected tool is not route authority; response strategy and provenance are not canonical: DR1-301, DR1-308, DR1-508, DR1-509, DR1-707 |
 | 618–622 | Five responder methods | DR1-106 removed failure-to-zero/default-empty answers and requires valid evidence; canonical fact freshness/provenance still remains: DR1-501, DR1-502, DR1-505, DR1-707 |
-| 623–625 | Per-session TTL cache and engine wiring | Key omits params/timeframe/schema and legacy `success` cannot represent partial validity: DR1-108, DR1-507 |
+| 623–625 | Per-session TTL cache and engine wiring | DR1-108 now rejects failed/partial cache entries; cache key still omits params/timeframe/schema/freshness policy: DR1-507 |
 | 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
 | 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | Deep links are not time-series evidence or an embed/image response; temporal sufficiency remains unguarded: DR1-308, DR1-406, DR1-407, DR1-503, DR1-707 |
 
@@ -227,9 +227,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-105 ✅ complete**: capability status, command results, warnings, produced-fact names, and collection failures now propagate through `ToolResult` and `EvidencePackage`; partial payloads remain inspectable but only `VALID`/`VALID_EMPTY` evidence satisfies requirements.
 - **DR1-106 ✅ complete**: Linux command failures, including legacy tuple backends, can no longer become zero/empty/unknown measurements; core collectors omit unavailable facts, prompt summaries do not invent defaults, and deterministic responses require `VALID`/`VALID_EMPTY` evidence plus the specific fact needed for a claim.
 - **DR1-107 ✅ complete**: capability failures now carry machine-readable code/category/recoverable metadata across capability, tool, and evidence boundaries; backend enum mappings distinguish transport/environment/command/parameter/parser/source-API/internal failures, and runtime result retries use only the structured recoverable flag.
+- **DR1-108 ✅ complete**: EvidenceCache and both ExecutionEngine paths accept and reuse only `VALID`/`VALID_EMPTY` packages; failed/partial evidence never removes a runtime node or creates a negative cache hit, so a later request recollects after source recovery.
 - Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (DR1-107 complete: structured error taxonomy and recoverable retry policy; DR1-101–106 and DR1-001–006 remain complete.)
+> **Last updated:** 2026-08-05 (DR1-108 complete: failed/partial evidence excluded from cache; DR1-101–107 and DR1-001–006 remain complete.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

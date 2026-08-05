@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 
 from src.pipeline.evidence_cache import EvidenceCache
+from src.pipeline.evidence_package import EvidencePackage
+from src.tool.capability_result import CapabilityStatus
 
 
 def test_put_and_get() -> None:
@@ -72,3 +74,74 @@ def test_different_targets() -> None:
 def test_ttl_property() -> None:
     cache = EvidenceCache(ttl=30)
     assert cache.ttl == 30
+
+
+def test_only_valid_evidence_statuses_are_cached() -> None:
+    cache = EvidenceCache()
+    valid = EvidencePackage(
+        capability_name="CPU",
+        evidence_name="CPU",
+        data={"cores": 4},
+        status=CapabilityStatus.VALID,
+    )
+    valid_empty = EvidencePackage(
+        capability_name="Ports",
+        evidence_name="Ports",
+        data=[],
+        status=CapabilityStatus.VALID_EMPTY,
+    )
+
+    assert cache.put("localhost", "CPU", valid) is True
+    assert cache.put("localhost", "Ports", valid_empty) is True
+    assert cache.get("localhost", "CPU") is valid
+    assert cache.get("localhost", "Ports") is valid_empty
+
+
+def test_failed_evidence_is_not_cached_as_a_hit() -> None:
+    cache = EvidenceCache()
+    failed = EvidencePackage(
+        capability_name="CPU",
+        evidence_name="CPU",
+        status=CapabilityStatus.COLLECTION_FAILED,
+        success=False,
+        error="timeout",
+    )
+
+    assert cache.put("localhost", "CPU", failed) is False
+    assert cache.get("localhost", "CPU") is None
+    assert len(cache) == 0
+
+
+def test_partial_evidence_is_not_cached_without_explicit_policy() -> None:
+    cache = EvidenceCache()
+    partial = EvidencePackage(
+        capability_name="Network",
+        evidence_name="Network",
+        data={"interfaces": [{"name": "eth0"}]},
+        status=CapabilityStatus.PARTIAL,
+        success=False,
+        error="route collection failed",
+    )
+
+    assert cache.put("localhost", "Network", partial) is False
+    assert cache.get("localhost", "Network") is None
+
+
+def test_invalid_write_does_not_replace_previous_valid_evidence() -> None:
+    cache = EvidenceCache()
+    valid = EvidencePackage(
+        capability_name="CPU",
+        evidence_name="CPU",
+        data={"cores": 4},
+    )
+    failed = EvidencePackage(
+        capability_name="CPU",
+        evidence_name="CPU",
+        status=CapabilityStatus.COLLECTION_FAILED,
+        success=False,
+        error="temporary failure",
+    )
+
+    assert cache.put("localhost", "CPU", valid) is True
+    assert cache.put("localhost", "CPU", failed) is False
+    assert cache.get("localhost", "CPU") is valid
