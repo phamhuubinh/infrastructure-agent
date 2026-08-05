@@ -59,9 +59,12 @@
 - Removed unused Python imports.
 - Updated README.md and HTML metadata.
 
-## Phase 6 — Pipeline Architecture Hardening (completed 2026-07-24)
+## Phase 6 — Pipeline Architecture Hardening (delivery completed 2026-07-24; corrective behavior work open)
 
-Full plan: `docs/ai/10_PHASE6_PLAN.md`. 32 tasks across 9 work packages, all completed.
+Full plan and per-task reconciliation: `docs/ai/10_PHASE6_PLAN.md`. All 32 task IDs across
+9 work packages delivered their recorded artifacts in July 2026. In this section, ✅ means the
+historical module/field/hook was delivered; it does **not** mean the current end-to-end behavior
+passes the newer DR1 acceptance criteria.
 
 Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. Root cause: CapabilityPlanner existed but was never wired into ExecutionEngine. **Fixed by ID 605.**
 
@@ -110,6 +113,28 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 - ID 630✅: TimeRangeResolver — `src/pipeline/time_range_resolver.py`
 - ID 631✅: GrafanaTool.build_links() accepts time_range → adds from/to params
 - ID 632✅: TimeRangeResolver wired into DeterministicAgent._build_tool_links()
+
+### Current behavior reconciliation (DR1-006, 2026-08-05)
+
+Source/test review confirms the Phase 6 artifacts above still exist, but it also confirms that
+module existence and current behavioral acceptance are different states. The detailed 601–632
+matrix and test evidence are in `docs/ai/10_PHASE6_PLAN.md`; the active corrective definitions
+are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
+
+| Historical IDs | Artifact present | Current behavior gap / corrective owner |
+|---|---|---|
+| 601–604 | Identity/language prompts, separate unknown-target catch, hostname guard | Target confidence/clarification and output validation: DR1-306, DR1-309, DR1-703, DR1-706 |
+| 605–608 | CapabilityPlanner/config/library wiring | Split routing flow and incomplete normalization/route contracts: DR1-301, DR1-302, DR1-303, DR1-308 |
+| 609–611 | Parameter parser plus runtime method plumbing | `_execute_node()` does not bind extracted values into child-tool arguments: DR1-403, DR1-404 |
+| 612–617 | Answer-type/tool selectors and `source_tool` field | Selected tool is not route authority; response strategy and provenance are not canonical: DR1-301, DR1-308, DR1-508, DR1-509, DR1-707 |
+| 618–622 | Five responder methods | They read legacy raw dictionaries without canonical validity/freshness and several use failure-to-zero/default-empty fallbacks: DR1-106, DR1-501, DR1-502, DR1-505, DR1-707 |
+| 623–625 | Per-session TTL cache and engine wiring | Key omits params/timeframe/schema and legacy `success` cannot represent partial validity: DR1-108, DR1-507 |
+| 626–629 | Severity field, threshold and correlation classes, prompt changes | Severity/threshold/correlation are not integrated as canonical Findings; failed evidence and claims lack guards: DR1-601, DR1-603, DR1-604, DR1-605, DR1-702–706 |
+| 630–632 | Time parser and Grafana deep-link `from`/`to` wiring | Deep links are not time-series evidence or an embed/image response; temporal sufficiency remains unguarded: DR1-308, DR1-406, DR1-407, DR1-503, DR1-707 |
+
+Therefore “Phase 6 delivery completed” is retained as history, while the rows above remain open
+behavior corrections. No open DR1 item is to be treated as proof that its predecessor module is
+missing, and no historical ✅ is to be treated as proof that current QA acceptance passes.
 
 ## Not implemented (do not assume otherwise)
 - **Multi-user accounts** — no login/password system, no user registration. Optional API key auth (`ORION_API_KEY`) exists for single-tenant protection.
@@ -182,10 +207,10 @@ These findings drove the completed Phase 6 work. They are retained as history, n
 Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 
 ## Next milestones
-1. All 180 backlog tasks complete (Phases 0–6). Backlog is empty.
-2. Phase 5 (Pipeline Architecture Upgrade) completed: Normalizer, CapabilityPlanner, config-driven target resolution.
-3. **Phase 6 (Pipeline Architecture Hardening) completed**: 32/32 tasks, 9/9 WPs, 990 tests passing (63 new Phase 6 tests + 927 existing).
-4. **Sprint 1 (IMPLEMENTATION_BACKLOG) complete**: All 13 tasks complete. Items 001–012 implemented. Item 013 evaluated — HORIZON deferred (2/5 gates met).
+1. Phase 5 (Pipeline Architecture Upgrade) historical delivery is complete: Normalizer, CapabilityPlanner, and config-driven target resolution exist.
+2. Phase 6 historical delivery is complete: 32/32 IDs across 9/9 WPs produced artifacts; current acceptance gaps are executed through the active DR1 backlog.
+3. DR1 follows the critical path from execution-result/failure semantics through facts, deterministic reasoning, assessment guards, and stage-level CI gates.
+4. **Sprint 1 (`IMPLEMENTATION_BACKLOG.md`) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
 ## Deterministic Reasoning v1 (DR1) — corrective backlog (in progress, 2026-08-03)
@@ -193,10 +218,11 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-002 ✅ complete**: `ExecutionTrace` schema added (`src/pipeline/execution_trace.py`) — every pipeline request emits one trace with stage status/confidence, target, params, plan, evidence names, answer strategy, `llm_usage_reason`, `failure_stage`/`failure_reason` and safe serialization. `run_with_steps()` now returns `trace_id` + `execution_trace` (additive, backward-compatible).
 - **DR1-003 ✅ complete**: the standalone HTTP QA runner `scripts/qa/orion_qa_runner.py` (stdlib-only, no `src/` import) is the accepted implementation with four TXT question suites under `tests/qa/cases/` (`cauhoi_kiemtra_v2`, `cauhoi_phanb`, `cauhoi_v4_adversarial`, `cauhoi_v5_workflow`). One run uses a single `session_id` across the suite, writes a transcript to `artifacts/qa/transcripts/` (or `--output`), and auto-starts/stops Orion via docker compose unless `--no-start` is used. The previous JSONL loader implementation (`scripts/qa/case_loader.py`, `--cases`, `tests/data/qa_cases/v5_multiline.jsonl`, `tests/qa/test_acceptance_parser.py`) was removed and the internal runners were reverted to their DR1-003-old hunks only.
 - **DR1-004 ✅ complete**: transcript Q&A converted into a human-reviewed, stage-level golden dataset `tests/data/qa_cases/golden_core.yaml` — 39 cases covering groups A–J (+M), with expected concept/operation/intent/target/params/answer_type/routing_status/evidence_status/answer_strategy/`llm_usage_reason`/required_evidence per case plus `harness_error` flags to separate harness bugs from agent defects. `scripts/qa/build_golden.py` validates schema and coverage; `tests/qa/test_golden_schema.py` (35 tests) enforces group/tag coverage and forbids auto-generated ids.
-- Status of Phase 6 items with known behavioral gaps is tracked as **🔎 verify/fix** in the DR1 backlog (e.g. DR1-106 failure-to-zero, DR1-205 CPU collector, DR1-206 service fallback, DR1-301 LLM routing) — these are open corrective items, not claims that Phase 6 modules do not exist.
-- Remaining DR1 tasks (82 total pending/verify) are executed sequentially; each task updates this file only after its definition of done is verifiable.
+- **DR1-005 ✅ complete**: the in-process baseline runner scores the golden suite by stage, records outcome rates/latency plus commit/config identity, and distinguishes behavioral mismatches from trace observability gaps with tri-state field status.
+- **DR1-006 ✅ complete**: all historical Phase 6 IDs 601–632 were reconciled against current source/tests. `docs/ai/10_PHASE6_PLAN.md` now maps each delivered artifact to any open DR1 behavior correction; the Phase 6 section above explicitly separates delivery completion from current acceptance.
+- Remaining DR1 tasks are executed sequentially from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-04 (DR1-004 complete: golden dataset 39 cases + build_golden validator + 35 schema tests. DR1-003 complete: standalone HTTP QA runner + 4 TXT suites; JSONL misimplementation removed. DR1-002 complete: ExecutionTrace + trace_id. DR1-001 complete: single active backlog finalized. Prior update 2026-08-03: user-managed model endpoints, shared CLI/Web connection tests, always-synthesized RAG analysis, complete Compose installer, and clean uninstaller.)
+> **Last updated:** 2026-08-05 (DR1-006 complete: Phase 6 delivery artifacts reconciled with current behavior and mapped to corrective IDs; DR1-005 complete: stage-level baseline runner with tri-state observability scoring. Earlier DR1-001–004 remain complete as recorded above.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

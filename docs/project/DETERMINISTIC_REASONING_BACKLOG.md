@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-04 — DR1-003 & DR1-004 hoàn thành: QA runner tx source & golden dataset theo stage.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-006 hoàn thành: đối soát toàn bộ Phase 6 IDs 601–632 với source/test hiện tại, giữ trạng thái historical delivery nhưng liên kết rõ các behavior gap sang corrective DR1 IDs. DR1-005 hoàn thành trước đó: baseline runner theo stage với tri-state observability scoring.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -105,8 +105,8 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-002 | P0 | ✅ | EPIC 0 | Định nghĩa ExecutionTrace schema | DR1-001 |
 | DR1-003 | P0 | ✅ | EPIC 0 | Nhập external HTTP QA runner và 4 bộ câu hỏi TXT; loại bỏ implementation JSONL hiểu sai | Không |
 | DR1-004 | P0 | ✅ | EPIC 0 | Chuyển transcript QA thành golden dataset theo stage | DR1-002, DR1-003 |
-| DR1-005 | P0 | ⬜ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
-| DR1-006 | P1 | ⬜ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
+| DR1-005 | P0 | ✅ | EPIC 0 | Lưu baseline metrics trước khi sửa hành vi | DR1-002, DR1-004 |
+| DR1-006 | P1 | ✅ | EPIC 0 | Reconcile trạng thái Phase 6 với behavior hiện tại | DR1-005 |
 | DR1-101 | P0 | ⬜ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
 | DR1-102 | P0 | ⬜ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
 | DR1-103 | P0 | ⬜ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
@@ -468,23 +468,47 @@ runner (không biết gì cả). Sửa:
 ---
 ### DR1-006 — Reconcile trạng thái Phase 6 với behavior hiện tại
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-005
-- **Files dự kiến:** `docs/ai/08_PROJECT_STATE.md`, `docs/ai/10_PHASE6_PLAN.md`
+- **Files:** `docs/ai/08_PROJECT_STATE.md`, `docs/ai/10_PHASE6_PLAN.md`
 
 **Vấn đề**  
 Tài liệu báo Phase 6 completed nhưng QA cho thấy parameter wiring, fallback, evidence semantics và routing vẫn có gap.
 
-**Cách làm**
-1. Đối chiếu từng task 601–632 với source và test.
-2. Không hạ completed chỉ vì nghi ngờ; ghi “regression/open corrective item” kèm ID backlog mới.
-3. Liên kết task Phase 6 cũ với corrective task tương ứng.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Đối chiếu đủ 32 task 601–632 với source hiện tại, focused tests và các commit delivery
+   Phase 6 (`c68dad4`, `70f9943`, `2c04422`, `1982b81`, `0a34649`).
+2. ✅ Giữ Phase 6 là historical delivery completed; định nghĩa rõ ký hiệu ✅ ở phần này chỉ xác
+   nhận module/field/hook đã được giao, không tự động chứng minh behavior hiện tại đạt DR1
+   acceptance.
+3. ✅ Thêm reconciliation matrix từng ID trong `10_PHASE6_PLAN.md`, nêu source/test evidence và
+   corrective owner. Các gap xác nhận trực tiếp gồm: params không được bind vào child-tool args,
+   selected tool không quyết định capability route, threshold/correlation không có production call
+   site, cache key thiếu params/timeframe, responder chưa có fact validity, và Grafana mới tạo
+   deep link chứ chưa thu time-series.
+4. ✅ Đồng bộ `08_PROJECT_STATE.md`: đổi wording thành “delivery completed; corrective behavior
+   work open”, thêm bảng mapping theo WP/ID và xóa claim stale rằng backlog đang rỗng.
+5. Không sửa source behavior, golden dataset hoặc baseline scorer; DR1-006 là doc reconciliation
+   nên không chạy benchmark mới.
 
 **Acceptance criteria**
-- [ ] Project state phản ánh được “module tồn tại” khác với “behavior đạt acceptance”.
+- [x] Project state phản ánh được “module tồn tại” khác với “behavior đạt acceptance”.
+- [x] Mỗi Phase 6 ID 601–632 có evidence hiện tại và corrective DR1 owner khi còn gap.
+- [x] Không hạ historical completion chỉ vì corrective task đang mở.
 
 **Tests/verification**
-- `Doc review; không cần benchmark riêng.`
+- ✅ `python3 -m pytest tests/pipeline/test_parameter_extractor.py
+  tests/pipeline/test_answer_type.py tests/pipeline/test_tool_selector.py
+  tests/pipeline/test_capability_planner.py tests/pipeline/test_target_resolver.py
+  tests/pipeline/test_target_resolver_upgrade.py tests/pipeline/test_deterministic_responder.py
+  tests/pipeline/test_evidence_cache.py tests/pipeline/test_threshold_evaluator.py
+  tests/pipeline/test_evidence_correlation.py tests/pipeline/test_time_range_resolver.py
+  tests/pipeline/test_execution_engine.py tests/agent/test_deterministic_agent.py
+  tests/model/protocol/test_prompt_builder_v2.py tests/tool/test_grafana_tool.py -q` — 192 passed.
+- ✅ Rà source call-site bằng `rg`: xác nhận mapping trong reconciliation matrix, đặc biệt các
+  boundary `_execute_node()`, `selected_tool`, `ThresholdEvaluator`, `EvidenceCorrelation`,
+  `EvidenceCache`, `build_links()`.
+- ✅ `git diff --check` và doc consistency review; không cần benchmark riêng.
 
 ---
 
