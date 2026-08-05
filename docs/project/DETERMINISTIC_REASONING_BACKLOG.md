@@ -4,7 +4,7 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — DR1-103 hoàn thành: SSHExecutionBackend phân biệt local ssh missing, auth, unreachable/DNS, connection timeout, remote command missing/permission/non-zero và giữ remote stderr/exit code. DR1-101/102 hoàn thành trước đó: structured/local execution contracts.
+> **Cập nhật gần nhất:** 2026-08-05 — DR1-104 hoàn thành: thêm `CapabilityResult`/`CapabilityStatus`, Tool dispatch compatibility wrapper và command-result tracking cho Linux capabilities. DR1-101–103 hoàn thành trước đó: structured local/SSH command contracts.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -110,7 +110,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-101 | P0 | ✅ | EPIC 1 | Tạo CommandStatus và CommandResult | DR1-002 |
 | DR1-102 | P0 | ✅ | EPIC 1 | Sửa LocalExecutionBackend giữ stderr và timeout | DR1-101 |
 | DR1-103 | P0 | ✅ | EPIC 1 | Sửa SSHExecutionBackend trả lỗi có cấu trúc | DR1-101 |
-| DR1-104 | P0 | ⬜ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
+| DR1-104 | P0 | ✅ | EPIC 1 | Tạo CapabilityResult và CapabilityStatus | DR1-101 |
 | DR1-105 | P0 | ⬜ | EPIC 1 | Lan truyền failure đúng qua ToolResult và EvidencePackage | DR1-104 |
 | DR1-106 | P0 | 🔎 | EPIC 1 | Loại bỏ toàn bộ failure-to-zero/default-empty | DR1-104, DR1-105 |
 | DR1-107 | P1 | ⬜ | EPIC 1 | Chuẩn hóa taxonomy lỗi capability | DR1-104 |
@@ -594,25 +594,29 @@ SSH failure hiện dễ bị gom thành generic false/empty, không biết auth,
 ---
 ### DR1-104 — Tạo CapabilityResult và CapabilityStatus
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101
-- **Files dự kiến:** `src/tool/capability_result.py (new)`, `src/tool/tool.py`, `src/tool/linux/__init__.py`
+- **Files:** `src/tool/capability_result.py (new)`, `src/tool/tool.py`, `src/tool/linux/__init__.py`, `src/shared/execution/tool_result.py`, `tests/tool/test_capability_result.py (new)`
 
 **Vấn đề**  
 Capability handler trả dict trực tiếp nên không biểu diễn valid_empty, partial, unsupported, parse failure hay collection failure.
 
-**Cách làm**
-1. Tạo status: VALID, VALID_EMPTY, PARTIAL, COLLECTION_FAILED, UNSUPPORTED, INVALID_PARAMETERS, PARSE_FAILED.
-2. CapabilityResult chứa data, command_results, warnings, produced_fact_names và error.
-3. Base Tool `_dispatch()` chấp nhận CapabilityResult; cung cấp compatibility wrapper cho handler cũ.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ Tạo đủ status và immutable `CapabilityResult` với data, command results, warnings,
+   produced fact names, error.
+2. ✅ `from_legacy()` phân biệt valid empty, mixed-command partial và all-command collection
+   failure; failed command không thể bị wrap thành success.
+3. ✅ Base Tool `_dispatch()` và LinuxTool chấp nhận structured result, wrap payload handler cũ;
+   LinuxTool dùng per-execution closure để track command results an toàn khi concurrent.
+4. ✅ `ToolResult.from_capability_result()` giữ status/commands/warnings/fact names qua boundary.
 
 **Acceptance criteria**
-- [ ] Một capability thất bại không bị bọc thành ToolResult success=True.
-- [ ] Valid empty được phân biệt với collection failed.
+- [x] Một capability thất bại không bị bọc thành ToolResult success=True.
+- [x] Valid empty được phân biệt với collection failed.
 
 **Tests/verification**
-- `tests/tool/test_tool.py`
-- `tests/tool/test_linux_tool.py`
+- ✅ Tool/Linux/Grafana/Zabbix/CapabilityResult selection — 155 passed.
+- ✅ `ruff check` và focused `mypy` các file source chạm tới — clean.
 
 ---
 ### DR1-105 — Lan truyền failure đúng qua ToolResult và EvidencePackage

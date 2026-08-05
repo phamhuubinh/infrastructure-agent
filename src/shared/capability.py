@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
 class Capability:
     name: str
-    handler: Callable[..., dict[str, object]]
+    handler: Callable[..., Any]
     category: str = "other"
     intents: tuple[str, ...] = ()
     related: tuple[str, ...] = ()

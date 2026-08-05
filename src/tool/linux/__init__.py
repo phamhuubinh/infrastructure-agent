@@ -7,6 +7,7 @@ from src.shared.capability import Capability
 from src.shared.execution.command_result import CommandResult
 from src.shared.execution.tool_result import ToolResult
 from src.shared.logger import error, info
+from src.tool.capability_result import CapabilityResult, CapabilityStatus
 from src.tool.execution_backend import ExecutionBackend, LocalExecutionBackend
 from src.tool.tool import Tool
 
@@ -533,6 +534,7 @@ class LinuxTool(Tool):
             return ToolResult(
                 success=False,
                 error=f"Unknown action: '{action}'. Available actions: {available}.",
+                capability_status=CapabilityStatus.INVALID_PARAMETERS,
             )
 
         handler = cap.handler if isinstance(cap, Capability) else cap
@@ -545,11 +547,19 @@ class LinuxTool(Tool):
             else:
                 pass
 
+        command_results: list[CommandResult] = []
+
+        def tracked_run(command: list[str], timeout: int = 15):
+            result = self._run(command, timeout=timeout)
+            if isinstance(result, CommandResult):
+                command_results.append(result)
+            return result
+
         try:
             if filtered:
-                data = handler(self._run, **filtered)
+                output = handler(tracked_run, **filtered)
             else:
-                data = handler(self._run)
+                output = handler(tracked_run)
         except Exception as exc:
             _dur = int((_time.monotonic() - _t0) * 1000)
             error(
@@ -561,7 +571,21 @@ class LinuxTool(Tool):
                 host=host,
                 message="Failed",
             )
-            raise
+            return ToolResult(
+                success=False,
+                error=f"Error executing capability '{action}': {exc}",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
+                command_results=tuple(command_results),
+            )
+
+        capability_result = (
+            output
+            if isinstance(output, CapabilityResult)
+            else CapabilityResult.from_legacy(
+                output,
+                command_results=tuple(command_results),
+            )
+        )
 
         _dur = int((_time.monotonic() - _t0) * 1000)
         info(
@@ -574,7 +598,4 @@ class LinuxTool(Tool):
             message="Completed",
         )
 
-        return ToolResult(
-            success=True,
-            data=data,
-        )
+        return ToolResult.from_capability_result(capability_result)

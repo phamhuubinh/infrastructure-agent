@@ -7,6 +7,7 @@ from typing import Any
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityResult, CapabilityStatus
 
 
 class Tool(ABC):
@@ -52,6 +53,7 @@ class Tool(ABC):
             return ToolResult(
                 success=False,
                 error=f"{tool_name}: Unknown action '{action}'. Available: {available}.",
+                capability_status=CapabilityStatus.INVALID_PARAMETERS,
             )
         return cap
 
@@ -83,7 +85,11 @@ class Tool(ABC):
         """
         action = arguments.get("action")
         if not isinstance(action, str):
-            return ToolResult(success=False, error="Missing action.")
+            return ToolResult(
+                success=False,
+                error="Missing action.",
+                capability_status=CapabilityStatus.INVALID_PARAMETERS,
+            )
 
         cap_or_err = cls._resolve_capability(capabilities, action, tool_name)
         if not isinstance(cap_or_err, Capability):
@@ -97,9 +103,18 @@ class Tool(ABC):
 
         try:
             if provider is not None:
-                return ToolResult(success=True, data=handler(provider, **filtered))
-            return ToolResult(success=True, data=handler(**filtered))
+                output = handler(provider, **filtered)
+            else:
+                output = handler(**filtered)
+            capability_result = (
+                output
+                if isinstance(output, CapabilityResult)
+                else CapabilityResult.from_legacy(output)
+            )
+            return ToolResult.from_capability_result(capability_result)
         except Exception as e:
             return ToolResult(
-                success=False, error=f"Error executing capability '{action}': {str(e)}"
+                success=False,
+                error=f"Error executing capability '{action}': {str(e)}",
+                capability_status=CapabilityStatus.COLLECTION_FAILED,
             )
