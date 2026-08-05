@@ -51,3 +51,6 @@ certs/
 .coverage
 coverage.xml
 htmlcov/
+
+# Generated benchmark results
+/benchmark_results/
