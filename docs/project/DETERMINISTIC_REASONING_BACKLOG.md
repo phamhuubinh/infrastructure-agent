@@ -199,7 +199,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-903 | P1 | ✅ | EPIC 9 | Kế hoạch backward compatibility và migration | DR1-101, DR1-104, DR1-508 |
 | DR1-904 | P1 | ✅ | EPIC 9 | Feature flags cho rollout theo phase | DR1-903 |
 | DR1-905 | P2 | ✅ | EPIC 9 | Operator troubleshooting guide cho collection failures | DR1-107, DR1-201 |
-| DR1-906 | P0 | ⬜ | EPIC 9 | Rollout theo PR/phase và exit criteria | Tất cả |
+| DR1-906 | P0 | ✅ | EPIC 9 | Rollout theo PR/phase và exit criteria | Tất cả |
 | DR1-907 | P0 | ⬜ | EPIC 9 | Release checklist và Definition of Done | DR1-811, DR1-906 |
 
 **Tổng số task:** 86  
@@ -2537,22 +2537,34 @@ Operator cần biết COMMAND_NOT_FOUND/SSH_AUTH/UNSUPPORTED khác nhau và các
 ---
 ### DR1-906 — Rollout theo PR/phase và exit criteria
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** Tất cả
 - **Files dự kiến:** `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`
 
 **Vấn đề**  
 Scope lớn cần thứ tự để không xây rule trên evidence sai.
 
-**Cách làm**
-1. PR1 trace/baseline; PR2 execution contract; PR3 runtime correctness; PR4 routing/context/params; PR5 facts/completeness/cache; PR6 recovery; PR7 deterministic reasoning; PR8 assessment guards; PR9 docs/cleanup.
-2. Mỗi phase có gate ở mục cuối tài liệu.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Chốt thứ tự rollout PR1–PR9 ở mục 13: trace/baseline → execution contract → runtime/tool
+   correctness → routing/context/params → canonical facts → recovery → deterministic reasoning →
+   assessment guards → QA gates/docs.
+2. ✅ Mỗi phase có một exit gate cụ thể tại mục 13; các gate production-ready xuyên phase,
+   outcome-quality và performance/tool-budget được tập trung ở mục 14–15 để release review dùng
+   cùng một nguồn sự thật.
+3. ✅ Rollback theo từng compatibility flag và điều kiện gỡ adapter/flag được cố định tại
+   `docs/migrations/deterministic_reasoning_v1.md`; rollback không được đổi schema public hay
+   tắt inspector chain/read-only guard.
+4. ✅ Đây là kế hoạch rollout có kiểm soát, không phải tuyên bố rằng một deployment production đã
+   diễn ra. Chỉ release candidate nào thỏa các gate ở mục 14 và checklist DR1-907 mới được promote.
 
 **Acceptance criteria**
-- [ ] Không bắt đầu composite rules trước CommandResult/Fact validity.
+- [x] Không bắt đầu composite rules trước CommandResult/Fact validity: thứ tự PR2 → PR5 → PR7
+      và dependency `DR1-601 → DR1-501/DR1-505` giữ ranh giới này rõ ràng.
 
 **Tests/verification**
-- `Review checklist`
+- ✅ Review thứ tự dependency, exit gates mục 13–15 và rollback/adapter-removal criteria trong
+  `docs/migrations/deterministic_reasoning_v1.md`; CI `acceptance-gates` (DR1-811) là gate thực
+  thi trước release, không dùng hạ tầng/model live.
 
 ---
 ### DR1-907 — Release checklist và Definition of Done
