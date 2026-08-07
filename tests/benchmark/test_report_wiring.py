@@ -77,8 +77,11 @@ def test_human_report_shows_assessment_metrics() -> None:
                 "grounding": 0.75,
                 "completeness": 1.0,
                 "consistency": 1.0,
+                "allowed_claim_coverage": 0.75,
+                "unsupported_claim_count": 0,
                 "length": 500,
                 "overall": 0.81,
+                "passed": True,
             },
         )()
     )

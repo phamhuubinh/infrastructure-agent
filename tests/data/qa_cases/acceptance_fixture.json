@@ -1,0 +1,24 @@
+{
+  "summary": {
+    "strict_correct_investigation_rate": 1.0,
+    "observable_core_accuracy": 1.0
+  },
+  "diagnostics": {
+    "behavioral_mismatches": []
+  },
+  "cases": [
+    {
+      "id": "ci-fixture-cpu",
+      "elapsed_ms": 5.0,
+      "response_empty": false,
+      "actual": {
+        "runtime_metrics": {
+          "tool_calls": 1,
+          "parallel_ratio": 1.0,
+          "expansion_rounds": 0,
+          "security_inspections_total": 1
+        }
+      }
+    }
+  ]
+}

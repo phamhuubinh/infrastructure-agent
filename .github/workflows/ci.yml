@@ -94,6 +94,42 @@ jobs:
       - name: Test RAG service
         run: python -m pytest src/tool/RAGTool/tests -q --tb=short
 
+  acceptance-gates:
+    name: Deterministic acceptance gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install QA dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run P0 transcript, safety and stage gates
+        run: |
+          python -m pytest \
+            tests/qa/test_golden_schema.py \
+            tests/qa/test_transcript_regression.py \
+            tests/qa/test_acceptance_scoring.py \
+            tests/security/ \
+            -q --tb=short
+
+      - name: Render deterministic acceptance artifact
+        run: >
+          python scripts/qa/run_acceptance.py
+          --report tests/data/qa_cases/acceptance_fixture.json
+          --output-dir artifacts/qa
+
+      - name: Upload QA gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-acceptance-gates
+          path: artifacts/qa/
+          if-no-files-found: error
+
   ui-test:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,16 @@
+{
+  "capability": "query",
+  "target": "server-1",
+  "collected_at": "2026-08-07T00:00:00Z",
+  "payload": {
+    "series": [
+      {
+        "name": "CPU usage percent",
+        "unit": "percentunit",
+        "dashboard_uid": "node",
+        "refId": "A",
+        "datapoints": [[0.42, 1785888000000]]
+      }
+    ]
+  }
+}

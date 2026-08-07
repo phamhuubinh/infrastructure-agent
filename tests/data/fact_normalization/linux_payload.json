@@ -1,0 +1,18 @@
+{
+  "capability": "get_disk",
+  "target": "server-1",
+  "collected_at": "2026-08-07T00:00:00Z",
+  "payload": {
+    "fact_type": "filesystem.capacity",
+    "filesystems": [
+      {
+        "source": "/dev/sda1",
+        "mountpoint": "/",
+        "size_bytes": 1000,
+        "used_bytes": 370,
+        "available_bytes": 630,
+        "usage_percent": 37.0
+      }
+    ]
+  }
+}

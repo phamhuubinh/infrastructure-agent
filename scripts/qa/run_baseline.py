@@ -55,9 +55,13 @@ _CORE_FIELDS = (
 
 _STATUS_FIELDS = ("routing_status", "evidence_status")
 _APPROXIMATE_FIELDS: tuple[str, ...] = ()
-_ALL_SCORED_FIELDS = _CORE_FIELDS + _STATUS_FIELDS + (
-    "params",
-    "required_evidence",
+_ALL_SCORED_FIELDS = (
+    _CORE_FIELDS
+    + _STATUS_FIELDS
+    + (
+        "params",
+        "required_evidence",
+    )
 )
 
 
@@ -153,8 +157,7 @@ def extract_actual(result: dict[str, Any]) -> dict[str, Any]:
         concept = getattr(semantic, "concept", None)
         concepts = [concept] if concept else []
     operation = (
-        getattr(semantic, "operation", None)
-        or getattr(semantic, "action", None)
+        getattr(semantic, "operation", None) or getattr(semantic, "action", None)
         if semantic is not None
         else traced_frame.get("operation")
     )
@@ -475,6 +478,7 @@ def run_baseline(
 
         actual = extract_actual(result)
         scored = score_case(case["expected"], actual)
+        response = result.get("response")
         case_reports.append(
             {
                 "id": case["id"],
@@ -483,6 +487,9 @@ def run_baseline(
                 "tags": case.get("tags", []),
                 "error": error,
                 "elapsed_ms": elapsed_ms,
+                # Keep only the observable health signal, never model text or
+                # tool output, so acceptance artifacts stay credential-safe.
+                "response_empty": not isinstance(response, str) or not response.strip(),
                 **scored,
             }
         )
@@ -541,14 +548,19 @@ def _summarize(
     stage_accuracy: dict[str, dict[str, Any]] = {}
     for field in _ALL_SCORED_FIELDS:
         counts = _field_counts(field)
-        stage_accuracy[field] = {**counts, "observable_accuracy": _observable_accuracy(counts)}
+        stage_accuracy[field] = {
+            **counts,
+            "observable_accuracy": _observable_accuracy(counts),
+        }
 
     # strict_correct_investigation_rate: identical bar to the original
     # core_pass computation (ALL _CORE_FIELDS must be "match"). not_observable
     # does NOT count as a pass here — this rate is intentionally unchanged by
     # the tri-state refinement (see DR1-005 follow-up requirement #4).
     correct_count = sum(1 for report in case_reports if report["core_pass"])
-    strict_correct_investigation_rate = round(correct_count / total, 4) if total else 0.0
+    strict_correct_investigation_rate = (
+        round(correct_count / total, 4) if total else 0.0
+    )
     # Kept for backward compatibility with earlier report consumers/tests.
     observed_core_pass_rate = strict_correct_investigation_rate
     meaningful = bool(context["meaningful_baseline"])
@@ -557,11 +569,17 @@ def _summarize(
     # a value for (excluding not_observable), what fraction matched? This is
     # the fairer "were we right when we could see the field at all" measure.
     core_field_statuses = [
-        report["field_status"][field] for report in case_reports for field in _CORE_FIELDS
+        report["field_status"][field]
+        for report in case_reports
+        for field in _CORE_FIELDS
     ]
     observable_core_statuses = [s for s in core_field_statuses if s != "not_observable"]
     observable_core_accuracy = (
-        round(sum(1 for s in observable_core_statuses if s == "match") / len(observable_core_statuses), 4)
+        round(
+            sum(1 for s in observable_core_statuses if s == "match")
+            / len(observable_core_statuses),
+            4,
+        )
         if observable_core_statuses
         else None
     )
@@ -581,20 +599,24 @@ def _summarize(
         return round(sum(1 for report in case_reports if predicate(report)) / total, 4)
 
     deterministic_answer_coverage = rate(
-        lambda report: report["actual"]["answer_strategy"]
-        in ("DETERMINISTIC_FACT", "DETERMINISTIC_RESPONDER")
+        lambda report: (
+            report["actual"]["answer_strategy"]
+            in ("DETERMINISTIC_FACT", "DETERMINISTIC_RESPONDER")
+        )
     )
     expected_assessment_rate = rate(
-        lambda report: report["actual"]["llm_usage_reason"]
-        == "EXPECTED_ASSESSMENT"
+        lambda report: report["actual"]["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
     )
     routing_fallback_rate = rate(
         lambda report: report["actual"]["llm_usage_reason"] == "ROUTING_FALLBACK"
     )
     insufficient_evidence_rate = rate(
-        lambda report: report["actual"]["llm_usage_reason"]
-        == "INSUFFICIENT_EVIDENCE"
+        lambda report: report["actual"]["llm_usage_reason"] == "INSUFFICIENT_EVIDENCE"
     )
+    clarification_rate = rate(
+        lambda report: report["actual"]["answer_strategy"] == "CLARIFICATION"
+    )
+    empty_response_rate = rate(lambda report: bool(report.get("response_empty", False)))
 
     by_group: dict[str, dict[str, Any]] = {}
     for report in case_reports:
@@ -604,13 +626,42 @@ def _summarize(
         if report["core_pass"]:
             by_group[group]["core_pass"] += 1
     for stats in by_group.values():
-        stats["observed_core_pass_rate"] = round(
-            stats["core_pass"] / stats["total"], 4
-        )
+        stats["observed_core_pass_rate"] = round(stats["core_pass"] / stats["total"], 4)
         stats["strict_correct_investigation_rate"] = stats["observed_core_pass_rate"]
         stats["correct_investigation_rate"] = (
             stats["observed_core_pass_rate"] if meaningful else None
         )
+
+    def _bucket_reports(
+        selector: Callable[[dict[str, Any]], list[str]],
+    ) -> dict[str, dict[str, Any]]:
+        buckets: dict[str, dict[str, Any]] = {}
+        for report in case_reports:
+            for label in selector(report):
+                stats = buckets.setdefault(label, {"total": 0, "core_pass": 0})
+                stats["total"] += 1
+                if report["core_pass"]:
+                    stats["core_pass"] += 1
+        for stats in buckets.values():
+            stats["strict_correct_investigation_rate"] = round(
+                stats["core_pass"] / stats["total"], 4
+            )
+        return buckets
+
+    by_tag = _bucket_reports(
+        lambda report: [str(tag) for tag in report.get("tags", [])]
+    )
+    by_language = _bucket_reports(
+        lambda report: [
+            "code-switch"
+            if any("code-switch" in str(tag) for tag in report.get("tags", []))
+            else "vi"
+            if any(str(tag).startswith("vi") for tag in report.get("tags", []))
+            else "en"
+            if any(str(tag).startswith("en") for tag in report.get("tags", []))
+            else "other"
+        ]
+    )
 
     durations = sorted(
         report["actual"]["total_duration_ms"]
@@ -618,7 +669,11 @@ def _summarize(
         if report["actual"]["total_duration_ms"] is not None
     )
     median_ms = durations[len(durations) // 2] if durations else None
-    p95_ms = durations[min(int(len(durations) * 0.95), len(durations) - 1)] if durations else None
+    p95_ms = (
+        durations[min(int(len(durations) * 0.95), len(durations) - 1)]
+        if durations
+        else None
+    )
 
     meta = collect_benchmark_metadata(server_name=server_name)
     if context.get("resolved_model"):
@@ -685,7 +740,11 @@ def _summarize(
             "expected_assessment_rate": expected_assessment_rate,
             "routing_fallback_rate": routing_fallback_rate,
             "insufficient_evidence_rate": insufficient_evidence_rate,
+            "clarification_rate": clarification_rate,
+            "empty_response_rate": empty_response_rate,
             "by_group": by_group,
+            "by_tag": by_tag,
+            "by_language": by_language,
             "latency_ms": {"median": median_ms, "p95": p95_ms},
         },
         "diagnostics": {
@@ -774,8 +833,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"{summary['deterministic_answer_coverage']:.2%}",
         f"- expected_assessment_rate: {summary['expected_assessment_rate']:.2%}",
         f"- routing_fallback_rate: {summary['routing_fallback_rate']:.2%}",
-        f"- insufficient_evidence_rate: "
-        f"{summary['insufficient_evidence_rate']:.2%}",
+        f"- insufficient_evidence_rate: {summary['insufficient_evidence_rate']:.2%}",
+        f"- clarification_rate: {summary.get('clarification_rate', 0.0):.2%}",
+        f"- empty_response_rate: {summary.get('empty_response_rate', 0.0):.2%}",
         "",
         "## By group",
         "",
@@ -790,9 +850,23 @@ def render_markdown(report: dict[str, Any]) -> str:
             else stats["observed_core_pass_rate"]
         )
         label = "correct investigation" if meaningful else "observed core pass"
-        lines.append(
-            f"| {group} | {stats['total']} | {rate_value:.2%} ({label}) |"
-        )
+        lines.append(f"| {group} | {stats['total']} | {rate_value:.2%} ({label}) |")
+
+    by_language = summary.get("by_language", {})
+    if by_language:
+        lines += [
+            "",
+            "## By language / request style",
+            "",
+            "| Bucket | Cases | Strict correct investigation rate |",
+            "|---|---:|---:|",
+        ]
+        for label in sorted(by_language):
+            stats = by_language[label]
+            lines.append(
+                f"| {label} | {stats['total']} | "
+                f"{stats['strict_correct_investigation_rate']:.2%} |"
+            )
 
     lines += [
         "",
@@ -829,7 +903,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("None.")
     else:
         for g in gaps:
-            lines.append(f"- `{g['id']}` ({g['group']}, context={g['context']}): {g['fields']}")
+            lines.append(
+                f"- `{g['id']}` ({g['group']}, context={g['context']}): {g['fields']}"
+            )
 
     lines += [
         "",
@@ -863,13 +939,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="DR1-005 baseline metrics runner.")
     parser.add_argument(
         "--golden",
-        default=str(
-            PROJECT_ROOT / "tests" / "data" / "qa_cases" / "golden_core.yaml"
-        ),
+        default=str(PROJECT_ROOT / "tests" / "data" / "qa_cases" / "golden_core.yaml"),
     )
-    parser.add_argument(
-        "--output-dir", default=str(PROJECT_ROOT / "benchmark_results")
-    )
+    parser.add_argument("--output-dir", default=str(PROJECT_ROOT / "benchmark_results"))
     parser.add_argument("--server", default=None, help="Server name from servers.json.")
     parser.add_argument(
         "--target-store",
@@ -905,8 +977,7 @@ def main() -> int:
     print(f"Report JSON: {json_path}")
     print(f"Report Markdown: {md_path}")
     print(
-        "meaningful_baseline: "
-        f"{str(report['metadata']['meaningful_baseline']).lower()}"
+        f"meaningful_baseline: {str(report['metadata']['meaningful_baseline']).lower()}"
     )
     if report["metadata"]["meaningful_baseline"]:
         print(

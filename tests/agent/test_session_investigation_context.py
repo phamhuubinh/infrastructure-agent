@@ -100,3 +100,40 @@ def test_reset_request_clears_context_without_model_or_execution(tmp_path) -> No
     assert engine.frames == []
     model.assess.assert_not_called()
     model.assess_raw.assert_not_called()
+
+
+def test_ambiguous_service_pronoun_requests_the_missing_service(tmp_path) -> None:
+    store = ConversationStore("context-pronoun", store_dir=str(tmp_path))
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    engine = _CapturingEngine()
+    model = mock.Mock()
+    agent = DeterministicAgent(engine, model, conversation_store=store)
+
+    result = agent.run_with_steps("service đó bị lỗi")
+
+    assert result["execution_trace"]["answer_strategy"] == "CLARIFICATION"
+    assert "service nào" in result["response"]
+    assert engine.frames == []
+
+
+def test_concurrent_sessions_do_not_bleed_targets(tmp_path) -> None:
+    monitor_store = ConversationStore("context-monitor", store_dir=str(tmp_path))
+    database_store = ConversationStore("context-database", store_dir=str(tmp_path))
+    monitor_engine = _CapturingEngine()
+    database_engine = _CapturingEngine()
+    monitor_agent = DeterministicAgent(
+        monitor_engine, mock.Mock(), conversation_store=monitor_store
+    )
+    database_agent = DeterministicAgent(
+        database_engine, mock.Mock(), conversation_store=database_store
+    )
+
+    monitor_agent.execute_pipeline_only("Kiểm tra CPU trên monitor")
+    database_agent.execute_pipeline_only("Kiểm tra CPU trên database")
+    monitor_agent.execute_pipeline_only("Còn RAM?")
+    database_agent.execute_pipeline_only("Còn RAM?")
+
+    assert monitor_engine.frames[-1].target_resolved == "monitor"
+    assert database_engine.frames[-1].target_resolved == "database"
