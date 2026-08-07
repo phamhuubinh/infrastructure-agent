@@ -213,11 +213,13 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 ## Next milestones
 1. Phase 5 (Pipeline Architecture Upgrade) historical delivery is complete: Normalizer, CapabilityPlanner, and config-driven target resolution exist.
 2. Phase 6 historical delivery is complete: 32/32 IDs across 9/9 WPs produced artifacts; current acceptance gaps are executed through the active DR1 backlog.
-3. DR1 follows the critical path from execution-result/failure semantics through facts, deterministic reasoning, assessment guards, and stage-level CI gates.
+3. **DR1 implementation is complete**: all 86 corrective task IDs now have recorded scope and
+   verification evidence. Promotion remains gated by the release checklist, meaningful model/config
+   baseline and CI artifacts; this is not a claim that a production deployment has occurred.
 4. **Sprint 1 (`IMPLEMENTATION_BACKLOG.md`) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
 5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
-## Deterministic Reasoning v1 (DR1) — corrective backlog (in progress, 2026-08-03)
+## Deterministic Reasoning v1 (DR1) — corrective backlog (implementation complete, 2026-08-07)
 - **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).
 - **DR1-002 ✅ complete**: `ExecutionTrace` schema added (`src/pipeline/execution_trace.py`) — every pipeline request emits one trace with stage status/confidence, target, params, plan, evidence names, answer strategy, `llm_usage_reason`, `failure_stage`/`failure_reason` and safe serialization. `run_with_steps()` now returns `trace_id` + `execution_trace` (additive, backward-compatible).
 - **DR1-003 ✅ complete**: the standalone HTTP QA runner `scripts/qa/orion_qa_runner.py` (stdlib-only, no `src/` import) is the accepted implementation with four TXT question suites under `tests/qa/cases/` (`cauhoi_kiemtra_v2`, `cauhoi_phanb`, `cauhoi_v4_adversarial`, `cauhoi_v5_workflow`). One run uses a single `session_id` across the suite, writes a transcript to `artifacts/qa/transcripts/` (or `--output`), and auto-starts/stops Orion via docker compose unless `--no-start` is used. The previous JSONL loader implementation (`scripts/qa/case_loader.py`, `--cases`, `tests/data/qa_cases/v5_multiline.jsonl`, `tests/qa/test_acceptance_parser.py`) was removed and the internal runners were reverted to their DR1-003-old hunks only.
@@ -267,10 +269,11 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-601–605 ✅ complete**: atomic thresholds now consume valid/fresh canonical facts (including derived per-core load); weighted composite rules preserve false/unknown/stale/failed semantics without implicit renormalization and emit immutable source-linked Findings into investigation, assessment and trace flows.
 - **DR1-606–608 ✅ complete**: capability metadata declares reviewed recovery alternatives/error contracts; runtime recovery is loop-free and depth-two bounded with no transport-timeout expansion, while weighted missing-evidence selection and per-request round/capability/duration/cost budgets deterministically bound additional collection.
 - **DR1-609/610 ✅ complete**: multi-source health aggregation prioritizes active incidents and evidence gaps before warnings/healthy facts per target and globally; versioned Pydantic-validated YAML rules require owner/rationale/source cases and explicit approval, with no production auto-learning path.
+- **DR1-801–811 ✅ complete**: contract/routing/context/fact/reasoning/transcript/security regression suites, offline stage/budget dashboard and CI `acceptance-gates` now make P0 accuracy and safety regressions deterministic and artifact-backed.
 - **DR1-901–905 ✅ complete**: execution/tool contracts and operator guides now document structured results, Facts/Findings, provenance, bounded recovery, exact collection failure codes, and localhost/container semantics; ADR-0008/0009 establish evidence validity and deterministic reasoning v1. `docs/migrations/deterministic_reasoning_v1.md` records the adapter/removal plan, while strict temporary feature flags support independent rollout/rollback of structured command provenance, canonical Facts, composite rules, and claim grounding without changing response schemas.
-- Remaining DR1 tasks continue at DR1-802 from the active backlog; each task updates this file only after its definition of done is verifiable.
+- **DR1-906/907 ✅ complete**: PR1–PR9 rollout order, phase exit criteria and compatibility rollback rules are fixed in the active backlog/migration plan. `CHANGELOG.md` now provides the release checklist: retain CI acceptance artifacts and a meaningful (non-smoke) model/config baseline before a release decision. All 86 DR1 tasks are complete; the checklist intentionally keeps production promotion as a separately evidenced release action.
 
-> **Last updated:** 2026-08-07 (DR1-901–905 complete: contracts/ADRs/migration flags/operator collection-failure guide verified; prior completed DR1 work remains recorded above.)
+> **Last updated:** 2026-08-07 (all 86 DR1 tasks complete; DR1-906/907 rollout and release-verification controls added. A production release remains gated, not implied.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

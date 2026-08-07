@@ -200,7 +200,7 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-904 | P1 | ✅ | EPIC 9 | Feature flags cho rollout theo phase | DR1-903 |
 | DR1-905 | P2 | ✅ | EPIC 9 | Operator troubleshooting guide cho collection failures | DR1-107, DR1-201 |
 | DR1-906 | P0 | ✅ | EPIC 9 | Rollout theo PR/phase và exit criteria | Tất cả |
-| DR1-907 | P0 | ⬜ | EPIC 9 | Release checklist và Definition of Done | DR1-811, DR1-906 |
+| DR1-907 | P0 | ✅ | EPIC 9 | Release checklist và Definition of Done | DR1-811, DR1-906 |
 
 **Tổng số task:** 86  
 
@@ -2569,23 +2569,37 @@ Scope lớn cần thứ tự để không xây rule trên evidence sai.
 ---
 ### DR1-907 — Release checklist và Definition of Done
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-811, DR1-906
 - **Files dự kiến:** `CHANGELOG.md`, `docs/ai/08_PROJECT_STATE.md`
 
 **Vấn đề**  
 Cần tránh báo completed chỉ vì code compile.
 
-**Cách làm**
-1. DoD: implementation, touched tests, required benchmark, no regression, clean git, one logical commit.
-2. Ghi benchmark IDs/report path.
-3. Cập nhật project state sau verification.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ `CHANGELOG.md` có release checklist cho một DR1 release candidate: commit/config identity,
+   full CI, P0 stage/safety gate, artifact acceptance và meaningful stage baseline. Checklist phân
+   biệt rõ fixture artifact của CI với baseline chạy cùng model/config đã health-check.
+2. ✅ Checklist ghi đường dẫn evidence chuẩn: fixture input
+   `tests/data/qa_cases/acceptance_fixture.json`, CI artifact
+   `artifacts/qa/acceptance_gates.{json,md}`, và baseline timestamped
+   `benchmark_results/baseline_<timestamp>.{json,md}` có `git_commit`, `config_hash` và model
+   metadata. Smoke report không được dùng làm baseline release.
+3. ✅ `08_PROJECT_STATE.md` chỉ chuyển DR1 sang implementation complete sau khi CI-equivalent P0
+   gates và artifact render pass; trạng thái này không tự tuyên bố một deployment production.
 
 **Acceptance criteria**
-- [ ] Không task completed thiếu test/evidence.
+- [x] Không task completed thiếu test/evidence: Definition of Done ở mục 18 bắt buộc scope,
+      touched tests, benchmark khi áp dụng, P0 regression check, diff/status review và một logical
+      commit; release checklist yêu cầu reviewer đối chiếu evidence này cho từng task trước promote.
 
 **Tests/verification**
-- `Release review`
+- ✅ `python3 -m pytest tests/qa/test_golden_schema.py tests/qa/test_transcript_regression.py
+  tests/qa/test_acceptance_scoring.py tests/security/ -q --tb=short` — 53 passed.
+- ✅ `python3 scripts/qa/run_acceptance.py --report
+  tests/data/qa_cases/acceptance_fixture.json --output-dir /tmp/orion-dr1-acceptance-…` — PASS;
+  JSON và Markdown artifact đều được tạo. Không chạy benchmark trong task documentation-only này
+  theo rule 21; release candidate vẫn phải chạy/record meaningful baseline theo checklist.
 
 ---
 
