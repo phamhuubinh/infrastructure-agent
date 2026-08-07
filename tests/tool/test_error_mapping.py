@@ -129,6 +129,29 @@ def test_capability_status_has_exact_machine_mapping(
     assert error.recoverable is False
 
 
+@pytest.mark.parametrize("status", ["valid", "valid_empty"])
+def test_capability_error_from_status_is_none_for_success_strings(
+    status: str,
+) -> None:
+    """Nhánh guard `status in ("valid", "valid_empty")` khi gọi trực tiếp
+    (không qua CapabilityResult.__post_init__)."""
+
+    assert capability_error_from_status(status) is None
+
+
+def test_capability_error_from_status_unknown_string_falls_back_to_internal_error() -> None:
+    """Status lạ (không có trong bảng mapping) phải fallback INTERNAL_ERROR
+    thay vì raise hoặc trả None âm thầm."""
+
+    error = capability_error_from_status("some_未知_status", message="custom detail")
+
+    assert error is not None
+    assert error.code is CapabilityErrorCode.INTERNAL_ERROR
+    assert error.category is CapabilityErrorCategory.INTERNAL
+    assert error.recoverable is False
+    assert "custom detail" in error.message
+
+
 def test_source_api_error_is_explicit_and_recoverable() -> None:
     error = source_api_error("provider unavailable")
 

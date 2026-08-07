@@ -81,5 +81,5 @@ def test_assessment_places_canonical_facts_before_legacy_raw() -> None:
         AssessmentRequest(raw_request="cpu", evidence=(package,), facts=(fact,))
     )
 
-    assert prompt.index("--- Canonical facts ---") < prompt.index("--- Evidence ---")
+    assert prompt.index("--- Confirmed facts") < prompt.index("--- Evidence ---")
     assert "legacy_raw_sentinel" not in prompt

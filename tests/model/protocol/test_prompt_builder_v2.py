@@ -88,6 +88,27 @@ class TestBuildAssessmentPrompt:
         assert "test" in prompt
         assert "--- Evidence ---" in prompt
 
+    def test_no_usable_facts_falls_back_to_full_json_not_key_guessing(self) -> None:
+        # DR1-702: the compact per-evidence-type key-guessing summary was
+        # removed. Packages with no usable Facts (e.g. a provider with no
+        # fact normalizer) now render as full normalized JSON instead of a
+        # hand-picked subset of fields.
+        evidence = EvidencePackage(
+            capability_name="CPU Information",
+            evidence_name="CPU",
+            success=True,
+            data={"model": "Intel Xeon", "logical_cores": 8, "custom_field": "x"},
+        )
+        req = AssessmentRequest(raw_request="check cpu", evidence=(evidence,))
+
+        prompt = build_assessment_prompt(req)
+
+        assert "Intel Xeon" in prompt
+        assert "custom_field" in prompt
+        # The old compact "CPU: model=..., logical_cores=..." summary line
+        # is gone; this is JSON now.
+        assert '"model"' in prompt
+
     def test_no_intent(self) -> None:
         req = AssessmentRequest(raw_request="test")
         prompt = build_assessment_prompt(req)
@@ -131,3 +152,39 @@ class TestBuildAssessmentPrompt:
         )
         prompt = build_assessment_prompt(req)
         assert len(prompt) < 5000, f"Prompt too large: {len(prompt)} bytes"
+
+
+class TestEpic7PromptSections:
+    def test_findings_and_unknowns_rendered(self) -> None:
+        from src.pipeline.finding import Finding, FindingDecision
+
+        finding = Finding(
+            id="finding:cpu_saturation",
+            type="cpu_saturation",
+            score=0.9,
+            decision=FindingDecision.SUPPORTED,
+            severity="warning",
+            explanation="CPU load per core is elevated.",
+        )
+        req = AssessmentRequest(
+            raw_request="check cpu",
+            intent="CPU_ASSESSMENT",
+            findings=(finding,),
+            unknowns=("cpu.iowait_percent",),
+            evidence_status="PARTIAL",
+        )
+        prompt = build_assessment_prompt(req)
+        assert "Deterministic findings" in prompt
+        assert "cpu_saturation" in prompt
+        assert "Missing facts / unknowns" in prompt
+        assert "cpu.iowait_percent" in prompt
+        assert "Evidence status: PARTIAL" in prompt
+
+    def test_grounding_rule_present_when_allowed_claims(self) -> None:
+        req = AssessmentRequest(
+            raw_request="check cpu",
+            intent="CPU_ASSESSMENT",
+            allowed_claims=("fact:abc123",),
+        )
+        prompt = build_assessment_prompt(req)
+        assert "Grounding rule" in prompt

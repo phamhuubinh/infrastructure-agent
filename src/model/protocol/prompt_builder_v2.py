@@ -47,122 +47,6 @@ def _normalize_evidence(data: Any) -> Any:
     return data
 
 
-def _summarize_evidence(pkg_data: Any, evidence_name: str) -> str:
-    if not isinstance(pkg_data, dict):
-        return ""
-
-    if evidence_name in ("CPU", "CPU Runtime", "CPU Usage", "CPU Information"):
-        parts = []
-        for k in (
-            "model",
-            "logical_cores",
-            "usage_percent",
-            "user_percent",
-            "system_percent",
-            "idle_percent",
-            "iowait_percent",
-            "load_1min",
-            "load_5min",
-            "load_15min",
-        ):
-            v = pkg_data.get(k)
-            if v is not None:
-                parts.append(f"{k}={v}")
-        if parts:
-            return "CPU: " + ", ".join(parts)
-        usage = pkg_data.get("usage", {})
-        if isinstance(usage, dict):
-            for k in (
-                "usage_percent",
-                "user_percent",
-                "system_percent",
-                "idle_percent",
-                "iowait_percent",
-            ):
-                v = usage.get(k)
-                if v is not None and not isinstance(v, str):
-                    parts.append(f"{k}={v}")
-        load = pkg_data.get("load", {})
-        if isinstance(load, dict) and any(
-            key in load for key in ("load_1min", "load_5min", "load_15min")
-        ):
-            parts.append(
-                f"load={load.get('load_1min', '?')}/"
-                f"{load.get('load_5min', '?')}/{load.get('load_15min', '?')}"
-            )
-        model = pkg_data.get("model")
-        cores = pkg_data.get("logical_cores")
-        if model is not None or cores is not None:
-            core_text = f"{cores}c" if cores is not None else "?c"
-            model_text = str(model).split()[0] if model else "?"
-            parts.insert(0, f"{core_text} {model_text}")
-        return "CPU: " + ", ".join(parts) if parts else ""
-
-    if evidence_name in ("Memory", "Memory Usage", "Memory Information"):
-        parts = []
-        for k in ("total_bytes", "used_bytes", "available_bytes", "usage_percent"):
-            v = pkg_data.get(k)
-            if v is not None:
-                parts.append(f"{k}={v}")
-        return "Memory: " + ", ".join(parts) if parts else ""
-
-    if evidence_name in ("Storage", "Filesystem", "Disk Usage", "Filesystems"):
-        mount_list = pkg_data.get("filesystems")
-        if not isinstance(mount_list, list):
-            return ""
-        lines = []
-        for m in mount_list[:8]:
-            if isinstance(m, dict):
-                mp = m.get("mountpoint") or "?"
-                used = m.get("usage_percent", "")
-                size = m.get("size_bytes")
-                if isinstance(size, (int, float)) and size > 0:
-                    size_gb = round(size / (1024**3), 1)
-                    lines.append(f"{mp} {used} ({size_gb}GB)")
-                else:
-                    lines.append(f"{mp} {used}")
-        if len(mount_list) > 8:
-            lines.append(f"...+{len(mount_list) - 8}")
-        return "Disks:\n" + "\n".join(lines) if lines else ""
-
-    if evidence_name in ("Services", "Service Status"):
-        parts = []
-        total = pkg_data.get("total")
-        running = pkg_data.get("running")
-        failed_list = pkg_data.get("failed_services")
-        if total is not None:
-            parts.append(f"total={total}")
-        if running is not None:
-            parts.append(f"running={running}")
-        if isinstance(failed_list, list) and failed_list:
-            parts.append(
-                f"failed={len(failed_list)}:{','.join(str(s)[:15] for s in failed_list[:3])}"
-            )
-        return "Services: " + ", ".join(parts) if parts else ""
-
-    if evidence_name == "Network":
-        ifaces = pkg_data.get("interfaces")
-        if ifaces is not None and not isinstance(ifaces, list):
-            return ""
-        parts = []
-        if isinstance(ifaces, list):
-            for iface in ifaces[:6]:
-                if isinstance(iface, dict):
-                    name = iface.get("name", "?")
-                    addr = iface.get(
-                        "address", iface.get("addr", iface.get("ip", ""))
-                    )
-                    parts.append(f"{name}={addr}")
-            if len(ifaces) > 6:
-                parts.append(f"...+{len(ifaces) - 6}")
-        routes = pkg_data.get("routes")
-        if isinstance(routes, list) and routes:
-            parts.append(f"routes={len(routes)}")
-        return "Net: " + ", ".join(parts) if parts else ""
-
-    return ""
-
-
 def _get_loader() -> PromptLoader:
     """Get or create a PromptLoader instance."""
     return PromptLoader()
@@ -231,6 +115,50 @@ def _resolve_intent_prompt(intent_str: str) -> str:
     return loader.render_raw(_VERSION_TEMPLATES[_ACTIVE_VERSION])
 
 
+_EVIDENCE_STATUS_WORDING_VI: dict[str, str] = {
+    "SUFFICIENT": "Bằng chứng đầy đủ cho yêu cầu này.",
+    "PARTIAL": (
+        "Bằng chứng chỉ thu được một phần. Một số chỉ số chưa được xác nhận — "
+        "không được suy diễn chúng."
+    ),
+    "UNAVAILABLE": (
+        "Không thu thập được bằng chứng cần thiết. Không được suy đoán trạng thái hệ thống."
+    ),
+    "STALE": (
+        "Bằng chứng có thể đã cũ so với thời điểm hiện tại. Nêu rõ mốc thời gian quan sát."
+    ),
+    "CONTRADICTORY": (
+        "Có mâu thuẫn số liệu giữa các nguồn cho cùng một chỉ số. "
+        "Phải nêu rõ mâu thuẫn thay vì chọn một số liệu ngẫu nhiên."
+    ),
+    "NOT_APPLICABLE": "",
+}
+
+_EVIDENCE_STATUS_WORDING_EN: dict[str, str] = {
+    "SUFFICIENT": "Evidence is sufficient for this request.",
+    "PARTIAL": (
+        "Evidence is only partially collected. Some metrics are unconfirmed — "
+        "do not infer them."
+    ),
+    "UNAVAILABLE": (
+        "Required evidence could not be collected. Do not guess system state."
+    ),
+    "STALE": "Evidence may be older than the current moment. State the observed time.",
+    "CONTRADICTORY": (
+        "Sources disagree on the same metric. State the contradiction explicitly "
+        "instead of picking one number at random."
+    ),
+    "NOT_APPLICABLE": "",
+}
+
+
+def _evidence_status_preamble(evidence_status: str, lang: str) -> str:
+    """DR1-708: canonical uncertainty wording keyed by evidence status."""
+
+    table = _EVIDENCE_STATUS_WORDING_VI if lang == "vi" else _EVIDENCE_STATUS_WORDING_EN
+    return table.get(evidence_status, "")
+
+
 def build_assessment_prompt(
     assessment_request: AssessmentRequest,
 ) -> str:
@@ -272,7 +200,16 @@ def build_assessment_prompt(
             f"Missing evidence: {', '.join(assessment_request.missing_evidence)}"
         )
 
-    canonical_by_id = {
+    if assessment_request.evidence_status:
+        preamble = _evidence_status_preamble(assessment_request.evidence_status, lang)
+        lines.append(f"Evidence status: {assessment_request.evidence_status}")
+        if preamble:
+            lines.append(preamble)
+
+    # DR1-701/DR1-702: findings and facts are grouped explicitly so the model
+    # never has to infer confirmed vs. contradicting vs. missing from a flat
+    # evidence blob.
+    all_facts = {
         fact.id: fact
         for fact in (
             *assessment_request.facts,
@@ -282,15 +219,23 @@ def build_assessment_prompt(
                 for fact in package.facts
             ),
         )
-        if fact.usable
     }
-    if canonical_by_id:
+    confirmed_facts = {
+        fact_id: fact for fact_id, fact in all_facts.items() if fact.usable
+    }
+    contradicting_facts = {
+        fact_id: fact
+        for fact_id, fact in all_facts.items()
+        if fact.validity.value == "contradictory"
+    }
+
+    if confirmed_facts:
         lines.append("")
-        lines.append("--- Canonical facts ---")
+        lines.append("--- Confirmed facts (you may cite these) ---")
         fact_json = json.dumps(
             [
-                canonical_by_id[fact_id].to_dict()
-                for fact_id in sorted(canonical_by_id)[:20]
+                confirmed_facts[fact_id].to_dict()
+                for fact_id in sorted(confirmed_facts)[:20]
             ],
             indent=1,
             ensure_ascii=False,
@@ -298,12 +243,48 @@ def build_assessment_prompt(
         if len(fact_json) > 2500:
             fact_json = fact_json[:2500] + "\n ..."
         lines.append(fact_json)
+
+    if assessment_request.findings:
+        lines.append("")
+        lines.append("--- Deterministic findings ---")
+        for finding in assessment_request.findings[:15]:
+            lines.append(
+                f"- [{finding.decision.value}] {finding.type} "
+                f"(severity={finding.severity}, id={finding.id}, "
+                f"coverage={finding.coverage:.2f})"
+            )
+            if finding.explanation:
+                lines.append(f"  {finding.explanation[:200]}")
+
+    if contradicting_facts:
+        lines.append("")
+        lines.append(
+            "--- Contradicting facts (state the contradiction, do not pick one) ---"
+        )
+        for fact_id in sorted(contradicting_facts)[:10]:
+            fact = contradicting_facts[fact_id]
+            lines.append(f"- {fact.metric} @ {fact.target} (id={fact.id})")
+
+    if assessment_request.unknowns:
+        lines.append("")
+        lines.append("--- Missing facts / unknowns (do not infer these) ---")
+        lines.extend(f"- {metric}" for metric in assessment_request.unknowns[:20])
+
     if assessment_request.collection_failures:
         lines.append("")
-        lines.append("Collection failures (not measurements):")
+        lines.append("--- Scope limitations: collection failures (not measurements) ---")
         lines.extend(
             f"- {failure[:300]}"
             for failure in assessment_request.collection_failures[:10]
+        )
+
+    if assessment_request.allowed_claims:
+        lines.append("")
+        lines.append(
+            "Grounding rule: every numeric value, target name, and severity you "
+            "state must trace to one of the confirmed facts or findings above "
+            f"(allowed ids: {len(assessment_request.allowed_claims)} available). "
+            "Do not state a trend, health verdict, or action outside these facts/findings."
         )
 
     lines.append("")
@@ -319,17 +300,20 @@ def build_assessment_prompt(
             lines.append("")
             continue
 
-        # Try compact text summary first.
-        summary = _summarize_evidence(pkg.data, pkg.evidence_name)
-        if summary:
-            lines.append(summary)
-        else:
-            # Normalize + serialize as JSON (with truncation).
-            normalized = _normalize_evidence(pkg.data)
-            json_str = json.dumps(normalized, indent=1)
-            if len(json_str) > 2000:
-                json_str = json_str[:2000] + "\n ..."
-            lines.append(json_str)
+        # DR1-702: no compact per-evidence-type key-guessing summary.
+        # Every capability from a covered provider (linux/zabbix/grafana)
+        # always yields at least one usable canonical Fact (see
+        # FactNormalizerRegistry's generic fallback), so packages reaching
+        # this point without usable facts are from providers with no fact
+        # normalizer at all (e.g. internet_tool). For those, a full JSON
+        # dump of the normalized (truncated) payload is strictly more
+        # informative than a hand-picked key subset and cannot silently
+        # drop fields a normalizer wasn't written for yet.
+        normalized = _normalize_evidence(pkg.data)
+        json_str = json.dumps(normalized, indent=1)
+        if len(json_str) > 2000:
+            json_str = json_str[:2000] + "\n ..."
+        lines.append(json_str)
 
         lines.append("")
 

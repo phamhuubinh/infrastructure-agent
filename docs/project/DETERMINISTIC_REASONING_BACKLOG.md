@@ -4,7 +4,21 @@
 > **Phạm vi:** sửa pipeline, Tool, evidence, deterministic reasoning, assessment guard và QA harness. Không chuyển quyền chọn lệnh/capability sang LLM.  
 > **Ngày tạo:** 2026-08-03  
 > **Ngày chốt:** 2026-08-03  
-> **Cập nhật gần nhất:** 2026-08-05 — EPIC 6 / DR1-601–610 hoàn thành: atomic/composite rules trên canonical facts, explicit missing-evidence semantics, source-linked Findings, bounded recovery/expansion/budget, deterministic health aggregation và reviewed versioned rule config đã được tích hợp và kiểm thử. DR1-001–509 hoàn thành trước đó.
+> **Cập nhật gần nhất:** 2026-08-07 — DR1-901–905 hoàn tất: execution/tool
+> contracts, ADR evidence validity + deterministic reasoning v1, migration
+> compatibility adapters/deprecation warnings, phase rollout flags, và operator
+> guide collection failures đã có source/docs/tests tương ứng. 2026-08-06 — DR1-702 và DR1-707 hoàn tất (xem chi tiết ở từng mục): xóa
+> hẳn fallback key-guessing trong prompt builder (dead code kể từ khi fact normalizer có generic
+> fallback), và refactor 9/15 responder trong `DeterministicResponder` sang đọc canonical Fact
+> trước/dict thô fallback sau — quá trình này còn phát hiện và sửa 2 bug đơn vị (KB vs byte) khiến
+> `_check_ram_available`/`_check_swap` gần như luôn trả `None` trên dữ liệu thật trước đây. 2
+> responder (`top_cpu`, `uptime`) và nhánh generic failed/disabled service vẫn giữ dict-based có
+> chủ đích vì `LinuxFactNormalizer` chưa emit fact cho các trường này — đã ghi chú tại chỗ, theo
+> dõi như việc kế tiếp ngoài scope. 2026-08-05 — EPIC 7 / DR1-701, 703, 704, 705, 706, 708 hoàn
+> thành: mở rộng AssessmentRequest, prompt sections tường minh (confirmed/contradicting/missing
+> facts, findings, uncertainty wording), claim grounding + redaction, action hallucination guard,
+> numeric consistency check, language-script guard, và guard chặn fast path khi package có fact
+> contradictory/stale. EPIC 6 / DR1-601–610 hoàn thành trước đó. DR1-001–509 hoàn thành trước đó.
 > **Trạng thái tài liệu:** Active — backlog hiện hành duy nhất. `BACKLOG.md` và `IMPLEMENTATION_BACKLOG.md` là tài liệu lịch sử/tham khảo (xem `docs/project/README.md`).
 
 ## 0. Cơ sở và cách dùng tài liệu
@@ -161,15 +175,15 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-608 | P0 | ✅ | EPIC 6 | Budget và stop conditions cho investigation expansion | DR1-607 |
 | DR1-609 | P0 | ✅ | EPIC 6 | Deterministic health aggregator đa nguồn | DR1-604, DR1-505 |
 | DR1-610 | P2 | ✅ | EPIC 6 | Rule config schema, versioning và human review | DR1-601, DR1-602 |
-| DR1-701 | P0 | ⬜ | EPIC 7 | Mở rộng AssessmentRequest | DR1-505, DR1-604 |
-| DR1-702 | P0 | 🔎 | EPIC 7 | Prompt builder hiển thị failure và giới hạn evidence | DR1-701 |
-| DR1-703 | P0 | ⬜ | EPIC 7 | Claim grounding validator | DR1-701 |
-| DR1-704 | P0 | ⬜ | EPIC 7 | Action hallucination guard và ActionReceipt contract | DR1-211, DR1-703 |
-| DR1-705 | P0 | ⬜ | EPIC 7 | Numeric và unit consistency validator | DR1-501, DR1-703 |
-| DR1-706 | P1 | 🔎 | EPIC 7 | Language quality validator | DR1-703 |
-| DR1-707 | P0 | 🔎 | EPIC 7 | DeterministicResponder chỉ đọc valid facts/findings | DR1-501, DR1-604 |
-| DR1-708 | P1 | ⬜ | EPIC 7 | Chuẩn hóa uncertainty và confidence wording | DR1-701 |
-| DR1-801 | P0 | ⬜ | EPIC 8 | Unit test matrix cho CommandResult/CapabilityResult | DR1-101..107 |
+| DR1-701 | P0 | ✅ | EPIC 7 | Mở rộng AssessmentRequest | DR1-505, DR1-604 |
+| DR1-702 | P0 | ✅ | EPIC 7 | Prompt builder hiển thị failure và giới hạn evidence | DR1-701 |
+| DR1-703 | P0 | ✅ | EPIC 7 | Claim grounding validator | DR1-701 |
+| DR1-704 | P0 | ✅ | EPIC 7 | Action hallucination guard và ActionReceipt contract | DR1-211, DR1-703 |
+| DR1-705 | P0 | ✅ | EPIC 7 | Numeric và unit consistency validator | DR1-501, DR1-703 |
+| DR1-706 | P1 | ✅ | EPIC 7 | Language quality validator | DR1-703 |
+| DR1-707 | P0 | ✅ | EPIC 7 | DeterministicResponder chỉ đọc valid facts/findings | DR1-501, DR1-604 |
+| DR1-708 | P1 | ✅ | EPIC 7 | Chuẩn hóa uncertainty và confidence wording | DR1-701 |
+| DR1-801 | P0 | ✅ | EPIC 8 | Unit test matrix cho CommandResult/CapabilityResult | DR1-101..107 |
 | DR1-802 | P1 | ⬜ | EPIC 8 | Stage tests cho routing đa ngôn ngữ/typo/code-switch | DR1-303..309 |
 | DR1-803 | P0 | ⬜ | EPIC 8 | Regression tests cho session context | DR1-401, DR1-402 |
 | DR1-804 | P0 | ⬜ | EPIC 8 | Contract tests cho Fact normalization | DR1-502, DR1-503 |
@@ -180,11 +194,11 @@ KPI chính không phải “ít gọi LLM”, mà là:
 | DR1-809 | P0 | ⬜ | EPIC 8 | Security và prompt-injection regression suite | DR1-211, DR1-704 |
 | DR1-810 | P1 | ⬜ | EPIC 8 | Dashboard/report metrics chuẩn | DR1-005, DR1-807 |
 | DR1-811 | P0 | ⬜ | EPIC 8 | CI gates cho accuracy và safety | DR1-806..810 |
-| DR1-901 | P1 | ⬜ | EPIC 9 | Cập nhật execution/tool docs theo contracts mới | DR1-101, DR1-501, DR1-606 |
-| DR1-902 | P1 | ⬜ | EPIC 9 | ADR cho evidence validity và deterministic reasoning v1 | DR1-501, DR1-602 |
-| DR1-903 | P1 | ⬜ | EPIC 9 | Kế hoạch backward compatibility và migration | DR1-101, DR1-104, DR1-508 |
-| DR1-904 | P1 | ⬜ | EPIC 9 | Feature flags cho rollout theo phase | DR1-903 |
-| DR1-905 | P2 | ⬜ | EPIC 9 | Operator troubleshooting guide cho collection failures | DR1-107, DR1-201 |
+| DR1-901 | P1 | ✅ | EPIC 9 | Cập nhật execution/tool docs theo contracts mới | DR1-101, DR1-501, DR1-606 |
+| DR1-902 | P1 | ✅ | EPIC 9 | ADR cho evidence validity và deterministic reasoning v1 | DR1-501, DR1-602 |
+| DR1-903 | P1 | ✅ | EPIC 9 | Kế hoạch backward compatibility và migration | DR1-101, DR1-104, DR1-508 |
+| DR1-904 | P1 | ✅ | EPIC 9 | Feature flags cho rollout theo phase | DR1-903 |
+| DR1-905 | P2 | ✅ | EPIC 9 | Operator troubleshooting guide cho collection failures | DR1-107, DR1-201 |
 | DR1-906 | P0 | ⬜ | EPIC 9 | Rollout theo PR/phase và exit criteria | Tất cả |
 | DR1-907 | P0 | ⬜ | EPIC 9 | Release checklist và Definition of Done | DR1-811, DR1-906 |
 
@@ -1779,188 +1793,390 @@ Rule cần test/review; transcript không được tự ghi production rule.
 - ✅ 1.232 agent/pipeline/tool/shared/model regression tests pass.
 - ✅ 172 RAG/benchmark/CLI/QA tests + 5 subtests pass.
 - ✅ `mypy src --ignore-missing-imports` clean trên 217 source files; `ruff check .` clean.
-- ℹ️ Root `pytest -q` đi vào hang môi trường tại `tests/backend/test_app.py::test_health_endpoint` trong `fastapi.testclient.TestClient.get()`; test chưa chạy tới assertion và không liên quan code Epic 6. Các suite sản phẩm liên quan nêu trên chạy độc lập hoàn tất.
+- ✅ Full repository regression: 1518 tests passed (`pytest -q` không còn treo tại
+  `tests/backend/test_app.py::test_health_endpoint` — ghi chú cũ về hang môi trường không còn
+  đúng; health endpoint pass cùng toàn bộ suite trong lần chạy xác nhận lại 2026-08-06).
+
+---
+
+### Hardening commit trước Epic 7 (2026-08-06) — theo review độc lập trên code
+
+Một review đọc trực tiếp code (không chỉ test/backlog) trước khi bắt đầu Epic 7 phát hiện 5 vấn đề
+logic ảnh hưởng tới cam kết của Epic 1 và Epic 6. Cả 5 đã được sửa trong cùng một commit hardening:
+
+1. **Dependency thất bại vẫn force-run node phụ thuộc** (`execution_runtime.py`).
+   `_get_ready_nodes()` trước đây, khi không còn node nào sẵn sàng, force-pop node đầu tiên còn lại
+   bất kể dependency của nó đã thất bại hay chưa — vi phạm failure contract DR1-101/DR1-107. Đã
+   sửa: thêm `_validate_dependencies()` chạy trước khi execute (raise `GraphValidationError` nếu
+   `depends_on` trỏ tới capability không có trong graph — fail fast thay vì rơi vào runtime), và
+   `_get_ready_nodes()` giờ đánh dấu node có dependency **đã chạy và thất bại** là
+   `COLLECTION_FAILED` ("Blocked by dependency: ...") thay vì force-execute. Thêm metric
+   `RuntimeMetrics.blocked_by_dependency`. Test cũ `test_unmet_dependency_does_not_loop` (đang
+   assert đúng hành vi lỗi) đã thay bằng
+   `test_dependency_on_unknown_capability_fails_graph_validation` và
+   `test_node_blocked_by_failed_dependency_is_not_force_executed`.
+2. **Hard budget Epic 6 có thể bị vượt qua recovery** (`execution_budget.py`,
+   `capability_recovery.py`, `execution_runtime.py`, `execution_engine.py`). Trước đây
+   `budget.capabilities += metrics.recovery_attempts` chỉ được cộng **sau khi** recovery đã chạy
+   xong bên trong runtime, nên round có thể vượt `max_capabilities`/`max_estimated_cost` trước khi
+   bị phát hiện. Đã sửa bằng reservation trước khi dispatch: thêm
+   `ExecutionBudget.try_reserve_capability()` (atomic, không thread-safe tự thân — caller giữ lock)
+   và tham số `can_attempt` cho `CapabilityRecovery.recover()` (dừng ngay với
+   `RecoveryStopReason.BUDGET_EXHAUSTED` nếu hết ngân sách). `ExecutionRuntime.execute()` nhận thêm
+   `budget: ExecutionBudget | None` và một lock riêng cho budget, nối xuống
+   `_execute_single_node`/`_execute_batch_parallel`/`_execute_node`/`_recover_node`. Cả 3 call site
+   trong `execution_engine.py` (`execute()` primary round, `_expand_evidence()` expansion round) đã
+   đổi sang truyền `budget=budget` và xóa dòng cộng dồn hậu-kỳ.
+3. **`_bounded_graph()` có thể làm mất prerequisite** (`execution_engine.py`). Khi cắt node theo
+   budget, code cũ chỉ xóa cạnh `depends_on` trỏ tới node bị cắt, khiến node phụ thuộc (B) biến
+   thành "độc lập" và vẫn được chạy dù prerequisite (A) đã bị loại. Đã sửa: sau bước chọn theo
+   budget, tính dependency closure — lặp loại bỏ mọi node còn thiếu ít nhất một dependency (kể cả
+   gián tiếp) cho tới khi ổn định, rồi mới dựng graph cuối cùng. Không còn node nào trong graph trả
+   về có `depends_on` trỏ ra ngoài chính graph đó.
+4. **Hai execution path lệch nhau** (`execution_engine.py`). `execute_immutable()` không có nơi
+   production nào gọi và không có test trực tiếp; đã xác nhận (grep toàn repo) rồi **xóa hẳn**
+   thay vì giữ một path chết có nguy cơ lệch hành vi với `execute()`. Docstring class
+   `ExecutionEngine` cũng bỏ câu nhắc "supports both mutable and immutable paths".
+5. **Rule config fallback âm thầm sang hardcoded rules** (`execution_engine.py`,
+   `src/shared/config_schema.py`). Trước đây nếu `config/rules/` thiếu/rỗng khi deploy,
+   `ThresholdEvaluator(atomic_rules or None)` âm thầm dùng `DEFAULT_ATOMIC_RULES` hardcoded, vi
+   phạm mục tiêu DR1-610 (rule production phải versioned/owned/reviewed/trong config đã validate).
+   Đã thêm `RuleConfigError` và tham số `ExecutionEngine.__init__(..., require_configured_rules:
+   bool = True)`: mặc định, nếu không load được atomic rule nào từ config, engine raise ngay lúc
+   khởi tạo thay vì fallback âm thầm; caller cố ý muốn hành vi permissive cũ (ví dụ script nhẹ
+   không cần reasoning rule) có thể truyền `require_configured_rules=False`.
+
+**Tests/verification (2026-08-06)**
+- ✅ `tests/pipeline/test_execution_runtime.py` — 31 tests pass (thay 1 test cũ bằng 2 test mới cho
+  mục 1).
+- ✅ `tests/pipeline/test_execution_runtime.py`, `tests/pipeline/test_execution_engine.py`,
+  `tests/pipeline/test_execution_graph.py`, `tests/pipeline/test_capability_recovery.py`,
+  `tests/pipeline/test_execution_budget.py`, `tests/shared/test_rule_config_schema.py`,
+  `tests/shared/test_config_schema.py` — 104 tests pass.
+- ✅ Full repository regression: `pytest tests/` — 1511 passed, 4 skipped (không regression).
+- ✅ `ruff check` sạch trên toàn bộ file đã sửa; `mypy --ignore-missing-imports` sạch trên toàn bộ
+  file đã sửa.
 
 ---
 
 ## 10. EPIC 7 — Assessment layer hardening
 ### DR1-701 — Mở rộng AssessmentRequest
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-505, DR1-604
-- **Files dự kiến:** `src/pipeline/assessment_request.py`, `src/pipeline/assessment_adapter.py`
+- **Files:** `src/pipeline/assessment_request.py`, `src/pipeline/assessment_adapter.py`, `src/agent/deterministic_agent.py`
 
 **Vấn đề**  
 Model hiện nhận raw evidence + complete flag, chưa nhận facts/findings/failures/allowed claims rõ.
 
-**Cách làm**
-1. Thêm request_frame, facts, findings, unknowns, collection_failures, evidence_status, allowed_claims.
-2. Raw evidence là optional bounded debug context.
-3. AssessmentRequest immutable.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `AssessmentRequest` có thêm `request_frame` (dict an toàn, không phải object runtime),
+   `unknowns`, `evidence_status`, `allowed_claims`.
+2. ✅ `AssessmentAdapter.build()` populate đủ field mới từ `InvestigationRequest`: `unknowns` gộp
+   `missing_facts` của mọi finding + `missing_evidence` legacy; `allowed_claims` là id của mọi fact
+   `usable` và mọi finding id; `request_frame` lấy từ `request.request_frame.to_dict()`.
+3. ✅ Sửa lại nhánh rebuild `AssessmentRequest` khi có conversation context trong
+   `deterministic_agent.py` — trước đây bị rơi mất `findings`/`health_summary` khi rebuild, nay giữ
+   đủ toàn bộ field.
+4. Raw evidence (`evidence: tuple[EvidencePackage, ...]`) vẫn giữ nguyên làm optional debug context
+   như trước; chưa bound kích thước nghiêm ngặt hơn ngoài truncation sẵn có ở prompt builder.
 
 **Acceptance criteria**
-- [ ] Model có đủ context để giải thích nhưng không cần tự xác định validity.
+- [x] Model có đủ context để giải thích nhưng không cần tự xác định validity (facts đã lọc
+      `usable`, findings đã có decision/severity/coverage).
 
 **Tests/verification**
-- `tests/pipeline/test_assessment_request.py`
+- ✅ `tests/pipeline/test_assessment_request.py`, `tests/pipeline/test_assessment_adapter.py`,
+  `tests/agent/test_deterministic_agent.py` — pass.
 
 ---
 ### DR1-702 — Prompt builder hiển thị failure và giới hạn evidence
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-701
-- **Files dự kiến:** `src/model/protocol/prompt_builder_v2.py`, `config/prompts/*.j2`
+- **Files:** `src/model/protocol/prompt_builder_v2.py`
 
 **Vấn đề**  
 Prompt hiện bỏ package failed, khiến model tưởng evidence chỉ đơn giản là missing.
 
-**Cách làm**
-1. Sections: confirmed facts, deterministic findings, contradicting facts, missing facts, collection failures, scope limitations.
-2. Bỏ fallback key guessing sau khi fact normalizer ổn định.
-3. Nhắc model không suy ra trend/health/action ngoài allowed claims.
+**Cách làm (đã thực hiện 2026-08-05, hoàn tất 2026-08-06)**
+1. ✅ Thêm đủ section: "Confirmed facts", "Deterministic findings", "Contradicting facts",
+   "Missing facts / unknowns", "Scope limitations: collection failures", cùng dòng
+   `Evidence status: <status>` + wording uncertainty tương ứng (DR1-708).
+2. ✅ Thêm "Grounding rule" nhắc model không suy ra trend/health/action ngoài facts/findings khi có
+   `allowed_claims`.
+3. ✅ **Hoàn tất 2026-08-06**: đã xóa hẳn `_summarize_evidence` (fallback key-guessing theo tên
+   evidence). Lý do an toàn để xóa: `FactNormalizerRegistry` (dùng bởi `EvidenceMerge`) đã có
+   fallback generic ở tầng normalizer từ trước — mọi capability Linux/Zabbix/Grafana đăng ký
+   `produces_facts` mặc định `f"{provider}.{capability}"` khi không có mapping riêng
+   (`src/tool/linux/__init__.py::_PRODUCED_FACTS.get(_name, (f"linux.{_name...}",))` và tương tự
+   cho zabbix/grafana). Nghĩa là **mọi package `valid_for_requirements=True` từ 3 provider này luôn
+   có ít nhất một usable Fact** — nhánh `if usable_facts: ... continue` trong prompt builder đã che
+   hết nhánh `_summarize_evidence` từ trước, hàm này thực chất là dead code. Với provider không có
+   fact normalizer (vd. `internet_tool.web_fetch`), `_summarize_evidence` cũng không có case riêng
+   (luôn trả `""`) nên đã tự rơi vào JSON fallback từ trước — xóa hàm không làm mất evidence, chỉ
+   loại bỏ code không còn đường chạy tới được. Đường JSON fallback (`_normalize_evidence` + dump)
+   vẫn giữ nguyên cho các provider chưa có fact normalizer.
 
 **Acceptance criteria**
-- [ ] Command not found/SSH timeout xuất hiện như limitation, không biến thành zero.
+- [x] Command not found/SSH timeout xuất hiện như limitation (`collection_failures` section), không
+      biến thành zero.
+- [x] Loại bỏ hoàn toàn fallback key-guessing — `_summarize_evidence` đã xóa khỏi
+      `prompt_builder_v2.py`.
 
 **Tests/verification**
-- `tests/model/protocol/test_prompt_builder_v2.py`
+- ✅ `tests/model/protocol/test_prompt_builder_v2.py` — 12 tests pass, gồm test mới
+  `test_no_usable_facts_falls_back_to_full_json_not_key_guessing` xác nhận package không có usable
+  facts render ra JSON đầy đủ thay vì subset field đoán theo tên.
+- ✅ Full suite: `pytest tests/` — 1505 passed, 4 skipped (không regression).
 
 ---
 ### DR1-703 — Claim grounding validator
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-701
-- **Files dự kiến:** `src/model/claim_validator.py (new)`, `src/agent/deterministic_agent.py`
+- **Files:** `src/model/claim_validator.py (new)`, `src/model/assessment_guard.py (new)`,
+  `src/agent/deterministic_agent.py`
 
 **Vấn đề**  
 LLM có thể thêm số liệu, target hoặc kết luận không có trong facts/findings.
 
-**Cách làm**
-1. Extract/check numeric claims, target names, severity và action verbs với allowed facts/findings.
-2. Không cần full semantic theorem prover; chặn các pattern nguy hiểm và mismatch rõ.
-3. Fail closed cho action claims; downgrade/replace response với safe template khi violation.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `ClaimValidator.validate()` trích số có đơn vị (`%`, GB/MB/KB/TB, giây/phút/giờ) và target
+   mention (`server X`, `máy chủ X`) từ response text, so với tập số/target lấy từ facts usable +
+   findings + `request_frame`.
+2. ✅ Không phải full theorem prover: chỉ so khớp normalized-number string và substring target —
+   đủ để chặn số/target bịa hoàn toàn khác, có thể miss số liệu diễn đạt gián tiếp (chấp nhận theo
+   đúng scope "chặn pattern nguy hiểm và mismatch rõ", không phải chứng minh từng câu).
+3. ✅ `redact_ungrounded_claims()` thay trực tiếp số/target không grounded bằng marker
+   `[số liệu chưa xác nhận]` / `[mục tiêu chưa xác nhận]`, giữ nguyên phần còn lại của câu trả lời.
+4. ✅ Không có evidence nào (facts/findings/allowed_claims rỗng) → không có gì để chặn, tránh false
+   positive khi bản thân investigation thiếu evidence (đó là lỗi evidence-completeness, không phải
+   lỗi claim).
 
 **Acceptance criteria**
-- [ ] Số GB/% không có trong fact set bị chặn.
-- [ ] Không đổi monitor thành localhost.
+- [x] Số GB/% không có trong fact set bị chặn (redact) — `test_ungrounded_number_flagged`,
+      `test_redact_ungrounded_claims_replaces_invented_number`.
+- [x] Target không khớp evidence bị chặn — logic `_allowed_targets`/`ungrounded_targets`; chưa có
+      case cụ thể "đổi monitor thành localhost" trong test, nên coi acceptance criterion này là
+      partial cho tới khi có golden case thật.
 
 **Tests/verification**
-- `tests/model/test_claim_validator.py`
+- ✅ `tests/model/test_claim_validator.py` — 5 tests pass.
+- ✅ `tests/model/test_assessment_guard.py` — 3 tests pass (tích hợp với action guard/numeric/
+  language guard theo đúng thứ tự).
 
 ---
 ### DR1-704 — Action hallucination guard và ActionReceipt contract
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-211, DR1-703
-- **Files dự kiến:** `src/model/output_sanitizer.py`, `src/model/action_receipt.py (new, future-compatible)`
+- **Files:** `src/model/action_receipt.py (new)`, `src/model/assessment_guard.py (new)`
 
 **Vấn đề**  
-Orion từng nói “đã xóa /tmp” dù không thực thi.
+Orion từng nói "đã xóa /tmp" dù không thực thi.
 
-**Cách làm**
-1. Read-only mode: cấm completion verbs `đã xóa/sửa/restart/deploy` nếu không có ActionReceipt.
-2. ActionReceipt gồm capability/action ID, target, status, timestamps, exit/result và verification; hiện không có write capability nên luôn absent.
-3. Output violation trả “Orion chưa thực hiện hành động”.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `contains_action_claim()` match actor-attributed completion verbs ("tôi đã xóa", "Orion đã
+   restart", "I have deleted", "I've removed"...), cố tình hẹp theo actor để không false-positive
+   trên mô tả trạng thái hệ thống ("dịch vụ đã dừng").
+2. ✅ `ActionReceipt` (frozen dataclass) định nghĩa contract tương lai: action_id/capability/target/
+   status/timestamps/exit_code/verified. Không có code path nào tạo receipt hôm nay (Orion read-
+   only) nên `action_receipts=()` luôn rỗng trong production.
+3. ✅ `guard_action_claims()` fail-closed: nếu phát hiện action claim và không có receipt đã
+   `verified=True`, thay toàn bộ response bằng câu từ chối chuẩn ("Orion chưa thực hiện hành động
+   nào...").
+4. ✅ Wired vào `apply_assessment_guards()` làm bước đầu tiên (ưu tiên cao nhất, chặn trước khi chạy
+   claim/numeric/language guard).
 
 **Acceptance criteria**
-- [ ] 0 hallucinated action trong adversarial suite.
+- [x] Actor-attributed action claim bị chặn trong test đơn vị (tiếng Việt + tiếng Anh).
+- [ ] "0 hallucinated action trong adversarial suite" — chưa có adversarial suite riêng (thuộc
+      DR1-809, ngoài scope task này); mới có unit-level coverage.
 
 **Tests/verification**
-- `tests/model/test_output_sanitizer.py`
-- `prompt injection cases`
+- ✅ `tests/model/test_action_receipt.py` — 4 tests pass, gồm case "mô tả trạng thái không phải
+  action claim" để tránh false positive.
+- ✅ `tests/model/test_assessment_guard.py::test_action_claim_short_circuits_everything`.
 
 ---
 ### DR1-705 — Numeric và unit consistency validator
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-703
-- **Files dự kiến:** `src/model/numeric_claim_validator.py (new)`
+- **Files:** `src/model/numeric_claim_validator.py (new)`, `src/model/assessment_guard.py`
 
 **Vấn đề**  
 Transcript có disk free 154 GB rồi 391.8 GB và nhầm size/used.
 
-**Cách làm**
-1. Normalize displayed units từ fact canonical.
-2. Check arithmetic total-used≈available trong tolerance nếu cùng semantics.
-3. Không cho prompt/model tự convert từ ambiguous field.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `find_arithmetic_inconsistencies()` gom fact cùng `(subject, target)`, so
+   `filesystem.size_bytes` ≈ `filesystem.used_bytes` + `filesystem.available_bytes` (và cặp tương
+   tự cho memory) trong dung sai 2%.
+2. ✅ `find_duplicate_metric_conflicts()` phát hiện cùng `(subject, target, metric)` bị report với
+   giá trị khác nhau trong cùng investigation — chính là lớp lỗi "154 GB rồi 391.8 GB".
+3. ✅ Không sửa số tự động (không đoán số nào đúng); `apply_assessment_guards()` chỉ thêm scope-note
+   yêu cầu kiểm tra thủ công khi phát hiện mâu thuẫn, đúng nguyên tắc "surface thay vì chọn ngẫu
+   nhiên" — số liệu gốc trong response vẫn do claim grounding (DR1-703) xử lý riêng.
+4. Chưa có bước "normalize displayed units từ fact canonical" cho phần response text (ví dụ ép mọi
+   response quy đổi cùng về GB) — mới dừng ở phát hiện mâu thuẫn giữa facts, chưa rewrite unit hiển
+   thị trong câu trả lời model.
 
 **Acceptance criteria**
-- [ ] Cùng fact set luôn render cùng số.
-- [ ] Contradiction được surface thay vì chọn ngẫu nhiên.
+- [x] Contradiction giữa facts được phát hiện và surface qua scope-note thay vì bị che giấu.
+- [ ] "Cùng fact set luôn render cùng số" — đúng ở tầng fact (canonical value cố định), nhưng chưa
+      kiểm chứng ở tầng response text (model vẫn có thể diễn đạt số khác nhau theo ngôn ngữ tự
+      nhiên); cần DR1-703 claim redaction + golden test để đóng hẳn.
 
 **Tests/verification**
-- `tests/model/test_numeric_claim_validator.py`
+- ✅ `tests/model/test_numeric_claim_validator.py` — 2 tests pass.
 
 ---
 ### DR1-706 — Language quality validator
 - **Priority:** P1
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-703
-- **Files dự kiến:** `src/model/output_sanitizer.py`
+- **Files:** `src/model/output_sanitizer.py`, `src/model/assessment_guard.py`
 
 **Vấn đề**  
 Response có ký tự Trung/Nhật/Nga xen giữa tiếng Việt.
 
-**Cách làm**
-1. Detect script leakage ngoài code/quoted identifiers.
-2. Cho phép thuật ngữ kỹ thuật Latin; reject unexpected CJK/Cyrillic trong Vietnamese answer.
-3. Nếu fail, regenerate một lần hoặc dùng deterministic safe summary.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `detect_script_leakage()` phát hiện Han/Hiragana/Katakana/Hangul và Cyrillic ngoài code
+   span (loại trừ backtick/code fence trước khi check).
+2. ✅ `enforce_language_quality()` chỉ áp dụng cho câu trả lời tiếng Việt (`lang == "vi"`); tiếng
+   Anh không bị ép script-pure.
+3. 🔁 Khác với đề xuất gốc ("regenerate một lần hoặc dùng deterministic safe summary"): vì
+   `apply_assessment_guards()` không có quyền gọi lại model (không có model handle ở layer này),
+   nên chọn cách an toàn hơn — xóa trực tiếp ký tự ngoài script mong đợi thay vì rewrite câu. Đánh
+   đổi: câu có thể hơi cụt nếu ký tự lạ nằm giữa từ, nhưng không bao giờ để lọt CJK/Cyrillic ra
+   ngoài.
 
 **Acceptance criteria**
-- [ ] 0 mixed-script leakage trong QA tiếng Việt.
+- [x] Script lạ bị loại khỏi output trong mọi test case hiện có; chưa đo được "0 mixed-script
+      leakage trong QA tiếng Việt" ở mức suite thật (cần DR1-806/809).
 
 **Tests/verification**
-- `tests/model/test_output_sanitizer.py`
+- ✅ `tests/model/test_output_sanitizer.py` — 5 tests pass (bao gồm case code-span không bị đụng).
 
 ---
 ### DR1-707 — DeterministicResponder chỉ đọc valid facts/findings
 - **Priority:** P0
-- **Status:** 🔎
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-604
-- **Files dự kiến:** `src/pipeline/deterministic_responder.py`
+- **Files:** `src/pipeline/deterministic_responder.py`
 
 **Vấn đề**  
 Fast path nhanh nhưng nguy hiểm nếu đọc raw/default zero.
 
-**Cách làm**
-1. Refactor responders hostname/kernel/uptime/CPU/RAM/disk/service sang FactSet.
-2. Require validity/freshness và exact target/params.
-3. Nếu insufficient, trả deterministic limitation hoặc chuyển assessment khi phù hợp.
+**Cách làm (đã thực hiện 2026-08-05, hoàn tất refactor 2026-08-06)**
+1. ✅ `_package_has_untrustworthy_facts()`: trước khi bất kỳ responder nào đọc evidence của một
+   package, kiểm tra `pkg.facts` — nếu có fact `CONTRADICTORY` hoặc `STALE`, bỏ qua toàn bộ package
+   (fast path trả `None`, rơi xuống LLM assessment nơi đã hiển thị contradiction/staleness tường
+   minh qua DR1-702). Không đổi trong lượt hoàn tất — đây vẫn là guard an toàn chính.
+2. ✅ `_health_response()` dùng `fact_set`/`HealthSummary` (DR1-609) từ trước, không đổi.
+3. ✅ **Hoàn tất 2026-08-06**: thêm helper `_facts_by_metric()` / `_first_fact_value()` và refactor
+   9/15 responder con để đọc **canonical Fact trước, dict thô chỉ làm fallback**:
+   `_check_zombie_processes` (`process.zombie_count`), `_check_hostname` (`system.hostname`),
+   `_check_kernel` (`system.kernel`), `_check_ram_available` (`memory.available`/`memory.total`,
+   đơn vị byte), `_check_load_average` (`system.load_1m/5m/15m`), `_check_swap`
+   (`swap.total`/`swap.used`, đơn vị byte), `_check_listening_ports`
+   (`network.listening_socket`), `_check_disk_full` (`filesystem.usage` theo từng mountpoint qua
+   `dimensions`), và `_check_service_status` (nhánh tra cứu service cụ thể qua fact
+   `service.status` + `dimensions.service_name`; nhánh liệt kê failed/disabled toàn bộ service vẫn
+   đọc dict vì `LinuxFactNormalizer._services` hiện chỉ emit `service.inventory`, chưa có fact
+   per-service failed/disabled — xem điểm 5).
+4. **Phát hiện phụ trong lúc refactor — đây là sửa bug thật, không chỉ đổi kiến trúc**: đối chiếu
+   với `src/tool/linux/output_schema.py`, `_check_ram_available` (khoá cũ `available_kb`/
+   `total_kb`) và `_check_swap` (khoá cũ `swap_total`/`swap_total_kb`) **không bao giờ khớp** với
+   schema thật (`available_bytes`/`total_bytes`, `total_bytes`/`used_bytes`) — nghĩa là hai
+   responder này gần như luôn trả `None` trên dữ liệu thật trước bản vá này. Đọc qua Fact (đơn vị
+   byte chuẩn hoá bởi normalizer) sửa luôn lỗi này. Tương tự, `_check_listening_ports` dùng khoá
+   `port`/`service` trong khi schema thật là `port_number`/`process`; đã thêm các khoá đúng làm ưu
+   tiên đầu (áp dụng cho cả nhánh fact và nhánh dict fallback).
+4b. **Phát hiện bug thứ hai, độc lập với (4), nghiêm trọng hơn**: đối chiếu điều kiện
+   `pkg.evidence_name in (...)` ở từng nhánh trong `try_response()` với bảng ánh xạ thật
+   `src/pipeline/capability_library.py` (nơi định nghĩa mọi `evidence_name` hợp lệ mà router có
+   thể gán cho một `EvidenceRequirement`), phát hiện 4 evidence_name hợp lệ, riêng biệt trong
+   production **chưa từng nằm trong điều kiện khớp của responder tương ứng**, khiến các package đó
+   luôn rơi thẳng xuống LLM dù có fact đầy đủ:
+   - `"Swap"` (không phải chỉ `"Memory"`) — `PERFORMANCE_ASSESSMENT`/`MACHINE_ASSESSMENT` định
+     nghĩa Swap là evidence riêng biệt với Memory.
+   - `"Load Average"` (không phải chỉ `"CPU"`) — định nghĩa riêng trong `PERFORMANCE_ASSESSMENT`.
+   - `"Listening Ports"` (không phải chỉ `"Network"`) — định nghĩa riêng trong
+     `NETWORK_ASSESSMENT`.
+   - `"System Uptime"` (không phải `"CPU"`/`"System Information"`) — định nghĩa riêng trong
+     `_ADDITIONAL_EVIDENCE`, ánh xạ từ capability `get_uptime` độc lập với `get_system`/`get_cpu`.
+   - Đã thêm `"Disk Usage"` (từ `STORAGE_ASSESSMENT`) vào điều kiện của `_check_disk_full` cho
+     đồng bộ, dù `"Storage"`/`"Filesystem"` cũ vẫn đúng và không đổi.
+   Đã bổ sung các giá trị này vào điều kiện khớp tương ứng (giữ nguyên giá trị cũ, chỉ thêm OR),
+   nên không ảnh hưởng hành vi đã có, chỉ mở rộng số package thực sự kích hoạt được fast path.
+5. ❌ **Chưa làm** (còn lại có chủ đích, rủi ro thấp — không có canonical Fact để đọc):
+   `_check_top_cpu` (không có fact `process.top_cpu`) và `_check_uptime` (không có fact
+   `system.uptime`) — `LinuxFactNormalizer` chưa emit hai metric này; cần thêm normalizer trước khi
+   refactor được. Nhánh liệt kê failed/disabled service (không hỏi service cụ thể) cũng chưa có
+   fact backing vì lý do tương tự (điểm 3). Cả ba đã có comment `DR1-707` tại chỗ đọc `pkg.data`
+   giải thích rõ lý do, để task tiếp theo (mở rộng `LinuxFactNormalizer`) dễ tìm.
+6. Guard package-level (điểm 1) không đổi, không thêm I/O; các đọc-fact mới chỉ duyệt
+   `pkg.facts` (đã có sẵn trong bộ nhớ), không thêm round-trip.
 
 **Acceptance criteria**
-- [ ] Fast path không bypass evidence quality.
-- [ ] Fact response P95 vẫn dưới target.
+- [x] Fast path không bypass evidence quality cho trường hợp contradictory/stale — đã đóng từ
+      2026-08-05, không đổi.
+- [x] "Refactor responder sang FactSet" — hoàn tất cho 9/15 responder có canonical Fact coverage
+      (chiếm toàn bộ nhóm RAM/swap/disk/load/hostname/kernel/zombie/ports/service-cụ-thể). 2 responder
+      không có Fact coverage (`top_cpu`, `uptime`) và nhánh generic failed/disabled service được
+      giữ nguyên dict-based có chủ đích, đã ghi rõ lý do và điều kiện đóng (cần thêm fact normalizer
+      cho `process.top_cpu`/`system.uptime`/per-service failed state — theo dõi như việc kế tiếp,
+      ngoài scope hiện tại).
+- [x] Fact response P95 không đổi — đọc `pkg.facts` là tra cứu trong bộ nhớ, không thêm I/O.
 
 **Tests/verification**
-- `tests/pipeline/test_deterministic_responder.py`
+- ✅ `tests/pipeline/test_deterministic_responder.py` — 45 tests pass: 2 test cũ
+  (contradictory/stale guard), 10 test `TestDeterministicResponderReadsCanonicalFacts` (fact-first
+  read + fallback + đơn vị byte đúng), và 5 test mới `TestDeterministicResponderMatchesRealEvidenceNames`
+  phủ đúng 4 evidence_name production bị bỏ sót ở điểm 4b (Swap/Load Average/Listening
+  Ports/System Uptime/Disk Usage).
+- ✅ Full suite: `pytest tests/` — 1510 passed, 4 skipped (không regression trên toàn bộ codebase,
+  bao gồm cả các module trước đó không cài được do thiếu dependency — đã cài đủ để chạy full suite).
+- ✅ `ruff check` sạch trên toàn bộ file đã sửa.
 
 ---
 ### DR1-708 — Chuẩn hóa uncertainty và confidence wording
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-701
-- **Files dự kiến:** `config/prompts/*.j2`, `src/pipeline/deterministic_responder.py`
+- **Files:** `src/model/protocol/prompt_builder_v2.py`
 
 **Vấn đề**  
 Model thường nói chắc chắn khi evidence partial.
 
-**Cách làm**
-1. Templates theo evidence_status: confirmed, partial, unavailable, contradictory, stale.
-2. Không dùng “mọi thứ ổn” khi critical evidence missing.
-3. Nêu chính xác cái chưa biết và lý do thu thập thất bại.
+**Cách làm (đã thực hiện 2026-08-05)**
+1. ✅ `_EVIDENCE_STATUS_WORDING_VI`/`_EN` trong `prompt_builder_v2.py` map từng `EvidenceStatus`
+   (`SUFFICIENT`/`PARTIAL`/`UNAVAILABLE`/`STALE`/`CONTRADICTORY`) sang câu hướng dẫn wording tương
+   ứng, chèn ngay đầu prompt qua `_evidence_status_preamble()`.
+2. ✅ Wording cho `UNAVAILABLE`/`CONTRADICTORY` cấm rõ việc suy đoán/kết luận "mọi thứ ổn"; wording
+   cho `PARTIAL`/`STALE` yêu cầu nêu rõ phần chưa xác nhận và mốc thời gian quan sát.
+3. ❌ Chưa sửa `deterministic_responder.py` để áp cùng bảng wording cho các câu trả lời fast-path
+   khi evidence không đầy đủ — hiện fast path đã tự có logic riêng (`TemporalEvidenceGuard.refusal`,
+   `_health_response` theo `HealthStatus`) nhưng chưa dùng chung bảng wording DR1-708; để lại làm
+   theo dõi (không tạo hai nguồn wording khác nhau nhưng chưa hợp nhất trong lượt này).
 
 **Acceptance criteria**
-- [ ] Unsafe conclusion rate đạt gate.
+- [x] Prompt có wording khác nhau rõ rệt theo từng evidence_status — test
+      `test_findings_and_unknowns_rendered` xác nhận `Evidence status: PARTIAL` xuất hiện.
+- [ ] "Unsafe conclusion rate đạt gate" — cần golden/assessment test suite thực tế (DR1-805/810),
+      ngoài scope một task prompt-wording.
 
 **Tests/verification**
-- `assessment golden tests`
+- ✅ `tests/model/protocol/test_prompt_builder_v2.py`.
 
 ---
 
 ## 11. EPIC 8 — QA harness, evaluator và acceptance gates
 ### DR1-801 — Unit test matrix cho CommandResult/CapabilityResult
 - **Priority:** P0
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101..107
 - **Files dự kiến:** `tests/tool/`, `tests/shared/execution/`
 
@@ -1972,10 +2188,15 @@ Failure semantics là nền móng nên cần test theo ma trận.
 2. Capability valid/valid_empty/partial/failed/unsupported/parse_failed.
 
 **Acceptance criteria**
-- [ ] Coverage branch đủ cho mapping lỗi core.
+- [x] Coverage branch đủ cho mapping lỗi core. (100% branch coverage: `command_result.py`, `capability_result.py`, `errors.py`)
 
 **Tests/verification**
 - `pytest touched modules`
+- Đã thêm: `tests/shared/execution/test_command_result_matrix.py` (ma trận target local/SSH × toàn bộ `CommandStatus`, legacy_output/success/iter/to_dict)
+- Đã thêm: `tests/tool/test_capability_result_matrix.py` (ma trận local/SSH command_results → `CapabilityStatus` valid/valid_empty/partial/collection_failed, cộng construction trực tiếp cho unsupported/invalid_parameters/parse_failed)
+- Đã bổ sung 2 case vào `tests/tool/test_error_mapping.py` để phủ nốt nhánh `capability_error_from_status("valid")` và fallback status lạ → `INTERNAL_ERROR`
+- Kết quả: `pytest tests/shared/execution tests/tool/test_capability_result_matrix.py tests/tool/test_capability_result.py tests/tool/test_error_mapping.py --cov=src.shared.execution.command_result --cov=src.tool.capability_result --cov=src.tool.errors --cov-branch` → 170 passed, 100% branch coverage cả 3 module
+- Full regression `tests/tool` + `tests/shared` (trừ `test_cli.py`, thiếu `python-multipart` trong sandbox, không liên quan) → 499 passed
 
 ---
 ### DR1-802 — Stage tests cho routing đa ngôn ngữ/typo/code-switch
@@ -2192,108 +2413,107 @@ Không có gate thì regression sẽ quay lại dù unit tests pass.
 ## 12. EPIC 9 — Documentation, migration và rollout
 ### DR1-901 — Cập nhật execution/tool docs theo contracts mới
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101, DR1-501, DR1-606
 - **Files dự kiến:** `docs/ai/05_EXECUTION_PIPELINE.md`, `docs/ai/06_TOOL_AND_CAPABILITY_DESIGN.md`, `docs/tools/linux.md`
 
 **Vấn đề**  
 Docs cần mô tả CommandResult, Fact, Finding, recovery và LLM boundary mới.
 
-**Cách làm**
-1. Cập nhật flow diagram.
-2. Ghi rõ command strategy thuộc Child Tool.
-3. Ghi failure semantics và provenance.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Cập nhật flow từ `RequestFrame` đến `ExecutionTrace`, Fact/Findings, deterministic responder và assessment guards trong `05_EXECUTION_PIPELINE.md`.
+2. ✅ Ghi rõ command strategy/fallback là sở hữu của Child Tool, không có đường LLM/raw command, trong `06_TOOL_AND_CAPABILITY_DESIGN.md` và `docs/tools/linux.md`.
+3. ✅ Chuẩn hóa tài liệu failure semantics, `VALID_EMPTY`, structured error, provenance, bounded recovery và rollout compatibility.
 
 **Acceptance criteria**
-- [ ] Docs khớp source và tests.
+- [x] Docs khớp source và tests.
 
 **Tests/verification**
-- `Doc review`
+- ✅ Review đối chiếu `CommandResult`, `CapabilityResult`, `Fact`, `Finding`, `EvidenceMerge`, `CapabilityRecovery` và test contract; `git diff --check` pass.
 
 ---
 ### DR1-902 — ADR cho evidence validity và deterministic reasoning v1
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-501, DR1-602
 - **Files dự kiến:** `docs/adr/ADR-0008-evidence-validity.md (new)`, `docs/adr/ADR-0009-deterministic-reasoning-v1.md (new)`
 
 **Vấn đề**  
 Đây là thay đổi contract kiến trúc cần quyết định rõ, không chỉ implicit code.
 
-**Cách làm**
-1. ADR-0008: missing vs zero, validity/freshness/provenance.
-2. ADR-0009: atomic/composite rules, bounded recovery, no self-learning/no LLM planning.
-3. Nêu trade-offs và rejected alternatives.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Thêm ADR-0008 cho missing vs zero, validity/freshness/provenance và evidence contract.
+2. ✅ Thêm ADR-0009 cho atomic/composite rule, bounded recovery/expansion, no self-learning và no LLM planning.
+3. ✅ Nêu trade-off/rejected alternatives và cross-link hai ADR ở `09_ARCHITECTURE_DECISIONS.md` (AD-023/024).
 
 **Acceptance criteria**
-- [ ] ADR được cross-link trong architecture decisions.
+- [x] ADR được cross-link trong architecture decisions.
 
 **Tests/verification**
-- `Doc review`
+- ✅ Doc review: ADR links, Decision/Consequences/Rejected alternatives và architecture summaries được đối chiếu.
 
 ---
 ### DR1-903 — Kế hoạch backward compatibility và migration
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-101, DR1-104, DR1-508
 - **Files dự kiến:** `docs/migrations/deterministic_reasoning_v1.md (new)`, `src/tool/ compatibility adapters`
 
 **Vấn đề**  
 Đổi tuple/dict contracts có thể phá tools/tests/UI.
 
-**Cách làm**
-1. Liệt kê public/internal interfaces.
-2. Compatibility adapter có deprecation warning.
-3. Migration theo vertical slice, không big bang.
-4. Bỏ adapter chỉ sau khi callers chuyển hết.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Thêm `docs/migrations/deterministic_reasoning_v1.md`: matrix public/internal interfaces, thứ tự vertical-slice, rollback/exit criteria.
+2. ✅ `CommandResult.__iter__` và direct `CapabilityResult.from_legacy()` phát `DeprecationWarning`; internal dispatcher bridges suppress duplicate warning cho legacy handler chưa migrate.
+3. ✅ Ghi rõ không big-bang và điều kiện remove adapter/flag sau khi callers/tests chuyển hết.
 
 **Acceptance criteria**
-- [ ] Old callers vẫn hoạt động trong migration window.
+- [x] Old callers vẫn hoạt động trong migration window.
 
 **Tests/verification**
-- `compatibility tests`
+- ✅ `tests/shared/execution/test_command_result.py`, `tests/tool/test_capability_result.py` — legacy caller behavior + warning contract pass.
 
 ---
 ### DR1-904 — Feature flags cho rollout theo phase
 - **Priority:** P1
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-903
 - **Files dự kiến:** `src/model/config_store.py`, `config hoặc env docs`
 
 **Vấn đề**  
 Facts/rules/validators mới cần rollback độc lập khi regression.
 
-**Cách làm**
-1. Flags tạm: structured_command_result, canonical_facts, composite_rules, claim_guard.
-2. Default off trong migration, bật trên QA, sau gate mới default on.
-3. Không giữ flags vô thời hạn; có removal task.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Thêm schema/loader strict cho `structured_command_result`, `canonical_facts`, `composite_rules`, `claim_guard` ở `config/feature_flags.yaml` (optional) và override `ORION_FEATURE_*`.
+2. ✅ Migration default là off; QA/deployment bật theo thứ tự documented, mỗi layer rollback độc lập mà không đổi response schema.
+3. ✅ Wire flags vào EvidenceMerge/ExecutionEngine/assessment guard; action-claim/read-only guard luôn bắt buộc. Migration doc ghi exit criteria và removal phải có task riêng.
 
 **Acceptance criteria**
-- [ ] Có rollback không đổi data schema bên ngoài.
+- [x] Có rollback không đổi data schema bên ngoài.
 
 **Tests/verification**
-- `config tests`
+- ✅ `tests/model/test_feature_flags.py` — default, file, env override, unknown/invalid input và named lookup; runtime/config tests pass.
 
 ---
 ### DR1-905 — Operator troubleshooting guide cho collection failures
 - **Priority:** P2
-- **Status:** ⬜
+- **Status:** ✅
 - **Dependencies:** DR1-107, DR1-201
 - **Files dự kiến:** `docs/troubleshooting.md`, `docs/tools/linux.md`
 
 **Vấn đề**  
 Operator cần biết COMMAND_NOT_FOUND/SSH_AUTH/UNSUPPORTED khác nhau và cách sửa.
 
-**Cách làm**
-1. Bảng error code → nguyên nhân → cách kiểm tra → dependency/config cần có.
-2. Nêu rõ localhost/container semantics.
-3. Không hướng dẫn bỏ security guard tùy tiện.
+**Cách làm (hoàn tất 2026-08-07)**
+1. ✅ Thêm bảng stable error code → nguyên nhân → safe checks → operator action trong `docs/troubleshooting.md`.
+2. ✅ Mô tả `localhost`/Compose container, explicit-target không fallback, preflight/transport behavior ở troubleshooting và Linux Tool doc.
+3. ✅ Hướng dẫn giữ read-only/parameter/target inspectors, redaction và least privilege; không có hướng dẫn bypass security guard.
 
 **Acceptance criteria**
-- [ ] Guide dùng đúng error codes trong source.
+- [x] Guide dùng đúng error codes trong source.
 
 **Tests/verification**
-- `Doc review`
+- ✅ Đối chiếu `CommandStatus`, `CapabilityErrorCode`, preflight và Linux capability contracts; `git diff --check` pass.
 
 ---
 ### DR1-906 — Rollout theo PR/phase và exit criteria

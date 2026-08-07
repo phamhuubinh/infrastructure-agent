@@ -32,6 +32,35 @@ All configuration errors are collected before exit. The system does not fail on 
 - `config/health_patterns.yaml` — Returns empty list on any failure.
 - `ORION_*` environment variables — Optional; defaults provided in code.
 
+## Deterministic reasoning rollout flags
+
+`config/feature_flags.yaml` is an optional, strict configuration file used
+only while rolling out deterministic-reasoning v1. An absent file uses the
+migration-safe default: all four flags are off. This preserves the external
+response schema while allowing operators to enable or roll back one new layer
+at a time.
+
+```yaml
+schema_version: rollout.v1
+structured_command_result: true
+canonical_facts: true
+composite_rules: true
+claim_guard: true
+```
+
+`ORION_FEATURE_FLAGS_FILE` selects another YAML file. A per-flag environment
+variable overrides the file: `ORION_FEATURE_STRUCTURED_COMMAND_RESULT`,
+`ORION_FEATURE_CANONICAL_FACTS`, `ORION_FEATURE_COMPOSITE_RULES`, and
+`ORION_FEATURE_CLAIM_GUARD`. Values must be one of `true`/`false`, `1`/`0`,
+`yes`/`no`, or `on`/`off`; invalid/unknown file keys fail validation.
+
+Enable in this order after a QA gate: structured command provenance, canonical
+Facts, composite rules, then claim grounding. Rollback reverses only the
+affected layer and does not alter tool, evidence-package, or API response
+schemas. The action-claim/read-only guard is not disabled by `claim_guard`.
+These flags are temporary and must be removed after the migration exit
+criteria in `docs/migrations/deterministic_reasoning_v1.md` are met.
+
 ## Error Format
 
 All errors use the `ConfigurationError` hierarchy (`src/shared/config_errors.py`). Each error includes:

@@ -49,6 +49,30 @@ class ServersConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Deterministic reasoning rollout flags (config/feature_flags.yaml)
+# ---------------------------------------------------------------------------
+
+
+class FeatureFlagsConfig(BaseModel):
+    """Temporary, independently reversible deterministic-reasoning gates.
+
+    These flags deliberately have an explicit, closed schema.  A typo must
+    fail configuration validation rather than silently leave a rollout gate in
+    an unintended state.  All defaults are ``False`` so a migration starts
+    from the previously shipped evidence path until its QA gate enables a
+    feature deliberately.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    schema_version: Literal["rollout.v1"] = "rollout.v1"
+    structured_command_result: bool = False
+    canonical_facts: bool = False
+    composite_rules: bool = False
+    claim_guard: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Tool config (tools.json)
 # ---------------------------------------------------------------------------
 
@@ -214,6 +238,17 @@ class RuleConfigFile(BaseModel):
         return self
 
 
+class RuleConfigError(RuntimeError):
+    """Raised when production reasoning rules cannot be loaded from config.
+
+    Per DR1-610, atomic/composite thresholds used for reasoning must be
+    versioned, owned, reviewed, and validated config — not a silent
+    hardcoded fallback. Something that would otherwise degrade quietly
+    (a missing or empty ``config/rules/`` directory at deploy time) must
+    fail startup loudly instead.
+    """
+
+
 def load_rule_configs(path: Path | None = None) -> tuple[RuleConfigFile, ...]:
     """Load every reviewed rule file in deterministic filename order."""
 
@@ -256,6 +291,11 @@ def _project_root() -> Path:
 def _servers_path() -> Path:
     configured = os.environ.get("ORION_SERVERS_FILE", "").strip()
     return Path(configured) if configured else _project_root() / "servers.json"
+
+
+def _feature_flags_path(root: Path) -> Path:
+    configured = os.environ.get("ORION_FEATURE_FLAGS_FILE", "").strip()
+    return Path(configured) if configured else root / "config" / "feature_flags.yaml"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -308,6 +348,17 @@ def validate_all_configs() -> None:
         load_rule_configs(root / "config" / "rules")
     except Exception as exc:
         errors.append(f"config/rules: {exc}")
+
+    # --- config/feature_flags.yaml (optional) ---
+    feature_flags_path = _feature_flags_path(root)
+    if feature_flags_path.exists():
+        try:
+            raw = yaml.safe_load(feature_flags_path.read_text())
+            if not isinstance(raw, dict):
+                raise ValueError("must contain a YAML object at the top level")
+            FeatureFlagsConfig.model_validate(raw)
+        except Exception as exc:
+            errors.append(f"{feature_flags_path.name}: {exc}")
 
     if errors:
         raise ConfigValidationError(errors)

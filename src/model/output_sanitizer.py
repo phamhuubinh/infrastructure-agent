@@ -16,3 +16,60 @@ def sanitize_model_output(content: str) -> str:
         if cleaned == visible:
             return cleaned.strip()
         visible = cleaned
+
+
+# DR1-706: language quality validator.
+#
+# Detects unexpected script leakage (CJK/Cyrillic characters appearing in a
+# Vietnamese answer) so a mixed-language response can be regenerated instead
+# of shipped as-is. Code blocks and inline-code spans are excluded because
+# technical identifiers legitimately vary.
+
+_CODE_SPAN = re.compile(r"```.*?```|`[^`]*`", flags=re.DOTALL)
+
+_CJK_PATTERN = re.compile(
+    r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]"  # Han, Hiragana/Katakana, Hangul
+)
+_CYRILLIC_PATTERN = re.compile(r"[\u0400-\u04FF]")
+
+
+def detect_script_leakage(text: str) -> tuple[str, ...]:
+    """Return the unexpected scripts (if any) found outside of code spans."""
+
+    stripped = _CODE_SPAN.sub("", text)
+    leaked: list[str] = []
+    if _CJK_PATTERN.search(stripped):
+        leaked.append("cjk")
+    if _CYRILLIC_PATTERN.search(stripped):
+        leaked.append("cyrillic")
+    return tuple(leaked)
+
+
+def enforce_language_quality(text: str, expected_lang: str) -> str:
+    """DR1-706: strip mixed-script leakage from a Vietnamese answer.
+
+    Only enforced for Vietnamese responses today (English answers are not
+    expected to be script-pure). On detection, drop the offending characters
+    rather than rewriting the sentence, since Orion cannot safely
+    regenerate a response inline here without another model round trip.
+    """
+
+    if expected_lang != "vi":
+        return text
+    if not detect_script_leakage(text):
+        return text
+
+    def _strip_unexpected(segment: str) -> str:
+        segment = _CJK_PATTERN.sub("", segment)
+        return _CYRILLIC_PATTERN.sub("", segment)
+
+    # Preserve code spans verbatim; clean everything else.
+    parts = _CODE_SPAN.split(text)
+    code_spans = _CODE_SPAN.findall(text)
+    cleaned_parts = [_strip_unexpected(part) for part in parts]
+    rebuilt: list[str] = []
+    for index, part in enumerate(cleaned_parts):
+        rebuilt.append(part)
+        if index < len(code_spans):
+            rebuilt.append(code_spans[index])
+    return "".join(rebuilt)

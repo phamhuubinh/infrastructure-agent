@@ -27,6 +27,9 @@ class EvidenceMerge:
         self,
         normalizers: FactNormalizerRegistry | None = None,
         reconciler: FactReconciler | None = None,
+        *,
+        canonical_facts: bool = True,
+        structured_command_result: bool = True,
     ) -> None:
         self._normalizers = normalizers or FactNormalizerRegistry()
         self._reconciler = reconciler or FactReconciler(
@@ -37,6 +40,8 @@ class EvidenceMerge:
                 "network.latency": MetricTolerance(relative=0.1),
             }
         )
+        self._canonical_facts = canonical_facts
+        self._structured_command_result = structured_command_result
 
     def merge(
         self,
@@ -94,7 +99,9 @@ class EvidenceMerge:
                     error=result.error if not is_valid else None,
                     source_tool=source_tool,
                     status=status,
-                    command_results=result.command_results,
+                    command_results=(
+                        result.command_results if self._structured_command_result else ()
+                    ),
                     warnings=result.warnings,
                     produced_fact_names=result.produced_fact_names,
                     collection_failures=(
@@ -103,17 +110,25 @@ class EvidenceMerge:
                         else ()
                     ),
                     capability_error=result.capability_error,
-                    facts=self._normalizers.normalize(
-                        source_kind=result.source_kind or source_tool,
-                        capability=cap_name,
-                        resource=result.resource,
-                        data=result.data,
-                        status=status,
-                        target=request.target or result.source or "localhost",
-                        command_results=result.command_results,
-                        parameters=result.parameters,
-                        produced_fact_names=result.produced_fact_names,
-                        schema_version=result.schema_version,
+                    facts=(
+                        self._normalizers.normalize(
+                            source_kind=result.source_kind or source_tool,
+                            capability=cap_name,
+                            resource=result.resource,
+                            data=result.data,
+                            status=status,
+                            target=request.target or result.source or "localhost",
+                            command_results=(
+                                result.command_results
+                                if self._structured_command_result
+                                else ()
+                            ),
+                            parameters=result.parameters,
+                            produced_fact_names=result.produced_fact_names,
+                            schema_version=result.schema_version,
+                        )
+                        if self._canonical_facts
+                        else ()
                     ),
                     source=result.source,
                     resource=result.resource,

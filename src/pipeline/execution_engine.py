@@ -43,7 +43,11 @@ from src.pipeline.routing_decision import (
 )
 from src.pipeline.target_resolver import TargetResolver
 from src.pipeline.threshold_evaluator import ThresholdEvaluator
-from src.shared.config_schema import load_rule_configs
+from src.shared.config_schema import (
+    FeatureFlagsConfig,
+    RuleConfigError,
+    load_rule_configs,
+)
 from src.shared.execution.tool_result import ToolResult
 from src.tool.errors import CapabilityErrorCategory
 from src.tool.knowledge_tool import KnowledgeTool
@@ -62,7 +66,6 @@ class ExecutionEngine:
     - Stage 4: Dispatch to KnowledgeTool, collect evidence (ExecutionRuntime)
     - Stage 5: Merge evidence (EvidenceMerge + EvidenceCompleteness)
 
-    Supports both mutable (legacy) and immutable (PipelineState) execution paths.
     Never performs reasoning or assessment.
     """
 
@@ -82,6 +85,8 @@ class ExecutionEngine:
         evidence_merge: EvidenceMerge,
         evidence_cache: EvidenceCache | None = None,
         execution_budget_config: ExecutionBudgetConfig | None = None,
+        require_configured_rules: bool = True,
+        feature_flags: FeatureFlagsConfig | None = None,
     ) -> None:
         self._intent_resolver = intent_resolver
         self._target_resolver = target_resolver
@@ -107,225 +112,31 @@ class ExecutionEngine:
             for config in rule_configs
             for rule in config.composite_rules
         )
+        if not atomic_rules and require_configured_rules:
+            # Fail startup rather than silently falling back to
+            # ThresholdEvaluator's hardcoded DEFAULT_ATOMIC_RULES — a
+            # missing/empty config/rules/ directory at deploy time must
+            # be a loud, immediate error, not an undetected downgrade to
+            # unreviewed thresholds (DR1-610). Callers that genuinely
+            # want the permissive fallback (e.g. lightweight scripts,
+            # ad-hoc tooling) can opt in explicitly.
+            raise RuleConfigError(
+                "No atomic reasoning rules were loaded from config/rules/. "
+                "This engine refuses to silently fall back to hardcoded "
+                "DEFAULT_ATOMIC_RULES for production use — rules must be "
+                "versioned, owned, and reviewed config (see "
+                "src/shared/config_schema.py::load_rule_configs). If this "
+                "is intentional (e.g. a script that doesn't need "
+                "reasoning rules), pass require_configured_rules=False."
+            )
         self._threshold_evaluator = ThresholdEvaluator(atomic_rules or None)
         self._correlation = EvidenceCorrelation(composite_rules)
         self._evidence_expander = EvidenceExpander()
         self._health_aggregator = HealthAggregator()
         self._budget_config = execution_budget_config or ExecutionBudgetConfig()
-
-    # ------------------------------------------------------------------
-    # Immutable PipelineState execution path.
-    # Each stage returns a StateUpdate dict; the engine merges them.
-    # ------------------------------------------------------------------
-
-    def execute_immutable(self, user_request: str) -> object:
-        """Execute the pipeline using immutable PipelineState.
-
-        Each stage returns a StateUpdate (partial dict of fields).
-        The engine accumulates them, producing a new PipelineState at each step.
-
-        Returns:
-            A PipelineState with all accumulated fields.
-        """
-        from src.pipeline.normalizer import Normalizer
-        from src.pipeline.tool_selector import ToolSelector
-        from src.shared.pipeline_state import PipelineState
-
-        state = PipelineState.initial(user_request)
-
-        # Stage 0: Normalize
-        normalizer = Normalizer()
-        update = normalizer.normalize_state(state)
-        state = state.apply(update)
-
-        # Stage 1: Resolve intent
-        update = self._intent_resolver.resolve_state(state)
-        state = state.apply(update)
-
-        if state.routing_status is RoutingStatus.CLARIFICATION_REQUIRED:
-            frame = state.request_frame
-            labels = tuple(
-                str(getattr(candidate, "label", candidate))
-                for candidate in getattr(frame, "concept_candidates", ())[:3]
-            )
-            raise RoutingClarificationError(
-                RoutingDecision(
-                    status=RoutingStatus.CLARIFICATION_REQUIRED,
-                    request_frame=frame,
-                    reason="ambiguous request semantics",
-                    missing_field=(frame.ambiguity[0] if frame.ambiguity else "concept"),
-                    candidates=labels,
-                )
-            )
-
-        # Phase 6: Select tool
-        tool_selector = ToolSelector()
-        semantic = state.request_frame
-        state = state.apply(
-            {
-                "selected_tool": tool_selector.select(
-                    semantic.raw_request, semantic.concept
-                )
-            }
+        self._composite_rules_enabled = (
+            True if feature_flags is None else feature_flags.composite_rules
         )
-
-        # Stage 2: Resolve target
-        update = self._target_resolver.resolve_state(state)
-        state = state.apply(update)
-
-        # Stage 3: Plan evidence + capabilities
-        update = self._evidence_planner.plan_state(state)
-        state = state.apply(update)
-
-        update = self._capability_resolver.resolve_state(state)
-        state = state.apply(update)
-
-        # Phase 6: Augment with CapabilityPlanner
-        semantic = state.request_frame
-        if semantic.confidence >= 0.4:
-            planned_names = set(self._capability_planner.plan(semantic))
-            if planned_names:
-                filtered = tuple(
-                    ref
-                    for ref in state.capability_references
-                    if ref.evidence_name in planned_names
-                )
-                if filtered:
-                    state = state.apply({"capability_references": filtered})
-
-        # Build execution plan and graph
-        from src.pipeline.investigation_request import InvestigationRequest
-
-        temp_req = InvestigationRequest(
-            raw_request=state.user_request,
-            intent=state.intent,
-            confidence=state.confidence,
-            matched_keywords=state.matched_keywords,
-            target=state.target or None,
-            request_frame=state.request_frame,
-            semantic_request=state.request_frame,
-            intent_candidates=state.intent_candidates,
-            intent_score=state.intent_score,
-            intent_margin=state.intent_margin,
-            target_candidates=state.target_candidates,
-            target_score=state.target_score,
-            target_margin=state.target_margin,
-            routing_status=state.routing_status,
-            extracted_params=state.extracted_params,
-            selected_tool=state.selected_tool,
-            required_evidence=list(state.required_evidence),
-            optional_evidence=list(state.optional_evidence),
-            capability_references=list(state.capability_references),
-        )
-        self._execution_planner.plan(temp_req)
-        state = state.apply({"execution_plan": temp_req.execution_plan})
-
-        if temp_req.execution_plan is not None:
-            graph = self._graph_builder.build(temp_req.execution_plan)
-        else:
-            graph = ExecutionGraph()
-        state = state.apply({"execution_graph": graph})
-
-        target = state.target or "localhost"
-        graph, cached_evidence = self._without_cached_nodes(
-            graph,
-            target,
-            extracted_params=state.extracted_params,
-            timeframe=getattr(state.request_frame, "timeframe", None),
-            requirements=state.required_evidence,
-        )
-        budget = ExecutionBudget(self._budget_config)
-        temp_req.execution_budget = budget
-        graph = self._bounded_graph(graph, budget)
-
-        # Execute graph
-        if graph.nodes:
-            budget.start_round(
-                len(graph.nodes),
-                sum(
-                    node.execution_step.capability.estimated_cost
-                    for node in graph.nodes
-                ),
-            )
-            required_evidence = {
-                ref.evidence_name for ref in state.capability_references if ref.required
-            }
-            required_evidence.difference_update(
-                package.evidence_name for package in cached_evidence
-            )
-            extracted_params = state.extracted_params
-            results, metrics = self._runtime.execute(
-                graph,
-                target=target,
-                required_evidence_names=required_evidence,
-                extracted_params=extracted_params,
-                timeframe=getattr(state.request_frame, "timeframe", None),
-                overall_timeout=budget.remaining_duration,
-            )
-            budget.capabilities += metrics.recovery_attempts
-        else:
-            results, metrics = {}, RuntimeMetrics()
-
-        # Merge evidence
-        self._evidence_merge.merge(temp_req, results)
-        temp_req.evidence = cached_evidence + temp_req.evidence
-        self._evidence_merge.rebuild_fact_set(temp_req)
-        state = state.apply(
-            {
-                "evidence": tuple(temp_req.evidence),
-                "fact_set": temp_req.fact_set,
-                "contradictions": temp_req.contradictions,
-            }
-        )
-
-        # Completeness check
-        self._evidence_completeness.check(temp_req)
-        self._apply_reasoning(temp_req)
-        self._expand_evidence(
-            temp_req,
-            budget=budget,
-            target=target,
-            timeframe=getattr(state.request_frame, "timeframe", None),
-            metrics=metrics,
-        )
-        evidence_status = self._evidence_status(temp_req)
-        state = state.apply(
-            {
-                "evidence": tuple(temp_req.evidence),
-                "fact_set": temp_req.fact_set,
-                "contradictions": temp_req.contradictions,
-                "evidence_complete": temp_req.evidence_complete,
-                "missing_evidence": temp_req.missing_evidence,
-                "evidence_status": evidence_status,
-                "evidence_completeness": temp_req.evidence_completeness,
-                "atomic_findings": temp_req.atomic_findings,
-                "findings": temp_req.findings,
-                "health_summary": temp_req.health_summary,
-                "evidence_expansion": temp_req.evidence_expansion,
-                "execution_budget": budget,
-            }
-        )
-
-        # Cache evidence (with target for cross-machine isolation).
-        if self._evidence_cache is not None:
-            _target = state.target or "localhost"
-            for pkg in temp_req.evidence:
-                if pkg.valid_for_requirements:
-                    self._evidence_cache.put(
-                        _target,
-                        pkg.evidence_name,
-                        pkg,
-                        capability=pkg.capability_name,
-                        params=pkg.parameters,
-                        timeframe=pkg.timeframe,
-                        schema_version=pkg.schema_version,
-                    )
-
-        # Attach metrics
-        metrics.evidence_complete = temp_req.evidence_complete
-        state = state.apply({"runtime_metrics": metrics})
-
-        return state
 
     def execute(self, user_request: str | RequestFrame) -> InvestigationRequest:
         """Execute a full 6-stage investigation from request to evidence.
@@ -456,8 +267,8 @@ class ExecutionEngine:
                 timeframe=timeframe,
                 bound_params_out=request.bound_params,
                 overall_timeout=budget.remaining_duration,
+                budget=budget,
             )
-            budget.capabilities += metrics.recovery_attempts
         else:
             results, metrics = {}, RuntimeMetrics()
 
@@ -504,7 +315,11 @@ class ExecutionEngine:
         request.atomic_findings = self._threshold_evaluator.evaluate_fact_set(
             request.fact_set
         )
-        evaluations = self._correlation.evaluate_facts(request.fact_set)
+        evaluations = (
+            self._correlation.evaluate_facts(request.fact_set)
+            if self._composite_rules_enabled
+            else ()
+        )
         composite_findings = tuple(item.finding for item in evaluations)
         request.findings = tuple(request.atomic_findings) + composite_findings
         request.health_summary = self._health_aggregator.aggregate(
@@ -567,8 +382,8 @@ class ExecutionEngine:
             extracted_params=request.extracted_params,
             timeframe=timeframe,
             bound_params_out=request.bound_params,
+            budget=budget,
         )
-        budget.capabilities += expansion_metrics.recovery_attempts
         previous_evidence = list(request.evidence)
         self._merge(request, results)
         request.evidence = previous_evidence + request.evidence
@@ -634,7 +449,17 @@ class ExecutionEngine:
         graph: ExecutionGraph,
         budget: ExecutionBudget,
     ) -> ExecutionGraph:
-        """Fit the primary plan inside hard capability/cost limits."""
+        """Fit the primary plan inside hard capability/cost limits.
+
+        A node whose prerequisite was cut for budget reasons must also be
+        dropped — otherwise stripping the dangling ``depends_on`` edge
+        turns it into an independent node that the runtime will happily
+        execute without ever having run its prerequisite. After the
+        greedy budget selection, this computes the dependency closure and
+        removes any node (transitively) missing a prerequisite, so every
+        node kept in the returned graph still has every dependency it
+        declared, fully satisfied within the same bounded graph.
+        """
 
         selected: list[ExecutionNode] = []
         cost = 0.0
@@ -646,19 +471,26 @@ class ExecutionEngine:
                 continue
             selected.append(node)
             cost += node_cost
-        selected_names = {
-            node.execution_step.capability.name for node in selected
+
+        selected_by_name = {
+            node.execution_step.capability.name: node for node in selected
         }
+
+        # Dependency closure: repeatedly drop any node whose depends_on
+        # references a capability that isn't (or is no longer) selected,
+        # until the selection stops shrinking.
+        changed = True
+        while changed:
+            changed = False
+            for name, node in list(selected_by_name.items()):
+                if any(dep not in selected_by_name for dep in node.depends_on):
+                    del selected_by_name[name]
+                    changed = True
+
         bounded = tuple(
-            ExecutionNode(
-                execution_step=node.execution_step,
-                depends_on=tuple(
-                    dependency
-                    for dependency in node.depends_on
-                    if dependency in selected_names
-                ),
-            )
-            for node in selected
+            node
+            for node in graph.nodes
+            if node.execution_step.capability.name in selected_by_name
         )
         if len(bounded) < len(graph.nodes):
             budget.stop_reason = BudgetStopReason.BUDGET_EXHAUSTED

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings as _warnings
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -64,8 +65,22 @@ class CapabilityResult:
         command_results: tuple[CommandResult, ...] = (),
         warnings: tuple[str, ...] = (),
         produced_fact_names: tuple[str, ...] = (),
+        warn_legacy: bool = True,
     ) -> CapabilityResult:
-        """Wrap a legacy handler payload without hiding command failures."""
+        """Wrap a legacy handler payload without hiding command failures.
+
+        ``warn_legacy=False`` is reserved for the two internal dispatcher
+        bridges while a Child Tool is being migrated.  Any direct caller that
+        still passes an unstructured payload receives a deprecation warning.
+        """
+
+        if warn_legacy:
+            _warnings.warn(
+                "Unstructured capability payloads are deprecated; return "
+                "CapabilityResult directly.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         failed = tuple(result for result in command_results if not result.success)
         succeeded = tuple(result for result in command_results if result.success)

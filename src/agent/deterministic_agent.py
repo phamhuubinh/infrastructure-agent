@@ -10,6 +10,7 @@ from src.agent.session_investigation_context import (
     SessionContextResolver,
     SessionInvestigationContext,
 )
+from src.model.assessment_guard import apply_assessment_guards
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.protocol.prompt_builder_v2 import (
     _normalize_evidence,
@@ -64,6 +65,7 @@ class DeterministicAgent:
         assessment_model: AssessmentModelAdapter,
         conversation_store: ConversationStoreProtocol | None = None,  # type: ignore[valid-type]
         evidence_cache: object = None,
+        claim_guard_enabled: bool = True,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -78,6 +80,7 @@ class DeterministicAgent:
             else SessionInvestigationContext()
         )
         self._evidence_cache = evidence_cache
+        self._claim_guard_enabled = claim_guard_enabled
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -554,6 +557,12 @@ class DeterministicAgent:
                     missing_evidence=assessment_request.missing_evidence,
                     facts=assessment_request.facts,
                     collection_failures=assessment_request.collection_failures,
+                    findings=assessment_request.findings,
+                    health_summary=assessment_request.health_summary,
+                    request_frame=assessment_request.request_frame,
+                    unknowns=assessment_request.unknowns,
+                    evidence_status=assessment_request.evidence_status,
+                    allowed_claims=assessment_request.allowed_claims,
                 )
 
         _record(AnswerStrategy.LLM_ASSESSMENT.name)
@@ -563,6 +572,11 @@ class DeterministicAgent:
             else LLMUsageReason.EXPECTED_ASSESSMENT
         )
         response = self._assessment_model.assess(assessment_request)
+        response = apply_assessment_guards(
+            response,
+            assessment_request,
+            enable_claim_guard=self._claim_guard_enabled,
+        )
 
         # Append tool-specific deep links when available.
         links = self._build_tool_links(investigation, user_request)

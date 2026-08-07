@@ -8,7 +8,7 @@ from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_router import CapabilityRouter
 from src.pipeline.execution_graph import ExecutionGraph
 from src.pipeline.execution_plan import ExecutionStep
-from src.pipeline.execution_runtime import ExecutionRuntime
+from src.pipeline.execution_runtime import ExecutionRuntime, GraphValidationError
 from src.pipeline.retry import RetryExecutor, RetryPolicy
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.shared.execution.tool_result import ToolResult
@@ -549,12 +549,13 @@ class TestEarlyCompletion:
         # Only first batch executed
         assert mock_kt.execute.call_count == 2
 
-    def test_unmet_dependency_does_not_loop(self) -> None:
-        """Regression: a node with an unmet dependency does not cause an
-        infinite loop. The runtime handles this by force-executing the node.
-
-        Previously this caused an infinite loop. Fixed by the fallback
-        in _get_ready_nodes that forces the first remaining node."""
+    def test_dependency_on_unknown_capability_fails_graph_validation(self) -> None:
+        """A depends_on referencing a capability absent from the graph is a
+        broken plan, not something the runtime should force-execute
+        around. It must fail fast, before any node executes, via
+        GraphValidationError — not silently force-run the node with an
+        unmet prerequisite (see DR: execution_runtime hardening).
+        """
         mock_kt = mock.Mock(spec=KnowledgeTool)
         mock_kt.execute.return_value = ToolResult(success=True, data={})
 
@@ -569,11 +570,43 @@ class TestEarlyCompletion:
             deps={"CPU Information": ("NonExistentCap",)},
         )
 
-        # Should not hang — completes with a result
+        with pytest.raises(GraphValidationError, match="NonExistentCap"):
+            runtime.execute(graph, overall_timeout=5.0)
+        # No tool call should have been dispatched at all.
+        mock_kt.execute.assert_not_called()
+
+    def test_node_blocked_by_failed_dependency_is_not_force_executed(self) -> None:
+        """When a prerequisite capability exists in the graph but fails,
+        the dependent node must not be force-executed without it — it is
+        marked COLLECTION_FAILED / blocked instead, and the loop still
+        terminates without hanging."""
+        mock_kt = mock.Mock(spec=KnowledgeTool)
+        mock_kt.execute.return_value = ToolResult(success=True, data={})
+
+        real_kt = KnowledgeTool()
+        router = CapabilityRouter()
+        router.build_routes(real_kt)
+        runtime = ExecutionRuntime(knowledge_tool=mock_kt, router=router)
+
+        # Neither name is a real routed capability, so both fail without
+        # ever reaching mock_kt.execute — that's enough to exercise "a
+        # prerequisite that already produced a failed result".
+        step_a = _step("Totally Unrouted Capability", "Unrouted")
+        step_b = _step("Depends On Unrouted", "AlsoUnrouted")
+        graph = _graph_from_steps(
+            [step_a, step_b],
+            deps={"Depends On Unrouted": ("Totally Unrouted Capability",)},
+        )
+
         results, metrics = runtime.execute(graph, overall_timeout=5.0)
-        assert "CPU Information" in results
-        assert metrics.early_completed is False
+
+        assert results["Totally Unrouted Capability"].success is False
+        assert results["Depends On Unrouted"].success is False
+        assert "blocked" in (results["Depends On Unrouted"].error or "").lower()
+        assert metrics.blocked_by_dependency == 1
         assert metrics.timed_out is False
+        # The dependent node's own dispatch must never have been attempted.
+        mock_kt.execute.assert_not_called()
 
     def test_early_completion_empty_required_executes_all(self) -> None:
         """When required_evidence_names is empty (not None), all nodes execute."""

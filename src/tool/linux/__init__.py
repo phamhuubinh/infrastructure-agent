@@ -851,6 +851,7 @@ class LinuxTool(Tool):
                 output,
                 command_results=effective_command_results,
                 produced_fact_names=cap.produces_facts,
+                warn_legacy=False,
             )
 
         if isinstance(capability_result.data, dict):

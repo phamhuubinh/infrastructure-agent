@@ -11,6 +11,8 @@ from src.model.llm_client import LLMClient
 
 if TYPE_CHECKING:
     from src.model.providers.registry import ProviderRegistry
+
+from src.model.config_store import FeatureFlagStore
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_cache import EvidenceCache
 from src.pipeline.evidence_merge import EvidenceMerge
@@ -498,6 +500,7 @@ def create_deterministic_agent(
 
     kt = KnowledgeTool(target_registry=registry, inspector_chain=inspector_chain)
 
+    feature_flags = FeatureFlagStore().load()
     evidence_cache = EvidenceCache()
     engine = ExecutionEngine(
         intent_resolver=IntentResolver(),
@@ -507,8 +510,12 @@ def create_deterministic_agent(
         execution_planner=ExecutionPlanner(),
         graph_builder=ExecutionGraphBuilder(),
         knowledge_tool=kt,
-        evidence_merge=EvidenceMerge(),
+        evidence_merge=EvidenceMerge(
+            canonical_facts=feature_flags.canonical_facts,
+            structured_command_result=feature_flags.structured_command_result,
+        ),
         evidence_cache=evidence_cache,
+        feature_flags=feature_flags,
     )
 
     if assessment_adapter is None:
@@ -551,6 +558,7 @@ def create_deterministic_agent(
         assessment_model=assessment_adapter,
         conversation_store=conversation_store,
         evidence_cache=evidence_cache,
+        claim_guard_enabled=feature_flags.claim_guard,
     )
     _info("orion", message="orion started")
     return agent

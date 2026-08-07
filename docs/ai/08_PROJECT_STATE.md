@@ -267,9 +267,10 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 - **DR1-601–605 ✅ complete**: atomic thresholds now consume valid/fresh canonical facts (including derived per-core load); weighted composite rules preserve false/unknown/stale/failed semantics without implicit renormalization and emit immutable source-linked Findings into investigation, assessment and trace flows.
 - **DR1-606–608 ✅ complete**: capability metadata declares reviewed recovery alternatives/error contracts; runtime recovery is loop-free and depth-two bounded with no transport-timeout expansion, while weighted missing-evidence selection and per-request round/capability/duration/cost budgets deterministically bound additional collection.
 - **DR1-609/610 ✅ complete**: multi-source health aggregation prioritizes active incidents and evidence gaps before warnings/healthy facts per target and globally; versioned Pydantic-validated YAML rules require owner/rationale/source cases and explicit approval, with no production auto-learning path.
-- Remaining DR1 tasks continue at DR1-701 from the active backlog; each task updates this file only after its definition of done is verifiable.
+- **DR1-901–905 ✅ complete**: execution/tool contracts and operator guides now document structured results, Facts/Findings, provenance, bounded recovery, exact collection failure codes, and localhost/container semantics; ADR-0008/0009 establish evidence validity and deterministic reasoning v1. `docs/migrations/deterministic_reasoning_v1.md` records the adapter/removal plan, while strict temporary feature flags support independent rollout/rollback of structured command provenance, canonical Facts, composite rules, and claim grounding without changing response schemas.
+- Remaining DR1 tasks continue at DR1-802 from the active backlog; each task updates this file only after its definition of done is verifiable.
 
-> **Last updated:** 2026-08-05 (EPIC 6 / DR1-601–610 complete: deterministic rules, Findings, recovery, evidence expansion budgets, health aggregation and reviewed rule config verified; DR1-001–509 remain complete.)
+> **Last updated:** 2026-08-07 (DR1-901–905 complete: contracts/ADRs/migration flags/operator collection-failure guide verified; prior completed DR1 work remains recorded above.)
 
 ## Task 013: Plugin/Extension System — HORIZON Gate Evaluation (2026-07-26)
 

@@ -33,11 +33,12 @@ def test_success_and_empty_success_are_successful() -> None:
 
 
 def test_legacy_tuple_adapter() -> None:
-    ok, output = CommandResult(
-        status=CommandStatus.NON_ZERO_EXIT,
-        stderr="remote error",
-        target="monitor",
-    )
+    with pytest.deprecated_call(match="Unpacking CommandResult"):
+        ok, output = CommandResult(
+            status=CommandStatus.NON_ZERO_EXIT,
+            stderr="remote error",
+            target="monitor",
+        )
 
     assert ok is False
     assert output == "remote error"

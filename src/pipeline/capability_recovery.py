@@ -18,6 +18,7 @@ class RecoveryStopReason(str, Enum):
     NO_ALTERNATIVE = "no_alternative"
     MAX_DEPTH = "max_depth"
     EXHAUSTED = "exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,7 @@ class CapabilityRecovery:
         execute_alternative: Callable[[str], ToolResult],
         *,
         available_capabilities: set[str] | None = None,
+        can_attempt: Callable[[], bool] | None = None,
     ) -> RecoveryOutcome:
         if primary_result.success:
             return RecoveryOutcome(
@@ -133,6 +135,12 @@ class CapabilityRecovery:
         ]
         current_result = primary_result
         while queue and len(attempts) < self.max_depth:
+            if can_attempt is not None and not can_attempt():
+                return RecoveryOutcome(
+                    result=current_result,
+                    attempts=tuple(attempts),
+                    stop_reason=RecoveryStopReason.BUDGET_EXHAUSTED,
+                )
             current_name, alternative = queue.pop(0)
             if alternative in visited:
                 continue

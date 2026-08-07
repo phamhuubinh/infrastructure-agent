@@ -114,6 +114,7 @@ class Tool(ABC):
                 else CapabilityResult.from_legacy(
                     output,
                     produced_fact_names=cap_or_err.produces_facts,
+                    warn_legacy=False,
                 )
             )
             if not capability_result.produced_fact_names:

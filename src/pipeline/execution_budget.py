@@ -81,6 +81,33 @@ class ExecutionBudget:
         self.estimated_cost += estimated_cost
         return True
 
+    def try_reserve_capability(self, cost: float = 1.0) -> bool:
+        """Atomically reserve budget for exactly one additional capability
+        call (e.g. a single recovery attempt) without starting a new round.
+
+        Unlike ``start_round``, this does not increment ``rounds`` — it is
+        meant to be called by ``ExecutionRuntime`` immediately before each
+        recovery attempt is dispatched, so the hard limits configured on
+        this budget can never be exceeded even mid-round. Returns False
+        (without mutating state) when the reservation would exceed
+        ``max_capabilities``, ``max_estimated_cost``, or the remaining
+        time budget. Callers sharing a budget across threads must hold an
+        external lock around this call — this method is not itself
+        thread-safe.
+        """
+        if cost < 0:
+            raise ValueError("budget reservation cannot be negative")
+        if (
+            self.capabilities + 1 > self.config.max_capabilities
+            or self.estimated_cost + cost > self.config.max_estimated_cost
+            or self.remaining_duration <= 0
+        ):
+            self.stop_reason = BudgetStopReason.BUDGET_EXHAUSTED
+            return False
+        self.capabilities += 1
+        self.estimated_cost += cost
+        return True
+
     def stop(
         self,
         *,

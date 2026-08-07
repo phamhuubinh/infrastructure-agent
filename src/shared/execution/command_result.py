@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum
@@ -80,6 +81,12 @@ class CommandResult:
         return self.stderr or self.stdout
 
     def __iter__(self) -> Iterator[bool | str]:
+        warnings.warn(
+            "Unpacking CommandResult as (ok, output) is deprecated; "
+            "read status, stdout, stderr, and error_type explicitly instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         yield self.success
         yield self.legacy_output
 

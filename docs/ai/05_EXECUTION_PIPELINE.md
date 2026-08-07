@@ -1,88 +1,145 @@
 # 05 - Execution Pipeline
-This document defines the runtime execution flow of the Agent's investigation pipeline. See `02_CURRENT_ARCHITECTURE.md` for how this maps to files today, and `03_PLATFORM_ARCHITECTURE.md` for how it will be invoked once the Agent runs as a platform capability (WP4).
-## Purpose
-The pipeline transforms a user request into operational evidence, deterministically:
-- understand the request
-- determine what should be investigated
-- collect evidence
-- prepare evidence for assessment
-## Overview
+
+This document describes the implemented deterministic investigation pipeline.
+`08_PROJECT_STATE.md` remains the source of truth for delivery status; this
+document defines the execution contract.
+
+## Boundary
+
+Orion follows **Code investigates. AI explains.** Deterministic code resolves
+the request, validates parameters, selects declared capabilities, runs only
+reviewed collection strategies, normalizes evidence, and evaluates rules. The
+Assessment Model receives an `AssessmentRequest` after that work; it never
+chooses a target, capability, command, fallback, or recovery path.
+
+```text
+User request + session context
+        |
+        v
+RequestFrame -> routing / clarification -> target / parameters
+        |
+        v
+Evidence requirements -> capability plan -> execution DAG
+        |
+        v
+KnowledgeTool -> Child Tool -> CommandResult -> CapabilityResult
+        |
+        v
+EvidencePackage (raw + failures + canonical Facts + provenance)
+        |
+        v
+Completeness / reconciliation -> atomic & composite Findings
+        |
+        +--> DeterministicResponder for bounded fact/list/table responses
+        |
+        +--> AssessmentRequest -> LLM explanation -> output guards
+        |
+        v
+Final response + ExecutionTrace
 ```
-User
-    │
-    ▼
-Intent Resolution      (intent_resolver.py)
-    │
-    ▼
-Target Resolution      (target_resolver.py, target_registry.py)
-    │
-    ▼
-Evidence Planning      (evidence_planner.py, evidence_requirement.py)
-    │
-    ▼
-Capability Resolution  (capability_resolver.py, capability_router.py, capability_library.py)
-    │
-    ▼
-Execution Planning     (execution_planner.py, execution_plan.py)
-    │
-    ▼
-Execution Graph        (execution_graph.py)
-    │
-    ▼
-KnowledgeTool           (knowledge_tool.py — single entry point)
-    │
-    ▼
-Child Tools              (linux/ / grafana/ / zabbix/ / internet_tool.py)
-    │
-    ▼
-Evidence Merge          (evidence_merge.py, evidence_package.py, evidence_completeness.py)
-    │
-    ▼
-┌──────────────────────────────────────────────────┐
-│  DeterministicAgent._assess()                     │
-│    ├── DeterministicResponder (short-circuit)     │
-│    │   → nếu có kết quả, trả về luôn, skip LLM   │
-│    └── AssessmentAdapter → AssessmentRequest      │
-│        → PromptBuilder → LLM Assessment           │
-│        → trả kết quả + tool links                 │
-└──────────────────────────────────────────────────┘
-    │
-    ▼
-Final Response
-```
-Every stage has exactly one responsibility. Only the Assessment step calls the LLM.
-## Step 1 — Intent Resolution
-Determine what the user is asking. Examples: Assess Machine, Application Discovery, Security Assessment, Monitoring Assessment, Troubleshooting. Deterministic whenever possible.
-## Step 2 — Target Resolution
-Determine where the investigation should occur (e.g. `localhost`, `monitor`, `database`, `vm01`, `cluster-a`). If no explicit target is given, deterministic defaults may apply — e.g. "Is there any issue with this machine?" → `localhost`.
-## Step 3 — Evidence Planning
-Determine **what** evidence is required — not collection itself. Example: `Application Discovery` → Packages, Services, Processes, Listening Ports, Configuration. Example: `Machine Assessment` → CPU, Memory, Disk, Filesystem, Network, Services.
-## Step 4 — Capability Resolution
-Resolve the evidence requirements into concrete capabilities. Each evidence name (e.g. "CPU Information") maps to an operational capability via `CapabilityLibrary`. The `CapabilityRouter` builds the route table mapping capabilities to KnowledgeTool (source, resource) pairs. This step also validates that every required capability has a registered route.
 
-## Step 5 — Execution Planning
-The evidence plan + resolved capabilities become a concrete execution plan. The `ExecutionPlanner` schedules each capability as an `ExecutionStep` with dependency ordering. This step determines what runs in parallel vs. sequentially.
+Every investigation has one `ExecutionTrace`; it records stage outcomes,
+resolved target and parameters, planned and collected evidence, strategy, LLM
+usage reason, and a safe failure stage/reason when execution cannot continue.
 
-## Step 6 — Execution Graph
-The execution plan is compiled into an `ExecutionGraph` — a DAG of `ExecutionNode` objects with dependency edges. Independent nodes execute in parallel whenever possible. The graph defines execution order, not what to collect (that was Step 3).
-## Step 7 — Evidence Collection
-Execution graph nodes call `KnowledgeTool`, which dispatches to Child Tools (e.g. `LinuxTool` → Linux target over SSH, `GrafanaTool` → Grafana API, `InternetTool` → HTTP fetch). Each Child Tool returns normalized operational evidence. The pipeline never calls a Child Tool directly — `KnowledgeTool` is the only entry point (see `06_TOOL_AND_CAPABILITY_DESIGN.md`).
-## Step 8 — Evidence Merge
-Collected evidence is combined into one unified, normalized, deterministic, complete package, ready for assessment. The Assessment Model should receive one complete evidence package whenever practical, rather than being called incrementally.
-## Step 9 — Assessment
-The Assessment Model interprets collected evidence: explains observations, identifies relationships, evaluates operational impact, produces recommendations. It never performs investigation itself — it only reads what was already collected.
-## Deterministic Responder (short-circuit, outside pipeline)
-The `DeterministicResponder` (`src/pipeline/deterministic_responder.py`) is not a pipeline stage — it runs in `DeterministicAgent._assess()` (`src/agent/deterministic_agent.py`) after evidence has been merged. Before calling the LLM, the agent checks whether the collected evidence is simple enough to answer without the model (e.g. "Is SSH service running?" — the service status output directly answers the question). If matched, the response is produced deterministically and the assessment step is skipped entirely. This reduces token usage and latency for trivial queries.
+## Stages
 
-## Composite capabilities
-Prefer exposing composite capabilities (`Machine Assessment`) over forcing callers to request individual pieces (`CPU`, `Memory`, `Disk`, `Filesystem` separately). This reduces planning complexity, iterations, and token usage.
-## Parallel execution
-Independent operations should execute simultaneously (e.g. CPU, Memory, Disk, Network → merge), not sequentially, unless a real dependency requires ordering.
-## Early completion
-Stop execution once sufficient evidence has been collected for the question asked. Avoid running capabilities whose output will not be used.
-## Failure handling
-An individual execution failure should not terminate the whole investigation. Preferred behavior: continue collecting remaining evidence, report partial evidence, identify what's missing, and reflect reduced confidence in the assessment rather than failing outright.
-## Execution principles
-The pipeline should always be: deterministic, stateless, evidence-driven, parallel where practical, benchmarkable, token efficient.
-## Final principle
-The pipeline exists to collect evidence and should become more deterministic over time. The LLM should receive completed evidence rather than participate in execution.
+1. **Request and routing** — `Normalizer`, session-context resolver, and
+   `IntentResolver` create/complete an immutable `RequestFrame`. Ambiguous,
+   unsafe, unsupported, or unknown-target requests return a deterministic
+   clarification or refusal. They do not fall back to model planning.
+2. **Evidence and capability planning** — `EvidencePlanner`,
+   `CapabilityPlanner`, `CapabilityResolver`, and `ParameterBinder` express
+   requirements as canonical metric/target/parameter contracts and resolve
+   them to registered Child Tool capabilities. Required parameters are
+   validated before dispatch.
+3. **Execution** — `ExecutionPlanner` and `ExecutionGraphBuilder` create a
+   dependency DAG. `ExecutionRuntime` dispatches each node only through
+   `KnowledgeTool`, runs independent nodes in parallel, applies the shared
+   budget, and records safe runtime metrics.
+4. **Merge and validity** — `EvidenceMerge` retains raw payloads for audit,
+   carries structured failures, normalizes valid output into Facts, reconciles
+   conflicts, and runs `EvidenceCompleteness`. A cache may reuse only fresh
+   `VALID`/`VALID_EMPTY` evidence.
+5. **Deterministic reasoning** — atomic thresholds and reviewed composite
+   rules turn valid, fresh Facts into source-linked Findings. Missing, stale,
+   contradictory, unsupported, and failed observations are represented as
+   unknown/insufficient evidence, never coerced to a healthy value.
+6. **Response** — `DeterministicResponder` answers simple supported requests
+   directly. Otherwise `AssessmentAdapter` builds an `AssessmentRequest` for
+   the model. Output guards keep claims grounded and preserve the read-only
+   boundary.
+
+## Result contracts and failure semantics
+
+`CommandResult` is the immutable result of one backend command. It contains
+`status`, `exit_code`, separate `stdout`/`stderr`, `error_type`, safe target
+metadata, duration, and a redacted serialization. `success` is true only for
+`SUCCESS` and `EMPTY_SUCCESS`; an empty successful command is distinct from a
+collection error.
+
+`CapabilityResult` is the Child Tool outcome. `VALID` and `VALID_EMPTY` are
+the only successful statuses. `PARTIAL`, `COLLECTION_FAILED`, `UNSUPPORTED`,
+`INVALID_PARAMETERS`, and `PARSE_FAILED` retain their data/diagnostics where
+safe but cannot satisfy a required-evidence contract. They carry a stable
+`CapabilityError` code/category/recoverability value, not policy inferred from
+an error message.
+
+`EvidencePackage` preserves the capability result, raw data (opt-in and size
+bounded in serialization), warnings, collection failures, source/parameters,
+command provenance, Facts, and recovery metadata. A package is valid for a
+requirement only when it is fresh and has status `VALID` or `VALID_EMPTY`.
+
+No stage may turn a failure into `0`, `[]`, `{}`, or `None` and present it as a
+measurement. `VALID_EMPTY` means a collector successfully observed an empty
+domain; it does not mean an unsuccessful command found nothing.
+
+## Facts, provenance, and Findings
+
+A canonical `Fact` is immutable and identifies a subject, dotted metric,
+value, explicit unit, observed/collected time, source, target, validity,
+freshness, confidence, dimensions, and `Provenance`. Only a valid zero is a
+numeric zero. A stale, contradictory, schema-invalid, unsupported, failed, or
+not-collected Fact is kept distinct so that `EvidenceCompleteness` and rules
+can report the actual limitation.
+
+`FactReconciler` marks incompatible same-scope observations as contradictory.
+`Finding` records the deterministic rule decision, score/coverage/confidence,
+supporting and contradicting Fact IDs, missing metrics, rule version, and
+claim-source links. This makes both deterministic and model-generated claims
+auditable without exposing credentials or unbounded raw output.
+
+## Bounded recovery and expansion
+
+Recovery is capability metadata, not a model decision. `CapabilityRecovery`
+may try declared alternatives only for declared recoverable errors, observes a
+maximum depth of two, stops on target-wide transport failure, and records every
+attempt. It cannot invent a shell command or retry a non-recoverable error.
+
+When evidence remains incomplete, `EvidenceExpander` can select one weighted
+missing-evidence round under the common `ExecutionBudget`. Stop conditions
+include sufficient evidence, transport failure, exhausted duration/tool-call
+budget, and no eligible candidate. The Assessment Model cannot request another
+round.
+
+## Compatibility and rollout
+
+Legacy tuple unpacking of `CommandResult` and raw Child Tool payloads are
+temporary adapters. They continue to work during the migration window but emit
+`DeprecationWarning` for direct callers; new code must use named
+`CommandResult` fields and return `CapabilityResult`. See
+`docs/migrations/deterministic_reasoning_v1.md` for the caller matrix and
+removal criteria.
+
+`config/feature_flags.yaml` and `ORION_FEATURE_*` overrides can roll back
+structured command provenance, canonical Fact exposure, composite findings,
+and claim grounding independently without changing the external response
+schema. Flags are migration controls, not permanent product configuration.
+
+## Related documents
+
+- `06_TOOL_AND_CAPABILITY_DESIGN.md` — Child Tool ownership and contracts.
+- `docs/adr/ADR-0008-evidence-validity.md` — evidence validity decision.
+- `docs/adr/ADR-0009-deterministic-reasoning-v1.md` — deterministic reasoning
+  decision.
+- `docs/troubleshooting.md` — operator diagnosis for collection failures.

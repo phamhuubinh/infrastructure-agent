@@ -29,18 +29,59 @@ class AssessmentAdapter:
         if request.intent is not None:
             intent_name = request.intent.name
 
+        facts = tuple(request.fact_set.facts)
+        findings = tuple(request.findings)
+
+        unknowns = tuple(
+            dict.fromkeys(
+                (
+                    *(missing for finding in findings for missing in finding.missing_facts),
+                    *request.missing_evidence,
+                )
+            )
+        )
+
+        evidence_status_name = ""
+        status = getattr(request, "evidence_status", None)
+        if status is not None:
+            evidence_status_name = status.name
+
+        allowed_claims = tuple(
+            dict.fromkeys(
+                (
+                    *(fact.id for fact in facts if fact.usable),
+                    *(
+                        fact.id
+                        for package in request.evidence
+                        for fact in package.facts
+                        if fact.usable
+                    ),
+                    *(finding.id for finding in findings),
+                )
+            )
+        )
+
+        request_frame_summary: dict[str, object] | None = None
+        frame = getattr(request, "request_frame", None)
+        if frame is not None and hasattr(frame, "to_dict"):
+            request_frame_summary = frame.to_dict()
+
         return AssessmentRequest(
             raw_request=request.raw_request,
             intent=intent_name,
             evidence=tuple(request.evidence),
             evidence_complete=request.evidence_complete,
             missing_evidence=request.missing_evidence,
-            facts=tuple(request.fact_set.facts),
+            facts=facts,
             collection_failures=tuple(
                 failure
                 for package in request.evidence
                 for failure in package.collection_failures
             ),
-            findings=tuple(request.findings),
+            findings=findings,
             health_summary=request.health_summary,
+            request_frame=request_frame_summary,
+            unknowns=unknowns,
+            evidence_status=evidence_status_name,
+            allowed_claims=allowed_claims,
         )

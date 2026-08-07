@@ -1,6 +1,6 @@
 # 09 - Architecture Decisions
 Records long-term architectural decisions. Each entry: Decision, Context, Reason, Consequence. Do not put implementation details, TODOs, or roadmap items here — those belong in `04_ROADMAP.md` and `08_PROJECT_STATE.md`.
-> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, AD-007 of ADR-0004, and AD-020 of ADR-0001; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
+> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, AD-007 of ADR-0004, AD-020 of ADR-0001, AD-023 of ADR-0008, and AD-024 of ADR-0009; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
 ---
 ## AD-001 — Infrastructure investigation is deterministic
 **Decision:** Investigation execution is deterministic wherever possible.
@@ -99,3 +99,17 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Context:** Users may operate an OpenAI-compatible endpoint, Ollama, vLLM, or another compatible runtime, and model lifecycle requirements differ substantially between environments.
 **Reason:** Installing or managing model infrastructure couples Orion to a provider, consumes large machine resources unexpectedly, and crosses the application's ownership boundary.
 **Consequence:** Orion starts in an explicit setup mode with an empty model registry. Chat assessment and RAG analysis require a configured endpoint; RAG has no retrieval-only mode. Model runtime installation, model downloads, upgrades, and removal remain entirely outside Orion.
+
+## AD-023 — Evidence validity is explicit and source-linked
+**Decision:** Command/capability/evidence outcomes distinguish valid observations from empty observations, failure, unsupported state, stale data, and contradictions; claims retain provenance links.
+**Context:** Empty/default values previously allowed collection failures to look like measurements.
+**Reason:** Deterministic completeness, cache policy, rules, and assessment grounding need a trustworthy evidence state.
+**Consequence:** Only valid fresh evidence satisfies requirements; failed/stale/contradictory evidence is exposed as uncertainty rather than converted to a healthy value.
+> Long-form ADR: `docs/adr/ADR-0008-evidence-validity.md`
+
+## AD-024 — Deterministic reasoning v1 is bounded and reviewed
+**Decision:** Orion uses canonical Facts, reviewed atomic/composite rules, bounded recovery, and weighted missing-evidence selection; the LLM explains but does not plan these operations.
+**Context:** Model-driven investigation control is non-deterministic, while a broad self-learning expert system is not justified.
+**Reason:** Bounded code paths make rule decisions, recovery cost, and uncertainty testable and auditable.
+**Consequence:** Rules require version/owner/review metadata; recovery can use only declared alternatives under budget; missing evidence remains insufficient rather than false.
+> Long-form ADR: `docs/adr/ADR-0009-deterministic-reasoning-v1.md`

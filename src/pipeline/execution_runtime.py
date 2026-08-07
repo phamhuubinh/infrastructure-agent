@@ -12,6 +12,7 @@ from src.pipeline.capability_recovery import (
 )
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_router import CapabilityRouter
+from src.pipeline.execution_budget import ExecutionBudget
 from src.pipeline.execution_graph import ExecutionGraph, ExecutionNode
 from src.pipeline.execution_plan import ExecutionStep
 from src.pipeline.parameter_binder import ParameterBinder, ParameterBindingError
@@ -21,6 +22,19 @@ from src.shared.logger import warning as _warning
 from src.tool.capability_result import CapabilityStatus
 from src.tool.errors import internal_error
 from src.tool.knowledge_tool import KnowledgeTool
+
+
+class GraphValidationError(ValueError):
+    """Raised when an ExecutionGraph references a dependency that does not
+    exist among its own nodes. Raised before any node executes so a
+    broken graph fails fast instead of silently force-executing nodes
+    whose prerequisites can never be satisfied."""
+
+    def __init__(self, errors: tuple[str, ...]) -> None:
+        self.errors = errors
+        super().__init__(
+            "Execution graph has unresolvable dependencies: " + "; ".join(errors)
+        )
 
 
 @dataclass
@@ -54,6 +68,7 @@ class RuntimeMetrics:
     security_inspections_blocked: int = 0
     recovery_attempts: int = 0
     recovery_successes: int = 0
+    blocked_by_dependency: int = 0
     expansion_rounds: int = 0
     expanded_capabilities: tuple[str, ...] = ()
 
@@ -100,6 +115,7 @@ class ExecutionRuntime:
         extracted_params: object = None,
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
+        budget: ExecutionBudget | None = None,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -128,6 +144,15 @@ class ExecutionRuntime:
                                      must be collected. When all are
                                      satisfied, remaining nodes are
                                      skipped (early completion).
+            budget: Optional shared ``ExecutionBudget``. When provided,
+                    each recovery attempt reserves one capability slot
+                    from this budget *before* it is dispatched, so the
+                    caller's configured hard limits are never exceeded
+                    mid-round — the caller no longer needs to add
+                    ``metrics.recovery_attempts`` to the budget after the
+                    fact. When omitted, recovery is unbounded by budget
+                    (legacy behaviour), matching callers that do not pass
+                    one.
 
         Returns:
             A tuple of (results dict, RuntimeMetrics).
@@ -138,6 +163,10 @@ class ExecutionRuntime:
         if not graph.nodes:
             metrics.execution_duration = _time.perf_counter() - t0
             return {}, metrics
+
+        validation_errors = self._validate_dependencies(graph)
+        if validation_errors:
+            raise GraphValidationError(validation_errors)
 
         metrics.total_nodes = len(graph.nodes)
 
@@ -154,6 +183,7 @@ class ExecutionRuntime:
         collected_evidence: set[str] = set()
 
         _lock = threading.Lock()
+        _budget_lock = threading.Lock()
         _timeout_deadline = (
             _time.perf_counter() + overall_timeout
             if overall_timeout > 0
@@ -184,7 +214,13 @@ class ExecutionRuntime:
                 )
                 break
 
-            ready, remaining = self._get_ready_nodes(remaining, completed)
+            ready, remaining = self._get_ready_nodes(
+                remaining, completed, results, metrics
+            )
+            if not ready:
+                # All remaining nodes are permanently blocked by a failed
+                # dependency (see _get_ready_nodes) — nothing left to run.
+                break
 
             if len(ready) > 1:
                 total_nodes_in_parallel += len(ready)
@@ -201,6 +237,8 @@ class ExecutionRuntime:
                     extracted_params=extracted_params,
                     timeframe=timeframe,
                     bound_params_out=bound_params_out,
+                    budget=budget,
+                    budget_lock=_budget_lock,
                 )
             else:
                 self._execute_batch_parallel(
@@ -214,6 +252,8 @@ class ExecutionRuntime:
                     extracted_params=extracted_params,
                     timeframe=timeframe,
                     bound_params_out=bound_params_out,
+                    budget=budget,
+                    budget_lock=_budget_lock,
                 )
 
         metrics.execution_duration = _time.perf_counter() - t0
@@ -223,6 +263,27 @@ class ExecutionRuntime:
             metrics.parallel_ratio = total_nodes_in_parallel / metrics.total_nodes
 
         return results, metrics
+
+    @staticmethod
+    def _validate_dependencies(graph: ExecutionGraph) -> tuple[str, ...]:
+        """Return a description of every ``depends_on`` reference that does
+        not name another capability present in this graph.
+
+        Called before execution starts so a broken/typo'd dependency graph
+        fails fast with a clear error instead of silently falling into the
+        force-execute fallback in ``_get_ready_nodes``.
+        """
+        known = {n.execution_step.capability.name for n in graph.nodes}
+        errors: list[str] = []
+        for node in graph.nodes:
+            cap_name = node.execution_step.capability.name
+            for dep in node.depends_on:
+                if dep not in known:
+                    errors.append(
+                        f"capability '{cap_name}' depends_on unknown "
+                        f"capability '{dep}' (not present in this graph)"
+                    )
+        return tuple(errors)
 
     def _check_early_completion(
         self,
@@ -273,27 +334,75 @@ class ExecutionRuntime:
         self,
         remaining: list[ExecutionNode],
         completed: set[str],
+        results: dict[str, ToolResult],
+        metrics: RuntimeMetrics,
     ) -> tuple[list[ExecutionNode], list[ExecutionNode]]:
-        """Separate ready nodes (all deps satisfied) from remaining."""
+        """Separate ready nodes (all deps satisfied) from remaining.
+
+        A dependency is only satisfied when the capability it names has
+        *succeeded* (see ``_record_success``, only called on
+        ``result.success``). If a node's dependency already produced a
+        result but failed, that node can never become ready — waiting for
+        it to appear in ``completed`` would loop forever. Such nodes are
+        not force-executed (a capability that needs another capability's
+        output should not run without it — see DR1-101/DR1-107 failure
+        contract); instead every node still blocked on a *failed*
+        dependency is marked ``COLLECTION_FAILED`` with a clear
+        "blocked by dependency" error and dropped from ``remaining``.
+        Graph-level errors (a ``depends_on`` naming a capability absent
+        from the graph entirely) are caught earlier by
+        ``_validate_dependencies`` and never reach this method.
+        """
         ready: list[ExecutionNode] = []
         still_remaining: list[ExecutionNode] = []
+        blocked: list[ExecutionNode] = []
 
         for node in remaining:
             deps = node.depends_on
-
-            if all(dep in completed for dep in deps):
+            unmet = [dep for dep in deps if dep not in completed]
+            if not unmet:
                 ready.append(node)
+                continue
+            failed_deps = [dep for dep in unmet if dep in results]
+            if failed_deps:
+                # Every unmet dependency has already run and failed (as
+                # opposed to simply not having executed yet) — this node
+                # can never become ready.
+                blocked.append(node)
             else:
                 still_remaining.append(node)
 
-        if not ready:
+        if blocked:
+            for node in blocked:
+                cap_name = node.execution_step.capability.name
+                failed_names = sorted(
+                    dep for dep in node.depends_on if dep in results and dep not in completed
+                )
+                results[cap_name] = ToolResult(
+                    success=False,
+                    error=(
+                        "Blocked by dependency: prerequisite capability "
+                        f"{', '.join(failed_names)} failed"
+                    ),
+                    capability_status=CapabilityStatus.COLLECTION_FAILED,
+                )
+                metrics.blocked_by_dependency += 1
+
+        if not ready and still_remaining and not blocked:
+            # Defensive fallback: _validate_dependencies should have
+            # already rejected any graph with a dependency cycle or a
+            # reference to a capability outside the graph, so this
+            # branch should be unreachable in practice. It exists only
+            # to guarantee execute() can never hang.
             _warning(
                 "execution-runtime",
-                message="no node ready — forcing next node (possible graph error)",
-                remaining_count=len(remaining),
+                message=(
+                    "no node ready and none blocked by a failed dependency "
+                    "— possible dependency cycle; forcing next node"
+                ),
+                remaining_count=len(still_remaining),
             )
-            still_remaining.clear()
-            ready = [remaining.pop(0)]
+            ready = [still_remaining.pop(0)]
 
         return ready, still_remaining
 
@@ -309,6 +418,8 @@ class ExecutionRuntime:
         extracted_params: object = None,
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
+        budget: ExecutionBudget | None = None,
+        budget_lock: threading.Lock | None = None,
     ) -> None:
         """Execute a single ready node with per-node timeout."""
         cap_name = node.execution_step.capability.name
@@ -331,6 +442,8 @@ class ExecutionRuntime:
                 extracted_params=extracted_params,
                 timeframe=timeframe,
                 bound_params_out=bound_params_out,
+                budget=budget,
+                budget_lock=budget_lock,
             )
             try:
                 result = fut.result(timeout=remaining_timeout)
@@ -364,6 +477,8 @@ class ExecutionRuntime:
         extracted_params: object = None,
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
+        budget: ExecutionBudget | None = None,
+        budget_lock: threading.Lock | None = None,
     ) -> None:
         """Execute a batch of ready nodes in parallel."""
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(ready))
@@ -377,6 +492,8 @@ class ExecutionRuntime:
                     extracted_params=extracted_params,
                     timeframe=timeframe,
                     bound_params_out=bound_params_out,
+                    budget=budget,
+                    budget_lock=budget_lock,
                 )
                 future_map[future] = node
                 metrics.tool_calls += 1
@@ -436,6 +553,8 @@ class ExecutionRuntime:
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
         allow_recovery: bool = True,
+        budget: ExecutionBudget | None = None,
+        budget_lock: threading.Lock | None = None,
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name
@@ -511,6 +630,8 @@ class ExecutionRuntime:
                     extracted_params=extracted_params,
                     timeframe=timeframe,
                     bound_params_out=bound_params_out,
+                    budget=budget,
+                    budget_lock=budget_lock,
                 )
             return result
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
@@ -544,6 +665,8 @@ class ExecutionRuntime:
         extracted_params: object,
         timeframe: object,
         bound_params_out: dict[str, dict[str, object]] | None,
+        budget: ExecutionBudget | None = None,
+        budget_lock: threading.Lock | None = None,
     ) -> ToolResult:
         alternatives = self._metadata_strings(metadata, "alternatives")
         recoverable_errors = self._metadata_strings(
@@ -591,13 +714,32 @@ class ExecutionRuntime:
                 timeframe=timeframe,
                 bound_params_out=bound_params_out,
                 allow_recovery=False,
+                budget=budget,
+                budget_lock=budget_lock,
             )
+
+        def can_attempt() -> bool:
+            # DR: reserve budget for a recovery attempt *before* it is
+            # dispatched (not after, via a post-hoc metrics addition) so a
+            # caller's configured hard limits (max_capabilities,
+            # max_estimated_cost, max_total_duration) can never be
+            # exceeded even mid-round. When no budget was supplied,
+            # recovery is unbounded (legacy behaviour for callers that
+            # don't pass one, e.g. direct ExecutionRuntime.execute() use
+            # without a shared budget).
+            if budget is None:
+                return True
+            if budget_lock is None:
+                return budget.try_reserve_capability()
+            with budget_lock:
+                return budget.try_reserve_capability()
 
         outcome = recovery.recover(
             capability_name,
             result,
             execute_alternative,
             available_capabilities=set(self._router.available_routes()),
+            can_attempt=can_attempt,
         )
         if not outcome.attempts:
             return result

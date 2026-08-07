@@ -1,4 +1,4 @@
-"""Persistent configuration for user-managed model connections."""
+"""Persistent model configuration and deterministic rollout-flag loading."""
 
 from __future__ import annotations
 
@@ -11,8 +11,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from src.model.llm_client import LLMClient
-from src.shared.config_schema import ServerConfig, ServersConfig
+from src.shared.config_schema import FeatureFlagsConfig, ServerConfig, ServersConfig
 
 _lock = threading.RLock()
 
@@ -22,6 +24,81 @@ def model_config_path() -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parent.parent.parent / "servers.json"
+
+
+def feature_flags_path() -> Path:
+    """Return the rollout flag file, allowing a deployment-specific override."""
+
+    configured = os.environ.get("ORION_FEATURE_FLAGS_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent.parent.parent / "config" / "feature_flags.yaml"
+
+
+_FEATURE_FLAG_ENVIRONMENT = {
+    "structured_command_result": "ORION_FEATURE_STRUCTURED_COMMAND_RESULT",
+    "canonical_facts": "ORION_FEATURE_CANONICAL_FACTS",
+    "composite_rules": "ORION_FEATURE_COMPOSITE_RULES",
+    "claim_guard": "ORION_FEATURE_CLAIM_GUARD",
+}
+
+
+def _parse_feature_flag(value: str, *, name: str) -> bool:
+    normalized = value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(
+        f"{name} must be one of true/false, 1/0, yes/no, or on/off; got {value!r}"
+    )
+
+
+class FeatureFlagStore:
+    """Load temporary deterministic-reasoning rollout flags.
+
+    The file is intentionally optional: an absent file yields the migration
+    defaults from :class:`FeatureFlagsConfig` (all flags off).  Per-flag
+    ``ORION_FEATURE_*`` variables take precedence so an operator can roll
+    back one layer without editing a mounted configuration file.
+    """
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path) if path is not None else feature_flags_path()
+
+    def load(self) -> FeatureFlagsConfig:
+        payload: dict[str, Any] = {}
+        if self.path.exists():
+            try:
+                raw = yaml.safe_load(self.path.read_text(encoding="utf-8"))
+            except (OSError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Invalid feature flag configuration {self.path}: {exc}"
+                ) from exc
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f"Invalid feature flag configuration {self.path}: "
+                    "expected a YAML object"
+                )
+            payload = dict(raw)
+
+        for flag, environment_name in _FEATURE_FLAG_ENVIRONMENT.items():
+            raw_value = os.environ.get(environment_name)
+            if raw_value is not None and raw_value.strip():
+                payload[flag] = _parse_feature_flag(raw_value, name=environment_name)
+
+        try:
+            return FeatureFlagsConfig.model_validate(payload)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid feature flag configuration {self.path}: {exc}"
+            ) from exc
+
+    def is_enabled(self, name: str) -> bool:
+        if name not in _FEATURE_FLAG_ENVIRONMENT:
+            allowed = ", ".join(sorted(_FEATURE_FLAG_ENVIRONMENT))
+            raise KeyError(f"Unknown feature flag {name!r}. Available: {allowed}")
+        return bool(getattr(self.load(), name))
 
 
 class ModelConfigStore:

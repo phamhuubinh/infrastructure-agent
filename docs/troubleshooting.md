@@ -10,6 +10,7 @@ Common issues encountered when running Orion and how to resolve them.
 - [LLM / Assessment Model Issues](#llm--assessment-model-issues)
 - [Docker Compose Issues](#docker-compose-issues)
 - [SSH / Linux Tool Issues](#ssh--linux-tool-issues)
+- [Linux collection failure codes](#linux-collection-failure-codes)
 - [API Authentication Issues](#api-authentication-issues)
 - [Performance & Resources](#performance--resources)
 - [General FAQ](#general-faq)
@@ -162,6 +163,51 @@ Orion auto-creates tables on first connection. Verify:
 1. Increase per-command timeout in `targets.json`.
 2. Check target server load.
 3. Verify network latency between agent and target.
+
+## Linux collection failure codes
+
+Orion reports a stable `CapabilityError` code with its category and whether it
+is recoverable. Use that code, plus the target and command ID in the execution
+trace, to diagnose the source issue. Do not infer a state from an empty data
+field: `VALID_EMPTY` is the only successful empty observation.
+
+| Code | Usual cause | Safe checks | Operator action |
+| --- | --- | --- | --- |
+| `COMMAND_NOT_FOUND` | Required program is absent or not on `PATH`. | Check the target OS/package inventory and the capability's documented binary dependency. | Install/enable the approved dependency through normal change control, then rerun. If it is optional, accept `UNSUPPORTED`; do not substitute an arbitrary shell command. |
+| `PERMISSION_DENIED` | The SSH user lacks read/execute access, or a command needs privileges unavailable to the target account. | Manually verify the account and the specific file/service permission. | Grant the minimum read-only access approved for monitoring, or use the approved target account. Do not add broad sudo or disable command safety. |
+| `TIMEOUT` | Command, SSH transport, or source service exceeded its bounded timeout. | Check host load, network path, service health, and command duration outside Orion. | Fix the bottleneck or adjust an approved timeout/configuration; rerun. This is recoverable only when the capability declares it. |
+| `SSH_AUTH_FAILED` | Key, user, agent, or authentication policy is wrong. | Test the same user/key with `ssh user@target true` from the Orion runtime environment. | Correct the target credential/configuration and permissions. Never put a private key or password in `tools.json`, prompts, or source. |
+| `SSH_UNREACHABLE` | DNS, route, port, firewall, or host availability prevents transport. | Resolve the host and test TCP/SSH reachability from the Orion runtime. | Restore reachability or correct the explicit SSH target. Orion stops dependent probes rather than falling back to localhost. |
+| `UNSUPPORTED_ENVIRONMENT` | OS, init system, procfs/sysfs, container namespace, or dependency cannot support the strategy. | Inspect the preflight fingerprint and target/container runtime. | Use a target/collector compatible with the capability, or accept the unsupported limitation. Do not claim an alternative measurement is equivalent. |
+| `NON_ZERO_EXIT` | A reviewed command ran but returned a non-zero status. | Inspect the redacted stderr, exit code, command ID, and target context. | Fix the underlying service/command condition or update the reviewed capability if its expected exit semantics changed. Do not treat the output as a successful metric. |
+| `PARSE_ERROR` | Returned output/API response does not match the expected schema. | Retain the redacted raw preview and compare it with the documented collector format. | Investigate target/tool version drift; update parser/schema through review and tests. |
+| `INVALID_PARAMETERS` | Required parameter is missing, malformed, out of range, or blocked by validation. | Read the capability metadata and the safe bound parameters in the trace. | Submit a valid target/service/path/time-range value. Do not bypass the parameter or read-only inspectors. |
+| `SOURCE_API_ERROR` | Grafana/Zabbix/other source API rejected or failed the request. | Check endpoint reachability, token scope, API logs, and source rate limits. | Correct the external credential or API service through its normal controls; retain least privilege. |
+| `COLLECTION_FAILED` | A capability failed without a more specific backend error, or only partial data is usable. | Inspect contained command results, warnings, and `collection_failures`. | Resolve the underlying listed failure and rerun; partial evidence cannot satisfy a required claim. |
+| `INTERNAL_ERROR` | Orion encountered an unexpected tool/runtime error. | Preserve trace ID, safe error details, Orion version, and minimal reproduction. | File an issue or escalate with the sanitized diagnostics; do not expose credentials or modify guards to work around it. |
+
+### `localhost` and containers
+
+`localhost` means the environment running Orion. In the packaged Compose
+deployment, that is the `orion-api` container and its PID, network, and
+filesystem namespaces—not the physical Docker host. In source CLI mode, it is
+the local Orion process environment. To investigate the Docker host or another
+server, register an explicit SSH target; mount/namespace shortcuts are not an
+Orion troubleshooting step.
+
+An explicit unknown or unreachable target does not degrade to localhost.
+Correct the target definition first, then repeat the investigation. For an
+unreachable remote target Orion deliberately stops after the transport probe to
+avoid multiplying failed SSH attempts.
+
+### Security boundary during diagnosis
+
+Collection troubleshooting never authorizes write access. Keep the mandatory
+read-only, parameter-safety, and target inspectors enabled; do not paste raw
+commands into model prompts, relax allowlists, set permissive sudo rules, or
+turn off redaction to obtain more diagnostics. Make configuration/dependency
+changes through the normal operator/change-control process, then rerun Orion
+to collect fresh evidence.
 
 ---
 

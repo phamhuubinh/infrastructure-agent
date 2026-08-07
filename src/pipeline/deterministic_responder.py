@@ -2,9 +2,31 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from src.pipeline.fact import FactValidity
 from src.pipeline.health_aggregator import HealthStatus
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.temporal_evidence_guard import TemporalEvidenceGuard
+
+
+def _package_has_untrustworthy_facts(pkg: object) -> bool:
+    """DR1-707: refuse the deterministic fast path when a package's own
+    canonical facts are contradictory or stale.
+
+    The raw-dict responders below were written before canonical Facts
+    existed and still read ``pkg.data`` directly for speed. That is only
+    safe when nothing in ``pkg.facts`` (the canonical, validity-checked
+    view of the same evidence) disagrees with itself. If the fact
+    normalizer already flagged this package as contradictory/stale, the
+    fast path must not answer from the raw payload — fall through to the
+    LLM assessment path, which is given the contradiction explicitly via
+    ``AssessmentRequest`` and is instructed not to silently pick a number.
+    """
+
+    facts = getattr(pkg, "facts", ())
+    return any(
+        fact.validity in (FactValidity.CONTRADICTORY, FactValidity.STALE)
+        for fact in facts
+    )
 
 
 def _safe_parse_pct(value: object) -> float | None:
@@ -28,6 +50,31 @@ def _first_present(data: dict, *keys: str) -> object | None:
     for key in keys:
         if key in data and data[key] is not None:
             return data[key]
+    return None
+
+
+def _facts_by_metric(pkg: object, metric: str) -> tuple:
+    """DR1-707: canonical, validity-checked view of a package's evidence.
+
+    Returns only ``usable`` facts (VALID/VALID_EMPTY, not stale) for the
+    given metric name. Responders below prefer this over ``pkg.data`` when
+    a metric has canonical Fact coverage from the normalizer; raw-dict
+    reads remain only for fields that have no Fact representation yet
+    (documented per-method below).
+    """
+
+    return tuple(
+        f for f in getattr(pkg, "facts", ()) if f.metric == metric and f.usable
+    )
+
+
+def _first_fact_value(pkg: object, metric: str, *, subject: str | None = None):
+    """Return the value of the first usable fact matching metric (and
+    optionally subject), or None if no such canonical fact exists."""
+
+    for f in _facts_by_metric(pkg, metric):
+        if subject is None or f.subject == subject:
+            return f.value
     return None
 
 
@@ -141,17 +188,21 @@ class DeterministicResponder:
         for pkg in investigation.evidence:
             if not pkg.valid_for_requirements or not isinstance(pkg.data, dict):
                 continue
+            if _package_has_untrustworthy_facts(pkg):
+                # DR1-707: contradictory/stale canonical facts back this
+                # package — do not answer from its raw payload.
+                continue
 
             if (
                 pkg.evidence_name in ("Processes", "Processes Information")
                 and is_zombie
             ):
-                result = self._check_zombie_processes(pkg.data)
+                result = self._check_zombie_processes(pkg)
                 if result is not None:
                     return result
 
             if pkg.evidence_name == "Processes" and not is_zombie:
-                result = self._check_zombie_processes(pkg.data)
+                result = self._check_zombie_processes(pkg)
                 if result is not None:
                     return result
 
@@ -160,22 +211,26 @@ class DeterministicResponder:
                 and is_service_status
             ):
                 result = self._check_service_status(
-                    pkg.data, service_name=target_service
+                    pkg, service_name=target_service
                 )
                 if result is not None:
                     return result
 
             if pkg.evidence_name == "System Information" and is_hostname:
-                result = self._check_hostname(pkg.data)
+                result = self._check_hostname(pkg)
                 if result is not None:
                     return result
 
             if pkg.evidence_name == "System Information" and is_kernel:
-                result = self._check_kernel(pkg.data)
+                result = self._check_kernel(pkg)
                 if result is not None:
                     return result
 
             if pkg.evidence_name in ("CPU", "CPU Information") and is_top_cpu:
+                # DR1-707: no canonical Fact metric exists yet for "top CPU
+                # processes" (only cpu.usage/cpu.model/system.load are
+                # normalized). Reads pkg.data directly until a
+                # process.top_cpu fact is added to LinuxFactNormalizer.
                 result = self._check_top_cpu(pkg.data)
                 if result is not None:
                     return result
@@ -184,42 +239,59 @@ class DeterministicResponder:
                 pkg.evidence_name in ("Memory", "Memory Information")
                 and is_ram_available
             ):
-                result = self._check_ram_available(pkg.data)
-                if result is not None:
-                    return result
-
-            if (
-                pkg.evidence_name in ("CPU", "CPU Information", "CPU Hardware")
-                and is_load
-            ):
-                result = self._check_load_average(pkg.data)
+                result = self._check_ram_available(pkg)
                 if result is not None:
                     return result
 
             if (
                 pkg.evidence_name
-                in ("CPU", "CPU Information", "CPU Hardware", "System Information")
-                and is_uptime
+                in ("CPU", "CPU Information", "CPU Hardware", "Load Average")
+                and is_load
             ):
-                result = self._check_uptime(pkg.data)
-                if result is not None:
-                    return result
-
-            if pkg.evidence_name in ("Memory", "Memory Information") and is_swap:
-                result = self._check_swap(pkg.data)
+                result = self._check_load_average(pkg)
                 if result is not None:
                     return result
 
             if (
-                pkg.evidence_name in ("Network", "Network Information")
-                and is_port_listen
+                pkg.evidence_name
+                in (
+                    "CPU",
+                    "CPU Information",
+                    "CPU Hardware",
+                    "System Information",
+                    "System Uptime",
+                )
+                and is_uptime
             ):
-                result = self._check_listening_ports(pkg.data)
+                # DR1-707: no canonical Fact metric exists yet for uptime
+                # (LinuxFactNormalizer does not emit system.uptime). Reads
+                # pkg.data directly until that normalizer gap is closed.
+                result = self._check_uptime(pkg.data)
                 if result is not None:
                     return result
 
-            if pkg.evidence_name in ("Storage", "Filesystem") and is_disk_full:
-                result = self._check_disk_full(pkg.data)
+            if (
+                pkg.evidence_name in ("Memory", "Memory Information", "Swap")
+                and is_swap
+            ):
+                result = self._check_swap(pkg)
+                if result is not None:
+                    return result
+
+            if (
+                pkg.evidence_name
+                in ("Network", "Network Information", "Listening Ports")
+                and is_port_listen
+            ):
+                result = self._check_listening_ports(pkg)
+                if result is not None:
+                    return result
+
+            if (
+                pkg.evidence_name in ("Storage", "Filesystem", "Disk Usage")
+                and is_disk_full
+            ):
+                result = self._check_disk_full(pkg)
                 if result is not None:
                     return result
 
@@ -288,8 +360,15 @@ class DeterministicResponder:
             "within the complete collected evidence scope."
         )
 
-    def _check_zombie_processes(self, data: dict) -> str | None:
-        zombies = _first_present(data, "zombie_count", "zombie", "zombies")
+    def _check_zombie_processes(self, pkg: object) -> str | None:
+        data = pkg.data if isinstance(pkg.data, dict) else {}
+        # DR1-707: process.zombie_count is a canonical Fact (see
+        # LinuxFactNormalizer._processes); prefer it over the raw dict key
+        # guess. The optional PID listing has no Fact representation yet,
+        # so that part still reads pkg.data directly.
+        zombies = _first_fact_value(pkg, "process.zombie_count")
+        if zombies is None:
+            zombies = _first_present(data, "zombie_count", "zombie", "zombies")
         if not isinstance(zombies, (int, float)) or zombies <= 0:
             return None
 
@@ -310,9 +389,54 @@ class DeterministicResponder:
             f"Check the parent process or restart the orphaned service."
         )
 
-    def _check_service_status(
-        self, data: dict, service_name: str | None = None
+    _SERVICE_ALIASES = {
+        "sshd": ("sshd", "ssh", "openssh-server"),
+        "nginx": ("nginx",),
+        "docker": ("docker",),
+        "apache2": ("apache2", "httpd", "apache"),
+        "postgresql": ("postgresql", "postgres"),
+        "mysql": ("mysql", "mariadb"),
+        "redis": ("redis", "redis-server"),
+        "mongod": ("mongod", "mongodb"),
+    }
+
+    def _check_service_status_from_facts(
+        self, pkg: object, service_name: str
     ) -> str | None:
+        lookup_names = self._SERVICE_ALIASES.get(service_name, (service_name,))
+        for f in _facts_by_metric(pkg, "service.status"):
+            dims = f.dimensions or {}
+            fact_service_name = str(dims.get("service_name", "")).casefold()
+            if not fact_service_name:
+                continue
+            if any(name in fact_service_name for name in lookup_names):
+                status = str(f.value)
+                status_emoji = (
+                    "✅" if status in ("active", "running", "enabled") else "❌"
+                )
+                return (
+                    f"## Service: {fact_service_name}\n\n"
+                    f"{status_emoji} Status: **{status}**"
+                )
+        return None
+
+    def _check_service_status(
+        self, pkg: object, service_name: str | None = None
+    ) -> str | None:
+        data = pkg.data if isinstance(pkg.data, dict) else {}
+
+        # DR1-707: when a specific service is asked about, prefer the
+        # canonical service.status Fact (subject "service:<name>",
+        # dimensions.service_name) over raw dict lookup. Generic
+        # failed/disabled-service summaries have no canonical Fact yet
+        # (LinuxFactNormalizer only emits service.inventory, not
+        # per-service failure/disabled state for the "Services" bulk
+        # capability), so that path still reads pkg.data directly.
+        if service_name:
+            fact_result = self._check_service_status_from_facts(pkg, service_name)
+            if fact_result is not None:
+                return fact_result
+
         failed_value = _first_present(data, "failed_services", "failed")
         failed_svcs = failed_value if isinstance(failed_value, list) else []
         failed_count = (
@@ -422,14 +546,22 @@ class DeterministicResponder:
 
         return None
 
-    def _check_hostname(self, data: dict) -> str | None:
-        hostname = data.get("hostname") or data.get("name")
+    def _check_hostname(self, pkg: object) -> str | None:
+        hostname = _first_fact_value(pkg, "system.hostname")
+        if not hostname:
+            data = pkg.data if isinstance(pkg.data, dict) else {}
+            hostname = data.get("hostname") or data.get("name")
         if not hostname:
             return None
         return f"## Hostname\n\n**{hostname}**"
 
-    def _check_kernel(self, data: dict) -> str | None:
-        kernel = data.get("kernel") or data.get("kernel_version") or data.get("release")
+    def _check_kernel(self, pkg: object) -> str | None:
+        kernel = _first_fact_value(pkg, "system.kernel")
+        if not kernel:
+            data = pkg.data if isinstance(pkg.data, dict) else {}
+            kernel = (
+                data.get("kernel") or data.get("kernel_version") or data.get("release")
+            )
         if not kernel:
             return None
         return f"## Kernel Version\n\n**{kernel}**"
@@ -453,7 +585,29 @@ class DeterministicResponder:
         header = "## Top CPU Processes\n\n"
         return header + "\n".join(lines)
 
-    def _check_ram_available(self, data: dict) -> str | None:
+    def _check_ram_available(self, pkg: object) -> str | None:
+        # DR1-707: memory.available/memory.total are canonical Facts in
+        # bytes (see LinuxFactNormalizer._memory). The legacy dict lookup
+        # below expects "available_kb"/"total_kb"-style keys that do not
+        # match the real get_memory schema (available_bytes/total_bytes),
+        # so it rarely matched real payloads — Facts are the correct and
+        # now-primary source.
+        available_bytes = _first_fact_value(pkg, "memory.available")
+        total_bytes = _first_fact_value(pkg, "memory.total")
+        if isinstance(available_bytes, (int, float)):
+            available_gb = round(available_bytes / (1024**3), 1)
+            response = f"## Available RAM\n\n**{available_gb} GB** available"
+            if isinstance(total_bytes, (int, float)) and total_bytes > 0:
+                total_gb = round(total_bytes / (1024**3), 1)
+                pct = round((available_bytes / total_bytes) * 100, 1)
+                response = (
+                    f"## Available RAM\n\n"
+                    f"**{available_gb} GB** available out of **{total_gb} GB** "
+                    f"({pct}% free)"
+                )
+            return response
+
+        data = pkg.data if isinstance(pkg.data, dict) else {}
         available_kb = _first_present(
             data, "available_kb", "available", "free_kb", "free"
         )
@@ -475,10 +629,17 @@ class DeterministicResponder:
             return response
         return f"## Available RAM\n\n**{available_kb} KB** available"
 
-    def _check_load_average(self, data: dict) -> str | None:
-        load_1 = _first_present(data, "load_1min", "load1")
-        load_5 = _first_present(data, "load_5min", "load5")
-        load_15 = _first_present(data, "load_15min", "load15")
+    def _check_load_average(self, pkg: object) -> str | None:
+        # DR1-707: system.load_1m/5m/15m are canonical Facts (see
+        # LinuxFactNormalizer._load); prefer them over dict key guessing.
+        load_1 = _first_fact_value(pkg, "system.load_1m")
+        load_5 = _first_fact_value(pkg, "system.load_5m")
+        load_15 = _first_fact_value(pkg, "system.load_15m")
+        if load_1 is None and load_5 is None and load_15 is None:
+            data = pkg.data if isinstance(pkg.data, dict) else {}
+            load_1 = _first_present(data, "load_1min", "load1")
+            load_5 = _first_present(data, "load_5min", "load5")
+            load_15 = _first_present(data, "load_15min", "load15")
         if load_1 is None and load_5 is None and load_15 is None:
             return None
         parts = []
@@ -512,10 +673,22 @@ class DeterministicResponder:
             return f"## Uptime\n\n**{uptime_str}**"
         return f"## Uptime\n\n**{uptime_sec}**"
 
-    def _check_swap(self, data: dict) -> str | None:
+    def _check_swap(self, pkg: object) -> str | None:
         """Extract swap usage from Memory evidence."""
-        swap_total = _first_present(data, "swap_total", "swap_total_kb")
-        swap_used = _first_present(data, "swap_used", "swap_used_kb")
+        # DR1-707: swap.total/swap.used are canonical Facts in bytes,
+        # emitted by both LinuxFactNormalizer._memory (get_memory) and
+        # ._swap (get_swap). The legacy dict lookup below expects
+        # "swap_total"/"swap_total_kb"-style keys that do not match either
+        # real schema (swap_total_bytes/total_bytes) — Facts are the
+        # correct and now-primary source.
+        swap_total = _first_fact_value(pkg, "swap.total")
+        swap_used = _first_fact_value(pkg, "swap.used")
+        divisor = 1024**3
+        if swap_total is None and swap_used is None:
+            data = pkg.data if isinstance(pkg.data, dict) else {}
+            swap_total = _first_present(data, "swap_total", "swap_total_kb")
+            swap_used = _first_present(data, "swap_used", "swap_used_kb")
+            divisor = 1024**2
 
         if swap_total is None and swap_used is None:
             return None
@@ -523,7 +696,7 @@ class DeterministicResponder:
         lines = []
         if swap_total is not None:
             if isinstance(swap_total, (int, float)) and swap_total > 0:
-                total_gb = round(swap_total / (1024**2), 1)
+                total_gb = round(swap_total / divisor, 1)
                 lines.append(f"Total: **{total_gb} GB**")
             else:
                 lines.append(f"Total: **{swap_total}**")
@@ -532,7 +705,7 @@ class DeterministicResponder:
 
         if swap_used is not None:
             if isinstance(swap_used, (int, float)):
-                used_gb = round(swap_used / (1024**2), 1)
+                used_gb = round(swap_used / divisor, 1)
                 lines.append(f"Used: **{used_gb} GB**")
             else:
                 lines.append(f"Used: **{swap_used}**")
@@ -549,13 +722,19 @@ class DeterministicResponder:
 
         return "## Swap\n\n" + "\n".join(lines)
 
-    def _check_listening_ports(self, data: dict) -> str | None:
+    def _check_listening_ports(self, pkg: object) -> str | None:
         """Extract listening ports from Network evidence."""
-        ports = _first_present(
-            data, "listening_ports", "open_ports", "ports"
-        )
-        if ports is None:
-            return None
+        # DR1-707: network.listening_socket is a canonical Fact per port
+        # (see LinuxFactNormalizer._listening_ports); prefer the collected
+        # facts over raw dict key guessing when present.
+        fact_ports = [f.value for f in _facts_by_metric(pkg, "network.listening_socket")]
+        if fact_ports:
+            ports: object = fact_ports
+        else:
+            data = pkg.data if isinstance(pkg.data, dict) else {}
+            ports = _first_present(data, "listening_ports", "open_ports", "ports")
+            if ports is None:
+                return None
         if ports == [] or ports == {}:
             return "## Listening Ports\n\nNo listening ports were detected."
 
@@ -563,9 +742,13 @@ class DeterministicResponder:
             port_lines = []
             for p in ports[:20]:
                 if isinstance(p, dict):
-                    port_num = p.get("port", p.get("number", "?"))
+                    port_num = p.get(
+                        "port_number", p.get("port", p.get("number", "?"))
+                    )
                     proto = p.get("protocol", p.get("proto", ""))
-                    service = p.get("service", p.get("name", ""))
+                    service = p.get(
+                        "process", p.get("service", p.get("name", ""))
+                    )
                     entry = f"- **{port_num}**/{proto}"
                     if service:
                         entry += f" ({service})"
@@ -599,8 +782,37 @@ class DeterministicResponder:
 
         return f"## Listening Ports\n\n**{ports}**"
 
-    def _check_disk_full(self, data: dict) -> str | None:
+    def _check_disk_full(self, pkg: object) -> str | None:
         """Check if any filesystem is near capacity."""
+        # DR1-707: filesystem.usage is a canonical Fact per mountpoint (see
+        # LinuxFactNormalizer._disk); prefer it over raw dict key guessing
+        # when present.
+        usage_facts = _facts_by_metric(pkg, "filesystem.usage")
+        if usage_facts:
+            fs_lines = []
+            near_full = []
+            for f in usage_facts[:15]:
+                mount = (f.dimensions or {}).get("mountpoint", "?")
+                pct_val = _safe_parse_pct(f.value)
+                if pct_val is None:
+                    fs_lines.append(f"- **{mount}**: ?")
+                    continue
+                if pct_val > 80:
+                    near_full.append((mount, pct_val))
+                fs_lines.append(f"- **{mount}**: {pct_val:.1f}%")
+            if len(usage_facts) > 15:
+                fs_lines.append(f"  (+{len(usage_facts) - 15} more)")
+
+            result = "## Disk Usage\n\n" + "\n".join(fs_lines)
+            if near_full:
+                nf_summary = ", ".join(f"**{m}** ({p:.1f}%)" for m, p in near_full)
+                result += (
+                    f"\n\n⚠️ **Near capacity**: {nf_summary}\n"
+                    f"Consider freeing space or expanding storage."
+                )
+            return result
+
+        data = pkg.data if isinstance(pkg.data, dict) else {}
         filesystems = _first_present(
             data, "disks", "filesystems", "mounts", "mount_points"
         )
