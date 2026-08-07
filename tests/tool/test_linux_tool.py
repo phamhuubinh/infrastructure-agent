@@ -1550,10 +1550,10 @@ def test_ssh_backend_reports_password_prompt(monkeypatch) -> None:
     )
 
     backend = SSHExecutionBackend(host="10.0.0.1")
-    ok, output = backend.run(["uname", "-r"])
+    result = backend.run(["uname", "-r"])
 
-    assert ok is False
-    assert "SSH authentication failed" in output
+    assert result.success is False
+    assert "SSH authentication failed" in result.stderr
 
 
 def test_ssh_backend_returns_false_on_failure(monkeypatch) -> None:
@@ -1573,10 +1573,10 @@ def test_ssh_backend_returns_false_on_failure(monkeypatch) -> None:
     )
 
     backend = SSHExecutionBackend(host="10.0.0.1")
-    ok, output = backend.run(["uname", "-r"])
+    result = backend.run(["uname", "-r"])
 
-    assert ok is False
-    assert "permission denied" in output
+    assert result.success is False
+    assert "permission denied" in result.stderr
 
 
 def test_ssh_backend_returns_false_on_os_error(monkeypatch) -> None:
@@ -1592,30 +1592,30 @@ def test_ssh_backend_returns_false_on_os_error(monkeypatch) -> None:
     )
 
     backend = SSHExecutionBackend(host="10.0.0.1")
-    ok, output = backend.run(["uname", "-r"])
+    result = backend.run(["uname", "-r"])
 
-    assert ok is False
-    assert output == ""
+    assert result.success is False
+    assert result.stdout == ""
 
 
 def test_local_backend_returns_false_on_missing_binary() -> None:
     from src.tool.execution_backend import LocalExecutionBackend
 
     backend = LocalExecutionBackend()
-    ok, output = backend.run(["this_binary_does_not_exist_xyz"])
+    result = backend.run(["this_binary_does_not_exist_xyz"])
 
-    assert ok is False
-    assert output == ""
+    assert result.success is False
+    assert result.stdout == ""
 
 
 def test_local_backend_returns_false_on_timeout() -> None:
     from src.tool.execution_backend import LocalExecutionBackend
 
     backend = LocalExecutionBackend()
-    ok, output = backend.run(["sleep", "5"], timeout=1)
+    result = backend.run(["sleep", "5"], timeout=1)
 
-    assert ok is False
-    assert output == ""
+    assert result.success is False
+    assert result.stdout == ""
 
 
 def test_get_uptime_parses_proc_uptime(monkeypatch) -> None:

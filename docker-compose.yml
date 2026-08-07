@@ -3,7 +3,7 @@ services:
     image: nginx:alpine
     container_name: orion-reverse-proxy
     ports:
-      - "80:80"
+      - "127.0.0.1:80:80"
     environment:
       ORION_API_KEY: ${ORION_API_KEY:?ORION_API_KEY is required}
       NGINX_ENVSUBST_FILTER: ORION_API_KEY

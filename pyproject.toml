@@ -8,14 +8,14 @@ version = "0.1.0"
 description = "Orion — Infrastructure investigation platform with AI-powered assessment."
 authors = [{name = "Orion"}]
 dependencies = [
-    "fastapi>=0.100",
+    "fastapi>=0.100,<0.116",
     "jinja2>=3.0",
     "psycopg2-binary>=2.9",
     "pydantic>=2.0",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
-    "starlette>=0.35",
-    "uvicorn>=0.20",
+    "starlette>=0.35,<0.42",
+    "uvicorn>=0.20,<0.33",
 ]
 
 [project.scripts]
@@ -26,8 +26,8 @@ where = ["."]
 include = ["src*"]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-cov>=5", "httpx>=2.0"]
-web = ["fastapi>=0.100", "uvicorn>=0.20"]
+test = ["pytest>=7", "pytest-cov>=5", "httpx>=0.24,<0.29"]
+web = ["fastapi>=0.100,<0.116", "uvicorn>=0.20,<0.33"]
 security = ["bandit>=1.7", "safety>=3.0", "pip-audit>=2.7"]
 anthropic = ["anthropic>=0.30"]
 dev = ["mypy>=1.8"]

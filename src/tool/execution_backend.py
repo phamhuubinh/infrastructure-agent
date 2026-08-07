@@ -219,7 +219,7 @@ class SSHExecutionBackend(ExecutionBackend):
         user: str = "root",
         port: int = 22,
         identity_file: str | None = None,
-        strict_host_key_checking: bool = False,
+        strict_host_key_checking: bool = True,
     ) -> None:
         self._host = host
         self._user = user

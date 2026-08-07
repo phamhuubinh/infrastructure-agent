@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import socket
 from unittest.mock import MagicMock, patch
-from urllib.error import HTTPError
 
 from src.shared.execution.tool_result import ToolResult
 from src.tool.internet_tool import (
     _CAPABILITIES,
     InternetTool,
+    _connect_to_pinned_address,
     _fetch_url,
     _is_private_address,
+    _PinnedAddress,
     _resolve_host,
+    _validate_external_url,
+    _ValidatedURL,
     _web_fetch,
 )
 
@@ -18,9 +21,62 @@ _HTTP_OK = 200
 _HTTP_NOT_FOUND = 404
 
 
+class _FakeConnection:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeResponse:
+    def __init__(
+        self,
+        status: int = _HTTP_OK,
+        body: bytes = b"ok",
+        content_type: str = "text/plain",
+        location: str | None = None,
+        reason: str = "OK",
+    ) -> None:
+        self.status = status
+        self.reason = reason
+        self._body = body
+        self._location = location
+        self.headers = {"Content-Type": content_type}
+
+    def getheader(self, name: str) -> str | None:
+        return self._location if name.lower() == "location" else None
+
+    def read(self, _amount: int) -> bytes:
+        return self._body
+
+
+def _validated(url: str = "http://example.com/") -> _ValidatedURL:
+    address = _PinnedAddress(
+        family=socket.AF_INET,
+        protocol=socket.IPPROTO_TCP,
+        sockaddr=("93.184.216.34", 80),
+        ip="93.184.216.34",
+    )
+    return _ValidatedURL(
+        url=url,
+        scheme="http",
+        hostname="example.com",
+        port=80,
+        request_target="/",
+        host_header="example.com",
+        addresses=(address,),
+    )
+
+
+def _public_dns(ip: str = "93.184.216.34") -> list[tuple[object, ...]]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 80))]
+
+
 def test_execute_returns_tool_result() -> None:
     tool = InternetTool()
-    result = tool.execute({"action": "web_fetch", "url": "http://example.com"})
+    with patch("src.tool.internet_tool._fetch_url", return_value={"data": "ok"}):
+        result = tool.execute({"action": "web_fetch", "url": "http://example.com"})
     assert isinstance(result, ToolResult)
 
 
@@ -51,57 +107,82 @@ def test_web_fetch_unsupported_scheme() -> None:
     assert "Unsupported scheme" in str(result["error"])
 
 
-@patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_success_html(mock_urlopen: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = b"<html><body><p>Hello World</p></body></html>"
-    mock_resp.headers = {"Content-Type": "text/html"}
-    mock_urlopen.return_value.__enter__.return_value = mock_resp
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_success_html(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    connection = _FakeConnection()
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        connection,
+        _FakeResponse(
+            body=b"<html><body><p>Hello World</p></body></html>",
+            content_type="text/html",
+        ),
+    )
 
     result = _web_fetch(url="http://example.com")
+
     assert result["status"] == _HTTP_OK
     assert "Hello World" in str(result["data"])
     assert result["truncated"] is False
+    assert connection.closed is True
 
 
-@patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_success_json(mock_urlopen: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = b'{"key": "value", "number": 42}'
-    mock_resp.headers = {"Content-Type": "application/json"}
-    mock_urlopen.return_value.__enter__.return_value = mock_resp
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_success_json(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(
+            body=b'{"key": "value", "number": 42}', content_type="application/json"
+        ),
+    )
 
     result = _web_fetch(url="http://example.com/data.json")
+
     assert result["status"] == _HTTP_OK
     assert result["data"] == {"key": "value", "number": 42}
 
 
-@patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_truncated(mock_urlopen: MagicMock) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status = 200
-    mock_resp.read.return_value = b"x" * 600000
-    mock_resp.headers = {"Content-Type": "text/plain"}
-    mock_urlopen.return_value.__enter__.return_value = mock_resp
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_truncated(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(body=b"x" * 600000),
+    )
 
     result = _web_fetch(url="http://example.com/bigfile")
+
     assert result["status"] == _HTTP_OK
     assert result["truncated"] is True
 
 
-@patch("src.tool.internet_tool.request.urlopen")
-def test_web_fetch_http_error(mock_urlopen: MagicMock) -> None:
-    mock_urlopen.side_effect = HTTPError(
-        url="http://example.com/404",
-        code=404,
-        msg="Not Found",
-        hdrs={},
-        fp=None,
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_http_error(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(status=_HTTP_NOT_FOUND, reason="Not Found"),
     )
 
     result = _web_fetch(url="http://example.com/404")
+
     assert result["status"] == _HTTP_NOT_FOUND
     assert "error" in result
 
@@ -113,8 +194,8 @@ def test_execute_passes_timeout_parameter() -> None:
         result = tool.execute(
             {"action": "web_fetch", "url": "http://example.com", "timeout": 30},
         )
-        assert result.success is True
-        mock_fn.assert_called_once_with("http://example.com", timeout=30)
+    assert result.success is True
+    mock_fn.assert_called_once_with("http://example.com", timeout=30)
 
 
 def test_capabilities_registered() -> None:
@@ -128,26 +209,27 @@ def test_capabilities_registered() -> None:
 
 def test_web_fetch_timeout_setting() -> None:
     tool = InternetTool()
-    with patch("src.tool.internet_tool.request.urlopen") as mock_urlopen:
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.read.return_value = b"ok"
-        mock_resp.headers = {"Content-Type": "text/plain"}
-        mock_urlopen.return_value.__enter__.return_value = mock_resp
-
+    with patch(
+        "src.tool.internet_tool._fetch_url", return_value={"status": _HTTP_OK}
+    ) as mock_fetch:
         result = tool.execute(
             {"action": "web_fetch", "url": "http://example.com", "timeout": 5},
         )
-        assert result.success is True
-        assert result.data is not None
-        data = dict(result.data) if isinstance(result.data, dict) else {}
-        assert data.get("status") == _HTTP_OK
+    assert result.success is True
+    mock_fetch.assert_called_once_with("http://example.com", timeout=5)
 
 
-@patch("src.tool.internet_tool.request.urlopen")
-def test_fetch_url_rejects_exception(mock_urlopen: MagicMock) -> None:
-    mock_urlopen.side_effect = OSError("connection refused")
-    result = _fetch_url(url="http://example.com")
+def test_fetch_url_rejects_exception() -> None:
+    with (
+        patch(
+            "src.tool.internet_tool._validate_external_url", return_value=_validated()
+        ),
+        patch(
+            "src.tool.internet_tool._open_pinned_request",
+            side_effect=OSError("connection refused"),
+        ),
+    ):
+        result = _fetch_url(url="http://example.com")
     assert "error" in result
     assert "connection refused" in str(result["error"]).lower()
 
@@ -169,12 +251,9 @@ def test_is_private_address_rfc1918() -> None:
     assert _is_private_address("192.168.255.255") is True
 
 
-def test_is_private_address_link_local() -> None:
-    assert _is_private_address("169.254.1.1") is True
-
-
-def test_is_private_address_current_network() -> None:
-    assert _is_private_address("0.0.0.0") is True
+def test_is_private_address_link_local_and_reserved_ranges() -> None:
+    for address in ("169.254.1.1", "0.0.0.0", "100.64.0.1", "192.0.2.1"):
+        assert _is_private_address(address) is True
 
 
 def test_is_private_address_ipv6() -> None:
@@ -210,45 +289,120 @@ def test_web_fetch_blocks_private_ip() -> None:
         assert "private address" in str(result["error"]).lower()
 
 
-def test_web_fetch_blocks_link_local_ip() -> None:
-    result = _web_fetch(url="http://169.254.1.1/")
-    assert "error" in result
-    assert "private address" in str(result["error"]).lower()
-
-
 @patch("src.tool.internet_tool.socket.getaddrinfo")
-def test_web_fetch_blocks_localhost_via_dns(mock_getaddrinfo: MagicMock) -> None:
-    mock_getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))
-    ]
-    result = _web_fetch(url="http://localhost/")
-    assert "error" in result
-    assert "private address" in str(result["error"]).lower()
+def test_web_fetch_blocks_private_dns_answer(mock_getaddrinfo: MagicMock) -> None:
+    mock_getaddrinfo.return_value = _public_dns("10.0.0.99")
 
-
-@patch("src.tool.internet_tool.socket.getaddrinfo")
-def test_web_fetch_blocks_private_via_dns(mock_getaddrinfo: MagicMock) -> None:
-    mock_getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.99", 0)),
-    ]
     result = _web_fetch(url="http://internal.example.com/")
+
     assert "error" in result
     assert "private address" in str(result["error"]).lower()
 
 
+@patch("src.tool.internet_tool._open_pinned_request")
 @patch("src.tool.internet_tool.socket.getaddrinfo")
-def test_web_fetch_allows_public_via_dns(mock_getaddrinfo: MagicMock) -> None:
-    mock_getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
+def test_web_fetch_allows_public_dns_answer(
+    mock_getaddrinfo: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_getaddrinfo.return_value = _public_dns()
+    mock_open.return_value = (_FakeConnection(), _FakeResponse())
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert result.get("status") == _HTTP_OK
+    assert mock_open.call_args.args[0].addresses[0].ip == "93.184.216.34"
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_redirect_target_is_validated_before_a_second_request(
+    mock_getaddrinfo: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    def resolve(
+        hostname: str, _port: int, **_kwargs: object
+    ) -> list[tuple[object, ...]]:
+        return _public_dns() if hostname == "example.com" else _public_dns("127.0.0.1")
+
+    mock_getaddrinfo.side_effect = resolve
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(status=302, location="http://127.0.0.1/admin"),
+    )
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert "private address" in str(result["error"]).lower()
+    assert mock_open.call_count == 1
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_redirect_to_public_target_is_followed_with_a_new_validated_address(
+    mock_getaddrinfo: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    def resolve(
+        hostname: str, _port: int, **_kwargs: object
+    ) -> list[tuple[object, ...]]:
+        return _public_dns("93.184.216.34" if hostname == "example.com" else "1.1.1.1")
+
+    mock_getaddrinfo.side_effect = resolve
+    mock_open.side_effect = [
+        (
+            _FakeConnection(),
+            _FakeResponse(status=302, location="https://www.example.net/next"),
+        ),
+        (_FakeConnection(), _FakeResponse(body=b"done")),
     ]
-    with patch("src.tool.internet_tool.request.urlopen") as mock_urlopen:
-        mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.read.return_value = b"ok"
-        mock_resp.headers = {"Content-Type": "text/plain"}
-        mock_urlopen.return_value.__enter__.return_value = mock_resp
-        result = _web_fetch(url="http://example.com/")
-        assert result.get("status") == 200
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert result["status"] == _HTTP_OK
+    assert result["url"] == "https://www.example.net/next"
+    assert mock_open.call_count == 2
+    assert mock_open.call_args_list[1].args[0].addresses[0].ip == "1.1.1.1"
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_web_fetch_rejects_a_mixed_public_and_private_dns_answer(
+    mock_getaddrinfo: MagicMock,
+) -> None:
+    mock_getaddrinfo.return_value = _public_dns() + _public_dns("10.0.0.8")
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert "private address" in str(result["error"]).lower()
+
+
+def test_connect_to_pinned_address_never_resolves_hostname_again() -> None:
+    fake_socket = MagicMock()
+    address = _validated().addresses[0]
+    with patch(
+        "src.tool.internet_tool.socket.socket", return_value=fake_socket
+    ) as mock_socket:
+        result = _connect_to_pinned_address(address, timeout=5)
+
+    assert result is fake_socket
+    mock_socket.assert_called_once_with(
+        socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP
+    )
+    fake_socket.connect.assert_called_once_with(("93.184.216.34", 80))
+
+
+def test_validate_external_url_rejects_embedded_credentials() -> None:
+    with patch("src.tool.internet_tool.socket.getaddrinfo") as mock_getaddrinfo:
+        result = _web_fetch(url="http://user:secret@example.com/")
+    assert "embedded credentials" in str(result["error"]).lower()
+    mock_getaddrinfo.assert_not_called()
+
+
+def test_validate_external_url_rejects_port_zero() -> None:
+    with patch("src.tool.internet_tool.socket.getaddrinfo") as mock_getaddrinfo:
+        result = _web_fetch(url="http://example.com:0/")
+    assert "invalid url port" in str(result["error"]).lower()
+    mock_getaddrinfo.assert_not_called()
 
 
 def test_resolve_host_returns_none_on_gai_error() -> None:
@@ -258,17 +412,24 @@ def test_resolve_host_returns_none_on_gai_error() -> None:
 
 @patch("src.tool.internet_tool.socket.getaddrinfo")
 def test_resolve_host_returns_private_ip(mock_getaddrinfo: MagicMock) -> None:
-    mock_getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 0)),
-    ]
-    result = _resolve_host("internal.local")
-    assert result == "10.0.0.1"
+    mock_getaddrinfo.return_value = _public_dns("10.0.0.1")
+    assert _resolve_host("internal.local") == "10.0.0.1"
 
 
 @patch("src.tool.internet_tool.socket.getaddrinfo")
 def test_resolve_host_returns_none_for_public(mock_getaddrinfo: MagicMock) -> None:
-    mock_getaddrinfo.return_value = [
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0)),
-    ]
-    result = _resolve_host("example.com")
-    assert result is None
+    mock_getaddrinfo.return_value = _public_dns()
+    assert _resolve_host("example.com") is None
+
+
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_validate_external_url_preserves_non_default_port(
+    mock_getaddrinfo: MagicMock,
+) -> None:
+    mock_getaddrinfo.return_value = _public_dns()
+
+    validated = _validate_external_url("https://example.com:8443/path?item=1")
+
+    assert validated.port == 8443
+    assert validated.host_header == "example.com:8443"
+    assert validated.request_target == "/path?item=1"

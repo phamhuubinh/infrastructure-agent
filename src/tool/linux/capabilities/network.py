@@ -1,22 +1,23 @@
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Callable
+
+from .common import CommandRunner
 
 
-def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_network(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: networking (interfaces, addresses, routes).
     """
     interfaces: list[dict[str, object]] = []
     interface_names: set[str] = set()
 
-    ok, output = run(["ip", "-o", "addr", "show"])
+    interfaces_result = run(["ip", "-o", "addr", "show"])
 
     result: dict[str, object] = {}
     sources: dict[str, str] = {}
-    if ok:
-        for line in output.splitlines():
+    if interfaces_result.success:
+        for line in interfaces_result.stdout.splitlines():
             parts = line.split()
             if len(parts) < 4:
                 continue
@@ -37,9 +38,9 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     # is absent.  It reports link identity/statistics only and never invents
     # an IP address.
     if not interfaces:
-        proc_ok, proc_output = run(["cat", "/proc/net/dev"])
-        if proc_ok:
-            stats = _parse_proc_net_dev(proc_output)
+        proc_result = run(["cat", "/proc/net/dev"])
+        if proc_result.success:
+            stats = _parse_proc_net_dev(proc_result.stdout)
             for item in stats:
                 name = str(item["name"])
                 interface: dict[str, object] = {
@@ -47,9 +48,9 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
                     "family": "link",
                     "statistics": {k: v for k, v in item.items() if k != "name"},
                 }
-                address_ok, address = run(["cat", f"/sys/class/net/{name}/address"])
-                if address_ok and address.strip():
-                    interface["address"] = address.strip()
+                address_result = run(["cat", f"/sys/class/net/{name}/address"])
+                if address_result.success and address_result.stdout.strip():
+                    interface["address"] = address_result.stdout.strip()
                 interfaces.append(interface)
                 interface_names.add(name)
             result["interfaces"] = interfaces
@@ -57,22 +58,24 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
             sources["interfaces"] = "proc_net_dev+sysfs"
 
     routes: list[str] = []
-    ok, output = run(["ip", "route"])
-    if ok:
-        routes = [line.strip() for line in output.splitlines() if line.strip()]
+    routes_result = run(["ip", "route"])
+    if routes_result.success:
+        routes = [
+            line.strip() for line in routes_result.stdout.splitlines() if line.strip()
+        ]
         result["routes"] = routes
         sources["routes"] = "ip_route"
     else:
-        route_ok, route_output = run(["cat", "/proc/net/route"])
-        if route_ok:
-            routes = _parse_proc_net_route(route_output)
+        route_result = run(["cat", "/proc/net/route"])
+        if route_result.success:
+            routes = _parse_proc_net_route(route_result.stdout)
             result["routes"] = routes
             sources["routes"] = "proc_net_route"
 
-    ok2, link_output = run(["ip", "-o", "link", "show"])
+    link_result = run(["ip", "-o", "link", "show"])
     active_interfaces = 0
-    if ok2:
-        for line in link_output.splitlines():
+    if link_result.success:
+        for line in link_result.stdout.splitlines():
             if "state UP" in line or "state UNKNOWN" in line:
                 ifname2 = line.split(":")[1].strip() if ":" in line else ""
                 if ifname2:
@@ -83,10 +86,10 @@ def _get_network(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         active_interfaces = 0
         state_collected = False
         for name in sorted(interface_names):
-            state_ok, state = run(["cat", f"/sys/class/net/{name}/operstate"])
-            if state_ok:
+            state_result = run(["cat", f"/sys/class/net/{name}/operstate"])
+            if state_result.success:
                 state_collected = True
-                if state.strip() in {"up", "unknown"}:
+                if state_result.stdout.strip() in {"up", "unknown"}:
                     active_interfaces += 1
         if state_collected:
             result["active_interfaces"] = active_interfaces
@@ -124,16 +127,16 @@ def _parse_proc_net_route(output: str) -> list[str]:
     return routes
 
 
-def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_dns(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: DNS resolver configuration.
     """
-    ok, output = run(["cat", "/etc/resolv.conf"])
+    result = run(["cat", "/etc/resolv.conf"])
 
     nameservers: list[str] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             line = line.strip()
 
             if not line.startswith("nameserver"):
@@ -148,15 +151,16 @@ def _get_dns(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {}
 
 
-def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_interface_stats(run: CommandRunner) -> dict[str, object]:
     """Subsystem: per-interface traffic statistics (bytes/packets/errors/drops)."""
     interfaces: list[dict[str, object]] = []
     strategy = "ip_link"
-    ok, output = run(["ip", "-s", "link"])
-    if ok:
+    result = run(["ip", "-s", "link"])
+    fallback_succeeded = False
+    if result.success:
         current_iface: dict[str, object] = {}
         pending_direction: str | None = None
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             line = line.strip()
             # New interface block starts with a digit+colon (e.g., "1: lo:")
             if line and line[0].isdigit() and ":" in line:
@@ -189,10 +193,11 @@ def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
 
     # Fallback: /proc/net/dev
     if not interfaces:
-        ok2, dev_output = run(["cat", "/proc/net/dev"])
-        if ok2:
-            interfaces = _parse_proc_net_dev(dev_output)
+        fallback_result = run(["cat", "/proc/net/dev"])
+        if fallback_result.success:
+            interfaces = _parse_proc_net_dev(fallback_result.stdout)
             strategy = "proc_net_dev"
+            fallback_succeeded = True
 
     if interfaces:
         return {
@@ -200,7 +205,7 @@ def _get_interface_stats(run: Callable[..., tuple[bool, str]]) -> dict[str, obje
             "interface_stat_count": len(interfaces),
             "collection_strategy": strategy,
         }
-    if ok or ok2:
+    if result.success or fallback_succeeded:
         return {
             "interface_stats": [],
             "interface_stat_count": 0,
@@ -256,7 +261,7 @@ def _parse_proc_net_dev(output: str) -> list[dict[str, object]]:
 
 
 def _get_ping_latency(
-    run: Callable[..., tuple[bool, str]],
+    run: CommandRunner,
     target: str = "",
     count: int = 4,
 ) -> dict[str, object]:
@@ -275,14 +280,17 @@ def _get_ping_latency(
 
     # Limit count to prevent abuse.
     count = max(1, min(count, 10))
-    ok, output = run(["ping", "-c", str(count), "-W", "2", target])
+    result = run(["ping", "-c", str(count), "-W", "2", target])
 
-    if not ok:
-        return {"latency": None, "error": output.strip() or "Ping failed"}
+    if not result.success:
+        return {
+            "latency": None,
+            "error": (result.stderr or result.stdout).strip() or "Ping failed",
+        }
 
     # Parse ping statistics.
     rtt_values: list[float] = []
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         if "time=" in line:
             # Extract time=N.NN ms
             import re as _re2
@@ -300,7 +308,7 @@ def _get_ping_latency(
 
     # Parse loss percentage from summary line.
     loss_pct = 0.0
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         if "packet loss" in line:
             import re as _re3
 
@@ -319,17 +327,17 @@ def _get_ping_latency(
     }
 
 
-def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_bandwidth(run: CommandRunner) -> dict[str, object]:
     """Subsystem: current bandwidth usage via sar.
 
     Falls back gracefully if sysstat is not installed.
     """
-    ok, output = run(["sar", "-n", "DEV", "1", "1"])
+    result = run(["sar", "-n", "DEV", "1", "1"])
 
-    if not ok:
+    if not result.success:
         # Check if sar is missing vs. just no data.
-        ok2, _ = run(["which", "sar"])
-        if not ok2:
+        sar_lookup_result = run(["which", "sar"])
+        if not sar_lookup_result.success:
             return {
                 "bandwidth": None,
                 "error": "sysstat not installed (sar unavailable)",
@@ -339,7 +347,7 @@ def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     interfaces: list[dict[str, object]] = []
     # Parse sar -n DEV output: skip header, parse IFACE rxpck/s txpck/s rxkB/s txkB/s
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         line = line.strip()
         if not line or line.startswith("Linux") or line.startswith("Average"):
             continue
@@ -367,16 +375,16 @@ def _get_bandwidth(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_listening_ports(
-    run: Callable[..., tuple[bool, str]], port: int | None = None
+    run: CommandRunner, port: int | None = None
 ) -> dict[str, object]:
     ports: list[dict[str, object]] = []
     succeeded = False
 
     for proto in ("tcp", "udp"):
-        ok, output = run(["ss", f"-l{proto[0]}np"])
-        if ok:
+        result = run(["ss", f"-l{proto[0]}np"])
+        if result.success:
             succeeded = True
-            for line in output.splitlines()[1:]:
+            for line in result.stdout.splitlines()[1:]:
                 parts = line.split()
                 if len(parts) >= 4:
                     addr = parts[3]
@@ -408,11 +416,11 @@ def _get_listening_ports(
             ("udp", "/proc/net/udp"),
             ("udp", "/proc/net/udp6"),
         ):
-            proc_ok, proc_output = run(["cat", path])
-            if not proc_ok:
+            result = run(["cat", path])
+            if not result.success:
                 continue
             proc_succeeded = True
-            ports.extend(_parse_proc_sockets(proc_output, proto))
+            ports.extend(_parse_proc_sockets(result.stdout, proto))
         if not proc_succeeded:
             return {}
         if port is not None:

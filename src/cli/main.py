@@ -583,7 +583,13 @@ def main() -> None:
     add_parser.add_argument(
         "--strict-host-key-checking",
         action="store_true",
-        default=False,
+        default=True,
+        help=argparse.SUPPRESS,
+    )
+    add_parser.add_argument(
+        "--insecure-skip-host-key-checking",
+        dest="strict_host_key_checking",
+        action="store_false",
         help=argparse.SUPPRESS,
     )
 

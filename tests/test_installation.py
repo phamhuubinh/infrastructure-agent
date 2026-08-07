@@ -19,6 +19,20 @@ def test_compose_does_not_bundle_a_model_runtime() -> None:
     assert not any(key.startswith("OLLAMA_") for key in api_environment)
 
 
+def test_reverse_proxy_is_bound_to_localhost() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+
+    assert compose["services"]["reverse-proxy"]["ports"] == ["127.0.0.1:80:80"]
+
+
+def test_source_archive_uses_only_committed_files() -> None:
+    archive_script = (ROOT / "scripts/build-source-archive").read_text()
+
+    assert "git diff --quiet" in archive_script
+    assert "git diff --cached --quiet" in archive_script
+    assert "git archive --format=tar.gz" in archive_script
+
+
 def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
     api = compose["services"]["api"]
@@ -27,6 +41,9 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     tool_config = json.loads((ROOT / "tools.json").read_text())
 
     assert "COPY tools.json ." in dockerfile
+    assert "COPY pyproject.toml uv.lock ." in dockerfile
+    assert "uv sync --frozen --no-dev --extra web" in dockerfile
+    assert "uv.lock" not in dockerignore
     assert "tools.json" not in dockerignore
     assert api["environment"]["ORION_SECRETS_PATH"] == (
         "/run/secrets/orion-tool-credentials.json"
@@ -213,6 +230,8 @@ def test_uninstaller_removes_runtime_state_and_preserves_shared_credentials() ->
     assert '"orion_agent_redis-data"' in uninstaller
     assert 'label=com.docker.compose.project=${compose_project}' in uninstaller
     assert "Persistent data was preserved" not in uninstaller
+
+
 def test_api_image_installs_core_linux_collector_binaries() -> None:
     dockerfile = Path("docker/Dockerfile.api").read_text()
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from .common import _parse_colon_output
+from .common import CommandRunner, _parse_colon_output
 
 
 def _to_int(value: str | None) -> int | None:
@@ -14,19 +12,19 @@ def _to_int(value: str | None) -> int | None:
         return None
 
 
-def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_memory(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: system memory (from /proc/meminfo, values in kB).
 
     Also collects swap and top memory consumers inline so the assessment
     always has this data without requiring separate capability calls.
     """
-    ok, output = run(["cat", "/proc/meminfo"])
+    meminfo_result = run(["cat", "/proc/meminfo"])
 
-    if not ok:
+    if not meminfo_result.success:
         return {}
 
-    raw = _parse_colon_output(output)
+    raw = _parse_colon_output(meminfo_result.stdout)
 
     total = _to_int(raw.get("MemTotal"))
     available = _to_int(raw.get("MemAvailable"))
@@ -40,12 +38,13 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     top_consumers: list[dict[str, object]] = []
     ps_ok = False
     try:
-        ps_ok, ps_out = run(
+        ps_result = run(
             ["ps", "aux", "--sort=-%mem", "--no-headers"],
             timeout=10,
         )
-        if ps_ok and ps_out.strip():
-            lines = ps_out.strip().split("\n")[:6]
+        ps_ok = ps_result.success
+        if ps_ok and ps_result.stdout.strip():
+            lines = ps_result.stdout.strip().split("\n")[:6]
             for line in lines:
                 parts = line.split()
                 if len(parts) >= 11:
@@ -94,11 +93,11 @@ def _get_memory(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return result
 
 
-def _get_swap(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["cat", "/proc/meminfo"])
-    if not ok:
+def _get_swap(run: CommandRunner) -> dict[str, object]:
+    meminfo_result = run(["cat", "/proc/meminfo"])
+    if not meminfo_result.success:
         return {}
-    raw = _parse_colon_output(output)
+    raw = _parse_colon_output(meminfo_result.stdout)
     total = _to_int(raw.get("SwapTotal"))
     free = _to_int(raw.get("SwapFree"))
     if total is None or free is None:

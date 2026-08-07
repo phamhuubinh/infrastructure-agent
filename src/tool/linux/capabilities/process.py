@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from .common import CommandRunner
 
 
-def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_process(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: running processes. Returns summary + top consumers.
     Full list is omitted to keep prompt size manageable.
     """
-    ok, output = run(
+    result = run(
         [
             "ps",
             "-eo",
@@ -19,10 +19,10 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     processes: list[dict[str, object]] = []
 
-    if not ok:
+    if not result.success:
         return {}
 
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         parts = line.split(None, 3)
 
         if len(parts) < 4:
@@ -86,25 +86,25 @@ def _get_process(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_process_by_name(
-    run: Callable[..., tuple[bool, str]], name: str = ""
+    run: CommandRunner, name: str = ""
 ) -> dict[str, object]:
     return _search_process(run, query=name) if name else _get_process(run)
 
 
 def _search_process(
-    run: Callable[..., tuple[bool, str]], query: str = ""
+    run: CommandRunner, query: str = ""
 ) -> dict[str, object]:
     """
     Deterministic process search. Filters full command lines inside the Tool.
     """
     if not query:
         return {"error": "Missing query parameter."}
-    ok, output = run(["ps", "-eo", "pid,args", "--no-headers"])
-    if not ok:
+    result = run(["ps", "-eo", "pid,args", "--no-headers"])
+    if not result.success:
         return {}
     matches = []
     query_lower = query.lower()
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         if query_lower in line.lower():
             parts = line.split(None, 1)
             if parts:

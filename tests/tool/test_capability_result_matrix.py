@@ -1,11 +1,4 @@
-"""DR1-801 — Unit test matrix cho CapabilityResult.
-
-Bao phủ ma trận local/SSH command_results -> CapabilityStatus
-(valid/valid_empty/partial/collection_failed) qua `from_legacy`, cộng với
-construction trực tiếp cho các status không sinh từ `from_legacy`
-(unsupported/invalid_parameters/parse_failed), theo acceptance criteria
-của DR1-801 (coverage branch đủ cho mapping lỗi core).
-"""
+"""DR1-801 — Unit test matrix cho CapabilityResult."""
 
 from __future__ import annotations
 
@@ -32,7 +25,7 @@ def _failed(target: str, status: CommandStatus = CommandStatus.NON_ZERO_EXIT) ->
 
 
 # ---------------------------------------------------------------------------
-# from_legacy: no commands at all -> classified purely by payload emptiness
+# Direct construction: successful capability outcomes
 # ---------------------------------------------------------------------------
 
 
@@ -49,10 +42,10 @@ def _failed(target: str, status: CommandStatus = CommandStatus.NON_ZERO_EXIT) ->
         ((), CapabilityStatus.VALID_EMPTY),
     ],
 )
-def test_from_legacy_without_commands_classifies_by_payload(
+def test_successful_results_preserve_the_declared_status(
     payload: object, expected: CapabilityStatus
 ) -> None:
-    result = CapabilityResult.from_legacy(payload)
+    result = CapabilityResult(status=expected, data=payload)
 
     assert result.status is expected
     assert result.success is (expected in (CapabilityStatus.VALID, CapabilityStatus.VALID_EMPTY))
@@ -60,14 +53,16 @@ def test_from_legacy_without_commands_classifies_by_payload(
 
 
 # ---------------------------------------------------------------------------
-# from_legacy: single-target (local-only / ssh-only) command matrices
+# Direct construction: single-target command matrices
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("target", [LOCAL_TARGET, SSH_TARGET])
 def test_all_commands_succeed_with_data_is_valid(target: str) -> None:
-    result = CapabilityResult.from_legacy(
-        {"value": 1}, command_results=(_ok(target), _ok(target))
+    result = CapabilityResult(
+        status=CapabilityStatus.VALID,
+        data={"value": 1},
+        command_results=(_ok(target), _ok(target)),
     )
     assert result.status is CapabilityStatus.VALID
     assert result.capability_error is None
@@ -75,8 +70,10 @@ def test_all_commands_succeed_with_data_is_valid(target: str) -> None:
 
 @pytest.mark.parametrize("target", [LOCAL_TARGET, SSH_TARGET])
 def test_all_commands_succeed_empty_payload_is_valid_empty(target: str) -> None:
-    result = CapabilityResult.from_legacy(
-        [], command_results=(_empty_ok(target),)
+    result = CapabilityResult(
+        status=CapabilityStatus.VALID_EMPTY,
+        data=[],
+        command_results=(_empty_ok(target),),
     )
     assert result.status is CapabilityStatus.VALID_EMPTY
     assert result.capability_error is None
@@ -99,8 +96,9 @@ def test_all_commands_succeed_empty_payload_is_valid_empty(target: str) -> None:
 def test_single_failed_command_with_no_data_is_collection_failed(
     status: CommandStatus, target: str
 ) -> None:
-    result = CapabilityResult.from_legacy(
-        None, command_results=(_failed(target, status),)
+    result = CapabilityResult(
+        status=CapabilityStatus.COLLECTION_FAILED,
+        command_results=(_failed(target, status),),
     )
 
     assert result.status is CapabilityStatus.COLLECTION_FAILED
@@ -111,14 +109,18 @@ def test_single_failed_command_with_no_data_is_collection_failed(
 
 
 # ---------------------------------------------------------------------------
-# from_legacy: mixed local + SSH command matrices (fan-out capabilities)
+# Direct construction: mixed local + SSH command matrices (fan-out capabilities)
 # ---------------------------------------------------------------------------
 
 
 def test_local_success_plus_ssh_failure_with_data_is_partial() -> None:
     commands = (_ok(LOCAL_TARGET), _failed(SSH_TARGET, CommandStatus.SSH_UNREACHABLE))
 
-    result = CapabilityResult.from_legacy({"partial": True}, command_results=commands)
+    result = CapabilityResult(
+        status=CapabilityStatus.PARTIAL,
+        data={"partial": True},
+        command_results=commands,
+    )
 
     assert result.status is CapabilityStatus.PARTIAL
     assert result.success is False
@@ -130,7 +132,11 @@ def test_local_success_plus_ssh_failure_with_data_is_partial() -> None:
 def test_ssh_success_plus_local_failure_with_data_is_partial() -> None:
     commands = (_ok(SSH_TARGET), _failed(LOCAL_TARGET, CommandStatus.PERMISSION_DENIED))
 
-    result = CapabilityResult.from_legacy({"partial": True}, command_results=commands)
+    result = CapabilityResult(
+        status=CapabilityStatus.PARTIAL,
+        data={"partial": True},
+        command_results=commands,
+    )
 
     assert result.status is CapabilityStatus.PARTIAL
     assert result.capability_error is not None
@@ -143,7 +149,10 @@ def test_mixed_success_and_failure_but_empty_data_is_collection_failed() -> None
 
     commands = (_ok(LOCAL_TARGET), _failed(SSH_TARGET))
 
-    result = CapabilityResult.from_legacy({}, command_results=commands)
+    result = CapabilityResult(
+        status=CapabilityStatus.COLLECTION_FAILED,
+        command_results=commands,
+    )
 
     assert result.status is CapabilityStatus.COLLECTION_FAILED
     assert result.data is None
@@ -155,7 +164,10 @@ def test_all_targets_fail_is_collection_failed_regardless_of_target_mix() -> Non
         _failed(SSH_TARGET, CommandStatus.SSH_AUTH_FAILED),
     )
 
-    result = CapabilityResult.from_legacy({"ignored": True}, command_results=commands)
+    result = CapabilityResult(
+        status=CapabilityStatus.COLLECTION_FAILED,
+        command_results=commands,
+    )
 
     # First failed command drives the mapped error (order-preserving).
     assert result.status is CapabilityStatus.COLLECTION_FAILED
@@ -164,7 +176,7 @@ def test_all_targets_fail_is_collection_failed_regardless_of_target_mix() -> Non
 
 
 # ---------------------------------------------------------------------------
-# Direct construction: statuses not reachable via from_legacy
+# Direct construction: remaining failure statuses
 # ---------------------------------------------------------------------------
 
 

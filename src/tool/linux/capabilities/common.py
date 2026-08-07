@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import Protocol
+
+from src.shared.execution.command_result import CommandResult
+
+
+class CommandRunner(Protocol):
+    """Callable used by Linux capabilities to execute one command."""
+
+    def __call__(self, command: list[str], timeout: int = 15) -> CommandResult: ...
 
 
 def _parse_colon_output(output: str) -> dict[str, str]:
@@ -13,13 +21,13 @@ def _parse_colon_output(output: str) -> dict[str, str]:
     return fields
 
 
-def _read_os_release(run: Callable[..., tuple[bool, str]]) -> dict[str, str]:
-    ok, output = run(["cat", "/etc/os-release"])
+def _read_os_release(run: CommandRunner) -> dict[str, str]:
+    result = run(["cat", "/etc/os-release"])
 
-    if ok:
+    if result.success:
         fields: dict[str, str] = {}
 
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             if "=" not in line:
                 continue
 
@@ -32,12 +40,12 @@ def _read_os_release(run: Callable[..., tuple[bool, str]]) -> dict[str, str]:
             "id": fields.get("ID", "unknown"),
         }
 
-    ok, output = run(["lsb_release", "-a"])
+    result = run(["lsb_release", "-a"])
 
-    if ok:
+    if result.success:
         fields = {}
 
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             if ":" not in line:
                 continue
 

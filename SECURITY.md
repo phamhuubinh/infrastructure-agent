@@ -9,9 +9,11 @@ Intended for trusted internal networks — not hardened for public internet expo
 ## Known Security Considerations
 
 ### SSH Host Key Verification
-SSH host key verification is intentionally disabled (`StrictHostKeyChecking=no`) for the
-current trusted-network scope. See `docs/ai/09_ARCHITECTURE_DECISIONS.md` (AD-017) for
-the rationale. This must be revisited before any deployment outside a trusted internal network.
+SSH host key verification is enabled by default (`StrictHostKeyChecking=yes`). Add each
+target's host key to the Orion runtime user's `~/.ssh/known_hosts` before registering it.
+An operator can explicitly set `strict_host_key_checking: false` for a temporary trusted
+network exception; this weakens SSH transport authentication and is not appropriate for
+production or untrusted networks.
 
 ### Credential Management
 - Grafana and Zabbix tokens are stored outside the project in `/etc/orion/tool-credentials.json`
@@ -25,10 +27,15 @@ The application makes outbound connections to:
 - Grafana API
 - Zabbix API
 - LLM API endpoints (as configured in `servers.json`)
-- External URLs via `InternetTool` (SSRF-protected, opt-in per request)
+- External URLs via `InternetTool` (SSRF-protected, opt-in per request). Every redirect
+  hop is revalidated, all DNS answers must be globally routable, and the validated numeric
+  address is pinned for the socket connection to prevent DNS rebinding.
 - RAG service (`RAGTool` microservice)
 
-In `--web` mode, the backend listens on `localhost:61888` only. In Docker Compose deployment, nginx reverse proxy terminates HTTPS with self-signed certs. Optional API key auth (`ORION_API_KEY`) protects API endpoints.
+In `--web` mode, the backend listens on `localhost:61888` only. In Docker Compose deployment,
+the HTTP reverse proxy binds only to `127.0.0.1:80` and supplies the internal API credential to
+that local browser flow. Optional API key auth (`ORION_API_KEY`) protects API endpoints. Put a
+separately authenticated TLS ingress in front of Orion before exposing it to a LAN or Internet.
 
 ## Reporting a Vulnerability
 

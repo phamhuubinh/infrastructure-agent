@@ -68,7 +68,7 @@ class TargetStore:
                     port=port,
                     identity_file=identity_file,
                     strict_host_key_checking=bool(
-                        cfg.get("strict_host_key_checking", False)
+                        cfg.get("strict_host_key_checking", True)
                     ),
                 )
             else:

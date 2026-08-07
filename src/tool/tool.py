@@ -111,10 +111,9 @@ class Tool(ABC):
             capability_result = (
                 output
                 if isinstance(output, CapabilityResult)
-                else CapabilityResult.from_legacy(
+                else CapabilityResult.from_data(
                     output,
                     produced_fact_names=cap_or_err.produces_facts,
-                    warn_legacy=False,
                 )
             )
             if not capability_result.produced_fact_names:

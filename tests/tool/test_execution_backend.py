@@ -31,10 +31,10 @@ class TestLocalExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = LocalExecutionBackend()
-        ok, out = backend.run(["echo", "hello"])
+        result = backend.run(["echo", "hello"])
 
-        assert ok is True
-        assert out == "hello world"
+        assert result.success is True
+        assert result.stdout == "hello world"
 
     def test_run_nonzero_returncode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeCompleted:
@@ -49,10 +49,9 @@ class TestLocalExecutionBackend:
 
         backend = LocalExecutionBackend()
         result = backend.run(["false"])
-        ok, out = result
 
-        assert ok is False
-        assert out == ""
+        assert result.success is False
+        assert result.stdout == ""
         assert result.status is CommandStatus.NON_ZERO_EXIT
         assert result.exit_code == 1
         assert result.stderr == "error occurred"
@@ -66,10 +65,9 @@ class TestLocalExecutionBackend:
 
         backend = LocalExecutionBackend()
         result = backend.run(["nonexistent"])
-        ok, out = result
 
-        assert ok is False
-        assert out == ""
+        assert result.success is False
+        assert result.stdout == ""
         assert result.status is CommandStatus.COMMAND_NOT_FOUND
         assert result.stderr == "command not found"
         assert result.error_type == "FileNotFoundError"
@@ -82,10 +80,9 @@ class TestLocalExecutionBackend:
 
         backend = LocalExecutionBackend()
         result = backend.run(["sleep", "10"], timeout=1)
-        ok, out = result
 
-        assert ok is False
-        assert out == ""
+        assert result.success is False
+        assert result.stdout == ""
         assert result.status is CommandStatus.TIMEOUT
         assert result.error_type == "TimeoutExpired"
 
@@ -109,10 +106,10 @@ class TestLocalExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = LocalExecutionBackend()
-        ok, out = backend.run(["echo", "test"])
+        result = backend.run(["echo", "test"])
 
-        assert ok is True
-        assert out == "spaced output"
+        assert result.success is True
+        assert result.stdout == "spaced output"
 
     def test_run_timeout_parameter_passed(
         self, monkeypatch: pytest.MonkeyPatch
@@ -195,8 +192,8 @@ class TestSSHExecutionBackend:
         assert cmd[0] == "ssh"
         assert "-o" in cmd
         assert "BatchMode=yes" in cmd
-        assert "StrictHostKeyChecking=no" in cmd
-        assert "UserKnownHostsFile=/dev/null" in cmd
+        assert "StrictHostKeyChecking=yes" in cmd
+        assert "UserKnownHostsFile=~/.ssh/known_hosts" in cmd
         assert "-p" in cmd
         assert "22" in cmd
         assert "root@10.0.0.1" in cmd
@@ -208,6 +205,13 @@ class TestSSHExecutionBackend:
 
         assert "StrictHostKeyChecking=yes" in cmd
         assert "UserKnownHostsFile=~/.ssh/known_hosts" in cmd
+
+    def test_build_ssh_command_can_explicitly_disable_host_key_checking(self) -> None:
+        backend = SSHExecutionBackend(host="10.0.0.1", strict_host_key_checking=False)
+        cmd = backend._build_ssh_command(["ls", "-la"])
+
+        assert "StrictHostKeyChecking=no" in cmd
+        assert "UserKnownHostsFile=/dev/null" in cmd
 
     def test_build_ssh_command_with_custom_params(self) -> None:
         backend = SSHExecutionBackend(
@@ -243,11 +247,11 @@ class TestSSHExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["df", "-h"])
+        result = backend.run(["df", "-h"])
 
-        assert ok is True
-        assert "Filesystem" in out
-        assert "/dev/sda1" in out
+        assert result.success is True
+        assert "Filesystem" in result.stdout
+        assert "/dev/sda1" in result.stdout
 
     def test_run_nonzero_returncode(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeCompleted:
@@ -262,10 +266,9 @@ class TestSSHExecutionBackend:
 
         backend = SSHExecutionBackend(host="10.0.0.1")
         result = backend.run(["bogus"])
-        ok, out = result
 
-        assert ok is False
-        assert "command not found" in out
+        assert result.success is False
+        assert "command not found" in result.stderr
         assert result.status is CommandStatus.COMMAND_NOT_FOUND
         assert result.exit_code == 1
         assert result.stderr == "remote: command not found"
@@ -285,11 +288,10 @@ class TestSSHExecutionBackend:
 
         backend = SSHExecutionBackend(host="10.0.0.1")
         result = backend.run(["ls"])
-        ok, out = result
 
-        assert ok is False
-        assert "password" in out
-        assert "SSH authentication failed" in out
+        assert result.success is False
+        assert "password" in result.stderr
+        assert "SSH authentication failed" in result.stderr
         assert result.status is CommandStatus.SSH_AUTH_FAILED
         assert result.exit_code == 255
 
@@ -302,10 +304,9 @@ class TestSSHExecutionBackend:
 
         backend = SSHExecutionBackend(host="10.0.0.1")
         result = backend.run(["ls"])
-        ok, out = result
 
-        assert ok is False
-        assert out == ""
+        assert result.success is False
+        assert result.stdout == ""
         assert result.status is CommandStatus.COMMAND_NOT_FOUND
         assert result.error_type == "FileNotFoundError"
 
@@ -317,10 +318,9 @@ class TestSSHExecutionBackend:
 
         backend = SSHExecutionBackend(host="10.0.0.1")
         result = backend.run(["sleep", "100"], timeout=5)
-        ok, out = result
 
-        assert ok is False
-        assert out == ""
+        assert result.success is False
+        assert result.stdout == ""
         assert result.status is CommandStatus.TIMEOUT
         assert result.error_type == "TimeoutExpired"
 
@@ -358,10 +358,10 @@ class TestSSHExecutionBackend:
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         backend = SSHExecutionBackend(host="10.0.0.1")
-        ok, out = backend.run(["echo", "test"])
+        result = backend.run(["echo", "test"])
 
-        assert ok is True
-        assert out == "result"
+        assert result.success is True
+        assert result.stdout == "result"
 
     @pytest.mark.parametrize(
         ("stderr", "expected"),

@@ -10,19 +10,33 @@ docker compose ps
 orion help
 ```
 
-The installer creates `.env` with private random secrets, initializes `/etc/orion/tool-credentials.json` as an empty private file when absent, reports missing Grafana/Zabbix fields, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Grafana/Zabbix and model setup may both be skipped. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP; terminate TLS in a production ingress/reverse proxy.
+The installer creates `.env` with private random secrets, initializes `/etc/orion/tool-credentials.json` as an empty private file when absent, reports missing Grafana/Zabbix fields, installs a lightweight `~/.local/bin/orion` launcher, starts every Orion component, and optionally configures an existing model endpoint. Grafana/Zabbix and model setup may both be skipped. The launcher executes the packaged CLI inside the API container, so no host Python environment is required. Open `http://localhost`; the reverse proxy supplies the internal API credential, so the packaged Web UI needs no manual API-key entry. Local Compose uses HTTP and binds its browser entry point to loopback only; terminate TLS and enforce real user authentication in a production ingress before exposing Orion beyond the host.
 
 `orion web` starts the packaged Web services when needed, opens the Web UI, and follows only API/UI logs generated from that invocation onward. `Ctrl+C` stops those Web services. On SSH/headless systems it prints the URL instead of opening a browser. It does not start a second backend or a Vite development server inside the API container. `orion log` follows logs from all Compose services; `Ctrl+C` exits that viewer without stopping Orion.
 
 | Service | Internal port | Host exposure | Purpose |
 |---|---:|---:|---|
-| `reverse-proxy` | 80 | 80 | Browser entry point |
+| `reverse-proxy` | 80 | `127.0.0.1:80` | Local browser entry point |
 | `api` | 61888 | 61888 | API/debug access and CI smoke tests |
 | `ui` | 3000 | none | TanStack Start SSR frontend behind proxy |
 | `postgres` | 5432 | none | Chat/document metadata |
 | `rag-service` | 8080 | none | Internal project RAG API |
 
 The RAG service is deliberately not published. Browser traffic goes through `/api/rag/*`, so backend authentication and upload limits always apply.
+
+## Reproducible API image
+
+The API image installs Python dependencies from the committed `uv.lock` with `uv sync
+--frozen`. Rebuilds therefore use the locked dependency graph rather than accepting newer
+versions permitted by `pyproject.toml` ranges. Update the lock deliberately with `uv lock`,
+review the diff, and then rebuild the image.
+
+## Source release archive
+
+Run `scripts/build-source-archive` from a clean checkout to create a source-only archive in
+`dist/`. It uses `git archive`, so generated benchmarks, `node_modules`, certificates, local
+environment files, runtime targets, and private keys are never included. It refuses a dirty
+working tree, avoiding an accidental release from local configuration.
 
 ## Persistence
 

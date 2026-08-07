@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable
 
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
+
+from .common import CommandRunner
 
 _SERVICE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$")
 _SERVICE_PORTS: dict[str, tuple[int, ...]] = {
@@ -29,17 +30,11 @@ _SERVICE_LOG_PATHS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _attempt_output(attempt: object) -> str:
-    if isinstance(attempt, CommandResult):
-        return (attempt.stdout or attempt.stderr).strip()
-    if isinstance(attempt, tuple) and len(attempt) == 2:
-        return str(attempt[1]).strip()
-    return ""
+def _attempt_output(attempt: CommandResult) -> str:
+    return (attempt.stdout or attempt.stderr).strip()
 
 
-def _may_try_alternative(attempt: object) -> bool:
-    if not isinstance(attempt, CommandResult):
-        return True
+def _may_try_alternative(attempt: CommandResult) -> bool:
     return attempt.status in {
         CommandStatus.COMMAND_NOT_FOUND,
         CommandStatus.NON_ZERO_EXIT,
@@ -88,7 +83,7 @@ def _parse_systemd_services(output: str) -> dict[str, object]:
 
 
 def _get_services(
-    run: Callable[..., tuple[bool, str]],
+    run: CommandRunner,
 ) -> dict[str, object] | CapabilityResult:
     """
     Subsystem: systemd services summary.
@@ -103,17 +98,15 @@ def _get_services(
         ]
     )
 
-    ok, output = systemd_attempt
-    if ok:
-        return _parse_systemd_services(output)
+    if systemd_attempt.success:
+        return _parse_systemd_services(systemd_attempt.stdout)
     if not _may_try_alternative(systemd_attempt):
         return _collection_failure("Systemd service collection failed; fallback is unsafe.")
 
     sysv_attempt = run(["service", "--status-all"])
-    sysv_ok, sysv_output = sysv_attempt
-    if sysv_ok:
+    if sysv_attempt.success:
         services: list[dict[str, str]] = []
-        for line in sysv_output.splitlines():
+        for line in sysv_attempt.stdout.splitlines():
             match = re.match(r"\s*\[\s*([+?-])\s*\]\s+(.+?)\s*$", line)
             if not match:
                 continue
@@ -137,10 +130,9 @@ def _get_services(
         return _collection_failure("SysV service collection failed; fallback is unsafe.")
 
     openrc_attempt = run(["rc-status", "--all"])
-    openrc_ok, openrc_output = openrc_attempt
-    if openrc_ok:
+    if openrc_attempt.success:
         services = []
-        for line in openrc_output.splitlines():
+        for line in openrc_attempt.stdout.splitlines():
             match = re.match(r"\s*(\S+)\s+\[\s*(\S+)\s*\]\s*$", line)
             if match:
                 services.append({"name": match.group(1), "status": match.group(2)})
@@ -160,9 +152,10 @@ def _get_services(
         return _collection_failure("OpenRC service collection failed; fallback is unsafe.")
 
     process_attempt = run(["ps", "-eo", "comm="])
-    process_ok, process_output = process_attempt
-    if process_ok:
-        names = sorted({line.strip() for line in process_output.splitlines() if line.strip()})
+    if process_attempt.success:
+        names = sorted(
+            {line.strip() for line in process_attempt.stdout.splitlines() if line.strip()}
+        )
         return CapabilityResult(
             status=CapabilityStatus.PARTIAL,
             data={
@@ -178,7 +171,7 @@ def _get_services(
 
 
 def _search_service(
-    run: Callable[..., tuple[bool, str]], query: str = ""
+    run: CommandRunner, query: str = ""
 ) -> dict[str, object]:
     """
     Deterministic service search. Filters systemd units inside the Tool.
@@ -197,23 +190,23 @@ def _search_service(
     return {"matches": matches, "count": len(matches), "query": query}
 
 
-def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_docker(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: Docker engine presence and running containers.
     """
-    ok, output = run(["docker", "--version"])
+    version_result = run(["docker", "--version"])
 
-    if not ok:
+    if not version_result.success:
         return {}
 
-    version = output.strip()
+    version = version_result.stdout.strip()
     containers: list[dict[str, object]] = []
 
-    ok2, output2 = run(
+    containers_result = run(
         ["docker", "ps", "--format", "{{.ID}} {{.Image}} {{.Names}} {{.Status}}"]
     )
-    if ok2:
-        for line in output2.splitlines():
+    if containers_result.success:
+        for line in containers_result.stdout.splitlines():
             parts = line.split(None, 3)
             if len(parts) >= 3:
                 containers.append(
@@ -234,7 +227,7 @@ def _get_docker(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_service(
-    run: Callable[..., tuple[bool, str]], name: str = ""
+    run: CommandRunner, name: str = ""
 ) -> dict[str, object] | CapabilityResult:
     if not isinstance(name, str) or not name or not _SERVICE_NAME.fullmatch(name):
         return CapabilityResult(
@@ -243,17 +236,15 @@ def _get_service(
         )
 
     systemd_attempt = run(["systemctl", "is-active", name])
-    systemd_ok, _ = systemd_attempt
     systemd_output = _attempt_output(systemd_attempt)
     known_states = {"active", "inactive", "failed", "activating", "deactivating", "unknown"}
-    if systemd_ok or systemd_output in known_states:
+    if systemd_attempt.success or systemd_output in known_states:
         result: dict[str, object] = {"name": name, "active": systemd_output}
         enabled_attempt = run(["systemctl", "is-enabled", name])
-        enabled_ok, _ = enabled_attempt
         enabled_output = _attempt_output(enabled_attempt)
-        if enabled_ok or enabled_output in {"enabled", "disabled", "static", "masked", "indirect"}:
+        if enabled_attempt.success or enabled_output in {"enabled", "disabled", "static", "masked", "indirect"}:
             result["enabled"] = enabled_output
-        if systemd_ok:
+        if systemd_attempt.success:
             return result
         # systemctl deliberately exits non-zero for inactive/failed states;
         # that state is valid evidence, not a collection failure.
@@ -262,9 +253,8 @@ def _get_service(
         return _collection_failure("Systemd status failed; fallback is unsafe.")
 
     sysv_attempt = run(["service", name, "status"])
-    sysv_ok, _ = sysv_attempt
     sysv_output = _attempt_output(sysv_attempt)
-    if sysv_ok:
+    if sysv_attempt.success:
         return CapabilityResult(
             status=CapabilityStatus.PARTIAL,
             data={
@@ -280,8 +270,7 @@ def _get_service(
         return _collection_failure("SysV status failed; fallback is unsafe.")
 
     openrc_attempt = run(["rc-service", name, "status"])
-    openrc_ok, _ = openrc_attempt
-    if openrc_ok:
+    if openrc_attempt.success:
         openrc_output = _attempt_output(openrc_attempt)
         return CapabilityResult(
             status=CapabilityStatus.PARTIAL,
@@ -298,9 +287,10 @@ def _get_service(
         return _collection_failure("OpenRC status failed; fallback is unsafe.")
 
     process_attempt = run(["pgrep", "-x", name])
-    process_ok, process_output = process_attempt
-    if process_ok:
-        pids = [int(value) for value in process_output.split() if value.isdigit()]
+    if process_attempt.success:
+        pids = [
+            int(value) for value in process_attempt.stdout.split() if value.isdigit()
+        ]
         return CapabilityResult(
             status=CapabilityStatus.PARTIAL,
             data={
@@ -320,9 +310,12 @@ def _get_service(
     expected_ports = _SERVICE_PORTS.get(name.removesuffix(".service"), ())
     if expected_ports:
         port_attempt = run(["ss", "-ltnup"])
-        port_ok, port_output = port_attempt
-        if port_ok:
-            matched = [port for port in expected_ports if f":{port} " in f"{port_output} "]
+        if port_attempt.success:
+            matched = [
+                port
+                for port in expected_ports
+                if f":{port} " in f"{port_attempt.stdout} "
+            ]
             if matched:
                 return CapabilityResult(
                     status=CapabilityStatus.PARTIAL,
@@ -374,7 +367,7 @@ def _resolve_log_bounds(
 
 
 def _get_service_logs(
-    run: Callable[..., tuple[bool, str]],
+    run: CommandRunner,
     service_name: str = "",
     time_range: str | None = None,
     since: int | None = None,
@@ -427,14 +420,15 @@ def _get_service_logs(
     if until is not None:
         command.extend(["--until", f"@{until}"])
     journal_attempt = run(command)
-    journal_ok, journal_output = journal_attempt
-    if journal_ok:
+    if journal_attempt.success:
         return {
             "service_name": service_name,
             "since": since,
             "until": until,
             "limit": limit,
-            "entries": [line for line in journal_output.splitlines() if line.strip()],
+            "entries": [
+                line for line in journal_attempt.stdout.splitlines() if line.strip()
+            ],
             "collection_strategy": "systemd_journal",
         }
     if not _may_try_alternative(journal_attempt):
@@ -450,15 +444,16 @@ def _get_service_logs(
     paths = _SERVICE_LOG_PATHS.get(service_name.removesuffix(".service"), ())
     for path in paths:
         file_attempt = run(["tail", "-n", str(limit), path])
-        file_ok, file_output = file_attempt
-        if file_ok:
+        if file_attempt.success:
             return CapabilityResult(
                 status=CapabilityStatus.PARTIAL,
                 data={
                     "service_name": service_name,
                     "source_path": path,
                     "limit": limit,
-                    "entries": [line for line in file_output.splitlines() if line.strip()],
+                    "entries": [
+                        line for line in file_attempt.stdout.splitlines() if line.strip()
+                    ],
                     "collection_strategy": "allowlisted_file",
                 },
                 warnings=("File fallback could not apply a structured time range.",),
@@ -472,28 +467,28 @@ def _get_service_logs(
     )
 
 
-def _get_lxd(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_lxd(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: LXD presence and containers, read directly from the LXD CLI.
     """
-    ok, version = run(["lxd", "--version"])
+    version_result = run(["lxd", "--version"])
 
-    if not ok:
+    if not version_result.success:
         return {}
 
     containers: list[object] = []
 
-    ok, output = run(["lxc", "list", "--format", "json"])
+    containers_result = run(["lxc", "list", "--format", "json"])
 
-    if ok:
+    if containers_result.success:
         try:
-            data = json.loads(output)
+            data = json.loads(containers_result.stdout)
             containers = [item.get("name") for item in data if isinstance(item, dict)]
         except (json.JSONDecodeError, AttributeError, TypeError):
             containers = []
 
     return {
         "installed": True,
-        "version": version,
+        "version": version_result.stdout,
         "containers": containers,
     }

@@ -40,9 +40,9 @@ class TestLocalExecutionBackendThreadSafety:
             barrier.wait()
             for i in range(iterations):
                 try:
-                    ok, out = backend.run(["echo", f"test_{tid}_{i}"])
-                    assert ok is True
-                    assert out == "ok"
+                    result = backend.run(["echo", f"test_{tid}_{i}"])
+                    assert result.success is True
+                    assert result.stdout == "ok"
                 except Exception as e:
                     errors.append(e)
 
@@ -83,9 +83,9 @@ class TestLocalExecutionBackendThreadSafety:
             barrier.wait()
             for _ in range(iterations):
                 try:
-                    ok, out = backend.run(["echo", "test"])
-                    assert isinstance(ok, bool)
-                    assert isinstance(out, str)
+                    result = backend.run(["echo", "test"])
+                    assert isinstance(result.success, bool)
+                    assert isinstance(result.stdout, str)
                 except Exception as e:
                     errors.append(e)
 
@@ -113,9 +113,9 @@ class TestLocalExecutionBackendThreadSafety:
             barrier.wait()
             for _ in range(iterations):
                 try:
-                    ok, out = backend.run(["sleep", "10"], timeout=1)
-                    assert ok is False
-                    assert out == ""
+                    result = backend.run(["sleep", "10"], timeout=1)
+                    assert result.success is False
+                    assert result.stdout == ""
                 except Exception as e:
                     errors.append(e)
 
@@ -151,8 +151,8 @@ class TestLocalExecutionBackendThreadSafety:
                 local_ok = 0
                 for _ in range(iterations):
                     try:
-                        ok, _ = backend.run(["echo", "test"])
-                        if ok:
+                        result = backend.run(["echo", "test"])
+                        if result.success:
                             local_ok += 1
                     except Exception:
                         pass
@@ -190,9 +190,9 @@ class TestSSHExecutionBackendThreadSafety:
             barrier.wait()
             for i in range(iterations):
                 try:
-                    ok, out = backend.run(["echo", f"test_{tid}_{i}"])
-                    assert ok is True
-                    assert out == "ok"
+                    result = backend.run(["echo", f"test_{tid}_{i}"])
+                    assert result.success is True
+                    assert result.stdout == "ok"
                 except Exception as e:
                     errors.append(e)
 
@@ -227,10 +227,10 @@ class TestSSHExecutionBackendThreadSafety:
             barrier.wait()
             for _ in range(iterations):
                 try:
-                    ok, out = backend.run(["ls"])
-                    assert ok is False
-                    assert "password" in out
-                    assert "SSH authentication failed" in out
+                    result = backend.run(["ls"])
+                    assert result.success is False
+                    assert "password" in result.stderr
+                    assert "SSH authentication failed" in result.stderr
                 except Exception as e:
                     errors.append(e)
 
@@ -264,9 +264,9 @@ class TestSSHExecutionBackendThreadSafety:
             barrier.wait()
             for _ in range(10):
                 try:
-                    ok, out = backend.run(["df", "-h"])
-                    assert ok is True
-                    assert out == "ok"
+                    result = backend.run(["df", "-h"])
+                    assert result.success is True
+                    assert result.stdout == "ok"
                 except Exception as e:
                     errors.append(e)
 
@@ -305,8 +305,8 @@ class TestSSHExecutionBackendThreadSafety:
                 local_ok = 0
                 for _ in range(iterations):
                     try:
-                        ok, _ = _backend.run(["echo", "test"])
-                        if ok:
+                        result = _backend.run(["echo", "test"])
+                        if result.success:
                             local_ok += 1
                     except Exception:
                         pass

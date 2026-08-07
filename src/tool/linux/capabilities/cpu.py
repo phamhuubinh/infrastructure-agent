@@ -1,39 +1,38 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 
-from .common import _read_os_release
+from .common import CommandRunner, _read_os_release
 
 
-def _get_system(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_system(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: machine identity (distro, hostname, kernel).
     """
     os_info = _read_os_release(run)
 
-    hostname_ok, hostname = run(["hostname"])
-    kernel_ok, kernel = run(["uname", "-r"])
+    hostname_result = run(["hostname"])
+    kernel_result = run(["uname", "-r"])
 
     return {
         "os": os_info,
-        "hostname": hostname if hostname_ok else "unknown",
-        "kernel": kernel if kernel_ok else "unknown",
+        "hostname": hostname_result.stdout if hostname_result.success else "unknown",
+        "kernel": kernel_result.stdout if kernel_result.success else "unknown",
     }
 
 
-def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_cpu(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: CPU identity, core count, and runtime metrics.
     """
-    cores_ok, cores_output = run(["nproc"])
-    cpuinfo_ok, cpuinfo_output = run(["cat", "/proc/cpuinfo"])
+    cores_result = run(["nproc"])
+    cpuinfo_result = run(["cat", "/proc/cpuinfo"])
 
     result: dict[str, object] = {}
 
-    if cpuinfo_ok:
+    if cpuinfo_result.success:
         threads = 0
-        for line in cpuinfo_output.splitlines():
+        for line in cpuinfo_result.stdout.splitlines():
             if line.lower().startswith("model name"):
                 _, _, value = line.partition(":")
                 if value.strip():
@@ -43,18 +42,18 @@ def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         result["threads"] = threads
         result["logical_cores"] = threads
 
-    if cores_ok and cores_output.isdigit():
-        result["cores"] = int(cores_output)
-        result["logical_cores"] = int(cores_output)
+    if cores_result.success and cores_result.stdout.isdigit():
+        result["cores"] = int(cores_result.stdout)
+        result["logical_cores"] = int(cores_result.stdout)
 
     # Runtime metrics: CPU usage breakdown + load
     usage_data = _get_cpu_usage(run)
     if usage_data:
         result["usage"] = usage_data
-    load_ok, load_output = run(["cat", "/proc/loadavg"])
+    load_result = run(["cat", "/proc/loadavg"])
     load = None
-    if load_ok:
-        parts = load_output.split()
+    if load_result.success:
+        parts = load_result.stdout.split()
         if len(parts) >= 3:
             try:
                 load = {
@@ -70,10 +69,10 @@ def _get_cpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return result
 
 
-def _get_uptime(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["cat", "/proc/uptime"])
-    if ok and output:
-        parts = output.split()
+def _get_uptime(run: CommandRunner) -> dict[str, object]:
+    result = run(["cat", "/proc/uptime"])
+    if result.success and result.stdout:
+        parts = result.stdout.split()
         try:
             uptime_seconds = float(parts[0])
         except (IndexError, ValueError):
@@ -86,10 +85,10 @@ def _get_uptime(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {}
 
 
-def _get_boot_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["who", "-b"])
-    if ok and output:
-        return {"boot_time": output.strip()}
+def _get_boot_time(run: CommandRunner) -> dict[str, object]:
+    result = run(["who", "-b"])
+    if result.success and result.stdout:
+        return {"boot_time": result.stdout.strip()}
     return {}
 
 
@@ -178,13 +177,17 @@ def _parse_top_cpu(output: str) -> dict[str, object]:
     return {}
 
 
-def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    first_ok, first_output = run(["cat", "/proc/stat"])
-    first = _parse_proc_stat_cpu(first_output) if first_ok else None
+def _get_cpu_usage(run: CommandRunner) -> dict[str, object]:
+    first_result = run(["cat", "/proc/stat"])
+    first = _parse_proc_stat_cpu(first_result.stdout) if first_result.success else None
     if first is not None:
         time.sleep(0.05)
-        second_ok, second_output = run(["cat", "/proc/stat"])
-        second = _parse_proc_stat_cpu(second_output) if second_ok else None
+        second_result = run(["cat", "/proc/stat"])
+        second = (
+            _parse_proc_stat_cpu(second_result.stdout)
+            if second_result.success
+            else None
+        )
         if second is not None:
             distribution = _cpu_distribution(first, second)
             if distribution:
@@ -192,23 +195,23 @@ def _get_cpu_usage(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     # ``top`` remains a bounded compatibility fallback for kernels where
     # procfs cannot be sampled. LANG/LC_ALL are fixed by the execution backend.
-    ok, output = run(["top", "-bn1"])
-    if not ok:
+    result = run(["top", "-bn1"])
+    if not result.success:
         return {}
-    return _parse_top_cpu(output)
+    return _parse_top_cpu(result.stdout)
 
 
-def _get_system_load(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["cat", "/proc/loadavg"])
-    if ok:
-        parts = output.split()
+def _get_system_load(run: CommandRunner) -> dict[str, object]:
+    result = run(["cat", "/proc/loadavg"])
+    if result.success:
+        parts = result.stdout.split()
         if len(parts) >= 3:
             try:
                 return {
                     "load_1min": float(parts[0]),
                     "load_5min": float(parts[1]),
                     "load_15min": float(parts[2]),
-                    "raw": output.strip(),
+                    "raw": result.stdout.strip(),
                 }
             except ValueError:
                 pass

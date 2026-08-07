@@ -163,11 +163,16 @@ Targets are defined in `targets.json`:
       "user": "root",
       "port": 22,
       "identity_file": "~/.ssh/id_rsa",
-      "strict_host_key_checking": false
+      "strict_host_key_checking": true
     }
   }
 }
 ```
+
+Host key verification is enabled by default. Record the target's verified host key in the
+Orion runtime user's `~/.ssh/known_hosts` before first use. Set
+`strict_host_key_checking` to `false` only as an explicit, temporary exception on a trusted
+network; that mode disables host identity verification.
 
 ## Caching
 

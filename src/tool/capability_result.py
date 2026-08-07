@@ -58,29 +58,21 @@ class CapabilityResult:
         return self.success
 
     @classmethod
-    def from_legacy(
+    def from_data(
         cls,
         data: Any,
         *,
         command_results: tuple[CommandResult, ...] = (),
         warnings: tuple[str, ...] = (),
         produced_fact_names: tuple[str, ...] = (),
-        warn_legacy: bool = True,
     ) -> CapabilityResult:
-        """Wrap a legacy handler payload without hiding command failures.
+        """Build a structured result from collected payload and commands.
 
-        ``warn_legacy=False`` is reserved for the two internal dispatcher
-        bridges while a Child Tool is being migrated.  Any direct caller that
-        still passes an unstructured payload receives a deprecation warning.
+        New capability handlers should construct ``CapabilityResult``
+        directly whenever their status is known. This factory centralizes the
+        status mapping for dispatcher bridges that collect raw data and one or
+        more command results.
         """
-
-        if warn_legacy:
-            _warnings.warn(
-                "Unstructured capability payloads are deprecated; return "
-                "CapabilityResult directly.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
         failed = tuple(result for result in command_results if not result.success)
         succeeded = tuple(result for result in command_results if result.success)
@@ -113,6 +105,32 @@ class CapabilityResult:
                 CapabilityStatus.VALID_EMPTY if _is_empty(data) else CapabilityStatus.VALID
             ),
             data=data,
+            command_results=command_results,
+            warnings=warnings,
+            produced_fact_names=produced_fact_names,
+        )
+
+    @classmethod
+    def from_legacy(
+        cls,
+        data: Any,
+        *,
+        command_results: tuple[CommandResult, ...] = (),
+        warnings: tuple[str, ...] = (),
+        produced_fact_names: tuple[str, ...] = (),
+        warn_legacy: bool = True,
+    ) -> CapabilityResult:
+        """Deprecated compatibility adapter for unstructured callers."""
+
+        if warn_legacy:
+            _warnings.warn(
+                "Unstructured capability payloads are deprecated; return "
+                "CapabilityResult directly.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return cls.from_data(
+            data,
             command_results=command_results,
             warnings=warnings,
             produced_fact_names=produced_fact_names,

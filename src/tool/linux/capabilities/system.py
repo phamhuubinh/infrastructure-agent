@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
-from .common import _parse_colon_output
+from .common import CommandRunner, _parse_colon_output
 
 
-def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_user(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: local user accounts (from /etc/passwd).
     """
-    ok, output = run(["cat", "/etc/passwd"])
+    result = run(["cat", "/etc/passwd"])
 
     users: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             parts = line.split(":")
 
             if len(parts) < 7:
@@ -36,31 +35,31 @@ def _get_user(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"users": users}
 
 
-def _get_hardware(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_hardware(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: system hardware identity (vendor, product, serial).
     """
-    manufacturer_ok, manufacturer = run(["dmidecode", "-s", "system-manufacturer"])
-    product_ok, product = run(["dmidecode", "-s", "system-product-name"])
-    serial_ok, serial = run(["dmidecode", "-s", "system-serial-number"])
+    manufacturer_result = run(["dmidecode", "-s", "system-manufacturer"])
+    product_result = run(["dmidecode", "-s", "system-product-name"])
+    serial_result = run(["dmidecode", "-s", "system-serial-number"])
 
     return {
-        "manufacturer": manufacturer if manufacturer_ok else "unknown",
-        "product": product if product_ok else "unknown",
-        "serial": serial if serial_ok else "unknown",
+        "manufacturer": manufacturer_result.stdout if manufacturer_result.success else "unknown",
+        "product": product_result.stdout if product_result.success else "unknown",
+        "serial": serial_result.stdout if serial_result.success else "unknown",
     }
 
 
-def _get_pci(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_pci(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: PCI devices.
     """
-    ok, output = run(["lspci"])
+    result = run(["lspci"])
 
     devices: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             parts = line.split(None, 1)
 
             if len(parts) < 2:
@@ -72,16 +71,16 @@ def _get_pci(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"devices": devices}
 
 
-def _get_usb(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_usb(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: USB devices.
     """
-    ok, output = run(["lsusb"])
+    result = run(["lsusb"])
 
     devices: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             parts = line.split()
 
             if len(parts) < 6 or parts[0] != "Bus" or parts[2] != "Device":
@@ -104,16 +103,16 @@ def _get_usb(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"devices": devices}
 
 
-def _get_gpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_gpu(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: GPU/display controllers (filtered from PCI devices).
     """
-    ok, output = run(["lspci"])
+    result = run(["lspci"])
 
     gpus: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             lowered = line.lower()
 
             is_gpu = (
@@ -137,7 +136,7 @@ def _get_gpu(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_journal(
-    run: Callable[..., tuple[bool, str]],
+    run: CommandRunner,
     service_name: str = "",
     time_range: str | None = None,
 ) -> Any:
@@ -153,7 +152,7 @@ def _get_journal(
             time_range=time_range,
         )
 
-    ok, output = run(
+    result = run(
         [
             "journalctl",
             "-n",
@@ -164,31 +163,31 @@ def _get_journal(
         ]
     )
 
-    entries = output.splitlines() if ok else []
+    entries = result.stdout.splitlines() if result.success else []
 
     return {"entries": entries}
 
 
-def _get_log(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_log(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: recent system log lines (syslog or messages, whichever exists).
     """
     for path in ("/var/log/syslog", "/var/log/messages"):
-        ok, output = run(["tail", "-n", "50", path])
+        result = run(["tail", "-n", "50", path])
 
-        if ok:
-            return {"source": path, "lines": output.splitlines()}
+        if result.success:
+            return {"source": path, "lines": result.stdout.splitlines()}
 
     return {"source": "unknown", "lines": []}
 
 
-def _get_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_time(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: system time and timezone configuration.
     """
-    ok, output = run(["timedatectl"])
+    result = run(["timedatectl"])
 
-    fields = _parse_colon_output(output) if ok else {}
+    fields = _parse_colon_output(result.stdout) if result.success else {}
 
     return {
         "local_time": fields.get("Local time", "unknown"),
@@ -197,16 +196,16 @@ def _get_time(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
-def _get_locale(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_locale(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: locale configuration.
     """
-    ok, output = run(["locale"])
+    result = run(["locale"])
 
     fields: dict[str, str] = {}
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             if "=" not in line:
                 continue
 
@@ -216,19 +215,19 @@ def _get_locale(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"locale": fields}
 
 
-def _get_environment(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_environment(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: environment variable names.
 
     Only variable names are returned, never values, since values commonly
     carry secrets (tokens, passwords, connection strings).
     """
-    ok, output = run(["env"])
+    result = run(["env"])
 
     names: list[str] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             if "=" not in line:
                 continue
 
@@ -238,16 +237,16 @@ def _get_environment(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"variables": sorted(names)}
 
 
-def _get_session(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_session(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: currently logged in sessions.
     """
-    ok, output = run(["who"])
+    result = run(["who"])
 
     sessions: list[dict[str, object]] = []
 
-    if ok:
-        for line in output.splitlines():
+    if result.success:
+        for line in result.stdout.splitlines():
             parts = line.split()
 
             if len(parts) < 2:
@@ -263,16 +262,16 @@ def _get_session(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"sessions": sessions}
 
 
-def _get_module(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_module(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: loaded kernel modules.
     """
-    ok, output = run(["lsmod"])
+    result = run(["lsmod"])
 
     modules: list[dict[str, object]] = []
 
-    if ok:
-        lines = output.splitlines()[1:]
+    if result.success:
+        lines = result.stdout.splitlines()[1:]
 
         for line in lines:
             parts = line.split(None, 2)
@@ -285,12 +284,12 @@ def _get_module(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"modules": modules}
 
 
-def _get_recent_logins(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["last", "-5"])
-    if not ok:
+def _get_recent_logins(run: CommandRunner) -> dict[str, object]:
+    result = run(["last", "-5"])
+    if not result.success:
         return {"logins": []}
     logins: list[dict[str, object]] = []
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         if not line.strip() or "wtmp" in line or "reboot" in line:
             continue
         parts = line.split()
@@ -306,9 +305,9 @@ def _get_recent_logins(run: Callable[..., tuple[bool, str]]) -> dict[str, object
     return {"logins": logins, "total_logins": len(logins)}
 
 
-def _get_time_sync(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["timedatectl"])
-    fields = _parse_colon_output(output) if ok else {}
+def _get_time_sync(run: CommandRunner) -> dict[str, object]:
+    result = run(["timedatectl"])
+    fields = _parse_colon_output(result.stdout) if result.success else {}
     return {
         "ntp_synchronized": fields.get("System clock synchronized", "unknown"),
         "ntp_service": fields.get("NTP service", "unknown"),

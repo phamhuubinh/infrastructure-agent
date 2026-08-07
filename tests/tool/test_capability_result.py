@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -12,10 +11,8 @@ from src.tool.errors import CapabilityErrorCode
 
 
 def test_valid_and_valid_empty_are_distinct_successes() -> None:
-    with pytest.deprecated_call(match="Unstructured capability payloads"):
-        valid = CapabilityResult.from_legacy({"count": 1})
-    with pytest.deprecated_call(match="Unstructured capability payloads"):
-        empty = CapabilityResult.from_legacy([])
+    valid = CapabilityResult(status=CapabilityStatus.VALID, data={"count": 1})
+    empty = CapabilityResult(status=CapabilityStatus.VALID_EMPTY, data=[])
 
     assert valid.status is CapabilityStatus.VALID
     assert empty.status is CapabilityStatus.VALID_EMPTY
@@ -30,11 +27,10 @@ def test_failed_command_cannot_be_wrapped_as_success() -> None:
         stderr="failed",
     )
 
-    with pytest.deprecated_call(match="Unstructured capability payloads"):
-        result = CapabilityResult.from_legacy(
-            {"count": 0, "items": []},
-            command_results=(command,),
-        )
+    result = CapabilityResult(
+        status=CapabilityStatus.COLLECTION_FAILED,
+        command_results=(command,),
+    )
 
     assert result.status is CapabilityStatus.COLLECTION_FAILED
     assert result.success is False
@@ -50,11 +46,11 @@ def test_mixed_command_outcomes_preserve_partial_data() -> None:
         CommandResult(status=CommandStatus.TIMEOUT, stderr="timeout"),
     )
 
-    with pytest.deprecated_call(match="Unstructured capability payloads"):
-        result = CapabilityResult.from_legacy(
-            {"value": "valid"},
-            command_results=commands,
-        )
+    result = CapabilityResult(
+        status=CapabilityStatus.PARTIAL,
+        data={"value": "valid"},
+        command_results=commands,
+    )
 
     assert result.status is CapabilityStatus.PARTIAL
     assert result.success is False
@@ -86,10 +82,8 @@ def test_capability_result_is_immutable() -> None:
         result.status = CapabilityStatus.PARTIAL  # type: ignore[misc]
 
 
-def test_internal_legacy_bridge_can_avoid_duplicate_runtime_warning() -> None:
-    with warnings.catch_warnings(record=True) as recorded:
-        warnings.simplefilter("always")
-        result = CapabilityResult.from_legacy({"count": 1}, warn_legacy=False)
+def test_legacy_payload_adapter_is_explicitly_deprecated() -> None:
+    with pytest.deprecated_call(match="Unstructured capability payloads"):
+        result = CapabilityResult.from_legacy({"count": 1})
 
     assert result.status is CapabilityStatus.VALID
-    assert list(recorded) == []

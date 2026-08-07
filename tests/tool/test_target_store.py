@@ -38,7 +38,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert data["targets"]["prod"]["port"] == 2222
     assert data["targets"]["prod"]["user"] == "admin"
     assert data["targets"]["prod"]["identity_file"] == "/root/.ssh/id_rsa"
-    assert data["targets"]["prod"]["strict_host_key_checking"] is False
+    assert data["targets"]["prod"]["strict_host_key_checking"] is True
 
     loaded = store.load()
     assert isinstance(loaded["localhost"], LocalExecutionBackend)
@@ -63,7 +63,7 @@ def test_save_and_load_minimal_ssh(tmp_path: Path) -> None:
     assert ssh._identity_file is None
 
 
-def test_load_legacy_ssh_defaults_host_key_checking_to_disabled(tmp_path: Path) -> None:
+def test_load_legacy_ssh_defaults_host_key_checking_to_enabled(tmp_path: Path) -> None:
     path = tmp_path / "targets.json"
     path.write_text(
         json.dumps(
@@ -82,7 +82,7 @@ def test_load_legacy_ssh_defaults_host_key_checking_to_disabled(tmp_path: Path) 
 
     ssh = loaded["staging"]
     assert isinstance(ssh, SSHExecutionBackend)
-    assert ssh._strict_host_key_checking is False
+    assert ssh._strict_host_key_checking is True
 
 
 def test_save_and_load_strict_host_key_checking(tmp_path: Path) -> None:

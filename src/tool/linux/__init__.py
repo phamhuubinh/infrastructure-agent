@@ -761,39 +761,43 @@ class LinuxTool(Tool):
         command_results: list[CommandResult] = []
         legacy_command_results: list[CommandResult] = []
 
-        def tracked_run(command: list[str], timeout: int = 15):
-            result = self._run(command, timeout=timeout)
-            if isinstance(result, CommandResult):
-                command_results.append(result)
-            elif (
-                isinstance(result, tuple)
-                and len(result) == 2
-                and isinstance(result[0], bool)
-                and isinstance(result[1], str)
+        def tracked_run(command: list[str], timeout: int = 15) -> CommandResult:
+            raw_result = self._run(command, timeout=timeout)
+            if isinstance(raw_result, CommandResult):
+                command_results.append(raw_result)
+                return raw_result
+            if (
+                isinstance(raw_result, tuple)
+                and len(raw_result) == 2
+                and isinstance(raw_result[0], bool)
+                and isinstance(raw_result[1], str)
             ):
                 # Temporary compatibility backends and tests still return the
                 # historical ``(ok, output)`` pair.  Record that outcome too,
                 # otherwise a failed legacy command can be wrapped as VALID
                 # merely because its handler manufactured a default payload.
-                ok, output = result
-                legacy_command_results.append(
-                    CommandResult(
-                        status=(
-                            CommandStatus.SUCCESS
-                            if ok and output
-                            else CommandStatus.EMPTY_SUCCESS
-                            if ok
-                            else CommandStatus.NON_ZERO_EXIT
-                        ),
-                        exit_code=0 if ok else None,
-                        stdout=output if ok else "",
-                        stderr="" if ok else output,
-                        error_type=None if ok else "LegacyCommandFailure",
-                        command_id=f"legacy:{command[0] if command else 'empty'}",
-                        target=str(host),
-                    )
+                legacy_ok, legacy_output = raw_result
+                normalized_result = CommandResult(
+                    status=(
+                        CommandStatus.SUCCESS
+                        if legacy_ok and legacy_output
+                        else CommandStatus.EMPTY_SUCCESS
+                        if legacy_ok
+                        else CommandStatus.NON_ZERO_EXIT
+                    ),
+                    exit_code=0 if legacy_ok else None,
+                    stdout=legacy_output if legacy_ok else "",
+                    stderr="" if legacy_ok else legacy_output,
+                    error_type=None if legacy_ok else "LegacyCommandFailure",
+                    command_id=f"legacy:{command[0] if command else 'empty'}",
+                    target=str(host),
                 )
-            return result
+                legacy_command_results.append(normalized_result)
+                return normalized_result
+            raise TypeError(
+                "Linux execution backend must return CommandResult or a legacy "
+                "(bool, str) tuple."
+            )
 
         try:
             if filtered:
@@ -847,11 +851,10 @@ class LinuxTool(Tool):
                     produced_fact_names=cap.produces_facts,
                 )
         else:
-            capability_result = CapabilityResult.from_legacy(
+            capability_result = CapabilityResult.from_data(
                 output,
                 command_results=effective_command_results,
                 produced_fact_names=cap.produces_facts,
-                warn_legacy=False,
             )
 
         if isinstance(capability_result.data, dict):

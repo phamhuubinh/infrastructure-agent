@@ -1,30 +1,22 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 
 from src.shared.execution.command_result import CommandResult, CommandStatus
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
 
+from .common import CommandRunner
 
-def _smartctl_json_output(attempt: object, legacy_output: str) -> str | None:
+
+def _smartctl_json_output(attempt: CommandResult) -> str | None:
     """Return trustworthy smartctl JSON, including health-bit exits.
 
     smartctl uses an exit-code bitmask: bits 3-7 describe disk health and may
     accompany a complete JSON document, while bits 0-2 mean invocation,
     device-open, or command failures. Legacy tuple backends cannot expose the
-    bitmask and therefore retain their historical success-only behavior.
+    bitmask and require status-aware handling.
     """
 
-    if not isinstance(attempt, CommandResult):
-        if (
-            isinstance(attempt, tuple)
-            and len(attempt) == 2
-            and attempt[0] is True
-            and legacy_output
-        ):
-            return legacy_output
-        return None
     if attempt.status in {CommandStatus.SUCCESS, CommandStatus.EMPTY_SUCCESS}:
         return attempt.stdout or None
     exit_code = attempt.exit_code
@@ -38,9 +30,7 @@ def _smartctl_json_output(attempt: object, legacy_output: str) -> str | None:
     return None
 
 
-def _get_disk(
-    run: Callable[..., tuple[bool, str]], path: str | None = None
-) -> dict[str, object]:
+def _get_disk(run: CommandRunner, path: str | None = None) -> dict[str, object]:
     """
     Subsystem: mounted filesystem usage (size/used/available per mount).
     """
@@ -51,14 +41,14 @@ def _get_disk(
     ]
     if path:
         command.extend(["--", path])
-    ok, output = run(command)
+    result = run(command)
 
     disks: list[dict[str, object]] = []
 
-    if not ok:
+    if not result.success:
         return {}
 
-    lines = output.splitlines()[1:]
+    lines = result.stdout.splitlines()[1:]
 
     for line in lines:
         parts = line.split(None, 6)
@@ -102,20 +92,18 @@ def _get_disk(
     }
 
 
-def _get_filesystem(
-    run: Callable[..., tuple[bool, str]], path: str | None = None
-) -> dict[str, object]:
+def _get_filesystem(run: CommandRunner, path: str | None = None) -> dict[str, object]:
     """
     Subsystem: mounted filesystems (device, mountpoint, type).
     """
-    ok, output = run(["cat", "/proc/mounts"])
+    mounts_result = run(["cat", "/proc/mounts"])
 
     mounts: list[dict[str, object]] = []
 
-    if not ok:
+    if not mounts_result.success:
         return {}
 
-    for line in output.splitlines():
+    for line in mounts_result.stdout.splitlines():
         parts = line.split()
 
         if len(parts) < 3:
@@ -145,11 +133,11 @@ def _get_filesystem(
     return result
 
 
-def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_block_device(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: block devices (disks, partitions).
     """
-    ok, output = run(
+    result = run(
         [
             "lsblk",
             "-J",
@@ -161,10 +149,10 @@ def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]
 
     devices: list[object] = []
 
-    if not ok:
+    if not result.success:
         return {}
     try:
-        data = json.loads(output)
+        data = json.loads(result.stdout)
         devices = data.get("blockdevices", [])
     except (json.JSONDecodeError, AttributeError, TypeError):
         return {}
@@ -172,20 +160,18 @@ def _get_block_device(run: Callable[..., tuple[bool, str]]) -> dict[str, object]
     return {"devices": devices}
 
 
-def _get_disk_usage(
-    run: Callable[..., tuple[bool, str]], path: str | None = None
-) -> dict[str, object]:
+def _get_disk_usage(run: CommandRunner, path: str | None = None) -> dict[str, object]:
     return _get_disk(run, path=path)
 
 
-def _get_filesystem_inode(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(
+def _get_filesystem_inode(run: CommandRunner) -> dict[str, object]:
+    result = run(
         ["df", "-iP", "--output=source,fstype,itotal,iused,iavail,ipcent,target"]
     )
-    if not ok:
+    if not result.success:
         return {}
     filesystems: list[dict[str, object]] = []
-    for line in output.splitlines()[1:]:
+    for line in result.stdout.splitlines()[1:]:
         parts = line.split(None, 6)
         if len(parts) < 7:
             continue
@@ -214,12 +200,12 @@ def _get_filesystem_inode(run: Callable[..., tuple[bool, str]]) -> dict[str, obj
     }
 
 
-def _get_disk_io(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["cat", "/proc/diskstats"])
-    if not ok:
+def _get_disk_io(run: CommandRunner) -> dict[str, object]:
+    result = run(["cat", "/proc/diskstats"])
+    if not result.success:
         return {}
     devices: list[dict[str, object]] = []
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         parts = line.split()
         if len(parts) < 14:
             continue
@@ -251,22 +237,19 @@ def _get_disk_io(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _get_disk_device_health(
-    run: Callable[..., tuple[bool, str]],
+    run: CommandRunner,
 ) -> dict[str, object] | CapabilityResult:
-    scan_ok, scan_output = run(["smartctl", "--scan-open"])
-    if scan_ok:
+    scan_result = run(["smartctl", "--scan-open"])
+    if scan_result.success:
         devices: list[dict[str, object]] = []
         paths = [
             line.split()[0]
-            for line in scan_output.splitlines()
+            for line in scan_result.stdout.splitlines()
             if line.strip().startswith("/dev/")
         ][:8]
         for path in paths:
             health_attempt = run(["smartctl", "-H", "-j", path])
-            _health_ok, legacy_health_output = health_attempt
-            health_output = _smartctl_json_output(
-                health_attempt, legacy_health_output
-            )
+            health_output = _smartctl_json_output(health_attempt)
             if health_output is None:
                 devices.append(
                     {
@@ -323,10 +306,10 @@ def _get_disk_device_health(
             },
         )
 
-    nvme_ok, nvme_output = run(["nvme", "list", "-o", "json"])
-    if nvme_ok:
+    nvme_result = run(["nvme", "list", "-o", "json"])
+    if nvme_result.success:
         try:
-            parsed = json.loads(nvme_output)
+            parsed = json.loads(nvme_result.stdout)
             paths = [
                 str(item.get("DevicePath"))
                 for item in parsed.get("Devices", [])
@@ -339,12 +322,12 @@ def _get_disk_device_health(
             )
         devices = []
         for path in paths:
-            health_ok, health_output = run(["nvme", "smart-log", "-o", "json", path])
-            if not health_ok:
+            health_result = run(["nvme", "smart-log", "-o", "json", path])
+            if not health_result.success:
                 devices.append({"device": path, "health_status": "not_collected"})
                 continue
             try:
-                health = json.loads(health_output)
+                health = json.loads(health_result.stdout)
                 critical = int(health.get("critical_warning", 0))
             except (json.JSONDecodeError, TypeError, ValueError):
                 devices.append({"device": path, "health_status": "parse_failed"})
@@ -368,12 +351,12 @@ def _get_disk_device_health(
     )
 
 
-def _get_filesystem_health(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
-    ok, output = run(["cat", "/proc/mounts"])
+def _get_filesystem_health(run: CommandRunner) -> dict[str, object]:
+    result = run(["cat", "/proc/mounts"])
     mounts: list[dict[str, object]] = []
-    if not ok:
+    if not result.success:
         return {}
-    for line in output.splitlines():
+    for line in result.stdout.splitlines():
         parts = line.split()
         if len(parts) >= 3:
             mounts.append(

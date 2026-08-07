@@ -14,7 +14,7 @@ def _make_args(
     target_file: str,
     ssh_user: str = "root",
     ssh_identity_file: str | None = None,
-    strict_host_key_checking: bool = False,
+    strict_host_key_checking: bool = True,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         spec=spec,
@@ -34,15 +34,15 @@ def test_add_target_default_strict_host_key_checking(tmp_path: Path) -> None:
     registry = TargetRegistry(store=store)
     backend = registry.backend("web")
     assert isinstance(backend, SSHExecutionBackend)
-    assert backend._strict_host_key_checking is False
+    assert backend._strict_host_key_checking is True
 
 
-def test_add_target_with_strict_host_key_checking(tmp_path: Path) -> None:
+def test_add_target_can_explicitly_disable_strict_host_key_checking(tmp_path: Path) -> None:
     path = str(tmp_path / "targets.json")
     args = _make_args(
         spec="web@10.0.0.1",
         target_file=path,
-        strict_host_key_checking=True,
+        strict_host_key_checking=False,
     )
     _add_target(args)
 
@@ -50,4 +50,4 @@ def test_add_target_with_strict_host_key_checking(tmp_path: Path) -> None:
     registry = TargetRegistry(store=store)
     backend = registry.backend("web")
     assert isinstance(backend, SSHExecutionBackend)
-    assert backend._strict_host_key_checking is True
+    assert backend._strict_host_key_checking is False

@@ -47,6 +47,12 @@ async function createLocalServer() {
         method: req.method,
         headers: { ...req.headers, host: `127.0.0.1:${BACKEND_PORT}` },
       };
+      if (!["GET", "HEAD"].includes(req.method || "GET")) {
+        // Node's fetch requires duplex for a streamed request body. Forwarding
+        // the stream preserves JSON, multipart uploads, and PATCH payloads.
+        opts.body = req;
+        opts.duplex = "half";
+      }
       try {
         const proxyRes = await fetch(target, opts);
         res.writeHead(proxyRes.status, Object.fromEntries(proxyRes.headers));

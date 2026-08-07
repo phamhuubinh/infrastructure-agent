@@ -68,7 +68,10 @@ Records long-term architectural decisions. Each entry: Decision, Context, Reason
 **Reason:** Small verified improvements are easier to validate and maintain in a long-lived project.
 ---
 ## AD-017 — SSH host key verification is intentionally disabled (current scope)
-**Decision:** `LinuxTool`'s SSH execution backend uses `StrictHostKeyChecking=no` and `UserKnownHostsFile=/dev/null`.
+**Decision:** `LinuxTool`'s SSH execution backend uses `StrictHostKeyChecking=yes` and
+the Orion runtime user's `~/.ssh/known_hosts` by default. Operators must verify and record a
+target host key before connecting. A target can explicitly set
+`strict_host_key_checking: false` for a temporary trusted-network exception.
 **Context:** The Agent currently runs local-only, against infrastructure inside a trusted internal network (`02_CURRENT_ARCHITECTURE.md`).
 **Reason:** This is a deliberate trade-off for the current trusted-network, single-operator scope — not an oversight. It avoids host-key friction when investigating many/ephemeral targets during local use.
 **Consequence:** This setting is a real MITM exposure if the Agent ever executes SSH commands over an untrusted network. **This decision must be revisited before or during WP4** (`04_ROADMAP.md`), when the Agent starts running as a platform capability potentially reachable by multiple users/targets outside a single trusted local network. Do not silently "fix" this in the meantime (`07_DEVELOPMENT_RULES.md`, rule 17) — if it needs to change, that change gets its own AD entry.

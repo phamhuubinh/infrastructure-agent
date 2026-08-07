@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from .common import CommandRunner
 
 
-def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_package(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: installed packages summary (count only — use search_package for detail).
     """
-    ok, output = run(
+    result = run(
         [
             "dpkg-query",
             "-W",
@@ -15,14 +15,14 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         ]
     )
 
-    if ok:
-        lines = [ln for ln in output.splitlines() if ln.strip()]
+    if result.success:
+        lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
         return {
             "package_count": len(lines),
             "summary": f"{len(lines)} packages installed",
         }
 
-    ok, output = run(
+    result = run(
         [
             "rpm",
             "-qa",
@@ -31,8 +31,8 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         ]
     )
 
-    if ok:
-        lines = [ln for ln in output.splitlines() if ln.strip()]
+    if result.success:
+        lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
         return {
             "package_count": len(lines),
             "summary": f"{len(lines)} packages installed",
@@ -42,7 +42,7 @@ def _get_package(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
 
 def _search_package(
-    run: Callable[..., tuple[bool, str]], query: str = ""
+    run: CommandRunner, query: str = ""
 ) -> dict[str, object]:
     """
     Deterministic package search. Filters package list inside the Tool.
@@ -50,22 +50,22 @@ def _search_package(
     """
     if not query:
         return {"error": "Missing query parameter."}
-    ok, output = run(["dpkg-query", "-W", "-f=${Package} ${Version}\n"])
-    if ok:
+    result = run(["dpkg-query", "-W", "-f=${Package} ${Version}\n"])
+    if result.success:
         matches = []
         query_lower = query.lower()
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             if query_lower in line.lower():
                 parts = line.split(None, 1)
                 if len(parts) >= 2:
                     matches.append({"name": parts[0], "version": parts[1]})
         return {"matches": matches, "count": len(matches), "query": query}
 
-    ok, output = run(["rpm", "-qa", "--qf", "%{NAME} %{VERSION}\n"])
-    if ok:
+    result = run(["rpm", "-qa", "--qf", "%{NAME} %{VERSION}\n"])
+    if result.success:
         matches = []
         query_lower = query.lower()
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             if query_lower in line.lower():
                 parts = line.split(None, 1)
                 if len(parts) >= 2:

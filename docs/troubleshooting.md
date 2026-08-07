@@ -153,7 +153,7 @@ Orion auto-creates tables on first connection. Verify:
 **Resolution:**
 1. Verify the target is reachable: `ssh user@target echo ok`.
 2. Check `targets.json` has correct credentials.
-3. Host key checking is disabled by default for local trusted networks — if connecting to an untrusted network, set `strict_host_key_checking: true` in `targets.json`.
+3. Host key checking is enabled by default. Verify and add the target key to the Orion runtime user's `~/.ssh/known_hosts` (for example, after independently verifying its fingerprint). Use `strict_host_key_checking: false` only as a temporary exception on a trusted network.
 
 ### Command timeout
 

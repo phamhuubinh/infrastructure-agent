@@ -151,7 +151,8 @@ def test_iter_adapter_matches_success_and_legacy_output(
     status: CommandStatus, target: str
 ) -> None:
     result = CommandResult(status=status, target=target, stdout="x", stderr="y")
-    ok, output = result
+    with pytest.deprecated_call(match="Unpacking CommandResult"):
+        ok, output = result
 
     assert ok == result.success
     assert output == result.legacy_output

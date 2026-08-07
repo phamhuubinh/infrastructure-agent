@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from .common import CommandRunner
 
 
-def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_ssh(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: SSH server configuration summary (no keys, no secrets).
 
@@ -23,11 +23,11 @@ def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         "passwordauthentication": "yes",
     }
 
-    ok, output = run(["cat", "/etc/ssh/sshd_config"])
+    config_result = run(["cat", "/etc/ssh/sshd_config"])
 
-    if ok:
+    if config_result.success:
         has_config = True
-        for line in output.splitlines():
+        for line in config_result.stdout.splitlines():
             line = line.strip()
             parts = line.split(None, 1)
 
@@ -81,9 +81,9 @@ def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     active = "unknown"
     if has_config:
         for service_name in ("ssh", "sshd"):
-            ok2, status_output = run(["systemctl", "is-active", service_name])
-            if ok2:
-                active = status_output.strip()
+            status_result = run(["systemctl", "is-active", service_name])
+            if status_result.success:
+                active = status_result.stdout.strip()
                 break
 
     return {
@@ -95,29 +95,29 @@ def _get_ssh(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     }
 
 
-def _get_secureboot(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_secureboot(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: Secure Boot state.
     """
-    ok, output = run(["mokutil", "--sb-state"])
+    result = run(["mokutil", "--sb-state"])
 
-    if not ok:
+    if not result.success:
         return {"enabled": "unknown"}
-    return {"enabled": "enabled" in output.lower()}
+    return {"enabled": "enabled" in result.stdout.lower()}
 
 
-def _get_apparmor(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_apparmor(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: AppArmor enabled state.
     """
-    ok, output = run(["cat", "/sys/module/apparmor/parameters/enabled"])
+    result = run(["cat", "/sys/module/apparmor/parameters/enabled"])
 
-    if not ok:
+    if not result.success:
         return {"enabled": "unknown"}
-    return {"enabled": output.strip() == "Y"}
+    return {"enabled": result.stdout.strip() == "Y"}
 
 
-def _get_selinux(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_selinux(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: SELinux enforcement mode.
 
@@ -125,11 +125,11 @@ def _get_selinux(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     Returns "not installed" when SELinux is absent (e.g., Debian/Ubuntu).
     """
     # Try sestatus first for full status.
-    ok, output = run(["sestatus"])
-    if ok:
+    result = run(["sestatus"])
+    if result.success:
         status_line = ""
         mode = "unknown"
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             line_lower = line.lower().strip()
             if "selinux status" in line_lower:
                 status_line = line.strip()
@@ -138,19 +138,19 @@ def _get_selinux(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         return {"status": status_line or "enabled", "mode": mode, "installed": True}
 
     # Fallback: getenforce.
-    ok, output = run(["getenforce"])
-    if ok:
-        return {"status": output.strip(), "installed": True}
+    result = run(["getenforce"])
+    if result.success:
+        return {"status": result.stdout.strip(), "installed": True}
 
     # Check if config file exists (SELinux not running but may be installed).
-    ok, _ = run(["cat", "/etc/selinux/config"])
-    if ok:
+    result = run(["cat", "/etc/selinux/config"])
+    if result.success:
         return {"status": "disabled", "installed": True}
 
     return {"status": "not installed", "installed": False}
 
 
-def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_firewall(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: firewall status with rules.
 
@@ -159,9 +159,9 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     because ufw may report 'inactive' while iptables has active rules.
     """
     ufw_result = None
-    ok, output = run(["ufw", "status", "verbose"])
-    if ok:
-        lines = output.splitlines()
+    result = run(["ufw", "status", "verbose"])
+    if result.success:
+        lines = result.stdout.splitlines()
         active = False
         default_policy = ""
         ufw_rules: list[str] = []
@@ -191,14 +191,14 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
 
     # Try iptables — always attempt this, even if ufw was 'inactive'.
     # iptables rules may exist independently of ufw.
-    ok, output = run(["iptables", "-L", "-n", "-v", "--line-numbers"])
-    if ok:
+    result = run(["iptables", "-L", "-n", "-v", "--line-numbers"])
+    if result.success:
         iptables_rules: list[str] = []
         in_rules = False
         chain = "unknown"
         policy = "unknown"
         chains_seen: list[str] = []
-        for line in output.splitlines():
+        for line in result.stdout.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
@@ -239,9 +239,9 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
         return ufw_result
 
     # Try nft as final fallback.
-    ok, output = run(["nft", "list", "ruleset"])
-    if ok:
-        nft_rules = [ln.strip() for ln in output.splitlines() if ln.strip()]
+    result = run(["nft", "list", "ruleset"])
+    if result.success:
+        nft_rules = [ln.strip() for ln in result.stdout.splitlines() if ln.strip()]
         return {
             "backend": "nftables",
             "active": bool(nft_rules),
@@ -252,12 +252,16 @@ def _get_firewall(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
     return {"backend": "unknown", "active": False}
 
 
-def _get_certificate(run: Callable[..., tuple[bool, str]]) -> dict[str, object]:
+def _get_certificate(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: installed CA certificate filenames (not their content).
     """
-    ok, output = run(["ls", "/etc/ssl/certs"])
+    result = run(["ls", "/etc/ssl/certs"])
 
-    certificates = [line for line in output.splitlines() if line.strip()] if ok else []
+    certificates = (
+        [line for line in result.stdout.splitlines() if line.strip()]
+        if result.success
+        else []
+    )
 
     return {"certificates": certificates}
