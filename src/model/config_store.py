@@ -40,6 +40,10 @@ _FEATURE_FLAG_ENVIRONMENT = {
     "canonical_facts": "ORION_FEATURE_CANONICAL_FACTS",
     "composite_rules": "ORION_FEATURE_COMPOSITE_RULES",
     "claim_guard": "ORION_FEATURE_CLAIM_GUARD",
+    "general_agent_routing_v1": "ORION_GENERAL_AGENT_ROUTING_V1",
+    "external_verification_v1": "ORION_EXTERNAL_VERIFICATION_V1",
+    "web_search_v1": "ORION_WEB_SEARCH_V1",
+    "source_constraints_v1": "ORION_SOURCE_CONSTRAINTS_V1",
 }
 
 

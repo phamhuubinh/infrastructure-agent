@@ -20,6 +20,7 @@ from src.pipeline.evidence_planner import EvidencePlanner
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_graph import ExecutionGraphBuilder
 from src.pipeline.execution_planner import ExecutionPlanner
+from src.pipeline.external_verification import ExternalVerificationExecutor
 from src.pipeline.intent_resolver import IntentResolver
 from src.pipeline.security.inspector_chain import InspectorChain
 from src.pipeline.security.parameter_safety_inspector import ParameterSafetyInspector
@@ -516,6 +517,7 @@ def create_deterministic_agent(
         ),
         evidence_cache=evidence_cache,
         feature_flags=feature_flags,
+        source_constraints_enabled=feature_flags.source_constraints_v1,
     )
 
     if assessment_adapter is None:
@@ -559,6 +561,14 @@ def create_deterministic_agent(
         conversation_store=conversation_store,
         evidence_cache=evidence_cache,
         claim_guard_enabled=feature_flags.claim_guard,
+        external_verifier=ExternalVerificationExecutor(
+            kt,
+            enabled=(
+                feature_flags.external_verification_v1
+                and feature_flags.web_search_v1
+            ),
+        ),
+        general_agent_routing_enabled=feature_flags.general_agent_routing_v1,
     )
     _info("orion", message="orion started")
     return agent

@@ -73,6 +73,8 @@ VALID_ROUTING_STATUSES = {
     "fallback",
     "unsupported",
     "chat",
+    "external_verification",
+    "source_unavailable",
 }
 
 VALID_EVIDENCE_STATUSES = {
@@ -209,6 +211,46 @@ def _validate_cases(cases: list[dict[str, Any]], groups: dict[str, str]) -> None
         if exp["evidence_status"] not in VALID_EVIDENCE_STATUSES:
             raise GoldenValidationError(
                 f"{case['id']}: invalid evidence_status '{exp['evidence_status']}'"
+            )
+
+        # GA1 stage metadata is deliberately additive: historical DR1 cases
+        # keep their existing schema while general/external cases can assert
+        # the semantic route before final prose is evaluated.
+        route_expectations = {
+            "request_domain": {
+                "GENERAL",
+                "ENVIRONMENT",
+                "EXTERNAL_INFORMATION",
+                "CONTENT_GENERATION",
+                "ACTION",
+            },
+            "information_scope": {
+                "STABLE_KNOWLEDGE",
+                "LIVE_ENVIRONMENT",
+                "CURRENT_EXTERNAL",
+                "EXPLICIT_URL",
+            },
+            "external_need": {"NONE", "REQUIRED", "EXPLICIT", "URL"},
+            "execution_intent": {
+                "EXPLAIN",
+                "GENERATE_CONTENT",
+                "INSPECT_READ_ONLY",
+                "MUTATE_ENVIRONMENT",
+            },
+        }
+        for field, allowed in route_expectations.items():
+            value = exp.get(field)
+            if value is not None and value not in allowed:
+                raise GoldenValidationError(
+                    f"{case['id']}: invalid {field} '{value}'"
+                )
+        constraints = exp.get("source_constraints")
+        if constraints is not None and (
+            not isinstance(constraints, list)
+            or not all(isinstance(item, str) for item in constraints)
+        ):
+            raise GoldenValidationError(
+                f"{case['id']}: source_constraints must be a list of names"
             )
 
         # Sanity: deterministic strategies imply no LLM; chat/refusal have no intent

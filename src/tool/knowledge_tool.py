@@ -126,6 +126,28 @@ class KnowledgeTool(Tool):
         tool = self._registry.get_tool(source)
         return type(tool).__name__.removesuffix("Tool").casefold()
 
+    def source_names(self) -> tuple[str, ...]:
+        """Return registered source names without exposing registry internals."""
+        return tuple(self._registry.target_names())
+
+    def source_provider_identity(self, source: str) -> str:
+        """Return a credential-free provider identity for safe cache scoping."""
+
+        tool = self._registry.get_tool(source)
+        identity = getattr(tool, "search_provider_name", None)
+        return (
+            str(identity)
+            if isinstance(identity, str) and identity
+            else self.source_kind(source)
+        )
+
+    def is_ssh_target(self, source: str) -> bool:
+        """Return whether an infrastructure source uses an SSH backend."""
+        try:
+            return self._registry.identity(source).backend_type == "ssh"
+        except KeyError:
+            return False
+
     def execute(
         self,
         arguments: dict[str, object],

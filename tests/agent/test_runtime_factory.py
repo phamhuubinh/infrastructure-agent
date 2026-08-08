@@ -230,6 +230,38 @@ def test_register_tools_registers_valid_entries() -> None:
     assert "grafana" in names
 
 
+def test_register_tools_configures_http_json_search_provider() -> None:
+    registry = TargetRegistry()
+    config = {
+        "internet": {
+            "tool": "internet",
+            "target": "internet",
+            "search_endpoint": "https://search.example/api",
+            "search_api_key": "secret",
+            "search_provider": "fixture-provider",
+        }
+    }
+    with mock.patch("src.tool.internet_tool._fetch_url") as fetch:
+        fetch.return_value = {
+            "data": {
+                "results": [
+                    {
+                        "title": "Official",
+                        "url": "https://example.com/release",
+                    }
+                ]
+            }
+        }
+        _register_tools(registry, config)
+        result = registry.get_tool("internet").execute(
+            {"action": "web_search", "query": "latest release"}
+        )
+
+    assert result.success is True
+    assert result.data["provider"] == "fixture-provider"
+    assert result.data["results"][0]["url"] == "https://example.com/release"
+
+
 def test_register_tools_skips_invalid_entry() -> None:
     registry = TargetRegistry()
     config = {

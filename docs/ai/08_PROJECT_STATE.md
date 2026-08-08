@@ -7,7 +7,7 @@
 ## Implemented
 - 6-stage deterministic pipeline: Normalize → Target → Plan → Graph → Execute → Assess (`src/pipeline/*`). A canonical immutable `RequestFrame` carries concepts/operation/target/params/answer type/timeframe and ranked ambiguity evidence through routing; CapabilityPlanner maps concept+action via `config/capability_plans.yaml`.
 - `KnowledgeTool` as the single dispatch entry point to Child Tools (`src/tool/knowledge_tool.py`).
-- Chat Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, and `InternetTool` (HTTP fetch with SSRF protection). RAG is explicitly excluded from chat registration.
+- Chat Child Tools: `LinuxTool` (SSH execution via `execution_backend.py`), `GrafanaTool`, `ZabbixTool`, and `InternetTool`. Internet has bounded `web_fetch` plus provider-neutral `web_search`, both behind the same public-URL/SSRF boundary. RAG is explicitly excluded from chat registration.
 - Local target registry backed by a JSON file (`src/tool/target_registry.py`, `target_store.py`).
 - Assessment layer: `LLMAssessmentAdapter` (real), `MockAssessmentAdapter` (tests), and an explicit unconfigured/setup adapter, behind the `AssessmentModelAdapter` interface (`src/model/*`). Orion starts without a model.
 - CLI entry point with local mode, `web` mode, and model management (`src/cli/main.py`).
@@ -15,6 +15,10 @@
 - Step-by-step pipeline visualization in Web UI (intent → evidence → prompt → assessment with expandable details).
 - Web UI `/api/query` returns full `steps` array with intent, confidence, evidence items, runtime metrics, token usage.
 - Chat interface with fully deterministic routing statuses; no model classifier participates in infrastructure routing. General chat remains a separate model-backed subsystem.
+- General-agent routing v1: immutable `RequestFrame` semantics distinguish stable general knowledge, live environment inspection, current external information, explicit URLs, typed source constraints, and explain/generate/inspect/mutate intent. Stable/general and content-generation requests do not run collectors; actual mutations remain refused.
+- Deterministic external verification: current/explicit-online requests use a bounded `web_search → select → web_fetch → EvidencePackage/Fact` path. The model receives evidence only, never tool authority. Current answers render source URL/retrieval time; unavailable verification returns an explicit unverified/UNKNOWN response rather than stale model memory.
+- Typed source constraints (`Grafana only`, `Zabbix only`, `SSH only`, Internet/URL-only and exclusions) are enforced before capability planning. Exact source unavailability fails closed and runtime provenance is preserved rather than relabelled.
+- External verification has request budgets, short-lived valid-only caching, public-URL redirect/DNS validation, provider/query/freshness keys, and credential-safe provenance. API query responses expose additive credential-safe `trace_id` and `execution_trace` fields for QA/UI consumers.
 - Target resolution uses exact/scoped aliases before fuzzy matching and requires both score threshold and candidate margin; explicit unknown/ambiguous targets clarify without localhost execution.
 - Per-session `SessionInvestigationContext` persists only resolved target/concept/service/path/time semantics and incident IDs; deterministic follow-up resolution runs before target/capability planning, with explicit current targets taking precedence.
 - Capability parameters are selected, bound and validated from child-tool `ParameterSpec` metadata before dispatch. Missing required values clarify; invalid/injection values fail closed; traces expose safe extracted/bound arguments.
@@ -213,11 +217,12 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 ## Next milestones
 1. Phase 5 (Pipeline Architecture Upgrade) historical delivery is complete: Normalizer, CapabilityPlanner, and config-driven target resolution exist.
 2. Phase 6 historical delivery is complete: 32/32 IDs across 9/9 WPs produced artifacts; current acceptance gaps are executed through the active DR1 backlog.
-3. **DR1 implementation is complete**: all 86 corrective task IDs now have recorded scope and
+3. **GA1 general-agent and external-verification implementation is complete**: semantic routing, bounded Internet search/fetch, provenance, source constraints, action/content separation, revised QA sets, stage tests, ADR, and operator documentation are implemented. Query-search use still requires an operator-configured provider; direct URL fetch works independently within the Internet safety boundary.
+4. **DR1 implementation is complete**: all 86 corrective task IDs now have recorded scope and
    verification evidence. Promotion remains gated by the release checklist, meaningful model/config
    baseline and CI artifacts; this is not a claim that a production deployment has occurred.
-4. **Sprint 1 (`IMPLEMENTATION_BACKLOG.md`) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
-5. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
+5. **Sprint 1 (`IMPLEMENTATION_BACKLOG.md`) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
+6. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
 ## Deterministic Reasoning v1 (DR1) — corrective backlog (implementation complete, 2026-08-07)
 - **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).

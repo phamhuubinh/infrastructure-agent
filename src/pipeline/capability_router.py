@@ -59,6 +59,8 @@ class CapabilityRouter:
         self,
         capability_name: str,
         extracted_params: object = None,
+        *,
+        allowed_sources: frozenset[str] | None = None,
     ) -> tuple[str, str] | None:
         """Resolve an operational capability name to a KnowledgeTool route.
 
@@ -69,18 +71,32 @@ class CapabilityRouter:
             A (source, resource) tuple for KnowledgeTool dispatch,
             or None if no route is configured.
         """
-        resolved = self.resolve_with_metadata(capability_name, extracted_params)
+        resolved = self.resolve_with_metadata(
+            capability_name,
+            extracted_params,
+            allowed_sources=allowed_sources,
+        )
         return resolved[0] if resolved is not None else None
 
     def resolve_with_metadata(
         self,
         capability_name: str,
         extracted_params: object = None,
+        *,
+        allowed_sources: frozenset[str] | None = None,
     ) -> tuple[tuple[str, str], dict[str, object]] | None:
         candidates = self._route_candidates.get(capability_name, [])
+        if allowed_sources is not None:
+            candidates = [
+                candidate for candidate in candidates if candidate[0][0] in allowed_sources
+            ]
         if not candidates:
             route = self._routes.get(capability_name)
-            return (route, {}) if route is not None else None
+            if route is None or (
+                allowed_sources is not None and route[0] not in allowed_sources
+            ):
+                return None
+            return route, {}
         params = self._param_dict(extracted_params)
 
         def _score(candidate):
@@ -107,6 +123,28 @@ class CapabilityRouter:
             )
 
         return max(candidates, key=_score)
+
+    def resolve_all_with_metadata(
+        self,
+        capability_name: str,
+        extracted_params: object = None,
+        *,
+        allowed_sources: frozenset[str] | None = None,
+    ) -> tuple[tuple[tuple[str, str], dict[str, object]], ...]:
+        """Return every permitted route for an explicit source comparison.
+
+        Normal execution intentionally uses :meth:`resolve_with_metadata` to
+        choose one best route.  A reviewed multi-source request must instead
+        be able to test whether *each* named source exposes the capability;
+        this method never invents a route outside ``allowed_sources``.
+        """
+
+        candidates = self._route_candidates.get(capability_name, [])
+        if allowed_sources is not None:
+            candidates = [
+                candidate for candidate in candidates if candidate[0][0] in allowed_sources
+            ]
+        return tuple((route, dict(metadata)) for route, metadata in candidates)
 
     @staticmethod
     def _param_dict(extracted_params: object) -> dict[str, object]:

@@ -70,8 +70,10 @@ _FORECAST_KEYWORDS: frozenset[str] = frozenset(
         "dự báo",
         "next week",
         "next month",
+        "next quarter",
         "tuần tới",
         "tháng tới",
+        "quý tới",
         "sau bao lâu",
         "bao lâu nữa",
     }

@@ -76,7 +76,11 @@ class EvidenceMerge:
                 continue
             seen.add(cap_name)
 
-            ev_name = ev_name_by_cap.get(cap_name, cap_name)
+            # Explicit source-comparison nodes are suffixed at runtime solely
+            # to keep their ToolResults distinct.  They still fulfill the
+            # original evidence requirement and keep their own source receipt.
+            base_capability = cap_name.partition("::")[0]
+            ev_name = ev_name_by_cap.get(base_capability, cap_name)
             status = result.capability_status or (
                 CapabilityStatus.VALID
                 if result.success
@@ -86,6 +90,7 @@ class EvidenceMerge:
                 CapabilityStatus.VALID,
                 CapabilityStatus.VALID_EMPTY,
             )
+            actual_source_kind = result.source_kind or source_tool
             packages.append(
                 EvidencePackage(
                     capability_name=cap_name,
@@ -97,7 +102,7 @@ class EvidenceMerge:
                     ),
                     success=is_valid,
                     error=result.error if not is_valid else None,
-                    source_tool=source_tool,
+                    source_tool=actual_source_kind,
                     status=status,
                     command_results=(
                         result.command_results if self._structured_command_result else ()
@@ -112,7 +117,7 @@ class EvidenceMerge:
                     capability_error=result.capability_error,
                     facts=(
                         self._normalizers.normalize(
-                            source_kind=result.source_kind or source_tool,
+                            source_kind=actual_source_kind,
                             capability=cap_name,
                             resource=result.resource,
                             data=result.data,

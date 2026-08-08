@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from types import MappingProxyType
 
 from src.pipeline.capability_planner import CapabilityPlanner
 from src.pipeline.capability_reference import CapabilityReference
@@ -40,6 +41,10 @@ from src.pipeline.routing_decision import (
     RoutingClarificationError,
     RoutingDecision,
     RoutingStatus,
+)
+from src.pipeline.source_constraints import (
+    SourceConstraintUnavailableError,
+    allowed_source_names,
 )
 from src.pipeline.target_resolver import TargetResolver
 from src.pipeline.threshold_evaluator import ThresholdEvaluator
@@ -87,6 +92,7 @@ class ExecutionEngine:
         execution_budget_config: ExecutionBudgetConfig | None = None,
         require_configured_rules: bool = True,
         feature_flags: FeatureFlagsConfig | None = None,
+        source_constraints_enabled: bool = True,
     ) -> None:
         self._intent_resolver = intent_resolver
         self._target_resolver = target_resolver
@@ -137,6 +143,7 @@ class ExecutionEngine:
         self._composite_rules_enabled = (
             True if feature_flags is None else feature_flags.composite_rules
         )
+        self._source_constraints_enabled = source_constraints_enabled
 
     def execute(self, user_request: str | RequestFrame) -> InvestigationRequest:
         """Execute a full 6-stage investigation from request to evidence.
@@ -176,20 +183,24 @@ class ExecutionEngine:
                 )
             )
 
-        # Phase 6: Select tool for evidence collection.
-        from src.pipeline.tool_selector import ToolSelector
-
-        tool_selector = ToolSelector()
-        request.selected_tool = tool_selector.select(
-            semantic.raw_request, semantic.concept
-        )
-
         # Stage 2: Resolve target.
         self._target_resolver.resolve(request)
+
+        target = request.target or "localhost"
+        allowed_sources = (
+            allowed_source_names(
+                self._knowledge_tool,
+                semantic.source_constraints,
+                target=target,
+            )
+            if self._source_constraints_enabled
+            else None
+        )
 
         # Stage 3: Plan one or more bounded semantic subrequests and merge the
         # resulting capability set deterministically.
         self._plan_request(request, semantic)
+        self._validate_source_capability_coverage(request, allowed_sources)
 
         self._execution_planner.plan(request)
 
@@ -198,9 +209,13 @@ class ExecutionEngine:
             graph = self._graph_builder.build(request.execution_plan)
         else:
             graph = ExecutionGraph()
+        graph = self._expand_multi_source_graph(
+            graph,
+            request,
+            allowed_sources=allowed_sources,
+        )
         request.execution_graph = graph
 
-        target = request.target or "localhost"
         timeframe = getattr(request.request_frame, "timeframe", None)
         try:
             self._runtime.validate_graph_parameters(
@@ -208,6 +223,7 @@ class ExecutionEngine:
                 target=target,
                 extracted_params=request.extracted_params,
                 timeframe=timeframe,
+                allowed_sources=allowed_sources,
             )
         except MissingParameterError as exc:
             field = self._clarification_field(exc.parameter)
@@ -234,6 +250,7 @@ class ExecutionEngine:
             extracted_params=request.extracted_params,
             timeframe=timeframe,
             requirements=request.required_evidence,
+            allowed_sources=allowed_sources,
         )
 
         budget = ExecutionBudget(self._budget_config)
@@ -254,6 +271,11 @@ class ExecutionEngine:
                 for ref in request.capability_references
                 if ref.required
             }
+            # A comparison must execute every explicit source.  Runtime's
+            # normal early-completion optimization keys only on evidence name
+            # and would otherwise stop after the first source succeeds.
+            if allowed_sources is not None and len(allowed_sources) > 1:
+                required_evidence = set()
             required_evidence.difference_update(
                 package.evidence_name for package in cached_evidence
             )
@@ -268,6 +290,7 @@ class ExecutionEngine:
                 bound_params_out=request.bound_params,
                 overall_timeout=budget.remaining_duration,
                 budget=budget,
+                allowed_sources=allowed_sources,
             )
         else:
             results, metrics = {}, RuntimeMetrics()
@@ -284,6 +307,7 @@ class ExecutionEngine:
             target=target,
             timeframe=timeframe,
             metrics=metrics,
+            allowed_sources=allowed_sources,
         )
         request.evidence_status = self._evidence_status(request)
 
@@ -330,6 +354,99 @@ class ExecutionEngine:
         )
         return evaluations
 
+    def _validate_source_capability_coverage(
+        self,
+        request: InvestigationRequest,
+        allowed_sources: frozenset[str] | None,
+    ) -> None:
+        """Fail closed when a hard source cannot serve the planned evidence.
+
+        Discovering a configured Grafana/Zabbix endpoint is not enough: if it
+        does not expose a route for the required capability, collecting Linux
+        evidence would be a silent source broadening.  A reviewed multi-source
+        allow-set remains valid when at least one constrained source can serve
+        each capability; individual runtime receipts keep their own source.
+        """
+
+        if allowed_sources is None:
+            return
+        unavailable: list[str] = []
+        for reference in request.capability_references:
+            if not reference.required:
+                continue
+            routes = self._runtime.router.resolve_all_with_metadata(
+                reference.name,
+                request.extracted_params,
+                allowed_sources=allowed_sources,
+            )
+            routed_sources = {route[0] for route, _ in routes}
+            if len(allowed_sources) == 1:
+                if not routes:
+                    unavailable.append(reference.name)
+            elif routed_sources != set(allowed_sources):
+                missing = ", ".join(sorted(set(allowed_sources) - routed_sources))
+                unavailable.append(f"{reference.name} (missing {missing})")
+        if unavailable:
+            labels = ", ".join(unavailable[:3])
+            sources = ", ".join(sorted(allowed_sources))
+            raise SourceConstraintUnavailableError(
+                f"Configured constrained source(s) [{sources}] cannot provide: {labels}."
+            )
+
+    def _expand_multi_source_graph(
+        self,
+        graph: ExecutionGraph,
+        request: InvestigationRequest,
+        *,
+        allowed_sources: frozenset[str] | None,
+    ) -> ExecutionGraph:
+        """Duplicate reviewed nodes only for an explicit multi-source set.
+
+        Node names receive a source suffix for runtime/result-map uniqueness,
+        while their evidence name remains unchanged.  Runtime pins each clone
+        to its named source; EvidenceMerge maps the suffix back to the original
+        evidence contract and preserves separate receipt provenance.
+        """
+
+        if allowed_sources is None or len(allowed_sources) < 2 or not graph.nodes:
+            return graph
+        nodes: list[ExecutionNode] = []
+        for node in graph.nodes:
+            step = node.execution_step
+            base_name = step.capability.name
+            routes = self._runtime.router.resolve_all_with_metadata(
+                base_name,
+                request.extracted_params,
+                allowed_sources=allowed_sources,
+            )
+            for (source, _resource), _metadata in routes:
+                clone_name = f"{base_name}::{source}"
+                metadata = dict(step.metadata)
+                metadata.update(
+                    {
+                        "base_capability": base_name,
+                        "forced_source": source,
+                    }
+                )
+                nodes.append(
+                    ExecutionNode(
+                        execution_step=ExecutionStep(
+                            capability=replace(step.capability, name=clone_name),
+                            step_id=(
+                                f"{step.step_id}::{source}"
+                                if step.step_id
+                                else clone_name
+                            ),
+                            metadata=MappingProxyType(metadata),
+                        ),
+                        depends_on=tuple(
+                            f"{dependency}::{source}"
+                            for dependency in node.depends_on
+                        ),
+                    )
+                )
+        return ExecutionGraph(nodes=tuple(nodes))
+
     def _expand_evidence(
         self,
         request: InvestigationRequest,
@@ -338,6 +455,7 @@ class ExecutionEngine:
         target: str,
         timeframe: object,
         metrics: RuntimeMetrics,
+        allowed_sources: frozenset[str] | None,
     ) -> None:
         """Run at most one weighted expansion round under the shared budget."""
 
@@ -383,6 +501,7 @@ class ExecutionEngine:
             timeframe=timeframe,
             bound_params_out=request.bound_params,
             budget=budget,
+            allowed_sources=allowed_sources,
         )
         previous_evidence = list(request.evidence)
         self._merge(request, results)
@@ -592,6 +711,7 @@ class ExecutionEngine:
         extracted_params: object = None,
         timeframe: object = None,
         requirements: object = (),
+        allowed_sources: frozenset[str] | None = None,
     ) -> tuple[ExecutionGraph, list[EvidencePackage]]:
         if self._evidence_cache is None or not graph.nodes:
             return graph, []
@@ -614,6 +734,7 @@ class ExecutionEngine:
                     target=target,
                     extracted_params=extracted_params,
                     timeframe=timeframe,
+                    allowed_sources=allowed_sources,
                 )
             except ParameterBindingError:
                 params = ()
@@ -672,8 +793,5 @@ class ExecutionEngine:
         results: dict[str, ToolResult],
     ) -> None:
         """Merge collected evidence into the investigation request."""
-        # Phase 6: Tag evidence packages with the selected tool to prevent
-        # cross-contamination (e.g., Linux evidence appearing in Grafana context).
-        selected_tool = getattr(request, "selected_tool", None)
-        source_tool = selected_tool.name.lower() if selected_tool else None
-        self._evidence_merge.merge(request, results, source_tool=source_tool)
+        # Runtime receipts, not lexical tool-selection hints, own provenance.
+        self._evidence_merge.merge(request, results)

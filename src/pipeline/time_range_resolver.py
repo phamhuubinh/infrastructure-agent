@@ -237,6 +237,17 @@ class TimeRangeResolver:
                 ),
                 windows=(fixed,),
             )
+        future_named = self._future_named_window(lower, now_dt)
+        if future_named is not None:
+            return TimeRange(
+                start=future_named.start,
+                end=future_named.end,
+                granularity="day",
+                timezone=timezone_name,
+                source_phrase=future_named.label,
+                requirement=TemporalRequirement.FORECAST,
+                windows=(future_named,),
+            )
         return None
 
     @staticmethod
@@ -294,6 +305,38 @@ class TimeRangeResolver:
             if any(phrase in text for phrase in phrases):
                 return TimeWindow(now_ts - seconds, now_ts, label)
         return None
+
+    @staticmethod
+    def _future_named_window(text: str, now: datetime) -> TimeWindow | None:
+        if not any(
+            phrase in text
+            for phrase in ("next month", "tháng tới", "tháng tiếp theo", "next quarter", "quý tới", "quý tiếp theo")
+        ):
+            return None
+
+        if any(phrase in text for phrase in ("next quarter", "quý tới", "quý tiếp theo")):
+            current_quarter_start_month = ((now.month - 1) // 3) * 3 + 1
+            next_quarter_start_month = current_quarter_start_month + 3
+            year = now.year + (1 if next_quarter_start_month > 12 else 0)
+            month = ((next_quarter_start_month - 1) % 12) + 1
+            start = now.replace(
+                year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+            end_month = month + 3
+            end_year = year + (1 if end_month > 12 else 0)
+            end_month = ((end_month - 1) % 12) + 1
+            end = start.replace(year=end_year, month=end_month)
+            return TimeWindow(int(start.timestamp()), int(end.timestamp()) - 1, "next_quarter")
+
+        year = now.year + (1 if now.month == 12 else 0)
+        month = 1 if now.month == 12 else now.month + 1
+        start = now.replace(
+            year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        end_year = year + (1 if month == 12 else 0)
+        end_month = 1 if month == 12 else month + 1
+        end = start.replace(year=end_year, month=end_month)
+        return TimeWindow(int(start.timestamp()), int(end.timestamp()) - 1, "next_month")
 
     @staticmethod
     def _duration(count: int, unit: str) -> tuple[int | None, str]:

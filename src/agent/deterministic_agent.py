@@ -26,18 +26,30 @@ from src.pipeline.execution_trace import (
     AnswerStrategy,
     ExecutionTrace,
     LLMUsageReason,
+    StageStatus,
+    StageTrace,
     now_ms,
 )
+from src.pipeline.external_verification import (
+    ExternalVerificationExecutor,
+    ExternalVerificationOutcome,
+)
+from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
 from src.pipeline.request_decomposer import RequestDecomposer
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    RequestDomain,
+)
 from src.pipeline.routing_decision import (
     EvidenceStatus,
     RoutingClarificationError,
     RoutingDecision,
     RoutingStatus,
 )
+from src.pipeline.source_constraints import SourceConstraintUnavailableError
 from src.pipeline.target_resolver import AmbiguousTargetError, UnknownTargetError
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
@@ -66,6 +78,8 @@ class DeterministicAgent:
         conversation_store: ConversationStoreProtocol | None = None,  # type: ignore[valid-type]
         evidence_cache: object = None,
         claim_guard_enabled: bool = True,
+        external_verifier: ExternalVerificationExecutor | None = None,
+        general_agent_routing_enabled: bool = True,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -81,6 +95,10 @@ class DeterministicAgent:
         )
         self._evidence_cache = evidence_cache
         self._claim_guard_enabled = claim_guard_enabled
+        self._general_agent_routing_enabled = general_agent_routing_enabled
+        self._external_verifier = external_verifier or ExternalVerificationExecutor(
+            getattr(execution_engine, "knowledge_tool", None)
+        )
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -132,6 +150,8 @@ class DeterministicAgent:
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
+        if decision.status is RoutingStatus.EXTERNAL_VERIFICATION:
+            return self._run_external_verification(user_request, decision)
         if decision.status in {
             RoutingStatus.CLARIFICATION_REQUIRED,
             RoutingStatus.UNSUPPORTED,
@@ -169,6 +189,9 @@ class DeterministicAgent:
                     candidates=tuple(exc.available),
                 )
             )
+        except SourceConstraintUnavailableError as exc:
+            _warning("agent", error=str(exc)[:200], message="Source unavailable")
+            return self._source_constraint_unavailable_response(exc)
         except (ValueError, TypeError) as exc:
             _warning(
                 "agent",
@@ -224,6 +247,70 @@ class DeterministicAgent:
                 "investigation": None,
                 "trace_id": None,
                 "execution_trace": None,
+            }
+        if decision.status is RoutingStatus.EXTERNAL_VERIFICATION:
+            outcome = self._external_verifier.collect(
+                decision.request_frame,
+                user_request,
+            )
+            response = self._respond_external_verification(
+                user_request,
+                decision,
+                outcome,
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                stages={
+                    "external_verification": StageTrace(
+                        name="external_verification",
+                        status=(
+                            StageStatus.SUCCEEDED
+                            if outcome.verified
+                            else StageStatus.FAILED
+                        ),
+                        message=(
+                            "external evidence collected"
+                            if outcome.verified
+                            else (outcome.failures[0] if outcome.failures else "unavailable")
+                        ),
+                    )
+                },
+                answer_strategy=(
+                    AnswerStrategy.LLM_ASSESSMENT
+                    if outcome.verified
+                    else AnswerStrategy.DETERMINISTIC_TEMPLATE
+                ),
+                llm_usage_reason=(
+                    LLMUsageReason.EXPECTED_ASSESSMENT
+                    if outcome.verified
+                    else LLMUsageReason.NONE
+                ),
+                routing_status=RoutingStatus.EXTERNAL_VERIFICATION,
+                evidence_status=(
+                    EvidenceStatus.PARTIAL
+                    if outcome.partial
+                    else (
+                        EvidenceStatus.SUFFICIENT
+                        if outcome.verified
+                        else EvidenceStatus.UNAVAILABLE
+                    )
+                ),
+                request_class=decision.request_frame.answer_type,
+                actual_request_frame=decision.request_frame.to_dict(),
+                runtime_metrics={
+                    "external_search_calls": outcome.search_calls,
+                    "external_fetch_calls": outcome.fetch_calls,
+                    "external_cache_hits": outcome.cache_hits,
+                    "external_bytes": outcome.total_bytes,
+                    "external_elapsed_ms": round(outcome.elapsed_ms, 3),
+                },
+            )
+            return {
+                "response": response,
+                "steps": self._build_external_steps(outcome),
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
             }
 
         if decision.status in {
@@ -325,6 +412,26 @@ class DeterministicAgent:
             )
             return {
                 "response": self._clarification_responder.respond(target_decision),
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+        except SourceConstraintUnavailableError as exc:
+            trace = ExecutionTrace(
+                user_request=user_request,
+                failure_stage="source",
+                failure_reason=str(exc)[:500],
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.SOURCE_UNAVAILABLE,
+                evidence_status=EvidenceStatus.UNAVAILABLE,
+                request_class=decision.request_frame.answer_type,
+                actual_request_frame=decision.request_frame.to_dict(),
+                total_duration_ms=now_ms() - t0,
+            )
+            return {
+                "response": self._source_constraint_unavailable_response(exc),
                 "steps": [],
                 "investigation": None,
                 "trace_id": trace.trace_id,
@@ -624,6 +731,41 @@ class DeterministicAgent:
             routing_status=resolution.routing_status,
         )
 
+        external_policy = ExternalVerificationPolicy().decide(frame)
+        if external_policy.requires_verification:
+            return RoutingDecision(
+                RoutingStatus.EXTERNAL_VERIFICATION,
+                frame.evolve(routing_status=RoutingStatus.EXTERNAL_VERIFICATION),
+                external_policy.reason,
+            )
+
+        # RequestFrame v2 carries deterministic semantics independent from
+        # topic words.  This must run before AnswerType (for example,
+        # "process và thread khác nhau" is a general comparison, not a
+        # time-window comparison against the live environment).
+        if self._general_agent_routing_enabled and frame.execution_intent is ExecutionIntent.GENERATE_CONTENT:
+            return RoutingDecision(
+                RoutingStatus.GENERAL_CHAT,
+                frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
+                "content generation",
+            )
+
+        if self._general_agent_routing_enabled and frame.execution_intent is ExecutionIntent.MUTATE_ENVIRONMENT:
+            return RoutingDecision(
+                RoutingStatus.UNSUPPORTED,
+                frame.evolve(routing_status=RoutingStatus.UNSUPPORTED),
+                "read-only boundary",
+            )
+
+        if self._general_agent_routing_enabled and frame.request_domain is RequestDomain.GENERAL:
+            return RoutingDecision(
+                RoutingStatus.GENERAL_CHAT,
+                frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
+                "stable general knowledge",
+            )
+
+        # Keep the old fallback for callers that construct legacy frames
+        # directly rather than going through Normalizer.
         if self._is_code_generation_request(user_request):
             return RoutingDecision(RoutingStatus.GENERAL_CHAT, frame, "code request")
 
@@ -634,10 +776,7 @@ class DeterministicAgent:
                 "read-only boundary",
             )
 
-        if (
-            frame.answer_type is AnswerType.EXPLANATION
-            or resolution.intent is Intent.KNOWLEDGE_ASSESSMENT
-        ):
+        if frame.answer_type is AnswerType.EXPLANATION or resolution.intent is Intent.KNOWLEDGE_ASSESSMENT:
             return RoutingDecision(
                 RoutingStatus.GENERAL_CHAT,
                 frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
@@ -897,6 +1036,129 @@ class DeterministicAgent:
         has_verb = any(v in lower for v in _code_verbs)
         has_target = any(t in lower for t in _code_targets)
         return has_verb and has_target
+
+    def _run_external_verification(
+        self,
+        user_request: str,
+        decision: RoutingDecision,
+    ) -> str:
+        outcome = self._external_verifier.collect(decision.request_frame, user_request)
+        return self._respond_external_verification(user_request, decision, outcome)
+
+    def _respond_external_verification(
+        self,
+        user_request: str,
+        decision: RoutingDecision,
+        outcome: ExternalVerificationOutcome,
+    ) -> str:
+        """Assess collected web evidence or return an explicit UNKNOWN response."""
+
+        if not outcome.verified or outcome.evidence is None:
+            return self._external_verification_unavailable_response(
+                decision,
+                outcome.failures[0] if outcome.failures else None,
+            )
+        evidence = outcome.evidence
+        facts = evidence.facts
+        request = AssessmentRequest(
+            raw_request=user_request,
+            intent="EXTERNAL_VERIFICATION",
+            evidence=(evidence,),
+            evidence_complete=not outcome.partial,
+            missing_evidence=(
+                ("external-page-content",) if outcome.partial else ()
+            ),
+            facts=facts,
+            collection_failures=outcome.failures,
+            request_frame=decision.request_frame.to_dict(),
+            evidence_status=("PARTIAL" if outcome.partial else "SUFFICIENT"),
+            allowed_claims=tuple(fact.id for fact in facts),
+        )
+        response = self._assessment_model.assess(request)
+        response = apply_assessment_guards(
+            response,
+            request,
+            enable_claim_guard=self._claim_guard_enabled,
+        )
+        sources = self._render_external_sources(outcome)
+        if sources:
+            response = f"{response}\n\n---\n\n{sources}"
+        if self._conversation_store:
+            self._conversation_store.add_turn(user_request, response)
+        return response
+
+    @staticmethod
+    def _external_verification_unavailable_response(
+        decision: RoutingDecision,
+        failure: str | None = None,
+    ) -> str:
+        """Honest deterministic fallback; never phrase model memory as current."""
+        frame = decision.request_frame
+        if frame.url_error:
+            return f"Không thể kiểm chứng URL: {frame.url_error}"
+        if "no-Internet" in (decision.reason or ""):
+            return (
+                "Không thể kiểm chứng thông tin bên ngoài vì yêu cầu này "
+                "đồng thời cấm dùng Internet."
+            )
+        if frame.explicit_url:
+            return (
+                "Không thể đọc URL này ở thời điểm này. Không suy đoán nội dung "
+                f"của URL. Lý do: {failure or 'không thu thập được external evidence.'}"
+            )
+        return (
+            "Không thể kiểm chứng thông tin hiện tại từ Internet ở thời điểm "
+            f"này: {failure or 'search provider chưa được cấu hình.'} Không dùng kiến thức "
+            "model có thể đã cũ để trả lời như một thông tin đã được kiểm chứng."
+        )
+
+    @staticmethod
+    def _render_external_sources(outcome: ExternalVerificationOutcome) -> str:
+        if not outcome.documents:
+            return ""
+        lines = ["Nguồn đã kiểm chứng:"]
+        for document in outcome.documents:
+            timestamp = document.retrieved_at.isoformat()
+            title = document.title.replace("\n", " ").strip()
+            lines.append(f"- {title}: {document.url} (lấy lúc {timestamp})")
+        if outcome.failures:
+            lines.append(f"Giới hạn: {outcome.failures[0]}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_external_steps(outcome: ExternalVerificationOutcome) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "external_verification",
+                "verified": outcome.verified,
+                "partial": outcome.partial,
+                "search_calls": outcome.search_calls,
+                "fetch_calls": outcome.fetch_calls,
+                "cache_hits": outcome.cache_hits,
+                "total_bytes": outcome.total_bytes,
+                "elapsed_ms": round(outcome.elapsed_ms, 3),
+                "failures": list(outcome.failures),
+                "sources": [
+                    {
+                        "title": document.title,
+                        "url": document.url,
+                        "provider": document.provider,
+                        "retrieved_at": document.retrieved_at.isoformat(),
+                        "truncated": document.truncated,
+                    }
+                    for document in outcome.documents
+                ],
+            }
+        ]
+
+    @staticmethod
+    def _source_constraint_unavailable_response(
+        error: SourceConstraintUnavailableError,
+    ) -> str:
+        return (
+            "Không thể kiểm tra theo đúng ràng buộc nguồn đã yêu cầu: "
+            f"{error} Không fallback sang nguồn khác."
+        )
 
     @staticmethod
     def _is_bare_target_candidate(user_request: str) -> bool:

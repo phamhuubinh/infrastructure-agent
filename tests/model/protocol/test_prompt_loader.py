@@ -72,3 +72,13 @@ Third: {{ third_var }}"""
         assert "Normal text" in result, "Normal text should remain unchanged"
 
         print("✅ Multiple context variables XSS test passed!")
+
+
+def test_chat_prompt_preserves_general_agent_and_read_only_boundaries() -> None:
+    prompt = PromptLoader().render("chat_system.j2", language="vi")
+
+    assert "general-purpose AI agent" in prompt
+    assert "Do not invent a provider" in prompt
+    assert "You may write commands" in prompt
+    assert "cannot execute commands" in prompt
+    assert "trả lời TOÀN BỘ bằng tiếng Việt" in prompt

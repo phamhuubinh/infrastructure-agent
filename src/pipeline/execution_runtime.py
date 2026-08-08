@@ -116,6 +116,7 @@ class ExecutionRuntime:
         timeframe: object = None,
         bound_params_out: dict[str, dict[str, object]] | None = None,
         budget: ExecutionBudget | None = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> tuple[dict[str, ToolResult], RuntimeMetrics]:
         """Execute all nodes in the graph and return collected evidence.
 
@@ -239,6 +240,7 @@ class ExecutionRuntime:
                     bound_params_out=bound_params_out,
                     budget=budget,
                     budget_lock=_budget_lock,
+                    allowed_sources=allowed_sources,
                 )
             else:
                 self._execute_batch_parallel(
@@ -254,6 +256,7 @@ class ExecutionRuntime:
                     bound_params_out=bound_params_out,
                     budget=budget,
                     budget_lock=_budget_lock,
+                    allowed_sources=allowed_sources,
                 )
 
         metrics.execution_duration = _time.perf_counter() - t0
@@ -420,6 +423,7 @@ class ExecutionRuntime:
         bound_params_out: dict[str, dict[str, object]] | None = None,
         budget: ExecutionBudget | None = None,
         budget_lock: threading.Lock | None = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> None:
         """Execute a single ready node with per-node timeout."""
         cap_name = node.execution_step.capability.name
@@ -444,6 +448,7 @@ class ExecutionRuntime:
                 bound_params_out=bound_params_out,
                 budget=budget,
                 budget_lock=budget_lock,
+                allowed_sources=allowed_sources,
             )
             try:
                 result = fut.result(timeout=remaining_timeout)
@@ -479,6 +484,7 @@ class ExecutionRuntime:
         bound_params_out: dict[str, dict[str, object]] | None = None,
         budget: ExecutionBudget | None = None,
         budget_lock: threading.Lock | None = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> None:
         """Execute a batch of ready nodes in parallel."""
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(ready))
@@ -494,6 +500,7 @@ class ExecutionRuntime:
                     bound_params_out=bound_params_out,
                     budget=budget,
                     budget_lock=budget_lock,
+                    allowed_sources=allowed_sources,
                 )
                 future_map[future] = node
                 metrics.tool_calls += 1
@@ -555,12 +562,23 @@ class ExecutionRuntime:
         allow_recovery: bool = True,
         budget: ExecutionBudget | None = None,
         budget_lock: threading.Lock | None = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> ToolResult:
         """Execute a single node by dispatching through KnowledgeTool."""
         cap_name = node.execution_step.capability.name
+        metadata_override = node.execution_step.metadata
+        route_name = str(metadata_override.get("base_capability") or cap_name)
+        forced_source = metadata_override.get("forced_source")
+        source_filter = (
+            frozenset({str(forced_source)})
+            if isinstance(forced_source, str)
+            else allowed_sources
+        )
 
         routed = self._router.resolve_with_metadata(
-            cap_name, self._routing_params(extracted_params, timeframe)
+            route_name,
+            self._routing_params(extracted_params, timeframe),
+            allowed_sources=source_filter,
         )
         if routed is None:
             return ToolResult(
@@ -632,6 +650,7 @@ class ExecutionRuntime:
                     bound_params_out=bound_params_out,
                     budget=budget,
                     budget_lock=budget_lock,
+                    allowed_sources=allowed_sources,
                 )
             return result
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
@@ -667,6 +686,7 @@ class ExecutionRuntime:
         bound_params_out: dict[str, dict[str, object]] | None,
         budget: ExecutionBudget | None = None,
         budget_lock: threading.Lock | None = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> ToolResult:
         alternatives = self._metadata_strings(metadata, "alternatives")
         recoverable_errors = self._metadata_strings(
@@ -681,7 +701,9 @@ class ExecutionRuntime:
         # its depth-two contract without recursively expanding the runtime.
         for name in alternatives:
             routed = self._router.resolve_with_metadata(
-                name, self._routing_params(extracted_params, timeframe)
+                name,
+                self._routing_params(extracted_params, timeframe),
+                allowed_sources=allowed_sources,
             )
             if routed is None:
                 continue
@@ -716,6 +738,7 @@ class ExecutionRuntime:
                 allow_recovery=False,
                 budget=budget,
                 budget_lock=budget_lock,
+                allowed_sources=allowed_sources,
             )
 
         def can_attempt() -> bool:
@@ -767,12 +790,25 @@ class ExecutionRuntime:
         target: str,
         extracted_params: object = None,
         timeframe: object = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> None:
         """Fail before dispatch if any planned capability has invalid arguments."""
         routing_params = self._routing_params(extracted_params, timeframe)
         for node in graph.nodes:
             cap_name = node.execution_step.capability.name
-            routed = self._router.resolve_with_metadata(cap_name, routing_params)
+            metadata_override = node.execution_step.metadata
+            route_name = str(metadata_override.get("base_capability") or cap_name)
+            forced_source = metadata_override.get("forced_source")
+            source_filter = (
+                frozenset({str(forced_source)})
+                if isinstance(forced_source, str)
+                else allowed_sources
+            )
+            routed = self._router.resolve_with_metadata(
+                route_name,
+                routing_params,
+                allowed_sources=source_filter,
+            )
             if routed is None:
                 continue
             (source, resource), metadata = routed
@@ -793,12 +829,23 @@ class ExecutionRuntime:
         target: str,
         extracted_params: object = None,
         timeframe: object = None,
+        allowed_sources: frozenset[str] | None = None,
     ) -> tuple[tuple[str, object], ...]:
         """Return the same normalized bound parameters used for dispatch."""
 
         cap_name = node.execution_step.capability.name
+        metadata_override = node.execution_step.metadata
+        route_name = str(metadata_override.get("base_capability") or cap_name)
+        forced_source = metadata_override.get("forced_source")
+        source_filter = (
+            frozenset({str(forced_source)})
+            if isinstance(forced_source, str)
+            else allowed_sources
+        )
         routed = self._router.resolve_with_metadata(
-            cap_name, self._routing_params(extracted_params, timeframe)
+            route_name,
+            self._routing_params(extracted_params, timeframe),
+            allowed_sources=source_filter,
         )
         if routed is None:
             return ()

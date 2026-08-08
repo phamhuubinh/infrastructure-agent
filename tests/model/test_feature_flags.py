@@ -37,6 +37,10 @@ claim_guard: true
         "canonical_facts": True,
         "composite_rules": True,
         "claim_guard": True,
+        "general_agent_routing_v1": True,
+        "external_verification_v1": True,
+        "web_search_v1": True,
+        "source_constraints_v1": True,
     }
 
 
@@ -51,6 +55,20 @@ def test_environment_override_can_roll_back_one_flag(
 
     assert flags.canonical_facts is False
     assert flags.composite_rules is True
+
+
+def test_ga1_rollout_environment_switches_are_explicit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ORION_EXTERNAL_VERIFICATION_V1", "off")
+    monkeypatch.setenv("ORION_WEB_SEARCH_V1", "no")
+
+    flags = FeatureFlagStore(tmp_path / "missing.yaml").load()
+
+    assert flags.general_agent_routing_v1 is True
+    assert flags.external_verification_v1 is False
+    assert flags.web_search_v1 is False
+    assert flags.source_constraints_v1 is True
 
 
 def test_unknown_or_invalid_flag_value_fails_loudly(tmp_path: Path) -> None:

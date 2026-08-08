@@ -71,6 +71,11 @@ def query(body: dict, request: Request):
             "assessment": result["response"],
             "response_time_ms": response_time_ms,
             "asked_at": asked_at,
+            # Additive observability contract for QA/UI consumers.  The trace
+            # serializer is credential-safe and never includes raw tool
+            # output, so it is safe to return beside the existing steps.
+            "trace_id": result.get("trace_id"),
+            "execution_trace": result.get("execution_trace"),
         }
     finally:
         set_context(request_id=None, session_id=None)

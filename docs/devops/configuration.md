@@ -35,10 +35,11 @@ All configuration errors are collected before exit. The system does not fail on 
 ## Deterministic reasoning rollout flags
 
 `config/feature_flags.yaml` is an optional, strict configuration file used
-only while rolling out deterministic-reasoning v1. An absent file uses the
-migration-safe default: all four flags are off. This preserves the external
-response schema while allowing operators to enable or roll back one new layer
-at a time.
+while rolling out deterministic reasoning and general-agent routing. An
+absent file keeps the historical DR1 evidence flags off and keeps the shipped
+GA1 route controls on. A current-information request whose GA1 web controls
+are disabled fails as unverified; it never falls back to an ungrounded current
+answer.
 
 ```yaml
 schema_version: rollout.v1
@@ -46,13 +47,20 @@ structured_command_result: true
 canonical_facts: true
 composite_rules: true
 claim_guard: true
+general_agent_routing_v1: true
+external_verification_v1: true
+web_search_v1: true
+source_constraints_v1: true
 ```
 
 `ORION_FEATURE_FLAGS_FILE` selects another YAML file. A per-flag environment
 variable overrides the file: `ORION_FEATURE_STRUCTURED_COMMAND_RESULT`,
 `ORION_FEATURE_CANONICAL_FACTS`, `ORION_FEATURE_COMPOSITE_RULES`, and
-`ORION_FEATURE_CLAIM_GUARD`. Values must be one of `true`/`false`, `1`/`0`,
-`yes`/`no`, or `on`/`off`; invalid/unknown file keys fail validation.
+`ORION_FEATURE_CLAIM_GUARD`. GA1 controls use
+`ORION_GENERAL_AGENT_ROUTING_V1`, `ORION_EXTERNAL_VERIFICATION_V1`,
+`ORION_WEB_SEARCH_V1`, and `ORION_SOURCE_CONSTRAINTS_V1`. Values must be one
+of `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off`; invalid/unknown file
+keys fail validation.
 
 Enable in this order after a QA gate: structured command provenance, canonical
 Facts, composite rules, then claim grounding. Rollback reverses only the

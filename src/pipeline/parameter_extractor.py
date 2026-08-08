@@ -17,6 +17,7 @@ class ExtractedParams:
     path: str | None = None
     ping_target: str | None = None
     time_range: str | None = None
+    scope: str | None = None
 
     def __bool__(self) -> bool:
         return any(
@@ -28,6 +29,7 @@ class ExtractedParams:
                 self.path,
                 self.ping_target,
                 self.time_range,
+                self.scope,
             )
         )
 
@@ -191,6 +193,7 @@ class ParameterExtractor:
         path = self._extract_path(lower)
         ping_target = self._extract_ping_target(lower)
         time_range = self._extract_time_range(lower)
+        scope = self._extract_scope(lower)
 
         return ExtractedParams(
             service_name=service_name,
@@ -199,6 +202,7 @@ class ParameterExtractor:
             path=path,
             ping_target=ping_target,
             time_range=time_range,
+            scope=scope,
         )
 
     def _extract_service(self, text: str) -> str | None:
@@ -309,6 +313,10 @@ class ParameterExtractor:
             "7 ngày" → "7d"
         """
         # Check fixed expressions first.
+        if "next quarter" in text or "quý tới" in text or "quý tiếp theo" in text:
+            return "next_quarter"
+        if "next month" in text or "tháng tới" in text or "tháng tiếp theo" in text:
+            return "next_month"
         for phrase, value in self._TIME_RANGE_VN.items():
             if phrase in text:
                 return value
@@ -318,4 +326,21 @@ class ParameterExtractor:
         if m:
             return m.group(1).replace(" ", "")
 
+        return None
+
+    @staticmethod
+    def _extract_scope(text: str) -> str | None:
+        if any(
+            marker in text
+            for marker in (
+                "all services",
+                "all service",
+                "all hosts",
+                "tất cả dịch vụ",
+                "toàn bộ dịch vụ",
+                "mọi dịch vụ",
+                "tất cả host",
+            )
+        ):
+            return "all"
         return None

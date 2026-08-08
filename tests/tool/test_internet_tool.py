@@ -7,6 +7,8 @@ from src.shared.execution.tool_result import ToolResult
 from src.tool.internet_tool import (
     _CAPABILITIES,
     InternetTool,
+    SearchResponse,
+    SearchResult,
     _connect_to_pinned_address,
     _fetch_url,
     _is_private_address,
@@ -199,12 +201,70 @@ def test_execute_passes_timeout_parameter() -> None:
 
 
 def test_capabilities_registered() -> None:
+    assert "web_search" in _CAPABILITIES
     assert "web_fetch" in _CAPABILITIES
     cap = _CAPABILITIES["web_fetch"]
     assert cap.name == "web_fetch"
     assert cap.category == "network"
     assert "url" in cap.parameters
     assert "internet" in cap.supported_targets
+
+
+class _SearchProvider:
+    name = "fixture-search"
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def search(self, query: str, **kwargs: object) -> SearchResponse:
+        self.calls.append({"query": query, **kwargs})
+        return SearchResponse(
+            query=query,
+            provider=self.name,
+            results=(
+                SearchResult(
+                    title="Orion release notes",
+                    url="https://example.com/release",
+                    snippet="A result snippet is discovery metadata.",
+                    rank=1,
+                    provider=self.name,
+                ),
+            ),
+        )
+
+
+def test_web_search_has_provider_neutral_structured_response() -> None:
+    provider = _SearchProvider()
+    result = InternetTool(provider=provider).execute(
+        {
+            "action": "web_search",
+            "query": "Orion newest release",
+            "locale": "en-US",
+            "max_results": 3,
+        }
+    )
+
+    assert result.success is True
+    assert result.data["provider"] == "fixture-search"
+    assert result.data["results"][0]["url"] == "https://example.com/release"
+    assert provider.calls == [
+        {
+            "query": "Orion newest release",
+            "locale": "en-US",
+            "max_results": 3,
+            "timeout": 15,
+        }
+    ]
+
+
+def test_web_search_without_provider_fails_closed() -> None:
+    result = InternetTool().execute(
+        {"action": "web_search", "query": "current weather"}
+    )
+
+    assert result.success is False
+    assert result.capability_status is not None
+    assert "not configured" in (result.error or "").lower()
 
 
 def test_web_fetch_timeout_setting() -> None:

@@ -70,6 +70,13 @@ class FeatureFlagsConfig(BaseModel):
     canonical_facts: bool = False
     composite_rules: bool = False
     claim_guard: bool = False
+    # GA1 rollout controls default enabled once the deterministic paths are
+    # shipped. Operators can temporarily disable one new route without
+    # reintroducing an unsafe model/tool fallback.
+    general_agent_routing_v1: bool = True
+    external_verification_v1: bool = True
+    web_search_v1: bool = True
+    source_constraints_v1: bool = True
 
 
 # ---------------------------------------------------------------------------

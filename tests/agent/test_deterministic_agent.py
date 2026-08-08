@@ -511,6 +511,112 @@ def test_read_only_action_is_refused_without_model_or_evidence() -> None:
     model.assess_raw.assert_not_called()
 
 
+def test_content_generation_skips_environment_pipeline_without_refusal() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "systemctl restart nginx"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Viết lệnh restart nginx nhưng không chạy lệnh.")
+
+    assert result["response"] == "systemctl restart nginx"
+    assert result["execution_trace"] is None
+    engine.execute.assert_not_called()
+    model.assess.assert_not_called()
+    model.assess_raw.assert_called_once()
+
+
+def test_conceptual_technical_comparison_never_enters_environment_pipeline() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "RAM is memory; swap is disk-backed overflow."
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("RAM và swap khác nhau thế nào?")
+
+    assert result["execution_trace"] is None
+    engine.execute.assert_not_called()
+    model.assess_raw.assert_called_once()
+
+
+def test_current_external_question_never_falls_back_to_infrastructure_or_model() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Phiên bản Python stable mới nhất hiện tại là gì?")
+
+    assert "Không thể kiểm chứng thông tin hiện tại" in result["response"]
+    assert result["execution_trace"]["routing_status"] == "EXTERNAL_VERIFICATION"
+    assert result["execution_trace"]["evidence_status"] == "UNAVAILABLE"
+    engine.execute.assert_not_called()
+    model.assess.assert_not_called()
+    model.assess_raw.assert_not_called()
+
+
+def test_verified_external_question_is_assessed_with_provenance() -> None:
+    from datetime import datetime, timezone
+
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.evidence_package import EvidencePackage
+    from src.pipeline.execution_engine import ExecutionEngine
+    from src.pipeline.external_verification import (
+        ExternalDocument,
+        ExternalVerificationOutcome,
+    )
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess.return_value = "Verified current answer."
+    now = datetime(2026, 8, 8, tzinfo=timezone.utc)
+    document = ExternalDocument(
+        title="Official release",
+        url="https://example.com/release",
+        content="Release evidence",
+        provider="fixture-search",
+        retrieved_at=now,
+    )
+    evidence = EvidencePackage(
+        capability_name="external_verification",
+        evidence_name="external_current",
+        data={"documents": [document.to_dict()]},
+        source_tool="internet",
+        source="internet",
+    )
+    verifier = mock.MagicMock()
+    verifier.collect.return_value = ExternalVerificationOutcome(
+        evidence=evidence,
+        documents=(document,),
+        search_calls=1,
+        fetch_calls=1,
+    )
+    agent = DeterministicAgent(engine, model, external_verifier=verifier)
+
+    result = agent.run_with_steps("Phiên bản Python stable mới nhất hiện tại là gì?")
+
+    assert result["response"].startswith("Verified current answer.")
+    assert "Nguồn đã kiểm chứng" in result["response"]
+    assert "https://example.com/release" in result["response"]
+    assert result["execution_trace"]["evidence_status"] == "SUFFICIENT"
+    assert result["execution_trace"]["runtime_metrics"]["external_fetch_calls"] == 1
+    model.assess.assert_called_once()
+    model.assess_raw.assert_not_called()
+    engine.execute.assert_not_called()
+
+
 def test_shell_mutation_is_refused_without_model_or_evidence() -> None:
     from src.agent.deterministic_agent import DeterministicAgent
     from src.model.assessment_model_adapter import AssessmentModelAdapter

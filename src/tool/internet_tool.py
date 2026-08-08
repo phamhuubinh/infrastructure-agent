@@ -7,11 +7,14 @@ import re
 import socket
 import ssl
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from html.parser import HTMLParser
+from typing import Protocol
 from urllib import parse as urllib_parse
 
 from src.shared.capability import Capability
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityResult, CapabilityStatus
 from src.tool.errors import source_api_error
 from src.tool.tool import Tool
 
@@ -19,6 +22,206 @@ _MAX_RESPONSE_BYTES = 512 * 1024  # 512 KB
 _DEFAULT_TIMEOUT = 15
 _MAX_REDIRECTS = 5
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    """Provider-neutral result metadata.
+
+    A result snippet is deliberately only discovery metadata.  The external
+    verification planner fetches a selected public URL before treating its
+    content as evidence.
+    """
+
+    title: str
+    url: str
+    snippet: str = ""
+    rank: int = 0
+    provider: str = ""
+    retrieved_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "title": self.title,
+            "url": self.url,
+            "snippet": self.snippet,
+            "rank": self.rank,
+            "provider": self.provider,
+            "retrieved_at": (
+                self.retrieved_at.astimezone(timezone.utc).isoformat()
+                if self.retrieved_at is not None
+                else None
+            ),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResponse:
+    """A typed, credential-free search response for deterministic planning."""
+
+    query: str
+    results: tuple[SearchResult, ...] = ()
+    status: str = "ok"
+    provider: str = ""
+    retrieved_at: datetime | None = None
+    failure: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "query": self.query,
+            "results": [result.to_dict() for result in self.results],
+            "status": self.status,
+            "provider": self.provider,
+            "retrieved_at": (
+                self.retrieved_at.astimezone(timezone.utc).isoformat()
+                if self.retrieved_at is not None
+                else None
+            ),
+            "failure": self.failure,
+        }
+
+
+class SearchProvider(Protocol):
+    """Minimal provider boundary; no agent code depends on a search vendor."""
+
+    @property
+    def name(self) -> str: ...
+
+    def search(
+        self,
+        query: str,
+        *,
+        locale: str | None = None,
+        max_results: int = 5,
+        timeout: int = _DEFAULT_TIMEOUT,
+    ) -> SearchResponse: ...
+
+
+class HttpJsonSearchProvider:
+    """Small configurable adapter for a JSON search endpoint.
+
+    The endpoint is expected to return an object containing a list under
+    ``results_field`` (default ``results``).  Each result may use common
+    ``url``/``link``, ``title``/``name``, and ``snippet``/``description``
+    fields.  This keeps vendor mapping at the configuration edge rather than
+    spreading provider-specific logic through the agent.
+    """
+
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        api_key: str | None = None,
+        provider_name: str = "http-json",
+        query_parameter: str = "q",
+        locale_parameter: str = "locale",
+        results_field: str = "results",
+    ) -> None:
+        self._endpoint = endpoint.strip()
+        self._api_key = api_key.strip() if api_key else None
+        self._name = provider_name.strip() or "http-json"
+        self._query_parameter = query_parameter.strip() or "q"
+        self._locale_parameter = locale_parameter.strip() or "locale"
+        self._results_field = results_field.strip() or "results"
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def search(
+        self,
+        query: str,
+        *,
+        locale: str | None = None,
+        max_results: int = 5,
+        timeout: int = _DEFAULT_TIMEOUT,
+    ) -> SearchResponse:
+        if not self._endpoint:
+            return SearchResponse(
+                query=query,
+                status="unavailable",
+                provider=self.name,
+                retrieved_at=datetime.now(timezone.utc),
+                failure="Search endpoint is not configured.",
+            )
+
+        parsed = urllib_parse.urlsplit(self._endpoint)
+        existing = urllib_parse.parse_qsl(parsed.query, keep_blank_values=True)
+        query_args = [(key, value) for key, value in existing if key not in {
+            self._query_parameter,
+            self._locale_parameter,
+            "limit",
+        }]
+        query_args.append((self._query_parameter, query))
+        query_args.append(("limit", str(max(1, min(int(max_results), 10)))))
+        if locale:
+            query_args.append((self._locale_parameter, locale))
+        request_url = urllib_parse.urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urllib_parse.urlencode(query_args),
+                "",
+            )
+        )
+        headers = {"Accept": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        payload = _fetch_url(request_url, timeout=timeout, headers=headers)
+        retrieved_at = datetime.now(timezone.utc)
+        if payload.get("error"):
+            return SearchResponse(
+                query=query,
+                status="failed",
+                provider=self.name,
+                retrieved_at=retrieved_at,
+                failure=str(payload["error"]),
+            )
+        raw_data = payload.get("data")
+        if not isinstance(raw_data, dict):
+            return SearchResponse(
+                query=query,
+                status="failed",
+                provider=self.name,
+                retrieved_at=retrieved_at,
+                failure="Search provider returned a non-object JSON payload.",
+            )
+        raw_results = raw_data.get(self._results_field)
+        if not isinstance(raw_results, list):
+            return SearchResponse(
+                query=query,
+                status="failed",
+                provider=self.name,
+                retrieved_at=retrieved_at,
+                failure=f"Search provider response lacks list field '{self._results_field}'.",
+            )
+        results: list[SearchResult] = []
+        for item in raw_results[: max(1, min(int(max_results), 10))]:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url") or item.get("link")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            title = item.get("title") or item.get("name") or url
+            snippet = item.get("snippet") or item.get("description") or ""
+            results.append(
+                SearchResult(
+                    title=str(title)[:500],
+                    url=url.strip(),
+                    snippet=str(snippet)[:2000],
+                    rank=len(results) + 1,
+                    provider=self.name,
+                    retrieved_at=retrieved_at,
+                )
+            )
+        return SearchResponse(
+            query=query,
+            results=tuple(results),
+            status="ok",
+            provider=self.name,
+            retrieved_at=retrieved_at,
+        )
 
 
 def _is_private_address(host: str) -> bool:
@@ -344,14 +547,81 @@ def _fetch_url(
 def _web_fetch(
     url: str = "",
     timeout: int = _DEFAULT_TIMEOUT,
+    max_bytes: int = _MAX_RESPONSE_BYTES,
 ) -> dict[str, object]:
     if not url:
         return {"error": "Missing url parameter."}
 
-    return _fetch_url(url, timeout=timeout)
+    bounded_bytes = max(1, min(int(max_bytes), _MAX_RESPONSE_BYTES))
+    if bounded_bytes == _MAX_RESPONSE_BYTES:
+        # Keep the long-standing call shape for the default path; it also
+        # avoids treating an omitted limit as an explicit caller override.
+        return _fetch_url(url, timeout=timeout)
+    return _fetch_url(url, timeout=timeout, max_bytes=bounded_bytes)
+
+
+def _web_search(
+    provider: SearchProvider | None = None,
+    query: str = "",
+    locale: str | None = None,
+    max_results: int = 5,
+    timeout: int = _DEFAULT_TIMEOUT,
+) -> CapabilityResult:
+    """Run exactly one bounded search through the configured provider."""
+
+    normalized_query = query.strip()
+    if not normalized_query:
+        return CapabilityResult(
+            status=CapabilityStatus.INVALID_PARAMETERS,
+            error="Missing query parameter.",
+        )
+    if len(normalized_query) > 1000:
+        return CapabilityResult(
+            status=CapabilityStatus.INVALID_PARAMETERS,
+            error="Search query exceeds the 1000-character limit.",
+        )
+    if provider is None:
+        return CapabilityResult(
+            status=CapabilityStatus.UNSUPPORTED,
+            error=(
+                "Search provider is not configured. Configure search_endpoint "
+                "for the Internet tool before requesting web_search."
+            ),
+        )
+    try:
+        response = provider.search(
+            normalized_query,
+            locale=locale,
+            max_results=max(1, min(int(max_results), 10)),
+            timeout=max(1, min(int(timeout), 60)),
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        return CapabilityResult(
+            status=CapabilityStatus.COLLECTION_FAILED,
+            error=f"Search provider '{provider.name}' failed: {exc}",
+        )
+    if response.failure:
+        return CapabilityResult(
+            status=CapabilityStatus.COLLECTION_FAILED,
+            data=response.to_dict(),
+            error=response.failure,
+        )
+    return CapabilityResult.from_data(response.to_dict())
 
 
 _CAPABILITIES: dict[str, Capability] = {
+    "web_search": Capability(
+        name="web_search",
+        handler=_web_search,
+        category="network",
+        intents=("investigate", "discovery"),
+        related=("web_fetch",),
+        covers=("web-search", "internet"),
+        description="Search the public web through a configured bounded provider",
+        supported_targets=("internet",),
+        parameters=("query", "locale", "max_results", "timeout"),
+        estimated_cost=0.2,
+    ),
     "web_fetch": Capability(
         name="web_fetch",
         handler=_web_fetch,
@@ -361,15 +631,58 @@ _CAPABILITIES: dict[str, Capability] = {
         covers=("web-content", "internet", "url-fetch"),
         description="Fetch a URL from the internet and return its content as text or parsed JSON",
         supported_targets=("internet",),
-        parameters=("url", "timeout"),
+        parameters=("url", "timeout", "max_bytes"),
         estimated_cost=0.2,
     ),
 }
 
 
 class InternetTool(Tool):
+    def __init__(
+        self,
+        *,
+        search_endpoint: str = "",
+        search_api_key: str | None = None,
+        search_provider: str = "http-json",
+        search_query_parameter: str = "q",
+        search_locale_parameter: str = "locale",
+        search_results_field: str = "results",
+        timeout: int = _DEFAULT_TIMEOUT,
+        provider: SearchProvider | None = None,
+    ) -> None:
+        """Create an Internet tool.
+
+        Tests and integrations may inject a ``SearchProvider`` directly.  In
+        production, a provider-neutral HTTP JSON adapter is only created when
+        a search endpoint is configured; the absent configuration remains a
+        typed, fail-closed capability failure rather than a stale-model
+        fallback.
+        """
+
+        self._timeout = max(1, min(int(timeout), 60))
+        self._search_provider = provider
+        if self._search_provider is None and search_endpoint.strip():
+            self._search_provider = HttpJsonSearchProvider(
+                endpoint=search_endpoint,
+                api_key=search_api_key,
+                provider_name=search_provider,
+                query_parameter=search_query_parameter,
+                locale_parameter=search_locale_parameter,
+                results_field=search_results_field,
+            )
+
     def execute(self, arguments: dict[str, object]) -> ToolResult:
         try:
+            action = arguments.get("action")
+            if action == "web_search":
+                return self._dispatch(
+                    _CAPABILITIES,
+                    arguments,
+                    "InternetTool",
+                    provider=self._search_provider,
+                )
+            if action == "web_fetch" and "timeout" not in arguments:
+                arguments = {**arguments, "timeout": self._timeout}
             return self._dispatch(
                 _CAPABILITIES,
                 arguments,
@@ -382,3 +695,13 @@ class InternetTool(Tool):
                 error=message,
                 capability_error=source_api_error(message),
             )
+
+    @property
+    def search_provider_name(self) -> str:
+        """Credential-free identity used by external-evidence cache keys."""
+
+        return (
+            self._search_provider.name
+            if self._search_provider is not None
+            else "unconfigured"
+        )

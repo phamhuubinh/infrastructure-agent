@@ -12,6 +12,14 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any
 
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    ExternalNeed,
+    InformationScope,
+    RequestDomain,
+    SourceConstraint,
+)
+
 
 def _enum_name(value: object) -> object:
     return value.name if isinstance(value, Enum) else value
@@ -46,6 +54,16 @@ class RequestFrame:
     context_applied: tuple[str, ...] = ()
     context_snapshot: dict[str, object] = field(default_factory=dict)
     subframes: tuple[RequestFrame, ...] = ()
+    request_domain: RequestDomain = RequestDomain.GENERAL
+    information_scope: InformationScope = InformationScope.STABLE_KNOWLEDGE
+    external_need: ExternalNeed = ExternalNeed.NONE
+    source_constraints: tuple[SourceConstraint, ...] = (SourceConstraint.ANY,)
+    excluded_sources: tuple[SourceConstraint, ...] = ()
+    explicit_url: str | None = None
+    url_error: str | None = None
+    execution_intent: ExecutionIntent = ExecutionIntent.EXPLAIN
+    freshness_phrase: str | None = None
+    freshness_window: str | None = None
 
     @property
     def concept(self) -> str:
@@ -115,6 +133,16 @@ class RequestFrame:
             "routing_status": _enum_name(self.routing_status),
             "context_applied": list(self.context_applied),
             "context_snapshot": dict(self.context_snapshot),
+            "request_domain": self.request_domain.name,
+            "information_scope": self.information_scope.name,
+            "external_need": self.external_need.name,
+            "source_constraints": [source.name for source in self.source_constraints],
+            "excluded_sources": [source.name for source in self.excluded_sources],
+            "explicit_url": self.explicit_url,
+            "url_error": self.url_error,
+            "execution_intent": self.execution_intent.name,
+            "freshness_phrase": self.freshness_phrase,
+            "freshness_window": self.freshness_window,
             "subframes": [
                 {
                     "concepts": list(frame.concepts),

@@ -10,6 +10,7 @@ import yaml
 from src.pipeline.answer_type import AnswerTypeClassifier
 from src.pipeline.parameter_extractor import ParameterExtractor
 from src.pipeline.request_frame import RequestFrame
+from src.pipeline.request_semantics import RequestDomain, RequestSemanticsClassifier
 from src.pipeline.semantic_candidate_retriever import (
     SemanticCandidateRetriever,
     normalize_lexical_text,
@@ -155,6 +156,7 @@ class Normalizer:
         """
         if not user_request or not user_request.strip():
             params = ParameterExtractor().extract(user_request)
+            semantics = RequestSemanticsClassifier().classify(user_request)
             return RequestFrame(
                 raw_request=user_request,
                 concepts=(_DEFAULT_CONCEPT,),
@@ -163,6 +165,16 @@ class Normalizer:
                 answer_type=AnswerTypeClassifier().classify(user_request),
                 timeframe=TimeRangeResolver().resolve(user_request),
                 confidence=0.0,
+                request_domain=semantics.domain,
+                information_scope=semantics.information_scope,
+                external_need=semantics.external_need,
+                source_constraints=semantics.source_constraints,
+                excluded_sources=semantics.excluded_sources,
+                explicit_url=semantics.explicit_url,
+                url_error=semantics.url_error,
+                execution_intent=semantics.execution_intent,
+                freshness_phrase=semantics.freshness_phrase,
+                freshness_window=semantics.freshness_window,
             )
 
         self._ensure_loaded()
@@ -284,6 +296,22 @@ class Normalizer:
             concepts=tuple(concepts),
             operation=action,
         )
+        semantics = RequestSemanticsClassifier().classify(
+            user_request,
+            concepts=tuple(concepts),
+            target_raw=target_raw,
+        )
+        # ``của Microsoft`` is the subject of an external fact, not an
+        # infrastructure target.  Preserve raw-target extraction only for
+        # environment routes so an external request can never later enter the
+        # target-resolution/localhost path by accident.
+        if semantics.domain is RequestDomain.EXTERNAL_INFORMATION:
+            target_raw = None
+        if set(semantics.source_constraints) & set(semantics.excluded_sources):
+            # A source cannot be both required and forbidden.  Preserve the
+            # ambiguity in the canonical frame so routing asks for a precise
+            # source rather than silently preferring one directive.
+            ambiguity.append("source")
 
         return RequestFrame(
             raw_request=user_request,
@@ -294,10 +322,20 @@ class Normalizer:
             answer_type=answer_type,
             timeframe=TimeRangeResolver().resolve(user_request),
             confidence=confidence,
-            ambiguity=tuple(ambiguity),
+            ambiguity=tuple(dict.fromkeys(ambiguity)),
             lexical_tokens=tuple(tokens),
             matched_synonyms=tuple(all_syns),
             concept_candidates=concept_candidates,
+            request_domain=semantics.domain,
+            information_scope=semantics.information_scope,
+            external_need=semantics.external_need,
+            source_constraints=semantics.source_constraints,
+            excluded_sources=semantics.excluded_sources,
+            explicit_url=semantics.explicit_url,
+            url_error=semantics.url_error,
+            execution_intent=semantics.execution_intent,
+            freshness_phrase=semantics.freshness_phrase,
+            freshness_window=semantics.freshness_window,
         )
 
     # ------------------------------------------------------------------

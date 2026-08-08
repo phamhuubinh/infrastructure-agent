@@ -14,6 +14,8 @@ class RoutingStatus(Enum):
     FALLBACK = auto()
     UNSUPPORTED = auto()
     GENERAL_CHAT = auto()
+    EXTERNAL_VERIFICATION = auto()
+    SOURCE_UNAVAILABLE = auto()
 
 
 class EvidenceStatus(Enum):

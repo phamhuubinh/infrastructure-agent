@@ -3,13 +3,19 @@ from __future__ import annotations
 from unittest import mock
 
 from src.model.assessment_result import AssessmentResult
-from src.model.llm_assessment_adapter import LLMAssessmentAdapter
+from src.model.llm_assessment_adapter import _ORION_SYSTEM_PROMPT, LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_package import EvidencePackage
 
 
 class TestLLMAssessmentAdapter:
+    def test_system_prompt_positions_orion_as_general_agent_without_identity_fabrication(self) -> None:
+        assert "general-purpose AI agent" in _ORION_SYSTEM_PROMPT
+        assert "Do not invent a provider, model, owner, or company" in _ORION_SYSTEM_PROMPT
+        assert "write commands, scripts, or configuration examples" in _ORION_SYSTEM_PROMPT
+        assert "infrastructure operations agent" not in _ORION_SYSTEM_PROMPT
+
     def test_assess_returns_string(self) -> None:
         client = mock.Mock(spec=LLMClient)
         client.generate.return_value = "System is healthy."
