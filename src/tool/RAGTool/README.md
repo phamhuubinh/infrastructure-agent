@@ -30,9 +30,9 @@ Always-available offline providers are pypdf/text parsing, hash embeddings, the 
 From this directory:
 
 ```bash
-pip install -r requirements.txt
-RAG_DATA_DIR=/tmp/orion-rag uvicorn app.main:app --reload --port 8080
-python3 -m pytest tests -q
+uv sync --group dev
+RAG_DATA_DIR=/tmp/orion-rag uv run uvicorn app.main:app --reload --port 8080
+uv run pytest tests -q
 ```
 
 The service can boot and ingest documents before a model is configured:

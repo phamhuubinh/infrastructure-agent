@@ -28,9 +28,31 @@ def test_reverse_proxy_is_bound_to_localhost() -> None:
 def test_source_archive_uses_only_committed_files() -> None:
     archive_script = (ROOT / "scripts/build-source-archive").read_text()
 
-    assert "git diff --quiet" in archive_script
-    assert "git diff --cached --quiet" in archive_script
+    assert 'git status --porcelain --untracked-files=normal' in archive_script
     assert "git archive --format=tar.gz" in archive_script
+
+
+def test_source_archive_rejects_untracked_files(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    script = repo / "build-source-archive"
+    script.write_text((ROOT / "scripts/build-source-archive").read_text())
+    (repo / "tracked.txt").write_text("tracked\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "build-source-archive", "tracked.txt"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "initial"],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "untracked.py").write_text("important = True\n")
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=repo, capture_output=True, text=True
+    )
+
+    assert result.returncode == 2
+    assert "Refusing to archive a dirty working tree." in result.stderr
 
 
 def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
@@ -43,6 +65,7 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     assert "COPY tools.json ." in dockerfile
     assert "COPY pyproject.toml uv.lock ." in dockerfile
     assert "uv sync --frozen --no-dev --extra web" in dockerfile
+    assert "USER orion" in dockerfile
     assert "uv.lock" not in dockerignore
     assert "tools.json" not in dockerignore
     assert api["environment"]["ORION_SECRETS_PATH"] == (
@@ -54,6 +77,10 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
             "target": "orion-tool-credentials.json",
         }
     ]
+    assert api["environment"]["ORION_SERVERS_FILE"] == (
+        "/home/orion/.orion/servers.json"
+    )
+    assert api["volumes"] == ["orion-data:/home/orion/.orion"]
     assert compose["secrets"]["orion-tool-credentials"]["file"] == (
         "${ORION_TOOL_SECRETS_FILE:-/etc/orion/tool-credentials.json}"
     )
@@ -78,6 +105,33 @@ def test_ui_image_runs_the_ssr_bundle() -> None:
     assert "COPY --from=build /app/dist ./dist" in dockerfile
     assert "nginx:alpine" not in dockerfile
     assert "proxy_pass http://ui:3000;" in proxy
+
+
+def test_rag_image_uses_its_frozen_lock_without_test_dependencies() -> None:
+    rag_root = ROOT / "src/tool/RAGTool"
+    dockerfile = (rag_root / "Dockerfile").read_text()
+    pyproject = (rag_root / "pyproject.toml").read_text()
+
+    assert "COPY pyproject.toml uv.lock ." in dockerfile
+    assert "uv sync --frozen --no-dev" in dockerfile
+    assert "USER orion" in dockerfile
+    assert 'requires-python = ">=3.12,<3.13"' in pyproject
+    assert "[dependency-groups]" in pyproject
+    assert not (rag_root / "requirements.txt").exists()
+
+
+def test_desktop_uses_the_authenticated_docker_reverse_proxy() -> None:
+    desktop_root = ROOT / "desktop"
+    main = (desktop_root / "main.js").read_text()
+    proxy = (desktop_root / "orion-docker.js").read_text()
+    package = json.loads((desktop_root / "package.json").read_text())
+
+    assert 'ORION_DOCKER_ORIGIN = "http://127.0.0.1:80"' in proxy
+    assert "getOrionDockerTarget(pathname, url.search)" in main
+    assert "BACKEND_PORT" not in main
+    assert package["scripts"]["test"] == "node --test"
+    assert package["scripts"]["package"] == "electron-builder"
+    assert package["build"]["win"]["target"] == ["nsis"]
 
 
 def test_orion_has_no_model_install_api_or_cli() -> None:

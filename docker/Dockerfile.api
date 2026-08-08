@@ -22,7 +22,7 @@ COPY config/ config/
 COPY tools.json .
 RUN uv sync --frozen --no-dev --extra web
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV HOME="/home/orion" PATH="/app/.venv/bin:$PATH"
 
 COPY targets.json .
 
@@ -31,8 +31,13 @@ COPY targets.json .
 RUN printf '{"active_server":"","servers":{},"fallback_chain":[]}\n' > /app/servers.default.json
 COPY docker/entrypoint.api.sh /usr/local/bin/orion-api-entrypoint
 RUN chmod +x /usr/local/bin/orion-api-entrypoint
+RUN useradd --create-home --shell /usr/sbin/nologin --uid 10001 orion \
+    && mkdir -p /home/orion/.orion \
+    && chown -R orion:orion /app /home/orion
 
 EXPOSE 61888
+
+USER orion
 
 ENTRYPOINT ["orion-api-entrypoint"]
 CMD ["uvicorn", "src.backend.api:app", "--host", "0.0.0.0", "--port", "61888"]

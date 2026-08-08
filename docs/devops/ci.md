@@ -17,11 +17,15 @@ Python 3.10, 3.11, and 3.12 each run:
 
 ### RAG
 
-Python 3.12 installs `src/tool/RAGTool/requirements.txt` and runs the independent offline RAG suite under `src/tool/RAGTool/tests/`.
+Python 3.12 installs the committed `src/tool/RAGTool/uv.lock` with `uv sync --frozen --group dev` and runs the independent offline RAG suite under `src/tool/RAGTool/tests/`.
 
 ### UI
 
 Node 22 runs `npm ci`, ESLint, Vitest, and the production client/SSR build.
+
+### Desktop
+
+Node 22 installs the pinned Electron dependencies, verifies the Docker reverse-proxy API contract, builds the UI, packages an unpacked Linux Electron application, and uploads it as an artifact. The `electron-builder` configuration also defines the Windows NSIS `OrionSetup` installer for the later standalone-distribution work.
 
 ### Containers
 
@@ -33,7 +37,14 @@ One job builds the API, UI, and RAG images. A second loads those images, starts 
 ruff check .
 python3 -m mypy src --ignore-missing-imports
 python3 -m pytest tests/ -q --tb=short
-python3 -m pytest src/tool/RAGTool/tests -q --tb=short
+
+cd src/tool/RAGTool
+uv sync --frozen --group dev
+uv run pytest tests -q --tb=short
+
+cd ../../desktop
+npm ci
+npm test
 
 cd ui
 npm ci
@@ -50,4 +61,4 @@ POSTGRES_PASSWORD=test-only ORION_API_KEY=test-only \
   docker compose config --quiet
 ```
 
-> Last updated: 2026-08-02
+> Last updated: 2026-08-08

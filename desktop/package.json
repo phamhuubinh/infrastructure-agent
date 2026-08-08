@@ -1,14 +1,57 @@
 {
   "name": "orion-desktop",
   "version": "1.0.0",
+  "description": "Desktop client for a running Orion Docker installation.",
+  "author": "Orion",
   "private": true,
-
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "test": "node --test",
+    "package": "electron-builder"
   },
-  "dependencies": {
-    "electron": "^33.0.0"
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.orion.desktop",
+    "productName": "Orion",
+    "asar": true,
+    "files": [
+      "main.js",
+      "orion-docker.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../ui/dist",
+        "to": "ui/dist",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "OrionSetup-${version}.${ext}"
+    }
   }
 }

@@ -24,12 +24,17 @@ The installer creates `.env` with private random secrets, initializes `/etc/orio
 
 The RAG service is deliberately not published. Browser traffic goes through `/api/rag/*`, so backend authentication and upload limits always apply.
 
-## Reproducible API image
+## Reproducible API and RAG images
 
 The API image installs Python dependencies from the committed `uv.lock` with `uv sync
 --frozen`. Rebuilds therefore use the locked dependency graph rather than accepting newer
 versions permitted by `pyproject.toml` ranges. Update the lock deliberately with `uv lock`,
 review the diff, and then rebuild the image.
+
+The RAG image follows the same pattern with its own `src/tool/RAGTool/pyproject.toml` and
+`uv.lock`. Its production environment uses `uv sync --frozen --no-dev`; `pytest` exists only
+in RAG's `dev` dependency group. The API and RAG processes both run as the unprivileged
+`orion` user.
 
 ## Source release archive
 
@@ -40,7 +45,7 @@ working tree, avoiding an accidental release from local configuration.
 
 ## Persistence
 
-- `orion-data:/root/.orion` — SQLite fallback and generic document storage.
+- `orion-data:/home/orion/.orion` — SQLite fallback and generic document storage.
 - `orion-pgdata:/var/lib/postgresql/data` — PostgreSQL.
 - `orion-ragdata:/data` — RAG project metadata, uploaded corpus, vector data, and BM25 indexes.
 
@@ -90,6 +95,15 @@ The Compose API maps `host.docker.internal` to the Docker host. When a saved mod
 
 RAG retrieval itself uses bundled hash embeddings, persistent vectors, BM25, and a no-op reranker by default. For larger deployments, configure an OpenAI-compatible embedding endpoint and optionally Qdrant; see `src/tool/RAGTool/README.md`.
 
+## Desktop wrapper
+
+The current Desktop application is an Electron client for an installed, running Docker Orion
+stack. It does not start Docker or an independent backend. Its embedded local server forwards
+`/api/*` requests to `http://127.0.0.1:80/api/*`, allowing nginx to inject the installation's
+private `X-API-Key`. Start the Compose installation first, then build the UI and run
+`make desktop-start`. A future standalone installer will own a bundled backend and its local
+SQLite/RAG lifecycle instead of depending on Docker.
+
 ## Common commands
 
 ```bash
@@ -129,4 +143,4 @@ image. Their absence does not affect core API health.
 
 `./uninstall.sh` is intentionally destructive: after a `y/yes` confirmation it removes the running app, Orion-built images, every current/legacy Orion volume, model connections, sessions, RAG documents/indexes, logs, `.env`, legacy private configuration, the CLI launcher, and legacy Ollama artifacts created by older Orion versions. It then asks separately whether `/etc/orion/tool-credentials.json` should be removed; `n/no` preserves it. `./uninstall.sh --yes` performs non-interactive runtime cleanup and always preserves the shared credential file; use `./uninstall.sh --dry-run` to inspect the actions. The source checkout and independently operated external model runtimes are never deleted. A later `./install.sh` gets empty data stores and newly generated runtime secrets while reusing retained monitoring credentials.
 
-> Last updated: 2026-08-02
+> Last updated: 2026-08-08

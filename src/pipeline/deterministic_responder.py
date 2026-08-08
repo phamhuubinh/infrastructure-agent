@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.fact import FactValidity
 from src.pipeline.health_aggregator import HealthStatus
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.temporal_evidence_guard import TemporalEvidenceGuard
 
 
-def _package_has_untrustworthy_facts(pkg: object) -> bool:
+def _package_has_untrustworthy_facts(pkg: EvidencePackage) -> bool:
     """DR1-707: refuse the deterministic fast path when a package's own
     canonical facts are contradictory or stale.
 
@@ -53,7 +54,7 @@ def _first_present(data: dict, *keys: str) -> object | None:
     return None
 
 
-def _facts_by_metric(pkg: object, metric: str) -> tuple:
+def _facts_by_metric(pkg: EvidencePackage, metric: str) -> tuple:
     """DR1-707: canonical, validity-checked view of a package's evidence.
 
     Returns only ``usable`` facts (VALID/VALID_EMPTY, not stale) for the
@@ -68,7 +69,9 @@ def _facts_by_metric(pkg: object, metric: str) -> tuple:
     )
 
 
-def _first_fact_value(pkg: object, metric: str, *, subject: str | None = None):
+def _first_fact_value(
+    pkg: EvidencePackage, metric: str, *, subject: str | None = None
+) -> object | None:
     """Return the value of the first usable fact matching metric (and
     optionally subject), or None if no such canonical fact exists."""
 
@@ -360,7 +363,7 @@ class DeterministicResponder:
             "within the complete collected evidence scope."
         )
 
-    def _check_zombie_processes(self, pkg: object) -> str | None:
+    def _check_zombie_processes(self, pkg: EvidencePackage) -> str | None:
         data = pkg.data if isinstance(pkg.data, dict) else {}
         # DR1-707: process.zombie_count is a canonical Fact (see
         # LinuxFactNormalizer._processes); prefer it over the raw dict key
@@ -401,7 +404,7 @@ class DeterministicResponder:
     }
 
     def _check_service_status_from_facts(
-        self, pkg: object, service_name: str
+        self, pkg: EvidencePackage, service_name: str
     ) -> str | None:
         lookup_names = self._SERVICE_ALIASES.get(service_name, (service_name,))
         for f in _facts_by_metric(pkg, "service.status"):
@@ -421,7 +424,7 @@ class DeterministicResponder:
         return None
 
     def _check_service_status(
-        self, pkg: object, service_name: str | None = None
+        self, pkg: EvidencePackage, service_name: str | None = None
     ) -> str | None:
         data = pkg.data if isinstance(pkg.data, dict) else {}
 
@@ -546,7 +549,7 @@ class DeterministicResponder:
 
         return None
 
-    def _check_hostname(self, pkg: object) -> str | None:
+    def _check_hostname(self, pkg: EvidencePackage) -> str | None:
         hostname = _first_fact_value(pkg, "system.hostname")
         if not hostname:
             data = pkg.data if isinstance(pkg.data, dict) else {}
@@ -555,7 +558,7 @@ class DeterministicResponder:
             return None
         return f"## Hostname\n\n**{hostname}**"
 
-    def _check_kernel(self, pkg: object) -> str | None:
+    def _check_kernel(self, pkg: EvidencePackage) -> str | None:
         kernel = _first_fact_value(pkg, "system.kernel")
         if not kernel:
             data = pkg.data if isinstance(pkg.data, dict) else {}
@@ -585,7 +588,7 @@ class DeterministicResponder:
         header = "## Top CPU Processes\n\n"
         return header + "\n".join(lines)
 
-    def _check_ram_available(self, pkg: object) -> str | None:
+    def _check_ram_available(self, pkg: EvidencePackage) -> str | None:
         # DR1-707: memory.available/memory.total are canonical Facts in
         # bytes (see LinuxFactNormalizer._memory). The legacy dict lookup
         # below expects "available_kb"/"total_kb"-style keys that do not
@@ -629,7 +632,7 @@ class DeterministicResponder:
             return response
         return f"## Available RAM\n\n**{available_kb} KB** available"
 
-    def _check_load_average(self, pkg: object) -> str | None:
+    def _check_load_average(self, pkg: EvidencePackage) -> str | None:
         # DR1-707: system.load_1m/5m/15m are canonical Facts (see
         # LinuxFactNormalizer._load); prefer them over dict key guessing.
         load_1 = _first_fact_value(pkg, "system.load_1m")
@@ -673,7 +676,7 @@ class DeterministicResponder:
             return f"## Uptime\n\n**{uptime_str}**"
         return f"## Uptime\n\n**{uptime_sec}**"
 
-    def _check_swap(self, pkg: object) -> str | None:
+    def _check_swap(self, pkg: EvidencePackage) -> str | None:
         """Extract swap usage from Memory evidence."""
         # DR1-707: swap.total/swap.used are canonical Facts in bytes,
         # emitted by both LinuxFactNormalizer._memory (get_memory) and
@@ -722,7 +725,7 @@ class DeterministicResponder:
 
         return "## Swap\n\n" + "\n".join(lines)
 
-    def _check_listening_ports(self, pkg: object) -> str | None:
+    def _check_listening_ports(self, pkg: EvidencePackage) -> str | None:
         """Extract listening ports from Network evidence."""
         # DR1-707: network.listening_socket is a canonical Fact per port
         # (see LinuxFactNormalizer._listening_ports); prefer the collected
@@ -782,7 +785,7 @@ class DeterministicResponder:
 
         return f"## Listening Ports\n\n**{ports}**"
 
-    def _check_disk_full(self, pkg: object) -> str | None:
+    def _check_disk_full(self, pkg: EvidencePackage) -> str | None:
         """Check if any filesystem is near capacity."""
         # DR1-707: filesystem.usage is a canonical Fact per mountpoint (see
         # LinuxFactNormalizer._disk); prefer it over raw dict key guessing

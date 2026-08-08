@@ -2,11 +2,17 @@ const { app, BrowserWindow } = require("electron");
 const { createServer } = require("node:http");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
+const {
+  getOrionDockerHost,
+  getOrionDockerTarget,
+} = require("./orion-docker");
 
-const DIST_CLIENT = join(__dirname, "..", "ui", "dist", "client");
-const DIST_SERVER = join(__dirname, "..", "ui", "dist", "server");
+const UI_ROOT = app.isPackaged
+  ? join(process.resourcesPath, "ui")
+  : join(__dirname, "..", "ui");
+const DIST_CLIENT = join(UI_ROOT, "dist", "client");
+const DIST_SERVER = join(UI_ROOT, "dist", "server");
 const APP_ICON = join(DIST_CLIENT, "orion-icon.png");
-const BACKEND_PORT = 61888;
 
 const MIME = {
   ".html": "text/html",
@@ -42,10 +48,10 @@ async function createLocalServer() {
     const pathname = url.pathname;
 
     if (pathname.startsWith("/api")) {
-      const target = `http://127.0.0.1:${BACKEND_PORT}${pathname}${url.search}`;
+      const target = getOrionDockerTarget(pathname, url.search);
       const opts = {
         method: req.method,
-        headers: { ...req.headers, host: `127.0.0.1:${BACKEND_PORT}` },
+        headers: { ...req.headers, host: getOrionDockerHost() },
       };
       if (!["GET", "HEAD"].includes(req.method || "GET")) {
         // Node's fetch requires duplex for a streamed request body. Forwarding

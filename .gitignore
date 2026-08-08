@@ -28,6 +28,7 @@ artifacts/
 ui/node_modules/
 ui/dist/
 desktop/node_modules/
+desktop/release/
 
 # Local secrets (credentials, API tokens)
 config/secrets.local.json

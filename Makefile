@@ -18,8 +18,8 @@ lint-fix:
 	ruff format src/ tests/
 
 typecheck:
-	cd ui && npx tsc --noEmit 2>/dev/null || true
-	mypy src/ --ignore-missing-imports --no-error-summary 2>/dev/null || true
+	cd ui && npx tsc --noEmit
+	mypy src/ --ignore-missing-imports --no-error-summary
 
 clean:
 	rm -rf build/ dist/ *.egg-info

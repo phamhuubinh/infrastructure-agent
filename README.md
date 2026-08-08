@@ -145,8 +145,8 @@ The host command is a lightweight Docker launcher; it does not install Python pa
 ```bash
 # Terminal 1: RAG service
 cd src/tool/RAGTool
-pip install -r requirements.txt  # first run only
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8080
+uv sync --group dev  # first run only
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
 
 # Terminal 2: backend + auto-started Vite frontend
 cd ../../..

@@ -3,7 +3,7 @@ set -euo pipefail
 
 output_dir="${1:-dist}"
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
     echo "Refusing to archive a dirty working tree." >&2
     exit 2
 fi
