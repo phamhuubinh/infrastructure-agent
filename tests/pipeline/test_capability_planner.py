@@ -115,11 +115,11 @@ def test_plan_kernel_inspect() -> None:
 
 
 def test_plan_uptime_inspect() -> None:
-    """Test uptime inspect returns CPU."""
+    """Test uptime inspect uses the dedicated read-only uptime collector."""
     cp = CapabilityPlanner()
     semantic = SemanticRequest(concept="uptime", action="inspect")
     plan = cp.plan(semantic)
-    assert "CPU" in plan
+    assert plan == ["System Uptime"]
 
 
 def test_plan_load_inspect() -> None:

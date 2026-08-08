@@ -419,6 +419,27 @@ def test_query_regenerates_from_selected_turn():
     mock_agent.conversation_store.restore_messages.assert_not_called()
 
 
+def test_query_strips_mixed_script_at_the_final_api_boundary():
+    from src.backend.routers.query import query
+
+    mock_agent = mock.MagicMock()
+    mock_agent.run_with_steps.return_value = {
+        "steps": [],
+        "response": "CPU đang ở mức 高 bình thường.",
+    }
+    deps = SimpleNamespace(
+        prepare_query=mock.MagicMock(
+            return_value=("test-sess", mock_agent, threading.RLock())
+        )
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=deps)))
+
+    response = query({"question": "Kiểm tra CPU."}, request)
+
+    assert "高" not in response["assessment"]
+    assert "bình thường" in response["assessment"]
+
+
 def test_query_rejects_invalid_regeneration_index():
     from src.backend.routers.query import query
 

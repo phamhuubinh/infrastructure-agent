@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest import mock
 
+import pytest
+
 from src.pipeline.capability_reference import CapabilityReference
 from src.pipeline.capability_resolver import CapabilityResolver
 from src.pipeline.evidence_cache import EvidenceCache
@@ -22,6 +24,7 @@ from src.pipeline.fact_set import FactSet
 from src.pipeline.finding import FindingDecision
 from src.pipeline.intent_resolver import Intent, IntentResolver
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.request_frame import RequestFrame
 from src.pipeline.target_resolver import TargetResolver
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
@@ -196,6 +199,21 @@ class TestFullPipeline:
         evidence.plan.assert_called_once_with(request)
         cap_res.resolve.assert_called_once_with(request)
         exec_plan.plan.assert_called_once_with(request)
+
+    def test_explicit_target_without_resolution_fails_before_planning(self) -> None:
+        intent = mock.Mock(spec=IntentResolver)
+        target = mock.Mock(spec=TargetResolver)
+        request = _request_with_plan(_plan_with_steps("System Information"))
+        request.request_frame = RequestFrame(
+            raw_request="check cpu on ghost-999",
+            target_raw="ghost-999",
+        )
+        intent.resolve.return_value = request
+
+        with pytest.raises(ValueError, match="not resolved"):
+            _engine(intent_resolver=intent, target_resolver=target).execute(
+                request.request_frame
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -390,9 +408,7 @@ class TestEvidencePipeline:
             required=True,
         )
         plan = ExecutionPlan(steps=(ExecutionStep(capability=reference),))
-        graph = ExecutionGraph(
-            nodes=(ExecutionNode(execution_step=plan.steps[0]),)
-        )
+        graph = ExecutionGraph(nodes=(ExecutionNode(execution_step=plan.steps[0]),))
         builder.build.return_value = graph
 
         def new_request(_text: str) -> InvestigationRequest:

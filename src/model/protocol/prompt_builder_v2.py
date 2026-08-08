@@ -13,10 +13,27 @@ _VIETNAMESE_PATTERN = re.compile(
     r"[àáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợ" r"ùúủũụưừứửữựỳýỷỹỵđ]",
     re.IGNORECASE,
 )
+_EXPLICIT_ENGLISH_RESPONSE = re.compile(
+    r"(?:answer|reply|respond)\s+in\s+english|"
+    r"(?:trả\s+lời|dịch)\s+(?:bằng|sang)\s+tiếng\s+anh|"
+    r"(?:translate|translation)\s+(?:to|into)\s+english",
+    re.IGNORECASE,
+)
+_EXPLICIT_VIETNAMESE_RESPONSE = re.compile(
+    r"(?:answer|reply|respond)\s+in\s+vietnamese|"
+    r"(?:trả\s+lời|dịch)\s+(?:bằng|sang)\s+tiếng\s+việt|"
+    r"(?:translate|translation)\s+(?:to|into)\s+vietnamese",
+    re.IGNORECASE,
+)
 
 
 def _detect_language(text: str) -> str:
-    """Detect if text contains Vietnamese characters. Returns 'vi' or 'en'."""
+    """Infer the requested response language, honouring explicit directives."""
+
+    if _EXPLICIT_ENGLISH_RESPONSE.search(text):
+        return "en"
+    if _EXPLICIT_VIETNAMESE_RESPONSE.search(text):
+        return "vi"
     if _VIETNAMESE_PATTERN.search(text):
         return "vi"
     return "en"
@@ -272,7 +289,9 @@ def build_assessment_prompt(
 
     if assessment_request.collection_failures:
         lines.append("")
-        lines.append("--- Scope limitations: collection failures (not measurements) ---")
+        lines.append(
+            "--- Scope limitations: collection failures (not measurements) ---"
+        )
         lines.extend(
             f"- {failure[:300]}"
             for failure in assessment_request.collection_failures[:10]

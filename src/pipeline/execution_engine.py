@@ -187,6 +187,7 @@ class ExecutionEngine:
         self._target_resolver.resolve(request)
 
         target = request.target or "localhost"
+        self._assert_execution_target(request, target)
         allowed_sources = (
             allowed_source_names(
                 self._knowledge_tool,
@@ -331,6 +332,37 @@ class ExecutionEngine:
         request.runtime_metrics = metrics
 
         return request
+
+    def _assert_execution_target(
+        self,
+        request: InvestigationRequest,
+        execution_target: str,
+    ) -> None:
+        """Fail closed if planning would execute on an unproven target.
+
+        TargetResolver is the sole authority for explicit targets.  This
+        check sits immediately after resolution and before planning/runtime
+        dispatch so a later fallback cannot turn an unresolved explicit host
+        into localhost evidence.
+        """
+
+        frame = request.request_frame
+        if isinstance(frame, RequestFrame):
+            if frame.target_raw is not None and frame.target_resolved is None:
+                raise ValueError(
+                    "Explicit target was not resolved; environment execution is denied."
+                )
+            if (
+                frame.target_resolved is not None
+                and frame.target_resolved != execution_target
+            ):
+                raise ValueError(
+                    "Execution target differs from the resolved request target."
+                )
+            if execution_target not in self._knowledge_tool.source_names():
+                raise ValueError(
+                    f"Resolved execution target '{execution_target}' is not registered."
+                )
 
     def _apply_reasoning(self, request: InvestigationRequest):
         """Attach canonical atomic/composite findings and health summary."""

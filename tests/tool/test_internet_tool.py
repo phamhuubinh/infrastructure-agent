@@ -130,6 +130,8 @@ def test_web_fetch_success_html(
     assert result["status"] == _HTTP_OK
     assert "Hello World" in str(result["data"])
     assert result["truncated"] is False
+    assert result["fetch_status"] == "FETCH_SUCCESS"
+    assert result["content_status"] == "CONTENT_EXTRACTED"
     assert connection.closed is True
 
 
@@ -169,6 +171,22 @@ def test_web_fetch_truncated(
 
     assert result["status"] == _HTTP_OK
     assert result["truncated"] is True
+    assert result["content_status"] == "CONTENT_TRUNCATED"
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_empty_body_is_not_content_evidence(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (_FakeConnection(), _FakeResponse(body=b""))
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert result["fetch_status"] == "FETCH_SUCCESS"
+    assert result["content_status"] == "CONTENT_EMPTY"
 
 
 @patch("src.tool.internet_tool._open_pinned_request")

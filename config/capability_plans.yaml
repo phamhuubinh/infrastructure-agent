@@ -101,12 +101,12 @@ plans:
 
   uptime:
     inspect:
-      - CPU
+      - System Uptime
     diagnose:
-      - CPU
-      - System Information
+      - System Uptime
+      - System Boot Time
     summarize:
-      - CPU
+      - System Uptime
 
   load:
     inspect:

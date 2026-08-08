@@ -591,6 +591,21 @@ class ExecutionRuntime:
 
         if source == "localhost" and target != "localhost":
             source = target
+        # The router is allowed to select only the hard allow-set received
+        # from the canonical RequestFrame.  Keep this assertion next to the
+        # actual dispatch so an alternate/recovery path cannot broaden a
+        # source restriction after planning.
+        if allowed_sources is not None and source not in allowed_sources:
+            return ToolResult(
+                success=False,
+                error=(
+                    f"Source constraint blocked '{source}'; allowed sources are "
+                    f"{', '.join(sorted(allowed_sources))}."
+                ),
+                capability_status=CapabilityStatus.UNSUPPORTED,
+                source=source,
+                resource=resource,
+            )
 
         try:
             bound = self._parameter_binder.bind(

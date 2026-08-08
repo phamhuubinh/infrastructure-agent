@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 
+from src.model.output_sanitizer import enforce_language_quality, sanitize_model_output
+from src.model.protocol.prompt_builder_v2 import _detect_language
 from src.shared.logger import set_context
 
 router = APIRouter(tags=["query"])
@@ -57,6 +59,17 @@ def query(body: dict, request: Request):
             try:
                 started_at = time.perf_counter()
                 result = agent.run_with_steps(question)
+                # Final defense-in-depth output boundary. It also protects
+                # API consumers from deterministic adapters/test doubles that
+                # do not pass through LLMClient's sanitizer.
+                visible = enforce_language_quality(
+                    sanitize_model_output(str(result.get("response", ""))),
+                    _detect_language(question),
+                )
+                result["response"] = visible or (
+                    "Không thể trả về nội dung đó an toàn. "
+                    "Hãy gửi lại yêu cầu theo cách khác."
+                )
                 response_time_ms = round((time.perf_counter() - started_at) * 1000)
                 if store is not None:
                     store.set_last_response_time(response_time_ms, asked_at=asked_at)

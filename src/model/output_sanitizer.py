@@ -3,19 +3,35 @@ from __future__ import annotations
 import re
 
 _REASONING_BLOCK = re.compile(
-    r"<(?P<tag>think|analysis)\b[^>]*>.*?</(?P=tag)\s*>",
+    # A missing closing tag must fail closed too. Treating it as ordinary
+    # prose was the path that allowed a partial scratchpad to reach users.
+    r"<(?P<tag>think|analysis)\b[^>]*>.*?(?:</(?P=tag)\s*>|\Z)",
     flags=re.IGNORECASE | re.DOTALL,
+)
+_ORPHAN_REASONING_TAG = re.compile(r"</?(?:think|analysis)\b[^>]*>", re.IGNORECASE)
+_LABELED_REASONING = re.compile(
+    # A plaintext scratchpad is hidden reasoning only when its label begins
+    # a line; ordinary prose that merely uses the word remains intact.
+    r"(?ims)^(?:analysis|chain\s+of\s+thought|scratchpad)\s*:\s*.*?"
+    r"(?=^\s*(?:final|answer|response)\s*:|\Z)",
 )
 
 
 def sanitize_model_output(content: str) -> str:
-    """Remove model-internal reasoning blocks from user-visible output."""
-    visible = content
+    """Remove model-internal reasoning from user-visible output.
+
+    Prompt instructions are helpful but not a response-security boundary.
+    This is deliberately reusable by providers and the final API serializer.
+    """
+    visible = content if isinstance(content, str) else str(content)
     while True:
         cleaned = _REASONING_BLOCK.sub("", visible)
         if cleaned == visible:
-            return cleaned.strip()
+            break
         visible = cleaned
+    visible = _ORPHAN_REASONING_TAG.sub("", visible)
+    visible = _LABELED_REASONING.sub("", visible)
+    return visible.strip()
 
 
 # DR1-706: language quality validator.
@@ -46,15 +62,14 @@ def detect_script_leakage(text: str) -> tuple[str, ...]:
 
 
 def enforce_language_quality(text: str, expected_lang: str) -> str:
-    """DR1-706: strip mixed-script leakage from a Vietnamese answer.
+    """DR1-706: strip mixed-script leakage from a Latin-script answer.
 
-    Only enforced for Vietnamese responses today (English answers are not
-    expected to be script-pure). On detection, drop the offending characters
-    rather than rewriting the sentence, since Orion cannot safely
-    regenerate a response inline here without another model round trip.
+    Vietnamese and English both use Latin scripts. On detection, drop CJK and
+    Cyrillic leakage rather than rewriting the sentence, since Orion cannot
+    safely regenerate a response inline here without another model round trip.
     """
 
-    if expected_lang != "vi":
+    if expected_lang not in {"vi", "en"}:
         return text
     if not detect_script_leakage(text):
         return text

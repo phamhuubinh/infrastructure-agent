@@ -19,6 +19,11 @@ class ClarificationResponder:
 
     def respond(self, decision: RoutingDecision) -> str:
         if decision.status is RoutingStatus.UNSUPPORTED:
+            if (decision.reason or "").startswith("sensitive:"):
+                return (
+                    "Tôi không thể tiết lộ hướng dẫn nội bộ, bí mật, thông tin "
+                    "đăng nhập hoặc tệp chứa thông tin xác thực."
+                )
             return (
                 "Orion hiện chỉ điều tra read-only và không thực hiện thay đổi hệ "
                 "thống. Hãy yêu cầu kiểm tra trạng thái hoặc số liệu cần xác minh."

@@ -28,6 +28,28 @@ _TARGET_MENTION = re.compile(
     re.IGNORECASE,
 )
 
+# Current-information answers have a tighter contract than ordinary
+# infrastructure assessments: a version/date/price/office-holder must be
+# visible in the extracted page text, not merely accompanied by a URL footer.
+_CURRENT_VERSION = re.compile(r"\b\d+(?:\.\d+){1,3}(?:[-+][\w.-]+)?\b")
+_CURRENT_DATE = re.compile(
+    r"\b(?:19|20)\d{2}[-/]\d{1,2}[-/]\d{1,2}\b|"
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|"
+    r"july?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+\d{1,2},?\s+(?:19|20)\d{2}\b",
+    re.IGNORECASE,
+)
+_CURRENT_PRICE = re.compile(
+    r"(?:[$€£]\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s*"
+    r"(?:usd|vnd|eur|gbp)\b)",
+    re.IGNORECASE,
+)
+_OFFICE_HOLDER = re.compile(
+    r"\b(?:CEO|chief executive officer)\b.{0,80}?\b(?:is|là)\s+"
+    r"(?P<name>[A-Z][\w.'-]*(?:\s+[A-Z][\w.'-]*){1,3})",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ClaimValidationResult:
@@ -161,3 +183,57 @@ def redact_ungrounded_claims(
         redacted = _TARGET_MENTION.sub(_replace_target, redacted)
 
     return redacted
+
+
+def redact_ungrounded_external_claims(
+    response_text: str,
+    assessment_request: AssessmentRequest,
+    *,
+    lang: str = "vi",
+) -> str:
+    """Redact current claims absent from extracted external content.
+
+    The normal numeric guard is intentionally broad and applies to every
+    assessment.  This additional guard only applies to the external route and
+    compares user-visible current claims with the actual page content handed
+    to the model.  A fetch receipt or source URL alone is not grounding.
+    """
+
+    if assessment_request.intent != "EXTERNAL_VERIFICATION":
+        return response_text
+
+    evidence_text: list[str] = []
+    for package in assessment_request.evidence:
+        data = getattr(package, "data", None)
+        if not isinstance(data, dict):
+            continue
+        documents = data.get("documents")
+        if not isinstance(documents, list):
+            continue
+        for document in documents:
+            if isinstance(document, dict) and document.get("content") is not None:
+                evidence_text.append(str(document["content"]))
+    corpus = "\n".join(evidence_text).casefold()
+    if not corpus.strip():
+        return (
+            "Không thể xác định điều này từ nội dung đã lấy được."
+            if lang == "vi"
+            else "Could not determine this from the fetched content."
+        )
+
+    marker = "[thông tin hiện tại chưa xác nhận]" if lang == "vi" else "[unverified current claim]"
+
+    def _replace_if_absent(match: re.Match[str]) -> str:
+        return match.group(0) if match.group(0).casefold() in corpus else marker
+
+    guarded = _CURRENT_VERSION.sub(_replace_if_absent, response_text)
+    guarded = _CURRENT_DATE.sub(_replace_if_absent, guarded)
+    guarded = _CURRENT_PRICE.sub(_replace_if_absent, guarded)
+
+    def _replace_office_holder(match: re.Match[str]) -> str:
+        name = match.group("name")
+        if name.casefold() in corpus:
+            return match.group(0)
+        return match.group(0).replace(name, marker)
+
+    return _OFFICE_HOLDER.sub(_replace_office_holder, guarded)

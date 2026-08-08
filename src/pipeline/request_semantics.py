@@ -95,6 +95,8 @@ class RequestSemanticsClassifier:
     _TRAILING_URL_PUNCTUATION = ".,;:!?)]}›»"
 
     _FRESHNESS_PATTERNS: tuple[tuple[str, str], ...] = (
+        ("ngày mai", "tomorrow"),
+        ("tomorrow", "tomorrow"),
         ("mới nhất", "latest"),
         ("newest", "latest"),
         ("most recent", "latest"),
@@ -112,6 +114,7 @@ class RequestSemanticsClassifier:
     )
     _FRESHNESS_WINDOWS: dict[str, str] = {
         "today": "same_day",
+        "tomorrow": "short_lived",
         "current": "short_lived",
         "latest": "release_current",
     }
@@ -150,6 +153,9 @@ class RequestSemanticsClassifier:
         "cổ phiếu",
         "stock",
         "bitcoin",
+        "s&p",
+        "nasdaq",
+        "dow jones",
     )
     _LOCAL_ENVIRONMENT_MARKERS = (
         "máy này",
@@ -217,6 +223,51 @@ class RequestSemanticsClassifier:
         "without applying",
         "only write",
         "chỉ tạo nội dung",
+        "dịch sang",
+        "translate",
+        "viết lại",
+        "rewrite",
+        "rút gọn",
+        "summarize",
+        "tóm tắt",
+        "chuyển nội dung",
+        "transform",
+    )
+    _GENERAL_META_MARKERS = (
+        "bạn là ai",
+        "ban la ai",
+        "who are you",
+        "what can you help",
+        "bạn làm được gì",
+        "ban lam duoc gi",
+        "bạn không làm được gì",
+        "model nào",
+        "model nao",
+        "provider nào",
+        "provider nao",
+        "cảm ơn",
+        "cam on",
+        "thank you",
+        "thanks",
+        "xin chào",
+        "xin chao",
+        "hello",
+    )
+    _SELF_CONTAINED_REASONING_MARKERS = (
+        "tính ",
+        "tinh ",
+        "trung bình",
+        "trung binh",
+        "average",
+        "sắp xếp",
+        "sap xep",
+        "suy ra",
+        "logic",
+        "syllogism",
+        "availability",
+        "downtime",
+        "còn lại bao nhiêu",
+        "con lai bao nhieu",
     )
     _MUTATION_MARKERS = (
         "restart",
@@ -262,11 +313,19 @@ class RequestSemanticsClassifier:
         freshness_phrase, freshness_window = self._freshness(lower)
 
         if explicit_url is not None or url_error is not None:
+            # Preserve an explicit negative source directive alongside the
+            # URL contract.  A URL never authorizes silently ignoring a
+            # previously parsed "no Internet" constraint.
+            url_constraints = (SourceConstraint.URL_ONLY, *(
+                source
+                for source in source_constraints
+                if source is not SourceConstraint.ANY
+            ))
             return RequestSemantics(
                 domain=RequestDomain.EXTERNAL_INFORMATION,
                 information_scope=InformationScope.EXPLICIT_URL,
                 external_need=ExternalNeed.URL,
-                source_constraints=(SourceConstraint.URL_ONLY,),
+                source_constraints=tuple(dict.fromkeys(url_constraints)),
                 excluded_sources=excluded_sources,
                 explicit_url=explicit_url,
                 url_error=url_error,
@@ -307,6 +366,30 @@ class RequestSemanticsClassifier:
                 source_constraints=source_constraints,
                 excluded_sources=excluded_sources,
                 execution_intent=execution_intent,
+                freshness_phrase=freshness_phrase,
+                freshness_window=freshness_window,
+            )
+
+        if any(marker in lower for marker in self._GENERAL_META_MARKERS):
+            return RequestSemantics(
+                domain=RequestDomain.GENERAL,
+                information_scope=InformationScope.STABLE_KNOWLEDGE,
+                external_need=ExternalNeed.NONE,
+                source_constraints=source_constraints,
+                excluded_sources=excluded_sources,
+                execution_intent=ExecutionIntent.EXPLAIN,
+                freshness_phrase=freshness_phrase,
+                freshness_window=freshness_window,
+            )
+
+        if any(marker in lower for marker in self._SELF_CONTAINED_REASONING_MARKERS):
+            return RequestSemantics(
+                domain=RequestDomain.GENERAL,
+                information_scope=InformationScope.STABLE_KNOWLEDGE,
+                external_need=ExternalNeed.NONE,
+                source_constraints=source_constraints,
+                excluded_sources=excluded_sources,
+                execution_intent=ExecutionIntent.EXPLAIN,
                 freshness_phrase=freshness_phrase,
                 freshness_window=freshness_window,
             )
@@ -411,11 +494,44 @@ class RequestSemanticsClassifier:
         excluded: list[SourceConstraint] = []
 
         mappings: tuple[tuple[SourceConstraint, tuple[str, ...]], ...] = (
-            (SourceConstraint.GRAFANA, ("grafana only", "chỉ dùng grafana", "chỉ qua grafana")),
-            (SourceConstraint.ZABBIX, ("zabbix only", "chỉ dùng zabbix", "chỉ qua zabbix")),
-            (SourceConstraint.SSH, ("ssh only", "chỉ qua ssh", "chỉ dùng ssh")),
-            (SourceConstraint.LINUX, ("linux only", "chỉ dùng linux", "chỉ qua linux")),
-            (SourceConstraint.INTERNET, ("internet only", "web only", "chỉ dùng internet", "chỉ dùng web")),
+            (
+                SourceConstraint.GRAFANA,
+                (
+                    "grafana only", "only grafana", "only use grafana",
+                    "use only grafana", "via grafana only", "chỉ dùng grafana",
+                    "chỉ qua grafana", "dùng duy nhất grafana", "chỉ lấy từ grafana",
+                ),
+            ),
+            (
+                SourceConstraint.ZABBIX,
+                (
+                    "zabbix only", "only zabbix", "only use zabbix",
+                    "use only zabbix", "via zabbix only", "chỉ dùng zabbix",
+                    "chỉ qua zabbix", "dùng duy nhất zabbix", "chỉ lấy từ zabbix",
+                ),
+            ),
+            (
+                SourceConstraint.SSH,
+                (
+                    "ssh only", "only ssh", "only use ssh", "use only ssh",
+                    "via ssh only", "chỉ qua ssh", "chỉ dùng ssh", "dùng duy nhất ssh",
+                ),
+            ),
+            (
+                SourceConstraint.LINUX,
+                (
+                    "linux only", "only linux", "only use linux", "use only linux",
+                    "via linux only", "chỉ dùng linux", "chỉ qua linux", "dùng duy nhất linux",
+                ),
+            ),
+            (
+                SourceConstraint.INTERNET,
+                (
+                    "internet only", "web only", "only internet", "only web",
+                    "only use internet", "only use web", "use only internet",
+                    "chỉ dùng internet", "chỉ dùng web", "dùng duy nhất internet",
+                ),
+            ),
         )
         for source, phrases in mappings:
             if any(phrase in lower for phrase in phrases):

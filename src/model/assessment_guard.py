@@ -14,7 +14,11 @@ Order matters:
 from __future__ import annotations
 
 from src.model.action_receipt import ActionReceipt, guard_action_claims
-from src.model.claim_validator import ClaimValidator, redact_ungrounded_claims
+from src.model.claim_validator import (
+    ClaimValidator,
+    redact_ungrounded_claims,
+    redact_ungrounded_external_claims,
+)
 from src.model.numeric_claim_validator import validate_numeric_consistency
 from src.model.output_sanitizer import enforce_language_quality
 from src.model.protocol.prompt_builder_v2 import _detect_language
@@ -57,6 +61,11 @@ def apply_assessment_guards(
         return guarded
 
     guarded = redact_ungrounded_claims(guarded, assessment_request, lang=lang)
+    guarded = redact_ungrounded_external_claims(
+        guarded,
+        assessment_request,
+        lang=lang,
+    )
 
     if validate_numeric_consistency(assessment_request.facts):
         note = _NUMERIC_SCOPE_NOTE_VI if lang == "vi" else _NUMERIC_SCOPE_NOTE_EN

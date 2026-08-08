@@ -119,6 +119,30 @@ def test_explicit_url_fetches_directly_without_search() -> None:
     assert [call["resource"] for call in tool.calls] == ["web_fetch"]
 
 
+def test_fetch_success_with_empty_content_is_not_verified_evidence() -> None:
+    tool = _InternetKnowledgeTool()
+    tool.fetch_payloads = {
+        "https://official.example/release": {
+            "url": "https://official.example/release",
+            "status": 200,
+            "fetch_status": "FETCH_SUCCESS",
+            "content_status": "CONTENT_EMPTY",
+            "content_type": "text/html",
+            "content_length": 0,
+            "truncated": False,
+            "data": "",
+        }
+    }
+
+    outcome = ExternalVerificationExecutor(tool).collect(  # type: ignore[arg-type]
+        _frame("Đọc https://official.example/release"),
+        "Đọc https://official.example/release",
+    )
+
+    assert outcome.verified is False
+    assert "CONTENT_EMPTY" in outcome.failures[0]
+
+
 def test_unavailable_search_never_turns_into_model_or_fetch_evidence() -> None:
     tool = _InternetKnowledgeTool()
     tool.search_data = {}

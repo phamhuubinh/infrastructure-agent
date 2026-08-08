@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from src.model.claim_validator import ClaimValidator, redact_ungrounded_claims
+from src.model.claim_validator import (
+    ClaimValidator,
+    redact_ungrounded_claims,
+    redact_ungrounded_external_claims,
+)
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.fact import Fact, FactFreshness, FactValidity
 from src.pipeline.provenance import Provenance
 
@@ -68,3 +73,48 @@ def test_redact_keeps_grounded_number() -> None:
     request = _request(facts)
     redacted = redact_ungrounded_claims("CPU đang ở mức 42.5%.", request)
     assert "42.5%" in redacted
+
+
+def test_external_current_claim_requires_extracted_page_content() -> None:
+    request = AssessmentRequest(
+        raw_request="Phiên bản Python mới nhất là gì?",
+        intent="EXTERNAL_VERIFICATION",
+        evidence=(
+            EvidencePackage(
+                capability_name="external_verification",
+                evidence_name="external_current",
+                data={
+                    "documents": [
+                        {"content": "The supported release is Python 3.14.1."}
+                    ]
+                },
+                source="internet",
+            ),
+        ),
+    )
+
+    guarded = redact_ungrounded_external_claims(
+        "Phiên bản mới nhất là 3.99.0.", request
+    )
+
+    assert "3.99.0" not in guarded
+    assert "chưa xác nhận" in guarded
+
+
+def test_external_current_claim_keeps_value_present_in_extracted_content() -> None:
+    request = AssessmentRequest(
+        raw_request="Phiên bản Python mới nhất là gì?",
+        intent="EXTERNAL_VERIFICATION",
+        evidence=(
+            EvidencePackage(
+                capability_name="external_verification",
+                evidence_name="external_current",
+                data={"documents": [{"content": "Python 3.14.1 is available."}]},
+                source="internet",
+            ),
+        ),
+    )
+
+    assert "3.14.1" in redact_ungrounded_external_claims(
+        "Phiên bản là 3.14.1.", request
+    )

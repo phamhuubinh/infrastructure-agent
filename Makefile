@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck clean build benchmark ci install dev-install
+.PHONY: test lint typecheck clean build benchmark ci install dev-install qa-smoke qa-full
 
 VENV = .venv
 PYTHON = python3
@@ -32,6 +32,14 @@ build:
 
 benchmark:
 	$(PYTHON) -m pytest tests/benchmark/ -q --tb=short
+
+qa-smoke:
+	$(PYTHON) scripts/qa/ga2_runner.py --mode smoke --fail-fast
+
+qa-full: typecheck
+	ruff check .
+	$(PYTHON) -m pytest -q
+	$(PYTHON) scripts/qa/ga2_runner.py --mode full
 
 desktop-install:
 	cd desktop && npm install

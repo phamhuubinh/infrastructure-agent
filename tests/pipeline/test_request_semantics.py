@@ -45,6 +45,24 @@ def test_current_external_question_requires_verification() -> None:
     assert frame.freshness_window == "release_current"
 
 
+def test_tomorrow_weather_and_current_market_index_require_verification() -> None:
+    tomorrow = Normalizer().normalize("Thời tiết Hà Nội ngày mai thế nào?")
+    index = Normalizer().normalize("S&P 500 current value?")
+
+    assert tomorrow.external_need is ExternalNeed.REQUIRED
+    assert index.external_need is ExternalNeed.REQUIRED
+
+
+def test_identity_meta_and_supplied_calculation_are_general_not_environment() -> None:
+    identity = Normalizer().normalize("Bạn dựa trên model nào?")
+    calculation = Normalizer().normalize(
+        "Một server có 64 GB RAM, đang dùng 18 GB. Còn lại bao nhiêu GB?"
+    )
+
+    assert identity.request_domain is RequestDomain.GENERAL
+    assert calculation.request_domain is RequestDomain.GENERAL
+
+
 def test_external_fact_subject_is_never_kept_as_an_environment_target() -> None:
     frame = Normalizer().normalize("CEO hiện tại của Microsoft là ai?")
 
@@ -87,6 +105,21 @@ def test_source_constraints_preserve_single_source_and_negative_directive() -> N
         SourceConstraint.NO_INTERNET,
     )
     assert frame.excluded_sources == (SourceConstraint.INTERNET,)
+
+
+def test_equivalent_only_wording_is_a_hard_typed_source_constraint() -> None:
+    frame = Normalizer().normalize("Use only Grafana to inspect CPU.")
+
+    assert frame.source_constraints == (SourceConstraint.GRAFANA,)
+
+
+def test_url_does_not_erase_no_internet_constraint() -> None:
+    frame = Normalizer().normalize("Đọc https://example.com nhưng không dùng Internet.")
+
+    assert frame.source_constraints == (
+        SourceConstraint.URL_ONLY,
+        SourceConstraint.NO_INTERNET,
+    )
 
 
 def test_conflicting_source_directives_are_a_routing_ambiguity() -> None:

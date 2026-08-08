@@ -16,6 +16,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
@@ -27,6 +28,18 @@ from src.shared.execution.tool_result import ToolResult
 
 if TYPE_CHECKING:
     from src.tool.knowledge_tool import KnowledgeTool
+
+
+class ExternalContentStatus(str, Enum):
+    """Network and extracted-content state are intentionally distinct."""
+
+    FETCH_SUCCESS = "FETCH_SUCCESS"
+    CONTENT_EXTRACTED = "CONTENT_EXTRACTED"
+    CONTENT_EMPTY = "CONTENT_EMPTY"
+    CONTENT_UNSUPPORTED = "CONTENT_UNSUPPORTED"
+    CONTENT_TRUNCATED = "CONTENT_TRUNCATED"
+    CONTENT_BLOCKED = "CONTENT_BLOCKED"
+    EXTRACTION_FAILED = "EXTRACTION_FAILED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +103,7 @@ class ExternalDocument:
     content_type: str | None = None
     truncated: bool = False
     source_type: str = "web-page"
+    content_status: ExternalContentStatus = ExternalContentStatus.CONTENT_EXTRACTED
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -101,6 +115,7 @@ class ExternalDocument:
             "content_type": self.content_type,
             "truncated": self.truncated,
             "source_type": self.source_type,
+            "content_status": self.content_status.value,
         }
 
 
@@ -123,7 +138,13 @@ class ExternalVerificationOutcome:
 
     @property
     def partial(self) -> bool:
-        return self.verified and bool(self.failures)
+        return self.verified and (
+            bool(self.failures)
+            or any(
+                document.content_status is ExternalContentStatus.CONTENT_TRUNCATED
+                for document in self.documents
+            )
+        )
 
 
 class ExternalVerificationExecutor:
@@ -409,6 +430,33 @@ class ExternalVerificationExecutor:
         payload = result.data
         if payload.get("error") or payload.get("data") is None:
             return None, str(payload.get("error") or f"Could not fetch {canonical}.")
+        raw_status = str(payload.get("content_status") or "")
+        try:
+            content_status = ExternalContentStatus(raw_status)
+        except ValueError:
+            # Third-party capability implementations may predate the typed
+            # field.  Their payload is accepted only after the same explicit
+            # content check used for native InternetTool responses.
+            content = payload.get("data")
+            content_status = (
+                ExternalContentStatus.CONTENT_EMPTY
+                if content in (None, "", {}, [])
+                else (
+                    ExternalContentStatus.CONTENT_TRUNCATED
+                    if bool(payload.get("truncated", False))
+                    else ExternalContentStatus.CONTENT_EXTRACTED
+                )
+            )
+        if content_status in {
+            ExternalContentStatus.CONTENT_EMPTY,
+            ExternalContentStatus.CONTENT_UNSUPPORTED,
+            ExternalContentStatus.CONTENT_BLOCKED,
+            ExternalContentStatus.EXTRACTION_FAILED,
+        }:
+            return None, (
+                f"Fetched {canonical} but usable page content is unavailable "
+                f"({content_status.value})."
+            )
         content_length = payload.get("content_length", 0)
         if isinstance(content_length, int):
             calls["bytes"] += max(content_length, 0)
@@ -427,6 +475,7 @@ class ExternalVerificationExecutor:
                 else None
             ),
             truncated=bool(payload.get("truncated", False)),
+            content_status=content_status,
         )
         # A successful but truncated response is useful evidence with an
         # explicit limitation.  It can be cached, unlike any failure.
@@ -519,6 +568,7 @@ class ExternalVerificationExecutor:
                         "provider": document.provider,
                         "content_type": document.content_type or "",
                         "truncated": document.truncated,
+                        "content_status": document.content_status.value,
                     },
                 )
             )
@@ -581,6 +631,7 @@ class ExternalVerificationExecutor:
 
 
 __all__ = [
+    "ExternalContentStatus",
     "ExternalDocument",
     "ExternalEvidenceCache",
     "ExternalRequestBudget",

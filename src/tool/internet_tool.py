@@ -511,13 +511,32 @@ def _fetch_url(
                 result: dict[str, object] = {
                     "url": current_url,
                     "status": status,
+                    "fetch_status": "FETCH_SUCCESS",
                     "content_type": content_type,
                     "content_length": len(raw),
                     "truncated": truncated,
                     "headers": dict(resp.headers),
                 }
 
-                if "json" in content_type.lower():
+                normalized_type = content_type.casefold().split(";", 1)[0].strip()
+                is_json = "json" in normalized_type
+                is_text = (
+                    is_json
+                    or normalized_type.startswith("text/")
+                    or normalized_type in {"application/xml", "application/xhtml+xml"}
+                    or normalized_type.endswith("+xml")
+                    # Some public pages omit Content-Type.  We still expose
+                    # a bounded text extraction, but tag it so the evidence
+                    # layer can require actual non-empty content.
+                    or not normalized_type
+                )
+
+                if not is_text:
+                    result["data"] = None
+                    result["content_status"] = "CONTENT_UNSUPPORTED"
+                    return result
+
+                if is_json:
                     try:
                         result["data"] = json.loads(body)
                     except (json.JSONDecodeError, TypeError):
@@ -531,6 +550,14 @@ def _fetch_url(
                     except (ValueError, TypeError):
                         text = body[:10000]
                     result["data"] = text[:10000]
+
+                extracted = result.get("data")
+                if extracted is None or extracted == "" or extracted == {} or extracted == []:
+                    result["content_status"] = "CONTENT_EMPTY"
+                elif truncated:
+                    result["content_status"] = "CONTENT_TRUNCATED"
+                else:
+                    result["content_status"] = "CONTENT_EXTRACTED"
 
                 return result
             finally:

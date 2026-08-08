@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.pipeline.parameter_extractor import ExtractedParams
+from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.time_range_resolver import TimeRange
 
 if TYPE_CHECKING:
@@ -28,6 +29,8 @@ class SessionInvestigationContext:
     active_path: str | None = None
     active_time_range: TimeRange | None = None
     incident_ids: tuple[str, ...] = ()
+    active_sources: tuple[SourceConstraint, ...] = ()
+    active_excluded_sources: tuple[SourceConstraint, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -39,6 +42,10 @@ class SessionInvestigationContext:
                 self.active_time_range.to_dict() if self.active_time_range else None
             ),
             "incident_ids": list(self.incident_ids),
+            "active_sources": [source.name for source in self.active_sources],
+            "active_excluded_sources": [
+                source.name for source in self.active_excluded_sources
+            ],
         }
 
     @classmethod
@@ -56,6 +63,10 @@ class SessionInvestigationContext:
                 tuple(str(item) for item in incident_ids if str(item))
                 if isinstance(incident_ids, (list, tuple))
                 else ()
+            ),
+            active_sources=_source_constraints(value.get("active_sources")),
+            active_excluded_sources=_source_constraints(
+                value.get("active_excluded_sources")
             ),
         )
 
@@ -83,6 +94,16 @@ class SessionInvestigationContext:
                 else self.active_time_range
             ),
             incident_ids=incidents,
+            active_sources=(
+                frame.source_constraints
+                if frame.source_constraints != (SourceConstraint.ANY,)
+                else self.active_sources
+            ),
+            active_excluded_sources=(
+                frame.excluded_sources
+                if frame.excluded_sources
+                else self.active_excluded_sources
+            ),
         )
 
     def switch_target(self, target: str) -> SessionInvestigationContext:
@@ -90,6 +111,8 @@ class SessionInvestigationContext:
         return SessionInvestigationContext(
             active_target=target,
             incident_ids=self.incident_ids,
+            active_sources=self.active_sources,
+            active_excluded_sources=self.active_excluded_sources,
         )
 
     def reset(self) -> SessionInvestigationContext:
@@ -150,6 +173,18 @@ class SessionContextResolver:
             applied.append("target")
 
         if (
+            is_follow_up
+            and frame.source_constraints == (SourceConstraint.ANY,)
+            and context.active_sources
+        ):
+            changes["source_constraints"] = context.active_sources
+            applied.append("source")
+        if is_follow_up and not frame.excluded_sources and context.active_excluded_sources:
+            changes["excluded_sources"] = context.active_excluded_sources
+            if "source" not in applied:
+                applied.append("source")
+
+        if (
             frame.concepts == ("machine",)
             and context.active_concept
             and is_follow_up
@@ -188,3 +223,15 @@ class SessionContextResolver:
 
 def _optional_text(value: object) -> str | None:
     return str(value) if isinstance(value, str) and value else None
+
+
+def _source_constraints(value: object) -> tuple[SourceConstraint, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    constraints: list[SourceConstraint] = []
+    for item in value:
+        try:
+            constraints.append(SourceConstraint[str(item)])
+        except KeyError:
+            continue
+    return tuple(dict.fromkeys(constraints))

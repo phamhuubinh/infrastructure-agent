@@ -96,7 +96,22 @@ class ParameterSafetyInspector(ToolInspector):
             if key in ("source", "resource", "action"):
                 continue
 
-            danger = _is_dangerous(value)
+            # A web-search query is data sent to a provider, never shell
+            # syntax.  Reject only malformed/bounded transport data here;
+            # query encoding is performed by the provider adapter.  Applying
+            # the shell-metacharacter rule to natural language caused normal
+            # queries containing punctuation to be denied before search.
+            if context.resource == "web_search" and key == "query":
+                if len(value) > _MAX_PARAMETER_LENGTH:
+                    danger = (
+                        f"parameter value exceeds maximum length ({_MAX_PARAMETER_LENGTH})"
+                    )
+                elif "\x00" in value or "\n" in value or "\r" in value:
+                    danger = "invalid control character in search query"
+                else:
+                    danger = None
+            else:
+                danger = _is_dangerous(value)
             if danger is not None:
                 return InspectionResult(
                     verdict=InspectionVerdict.DENY,

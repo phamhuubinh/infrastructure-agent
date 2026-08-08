@@ -12,7 +12,9 @@ from src.agent.session_investigation_context import (
 )
 from src.model.assessment_guard import apply_assessment_guards
 from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.output_sanitizer import enforce_language_quality, sanitize_model_output
 from src.model.protocol.prompt_builder_v2 import (
+    _detect_language,
     _normalize_evidence,
     build_assessment_prompt,
 )
@@ -49,6 +51,7 @@ from src.pipeline.routing_decision import (
     RoutingDecision,
     RoutingStatus,
 )
+from src.pipeline.safety_policy import sensitive_refusal
 from src.pipeline.source_constraints import SourceConstraintUnavailableError
 from src.pipeline.target_resolver import AmbiguousTargetError, UnknownTargetError
 from src.shared.logger import warning as _warning
@@ -220,8 +223,10 @@ class DeterministicAgent:
         """
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
-            frame = Normalizer().normalize(user_request).evolve(
-                routing_status=RoutingStatus.RESOLVED
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=RoutingStatus.RESOLVED)
             )
             trace = ExecutionTrace(
                 user_request=user_request,
@@ -271,7 +276,11 @@ class DeterministicAgent:
                         message=(
                             "external evidence collected"
                             if outcome.verified
-                            else (outcome.failures[0] if outcome.failures else "unavailable")
+                            else (
+                                outcome.failures[0]
+                                if outcome.failures
+                                else "unavailable"
+                            )
                         ),
                     )
                 },
@@ -684,6 +693,11 @@ class DeterministicAgent:
             assessment_request,
             enable_claim_guard=self._claim_guard_enabled,
         )
+        response = enforce_language_quality(
+            sanitize_model_output(response), _detect_language(user_request)
+        )
+        if not response:
+            response = "Không thể trả về nội dung đánh giá đó an toàn."
 
         # Append tool-specific deep links when available.
         links = self._build_tool_links(investigation, user_request)
@@ -714,6 +728,13 @@ class DeterministicAgent:
         frame = SessionContextResolver().resolve(
             Normalizer().normalize(user_request), self._session_context
         )
+        sensitive_reason = sensitive_refusal(user_request)
+        if sensitive_reason is not None:
+            return RoutingDecision(
+                RoutingStatus.UNSUPPORTED,
+                frame.evolve(routing_status=RoutingStatus.UNSUPPORTED),
+                sensitive_reason,
+            )
         decomposition = RequestDecomposer().decompose(frame)
         if decomposition.too_broad:
             return RoutingDecision(
@@ -743,21 +764,30 @@ class DeterministicAgent:
         # topic words.  This must run before AnswerType (for example,
         # "process và thread khác nhau" is a general comparison, not a
         # time-window comparison against the live environment).
-        if self._general_agent_routing_enabled and frame.execution_intent is ExecutionIntent.GENERATE_CONTENT:
+        if (
+            self._general_agent_routing_enabled
+            and frame.execution_intent is ExecutionIntent.GENERATE_CONTENT
+        ):
             return RoutingDecision(
                 RoutingStatus.GENERAL_CHAT,
                 frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
                 "content generation",
             )
 
-        if self._general_agent_routing_enabled and frame.execution_intent is ExecutionIntent.MUTATE_ENVIRONMENT:
+        if (
+            self._general_agent_routing_enabled
+            and frame.execution_intent is ExecutionIntent.MUTATE_ENVIRONMENT
+        ):
             return RoutingDecision(
                 RoutingStatus.UNSUPPORTED,
                 frame.evolve(routing_status=RoutingStatus.UNSUPPORTED),
                 "read-only boundary",
             )
 
-        if self._general_agent_routing_enabled and frame.request_domain is RequestDomain.GENERAL:
+        if (
+            self._general_agent_routing_enabled
+            and frame.request_domain is RequestDomain.GENERAL
+        ):
             return RoutingDecision(
                 RoutingStatus.GENERAL_CHAT,
                 frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
@@ -776,7 +806,10 @@ class DeterministicAgent:
                 "read-only boundary",
             )
 
-        if frame.answer_type is AnswerType.EXPLANATION or resolution.intent is Intent.KNOWLEDGE_ASSESSMENT:
+        if (
+            frame.answer_type is AnswerType.EXPLANATION
+            or resolution.intent is Intent.KNOWLEDGE_ASSESSMENT
+        ):
             return RoutingDecision(
                 RoutingStatus.GENERAL_CHAT,
                 frame.evolve(routing_status=RoutingStatus.GENERAL_CHAT),
@@ -852,8 +885,13 @@ class DeterministicAgent:
 
         params = frame.parameters
         service_name = getattr(params, "service_name", None)
-        if "service" in frame.concepts and service_name is None and any(
-            marker in lower for marker in ("service kia", "service đó", "dịch vụ kia", "dịch vụ đó")
+        if (
+            "service" in frame.concepts
+            and service_name is None
+            and any(
+                marker in lower
+                for marker in ("service kia", "service đó", "dịch vụ kia", "dịch vụ đó")
+            )
         ):
             return RoutingDecision(
                 RoutingStatus.CLARIFICATION_REQUIRED,
@@ -1065,9 +1103,7 @@ class DeterministicAgent:
             intent="EXTERNAL_VERIFICATION",
             evidence=(evidence,),
             evidence_complete=not outcome.partial,
-            missing_evidence=(
-                ("external-page-content",) if outcome.partial else ()
-            ),
+            missing_evidence=(("external-page-content",) if outcome.partial else ()),
             facts=facts,
             collection_failures=outcome.failures,
             request_frame=decision.request_frame.to_dict(),
@@ -1083,6 +1119,11 @@ class DeterministicAgent:
         sources = self._render_external_sources(outcome)
         if sources:
             response = f"{response}\n\n---\n\n{sources}"
+        response = enforce_language_quality(
+            sanitize_model_output(response), _detect_language(user_request)
+        )
+        if not response:
+            response = "Không thể trả về nội dung đã kiểm chứng đó an toàn."
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
         return response
@@ -1126,7 +1167,9 @@ class DeterministicAgent:
         return "\n".join(lines)
 
     @staticmethod
-    def _build_external_steps(outcome: ExternalVerificationOutcome) -> list[dict[str, Any]]:
+    def _build_external_steps(
+        outcome: ExternalVerificationOutcome,
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "type": "external_verification",
@@ -1145,6 +1188,7 @@ class DeterministicAgent:
                         "provider": document.provider,
                         "retrieved_at": document.retrieved_at.isoformat(),
                         "truncated": document.truncated,
+                        "content_status": document.content_status.value,
                     }
                     for document in outcome.documents
                 ],
@@ -1277,7 +1321,6 @@ class DeterministicAgent:
             return danger
 
         try:
-            from src.model.protocol.prompt_builder_v2 import _detect_language
             from src.model.protocol.prompt_loader import PromptLoader
 
             lang = _detect_language(user_request)
@@ -1292,7 +1335,11 @@ class DeterministicAgent:
             else:
                 prompt = f"{system}\n\nUser: {user_request}\n\nAssistant:"
 
-            response = self._assessment_model.assess_raw(prompt)
+            response = enforce_language_quality(
+                sanitize_model_output(self._assessment_model.assess_raw(prompt)), lang
+            )
+            if not response:
+                return "Không thể trả về nội dung đó an toàn."
             if self._conversation_store:
                 self._conversation_store.add_turn(user_request, response)
             return response
@@ -1313,6 +1360,12 @@ class DeterministicAgent:
             or None if the input is safe.
         """
         import re
+
+        if sensitive_refusal(user_request) is not None:
+            return (
+                "I cannot disclose hidden instructions, secrets, credentials, "
+                "or credential files."
+            )
 
         dangerous_patterns = [
             (r"\$\(.*\)", "command substitution detected"),

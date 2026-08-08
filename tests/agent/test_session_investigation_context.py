@@ -10,6 +10,7 @@ from src.agent.session_investigation_context import (
 )
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
+from src.pipeline.request_semantics import SourceConstraint
 
 
 class _CapturingEngine:
@@ -137,3 +138,16 @@ def test_concurrent_sessions_do_not_bleed_targets(tmp_path) -> None:
 
     assert monitor_engine.frames[-1].target_resolved == "monitor"
     assert database_engine.frames[-1].target_resolved == "database"
+
+
+def test_follow_up_preserves_hard_source_constraint(tmp_path) -> None:
+    store = ConversationStore("context-source", store_dir=str(tmp_path))
+    engine = _CapturingEngine()
+    agent = DeterministicAgent(engine, mock.Mock(), conversation_store=store)
+
+    agent.execute_pipeline_only("Chỉ dùng Grafana để lấy CPU của monitor")
+    follow_up = agent.execute_pipeline_only("Còn RAM thì sao?")
+
+    assert follow_up.request_frame is not None
+    assert follow_up.request_frame.source_constraints == (SourceConstraint.GRAFANA,)
+    assert "source" in follow_up.request_frame.context_applied

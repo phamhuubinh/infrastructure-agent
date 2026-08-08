@@ -287,6 +287,16 @@ def test_param_safety_denies_shell_metacharacter() -> None:
     assert "shell metacharacter" in result.reason.lower()
 
 
+def test_param_safety_treats_web_search_query_as_data_not_shell() -> None:
+    inspector = ParameterSafetyInspector()
+    ctx = InspectionContext(
+        resource="web_search",
+        arguments={"query": "Tin công nghệ hôm nay; có gì mới?"},
+    )
+
+    assert inspector.inspect(ctx).allowed
+
+
 def test_param_safety_denies_command_substitution() -> None:
     inspector = ParameterSafetyInspector()
     ctx = InspectionContext(arguments={"filter": "$(cat /etc/passwd)"})
