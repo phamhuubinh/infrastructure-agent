@@ -61,6 +61,7 @@ class RequestFrame:
     excluded_sources: tuple[SourceConstraint, ...] = ()
     explicit_url: str | None = None
     url_error: str | None = None
+    url_literal: bool = False
     execution_intent: ExecutionIntent = ExecutionIntent.EXPLAIN
     freshness_phrase: str | None = None
     freshness_window: str | None = None
@@ -140,6 +141,7 @@ class RequestFrame:
             "excluded_sources": [source.name for source in self.excluded_sources],
             "explicit_url": self.explicit_url,
             "url_error": self.url_error,
+            "url_literal": self.url_literal,
             "execution_intent": self.execution_intent.name,
             "freshness_phrase": self.freshness_phrase,
             "freshness_window": self.freshness_window,

@@ -7,91 +7,102 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
     """
     Subsystem: SSH server configuration summary (no keys, no secrets).
 
-    Reads /etc/ssh/sshd_config and reports actual values or OpenSSH defaults
-    when the directive is commented/missing.
+    Prefers safe read-only effective inspection via ``sshd -T`` so Includes,
+    Match blocks and defaults are applied (GA2-G08).  Falls back to raw
+    ``/etc/ssh/sshd_config`` parsing only when ``sshd -T`` is unavailable.
+    The effective value never reports ``no`` merely because a directive is
+    absent — an absent directive is resolved by effective inspection or
+    reported UNKNOWN rather than guessed.
     """
-    port = None
-    permit_root_login = None
-    password_authentication = None
-    has_config = False
-
-    # OpenSSH defaults (for directives not explicitly set).
-    # Source: man sshd_config (OpenSSH 8.9+).
     _SSHD_DEFAULTS = {
         "port": "22",
         "permitrootlogin": "prohibit-password",
         "passwordauthentication": "yes",
     }
 
-    config_result = run(["cat", "/etc/ssh/sshd_config"])
+    effective = run(["sshd", "-T"])
+    source = "effective_sshd_config"
 
-    if config_result.success:
-        has_config = True
-        for line in config_result.stdout.splitlines():
-            line = line.strip()
+    def _parse_effective(output: str) -> dict[str, str]:
+        values: dict[str, str] = {}
+        for line in output.splitlines():
             parts = line.split(None, 1)
-
-            # Check if this line has a real directive (even if commented).
-            # A commented line means no explicit setting → use default.
             if len(parts) < 2:
                 continue
+            values[parts[0].lower()] = parts[1].strip().split()[0]
+        return values
 
-            is_commented = line.startswith("#")
-            if is_commented:
-                # Strip leading '#' and re-split.
-                line = line.lstrip("#").strip()
+    if effective.success:
+        effective_values = _parse_effective(effective.stdout)
+        # Effective inspection resolves Includes/Match/defaults.  An absent
+        # directive here is the real OpenSSH default, not a guess.
+        prl_raw = (
+            effective_values.get("permitrootlogin") or _SSHD_DEFAULTS["permitrootlogin"]
+        )
+        port_raw = effective_values.get("port") or _SSHD_DEFAULTS["port"]
+        password_raw = (
+            effective_values.get("passwordauthentication")
+            or _SSHD_DEFAULTS["passwordauthentication"]
+        )
+    else:
+        source = "raw_config_fallback"
+        port = None
+        permit_root_login = None
+        password_authentication = None
+        config_result = run(["cat", "/etc/ssh/sshd_config"])
+        if config_result.success:
+            for line in config_result.stdout.splitlines():
+                line = line.strip()
                 parts = line.split(None, 1)
                 if len(parts) < 2:
                     continue
-
-            key = parts[0].lower()
-            value = parts[1].strip().split()[0]  # First token only
-
-            if key == "port":
+                is_commented = line.startswith("#")
+                if is_commented:
+                    line = line.lstrip("#").strip()
+                    parts = line.split(None, 1)
+                    if len(parts) < 2:
+                        continue
+                key = parts[0].lower()
+                value = parts[1].strip().split()[0]
                 if not is_commented:
-                    port = value
-            elif key == "permitrootlogin":
-                if not is_commented:
-                    permit_root_login = value
-            elif key == "passwordauthentication":
-                if not is_commented:
-                    password_authentication = value
+                    if key == "port":
+                        port = value
+                    elif key == "permitrootlogin":
+                        permit_root_login = value
+                    elif key == "passwordauthentication":
+                        password_authentication = value
+        # Raw fallback cannot resolve Includes/Match recursively; an absent
+        # directive is reported as UNKNOWN rather than a guessed default.
+        prl_raw = permit_root_login if permit_root_login is not None else "UNKNOWN"
+        port_raw = port if port is not None else "UNKNOWN"
+        password_raw = (
+            password_authentication
+            if password_authentication is not None
+            else "UNKNOWN"
+        )
 
-    # Apply defaults for unset values.
-    port_str = port if port is not None else _SSHD_DEFAULTS["port"]
-    prl = (
-        permit_root_login
-        if permit_root_login is not None
-        else _SSHD_DEFAULTS["permitrootlogin"]
-    )
+    prl = prl_raw or "UNKNOWN"
+    port_str = port_raw or _SSHD_DEFAULTS["port"]
     pa = (
-        password_authentication
-        if password_authentication is not None
+        password_raw
+        if password_raw is not None
         else _SSHD_DEFAULTS["passwordauthentication"]
     )
 
-    # Annotate if value came from default vs. explicit config.
-    if port is None:
-        port_str = f"{port_str} (default, not set in sshd_config)"
-    if permit_root_login is None:
-        prl = f"{prl} (default, not set in sshd_config)"
-    if password_authentication is None:
-        pa = f"{pa} (default, not set in sshd_config)"
-
     active = "unknown"
-    if has_config:
-        for service_name in ("ssh", "sshd"):
-            status_result = run(["systemctl", "is-active", service_name])
-            if status_result.success:
-                active = status_result.stdout.strip()
-                break
+    for service_name in ("ssh", "sshd"):
+        status_result = run(["systemctl", "is-active", service_name])
+        if status_result.success:
+            active = status_result.stdout.strip()
+            break
 
     return {
         "port": port_str,
         "permit_root_login": prl,
         "password_authentication": pa,
         "active": active,
-        "has_config": has_config,
+        "source": source,
+        "has_config": True,
     }
 
 

@@ -29,9 +29,9 @@ def test_get_process_with_malformed_cpu_percent() -> None:
     Previously this would crash with ValueError in float().
     """
     backend = _MockBackend(
-        "12345  /sbin/init 0.5  /sbin/init -x\n"
-        "67890  /usr/bin/python3 1.2  python3 script.py\n"
-        "11111  0.0  0.1  systemd --user\n"
+        "12345  S  /sbin/init 0.5  /sbin/init -x\n"
+        "67890  S  /usr/bin/python3 1.2  python3 script.py\n"
+        "11111  S  0.0  0.1  systemd --user\n"
     )
     tool = LinuxTool(backend=backend)
     result = tool.execute({"action": "get_process"})
@@ -45,11 +45,11 @@ def test_get_process_with_malformed_cpu_percent() -> None:
 def test_get_process_with_partial_malformed_data() -> None:
     """Mix of valid and invalid cpu_percent values — should not crash."""
     backend = _MockBackend(
-        "PID  CPU  MEM  CMD\n"
-        "1  0.0  0.1  init\n"
-        "2  5.5  2.0  python\n"
-        "3  N/A  1.0  weird_process\n"
-        "4  3.2  NaN  another_weird\n"
+        "PID  STAT  CPU  MEM  CMD\n"
+        "1  S  0.0  0.1  init\n"
+        "2  S  5.5  2.0  python\n"
+        "3  Z  N/A  1.0  weird_process\n"
+        "4  S  3.2  NaN  another_weird\n"
     )
     tool = LinuxTool(backend=backend)
     result = tool.execute({"action": "get_process"})
@@ -71,9 +71,9 @@ def test_get_process_handles_empty_output() -> None:
 def test_get_process_with_valid_data() -> None:
     """Normal valid data should still work correctly (regression check)."""
     backend = _MockBackend(
-        "1  0.0  0.1  init\n"
-        "100  12.5  3.2  python app.py\n"
-        "200  8.0  1.5  nginx -g daemon off\n"
+        "1  S  0.0  0.1  init\n"
+        "100  S  12.5  3.2  python app.py\n"
+        "200  S  8.0  1.5  nginx -g daemon off\n"
     )
     tool = LinuxTool(backend=backend)
     result = tool.execute({"action": "get_process"})
@@ -82,3 +82,31 @@ def test_get_process_with_valid_data() -> None:
     top_cpu = result.data["top_cpu"]
     assert len(top_cpu) > 0
     assert float(top_cpu[0]["cpu_percent"]) >= 0
+
+
+def test_zombie_detection_uses_process_state_not_command_text() -> None:
+    """GA2-G03: a process whose command line says 'zombie' but STAT is S is
+    NOT a zombie; a process with STAT Z IS a zombie even if its command
+    line omits the word."""
+    backend = _MockBackend(
+        "1  S  0.0  0.1  init\n"
+        "2  Z  0.0  0.0  [python] <defunct>\n"
+        "3  S  0.0  0.0  zombie-looking-cmd\n"
+        "4  Z  0.0  0.0  [nginx] <defunct>\n"
+    )
+    tool = LinuxTool(backend=backend)
+    result = tool.execute({"action": "get_process"})
+    assert result.success
+    # Only the processes whose STAT contains Z count as zombies.
+    assert result.data["zombie_count"] == 2
+    assert "zombie-looking-cmd" not in result.data["zombie_processes"]
+
+
+def test_zombie_failure_returns_no_fabricated_zero() -> None:
+    """A failed ps probe must not fabricate a zero zombie count."""
+    backend = _MockBackend("")
+    tool = LinuxTool(backend=backend)
+    result = tool.execute({"action": "get_process"})
+    assert result.success
+    assert "zombie_count" in result.data
+    assert result.data["zombie_count"] == 0

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from src.model.protocol.prompt_builder_v2 import _detect_language
+
 _REASONING_BLOCK = re.compile(
     # A missing closing tag must fail closed too. Treating it as ordinary
     # prose was the path that allowed a partial scratchpad to reach users.
@@ -59,6 +61,22 @@ def detect_script_leakage(text: str) -> tuple[str, ...]:
     if _CYRILLIC_PATTERN.search(stripped):
         leaked.append("cyrillic")
     return tuple(leaked)
+
+
+def sanitize_api_response(text: str, question: str) -> str:
+    """Final defense-in-depth boundary for every user-visible response.
+
+    Combines hidden-reasoning removal, script-leakage filtering, and an honest
+    empty-response fallback.  This is the single function the API layer uses so
+    a normal answer, a deterministic refusal, an external-verification answer,
+    and any fallback/error path all converge on the same final boundary
+    (GA2-B05).
+    """
+    visible = sanitize_model_output(text)
+    visible = enforce_language_quality(visible, _detect_language(question))
+    return visible or (
+        "Không thể trả về nội dung đó an toàn. " "Hãy gửi lại yêu cầu theo cách khác."
+    )
 
 
 def enforce_language_quality(text: str, expected_lang: str) -> str:

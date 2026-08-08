@@ -1,0 +1,76 @@
+"""GA2-H04: deterministic basic calculator regression coverage."""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+from src.pipeline.basic_calculator import (
+    calculate,
+    format_value,
+    looks_like_arithmetic,
+)
+
+
+def test_basic_subtraction() -> None:
+    result = calculate("64 - 18")
+    assert result.ok is True
+    assert result.value == Decimal("46")
+
+
+def test_average_function() -> None:
+    result = calculate("average(20, 40, 60)")
+    assert result.ok is True
+    assert result.value == Decimal("40")
+
+
+def test_parentheses_and_multiplication() -> None:
+    result = calculate("(8 + 2) * 3")
+    assert result.ok is True
+    assert result.value == Decimal("30")
+
+
+def test_division() -> None:
+    result = calculate("10 / 4")
+    assert result.ok is True
+    assert result.value == Decimal("2.5")
+
+
+def test_division_by_zero_fails_closed() -> None:
+    result = calculate("1 / 0")
+    assert result.ok is False
+    assert "division by zero" in (result.error or "")
+
+
+def test_min_max_functions() -> None:
+    assert calculate("min(3, 1, 2)").value == Decimal("1")
+    assert calculate("max(3, 1, 2)").value == Decimal("3")
+
+
+def test_unsafe_expression_rejected() -> None:
+    result = calculate("__import__('os').system('id')")
+    assert result.ok is False
+    assert result.value is None
+
+
+def test_nested_function_call_is_allowed_safe() -> None:
+    """Nested calls still use only the safe grammar (no variables, imports,
+    attributes); they are intentionally allowed."""
+    result = calculate("average(1, min(2, 3))")
+    assert result.ok is True
+    assert result.value == Decimal("1.5")
+
+
+def test_variables_rejected() -> None:
+    result = calculate("x + 1")
+    assert result.ok is False
+
+
+def test_looks_like_arithmetic_guard() -> None:
+    assert looks_like_arithmetic("64 - 18") is True
+    assert looks_like_arithmetic("average(20, 40, 60)") is True
+    assert looks_like_arithmetic("viết script") is False
+
+
+def test_format_value_integer_and_fraction() -> None:
+    assert format_value(Decimal("46")) == "46"
+    assert format_value(Decimal("2.50")) == "2.5"

@@ -21,6 +21,7 @@ from src.model.protocol.prompt_builder_v2 import (
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.basic_calculator import calculate, format_value, looks_like_arithmetic
 from src.pipeline.clarification_responder import ClarificationResponder
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
@@ -40,6 +41,11 @@ from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.normalizer import Normalizer
+from src.pipeline.provenance_responder import (
+    ProvenanceAnswer,
+    ProvenanceResponder,
+)
+from src.pipeline.repetition_detector import RepetitionDetector
 from src.pipeline.request_decomposer import RequestDecomposer
 from src.pipeline.request_semantics import (
     ExecutionIntent,
@@ -147,6 +153,12 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
+        arithmetic = self._arithmetic_response(user_request)
+        if arithmetic is not None:
+            return arithmetic
+        provenance = self._provenance_response(user_request)
+        if provenance is not None:
+            return provenance
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
             return reset_response
@@ -221,6 +233,52 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
+        arithmetic = self._arithmetic_response(user_request)
+        if arithmetic is not None:
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=RoutingStatus.RESOLVED)
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.RESOLVED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            return {
+                "response": arithmetic,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+        provenance = self._provenance_response(user_request)
+        if provenance is not None:
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=RoutingStatus.RESOLVED)
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.RESOLVED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            return {
+                "response": provenance,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
             frame = (
@@ -485,6 +543,45 @@ class DeterministicAgent:
                 "execution_trace": trace.to_dict(),
             }
 
+    def _arithmetic_response(self, user_request: str) -> str | None:
+        """GA2-H04: deterministic answer for pure self-contained arithmetic."""
+        cleaned = user_request.strip()
+        if not looks_like_arithmetic(cleaned):
+            return None
+        result = calculate(cleaned)
+        if not result.ok or result.value is None:
+            # Missing/invalid inputs are never invented; the caller routes to
+            # pipeline/chat which can ask for the missing values.
+            return None
+        lang = _detect_language(user_request)
+        value = format_value(result.value)
+        if lang == "en":
+            return f"Result: {value}"
+        return f"Kết quả: {value}"
+
+    def _provenance_response(self, user_request: str) -> str | None:
+        """GA2-E08: answer provenance questions deterministically from session
+        metadata, never by asking the model to guess from prose."""
+        if not ProvenanceResponder.is_provenance_question(user_request):
+            return None
+        lang = _detect_language(user_request)
+        sources = ProvenanceResponder.sources_from_constraints(
+            self._session_context.active_sources
+        )
+        answer = ProvenanceAnswer(
+            sources=sources,
+            target=self._session_context.active_target,
+            concepts=(
+                (self._session_context.active_concept,)
+                if self._session_context.active_concept
+                else ()
+            ),
+        )
+        response = ProvenanceResponder().respond(answer, lang=lang)
+        if self._conversation_store:
+            self._conversation_store.add_turn(user_request, response)
+        return response
+
     def _build_execution_trace(
         self,
         investigation: InvestigationRequest,
@@ -704,10 +801,42 @@ class DeterministicAgent:
         if links:
             response += "\n\n---\n\n" + links
 
+        # GA2-D08: a confident SHORT request trims assessment boilerplate
+        # (never hides warnings/refusal reasons or provenance).
+        if self._answer_shape_is_short(user_request):
+            response = self._trim_to_short(response)
+
+        # GA2-H12: pathological repetition must not reach the user.
+        repetition = RepetitionDetector.detect(response)
+        if repetition.pathological and repetition.recovered_text:
+            response = repetition.recovered_text
+
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
 
         return response
+
+    def _answer_shape_is_short(self, user_request: str) -> bool:
+        """GA2-D08: SHORT applies for this request or the session request."""
+        current = SessionContextResolver.requested_answer_shape(user_request)
+        if current == "SHORT":
+            return True
+        return (
+            self._session_context.requested_answer_shape == "SHORT"
+            and SessionContextResolver.is_follow_up_request(user_request)
+        )
+
+    @staticmethod
+    def _trim_to_short(response: str) -> str:
+        """Keep the substantive answer while dropping boilerplate sections.
+
+        Refusal reasons, warnings, and provenance are non-removable: the trim
+        only removes deep-link/reference trailers after a '---' separator and
+        collapses extra blank lines.
+        """
+        if "---" in response:
+            response = response.split("---", 1)[0].rstrip()
+        return "\n".join(line for line in response.splitlines() if line.strip())
 
     def _is_knowledge_question(self, user_request: str) -> bool:
         """Check if the request is a general knowledge question (e.g. K8s)."""
@@ -1362,9 +1491,15 @@ class DeterministicAgent:
         import re
 
         if sensitive_refusal(user_request) is not None:
+            language = _detect_language(user_request)
+            if language == "en":
+                return (
+                    "I cannot disclose hidden instructions, secrets, credentials, "
+                    "or credential files."
+                )
             return (
-                "I cannot disclose hidden instructions, secrets, credentials, "
-                "or credential files."
+                "Tôi không thể tiết lộ hướng dẫn nội bộ, bí mật, thông tin "
+                "đăng nhập hoặc tệp chứa thông tin xác thực."
             )
 
         dangerous_patterns = [
@@ -1486,6 +1621,16 @@ class DeterministicAgent:
         ):
             context = context.switch_target(frame.target_resolved)
         context = context.update_from_frame(frame)
+        # GA2-D08: persist a confident answer-shape request into the session
+        # for later response construction (never a tool/source decision).
+        shape = SessionContextResolver.requested_answer_shape(frame.raw_request)
+        if shape is not None:
+            context = context.with_answer_shape(shape)
+        # GA2-D07: persist a corrected concept so later turns inherit it.
+        if SessionContextResolver.is_correction_request(frame.raw_request):
+            corrected = SessionContextResolver.corrected_concept(frame.raw_request)
+            if corrected is not None:
+                context = context.with_corrected_concept(corrected)
         self._session_context = context
         setter = getattr(self._conversation_store, "set_investigation_context", None)
         if callable(setter):

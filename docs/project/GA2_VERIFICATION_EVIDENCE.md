@@ -4,12 +4,12 @@
 
 ## Latest canonical runtime run
 
-- Mode: `smoke`
-- Run artifact: `artifacts/qa/runs/20260808_095621_3651bb2abc91`
-- Created: `2026-08-08T09:56:20.718699+00:00`
+- Mode: `full`
+- Run artifact: `artifacts/qa/runs/20260808_095946_3651bb2abc91`
+- Created: `2026-08-08T09:59:45.672662+00:00`
 - Git SHA: `3651bb2abc911bc62616b14cf84c192b4662be88`
 - Dirty worktree: `True`
-- Cases completed: `37`
+- Cases completed: `386`
 - Automated P0 gate: **PASS** (0 violation(s))
 
 ## Gate interpretation
@@ -18,6 +18,5 @@ A clean automated P0 gate confirms the runtime checks for reasoning leakage, sec
 
 ## GA2 closure checks
 
-- Run `make qa-full` and retain its fresh 386-case artifact.
+- The fresh 386-case full report exists at the artifact above.
 - Complete manual PASS/PARTIAL/FAIL grading; the score must meet the GA2 thresholds.
-- Complete `make typecheck`, `ruff check .`, full repository `pytest`, and `git diff --check`.

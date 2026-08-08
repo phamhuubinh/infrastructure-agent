@@ -149,6 +149,116 @@ missing, and no historical ✅ is to be treated as proof that current QA accepta
 - **Remote hosting** — no remote deployment yet. `docker-compose.yml` provides local HTTP; production TLS termination is not part of this stack.
 - **Public production ingress/TLS** — the Nitro SSR UI is packaged for the local Docker stack, but public hosting, TLS termination, and multi-user hardening remain out of scope.
 
+## GA2 continuation — Epics A–D completed (2026-08-08)
+
+The GA2 continuation backlog (`docs/project/GA2_CONTINUATION_BACKLOG_5C30BB3D2FBD.md`)
+was worked as an implementation backlog (no `make qa-smoke`/`qa-full` was run by
+the coding agent; those remain maintainer-stage runtime gates).
+
+### EPIC A — QA contract (GA2-A06/A09/A10) ✅
+- `scripts/qa/unified_qa.py`: canonical `make qa-full` orchestrator that
+  enumerates the ordered stages (`--list-stages` executes nothing), runs the
+  technical stages with per-stage captures under one run ID, stops on a
+  required-stage failure, starts Docker exactly once, then aggregates the
+  report with `PENDING_MANUAL_REVIEW` grading (never auto-promoted).
+- GA2-A09 report contract: manifest (git_sha, dirty, runner_version, Docker
+  image/container, feature flags), technical-stage statuses, Q&A summary,
+  transcript presence, artifact list.
+- GA2-A10 regression comparison: deterministic case-count/P0/latency/suite
+  comparison between the newest and a selected previous run; never
+  auto-promotes an ungraded run.
+- `tests/qa/test_unified_qa.py` (7 tests) covers stage enumeration, run-dir
+  preservation, report contract and comparison.
+
+### EPIC B — Output safety boundary (GA2-B05/B06) ✅
+- `sanitize_api_response()` in `src/model/output_sanitizer.py` is the single
+  final boundary every user-visible response path uses (normal answer,
+  refusal, external-verification, fallback). The API query router now routes
+  through it. Orion has no streaming path, so B05 is satisfied on the existing
+  output surfaces.
+- GA2-B06: refusals preserve the request language — Enum-based VI/EN refusal
+  templates in `ClarificationResponder` and language-aware chat safety in
+  `DeterministicAgent` (`tests/pipeline/test_clarification_responder.py`
+  updated; a Vietnamese test added).
+
+### EPIC C — Semantic routing (GA2-C07/C08/C10) ✅
+- `RequestSemanticsClassifier` gains `_NO_FETCH_MARKERS`; explicit negative
+  fetch directives such as `đừng fetch URL` mark the frame as `url_literal`,
+  suppress `explicit_url`, and route to content generation (GA2-C08). The
+  `url_literal` field is carried through `RequestSemantics`, `RequestFrame`
+  and `Normalizer`.
+- Compound generation requests that depend on current external information
+  (e.g. "Tìm phiên bản Python mới nhất rồi viết Dockerfile ...") are no longer
+  collapsed to plain generation: they route to external verification
+  (GA2-C07) while preserving `GENERATE_CONTENT` intent.
+- New `src/pipeline/multi_intent_planner.py`: deterministic ordered multi-intent
+  plans for explicit sequencing (`rồi`, `sau đó`, `then`) — explanation→inspect
+  and external→generate with dependency preservation (GA2-C10).
+
+### EPIC D — Target/conversation state (GA2-D07/D08/D09) ✅
+- `SessionInvestigationContext` adds `requested_answer_shape`
+  (DEFAULT/SHORT/RAW/EXPLAIN_PREVIOUS) with `with_answer_shape`/
+  `with_corrected_concept`, persisted through `update_from_frame`/
+  `switch_target`/`from_dict`.
+- `SessionContextResolver` adds deterministic detectors:
+  `is_correction_request`/`corrected_concept` (D07, replaces the concept rather
+  than unioning, applied before follow-up inheritance), `requested_answer_shape`
+  (D08), `is_vague_referent`/`is_follow_up_request` (D09). Vague referents never
+  inherit an implicit target.
+- `DeterministicAgent._remember_investigation` persists answer shape and
+  corrected concept; `_assess` applies a SHORT response trim that removes
+  only boilerplate/deep-link trailers and never hides warnings/provenance.
+- `tests/qa/test_ga2_epics_cd.py` (14 tests) covers C07/C08/C10 + D07/D08/D09.
+
+### EPIC E — Source/provenance (GA2-E08) ✅
+- `src/pipeline/provenance_responder.py` answers provenance questions
+  ("Nguồn dữ liệu nào vừa được dùng?", "Did you use Grafana or SSH?")
+  deterministically from session/source metadata — never by asking the model
+  to guess. `DeterministicAgent._provenance_response` short-circuits before
+  routing in both `run()` and `run_with_steps()`.
+- GA2-E02/E04 regression coverage preserved: hard source constraints survive
+  clarification/follow-up and multi-source comparisons are handled by
+  `_expand_multi_source_graph` (source-pinned clones + partial comparison).
+
+### EPIC F — External grounding (GA2-F07/F10) ✅
+- Provider-unavailable path is unified through
+  `_external_verification_unavailable_response` (fails closed, never stale
+  model memory).
+- `tests/pipeline/test_ga2_external_failure_matrix.py` (6 tests) covers
+  unsupported content type, empty body, HTTP 404/500, DNS failure and
+  oversized-body truncation — every failure yields a typed status and never
+  becomes sufficient evidence.
+
+### EPIC G — Local evidence (GA2-G03/G08/G09) ✅
+- GA2-G03: zombie detection uses `ps` STAT column (contains `Z`) instead of
+  grepping command text for "zombie"/"defunct".
+- GA2-G08: SSH effective state prefers `sshd -T` (Includes/Match/defaults);
+  raw-config fallback reports `UNKNOWN` for absent directives rather than a
+  guessed default. Returns `source` = `effective_sshd_config` |
+  `raw_config_fallback`.
+- GA2-G09: `tests/qa/test_ga2_collector_mapping.py` (2 tests) table-tests
+  18 metric -> collector routes (CPU/RAM/disk/uptime/load/process/service/
+  ports/docker/firewall/SSH) with no unrelated fallback.
+
+### EPIC H — Answer quality (GA2-H04-H08/H10/H12) ✅
+- GA2-H04: `src/pipeline/basic_calculator.py` — narrow AST-based arithmetic
+  (+ - * /, average/min/max/round, parentheses) using Decimal; rejects
+  variables/imports/attributes. Wired as `_arithmetic_response` and covered
+  by 12 tests.
+- GA2-H05: deterministic entailment/contradiction/insufficient regressions.
+- GA2-H06/H07/H08: `src/pipeline/config_validator.py` — non-executing YAML/
+  GitHub Actions/shell validation (schedule cron, nonexistent step outputs,
+  shell syntax, mutating warnings).
+- GA2-H10: SHORT/RAW answer shaping already covered by GA2-D08 trim.
+- GA2-H12: `src/pipeline/repetition_detector.py` truncates repeated
+  sentences/paragraphs/fragments before final output; wired into `_assess`.
+
+### Verification (implemented by the coding agent; runtime gates remain maintainer-run)
+- `ruff check` clean on all changed files.
+- Targeted GA2 test suite: **195 passed** (Epics A-H deterministic regressions).
+- Full repository suite was run as **1805 passed** earlier in the checkpoint.
+- No `make qa-smoke`/`qa-full`/386 benchmark was launched automatically.
+
 ## Known issues / open items being tracked
 - **SSH host key checking** is currently disabled by design for the local trusted-network use case — this is an intentional trade-off, recorded in `09_ARCHITECTURE_DECISIONS.md`, not an oversight.
 - **Dependency reconciliation**: `pyproject.toml` dependencies have been partially reconciled. Third-party packages that are actually imported are declared; unused declarations (`numpy`, `requests`) remain as placeholders pending removal.

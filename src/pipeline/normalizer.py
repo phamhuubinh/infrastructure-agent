@@ -136,9 +136,7 @@ class Normalizer:
                     self._action_map[syn_lower] = {
                         "action": action_name,
                     }
-                    self._action_aliases.setdefault(action_name, set()).add(
-                        syn_lower
-                    )
+                    self._action_aliases.setdefault(action_name, set()).add(syn_lower)
 
         self._concept_retriever = SemanticCandidateRetriever(self._concept_aliases)
         self._action_retriever = SemanticCandidateRetriever(self._action_aliases)
@@ -172,6 +170,7 @@ class Normalizer:
                 excluded_sources=semantics.excluded_sources,
                 explicit_url=semantics.explicit_url,
                 url_error=semantics.url_error,
+                url_literal=semantics.url_literal,
                 execution_intent=semantics.execution_intent,
                 freshness_phrase=semantics.freshness_phrase,
                 freshness_window=semantics.freshness_window,
@@ -215,9 +214,7 @@ class Normalizer:
                 None,
             )
             if specific_fuzzy is not None:
-                concept_matches = [
-                    (specific_fuzzy.label, specific_fuzzy.matched_text)
-                ]
+                concept_matches = [(specific_fuzzy.label, specific_fuzzy.matched_text)]
 
         if not concept_matches and self._concept_retriever is not None:
             validation = self._concept_retriever.validate(
@@ -333,6 +330,7 @@ class Normalizer:
             excluded_sources=semantics.excluded_sources,
             explicit_url=semantics.explicit_url,
             url_error=semantics.url_error,
+            url_literal=semantics.url_literal,
             execution_intent=semantics.execution_intent,
             freshness_phrase=semantics.freshness_phrase,
             freshness_window=semantics.freshness_window,

@@ -37,6 +37,19 @@ def test_unsupported_action_is_read_only_refusal() -> None:
         request_frame=Normalizer().normalize("restart nginx"),
     )
 
+    # GA2-B06: refusal follows the request language.  "restart nginx" is
+    # English -> English refusal.
+    response = ClarificationResponder().respond(decision)
+    assert "read-only" in response
+    assert "không thực hiện" not in response
+
+
+def test_unsupported_action_vietnamese_gets_vietnamese_refusal() -> None:
+    decision = RoutingDecision(
+        status=RoutingStatus.UNSUPPORTED,
+        request_frame=Normalizer().normalize("restart nginx ngay bây giờ"),
+    )
+
     response = ClarificationResponder().respond(decision)
     assert "read-only" in response
     assert "không thực hiện" in response

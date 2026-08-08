@@ -12,7 +12,7 @@ def _get_process(run: CommandRunner) -> dict[str, object]:
         [
             "ps",
             "-eo",
-            "pid=,pcpu=,pmem=,args=",
+            "pid=,stat=,pcpu=,pmem=,args=",
             "--no-headers",
         ]
     )
@@ -23,18 +23,19 @@ def _get_process(run: CommandRunner) -> dict[str, object]:
         return {}
 
     for line in result.stdout.splitlines():
-        parts = line.split(None, 3)
+        parts = line.split(None, 4)
 
-        if len(parts) < 4:
+        if len(parts) < 5:
             continue
 
-        pid, pcpu, pmem, args = parts
+        pid, stat, pcpu, pmem, args = parts
         if not pid.isdigit():
             continue
 
         processes.append(
             {
                 "pid": int(pid),
+                "state": stat,
                 "command": args,
                 "cpu_percent": pcpu,
                 "memory_percent": pmem,
@@ -69,31 +70,30 @@ def _get_process(run: CommandRunner) -> dict[str, object]:
         if len(cmd) > 40:
             p["command"] = cmd[:40] + "..."
 
-    zombie_count = sum(
-        1 for p in processes if "zombie" in str(p.get("command", "")).lower()
-    )
-    defunct_count = sum(
-        1 for p in processes if "defunct" in str(p.get("command", "")).lower()
-    )
+    # GA2-G03: zombie detection must rely on process state semantics (STAT
+    # contains 'Z'), not merely finding 'zombie'/'defunct' in a command line.
+    zombie_processes = [
+        str(p.get("command", ""))[:80]
+        for p in processes
+        if "Z" in str(p.get("state", ""))
+    ]
+    zombie_count = len(zombie_processes)
 
     return {
         "total": len(processes),
         "summary": f"{len(processes)} running processes",
-        "zombie_count": zombie_count + defunct_count,
+        "zombie_count": zombie_count,
+        "zombie_processes": zombie_processes[:20],
         "top_cpu": top_by_cpu,
         "top_memory": top_by_mem,
     }
 
 
-def _get_process_by_name(
-    run: CommandRunner, name: str = ""
-) -> dict[str, object]:
+def _get_process_by_name(run: CommandRunner, name: str = "") -> dict[str, object]:
     return _search_process(run, query=name) if name else _get_process(run)
 
 
-def _search_process(
-    run: CommandRunner, query: str = ""
-) -> dict[str, object]:
+def _search_process(run: CommandRunner, query: str = "") -> dict[str, object]:
     """
     Deterministic process search. Filters full command lines inside the Tool.
     """

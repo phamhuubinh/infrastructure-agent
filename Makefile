@@ -36,10 +36,8 @@ benchmark:
 qa-smoke:
 	$(PYTHON) scripts/qa/ga2_runner.py --mode smoke --fail-fast
 
-qa-full: typecheck
-	ruff check .
-	$(PYTHON) -m pytest -q
-	$(PYTHON) scripts/qa/ga2_runner.py --mode full
+qa-full:
+	$(PYTHON) scripts/qa/unified_qa.py
 
 desktop-install:
 	cd desktop && npm install

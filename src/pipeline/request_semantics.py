@@ -76,6 +76,7 @@ class RequestSemantics:
     excluded_sources: tuple[SourceConstraint, ...] = ()
     explicit_url: str | None = None
     url_error: str | None = None
+    url_literal: bool = False
     execution_intent: ExecutionIntent = ExecutionIntent.EXPLAIN
     freshness_phrase: str | None = None
     freshness_window: str | None = None
@@ -131,6 +132,37 @@ class RequestSemanticsClassifier:
         "kiểm chứng trên internet",
         "tra cứu trực tuyến",
         "theo tài liệu mới nhất",
+    )
+    # GA2-C08: explicit negative fetch directives.  A URL embedded in
+    # requested content is a literal, not an authorization to fetch.
+    # These are deliberately narrow — a generic "write" instruction is not
+    # treated as a no-fetch directive on its own.
+    _NO_FETCH_MARKERS = (
+        "đừng fetch",
+        "dung fetch",
+        "không fetch",
+        "khong fetch",
+        "không cần fetch",
+        "khong can fetch",
+        "don't fetch",
+        "dont fetch",
+        "do not fetch",
+        "don't access",
+        "dont access",
+        "do not access",
+        "không truy cập url",
+        "khong truy cap url",
+        "không cần truy cập",
+        "khong can truy cap",
+        "đừng đọc url",
+        "dung doc url",
+        "don't download",
+        "dont download",
+        "do not download",
+        "không tải url",
+        "khong tai url",
+        "nhưng đừng tải",
+        "nhung dung tai",
     )
     _EXTERNAL_CURRENT_MARKERS = (
         "giá",
@@ -311,16 +343,41 @@ class RequestSemanticsClassifier:
         source_constraints, excluded_sources = self._source_constraints(lower)
         execution_intent = self._execution_intent(lower)
         freshness_phrase, freshness_window = self._freshness(lower)
+        url_literal = explicit_url is not None and any(
+            marker in lower for marker in self._NO_FETCH_MARKERS
+        )
 
         if explicit_url is not None or url_error is not None:
+            if url_literal:
+                # GA2-C08: explicit negative directives win.  The URL is part
+                # of requested content, not an authorization to fetch it.
+                return RequestSemantics(
+                    domain=RequestDomain.CONTENT_GENERATION,
+                    information_scope=InformationScope.STABLE_KNOWLEDGE,
+                    external_need=ExternalNeed.NONE,
+                    source_constraints=source_constraints,
+                    excluded_sources=excluded_sources,
+                    explicit_url=None,
+                    url_literal=True,
+                    execution_intent=(
+                        ExecutionIntent.GENERATE_CONTENT
+                        if execution_intent is not ExecutionIntent.EXPLAIN
+                        else execution_intent
+                    ),
+                    freshness_phrase=freshness_phrase,
+                    freshness_window=freshness_window,
+                )
             # Preserve an explicit negative source directive alongside the
             # URL contract.  A URL never authorizes silently ignoring a
             # previously parsed "no Internet" constraint.
-            url_constraints = (SourceConstraint.URL_ONLY, *(
-                source
-                for source in source_constraints
-                if source is not SourceConstraint.ANY
-            ))
+            url_constraints = (
+                SourceConstraint.URL_ONLY,
+                *(
+                    source
+                    for source in source_constraints
+                    if source is not SourceConstraint.ANY
+                ),
+            )
             return RequestSemantics(
                 domain=RequestDomain.EXTERNAL_INFORMATION,
                 information_scope=InformationScope.EXPLICIT_URL,
@@ -329,6 +386,7 @@ class RequestSemanticsClassifier:
                 excluded_sources=excluded_sources,
                 explicit_url=explicit_url,
                 url_error=url_error,
+                url_literal=False,
                 execution_intent=execution_intent,
                 freshness_phrase=freshness_phrase,
                 freshness_window=freshness_window,
@@ -346,11 +404,37 @@ class RequestSemanticsClassifier:
                 freshness_window=freshness_window,
             )
 
-        if execution_intent is ExecutionIntent.GENERATE_CONTENT:
+        # GA2-C07: a compound generation request that *depends on* current
+        # external information (e.g. "Tìm phiên bản Python mới nhất rồi viết
+        # Dockerfile dùng phiên bản đó") must not lose its external dependency
+        # merely because the final deliverable is generated content.  The
+        # freshness/external signal is preserved so routing enters the
+        # external-verification path; fail-closed behavior there prevents an
+        # unverified current version from reaching the artifact.
+        generation_needs_external = (
+            execution_intent is ExecutionIntent.GENERATE_CONTENT
+            and freshness_phrase is not None
+            and any(marker in lower for marker in self._EXTERNAL_CURRENT_MARKERS)
+        )
+        if (
+            execution_intent is ExecutionIntent.GENERATE_CONTENT
+            and not generation_needs_external
+        ):
             return RequestSemantics(
                 domain=RequestDomain.CONTENT_GENERATION,
                 information_scope=InformationScope.STABLE_KNOWLEDGE,
                 external_need=ExternalNeed.NONE,
+                source_constraints=source_constraints,
+                excluded_sources=excluded_sources,
+                execution_intent=execution_intent,
+                freshness_phrase=freshness_phrase,
+                freshness_window=freshness_window,
+            )
+        if generation_needs_external:
+            return RequestSemantics(
+                domain=RequestDomain.EXTERNAL_INFORMATION,
+                information_scope=InformationScope.CURRENT_EXTERNAL,
+                external_need=ExternalNeed.REQUIRED,
                 source_constraints=source_constraints,
                 excluded_sources=excluded_sources,
                 execution_intent=execution_intent,
@@ -394,25 +478,32 @@ class RequestSemanticsClassifier:
                 freshness_window=freshness_window,
             )
 
-        explicit_external = any(
-            marker in lower for marker in self._EXPLICIT_VERIFICATION_MARKERS
-        ) or SourceConstraint.INTERNET in source_constraints
+        explicit_external = (
+            any(marker in lower for marker in self._EXPLICIT_VERIFICATION_MARKERS)
+            or SourceConstraint.INTERNET in source_constraints
+        )
         local_current = self._is_local_current(
             lower,
             concepts=concepts,
             target_raw=target_raw,
             freshness_phrase=freshness_phrase,
         )
-        external_current = freshness_phrase is not None and not local_current and (
-            any(marker in lower for marker in self._EXTERNAL_CURRENT_MARKERS)
-            or freshness_phrase in {"latest", "today"}
+        external_current = (
+            freshness_phrase is not None
+            and not local_current
+            and (
+                any(marker in lower for marker in self._EXTERNAL_CURRENT_MARKERS)
+                or freshness_phrase in {"latest", "today"}
+            )
         )
         if explicit_external or external_current:
             return RequestSemantics(
                 domain=RequestDomain.EXTERNAL_INFORMATION,
                 information_scope=InformationScope.CURRENT_EXTERNAL,
                 external_need=(
-                    ExternalNeed.EXPLICIT if explicit_external else ExternalNeed.REQUIRED
+                    ExternalNeed.EXPLICIT
+                    if explicit_external
+                    else ExternalNeed.REQUIRED
                 ),
                 source_constraints=source_constraints,
                 excluded_sources=excluded_sources,
@@ -497,39 +588,70 @@ class RequestSemanticsClassifier:
             (
                 SourceConstraint.GRAFANA,
                 (
-                    "grafana only", "only grafana", "only use grafana",
-                    "use only grafana", "via grafana only", "chỉ dùng grafana",
-                    "chỉ qua grafana", "dùng duy nhất grafana", "chỉ lấy từ grafana",
+                    "grafana only",
+                    "only grafana",
+                    "only use grafana",
+                    "use only grafana",
+                    "via grafana only",
+                    "chỉ dùng grafana",
+                    "chỉ qua grafana",
+                    "dùng duy nhất grafana",
+                    "chỉ lấy từ grafana",
                 ),
             ),
             (
                 SourceConstraint.ZABBIX,
                 (
-                    "zabbix only", "only zabbix", "only use zabbix",
-                    "use only zabbix", "via zabbix only", "chỉ dùng zabbix",
-                    "chỉ qua zabbix", "dùng duy nhất zabbix", "chỉ lấy từ zabbix",
+                    "zabbix only",
+                    "only zabbix",
+                    "only use zabbix",
+                    "use only zabbix",
+                    "via zabbix only",
+                    "chỉ dùng zabbix",
+                    "chỉ qua zabbix",
+                    "dùng duy nhất zabbix",
+                    "chỉ lấy từ zabbix",
                 ),
             ),
             (
                 SourceConstraint.SSH,
                 (
-                    "ssh only", "only ssh", "only use ssh", "use only ssh",
-                    "via ssh only", "chỉ qua ssh", "chỉ dùng ssh", "dùng duy nhất ssh",
+                    "ssh only",
+                    "only ssh",
+                    "only use ssh",
+                    "use only ssh",
+                    "via ssh only",
+                    "chỉ qua ssh",
+                    "chỉ dùng ssh",
+                    "dùng duy nhất ssh",
                 ),
             ),
             (
                 SourceConstraint.LINUX,
                 (
-                    "linux only", "only linux", "only use linux", "use only linux",
-                    "via linux only", "chỉ dùng linux", "chỉ qua linux", "dùng duy nhất linux",
+                    "linux only",
+                    "only linux",
+                    "only use linux",
+                    "use only linux",
+                    "via linux only",
+                    "chỉ dùng linux",
+                    "chỉ qua linux",
+                    "dùng duy nhất linux",
                 ),
             ),
             (
                 SourceConstraint.INTERNET,
                 (
-                    "internet only", "web only", "only internet", "only web",
-                    "only use internet", "only use web", "use only internet",
-                    "chỉ dùng internet", "chỉ dùng web", "dùng duy nhất internet",
+                    "internet only",
+                    "web only",
+                    "only internet",
+                    "only web",
+                    "only use internet",
+                    "only use web",
+                    "use only internet",
+                    "chỉ dùng internet",
+                    "chỉ dùng web",
+                    "dùng duy nhất internet",
                 ),
             ),
         )
@@ -544,7 +666,10 @@ class RequestSemanticsClassifier:
             (SourceConstraint.ZABBIX, ("không dùng zabbix", "no zabbix")),
             (SourceConstraint.SSH, ("không dùng ssh", "no ssh")),
             (SourceConstraint.LINUX, ("không dùng linux", "no linux")),
-            (SourceConstraint.INTERNET, ("không dùng internet", "no internet", "không dùng web", "no web")),
+            (
+                SourceConstraint.INTERNET,
+                ("không dùng internet", "no internet", "không dùng web", "no web"),
+            ),
         )
         for source, phrases in negative_mappings:
             if any(phrase in lower for phrase in phrases):
@@ -575,7 +700,9 @@ class RequestSemanticsClassifier:
     def _execution_intent(self, lower: str) -> ExecutionIntent:
         if any(marker in lower for marker in self._GENERATION_MARKERS):
             return ExecutionIntent.GENERATE_CONTENT
-        if any(re.search(pattern, lower) for pattern in self._DESCRIPTIVE_ACTION_PATTERNS):
+        if any(
+            re.search(pattern, lower) for pattern in self._DESCRIPTIVE_ACTION_PATTERNS
+        ):
             return ExecutionIntent.INSPECT_READ_ONLY
         if any(marker in lower for marker in self._MUTATION_MARKERS):
             return ExecutionIntent.MUTATE_ENVIRONMENT
@@ -602,9 +729,13 @@ class RequestSemanticsClassifier:
         # X is the subject of an external fact, not an environment target.
         if any(marker in lower for marker in self._EXTERNAL_CURRENT_MARKERS):
             return False
-        if target_raw or any(marker in lower for marker in self._LOCAL_ENVIRONMENT_MARKERS):
+        if target_raw or any(
+            marker in lower for marker in self._LOCAL_ENVIRONMENT_MARKERS
+        ):
             return True
-        if any(marker in lower for marker in ("latest", "mới nhất", "stable", "release")):
+        if any(
+            marker in lower for marker in ("latest", "mới nhất", "stable", "release")
+        ):
             return False
         return bool(set(concepts) & self._LOCAL_CURRENT_CONCEPTS)
 
@@ -626,20 +757,24 @@ class RequestSemanticsClassifier:
             return True
         if any(marker in lower for marker in self._LOCAL_ENVIRONMENT_MARKERS):
             return True
-        return bool(set(concepts) & self._LOCAL_CURRENT_CONCEPTS) or any(
-            marker in lower
-            for marker in (
-                "kiểm tra",
-                "xem ",
-                "trạng thái",
-                "đang dùng",
-                "đang chạy",
-                "đang listen",
-                "check ",
-                "show ",
-                "running ",
-                "listen",
-                "usage",
-                "health",
+        return (
+            bool(set(concepts) & self._LOCAL_CURRENT_CONCEPTS)
+            or any(
+                marker in lower
+                for marker in (
+                    "kiểm tra",
+                    "xem ",
+                    "trạng thái",
+                    "đang dùng",
+                    "đang chạy",
+                    "đang listen",
+                    "check ",
+                    "show ",
+                    "running ",
+                    "listen",
+                    "usage",
+                    "health",
+                )
             )
-        ) and bool(set(concepts) & self._LOCAL_CURRENT_CONCEPTS)
+            and bool(set(concepts) & self._LOCAL_CURRENT_CONCEPTS)
+        )

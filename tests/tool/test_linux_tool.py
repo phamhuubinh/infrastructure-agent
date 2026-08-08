@@ -450,7 +450,7 @@ def test_get_dns_does_not_fabricate_empty_facts_on_failure(monkeypatch) -> None:
 def test_get_process_parses_ps_output(monkeypatch) -> None:
     def fake_run(command, timeout=5):
         if command[0] == "ps":
-            return True, "1 0.0 0.1 /sbin/init\n42 0.1 0.2 /usr/sbin/sshd\n"
+            return True, "1 S 0.0 0.1 /sbin/init\n42 S 0.1 0.2 /usr/sbin/sshd\n"
         return False, ""
 
     monkeypatch.setattr(
@@ -591,10 +591,18 @@ def test_get_package_does_not_fabricate_zero_when_all_probes_fail(
     _assert_collection_failed_without_data(result)
 
 
-def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
+def test_get_ssh_uses_effective_config_when_available(monkeypatch) -> None:
+    """GA2-G08: `sshd -T` provides the effective state (Includes/Match/defaults
+    already applied) and must win over raw config parsing."""
+    calls: list[list[str]] = []
+
     def fake_run(command, timeout=5):
-        if command == ["cat", "/etc/ssh/sshd_config"]:
-            return True, "Port 2222\nPermitRootLogin no\nPasswordAuthentication yes\n"
+        calls.append(command)
+        if command == ["sshd", "-T"]:
+            return (
+                True,
+                "port 2222\npermitrootlogin no\npasswordauthentication yes\n",
+            )
         if command == ["systemctl", "is-active", "ssh"]:
             return True, "active"
         return False, ""
@@ -609,13 +617,72 @@ def test_get_ssh_parses_sshd_config(monkeypatch) -> None:
     result = tool.execute({"action": "get_ssh"})
 
     assert result.success is True
+    assert ["sshd", "-T"] in calls
+    assert result.data["source"] == "effective_sshd_config"
     assert result.data == {
         "port": "2222",
         "permit_root_login": "no",
         "password_authentication": "yes",
         "active": "active",
+        "source": "effective_sshd_config",
         "has_config": True,
     }
+
+
+def test_get_ssh_absent_directive_in_effective_config_uses_default(monkeypatch) -> None:
+    """An absent directive in the effective output is resolved by sshd -T
+    (the effective value), not guessed."""
+
+    def fake_run(command, timeout=5):
+        if command == ["sshd", "-T"]:
+            return True, "port 22\npasswordauthentication yes\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data["source"] == "effective_sshd_config"
+    assert result.data["permit_root_login"] == "prohibit-password"
+
+
+def test_get_ssh_raw_config_fallback_reports_unknown_when_directive_absent(
+    monkeypatch,
+) -> None:
+    """GA2-G08: when sshd -T is unavailable, an absent raw directive is
+    UNKNOWN rather than a guessed default."""
+
+    def fake_run(command, timeout=5):
+        if command == ["sshd", "-T"]:
+            return False, "sshd not found"
+        if command == ["cat", "/etc/ssh/sshd_config"]:
+            return True, "Port 2222\nPermitRootLogin no\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+
+    tool = LinuxTool()
+    result = tool.execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data["source"] == "raw_config_fallback"
+    assert result.data["permit_root_login"] == "no"
+    # Absent directive in raw config -> UNKNOWN, never a default guess.
+    assert result.data["password_authentication"] == "UNKNOWN"
 
 
 def test_get_ssh_does_not_fabricate_defaults_on_failure(monkeypatch) -> None:
