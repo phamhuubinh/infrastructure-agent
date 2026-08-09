@@ -56,7 +56,9 @@ def test_ungrounded_number_flagged() -> None:
 
 
 def test_no_evidence_means_nothing_to_ground() -> None:
-    result = ClaimValidator().validate("CPU đang ở mức 99%.", AssessmentRequest(raw_request="x"))
+    result = ClaimValidator().validate(
+        "CPU đang ở mức 99%.", AssessmentRequest(raw_request="x")
+    )
     assert result.grounded
 
 
@@ -85,7 +87,10 @@ def test_external_current_claim_requires_extracted_page_content() -> None:
                 evidence_name="external_current",
                 data={
                     "documents": [
-                        {"content": "The supported release is Python 3.14.1."}
+                        {
+                            "content": "The supported release is Python 3.14.1.",
+                            "relevance": "sufficient",
+                        }
                     ]
                 },
                 source="internet",
@@ -109,7 +114,14 @@ def test_external_current_claim_keeps_value_present_in_extracted_content() -> No
             EvidencePackage(
                 capability_name="external_verification",
                 evidence_name="external_current",
-                data={"documents": [{"content": "Python 3.14.1 is available."}]},
+                data={
+                    "documents": [
+                        {
+                            "content": "Python 3.14.1 is available.",
+                            "relevance": "sufficient",
+                        }
+                    ]
+                },
                 source="internet",
             ),
         ),

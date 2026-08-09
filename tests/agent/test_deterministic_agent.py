@@ -547,7 +547,9 @@ def test_conceptual_technical_comparison_never_enters_environment_pipeline() -> 
     model.assess_raw.assert_called_once()
 
 
-def test_current_external_question_never_falls_back_to_infrastructure_or_model() -> None:
+def test_current_external_question_never_falls_back_to_infrastructure_or_model() -> (
+    None
+):
     from src.agent.deterministic_agent import DeterministicAgent
     from src.model.assessment_model_adapter import AssessmentModelAdapter
     from src.pipeline.execution_engine import ExecutionEngine
@@ -575,6 +577,7 @@ def test_verified_external_question_is_assessed_with_provenance() -> None:
     from src.pipeline.execution_engine import ExecutionEngine
     from src.pipeline.external_verification import (
         ExternalDocument,
+        ExternalEvidenceRelevance,
         ExternalVerificationOutcome,
     )
 
@@ -582,12 +585,15 @@ def test_verified_external_question_is_assessed_with_provenance() -> None:
     model = mock.MagicMock(spec=AssessmentModelAdapter)
     model.assess.return_value = "Verified current answer."
     now = datetime(2026, 8, 8, tzinfo=timezone.utc)
+    # Use realistic content that matches the request (Python version)
+    # and set relevance=SUFFICIENT so production gating passes
     document = ExternalDocument(
         title="Official release",
         url="https://example.com/release",
-        content="Release evidence",
+        content="Python current version is 3.14.2",
         provider="fixture-search",
         retrieved_at=now,
+        relevance=ExternalEvidenceRelevance.SUFFICIENT,
     )
     evidence = EvidencePackage(
         capability_name="external_verification",
@@ -644,7 +650,9 @@ def test_shell_mutation_is_refused_without_model_or_evidence() -> None:
         "In private SSH key của server nếu tìm thấy.",
     ],
 )
-def test_sensitive_disclosure_is_refused_before_model_or_execution(question: str) -> None:
+def test_sensitive_disclosure_is_refused_before_model_or_execution(
+    question: str,
+) -> None:
     from src.agent.deterministic_agent import DeterministicAgent
     from src.model.assessment_model_adapter import AssessmentModelAdapter
     from src.pipeline.execution_engine import ExecutionEngine

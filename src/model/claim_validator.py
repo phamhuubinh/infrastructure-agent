@@ -40,8 +40,7 @@ _CURRENT_DATE = re.compile(
     re.IGNORECASE,
 )
 _CURRENT_PRICE = re.compile(
-    r"(?:[$€£]\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s*"
-    r"(?:usd|vnd|eur|gbp)\b)",
+    r"(?:[$€£]\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s*" r"(?:usd|vnd|eur|gbp)\b)",
     re.IGNORECASE,
 )
 _OFFICE_HOLDER = re.compile(
@@ -157,7 +156,9 @@ def redact_ungrounded_claims(
         return response_text
 
     marker = "[số liệu chưa xác nhận]" if lang == "vi" else "[unverified figure]"
-    target_marker = "[mục tiêu chưa xác nhận]" if lang == "vi" else "[unverified target]"
+    target_marker = (
+        "[mục tiêu chưa xác nhận]" if lang == "vi" else "[unverified target]"
+    )
 
     allowed_numbers = _allowed_numeric_tokens(assessment_request)
 
@@ -197,6 +198,12 @@ def redact_ungrounded_external_claims(
     assessment.  This additional guard only applies to the external route and
     compares user-visible current claims with the actual page content handed
     to the model.  A fetch receipt or source URL alone is not grounding.
+
+    GA2-R1-B: Only documents with relevance == "sufficient" are included
+    in the grounding corpus.  PARTIAL or IRRELEVANT documents must NOT
+    be used to ground concrete current claims (version, date, price,
+    identity).  This prevents the model from promoting partial evidence
+    to verified status.
     """
 
     if assessment_request.intent != "EXTERNAL_VERIFICATION":
@@ -211,7 +218,13 @@ def redact_ungrounded_external_claims(
         if not isinstance(documents, list):
             continue
         for document in documents:
-            if isinstance(document, dict) and document.get("content") is not None:
+            if not isinstance(document, dict):
+                continue
+            # GA2-R1-B: Only ground claims against SUFFICIENT relevance documents
+            relevance = document.get("relevance", "irrelevant")
+            if relevance != "sufficient":
+                continue
+            if document.get("content") is not None:
                 evidence_text.append(str(document["content"]))
     corpus = "\n".join(evidence_text).casefold()
     if not corpus.strip():
@@ -221,7 +234,11 @@ def redact_ungrounded_external_claims(
             else "Could not determine this from the fetched content."
         )
 
-    marker = "[thông tin hiện tại chưa xác nhận]" if lang == "vi" else "[unverified current claim]"
+    marker = (
+        "[thông tin hiện tại chưa xác nhận]"
+        if lang == "vi"
+        else "[unverified current claim]"
+    )
 
     def _replace_if_absent(match: re.Match[str]) -> str:
         return match.group(0) if match.group(0).casefold() in corpus else marker

@@ -36,6 +36,7 @@ from src.pipeline.execution_trace import (
     now_ms,
 )
 from src.pipeline.external_verification import (
+    ExternalEvidenceRelevance,
     ExternalVerificationExecutor,
     ExternalVerificationOutcome,
 )
@@ -995,8 +996,7 @@ class DeterministicAgent:
                 f"từ nguồn nào trong số đã yêu cầu ({missing_labels})._"
             )
         return (
-            f"_So sánh chỉ một phần (PARTIAL): thiếu dữ liệu từ "
-            f"{missing_labels}._"
+            f"_So sánh chỉ một phần (PARTIAL): thiếu dữ liệu từ " f"{missing_labels}._"
         )
 
     @staticmethod
@@ -1498,9 +1498,19 @@ class DeterministicAgent:
         decision: RoutingDecision,
         outcome: ExternalVerificationOutcome,
     ) -> str:
-        """Assess collected web evidence or return an explicit UNKNOWN response."""
+        """Assess collected web evidence or return an explicit UNKNOWN response.
 
-        if not outcome.verified or outcome.evidence is None:
+        GA2-R1-B: Only promote to LLM assessment when there is SUFFICIENT
+        relevant evidence.  PARTIAL or IRRELEVANT documents do NOT justify
+        passing evidence to the model — concrete current claims (version,
+        date, price, identity) must be grounded in SUFFICIENT evidence.
+        """
+        # Check for SUFFICIENT relevant evidence (not just "verified")
+        has_sufficient = any(
+            doc.relevance == ExternalEvidenceRelevance.SUFFICIENT
+            for doc in outcome.documents
+        )
+        if not has_sufficient or outcome.evidence is None:
             return self._external_verification_unavailable_response(
                 decision,
                 outcome.failures[0] if outcome.failures else None,
@@ -1938,9 +1948,7 @@ class DeterministicAgent:
         # answer from, not active_sources (the request-time constraint).
         receipts = build_evidence_receipts(
             investigation.fact_set,
-            status=(
-                "COMPLETE" if investigation.evidence_complete else "PARTIAL"
-            ),
+            status=("COMPLETE" if investigation.evidence_complete else "PARTIAL"),
         )
         if receipts:
             context = context.with_evidence_receipts(receipts)
@@ -2049,7 +2057,9 @@ class DeterministicAgent:
             },
         )
         if self._conversation_store:
-            setter = getattr(self._conversation_store, "set_investigation_context", None)
+            setter = getattr(
+                self._conversation_store, "set_investigation_context", None
+            )
             if callable(setter):
                 setter(self._session_context)
             self._conversation_store.add_turn(user_request, combined_response)

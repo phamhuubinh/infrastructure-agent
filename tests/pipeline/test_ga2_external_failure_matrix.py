@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from src.pipeline.external_verification import (
     ExternalContentStatus,
+    ExternalEvidenceRelevance,
     ExternalVerificationExecutor,
 )
 from src.pipeline.request_frame import RequestFrame
@@ -126,12 +127,25 @@ def test_dns_failure_never_sufficient() -> None:
 
 
 def test_oversized_body_is_truncated_partial() -> None:
+    """Truncated content with version keyword is PARTIAL relevance (verified=False)."""
+    # Request has "version" keyword, content has "Version 3." which is truncated
+    # Single keyword + truncated = PARTIAL relevance, not SUFFICIENT
     executor = _executor(
-        _payload(ExternalContentStatus.CONTENT_TRUNCATED.value, truncated=True)
+        {
+            "url": "https://example.com/page",
+            "content_status": ExternalContentStatus.CONTENT_TRUNCATED.value,
+            "data": "Version 3.",
+            "content_type": "text/html",
+            "content_length": 100,
+            "truncated": True,
+        }
     )
-    outcome = executor.collect(_frame("https://example.com/big"), "q")
-    assert outcome.verified is True
+    outcome = executor.collect(_frame("https://example.com/big"), "current version")
+    # PARTIAL relevance = verified=False, partial=True
+    assert outcome.verified is False
     assert outcome.partial is True
+    assert outcome.documents[0].relevance == ExternalEvidenceRelevance.PARTIAL
+    assert outcome.has_relevant_evidence is True
     assert all(
         doc.content_status is ExternalContentStatus.CONTENT_TRUNCATED
         for doc in outcome.documents

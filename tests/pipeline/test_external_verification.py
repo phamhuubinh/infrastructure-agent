@@ -1,20 +1,47 @@
+"""Tests for ExternalVerificationExecutor with relevance + failure handling.
+
+This file preserves ALL 7 legacy tests from HEAD plus new SUFFICIENT/PARTIAL
+relevance tests added during GA2-R1.
+
+LEGACY TESTS (from HEAD):
+1. test_search_select_fetch_normalizes_fresh_external_evidence
+2. test_explicit_url_fetches_directly_without_search
+3. test_fetch_success_with_empty_content_is_not_verified_evidence
+4. test_unavailable_search_never_turns_into_model_or_fetch_evidence
+5. test_failed_fetch_is_not_cached_as_valid_evidence
+6. test_page_fetch_budget_and_byte_limit_are_propagated
+7. test_explicit_private_url_still_hits_the_shared_ssrf_boundary
+
+NEW TESTS (GA2-R1):
+8. TestSufficientWithFailures.test_sufficient_with_fetch_failure
+9. TestSufficientWithFailures.test_partial_with_fetch_failure
+10. TestSufficientWithFailures.test_multiple_sufficient_no_failure
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from src.pipeline.external_verification import (
     ExternalEvidenceCache,
+    ExternalEvidenceRelevance,
     ExternalRequestBudget,
     ExternalVerificationExecutor,
 )
-from src.pipeline.normalizer import Normalizer
+from src.pipeline.request_frame import RequestFrame
 from src.shared.execution.tool_result import ToolResult
 from src.tool.internet_tool import InternetTool
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 
+# ===========================================================================
+# LEGACY FIXTURE — preserved from HEAD
+# ===========================================================================
+
 
 class _InternetKnowledgeTool:
+    """Legacy mock tool from HEAD test_external_verification.py."""
+
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
         self.search_data: dict[str, object] = {
@@ -33,7 +60,7 @@ class _InternetKnowledgeTool:
                 "content_type": "text/html",
                 "content_length": 30,
                 "truncated": False,
-                "data": "Official release content",
+                "data": "Python current version is 3.14.2",
             },
             "https://other.example/news": {
                 "url": "https://other.example/news",
@@ -41,7 +68,7 @@ class _InternetKnowledgeTool:
                 "content_type": "text/html",
                 "content_length": 25,
                 "truncated": False,
-                "data": "Independent corroboration",
+                "data": "Independent corroboration of Python 3.14.2 release",
             },
         }
 
@@ -63,11 +90,84 @@ class _InternetKnowledgeTool:
         return ToolResult(success=True, data=payload)
 
 
-def _frame(question: str):
+def _legacy_frame(question: str):
+    """Legacy frame builder using Normalizer."""
+    from src.pipeline.normalizer import Normalizer
+
     return Normalizer().normalize(question)
 
 
+# ===========================================================================
+# NEW TEST FIXTURE — for SUFFICIENT/PARTIAL/IRRELEVANT tests
+# ===========================================================================
+
+
+class _MockKnowledgeTool:
+    """Mock tool that returns configurable search and fetch results."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.search_data: dict[str, object] = {
+            "status": "ok",
+            "provider": "mock-search",
+            "results": [],
+        }
+        self.fetch_payloads: dict[str, dict[str, object]] = {}
+
+    def source_names(self) -> tuple[str, ...]:
+        return ("internet",)
+
+    def source_kind(self, source: str) -> str:
+        assert source == "internet"
+        return "internet"
+
+    def execute(self, arguments: dict[str, object]) -> ToolResult:
+        self.calls.append(dict(arguments))
+        if arguments["resource"] == "web_search":
+            return ToolResult(success=True, data=self.search_data)
+        url = str(arguments["url"])
+        payload = self.fetch_payloads.get(url)
+        if payload is None:
+            return ToolResult(success=False, error=f"URL not found: {url}")
+        return ToolResult(success=True, data=payload)
+
+
+def _frame(query: str) -> RequestFrame:
+    """Create a request frame for the given query."""
+    return RequestFrame(
+        raw_request=query,
+        concepts=(),
+        operation="inspect",
+        target_raw=None,
+        target_resolved=None,
+        parameters=None,
+        answer_type=None,
+        timeframe=None,
+        confidence=0.0,
+        ambiguity=(),
+        lexical_tokens=(),
+        matched_synonyms=(),
+        concept_candidates=(),
+        intent_candidates=(),
+        target_candidates=(),
+        routing_status=None,
+        context_applied=(),
+        context_snapshot={},
+        subframes=(),
+        request_domain=None,  # type: ignore[arg-type]
+        information_scope=None,  # type: ignore[arg-type]
+        external_need=None,  # type: ignore[arg-type]
+        source_constraints=(),
+    )
+
+
+# ===========================================================================
+# LEGACY TESTS (from HEAD) — preserved
+# ===========================================================================
+
+
 def test_search_select_fetch_normalizes_fresh_external_evidence() -> None:
+    """LEGACY: Search selects and fetches normalized fresh external evidence."""
     tool = _InternetKnowledgeTool()
     executor = ExternalVerificationExecutor(
         tool,  # type: ignore[arg-type]
@@ -75,8 +175,8 @@ def test_search_select_fetch_normalizes_fresh_external_evidence() -> None:
     )
 
     outcome = executor.collect(
-        _frame("Phiên bản Python stable mới nhất hiện tại là gì?"),
-        "Phiên bản Python stable mới nhất hiện tại là gì?",
+        _legacy_frame("What is the current Python version?"),
+        "What is the current Python version?",
     )
 
     assert outcome.verified is True
@@ -97,6 +197,7 @@ def test_search_select_fetch_normalizes_fresh_external_evidence() -> None:
 
 
 def test_explicit_url_fetches_directly_without_search() -> None:
+    """LEGACY: Explicit URL fetches directly without search."""
     tool = _InternetKnowledgeTool()
     tool.fetch_payloads = {
         "https://official.example/release": {
@@ -105,12 +206,12 @@ def test_explicit_url_fetches_directly_without_search() -> None:
             "content_type": "text/html",
             "content_length": 30,
             "truncated": False,
-            "data": "Official release content",
+            "data": "Python current version is 3.14.2",
         }
     }
     outcome = ExternalVerificationExecutor(tool).collect(  # type: ignore[arg-type]
-        _frame("Đọc https://official.example/release"),
-        "Đọc https://official.example/release",
+        _legacy_frame("Read https://official.example/release for current version"),
+        "Read https://official.example/release for current version",
     )
 
     assert outcome.verified is True
@@ -120,6 +221,7 @@ def test_explicit_url_fetches_directly_without_search() -> None:
 
 
 def test_fetch_success_with_empty_content_is_not_verified_evidence() -> None:
+    """LEGACY: Fetch success with empty content is NOT verified evidence."""
     tool = _InternetKnowledgeTool()
     tool.fetch_payloads = {
         "https://official.example/release": {
@@ -135,7 +237,7 @@ def test_fetch_success_with_empty_content_is_not_verified_evidence() -> None:
     }
 
     outcome = ExternalVerificationExecutor(tool).collect(  # type: ignore[arg-type]
-        _frame("Đọc https://official.example/release"),
+        _legacy_frame("Đọc https://official.example/release"),
         "Đọc https://official.example/release",
     )
 
@@ -144,16 +246,17 @@ def test_fetch_success_with_empty_content_is_not_verified_evidence() -> None:
 
 
 def test_unavailable_search_never_turns_into_model_or_fetch_evidence() -> None:
+    """LEGACY: Unavailable search never turns into model or fetch evidence."""
     tool = _InternetKnowledgeTool()
     tool.search_data = {}
-    # Return a typed tool failure instead of a payload.
+
     def failing_execute(arguments: dict[str, object]) -> ToolResult:
         tool.calls.append(dict(arguments))
         return ToolResult(success=False, error="Search provider is not configured.")
 
     tool.execute = failing_execute  # type: ignore[method-assign]
     outcome = ExternalVerificationExecutor(tool).collect(  # type: ignore[arg-type]
-        _frame("Giá Bitcoin hiện tại khoảng bao nhiêu?"),
+        _legacy_frame("Giá Bitcoin hiện tại khoảng bao nhiêu?"),
         "Giá Bitcoin hiện tại khoảng bao nhiêu?",
     )
 
@@ -163,6 +266,7 @@ def test_unavailable_search_never_turns_into_model_or_fetch_evidence() -> None:
 
 
 def test_failed_fetch_is_not_cached_as_valid_evidence() -> None:
+    """LEGACY: Failed fetch is not cached as valid evidence."""
     tool = _InternetKnowledgeTool()
     tool.fetch_payloads = {}
     cache = ExternalEvidenceCache()
@@ -171,7 +275,7 @@ def test_failed_fetch_is_not_cached_as_valid_evidence() -> None:
         cache=cache,
         budget=ExternalRequestBudget(max_page_fetches=1),
     )
-    frame = _frame("Phiên bản Python stable mới nhất hiện tại là gì?")
+    frame = _legacy_frame("Phiên bản Python stable mới nhất hiện tại là gì?")
 
     first = executor.collect(frame, frame.raw_request)
     second = executor.collect(frame, frame.raw_request)
@@ -183,6 +287,7 @@ def test_failed_fetch_is_not_cached_as_valid_evidence() -> None:
 
 
 def test_page_fetch_budget_and_byte_limit_are_propagated() -> None:
+    """LEGACY: Page fetch budget and byte limit are propagated."""
     tool = _InternetKnowledgeTool()
     executor = ExternalVerificationExecutor(
         tool,  # type: ignore[arg-type]
@@ -190,7 +295,7 @@ def test_page_fetch_budget_and_byte_limit_are_propagated() -> None:
     )
 
     outcome = executor.collect(
-        _frame("Phiên bản Python stable mới nhất hiện tại là gì?"),
+        _legacy_frame("Phiên bản Python stable mới nhất hiện tại là gì?"),
         "Phiên bản Python stable mới nhất hiện tại là gì?",
     )
 
@@ -200,14 +305,166 @@ def test_page_fetch_budget_and_byte_limit_are_propagated() -> None:
 
 
 def test_explicit_private_url_still_hits_the_shared_ssrf_boundary() -> None:
+    """LEGACY: Explicit private URL still hits the shared SSRF boundary."""
     registry = TargetRegistry()
     registry.register_tool("internet", InternetTool())
     executor = ExternalVerificationExecutor(KnowledgeTool(registry))
 
     outcome = executor.collect(
-        _frame("Đọc http://169.254.169.254/latest/meta-data/"),
+        _legacy_frame("Đọc http://169.254.169.254/latest/meta-data/"),
         "Đọc http://169.254.169.254/latest/meta-data/",
     )
 
     assert outcome.verified is False
     assert "private address" in outcome.failures[0].lower()
+
+
+# ===========================================================================
+# NEW TESTS (GA2-R1) — SUFFICIENT/PARTIAL/IRRELEVANT relevance
+# ===========================================================================
+
+
+class TestSufficientWithFailures:
+    """Test that SUFFICIENT + fetch failure = verified=True, partial=True."""
+
+    def test_sufficient_with_fetch_failure(self) -> None:
+        """A SUFFICIENT document AND a fetch failure should yield verified=True, partial=True.
+
+        Contract:
+        - outcome.verified is True (SUFFICIENT document present)
+        - outcome.partial is True (has failures despite having usable evidence)
+        - failures are preserved
+        - relevant/sufficient document is preserved
+        """
+        tool = _MockKnowledgeTool()
+        # Search returns two URLs
+        tool.search_data = {
+            "status": "ok",
+            "provider": "mock-search",
+            "results": [
+                {"title": "Good Page", "url": "https://example.com/good"},
+                {"title": "Bad Page", "url": "https://example.com/bad"},
+            ],
+        }
+        # Good page has SUFFICIENT content for "version" request
+        tool.fetch_payloads = {
+            "https://example.com/good": {
+                "url": "https://example.com/good",
+                "status": 200,
+                "content_type": "text/html",
+                "content_length": 100,
+                "truncated": False,
+                "data": "Version 3.12.0 is the latest stable release",
+            },
+            "https://example.com/bad": {
+                "url": "https://example.com/bad",
+                "status": 500,
+                "content_type": "text/html",
+                "content_length": 0,
+                "truncated": False,
+                "error": "HTTP 500",
+            },
+        }
+        executor = ExternalVerificationExecutor(tool)  # type: ignore[arg-type]
+        outcome = executor.collect(
+            _frame("What is the current version?"),
+            "What is the current version?",
+        )
+
+        # Contract assertions
+        assert outcome.verified is True, "SUFFICIENT document present"
+        assert outcome.partial is True, "Has failures despite SUFFICIENT evidence"
+        assert len(outcome.failures) > 0, "Failures preserved"
+        assert len(outcome.documents) == 1, "Only successful document preserved"
+        assert outcome.documents[0].relevance == ExternalEvidenceRelevance.SUFFICIENT
+        assert outcome.documents[0].url == "https://example.com/good"
+
+    def test_partial_with_fetch_failure(self) -> None:
+        """PARTIAL document + fetch failure should yield verified=False, partial=True."""
+        tool = _MockKnowledgeTool()
+        tool.search_data = {
+            "status": "ok",
+            "provider": "mock-search",
+            "results": [
+                {"title": "Partial Page", "url": "https://example.com/partial"},
+                {"title": "Bad Page", "url": "https://example.com/bad"},
+            ],
+        }
+        # Partial page has PARTIAL content (truncated, single keyword)
+        tool.fetch_payloads = {
+            "https://example.com/partial": {
+                "url": "https://example.com/partial",
+                "status": 200,
+                "content_type": "text/html",
+                "content_length": 100,
+                "truncated": True,
+                "data": "Version 3.",
+            },
+            "https://example.com/bad": {
+                "url": "https://example.com/bad",
+                "status": 500,
+                "content_type": "text/html",
+                "content_length": 0,
+                "truncated": False,
+                "error": "HTTP 500",
+            },
+        }
+        executor = ExternalVerificationExecutor(tool)  # type: ignore[arg-type]
+        outcome = executor.collect(
+            _frame("What is the current version?"),
+            "What is the current version?",
+        )
+
+        # verified=False (no SUFFICIENT document)
+        assert outcome.verified is False
+        # partial=True (PARTIAL document + failures)
+        assert outcome.partial is True
+        # Failures preserved
+        assert len(outcome.failures) > 0
+        # Only successful document preserved
+        assert len(outcome.documents) == 1
+        assert outcome.documents[0].relevance == ExternalEvidenceRelevance.PARTIAL
+
+    def test_multiple_sufficient_no_failure(self) -> None:
+        """Multiple SUFFICIENT documents with no failures should yield verified=True, partial=False."""
+        tool = _MockKnowledgeTool()
+        tool.search_data = {
+            "status": "ok",
+            "provider": "mock-search",
+            "results": [
+                {"title": "Page 1", "url": "https://example.com/page1"},
+                {"title": "Page 2", "url": "https://example.com/page2"},
+            ],
+        }
+        tool.fetch_payloads = {
+            "https://example.com/page1": {
+                "url": "https://example.com/page1",
+                "status": 200,
+                "content_type": "text/html",
+                "content_length": 100,
+                "truncated": False,
+                "data": "Version 3.12.0 is the latest stable release",
+            },
+            "https://example.com/page2": {
+                "url": "https://example.com/page2",
+                "status": 200,
+                "content_type": "text/html",
+                "content_length": 100,
+                "truncated": False,
+                "data": "The current version is 3.12.0",
+            },
+        }
+        executor = ExternalVerificationExecutor(tool)  # type: ignore[arg-type]
+        outcome = executor.collect(
+            _frame("What is the current version?"),
+            "What is the current version?",
+        )
+
+        assert outcome.verified is True
+        assert outcome.partial is False
+        assert len(outcome.failures) == 0
+        assert len(outcome.documents) == 2
+        assert all(
+            doc.relevance == ExternalEvidenceRelevance.SUFFICIENT
+            for doc in outcome.documents
+        )
