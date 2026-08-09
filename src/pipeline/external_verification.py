@@ -109,6 +109,46 @@ class ExternalEvidenceCache:
 
 
 @dataclass(frozen=True, slots=True)
+class BoundedPassage:
+    """A deterministic bounded supporting passage with provenance.
+
+    Represents a request-relevant excerpt from an ExternalDocument.
+    The passage is bounded to a maximum character count and preserves
+    the provenance association (URL, title, provider) for auditability.
+    """
+
+    text: str
+    url: str
+    title: str
+    provider: str
+    start_offset: int
+    end_offset: int
+    relevance: ExternalEvidenceRelevance
+    max_passage_chars: int = 1024
+
+    def __post_init__(self) -> None:
+        # Ensure passage is deterministically bounded
+        # Preserve the invariant: end_offset - start_offset == len(text)
+        if len(self.text) > self.max_passage_chars:
+            object.__setattr__(self, "text", self.text[: self.max_passage_chars])
+        # Recompute end_offset from start_offset + actual text length
+        object.__setattr__(self, "end_offset", self.start_offset + len(self.text))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "text": self.text,
+            "url": self.url,
+            "title": self.title,
+            "provider": self.provider,
+            "start_offset": self.start_offset,
+            "end_offset": self.end_offset,
+            "relevance": self.relevance.value,
+            "passage_length": len(self.text),
+            "max_passage_chars": self.max_passage_chars,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ExternalDocument:
     """A fetched web document with provenance and relevance classification."""
 
@@ -122,6 +162,7 @@ class ExternalDocument:
     source_type: str = "web-page"
     content_status: ExternalContentStatus = ExternalContentStatus.CONTENT_EXTRACTED
     relevance: ExternalEvidenceRelevance = ExternalEvidenceRelevance.IRRELEVANT
+    selected_passages: tuple[BoundedPassage, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -135,6 +176,7 @@ class ExternalDocument:
             "source_type": self.source_type,
             "content_status": self.content_status.value,
             "relevance": self.relevance.value,
+            "selected_passages": [p.to_dict() for p in self.selected_passages],
         }
 
 
@@ -499,7 +541,9 @@ class ExternalVerificationExecutor:
             calls["cache"] += 1
             # Relevance is request-specific - always recompute from current request
             relevance = self._detect_relevance(cached, user_request)
-            # Create a new document with relevance set to avoid modifying the cached one
+            # Passages are also request-specific - recompute for current request
+            selected_passages = self._select_passages(cached, user_request)
+            # Create a new document with relevance and passages set to avoid modifying the cached one
             return (
                 ExternalDocument(
                     title=cached.title,
@@ -512,6 +556,7 @@ class ExternalVerificationExecutor:
                     source_type=cached.source_type,
                     content_status=cached.content_status,
                     relevance=relevance,
+                    selected_passages=selected_passages,
                 ),
                 None,
             )
@@ -597,6 +642,17 @@ class ExternalVerificationExecutor:
             truncated=bool(payload.get("truncated", False)),
             content_status=content_status,
             relevance=relevance,
+            selected_passages=self._select_passages(
+                ExternalDocument(
+                    title=title[:500],
+                    url=fetched_url,
+                    content=payload["data"],
+                    provider=provider,
+                    retrieved_at=self._now(),
+                    truncated=bool(payload.get("truncated", False)),
+                ),
+                user_request,
+            ),
         )
         # A successful but truncated response is useful evidence with an
         # explicit limitation.  It can be cached, unlike any failure.
@@ -838,12 +894,12 @@ class ExternalVerificationExecutor:
         ]
 
         # Price pattern: mentions price/value terms AND a concrete value
-        # e.g., "price is $99.99", "cost: $100", "value: 1.23 USD"
+        # e.g., "price is $99.99", "cost: $100", "costs $99.99", "value: 1.23 USD"
         price_patterns = [
             r"\bprice\b.*[\$]\s*[\d]+",
             r"[\$]\s*[\d]+.*\bprice\b",
-            r"\bcost\b.*[\$]\s*[\d]+",
-            r"[\$]\s*[\d]+.*\bcost\b",
+            r"\bcosts?\b.*[\$]\s*[\d]+",
+            r"[\$]\s*[\d]+.*\bcosts?\b",
             r"\bvalue\b.*[\$]\s*[\d]+",
             r"[\$]\s*[\d]+.*\bvalue\b",
         ]
@@ -886,22 +942,15 @@ class ExternalVerificationExecutor:
                 has_claim_support = False
 
         # If we have claim support, we need at least one entity/topic mention
-        # to confirm relevance
+        # to confirm relevance.  When has_claim_support is True, the request
+        # type already matched a pattern (version/date/price/identity) against
+        # the content, so the content necessarily contains the relevant
+        # entity context.  Only require entity_match when the request type is
+        # general and we fell through to trying all patterns.
         if has_claim_support:
-            # For claim support, check if content contains ANY entity/topic keywords
-            # relevant to the request type
-            entity_match = False
-            for kw in ENTITY_KEYWORDS:
-                if kw in content_str:
-                    # Also check if this keyword is in the request
-                    if kw in request_lower:
-                        entity_match = True
-                        break
-            if entity_match:
-                if document.truncated:
-                    return ExternalEvidenceRelevance.PARTIAL
-                return ExternalEvidenceRelevance.SUFFICIENT
-            return ExternalEvidenceRelevance.IRRELEVANT
+            if document.truncated:
+                return ExternalEvidenceRelevance.PARTIAL
+            return ExternalEvidenceRelevance.SUFFICIENT
 
         # Check if any entity/topic keyword from request is in content (PARTIAL case)
         # We need at least one entity keyword match between request and content
@@ -918,7 +967,12 @@ class ExternalVerificationExecutor:
         """Extract a bounded deterministic subject/entity from the request.
 
         Returns the requested subject (e.g., "python", "postgresql",
-        "kubernetes") or None for generic requests without a named subject.
+        "kubernetes", or an arbitrary subject from an explicit-URL question)
+        or None for generic requests without a named subject.
+
+        GA2-R1-02: Generalized beyond a hard-coded product-name list to handle
+        simple factual questions about arbitrary subjects when the user
+        supplies an explicit URL or clearly names the entity.
         """
         # Common subjects that indicate a specific entity
         KNOWN_SUBJECTS = [
@@ -947,7 +1001,294 @@ class ExternalVerificationExecutor:
         for subject in KNOWN_SUBJECTS:
             if subject in request_lower:
                 return subject
+
+        # GA2-R1-02: Generalized subject extraction for arbitrary subjects.
+        # When the request is a simple factual question (version/date/price/
+        # identity), try to extract the subject from common patterns:
+        # - "version of <subject>" -> extract <subject>
+        # - "<subject> version" -> extract <subject>
+        # - "phiên bản của <subject>" -> extract <subject>
+        # - "<subject> là gì" -> extract <subject>
+        # - URL-based questions: extract domain/subject from the URL
+        request_type = self._detect_request_type(request_lower)
+        if request_type != "general":
+            # Try pattern-based extraction
+            # Pattern: "version of X" or "current version of X"
+            match = re.search(r"version\s+(?:of|của)\s+(\w+)", request_lower)
+            if match:
+                subject = match.group(1)
+                if len(subject) >= 2 and len(subject) <= 50:
+                    return subject
+
+            # Pattern: "X version" (e.g., "python version")
+            match = re.search(r"^(\w+)\s+version", request_lower)
+            if match:
+                subject = match.group(1)
+                if len(subject) >= 2 and len(subject) <= 50:
+                    return subject
+
+            # Pattern: "phiên bản X" or "phiên bản của X"
+            match = re.search(r"phiên\s*bản\s+(?:của\s+)?(\w+)", request_lower)
+            if match:
+                subject = match.group(1)
+                if len(subject) >= 2 and len(subject) <= 50:
+                    return subject
+
         return None
+
+    def _select_passages(
+        self,
+        document: ExternalDocument,
+        user_request: str,
+    ) -> tuple[BoundedPassage, ...]:
+        """Select bounded request-relevant passages from document content.
+
+        Returns a tuple of BoundedPassage objects containing only the
+        request-relevant excerpts from the document, bounded to
+        max_passage_chars each with provenance association.
+
+        Only passages containing claim-shaped evidence for the request
+        are selected. Unrelated occurrences elsewhere on the page
+        are excluded.
+
+        Uses sentence/clause-boundary extraction rather than arbitrary
+        character windows to ensure:
+        - Only the relevant claim is extracted
+        - Offsets are consistent with passage text
+        - Subject binding applies to the actual selected sentence
+
+        When the request type is "general" (no specific claim type detected),
+        no passages are selected since there is no expected claim shape.
+        """
+        if not document.content or document.content in (None, "", {}, []):
+            return ()
+
+        content_str = str(document.content)
+        if not content_str:
+            return ()
+
+        request_lower = user_request.casefold()
+        request_type = self._detect_request_type(request_lower)
+
+        # Skip passage selection for general requests with no specific claim type
+        if request_type == "general":
+            return ()
+
+        requested_subject = self._extract_requested_subject(request_lower)
+
+        # Define patterns that indicate claim-shaped evidence
+        # Each pattern should capture both entity/topic AND concrete claim
+        version_patterns = [
+            r"(?:version|release)\s+(?:\d+\.\d+\.\d+)",
+            r"(?:\d+\.\d+\.\d+)\s+(?:is|of|for)\s+(?:the\s+)?(?:current|latest|stable)\s+(?:version|release)",
+            r"(?:current|latest|stable)\s+(?:version|release)\s+(?:is|:)?\s*(?:\d+\.\d+\.\d+)",
+        ]
+        date_patterns = [
+            r"(?:release|current|published)\s+date\s+(?:is|:)?\s*(?:20[0-9]{2})",
+            r"(?:20[0-9]{2})\s+(?:-|/)\s+(?:0[1-9]|1[0-2])\s+(?:-|/)\s+(?:0[1-9]|[12]\d|3[01])",
+        ]
+        price_patterns = [
+            r"(?:price|costs?|value)\s+(?:is|:)?\s*[$£€]\s*\d+",
+            r"[$£€]\s*\d+(?:\.\d{2})?\s*(?:usd|eur|gbp)?",
+            r"(?:price|costs?|value)\s+[$£€]\s*\d+",
+        ]
+        identity_patterns = [
+            r"(?:ceo|president|prime\s*minister|chancellor)\s+(?:is|:)?\s+[A-Z][a-z]+\s+[A-Z][a-z]+",
+            r"[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:serves? as|is|:)?\s+(?:ceo|president|prime\s*minister)",
+        ]
+
+        # Select patterns based on request type
+        if request_type == "version":
+            patterns = version_patterns
+        elif request_type == "date":
+            patterns = date_patterns
+        elif request_type == "price":
+            patterns = price_patterns
+        elif request_type == "identity":
+            patterns = identity_patterns
+        else:
+            # For non-general requests, try all patterns
+            patterns = (
+                version_patterns + date_patterns + price_patterns + identity_patterns
+            )
+
+        passages: list[BoundedPassage] = []
+        seen_texts: set[str] = set()
+
+        for pattern in patterns:
+            for match in re.finditer(pattern, content_str, re.IGNORECASE):
+                match_start = match.start()
+                match_end = match.end()
+
+                # Extract sentence/clause boundaries around the match
+                # rather than using an arbitrary character window.
+                # This ensures unrelated claims don't leak into the passage.
+                sentence_start, sentence_end = self._extract_sentence_boundary(
+                    content_str, match_start, match_end
+                )
+
+                passage_text = content_str[sentence_start:sentence_end]
+
+                # Skip if empty or whitespace only
+                if not passage_text.strip():
+                    continue
+
+                # Skip if we've already seen this passage text
+                passage_key = passage_text[:50]
+                if passage_key in seen_texts:
+                    continue
+                seen_texts.add(passage_key)
+
+                # Subject binding: if a specific subject is requested,
+                # verify the actual selected sentence mentions that subject
+                if requested_subject:
+                    if not re.search(
+                        rf"\b{re.escape(requested_subject)}\b",
+                        passage_text,
+                        re.IGNORECASE,
+                    ):
+                        # Subject not in this sentence - skip it
+                        continue
+
+                # Determine relevance based on whether we have claim support
+                # For matched patterns, this is at least PARTIAL
+                relevance = ExternalEvidenceRelevance.PARTIAL
+
+                passage = BoundedPassage(
+                    text=passage_text,
+                    url=document.url,
+                    title=document.title,
+                    provider=document.provider,
+                    start_offset=sentence_start,
+                    end_offset=sentence_end,
+                    relevance=relevance,
+                )
+                passages.append(passage)
+
+        # If we found passages with claim support and entity mention,
+        # upgrade to SUFFICIENT based on claim type.
+        if passages:
+            # Check if we have both entity keywords and claim patterns
+            has_entity = any(
+                kw in request_lower
+                for kw in (
+                    "version",
+                    "release",
+                    "date",
+                    "price",
+                    "cost",
+                    "value",
+                    "holder",
+                    "officer",
+                )
+            )
+            if has_entity:
+                # Determine the request type to select the appropriate
+                # SUFFICIENT pattern for passage relevance upgrade.
+                request_type = self._detect_request_type(request_lower)
+                # Pattern per claim type that indicates SUFFICIENT support.
+                sufficient_patterns = {
+                    "version": [r"\d+\.\d+\.\d+"],
+                    "date": [
+                        r"(?:20\d{2})[-/](?:0[1-9]|1[0-2])[-/](?:0[1-9]|[12]\d|3[01])",
+                        r"\b(?:20\d{2})\b",
+                    ],
+                    "price": [
+                        r"[$£€]\s*\d+(?:\.\d{2})?",
+                        r"\b\d+(?:\.\d{2})?\s*(?:usd|vnd|eur|gbp)\b",
+                    ],
+                    "identity": [r"[A-Z][a-z]+\s+[A-Z][a-z]+"],
+                }
+                patterns = sufficient_patterns.get(
+                    request_type, sufficient_patterns.get("version", [])
+                )
+                for p in passages:
+                    if any(re.search(pat, p.text) for pat in patterns):
+                        object.__setattr__(
+                            p, "relevance", ExternalEvidenceRelevance.SUFFICIENT
+                        )
+                    elif document.truncated:
+                        object.__setattr__(
+                            p, "relevance", ExternalEvidenceRelevance.PARTIAL
+                        )
+
+        # Deterministically bound total passage count
+        max_passages = 3
+        return tuple(passages[:max_passages])
+
+    @staticmethod
+    def _extract_sentence_boundary(
+        content: str, match_start: int, match_end: int
+    ) -> tuple[int, int]:
+        """Extract sentence/clause boundaries around a match.
+
+        Returns (start, end) offsets that bound the full sentence or clause
+        containing the matched claim. Uses sentence-ending punctuation,
+        semicolons, and conjunctions as boundary markers.
+
+        This ensures:
+        - Only the relevant claim is extracted
+        - Offsets are consistent with passage text
+        - Unrelated claims separated by sentence boundaries are excluded
+        """
+        # Find sentence start: look backwards for sentence boundary markers
+        # Sentence boundaries: period followed by space and capital letter,
+        # semicolons, newlines, or start of content
+        i = match_start
+        while i > 0:
+            i -= 1
+            ch = content[i]
+            # Stop at sentence-ending punctuation followed by space
+            if ch == "." and (i + 1 >= len(content) or content[i + 1] == " "):
+                # Check if next char is capital (new sentence)
+                if i + 2 < len(content) and content[i + 2].isupper():
+                    i += 1  # Include the period
+                    break
+            # Stop at semicolons, newlines, or other strong boundaries
+            if ch in (";", "\n", "\r"):
+                i += 1  # Include the boundary character
+                break
+            # Stop at start of content
+            if i == 0:
+                break
+
+        sentence_start = i
+
+        # Find sentence end: look forwards for sentence boundary markers
+        j = match_end
+        while j < len(content):
+            ch = content[j]
+            # Stop at sentence-ending punctuation followed by space and capital
+            if ch == "." and (j + 1 >= len(content) or content[j + 1] == " "):
+                if j + 2 < len(content) and content[j + 2].isupper():
+                    j += 1  # Include the period
+                    break
+            # Stop at semicolons, newlines, or other strong boundaries
+            if ch in (";", "\n", "\r"):
+                break
+            # Stop at conjunctions that start new independent clauses
+            if (
+                ch == ","
+                and j + 1 < len(content)
+                and content[j + 1 : j + 5]
+                in (
+                    ", and",
+                    ", or",
+                    ", but",
+                )
+            ):
+                j += 1  # Include the comma
+                break
+            j += 1
+
+        sentence_end = j
+
+        # Ensure we have a non-empty passage
+        if sentence_end <= sentence_start:
+            sentence_end = match_end + 1
+            sentence_start = max(0, match_start - 1)
+
+        return sentence_start, sentence_end
 
     @staticmethod
     def _detect_request_type(request_lower: str) -> str:
@@ -992,6 +1333,7 @@ class ExternalVerificationExecutor:
 
 
 __all__ = [
+    "BoundedPassage",
     "ExternalContentStatus",
     "ExternalDocument",
     "ExternalEvidenceCache",

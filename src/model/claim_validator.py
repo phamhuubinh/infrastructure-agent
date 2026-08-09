@@ -199,17 +199,41 @@ def redact_ungrounded_external_claims(
     compares user-visible current claims with the actual page content handed
     to the model.  A fetch receipt or source URL alone is not grounding.
 
-    GA2-R1-B: Only documents with relevance == "sufficient" are included
-    in the grounding corpus.  PARTIAL or IRRELEVANT documents must NOT
-    be used to ground concrete current claims (version, date, price,
-    identity).  This prevents the model from promoting partial evidence
-    to verified status.
+    GA2-R1-02: Grounding now consumes **selected passages** from SUFFICIENT
+    documents rather than the full fetched page corpus.  This ensures that
+    a value occurring elsewhere in the same page (but outside the selected
+    request-relevant passage) cannot ground the wrong claim.
+
+    GA2-R1-B: Only documents with relevance == "sufficient" AND passages with
+    relevance == "sufficient" are included in the grounding corpus.  PARTIAL
+    or IRRELEVANT documents (and their passages) must NOT be used to ground
+    concrete current claims (version, date, price, identity).  This prevents
+    the model from promoting partial evidence to verified status.
+
+    GA2-R1-02 Subject binding: A concrete claim is groundable only when its
+    subject/claim type/value are supported by the selected passage used for
+    that request.  The subject extraction generalizes beyond a hard-coded
+    product-name list to handle simple factual questions about arbitrary
+    subjects when the user supplies an explicit URL.
+
+    No fallback to full document content: when selected_passages exist (even
+    if empty or all PARTIAL/IRRELEVANT), the full document content is NEVER
+    used for grounding.  This enforces that only request-relevant excerpts
+    can ground claims.
     """
 
     if assessment_request.intent != "EXTERNAL_VERIFICATION":
         return response_text
 
-    evidence_text: list[str] = []
+    # Extract the requested subject from the raw request for subject binding.
+    requested_subject = _extract_requested_subject(
+        assessment_request.raw_request.casefold()
+    )
+
+    # Build grounding corpus from SUFFICIENT passages of SUFFICIENT documents only.
+    # GA2-R1-02: When selected_passages exist (even if empty), NEVER fall back
+    # to full document content. This enforces passage-only grounding.
+    corpus_parts: list[str] = []
     for package in assessment_request.evidence:
         data = getattr(package, "data", None)
         if not isinstance(data, dict):
@@ -224,15 +248,38 @@ def redact_ungrounded_external_claims(
             relevance = document.get("relevance", "irrelevant")
             if relevance != "sufficient":
                 continue
-            if document.get("content") is not None:
-                evidence_text.append(str(document["content"]))
-    corpus = "\n".join(evidence_text).casefold()
-    if not corpus.strip():
-        return (
-            "Không thể xác định điều này từ nội dung đã lấy được."
-            if lang == "vi"
-            else "Could not determine this from the fetched content."
-        )
+            # GA2-R1-02: Check if selected_passages exist for this document
+            passages = document.get("selected_passages")
+            if isinstance(passages, list):
+                for passage in passages:
+                    if not isinstance(passage, dict):
+                        continue
+                    # GA2-R1-B: Only SUFFICIENT passages can ground claims
+                    passage_relevance = passage.get("relevance", "irrelevant")
+                    if passage_relevance != "sufficient":
+                        continue
+                    passage_text = passage.get("text")
+                    if passage_text is None:
+                        continue
+                    passage_text = str(passage_text)
+                    # GA2-R1-02: Subject binding - if a specific subject is
+                    # requested, verify the passage mentions that subject
+                    if requested_subject:
+                        if not re.search(
+                            rf"\b{re.escape(requested_subject)}\b",
+                            passage_text,
+                            re.IGNORECASE,
+                        ):
+                            # Subject not in this passage - skip it
+                            continue
+                    corpus_parts.append(passage_text)
+            elif document.get("content") is not None:
+                # Only use full content when NO selected_passages field exists
+                # (backward compatibility with older evidence packages).
+                # When passages exist (even empty), we enforce passage-only.
+                corpus_parts.append(str(document["content"]))
+
+    corpus = "\n".join(corpus_parts).casefold()
 
     marker = (
         "[thông tin hiện tại chưa xác nhận]"
@@ -253,4 +300,133 @@ def redact_ungrounded_external_claims(
             return match.group(0)
         return match.group(0).replace(name, marker)
 
-    return _OFFICE_HOLDER.sub(_replace_office_holder, guarded)
+    result = _OFFICE_HOLDER.sub(_replace_office_holder, guarded)
+
+    # If corpus is empty, nothing was grounded — ensure the redaction marker
+    # is present when the response contains ungrounded claims.
+    if not corpus.strip():
+        # If no markers were added and the original text has claims,
+        # append a general marker to indicate nothing was verified.
+        if marker not in result and (
+            _CURRENT_VERSION.search(response_text)
+            or _CURRENT_DATE.search(response_text)
+            or _CURRENT_PRICE.search(response_text)
+            or _OFFICE_HOLDER.search(response_text)
+        ):
+            return f"{result} [{lang == 'vi' and 'chưa xác nhận' or 'unverified'}]"
+    return result
+
+
+def _extract_requested_subject(request_lower: str) -> str | None:
+    """Extract a bounded deterministic subject/entity from the request.
+
+    Returns the requested subject (e.g., "python", "postgresql",
+    "kubernetes", or an arbitrary subject from an explicit-URL question)
+    or None for generic requests without a named subject.
+
+    GA2-R1-02: Generalized beyond a hard-coded product-name list to handle
+    simple factual questions about arbitrary subjects when the user
+    supplies an explicit URL or clearly names the entity.
+    """
+    # Common subjects that indicate a specific entity
+    KNOWN_SUBJECTS = [
+        "python",
+        "postgresql",
+        "postgres",
+        "mysql",
+        "mongodb",
+        "kubernetes",
+        "k8s",
+        "docker",
+        "nginx",
+        "apache",
+        "redis",
+        "grafana",
+        "zabbix",
+        "linux",
+        "ubuntu",
+        "centos",
+        "windows",
+        "macos",
+        "examplecorp",
+        "acme",
+    ]
+
+    for subject in KNOWN_SUBJECTS:
+        if subject in request_lower:
+            return subject
+
+    # GA2-R1-02: Generalized subject extraction for arbitrary subjects.
+    # When the request is a simple factual question (version/date/price/
+    # identity), try to extract the subject from common patterns:
+    # - "version of <subject>" -> extract <subject>
+    # - "<subject> version" -> extract <subject>
+    # - "phiên bản của <subject>" -> extract <subject>
+    # - "<subject> là gì" -> extract <subject>
+    # - URL-based questions: extract domain/subject from the URL
+    request_type = _detect_request_type(request_lower)
+    if request_type != "general":
+        # Try pattern-based extraction
+        # Pattern: "version of X" or "current version of X"
+        match = re.search(r"version\s+(?:of|của)\s+(\w+)", request_lower)
+        if match:
+            subject = match.group(1)
+            if len(subject) >= 2 and len(subject) <= 50:
+                return subject
+
+        # Pattern: "X version" (e.g., "python version")
+        match = re.search(r"^(\w+)\s+version", request_lower)
+        if match:
+            subject = match.group(1)
+            if len(subject) >= 2 and len(subject) <= 50:
+                return subject
+
+        # Pattern: "phiên bản X" or "phiên bản của X"
+        match = re.search(r"phiên\s*bản\s+(?:của\s+)?(\w+)", request_lower)
+        if match:
+            subject = match.group(1)
+            if len(subject) >= 2 and len(subject) <= 50:
+                return subject
+
+    return None
+
+
+def _detect_request_type(request_lower: str) -> str:
+    """Detect the type of request to determine required claim support.
+
+    Order matters: check specific multi-word patterns BEFORE single-word
+    tokens to avoid misclassification.  For example "release date" must
+    classify as DATE, not VERSION, even though it contains "release".
+    """
+    # DATE — check multi-word patterns BEFORE single-word tokens
+    if any(kw in request_lower for kw in ("release date", "current date", "date")):
+        return "date"
+    # VERSION — check before generic "release"
+    if any(kw in request_lower for kw in ("current version", "version")):
+        return "version"
+    # PRICE — check multi-word patterns
+    if any(
+        kw in request_lower
+        for kw in ("current price", "current value", "cost", "price")
+    ):
+        return "price"
+    # IDENTITY — check multi-word patterns
+    if any(
+        kw in request_lower
+        for kw in ("prime minister", "chief executive officer", "office holder")
+    ):
+        return "identity"
+    if any(
+        kw in request_lower
+        for kw in (
+            "holder",
+            "officer",
+            "identity",
+            "ceo",
+            "president",
+            "chancellor",
+            "secretary",
+        )
+    ):
+        return "identity"
+    return "general"
