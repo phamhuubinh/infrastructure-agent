@@ -71,4 +71,4 @@ evidence is `UNKNOWN`, not a positive risk or a verified current claim.
 - `ADR-0002-llm-assessment-only.md`
 - `ADR-0008-evidence-validity.md`
 - `docs/tools/internet.md`
-- `docs/project/GENERAL_AGENT_EXTERNAL_VERIFICATION_BACKLOG.md`
+- Historical General Agent external-verification backlog (preserved in Git history)

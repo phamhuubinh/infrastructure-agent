@@ -5,7 +5,7 @@ records stage-level status, confidence, target, plan, evidence and findings
 so that failures can be attributed to a specific stage (``failure_stage``
 and ``failure_reason``).
 
-Rules (see docs/project/DETERMINISTIC_REASONING_BACKLOG.md DR1-002):
+Rules originated in DR1-002; current acceptance state is tracked in docs/project/GA2_BACKLOG.md:
 - a stage that never ran is recorded as ``None``/PENDING, never as
   confidence 0.0 — zero is an actual measurement, not "not executed".
 - serialization never contains credentials or raw sensitive command output.

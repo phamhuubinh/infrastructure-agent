@@ -2,7 +2,7 @@
 
 Validates that the human-reviewed golden cases under tests/data/qa_cases/
 are structurally correct and satisfy the acceptance criteria from
-docs/project/DETERMINISTIC_REASONING_BACKLOG.md DR1-004:
+DR1-004 historical golden-schema contract; current state is tracked in docs/project/GA2_BACKLOG.md:
 
 - every group A-J has coverage
 - Vietnamese, English, typo, code-switching, follow-up, unknown target,

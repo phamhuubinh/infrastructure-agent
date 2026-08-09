@@ -127,7 +127,7 @@ Three rounds of evaluation testing (2026-07-24) identified 48 distinct issues. R
 Source/test review confirms the Phase 6 artifacts above still exist, but it also confirms that
 module existence and current behavioral acceptance are different states. The detailed 601–632
 matrix and test evidence are in `docs/ai/10_PHASE6_PLAN.md`; the active corrective definitions
-are in `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`.
+are in `docs/project/GA2_BACKLOG.md`.
 
 | Historical IDs | Artifact present | Current behavior gap / corrective owner |
 |---|---|---|
@@ -151,7 +151,7 @@ missing, and no historical ✅ is to be treated as proof that current QA accepta
 
 ## GA2 continuation — Epics A–D completed (2026-08-08)
 
-The GA2 continuation backlog (`docs/project/GA2_CONTINUATION_BACKLOG_5C30BB3D2FBD.md`)
+The GA2 continuation backlog (`docs/project/GA2_BACKLOG.md`)
 was worked as an implementation backlog (no `make qa-smoke`/`qa-full` was run by
 the coding agent; those remain maintainer-stage runtime gates).
 
@@ -331,11 +331,11 @@ Full analysis in `docs/ai/10_PHASE6_PLAN.md`.
 4. **DR1 implementation is complete**: all 86 corrective task IDs now have recorded scope and
    verification evidence. Promotion remains gated by the release checklist, meaningful model/config
    baseline and CI artifacts; this is not a claim that a production deployment has occurred.
-5. **Sprint 1 (`IMPLEMENTATION_BACKLOG.md`) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
+5. **Sprint 1 (historical Sprint 1 backlog (preserved in Git history)) is historical/complete**: items 001–012 implemented; item 013 evaluated and left HORIZON (2/5 gates met).
 6. WP1 (`04_ROADMAP.md`) begins once public VM access is available — not before.
 
 ## Deterministic Reasoning v1 (DR1) — corrective backlog (implementation complete, 2026-08-07)
-- **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. `BACKLOG.md` and `IMPLEMENTATION_BACKLOG.md` are explicitly historical/reference-only (see `docs/project/README.md`).
+- **DR1-001 ✅ complete**: the active backlog is finalized as the single source of truth at `docs/project/GA2_BACKLOG.md`. `BACKLOG.md` and historical Sprint 1 backlog (preserved in Git history) are explicitly historical/reference-only (see `docs/project/README.md`).
 - **DR1-002 ✅ complete**: `ExecutionTrace` schema added (`src/pipeline/execution_trace.py`) — every pipeline request emits one trace with stage status/confidence, target, params, plan, evidence names, answer strategy, `llm_usage_reason`, `failure_stage`/`failure_reason` and safe serialization. `run_with_steps()` now returns `trace_id` + `execution_trace` (additive, backward-compatible).
 - **DR1-003 ✅ complete**: the standalone HTTP QA runner `scripts/qa/orion_qa_runner.py` (stdlib-only, no `src/` import) is the accepted implementation with four TXT question suites under `tests/qa/cases/` (`cauhoi_kiemtra_v2`, `cauhoi_phanb`, `cauhoi_v4_adversarial`, `cauhoi_v5_workflow`). One run uses a single `session_id` across the suite, writes a transcript to `artifacts/qa/transcripts/` (or `--output`), and auto-starts/stops Orion via docker compose unless `--no-start` is used. The previous JSONL loader implementation (`scripts/qa/case_loader.py`, `--cases`, `tests/data/qa_cases/v5_multiline.jsonl`, `tests/qa/test_acceptance_parser.py`) was removed and the internal runners were reverted to their DR1-003-old hunks only.
 - **DR1-004 ✅ complete**: transcript Q&A converted into a human-reviewed, stage-level golden dataset `tests/data/qa_cases/golden_core.yaml` — 39 cases covering groups A–J (+M), with expected concept/operation/intent/target/params/answer_type/routing_status/evidence_status/answer_strategy/`llm_usage_reason`/required_evidence per case plus `harness_error` flags to separate harness bugs from agent defects. `scripts/qa/build_golden.py` validates schema and coverage; `tests/qa/test_golden_schema.py` (35 tests) enforces group/tag coverage and forbids auto-generated ids.

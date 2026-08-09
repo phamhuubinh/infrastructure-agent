@@ -1,13 +1,12 @@
-# Project planning documents
+# Project documentation
 
-## Active backlog (single source of truth)
+## Active GA2 state
 
-- `GENERAL_AGENT_EXTERNAL_VERIFICATION_BACKLOG.md` — **backlog hiện hành duy nhất**: General Agent & External Verification v1 (GA1, EPIC 0–9; implementation completed, provider rollout remains operator-configured).
+- `GA2_BACKLOG.md` — single source of truth for all remaining GA2 work.
+- `GA2_VERIFICATION_EVIDENCE.md` — current GA2 verification and release evidence.
 
-## Historical material (retained for reference only)
+## Historical evidence
 
-- `BACKLOG.md` — consolidated historical backlog
-- `IMPLEMENTATION_BACKLOG.md` — implementation plan and completed work record
-- `DETERMINISTIC_REASONING_BACKLOG.md` — completed corrective predecessor (DR1)
+- `GA1_VERIFICATION_EVIDENCE.md` — retained historical GA1 verification evidence.
 
-Current implementation status remains in `docs/ai/08_PROJECT_STATE.md`.
+Legacy implementation, DR1, GA1 and GA2 continuation backlog files are preserved in Git history and are no longer active documentation.

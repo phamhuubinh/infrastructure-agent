@@ -20,7 +20,7 @@ This document defines the concrete implementation plan to close those gaps.
 | `docs/ai/05_EXECUTION_PIPELINE.md` | 6-stage pipeline specification |
 | `docs/ai/07_DEVELOPMENT_RULES.md` | Mandatory engineering rules |
 | `docs/ai/08_PROJECT_STATE.md` | Current implementation status |
-| `docs/project/DETERMINISTIC_REASONING_BACKLOG.md` | Active corrective backlog and current acceptance criteria |
+| Historical DR1 backlog (preserved in Git history) | Active corrective backlog and current acceptance criteria |
 
 ## DR1-006 reconciliation (2026-08-05)
 
@@ -37,7 +37,7 @@ baseline. The distinction used below is:
   the value affects capability execution, evidence validity, or the final response.
 
 All `DR1-*` references below point to the active
-[Deterministic Reasoning backlog](../project/DETERMINISTIC_REASONING_BACKLOG.md).
+Deterministic Reasoning backlog (historical; preserved in Git history).
 
 | Phase 6 ID | Current artifact and test evidence | Current behavioral reconciliation / corrective owner |
 |---|---|---|
