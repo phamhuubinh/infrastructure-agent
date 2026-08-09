@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -15,6 +17,25 @@ def _runner_module():
     sys.modules["ga2_runner"] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _smoke_args(**overrides: object) -> argparse.Namespace:
+    """Build the argparse.Namespace `run()` expects, with smoke defaults."""
+    defaults: dict[str, object] = {
+        "mode": "smoke",
+        "no_start": True,
+        "fail_fast": False,
+        "host": "127.0.0.1",
+        "port": "61888",
+        "api_key": None,
+        "timeout": 5.0,
+        "health_timeout": 5.0,
+        "output_root": "artifacts/qa/runs",
+        "run_dir": None,
+        "evidence_output": "docs/project/GA2_VERIFICATION_EVIDENCE.md",
+    }
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
 
 
 def test_full_runner_freezes_all_386_questions_with_stable_ids() -> None:
@@ -107,3 +128,89 @@ def test_verification_evidence_accepts_a_relative_artifact_path(tmp_path: Path) 
     )
 
     assert "artifacts/qa/runs/example" in output.read_text(encoding="utf-8")
+
+
+def test_run_case_surfaces_routing_target_source_evidence_for_regression_diff() -> None:
+    """GA2-A10: per-case records must carry structured fields so
+    unified_qa.compare_runs() can actually detect a routing/target/source/
+    evidence regression between two runs instead of silently comparing
+    nothing (these keys were previously absent from every case record)."""
+    runner = _runner_module()
+    case = runner.QaCase(id="GA2-DEFAULT-001", suite="DEFAULT", question="RAM?")
+
+    def _fake_http_json(url, payload, api_key, timeout):
+        return 200, {
+            "assessment": "16GB",
+            "execution_trace": {
+                "answer_strategy": "DETERMINISTIC_TEMPLATE",
+                "evidence_status": "NOT_APPLICABLE",
+                "actual_request_frame": {
+                    "target_resolved": "monitor",
+                    "source_constraints": ["ANY"],
+                },
+            },
+        }
+
+    runner._http_json = _fake_http_json
+    record = runner._run_case(
+        case, base_url="http://x", api_key=None, session_id="s", timeout=1.0
+    )
+
+    assert record["routing"] == "DETERMINISTIC_TEMPLATE"
+    assert record["target"] == "monitor"
+    assert record["source"] == ["ANY"]
+    assert record["evidence"] == "NOT_APPLICABLE"
+
+
+def test_run_with_run_dir_writes_directly_into_the_given_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """GA2-A06/A09: when --run-dir is given (as unified_qa.py does for the
+    qa_386 stage), the runner must reuse that exact directory instead of
+    minting a *second* timestamped directory nested inside it. Previously
+    every runtime artifact (summary.json, transcripts) ended up one level
+    too deep, so the orchestrator's aggregate report could never find them.
+    """
+    runner = _runner_module()
+    runner._wait_for_health = lambda *a, **k: None
+    runner._http_json = lambda *a, **k: (200, {"assessment": "ok"})
+    # _write_verification_evidence() reports the run directory relative to
+    # PROJECT_ROOT; point that at tmp_path so a run directory under tmp_path
+    # resolves cleanly instead of raising ValueError (not a subpath).
+    runner.PROJECT_ROOT = tmp_path
+
+    output_root = tmp_path / "artifacts/qa/runs"
+    run_dir = output_root / "20260808_000000_deadbeefcafe"
+    run_dir.mkdir(parents=True)
+    # Simulate the orchestrator's own manifest.json already sitting there
+    # with fields (like run_id) that ga2_runner.py must not clobber.
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"run_id": run_dir.name, "sentinel": "orchestrator-owned"}),
+        encoding="utf-8",
+    )
+
+    args = _smoke_args(
+        output_root=str(output_root),
+        run_dir=str(run_dir),
+        evidence_output=str(tmp_path / "GA2_VERIFICATION_EVIDENCE.md"),
+    )
+    result_dir, report = runner.run(args)
+
+    # No nested directory was created; the exact given directory was reused.
+    assert result_dir == run_dir
+    assert list(p for p in run_dir.iterdir() if p.is_dir()) == []
+
+    # Runtime artifacts landed directly in run_dir, not one level deeper.
+    assert (run_dir / "summary.json").is_file()
+    assert (run_dir / "smoke.md").is_file()
+
+    # The orchestrator's manifest.json was preserved untouched; this
+    # runner's own attestation went to a distinctly named file instead.
+    orchestrator_manifest = json.loads(
+        (run_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert orchestrator_manifest["sentinel"] == "orchestrator-owned"
+    assert (run_dir / "qa_386_manifest.json").is_file()
+
+    # summary.json is a complete, valid JSON report (no crash serializing).
+    assert report["summary"]["mode"] == "smoke"

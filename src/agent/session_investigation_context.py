@@ -33,6 +33,12 @@ class SessionInvestigationContext:
     active_excluded_sources: tuple[SourceConstraint, ...] = ()
     # GA2-D08: requested answer shape affects response construction only.
     requested_answer_shape: str = "DEFAULT"  # DEFAULT | SHORT | RAW | EXPLAIN_PREVIOUS
+    # GA2-E02: the field name (e.g. "target") the system just asked the
+    # user to clarify, if any. Lets the next short reply be resolved as
+    # *answering that question* — with whatever constraints (e.g. a hard
+    # source restriction) were already established before the question was
+    # asked — rather than being parsed as an unrelated new request.
+    pending_clarification_field: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -49,6 +55,7 @@ class SessionInvestigationContext:
                 source.name for source in self.active_excluded_sources
             ],
             "requested_answer_shape": self.requested_answer_shape,
+            "pending_clarification_field": self.pending_clarification_field,
         }
 
     @classmethod
@@ -57,6 +64,7 @@ class SessionInvestigationContext:
             return cls()
         incident_ids = value.get("incident_ids", ())
         raw_shape = value.get("requested_answer_shape")
+        pending_field = value.get("pending_clarification_field")
         return cls(
             active_target=_optional_text(value.get("active_target")),
             active_concept=_optional_text(value.get("active_concept")),
@@ -78,6 +86,7 @@ class SessionInvestigationContext:
                 and raw_shape in {"DEFAULT", "SHORT", "RAW", "EXPLAIN_PREVIOUS"}
                 else "DEFAULT"
             ),
+            pending_clarification_field=_optional_text(pending_field),
         )
 
     def update_from_frame(self, frame: RequestFrame) -> SessionInvestigationContext:
@@ -121,11 +130,19 @@ class SessionInvestigationContext:
                 else self.active_excluded_sources
             ),
             requested_answer_shape=self.requested_answer_shape,
+            # A successful resolution answers any pending clarification.
+            pending_clarification_field=None,
         )
 
     def with_answer_shape(self, shape: str) -> SessionInvestigationContext:
         """GA2-D08: set the requested response shape (DEFAULT/SHORT/RAW/EXPLAIN_PREVIOUS)."""
         return replace(self, requested_answer_shape=shape)
+
+    def with_pending_clarification(
+        self, field: str | None
+    ) -> SessionInvestigationContext:
+        """GA2-E02: record which field the system just asked to clarify."""
+        return replace(self, pending_clarification_field=field)
 
     def with_corrected_concept(self, concept: str) -> SessionInvestigationContext:
         """GA2-D07: replace the active concept with the corrected one."""
@@ -221,8 +238,12 @@ class SessionContextResolver:
         "giai thich cau truoc",
         "explain the previous",
         "explain your previous answer",
+        "explain previous answer",
+        "explain the previous answer",
         "giải thích kỹ hơn câu trước",
         "giai thich ky hon cau truoc",
+        "giải thích câu trả lời trước",
+        "giai thich cau tra loi truoc",
         "explain more",
         "giải thích thêm",
         "giai thich them",
@@ -233,6 +254,14 @@ class SessionContextResolver:
         r"không\s+phải|khong\s+phai|ý\s+tôi\s+là|y\s+toi\s+la|"
         r"tôi\s+nói\s+nhầm|toi\s+noi\s+nham|nhầm\s+rồi|nham\s+roi|"
         r"i\s+meant|i\s+mean",
+        re.IGNORECASE,
+    )
+    # GA2-D07: markers that specifically negate the concept following them
+    # (as opposed to "ý tôi là"/"i meant", which instead *introduce* the
+    # replacement concept). Used to tell which of two mentioned concepts is
+    # being rejected so the other one can be returned as the correction.
+    _NEGATION_MARKER = re.compile(
+        r"không\s+phải|khong\s+phai|\bnot\b",
         re.IGNORECASE,
     )
     _CONCEPT_TOKENS = ("cpu", "ram", "memory", "disk", "network", "service")
@@ -251,11 +280,48 @@ class SessionContextResolver:
 
     @classmethod
     def corrected_concept(cls, raw_request: str) -> str | None:
-        """GA2-D07: return the corrected concept that replaces the active one."""
+        """GA2-D07: return the corrected (replacement) concept.
+
+        A correction sentence names two things: the concept being rejected
+        and the concept replacing it — e.g. "Không phải CPU, tôi hỏi RAM."
+        rejects CPU and replaces it with RAM. The previous implementation
+        scanned ``_CONCEPT_TOKENS`` in a fixed order and returned whichever
+        token happened to appear first in that list, so "CPU" (checked
+        first) was returned even when the sentence explicitly negated it.
+
+        This walks every concept mention in the sentence, determines which
+        one sits immediately after a negation marker (`_NEGATION_MARKER`),
+        and returns the first *other* mentioned concept as the replacement.
+        """
         lower = raw_request.casefold()
-        for token in cls._CONCEPT_TOKENS:
-            if token in lower:
+        token_pattern = "|".join(re.escape(token) for token in cls._CONCEPT_TOKENS)
+        occurrences = [
+            (match.start(), match.group(0))
+            for match in re.finditer(rf"\b(?:{token_pattern})\b", lower)
+        ]
+        if not occurrences:
+            return None
+        if len(occurrences) == 1:
+            return occurrences[0][1]
+
+        negation_ends = [m.end() for m in cls._NEGATION_MARKER.finditer(lower)]
+        negated_token: str | None = None
+        if negation_ends:
+            # The concept negated by a given marker is the *nearest*
+            # concept mention that follows it (not just any later one).
+            for marker_end in negation_ends:
+                following = [
+                    (pos, token) for pos, token in occurrences if pos >= marker_end
+                ]
+                if following:
+                    negated_token = min(following, key=lambda item: item[0])[1]
+                    break
+
+        for _, token in occurrences:
+            if token != negated_token:
                 return token
+        # Every mention matched the negated token (degenerate input, e.g.
+        # "not CPU, not CPU"): there is no confident replacement to report.
         return None
 
     @classmethod
@@ -294,6 +360,32 @@ class SessionContextResolver:
         applied: list[str] = []
         changes: dict[str, object] = {}
 
+        # GA2-E02: a short reply directly answering a clarification question
+        # the system just asked (e.g. "monitor." answering "target nào?")
+        # is a follow-up even though it doesn't start with a follow-up
+        # marker like "và"/"also" — it is often just the bare answer. Without
+        # this, such a reply fell through every inheritance check below
+        # (none of them fire without is_follow_up or high confidence), so a
+        # hard source restriction established before the question was asked
+        # (e.g. "Chỉ dùng Grafana...") was silently dropped/defaulted to ANY
+        # on the very next turn. Guarded to short replies only (≤6 words) so
+        # a genuinely new, unrelated full request right after a clarification
+        # is not misread as an answer to it.
+        is_pending_clarification_answer = (
+            context.pending_clarification_field is not None
+            and len(frame.raw_request.split()) <= 6
+        )
+        if is_pending_clarification_answer:
+            is_follow_up = True
+            if (
+                context.pending_clarification_field == "target"
+                and frame.target_raw is None
+            ):
+                answer_text = frame.raw_request.strip(" .!?\u3002")
+                if answer_text:
+                    changes["target_raw"] = answer_text
+                    applied.append("target_from_clarification")
+
         # GA2-D07: a correction replaces the active concept instead of unioning.
         correction_concept = None
         if self.is_correction_request(raw):
@@ -309,6 +401,7 @@ class SessionContextResolver:
             and context.active_target
             and (is_follow_up or frame.confidence >= 0.5)
             and not self.is_vague_referent(raw)
+            and "target_from_clarification" not in applied
         ):
             changes["target_raw"] = context.active_target
             applied.append("target")

@@ -203,13 +203,28 @@ def _run_case(
     payload = body if isinstance(body, dict) else {}
     response = str(payload.get("assessment", "")) if payload else str(body)
     trace = payload.get("execution_trace") if payload else None
+    trace = trace if isinstance(trace, dict) else None
+    frame = (
+        trace.get("actual_request_frame") if trace and isinstance(trace.get("actual_request_frame"), dict) else {}
+    )
     return {
         **asdict(case),
         "http_status": status,
         "response": response,
-        "execution_trace": trace if isinstance(trace, dict) else None,
+        "execution_trace": trace,
         "response_time_ms": payload.get("response_time_ms") if payload else None,
         "elapsed_ms": elapsed_ms,
+        # GA2-A10: surface the same structured fields compare_runs() already
+        # knows how to diff (routing/target/source/evidence) so a regression
+        # comparison between two runs can actually detect a routing, target
+        # resolution, source-constraint, or evidence-status regression.
+        # Previously these keys were never present on a case record, so
+        # compare_runs()'s routing/target/source/evidence comparison was
+        # dead code that always produced an empty result.
+        "routing": trace.get("answer_strategy") if trace else None,
+        "target": frame.get("target_resolved"),
+        "source": frame.get("source_constraints"),
+        "evidence": trace.get("evidence_status") if trace else None,
     }
 
 
@@ -389,10 +404,28 @@ def run(args: argparse.Namespace) -> tuple[Path, dict[str, object]]:
     _wait_for_health(base_url, api_key, args.health_timeout)
 
     manifest = runtime_manifest()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    run_dir = Path(args.output_root) / f"{stamp}_{str(manifest['git_sha'])[:12]}"
-    run_dir.mkdir(parents=True, exist_ok=False)
-    (run_dir / "manifest.json").write_text(
+    # GA2-A06/A09: when invoked as the `qa_386` stage of `unified_qa.py`, the
+    # orchestrator has already created and stamped the canonical run
+    # directory.  Creating a *second* timestamped directory nested inside it
+    # (the previous behavior) silently orphaned every runtime artifact
+    # (summary.json, transcripts) from the unified aggregate report.  Reuse
+    # the caller-provided directory instead of minting a new one whenever
+    # `--run-dir` is given; only mint a fresh timestamp/SHA directory for
+    # standalone invocation (`make qa-smoke` / `make qa-full` run directly).
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        # Do not clobber the orchestrator's own manifest.json (it carries the
+        # unified run_id and feature-flag snapshot); record this runner's
+        # attestation under a distinct name instead.
+        manifest_name = "qa_386_manifest.json"
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        run_dir = Path(args.output_root) / f"{stamp}_{str(manifest['git_sha'])[:12]}"
+        run_dir.mkdir(parents=True, exist_ok=False)
+        manifest_name = "manifest.json"
+    latest_root = Path(args.output_root)
+    (run_dir / manifest_name).write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
 
@@ -453,7 +486,7 @@ def run(args: argparse.Namespace) -> tuple[Path, dict[str, object]]:
     (run_dir / "summary.md").write_text(
         _render_markdown(manifest, summary, p0), encoding="utf-8"
     )
-    latest = Path(args.output_root) / "latest.json"
+    latest = latest_root / "latest.json"
     latest.parent.mkdir(parents=True, exist_ok=True)
     latest.write_text(
         json.dumps({"run": str(run_dir), "summary": summary}, indent=2),
@@ -488,6 +521,17 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--health-timeout", type=float, default=120.0)
     parser.add_argument("--output-root", default="artifacts/qa/runs")
+    parser.add_argument(
+        "--run-dir",
+        default=None,
+        help=(
+            "Reuse this exact directory as the run directory instead of "
+            "minting a new timestamp/SHA directory under --output-root. "
+            "Used by scripts/qa/unified_qa.py so the qa_386 stage writes "
+            "into the same canonical run directory the orchestrator already "
+            "created (GA2-A06/A09), rather than a nested one."
+        ),
+    )
     parser.add_argument(
         "--evidence-output",
         default="docs/project/GA2_VERIFICATION_EVIDENCE.md",

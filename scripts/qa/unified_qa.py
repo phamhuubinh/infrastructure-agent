@@ -100,7 +100,13 @@ TECHNICAL_STAGES = (
     QaStage(
         "run_baseline",
         "Stage-level golden baseline metrics",
-        (sys.executable, "scripts/qa/run_baseline.py", "--smoke"),
+        (
+            sys.executable,
+            "scripts/qa/run_baseline.py",
+            "--smoke",
+            "--output-dir",
+            "__run_baseline_dir__",
+        ),
         optional=True,
     ),
     QaStage(
@@ -111,6 +117,8 @@ TECHNICAL_STAGES = (
             "scripts/qa/run_acceptance.py",
             "--report",
             "__baseline_json__",
+            "--output-dir",
+            "__run_acceptance_dir__",
         ),
         optional=True,
     ),
@@ -435,8 +443,13 @@ def _run_subprocess(
         "stage": stage_id,
         "exit_code": returncode,
         "elapsed_ms": elapsed_ms,
-        "stdout": stdout_path,
-        "stderr": stderr_path,
+        # GA2-A09: these results are embedded verbatim into summary.json /
+        # aggregate_report.json via json.dumps().  A bare Path object is not
+        # JSON-serializable, so every run that reached this point previously
+        # crashed with `TypeError: Object of type PosixPath is not JSON
+        # serializable` before the report could ever be written.
+        "stdout": str(stdout_path),
+        "stderr": str(stderr_path),
         "status": "PASS" if returncode == 0 else "FAIL",
     }
 
@@ -468,11 +481,42 @@ def run_technical_stages(
     return results
 
 
+def _find_baseline_json(baseline_dir: Path) -> Path | None:
+    """Locate the most recent baseline report written by run_baseline.py.
+
+    ``run_baseline.py --smoke`` names its output ``smoke_<timestamp>.json``;
+    a non-smoke run names it ``baseline_<timestamp>.json``.  The stage
+    invocation here always passes ``--smoke`` (GA2-A06), so matching only
+    ``baseline_*.json`` meant the handoff to ``run_acceptance`` never found a
+    report and always failed.  Match both, preferring the newest by name
+    (the timestamp suffix sorts lexicographically).
+    """
+    if not baseline_dir.is_dir():
+        return None
+    candidates = sorted(
+        [*baseline_dir.glob("baseline_*.json"), *baseline_dir.glob("smoke_*.json")]
+    )
+    return candidates[-1] if candidates else None
+
+
 def _resolve_stage_command(stage: QaStage, run_dir: Path) -> tuple[str, ...]:
-    """Resolve placeholder commands (e.g. the baseline JSON path)."""
+    """Resolve placeholder commands (baseline/acceptance run-dir subfolders).
+
+    GA2-A06: ``run_baseline`` and ``run_acceptance`` must write into the
+    canonical run directory (``<run_dir>/baseline``, ``<run_dir>/acceptance``
+    per the GA2 artifact contract) rather than the tool's own hardcoded
+    defaults (``benchmark_results/``, ``artifacts/qa/``), so the aggregate
+    report and any later inspection actually finds them under one run ID.
+    """
+    if stage.id == "run_baseline":
+        baseline_dir = run_dir / "baseline"
+        return tuple(
+            str(baseline_dir) if value == "__run_baseline_dir__" else value
+            for value in stage.command
+        )
     if stage.id != "run_acceptance":
         return stage.command
-    baseline_json = next(run_dir.glob("baseline_*.json"), None)
+    baseline_json = _find_baseline_json(run_dir / "baseline")
     if baseline_json is None:
         # No baseline report was produced (smoke/non-meaningful); acceptance
         # stage cannot run — return a command that fails loudly with a clear
@@ -484,9 +528,16 @@ def _resolve_stage_command(stage: QaStage, run_dir: Path) -> tuple[str, ...]:
             "run. Ensure run_baseline produced a report.', file=sys.stderr); "
             "sys.exit(2)",
         )
-    return tuple(
-        str(value) if value == "__baseline_json__" else value for value in stage.command
-    )
+    acceptance_dir = run_dir / "acceptance"
+    resolved: list[str] = []
+    for value in stage.command:
+        if value == "__baseline_json__":
+            resolved.append(str(baseline_json))
+        elif value == "__run_acceptance_dir__":
+            resolved.append(str(acceptance_dir))
+        else:
+            resolved.append(value)
+    return tuple(resolved)
 
 
 class AggregateReport(TypedDict):
@@ -499,6 +550,7 @@ class AggregateReport(TypedDict):
     manifest: dict[str, object]
     technical_stages: list[dict[str, object]]
     qa: dict[str, object] | None
+    qa_execution: dict[str, object] | None
     summary: dict[str, object]
     regression: dict[str, object] | None
     transcripts: dict[str, bool]
@@ -512,11 +564,17 @@ def run_aggregate_report(
     technical: list[dict[str, object]],
     qa_report: dict[str, object] | None,
     comparison: RunComparison | None,
+    qa_execution: dict[str, object] | None = None,
 ) -> AggregateReport:
     """Build the unified GA2 aggregate report (GA2-A09).
 
     The report never claims acceptance from transport success alone; grading
     remains ``PENDING_MANUAL_REVIEW`` until the maintainer supplies grades.
+    ``qa_execution`` (optional) carries the raw subprocess result of the
+    ``qa_386`` stage (exit code / log paths) separately from ``qa_report``
+    (the parsed content of ga2_runner's own summary.json), so a reader can
+    distinguish "the 386 run executed but is pending manual grading" from
+    "the 386 run never produced a report".
     """
     raw_summary = qa_report.get("summary") if qa_report else None
     summary: dict[str, Any] = dict(raw_summary) if isinstance(raw_summary, dict) else {}
@@ -530,6 +588,7 @@ def run_aggregate_report(
         "manifest": manifest,
         "technical_stages": technical,
         "qa": qa_report,
+        "qa_execution": qa_execution,
         "summary": summary,
         "regression": comparison.to_dict() if comparison else None,
         "transcripts": transcripts,
@@ -632,19 +691,43 @@ def main() -> int:
         print("Docker build/start failed; stopping.", file=sys.stderr)
         return 1
 
-    _run_subprocess(
+    qa_result = _run_subprocess(
         (
             sys.executable,
             "scripts/qa/ga2_runner.py",
             "--mode",
             "full",
             "--no-start",
-            "--output-root",
+            # GA2-A06/A09: pass --run-dir so ga2_runner.py writes summary.json,
+            # transcripts, and its own manifest directly into the run
+            # directory the orchestrator already created, instead of minting
+            # a second timestamped directory nested inside it (which
+            # previously orphaned every runtime artifact from this report).
+            "--run-dir",
             str(run_dir),
+            "--output-root",
+            str(run_dir.parent),
         ),
         run_dir=run_dir,
         stage_id="qa_386",
     )
+    # ga2_runner.py's exit codes are deliberate (see its main()):
+    #   0 -> smoke mode, clean (not reachable here; this stage always runs
+    #        --mode full)
+    #   2 -> full mode completed normally; GA2 full runs are *always*
+    #        PENDING_MANUAL_REVIEW by design, so this is the expected
+    #        "success" outcome, not a failure
+    #   1 / other -> the runner raised (docker unhealthy, case-count
+    #        mismatch, HTTP transport failure, ...): a genuine execution
+    #        failure that must fail `qa-full` rather than being silently
+    #        swallowed.
+    qa_hard_failure = qa_result["exit_code"] not in (0, 2)
+    if qa_hard_failure:
+        print(
+            f"qa_386 stage failed to execute (exit={qa_result['exit_code']}); "
+            f"see {qa_result['stderr']}",
+            file=sys.stderr,
+        )
 
     qa_report: dict[str, object] | None = None
     summary_json = run_dir / "summary.json"
@@ -682,6 +765,7 @@ def main() -> int:
         technical=technical,
         qa_report=qa_report,
         comparison=comparison,
+        qa_execution=qa_result,
     )
     (run_dir / "aggregate_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -694,7 +778,12 @@ def main() -> int:
         else "PENDING_MANUAL_REVIEW"
     )
     print(f"Grading status: {grading_status}")
-    return 0 if not failed_technical else 1
+    # GA2-A06: propagate the real outcome. A docker/build failure already
+    # returned above; a technical-stage failure already returned above too.
+    # The remaining case this exit code must reflect is whether the qa_386
+    # runtime stage actually executed cleanly (see qa_hard_failure above) —
+    # previously this always returned 0 here regardless of that outcome.
+    return 1 if qa_hard_failure else 0
 
 
 if __name__ == "__main__":

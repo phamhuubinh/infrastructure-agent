@@ -128,6 +128,25 @@ class MultiIntentPlanner:
             for marker in ("viết", "viet", "tạo", "tao", "write", "generate", "create")
         )
 
+    def split_sequenced_clauses(self, raw_request: str) -> tuple[str, str] | None:
+        """Split a sequenced compound request into its two ordered clauses.
+
+        Returns ``None`` when no explicit sequencing marker is present, or
+        when either side of the split is empty. The runtime uses this to
+        route each half of an EXPLAIN-then-INSPECT plan through the exact
+        same single-shot handling (``chat`` / ``run_with_steps``) that
+        clause would receive standalone, instead of re-deriving new
+        natural-language phrasing per step kind.
+        """
+        match = self._SEQUENCED.search(raw_request)
+        if match is None:
+            return None
+        first = raw_request[: match.start()].strip(" ,.;")
+        second = raw_request[match.end() :].strip(" ,.;")
+        if not first or not second:
+            return None
+        return first, second
+
     def _concepts_suffix(self, raw: str) -> tuple[str, ...]:
         # Take the last infra-looking noun phrase as the step concept.
         for token in (

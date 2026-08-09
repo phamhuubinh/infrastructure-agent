@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
+    from src.pipeline.request_frame import RequestFrame
 
 from src.agent.session_investigation_context import (
     SessionContextResolver,
@@ -40,6 +41,7 @@ from src.pipeline.external_verification import (
 from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
+from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
 from src.pipeline.normalizer import Normalizer
 from src.pipeline.provenance_responder import (
     ProvenanceAnswer,
@@ -108,6 +110,10 @@ class DeterministicAgent:
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
             getattr(execution_engine, "knowledge_tool", None)
         )
+        # GA2-C10: the runtime must construct and consume ordered plans for
+        # true multi-intent requests, not merely have the planner available
+        # as an untested helper (see _maybe_run_explain_then_inspect_plan).
+        self._multi_intent_planner = MultiIntentPlanner()
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -302,6 +308,47 @@ class DeterministicAgent:
                 "trace_id": trace.trace_id,
                 "execution_trace": trace.to_dict(),
             }
+        # GA2-D08: EXPLAIN_PREVIOUS must explain the previous resolved
+        # answer/evidence, never a newly invented environment request, and
+        # must never rerun collectors unless the user explicitly asks for a
+        # refresh. Intercept before any routing/pipeline decision, exactly
+        # like the provenance/reset checks above.
+        explain_previous = self._explain_previous_response(user_request)
+        if explain_previous is not None:
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=RoutingStatus.RESOLVED)
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=AnswerStrategy.LLM_ASSESSMENT,
+                llm_usage_reason=LLMUsageReason.EXPECTED_ASSESSMENT,
+                routing_status=RoutingStatus.RESOLVED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            return {
+                "response": explain_previous,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+        # GA2-C10: consume MultiIntentPlanner's ordered plan for a sequenced
+        # compound request *before* the single-shot routing decision below,
+        # or a request such as "Giải thích RAM là gì rồi kiểm tra RAM trên
+        # monitor." collapses into whichever branch the last-mentioned
+        # concept happens to match (previously: pure GENERAL_CHAT on the
+        # trailing "là gì" cue) and the live-inspection half is silently
+        # dropped rather than executed. Every other plan shape (e.g.
+        # EXTERNAL-then-GENERATE) returns None here and falls through
+        # unchanged: RoutingStatus.EXTERNAL_VERIFICATION below already
+        # executes that pattern correctly end-to-end.
+        plan_result = self._maybe_run_explain_then_inspect_plan(user_request)
+        if plan_result is not None:
+            return plan_result
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return {
@@ -384,6 +431,10 @@ class DeterministicAgent:
             RoutingStatus.CLARIFICATION_REQUIRED,
             RoutingStatus.UNSUPPORTED,
         }:
+            if decision.status is RoutingStatus.CLARIFICATION_REQUIRED:
+                self._remember_clarification(
+                    decision.request_frame, decision.missing_field
+                )
             strategy = (
                 AnswerStrategy.CLARIFICATION
                 if decision.status is RoutingStatus.CLARIFICATION_REQUIRED
@@ -428,6 +479,9 @@ class DeterministicAgent:
                 "execution_trace": trace.to_dict(),
             }
         except RoutingClarificationError as exc:
+            self._remember_clarification(
+                exc.decision.request_frame, exc.decision.missing_field
+            )
             trace = ExecutionTrace(
                 user_request=user_request,
                 failure_stage="routing",
@@ -465,6 +519,7 @@ class DeterministicAgent:
                 missing_field="target",
                 candidates=tuple(candidates),
             )
+            self._remember_clarification(decision.request_frame, "target")
             trace = ExecutionTrace(
                 user_request=user_request,
                 failure_stage="target",
@@ -729,6 +784,19 @@ class DeterministicAgent:
                 _strategy_out[:] = [strategy]
             investigation.answer_strategy = AnswerStrategy[strategy]
 
+        # GA2-D08: RAW returns compact structured facts instead of
+        # assessment prose for evidence-backed environment requests. Only
+        # short-circuits when there are actual facts to show raw (see
+        # _render_raw_facts); otherwise falls through so refusal/error
+        # messaging from the normal path below still surfaces.
+        if self._answer_shape_is_raw(user_request):
+            raw_response = self._render_raw_facts(investigation)
+            if raw_response is not None:
+                _record(AnswerStrategy.DETERMINISTIC_FACT.name)
+                if self._conversation_store:
+                    self._conversation_store.add_turn(user_request, raw_response)
+                return raw_response
+
         answer_type = getattr(investigation, "answer_type", None)
         if answer_type is not None and answer_type != AnswerType.ASSESSMENT:
             deterministic = self._deterministic_responder.try_response(investigation)
@@ -825,6 +893,123 @@ class DeterministicAgent:
             self._session_context.requested_answer_shape == "SHORT"
             and SessionContextResolver.is_follow_up_request(user_request)
         )
+
+    def _answer_shape_is_raw(self, user_request: str) -> bool:
+        """GA2-D08: RAW applies for this request or the session request."""
+        current = SessionContextResolver.requested_answer_shape(user_request)
+        if current == "RAW":
+            return True
+        return (
+            self._session_context.requested_answer_shape == "RAW"
+            and SessionContextResolver.is_follow_up_request(user_request)
+        )
+
+    @staticmethod
+    def _render_raw_facts(investigation: InvestigationRequest) -> str | None:
+        """GA2-D08: compact structured facts instead of assessment prose.
+
+        For evidence-backed environment requests, RAW must return the
+        collected facts directly rather than LLM-authored prose. This never
+        bypasses source/target safety: it renders the *same* investigation
+        that already went through the normal source/target-constrained
+        pipeline (``_execution_engine.execute``) — it does not re-collect
+        evidence differently or relax any constraint, it only changes how
+        the already-resolved facts are presented.
+
+        Returns ``None`` when there is nothing to show raw (e.g. collection
+        failed or produced no facts), so the caller falls through to the
+        normal deterministic/LLM response path and any refusal/error
+        messaging still surfaces instead of an empty RAW response.
+        """
+        fact_set = getattr(investigation, "fact_set", None)
+        facts = fact_set.facts if fact_set is not None else ()
+        if not facts:
+            return None
+        lines = []
+        for fact in facts:
+            unit = f" {fact.unit}" if fact.unit else ""
+            observed_at = (
+                fact.observed_at.isoformat()
+                if hasattr(fact.observed_at, "isoformat")
+                else str(fact.observed_at)
+            )
+            lines.append(
+                f"{fact.target}.{fact.metric} = {fact.value}{unit} "
+                f"(source={fact.source}, observed_at={observed_at})"
+            )
+        return "\n".join(lines)
+
+    _REFRESH_MARKERS = (
+        "refresh",
+        "kiểm tra lại",
+        "kiem tra lai",
+        "chạy lại",
+        "chay lai",
+        "cập nhật lại",
+        "cap nhat lai",
+        "check again",
+        "run it again",
+    )
+
+    @classmethod
+    def _is_explicit_refresh_request(cls, user_request: str) -> bool:
+        """GA2-D08: EXPLAIN_PREVIOUS must not rerun collectors *unless* the
+        user explicitly asks for a refresh."""
+        lower = user_request.casefold()
+        return any(marker in lower for marker in cls._REFRESH_MARKERS)
+
+    def _last_assistant_response(self) -> str | None:
+        """The most recent assistant turn, or None if there isn't one yet."""
+        if not self._conversation_store:
+            return None
+        for turn in reversed(self._conversation_store.history):
+            if isinstance(turn, dict) and turn.get("role") == "assistant":
+                content = turn.get("content")
+                return content if isinstance(content, str) else None
+        return None
+
+    def _explain_previous_response(self, user_request: str) -> str | None:
+        """GA2-D08: EXPLAIN_PREVIOUS explains the previous resolved
+        answer/evidence — never a newly invented environment request — and
+        never reruns collectors unless the user explicitly asks for a
+        refresh (``_is_explicit_refresh_request``, in which case this
+        returns None so the normal pipeline runs as usual).
+        """
+        current = SessionContextResolver.requested_answer_shape(user_request)
+        is_explain_previous = current == "EXPLAIN_PREVIOUS" or (
+            self._session_context.requested_answer_shape == "EXPLAIN_PREVIOUS"
+            and SessionContextResolver.is_follow_up_request(user_request)
+        )
+        if not is_explain_previous:
+            return None
+        if self._is_explicit_refresh_request(user_request):
+            return None
+        previous = self._last_assistant_response()
+        if previous is None:
+            response = (
+                "Không có câu trả lời trước đó trong phiên này để giải thích thêm."
+            )
+        else:
+            explain_prompt = (
+                "Explain the previous answer below in more detail, in plain "
+                "language. Do not invent new facts beyond what it already "
+                "states, and do not describe running a new investigation.\n\n"
+                f"Previous answer:\n{previous}"
+            )
+            # Route through chat() with conversation-store persistence
+            # suppressed: chat() would otherwise persist this synthetic
+            # explain_prompt as the "user" turn instead of the user's
+            # actual short request ("explain more"/"giải thích thêm"),
+            # corrupting history and downstream session-state tracking.
+            store = self._conversation_store
+            self._conversation_store = None
+            try:
+                response = self.chat(explain_prompt)
+            finally:
+                self._conversation_store = store
+        if self._conversation_store:
+            self._conversation_store.add_turn(user_request, response)
+        return response
 
     @staticmethod
     def _trim_to_short(response: str) -> str:
@@ -1607,6 +1792,29 @@ class DeterministicAgent:
         self._remember_investigation(investigation)
         return investigation
 
+    def _remember_clarification(
+        self, frame: RequestFrame | None, missing_field: str | None
+    ) -> None:
+        """GA2-E02: persist whatever the partial frame already establishes
+        (e.g. a hard source constraint from "Chỉ dùng Grafana...") *before*
+        asking for clarification, and record which field is pending.
+
+        Without this, every CLARIFICATION_REQUIRED return path skipped
+        session-state persistence entirely (it has no InvestigationRequest
+        to hand to ``_remember_investigation``), so a hard source
+        restriction stated in the same turn as an unresolved target was
+        silently lost — the next turn's bare clarification answer (e.g.
+        "monitor.") resolved with no memory of "Grafana-only" at all.
+        """
+        if frame is None:
+            return
+        context = self._session_context.update_from_frame(frame)
+        context = context.with_pending_clarification(missing_field)
+        self._session_context = context
+        setter = getattr(self._conversation_store, "set_investigation_context", None)
+        if callable(setter):
+            setter(context)
+
     def _remember_investigation(self, investigation: InvestigationRequest) -> None:
         """Persist resolved semantics, never raw evidence, for later routing."""
         frame = investigation.request_frame
@@ -1648,6 +1856,103 @@ class DeterministicAgent:
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
         return response
+
+    def _maybe_run_explain_then_inspect_plan(self, user_request: str) -> dict | None:
+        """GA2-C10: execute MultiIntentPlanner's EXPLAIN-then-INSPECT plan.
+
+        Returns ``None`` (meaning: fall through to the normal single-shot
+        routing path in ``run_with_steps``) unless ``user_request`` is a
+        sequenced compound request whose first step is a stable-knowledge
+        explanation and whose second step is a live environment read —
+        e.g. "Giải thích RAM là gì rồi kiểm tra RAM trên monitor.". Any
+        other plan shape (including EXTERNAL-then-GENERATE) is left to the
+        existing ``RoutingStatus.EXTERNAL_VERIFICATION`` path, which
+        already executes it correctly end-to-end.
+
+        Each half is executed through the exact same deterministic
+        machinery it would use standalone (``chat`` for the explanation,
+        the full ``run_with_steps`` pipeline — including target/source
+        resolution and all existing error handling — for the live read),
+        never a free-form ReAct/tool-selection loop. Conversation-store
+        persistence is deferred and done once here with the *original*
+        compound request text, so history/session state reflect what the
+        user actually asked rather than the two synthetic sub-clauses.
+        """
+        frame = SessionContextResolver().resolve(
+            Normalizer().normalize(user_request), self._session_context
+        )
+        plan = self._multi_intent_planner.plan(frame)
+        if plan is None or plan.steps[0].kind is not StepKind.EXPLAIN:
+            return None
+        clauses = self._multi_intent_planner.split_sequenced_clauses(user_request)
+        if clauses is None:
+            return None
+        explain_request, inspect_request = clauses
+
+        t0 = now_ms()
+        store = self._conversation_store
+        self._conversation_store = None
+        try:
+            explanation = self.chat(explain_request)
+            inspect_result = self.run_with_steps(inspect_request)
+        finally:
+            self._conversation_store = store
+
+        combined_response = f"{explanation}\n\n---\n\n{inspect_result['response']}"
+        inspect_trace = inspect_result.get("execution_trace") or {}
+        stages = {
+            "step_1_explain": StageTrace(
+                name="step_1_explain", status=StageStatus.SUCCEEDED
+            ),
+            "step_2_inspect": StageTrace(
+                name="step_2_inspect",
+                status=(
+                    StageStatus.FAILED
+                    if inspect_trace.get("failure_stage")
+                    else StageStatus.SUCCEEDED
+                ),
+            ),
+        }
+        resolved_frame = frame.evolve(routing_status=RoutingStatus.RESOLVED)
+        trace = ExecutionTrace(
+            user_request=user_request,
+            stages=stages,
+            answer_strategy=AnswerStrategy.LLM_ASSESSMENT,
+            llm_usage_reason=LLMUsageReason.EXPECTED_ASSESSMENT,
+            routing_status=RoutingStatus.RESOLVED,
+            evidence_status=(
+                EvidenceStatus.SUFFICIENT
+                if not inspect_trace.get("failure_stage")
+                else EvidenceStatus.PARTIAL
+            ),
+            request_class=frame.answer_type,
+            actual_request_frame=resolved_frame.to_dict(),
+            total_duration_ms=now_ms() - t0,
+            runtime_metrics={
+                "plan_steps": len(plan.steps),
+                "plan_source": plan.source,
+            },
+        )
+        if self._conversation_store:
+            setter = getattr(self._conversation_store, "set_investigation_context", None)
+            if callable(setter):
+                setter(self._session_context)
+            self._conversation_store.add_turn(user_request, combined_response)
+        return {
+            "response": combined_response,
+            "steps": [
+                {
+                    "type": "planned_step",
+                    "order": 1,
+                    "kind": "EXPLAIN",
+                    "status": "SUCCEEDED",
+                },
+                *inspect_result.get("steps", []),
+            ],
+            "investigation": inspect_result.get("investigation"),
+            "trace_id": trace.trace_id,
+            "execution_trace": trace.to_dict(),
+        }
 
     def _build_tool_links(
         self,
