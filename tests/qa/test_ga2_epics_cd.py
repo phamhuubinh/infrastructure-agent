@@ -8,6 +8,7 @@ from src.agent.session_investigation_context import (
 )
 from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
 from src.pipeline.normalizer import Normalizer
+from src.pipeline.request_semantics import SourceConstraint
 
 # ---------------------------------------------------------------------------
 # GA2-C08 — URL literal vs fetch intent
@@ -281,14 +282,14 @@ def test_agent_still_uses_single_shot_routing_for_non_explain_plans() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_fact(metric: str, value: object, *, target: str = "monitor"):
+def _make_fact(metric: str, value: object, *, target: str = "monitor", source: str = "linux"):
     from datetime import datetime, timezone
 
     from src.pipeline.fact import Fact, FactFreshness, FactValidity
     from src.pipeline.provenance import Provenance
 
     now = datetime(2026, 8, 8, tzinfo=timezone.utc)
-    provenance = Provenance("linux", "collector", target, now)
+    provenance = Provenance(source, "collector", target, now)
     return Fact(
         "system",
         metric,
@@ -296,7 +297,7 @@ def _make_fact(metric: str, value: object, *, target: str = "monitor"):
         "percent",
         now,
         now,
-        "linux",
+        source,
         target,
         FactValidity.VALID,
         FactFreshness.FRESH,
@@ -590,6 +591,151 @@ def test_repetition_guard_helper_recovers_a_clean_prefix() -> None:
     agent, _mock_engine, _mock_model = _make_agent_with_mocks()
     guarded = agent._apply_repetition_guard(_PATHOLOGICAL_TEXT)
     assert guarded.count("This is a repeated sentence") == 1
+
+
+# ---------------------------------------------------------------------------
+# GA2-C07 — remaining acceptance tests beyond the already-verified
+# EXTERNAL-then-GENERATE happy/unavailable paths (see the C10 section above
+# and F07 section below): fetched evidence that does not actually contain
+# the requested current value must not let a concrete version be fabricated.
+# ---------------------------------------------------------------------------
+
+
+def test_kubernetes_current_version_dependency_routes_the_same_as_python() -> None:
+    """Second acceptance example: 'current Kubernetes -> config snippet'
+    must resolve through the same EXTERNAL_VERIFICATION path as the Python
+    example, not a special-cased or missed classification."""
+    from src.agent.runtime_factory import create_deterministic_agent
+
+    agent = create_deterministic_agent()
+    decision = agent._route_request(
+        "Tìm phiên bản Kubernetes mới nhất rồi tạo config snippet dùng phiên bản đó."
+    )
+    assert decision.status.name == "EXTERNAL_VERIFICATION"
+
+
+def test_fetched_evidence_without_the_version_never_fabricates_one() -> None:
+    """Acceptance test: 'fetched evidence without the requested version ->
+    no concrete version fabricated'. Search succeeds (outcome.verified is
+    True, unlike the provider-unavailable case), but the fetched page
+    content never actually states a version number. The claim-grounding
+    guard must still strip any concrete version the model states, since a
+    fetch receipt/source URL alone is not grounding.
+    """
+    from unittest import mock
+
+    from src.pipeline.evidence_package import EvidencePackage
+
+    agent, _mock_engine, mock_model = _make_agent_with_mocks()
+    # The model hallucinates a concrete version despite ungrounded evidence.
+    mock_model.assess.return_value = (
+        "Phiên bản Python mới nhất hiện tại là 3.13.2."
+    )
+
+    evidence = EvidencePackage(
+        capability_name="internet",
+        evidence_name="web_search",
+        data={"documents": [{"content": "Python is a popular programming language."}]},
+        facts=(),
+    )
+    outcome = mock.MagicMock()
+    outcome.verified = True
+    outcome.evidence = evidence
+    outcome.partial = False
+    outcome.failures = ()
+    outcome.documents = ()
+    outcome.search_calls = 1
+    outcome.fetch_calls = 1
+    outcome.cache_hits = 0
+    outcome.total_bytes = 100
+    outcome.elapsed_ms = 5.0
+
+    from src.pipeline.request_frame import RequestFrame
+    from src.pipeline.routing_decision import RoutingDecision, RoutingStatus
+
+    decision = RoutingDecision(
+        status=RoutingStatus.EXTERNAL_VERIFICATION,
+        request_frame=RequestFrame(raw_request="phiên bản Python mới nhất là gì?"),
+        reason="current external verification",
+    )
+    response = agent._respond_external_verification(
+        "phiên bản Python mới nhất là gì?", decision, outcome
+    )
+
+    # The fabricated version number must not survive: a fetch happening at
+    # all is not grounding for a number the fetched content never states.
+    assert "3.13.2" not in response
+
+
+# ---------------------------------------------------------------------------
+# GA2-E04 — multi-source comparison must preserve each requested source
+# independently, never collapse to ANY, never silently substitute an
+# unrequested source, and report PARTIAL with the explicit missing source
+# when one side of the comparison produced nothing.
+# ---------------------------------------------------------------------------
+
+
+def test_multi_source_comparison_request_never_collapses_to_any() -> None:
+    f = Normalizer().normalize("So sánh CPU từ Grafana và Zabbix trên monitor.")
+    assert f.source_constraints == (
+        SourceConstraint.GRAFANA,
+        SourceConstraint.ZABBIX,
+    )
+
+
+def test_comparison_status_helper_reports_complete_partial_unavailable() -> None:
+    from src.pipeline.source_constraints import (
+        compute_comparison_status,
+        missing_comparison_sources,
+    )
+
+    both = (SourceConstraint.GRAFANA, SourceConstraint.ZABBIX)
+    assert compute_comparison_status(both, frozenset({"grafana", "zabbix"})) == (
+        "COMPLETE"
+    )
+    assert compute_comparison_status(both, frozenset({"grafana"})) == "PARTIAL"
+    assert missing_comparison_sources(both, frozenset({"grafana"})) == (
+        SourceConstraint.ZABBIX,
+    )
+    assert compute_comparison_status(both, frozenset()) == "UNAVAILABLE"
+    # A single-source request is not a comparison at all.
+    assert compute_comparison_status((SourceConstraint.GRAFANA,), frozenset()) is None
+
+
+def test_comparison_status_never_silently_substitutes_linux_for_missing_source() -> None:
+    """Even if Linux facts happen to be present, they must never count
+    toward a Grafana/Zabbix comparison being reported COMPLETE."""
+    from src.pipeline.source_constraints import compute_comparison_status
+
+    both = (SourceConstraint.GRAFANA, SourceConstraint.ZABBIX)
+    assert compute_comparison_status(both, frozenset({"grafana", "linux"})) == (
+        "PARTIAL"
+    )
+
+
+def test_assess_appends_explicit_partial_note_when_one_comparison_source_missing() -> None:
+    from src.pipeline.fact_set import FactSet
+    from src.pipeline.investigation_request import InvestigationRequest
+    from src.pipeline.request_frame import RequestFrame
+
+    agent, _mock_engine, mock_model = _make_agent_with_mocks()
+    mock_model.assess.return_value = "Grafana báo CPU 40%."
+    frame = RequestFrame(
+        raw_request="So sánh CPU từ Grafana và Zabbix trên monitor.",
+        source_constraints=(SourceConstraint.GRAFANA, SourceConstraint.ZABBIX),
+    )
+    investigation = InvestigationRequest(
+        raw_request="So sánh CPU từ Grafana và Zabbix trên monitor.",
+        request_frame=frame,
+        fact_set=FactSet((_make_fact("cpu.usage", 40, target="monitor", source="grafana"),)),
+    )
+
+    response = agent._assess(
+        "So sánh CPU từ Grafana và Zabbix trên monitor.", investigation
+    )
+
+    assert "PARTIAL" in response
+    assert "ZABBIX" in response
 
 
 # ---------------------------------------------------------------------------

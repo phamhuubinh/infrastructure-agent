@@ -61,7 +61,11 @@ from src.pipeline.routing_decision import (
     RoutingStatus,
 )
 from src.pipeline.safety_policy import sensitive_refusal
-from src.pipeline.source_constraints import SourceConstraintUnavailableError
+from src.pipeline.source_constraints import (
+    SourceConstraintUnavailableError,
+    compute_comparison_status,
+    missing_comparison_sources,
+)
 from src.pipeline.target_resolver import AmbiguousTargetError, UnknownTargetError
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
@@ -910,6 +914,15 @@ class DeterministicAgent:
         if links:
             response += "\n\n---\n\n" + links
 
+        # GA2-E04: a multi-source comparison request must never silently
+        # report as if every requested source was represented when one
+        # actually failed/produced nothing — append an explicit note
+        # naming the missing source(s) rather than leaving the reader to
+        # infer completeness from prose alone.
+        comparison_note = self._comparison_status_note(investigation)
+        if comparison_note:
+            response += f"\n\n{comparison_note}"
+
         # GA2-D08: a confident SHORT request trims assessment boilerplate
         # (never hides warnings/refusal reasons or provenance).
         if self._answer_shape_is_short(user_request):
@@ -957,6 +970,34 @@ class DeterministicAgent:
         if repetition.pathological and repetition.recovered_text:
             return repetition.recovered_text
         return response
+
+    @staticmethod
+    def _comparison_status_note(investigation: InvestigationRequest) -> str | None:
+        """GA2-E04: explicit COMPLETE/PARTIAL/UNAVAILABLE note for a
+        multi-source comparison request, naming exactly which requested
+        source produced no evidence. Returns None for a non-comparison
+        request (fewer than two concrete sources requested) or when every
+        requested source is represented (no note needed for COMPLETE)."""
+        frame = getattr(investigation, "request_frame", None)
+        constraints = getattr(frame, "source_constraints", ()) if frame else ()
+        fact_set = getattr(investigation, "fact_set", None)
+        fact_sources = frozenset(
+            fact.source for fact in (fact_set.facts if fact_set else ())
+        )
+        status = compute_comparison_status(constraints, fact_sources)
+        if status in (None, "COMPLETE"):
+            return None
+        missing = missing_comparison_sources(constraints, fact_sources)
+        missing_labels = ", ".join(constraint.name for constraint in missing)
+        if status == "UNAVAILABLE":
+            return (
+                f"_So sánh không thực hiện được: không thu thập được dữ liệu "
+                f"từ nguồn nào trong số đã yêu cầu ({missing_labels})._"
+            )
+        return (
+            f"_So sánh chỉ một phần (PARTIAL): thiếu dữ liệu từ "
+            f"{missing_labels}._"
+        )
 
     @staticmethod
     def _render_raw_facts(investigation: InvestigationRequest) -> str | None:
