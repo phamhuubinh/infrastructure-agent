@@ -444,6 +444,155 @@ def test_explain_previous_reruns_collectors_only_on_explicit_refresh() -> None:
 
 
 # ---------------------------------------------------------------------------
+# GA2-E08 — provenance answers must come from actual evidence receipts, not
+# from active_sources (the user's requested constraint, which can be empty
+# even though a real investigation genuinely used a real source).
+# ---------------------------------------------------------------------------
+
+
+def test_provenance_reports_actual_source_with_no_hard_constraint_set() -> None:
+    """Backlog's exact bug scenario: the user asks a normal local fact
+    without ever saying 'Linux only', Orion actually uses the Linux
+    collector, then the user asks where the data came from. The answer
+    must name Linux — not report nothing because active_sources is empty.
+    """
+    from src.pipeline.fact_set import FactSet
+    from src.pipeline.investigation_request import InvestigationRequest
+    from src.pipeline.request_frame import RequestFrame
+
+    agent, mock_engine, mock_model = _make_agent_with_mocks()
+    mock_model.assess.return_value = "CPU usage is 20%."
+    fact = _make_fact("cpu.usage", 20, target="server-1")
+    investigation = InvestigationRequest(
+        raw_request="kiểm tra CPU trên server-1",
+        request_frame=RequestFrame(raw_request="kiểm tra CPU trên server-1"),
+        fact_set=FactSet((fact,)),
+        evidence_complete=True,
+    )
+    mock_engine.execute.return_value = investigation
+
+    agent.run_with_steps("kiểm tra CPU trên server-1")
+    # No hard source constraint was ever stated.
+    assert agent._session_context.active_sources == ()
+
+    result = agent.run_with_steps("Nguồn dữ liệu nào vừa được dùng?")
+
+    assert "Linux" in result["response"]
+    assert "server-1" in result["response"]
+    # This must be answered deterministically, never by asking the model.
+    mock_model.assess.assert_called_once()
+
+
+def test_provenance_falls_back_to_active_sources_before_any_investigation() -> None:
+    """With no receipts yet this session, an early provenance question
+    still gets an honest answer from the request constraint rather than
+    silently reporting nothing."""
+    from src.pipeline.request_semantics import SourceConstraint
+
+    agent, _mock_engine, _mock_model = _make_agent_with_mocks()
+    agent._session_context = SessionInvestigationContext(
+        active_sources=(SourceConstraint.GRAFANA,)
+    )
+
+    result = agent.run_with_steps("Nguồn dữ liệu nào vừa được dùng?")
+
+    assert "Grafana" in result["response"]
+
+
+# ---------------------------------------------------------------------------
+# GA2-F07 — provider-unavailable must fail closed identically across every
+# shape of "requires current external verification" request, now that C07/
+# C10 compound planning is wired in. No compound/multi-intent path may fall
+# through to stale model knowledge.
+# ---------------------------------------------------------------------------
+
+
+def test_provider_unavailable_is_uniform_across_compound_and_simple_requests() -> None:
+    from src.agent.runtime_factory import create_deterministic_agent
+
+    agent = create_deterministic_agent()
+    cases = [
+        "Phiên bản Python mới nhất là gì?",
+        "Thời tiết Hà Nội hôm nay thế nào?",
+        "Tìm phiên bản Python mới nhất rồi viết Dockerfile dùng phiên bản đó.",
+        "Giải thích Docker là gì rồi tìm phiên bản Python mới nhất.",
+    ]
+    responses = []
+    for text in cases:
+        result = agent.run_with_steps(text)
+        assert result["execution_trace"]["evidence_status"] == "UNAVAILABLE"
+        # Never a fabricated concrete value; the deterministic refusal is
+        # identical in substance across every shape of the request.
+        assert "Không thể kiểm chứng thông tin hiện tại" in result["response"]
+        responses.append(result["response"])
+    # Every case used the exact same fail-closed template, not four
+    # different ad hoc refusal implementations that could silently drift.
+    assert len(set(responses)) == 1
+
+
+# ---------------------------------------------------------------------------
+# GA2-H12 — pathological-repetition detection belongs at the universal
+# final-output boundary, not only inside _assess(). chat() and
+# _respond_external_verification() also return genuine model-generated text
+# and were previously exempt.
+# ---------------------------------------------------------------------------
+
+
+_PATHOLOGICAL_TEXT = "\n".join(
+    ["This is a repeated sentence that is long enough to count."] * 6
+)
+
+
+def test_chat_applies_the_repetition_guard() -> None:
+    agent, _mock_engine, mock_model = _make_agent_with_mocks()
+    mock_model.assess_raw.return_value = _PATHOLOGICAL_TEXT
+
+    response = agent.chat("Xin chào, Docker là gì?")
+
+    assert response.count("This is a repeated sentence") <= 1
+
+
+def test_external_verification_response_applies_the_repetition_guard() -> None:
+    from unittest import mock
+
+    agent, _mock_engine, mock_model = _make_agent_with_mocks()
+    mock_model.assess.return_value = _PATHOLOGICAL_TEXT
+
+    outcome = mock.MagicMock()
+    outcome.verified = True
+    outcome.evidence = mock.MagicMock(facts=())
+    outcome.partial = False
+    outcome.failures = ()
+    outcome.documents = ()
+    outcome.search_calls = 1
+    outcome.fetch_calls = 1
+    outcome.cache_hits = 0
+    outcome.total_bytes = 100
+    outcome.elapsed_ms = 5.0
+    agent._external_verifier.collect = lambda *a, **k: outcome
+
+    from src.pipeline.request_frame import RequestFrame
+    from src.pipeline.routing_decision import RoutingDecision, RoutingStatus
+
+    decision = RoutingDecision(
+        status=RoutingStatus.EXTERNAL_VERIFICATION,
+        request_frame=RequestFrame(raw_request="phiên bản Python mới nhất là gì?"),
+        reason="current external verification",
+    )
+    response = agent._respond_external_verification(
+        "phiên bản Python mới nhất là gì?", decision, outcome
+    )
+
+    assert response.count("This is a repeated sentence") <= 1
+
+
+def test_repetition_guard_helper_recovers_a_clean_prefix() -> None:
+    agent, _mock_engine, _mock_model = _make_agent_with_mocks()
+    guarded = agent._apply_repetition_guard(_PATHOLOGICAL_TEXT)
+    assert guarded.count("This is a repeated sentence") == 1
+
+
+# ---------------------------------------------------------------------------
 # GA2-E02 — hard source constraint must survive a target-clarification round
 # trip (previously: any CLARIFICATION_REQUIRED return path skipped session
 # persistence entirely, so a bare clarification answer like "monitor." on

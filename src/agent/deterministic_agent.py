@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from src.agent.session_investigation_context import (
     SessionContextResolver,
     SessionInvestigationContext,
+    build_evidence_receipts,
 )
 from src.model.assessment_guard import apply_assessment_guards
 from src.model.assessment_model_adapter import AssessmentModelAdapter
@@ -615,23 +616,63 @@ class DeterministicAgent:
         return f"Kết quả: {value}"
 
     def _provenance_response(self, user_request: str) -> str | None:
-        """GA2-E08: answer provenance questions deterministically from session
-        metadata, never by asking the model to guess from prose."""
+        """GA2-E08: answer provenance questions from what was *actually*
+        used (evidence receipts from the previous investigation), never
+        just the user's requested source constraint — a normal request
+        with no hard source constraint still actually used some real
+        source, and that is what a provenance question asks about.
+
+        Falls back to ``active_sources`` only when there are no receipts
+        yet this session (nothing has actually been investigated), so an
+        early provenance question still gets a sensible, honest answer
+        instead of silently reporting nothing.
+        """
         if not ProvenanceResponder.is_provenance_question(user_request):
             return None
         lang = _detect_language(user_request)
-        sources = ProvenanceResponder.sources_from_constraints(
-            self._session_context.active_sources
-        )
-        answer = ProvenanceAnswer(
-            sources=sources,
-            target=self._session_context.active_target,
-            concepts=(
-                (self._session_context.active_concept,)
-                if self._session_context.active_concept
-                else ()
-            ),
-        )
+        receipts = self._session_context.previous_evidence_receipts
+        if receipts:
+            # Most-recent receipts (the last investigation) answer "what was
+            # *just* used" — receipts are stored oldest-first, most-recent-last.
+            last_timestamp = receipts[-1].timestamp
+            latest = tuple(r for r in receipts if r.timestamp == last_timestamp)
+            source_labels = {
+                "linux": "Linux",
+                "ssh": "SSH",
+                "grafana": "Grafana",
+                "zabbix": "Zabbix",
+                "internet": "Internet",
+            }
+            sources = tuple(
+                dict.fromkeys(
+                    source_labels.get(r.source.casefold(), r.source.capitalize())
+                    for r in latest
+                    if r.source
+                )
+            )
+            target = latest[0].target or self._session_context.active_target
+            answer = ProvenanceAnswer(
+                sources=sources,
+                target=target,
+                concepts=(
+                    (self._session_context.active_concept,)
+                    if self._session_context.active_concept
+                    else ()
+                ),
+            )
+        else:
+            sources = ProvenanceResponder.sources_from_constraints(
+                self._session_context.active_sources
+            )
+            answer = ProvenanceAnswer(
+                sources=sources,
+                target=self._session_context.active_target,
+                concepts=(
+                    (self._session_context.active_concept,)
+                    if self._session_context.active_concept
+                    else ()
+                ),
+            )
         response = ProvenanceResponder().respond(answer, lang=lang)
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
@@ -875,9 +916,7 @@ class DeterministicAgent:
             response = self._trim_to_short(response)
 
         # GA2-H12: pathological repetition must not reach the user.
-        repetition = RepetitionDetector.detect(response)
-        if repetition.pathological and repetition.recovered_text:
-            response = repetition.recovered_text
+        response = self._apply_repetition_guard(response)
 
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
@@ -903,6 +942,21 @@ class DeterministicAgent:
             self._session_context.requested_answer_shape == "RAW"
             and SessionContextResolver.is_follow_up_request(user_request)
         )
+
+    @staticmethod
+    def _apply_repetition_guard(response: str) -> str:
+        """GA2-H12: pathological repetition/degeneration must never reach
+        the user, at *every* path that returns model-generated text — not
+        only the assessment path. This belongs at the shared final-output
+        boundary alongside language/safety sanitation (which is why every
+        call site here sits immediately after ``enforce_language_quality``).
+        Recovers a useful non-repeated prefix when the detector can
+        identify one; otherwise leaves the (already-bounded) text as is.
+        """
+        repetition = RepetitionDetector.detect(response)
+        if repetition.pathological and repetition.recovered_text:
+            return repetition.recovered_text
+        return response
 
     @staticmethod
     def _render_raw_facts(investigation: InvestigationRequest) -> str | None:
@@ -1438,6 +1492,10 @@ class DeterministicAgent:
         )
         if not response:
             response = "Không thể trả về nội dung đã kiểm chứng đó an toàn."
+        # GA2-H12: pathological repetition must not reach the user here
+        # either — this is a genuine model-generated response, same as
+        # the assessment path.
+        response = self._apply_repetition_guard(response)
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
         return response
@@ -1654,6 +1712,10 @@ class DeterministicAgent:
             )
             if not response:
                 return "Không thể trả về nội dung đó an toàn."
+            # GA2-H12: chat() is a genuine model-generated response path too
+            # (it bypasses the pipeline entirely via assess_raw()) — must
+            # not be exempt from the repetition/degeneration guard.
+            response = self._apply_repetition_guard(response)
             if self._conversation_store:
                 self._conversation_store.add_turn(user_request, response)
             return response
@@ -1829,6 +1891,18 @@ class DeterministicAgent:
         ):
             context = context.switch_target(frame.target_resolved)
         context = context.update_from_frame(frame)
+        # GA2-E08: persist what was *actually* used (source/target/capability
+        # per collected fact), independent of any hard source constraint the
+        # user did or didn't state — this is what a provenance question must
+        # answer from, not active_sources (the request-time constraint).
+        receipts = build_evidence_receipts(
+            investigation.fact_set,
+            status=(
+                "COMPLETE" if investigation.evidence_complete else "PARTIAL"
+            ),
+        )
+        if receipts:
+            context = context.with_evidence_receipts(receipts)
         # GA2-D08: persist a confident answer-shape request into the session
         # for later response construction (never a tool/source decision).
         shape = SessionContextResolver.requested_answer_shape(frame.raw_request)

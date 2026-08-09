@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from src.pipeline.parameter_extractor import ExtractedParams
@@ -11,12 +12,92 @@ from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.time_range_resolver import TimeRange
 
 if TYPE_CHECKING:
+    from src.pipeline.fact_set import FactSet
     from src.pipeline.request_frame import RequestFrame
 
 
 _INCIDENT_ID = re.compile(
     r"\b(?:INC|INCIDENT|PROBLEM|EVENT|ALERT)[-_:#]?\d+\b", re.IGNORECASE
 )
+
+_MAX_EVIDENCE_RECEIPTS = 10
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceReceipt:
+    """GA2-E08: compact record of what was *actually* used to produce the
+    previous answer — the actual tool/source/target, never hidden
+    chain-of-thought or raw evidence values. This is intentionally distinct
+    from ``active_sources`` (what the user allowed/requested): a provenance
+    question ("nguồn dữ liệu nào vừa được dùng?") must answer from this, not
+    from the request constraint, because a normal request with no hard
+    source constraint still actually used *some* real source.
+    """
+
+    source: str
+    target: str
+    capability: str
+    fact_ids: tuple[str, ...]
+    status: str
+    timestamp: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source": self.source,
+            "target": self.target,
+            "capability": self.capability,
+            "fact_ids": list(self.fact_ids),
+            "status": self.status,
+            "timestamp": self.timestamp,
+        }
+
+    @classmethod
+    def from_dict(cls, value: object) -> EvidenceReceipt | None:
+        if not isinstance(value, dict):
+            return None
+        fact_ids = value.get("fact_ids", ())
+        return cls(
+            source=str(value.get("source") or ""),
+            target=str(value.get("target") or ""),
+            capability=str(value.get("capability") or ""),
+            fact_ids=(
+                tuple(str(item) for item in fact_ids if str(item))
+                if isinstance(fact_ids, (list, tuple))
+                else ()
+            ),
+            status=str(value.get("status") or ""),
+            timestamp=str(value.get("timestamp") or ""),
+        )
+
+
+def build_evidence_receipts(
+    fact_set: FactSet, *, status: str
+) -> tuple[EvidenceReceipt, ...]:
+    """GA2-E08: derive compact evidence receipts from the facts an
+    investigation actually collected, grouped by (source, target,
+    capability). This is the *actual* origin of the answer, independent of
+    whether the user stated a hard source constraint for the request.
+    """
+    if not fact_set.facts:
+        return ()
+    now = datetime.now(timezone.utc).isoformat()
+    grouped: dict[tuple[str, str, str], list[str]] = {}
+    for fact in fact_set.facts:
+        provenance = getattr(fact, "provenance", None)
+        capability = getattr(provenance, "capability", "") if provenance else ""
+        key = (fact.source, fact.target, capability)
+        grouped.setdefault(key, []).append(fact.id)
+    return tuple(
+        EvidenceReceipt(
+            source=source,
+            target=target,
+            capability=capability,
+            fact_ids=tuple(fact_ids),
+            status=status,
+            timestamp=now,
+        )
+        for (source, target, capability), fact_ids in grouped.items()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +120,9 @@ class SessionInvestigationContext:
     # source restriction) were already established before the question was
     # asked — rather than being parsed as an unrelated new request.
     pending_clarification_field: str | None = None
+    # GA2-E08: what was *actually* used to produce the previous answer(s),
+    # most-recent-last, capped to bound growth. Never raw evidence values.
+    previous_evidence_receipts: tuple[EvidenceReceipt, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -56,6 +140,9 @@ class SessionInvestigationContext:
             ],
             "requested_answer_shape": self.requested_answer_shape,
             "pending_clarification_field": self.pending_clarification_field,
+            "previous_evidence_receipts": [
+                receipt.to_dict() for receipt in self.previous_evidence_receipts
+            ],
         }
 
     @classmethod
@@ -65,6 +152,20 @@ class SessionInvestigationContext:
         incident_ids = value.get("incident_ids", ())
         raw_shape = value.get("requested_answer_shape")
         pending_field = value.get("pending_clarification_field")
+        raw_receipts = value.get("previous_evidence_receipts", ())
+        receipts = (
+            tuple(
+                receipt
+                for receipt in (
+                    EvidenceReceipt.from_dict(item)
+                    for item in raw_receipts
+                    if isinstance(raw_receipts, (list, tuple))
+                )
+                if receipt is not None
+            )
+            if isinstance(raw_receipts, (list, tuple))
+            else ()
+        )
         return cls(
             active_target=_optional_text(value.get("active_target")),
             active_concept=_optional_text(value.get("active_concept")),
@@ -87,6 +188,7 @@ class SessionInvestigationContext:
                 else "DEFAULT"
             ),
             pending_clarification_field=_optional_text(pending_field),
+            previous_evidence_receipts=receipts[-_MAX_EVIDENCE_RECEIPTS:],
         )
 
     def update_from_frame(self, frame: RequestFrame) -> SessionInvestigationContext:
@@ -132,6 +234,7 @@ class SessionInvestigationContext:
             requested_answer_shape=self.requested_answer_shape,
             # A successful resolution answers any pending clarification.
             pending_clarification_field=None,
+            previous_evidence_receipts=self.previous_evidence_receipts,
         )
 
     def with_answer_shape(self, shape: str) -> SessionInvestigationContext:
@@ -143,6 +246,18 @@ class SessionInvestigationContext:
     ) -> SessionInvestigationContext:
         """GA2-E02: record which field the system just asked to clarify."""
         return replace(self, pending_clarification_field=field)
+
+    def with_evidence_receipts(
+        self, receipts: tuple[EvidenceReceipt, ...]
+    ) -> SessionInvestigationContext:
+        """GA2-E08: record what was actually used to answer, most-recent-last,
+        capped so this never grows unboundedly across a long session."""
+        if not receipts:
+            return self
+        combined = (*self.previous_evidence_receipts, *receipts)
+        return replace(
+            self, previous_evidence_receipts=combined[-_MAX_EVIDENCE_RECEIPTS:]
+        )
 
     def with_corrected_concept(self, concept: str) -> SessionInvestigationContext:
         """GA2-D07: replace the active concept with the corrected one."""
@@ -156,6 +271,7 @@ class SessionInvestigationContext:
             active_sources=self.active_sources,
             active_excluded_sources=self.active_excluded_sources,
             requested_answer_shape=self.requested_answer_shape,
+            previous_evidence_receipts=self.previous_evidence_receipts,
         )
 
     def reset(self) -> SessionInvestigationContext:
