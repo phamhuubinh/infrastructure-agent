@@ -2,9 +2,9 @@
 
 > **Status:** Active — replaces the previous continuation backlog  
 > **Checkpoint audited:** `081efc393dc2`  
-> **Basis:** source audit of checkpoint `081efc393dc2` + original 386-case GA2 acceptance contract  
+> **Basis:** source audit of checkpoint `081efc393dc2` + original 386-case GA2 acceptance contract + reconciliation against the current post-checkpoint source snapshot  
 > **Supersedes:** `GA2_CONTINUATION_BACKLOG_5C30BB3D2FBD.md` and any self-reported DONE/PARTIAL status written by the coding model after that checkpoint  
-> **Purpose:** finish only the remaining GA2 implementation, repair the canonical QA orchestration, then return control to the maintainer for smoke/full runtime acceptance.
+> **Purpose:** finish only the remaining GA2 implementation, preserve the post-checkpoint fixes already present in source, then return control to the maintainer for smoke/full runtime acceptance.
 
 ---
 
@@ -16,15 +16,15 @@ This backlog therefore uses a conservative source-audit classification:
 
 | Epic | DONE | PARTIAL | TODO |
 |---|---:|---:|---:|
-| A — Unified QA | 8 | 3 | 0 |
+| A — Unified QA | 11 | 0 | 0 |
 | B — Output safety | 6 | 0 | 0 |
-| C — Semantic routing | 8 | 2 | 0 |
-| D — Target/context | 7 | 2 | 0 |
-| E — Source/provenance | 5 | 3 | 0 |
+| C — Semantic routing | 9 | 1 | 0 |
+| D — Target/context | 9 | 0 | 0 |
+| E — Source/provenance | 6 | 2 | 0 |
 | F — Internet/URL | 6 | 4 | 0 |
 | G — Local collectors | 8 | 1 | 0 |
 | H — Answer quality | 2 | 8 | 2 |
-| **TOTAL** | **50** | **23** | **2** |
+| **TOTAL** | **57** | **16** | **2** |
 
 Meaning:
 
@@ -237,11 +237,11 @@ TODO     = implement
 | GA2-A03 | P0 | DONE | QA tooling can build/start intended Docker runtime |
 | GA2-A04 | P0 | DONE | Canonical `make qa-smoke` target exists |
 | GA2-A05 | P0 | DONE | Canonical `make qa-full` target exists |
-| GA2-A06 | P0 | PARTIAL | `qa-full` orchestration exists but stage handoff/run-dir/exit propagation are not correct |
+| GA2-A06 | P0 | DONE | Canonical `qa-full` orchestration uses one run directory with correct stage handoff and exit propagation |
 | GA2-A07 | P1 | DONE | Full Q&A baseline is exactly 386 cases |
 | GA2-A08 | P1 | DONE | Timestamp/SHA run directories preserve history |
-| GA2-A09 | P0 | PARTIAL | Unified report/artifact contract is not correctly wired to actual Q&A outputs |
-| GA2-A10 | P1 | PARTIAL | Regression comparison exists but must operate on complete canonical run artifacts |
+| GA2-A09 | P0 | DONE | Unified report/artifact contract is wired to canonical Q&A outputs in the orchestrator-owned run directory |
+| GA2-A10 | P1 | DONE | Regression comparison uses structured per-case fields and canonical completed-run artifacts |
 | GA2-A11 | P1 | DONE | Smoke fail-fast P0 mode + full diagnostic mode |
 
 ## EPIC B — Output safety boundary
@@ -268,7 +268,7 @@ TODO     = implement
 | GA2-C07 | P1 | PARTIAL | Compound current-information dependency is detected, but full dependent execution/generation is not complete |
 | GA2-C08 | P1 | DONE | URL literal in requested code/config does not automatically authorize fetch |
 | GA2-C09 | P1 | DONE | Reboot-status wording is read-only rather than mutation |
-| GA2-C10 | P1 | PARTIAL | Multi-intent planner exists but is not integrated into the real agent/execution path |
+| GA2-C10 | P1 | DONE | `MultiIntentPlanner` is constructed and consumed by the real agent runtime for supported sequenced plans |
 
 ## EPIC D — Target and conversation state
 
@@ -280,8 +280,8 @@ TODO     = implement
 | GA2-D04 | P1 | DONE | Active target can persist across valid follow-ups |
 | GA2-D05 | P1 | DONE | Local evidence is not carried into unresolved remote-target conversation |
 | GA2-D06 | P1 | DONE | Explicit target/context reset path |
-| GA2-D07 | P1 | PARTIAL | Correction framework exists, but `Không phải CPU, tôi hỏi RAM` can still resolve to CPU |
-| GA2-D08 | P1 | PARTIAL | Answer-shape state exists, but RAW/EXPLAIN_PREVIOUS are not fully applied to runtime response construction |
+| GA2-D07 | P1 | DONE | Correction semantics replace the negated concept and preserve the corrected concept in session state |
+| GA2-D08 | P1 | DONE | RAW/SHORT/EXPLAIN_PREVIOUS are applied in runtime response construction with session persistence |
 | GA2-D09 | P1 | DONE | Vague referents fail safe/clarify rather than guessing localhost |
 
 ## EPIC E — Source constraints and provenance
@@ -289,7 +289,7 @@ TODO     = implement
 | ID | Pri | Status | Task |
 |---|---|---|---|
 | GA2-E01 | P0 | DONE | Immutable typed source fields |
-| GA2-E02 | P0 | PARTIAL | Preserve source restrictions through clarification and follow-up state transitions |
+| GA2-E02 | P0 | DONE | Hard source restrictions survive clarification/follow-up state transitions unless explicitly replaced |
 | GA2-E03 | P0 | DONE | Execution-time forbidden-source assertion |
 | GA2-E04 | P1 | PARTIAL | Multi-source comparison must preserve each requested source independently end-to-end |
 | GA2-E05 | P1 | DONE | Separate provenance for Linux/SSH/Grafana/Zabbix facts |
@@ -349,261 +349,30 @@ TODO     = implement
 
 Only `PARTIAL` and `TODO` items below require new implementation work. `DONE` items are preserve/regression-only unless a remaining task touches them.
 
----
+### 4.1 Post-checkpoint tasks reconciled as DONE
 
-## GA2-A06 — Repair the canonical `qa-full` orchestrator
+The current source snapshot contains a completed implementation wave that had not yet been reflected in this backlog. The following tasks are now **DONE** and must not be reimplemented by a continuation agent:
 
-### Current implementation
+| Task | Implementation evidence | Regression evidence |
+|---|---|---|
+| `GA2-A06` | `scripts/qa/unified_qa.py` owns the canonical run directory; `scripts/qa/ga2_runner.py --run-dir` writes directly into it; required-stage/Q&A exit status is propagated | `tests/qa/test_ga2_runner.py` plus existing unified-QA tests |
+| `GA2-A09` | Unified Q&A artifacts are written into the orchestrator-owned run directory; the runner does not create a nested run directory or overwrite the orchestrator manifest | `tests/qa/test_ga2_runner.py` |
+| `GA2-A10` | Per-case records expose structured `routing`, `target`, `source`, and `evidence` fields for canonical regression comparison | `tests/qa/test_ga2_runner.py` |
+| `GA2-C10` | `DeterministicAgent` constructs and consumes `MultiIntentPlanner`; supported explain→inspect sequencing executes both halves through deterministic runtime paths | `tests/qa/test_ga2_epics_cd.py` |
+| `GA2-D07` | Correction parsing replaces the negated concept instead of retaining/unioning it, and the corrected concept is persisted | `tests/qa/test_ga2_epics_cd.py` |
+| `GA2-D08` | RAW and EXPLAIN_PREVIOUS are consumed by runtime response construction; SHORT remains applied; answer-shape state persists across turns | `tests/qa/test_ga2_epics_cd.py` |
+| `GA2-E02` | Session clarification state preserves active hard source constraints when a short clarification answer supplies another missing field | `tests/qa/test_ga2_epics_cd.py` |
 
-`make qa-full` now calls:
-
-```text
-scripts/qa/unified_qa.py
-```
-
-and the intended stage list includes:
-
-```text
-typecheck
-ruff
-pytest
-run_tests_v2
-run_baseline
-run_acceptance
-docker build/start
-runtime attestation
-386 Q&A
-aggregate report
-comparison
-```
-
-That architecture is correct in principle, but the current wiring is not release-safe.
-
-### Confirmed gaps
-
-#### Gap A — baseline artifact handoff is wrong
-
-`run_baseline.py --smoke` supports `--output-dir`, but `unified_qa.py` does not supply a run-local output directory and later searches only:
+Targeted reconciliation check on this snapshot:
 
 ```text
-<run_dir>/baseline_*.json
+PYTHONPATH=. pytest -q tests/qa/test_ga2_runner.py tests/qa/test_ga2_epics_cd.py
+35 passed
 ```
 
-The baseline smoke path can instead create `smoke_*.json` under its own default output directory.
+This targeted result is implementation evidence only. It does **not** replace maintainer-run `qa-smoke`, `qa-full`, the final 386-case run, or manual grading.
 
-Result: `run_acceptance` may not receive the baseline report produced by the previous stage.
-
-#### Gap B — unified runner and Q&A runner own different run directories
-
-`unified_qa.py` creates:
-
-```text
-artifacts/qa/runs/<RUN_A>/
-```
-
-then calls `ga2_runner.py --output-root <RUN_A>`.
-
-`ga2_runner.py` creates another timestamp/SHA directory inside that root:
-
-```text
-artifacts/qa/runs/<RUN_A>/<RUN_B>/
-```
-
-The unified orchestrator then looks for Q&A artifacts in `RUN_A`, not `RUN_B`.
-
-#### Gap C — Q&A exit code is ignored
-
-The Q&A subprocess result is currently launched but not used to determine final `qa-full` exit status.
-
-A P0 failure, runner crash, or nonzero Q&A result must not be hidden by a final zero exit from the unified wrapper.
-
-### Required implementation
-
-Make the unified orchestrator the **single owner of the run ID/run directory**.
-
-Preferred contract:
-
-```text
-unified_qa creates run_dir once
-→ every technical stage writes/copies artifacts under that run_dir
-→ ga2_runner receives an explicit existing run_dir mode
-→ ga2_runner does NOT create a child timestamp/SHA directory in unified mode
-→ aggregate reads exactly that run_dir
-```
-
-Acceptable implementation options:
-
-1. add `ga2_runner --run-dir <existing_dir>`, while keeping `--output-root` for standalone mode; or
-2. expose an in-process runner function that writes into the unified run directory.
-
-For baseline/acceptance:
-
-```text
-run_baseline.py --output-dir <run_dir>/baseline
-→ capture exact produced JSON path
-→ run_acceptance.py --report <that_exact_json>
-                --output-dir <run_dir>/acceptance
-```
-
-Do not discover the handoff by loose globbing when the previous stage can return/record the exact artifact path.
-
-### Exit-code contract
-
-`make qa-full` must be nonzero when any required stage fails.
-
-At minimum:
-
-```text
-required technical stage nonzero -> qa-full nonzero
-Docker build/start failure       -> qa-full nonzero
-Q&A runner P0/runner failure      -> qa-full nonzero
-aggregate/report write failure    -> qa-full nonzero
-manual grading pending            -> explicit documented policy, not accidental exit behavior
-```
-
-If the design intentionally uses a special nonzero exit for `PENDING_MANUAL_REVIEW`, document it and unit-test it. Do not mix “manual review pending” with “technical runner crashed”.
-
-### Tests
-
-Add unit/integration tests that use temporary directories and stubbed subprocesses. Do not launch Docker/model runtime.
-
-Test at least:
-
-- exact stage order,
-- baseline output-dir wiring,
-- acceptance receives exact baseline JSON path,
-- Q&A writes into same run directory,
-- no nested run directory,
-- Q&A nonzero propagates,
-- technical failure propagates,
-- optional/required stage policy is explicit.
-
-### Acceptance
-
-```text
-one qa-full invocation
-= one run_id
-= one canonical run directory
-= all stage artifacts under that directory
-= deterministic nonzero status on required failure
-```
-
----
-
-## GA2-A09 — Repair unified artifact/report contract
-
-### Confirmed gaps
-
-The unified report expects canonical transcript names:
-
-```text
-default_193.md
-cauhoi_kiemtra_v2.md
-cauhoi_phanb.md
-cauhoi_v4_adversarial.md
-cauhoi_v5_workflow.md
-```
-
-but `ga2_runner.py` currently writes names derived from internal suite labels such as:
-
-```text
-default.md
-core.md
-part_b.md
-adversarial.md
-workflow.md
-```
-
-Combined with the nested run-dir bug, `transcripts` status in the aggregate can be false even when the Q&A runner wrote files elsewhere.
-
-### Required implementation
-
-Use one canonical filename mapping shared by both runners.
-
-Expected artifacts:
-
-```text
-manifest.json
-technical/
-integration/
-baseline/
-acceptance/
-default_193.md
-cauhoi_kiemtra_v2.md
-cauhoi_phanb.md
-cauhoi_v4_adversarial.md
-cauhoi_v5_workflow.md
-qa_summary.json
-regression.json
-summary.json
-summary.md
-```
-
-Avoid having both the Q&A runner and unified runner overwrite the same `summary.json` with incompatible schemas.
-
-Recommended separation:
-
-```text
-qa_summary.json        # raw ga2_runner result
-summary.json           # unified aggregate result
-summary.md             # human unified summary
-```
-
-The unified summary must contain:
-
-- run ID,
-- git SHA/dirty state,
-- runtime image/container/flags,
-- each technical stage and exit code,
-- 386 suite counts,
-- P0 count,
-- transcript presence,
-- latency statistics,
-- grading state,
-- comparison state,
-- artifact paths.
-
-### Acceptance
-
-A test fixture representing a complete 386 run must produce all five canonical transcript-presence flags as true and must not depend on nested directories.
-
----
-
-## GA2-A10 — Make regression comparison operate only on canonical completed runs
-
-### Current state
-
-A comparison helper exists, but the source run may currently be missing the actual Q&A summary due A06/A09 path problems.
-
-### Required implementation
-
-After A06/A09 are repaired:
-
-- compare unified summaries from canonical run directories,
-- distinguish incomplete/interrupted runs from complete runs,
-- never compare an aggregate wrapper that has `qa=None` as though it were a valid 386 baseline,
-- never auto-promote an ungraded run.
-
-At minimum compare:
-
-```text
-case_count
-P0_count
-PASS/PARTIAL/FAIL once grades exist
-weighted score once grades exist
-median/p95 latency
-routing/target/source/evidence regressions where structured metadata exists
-```
-
-### Acceptance
-
-Comparison against an incomplete run must produce:
-
-```text
-comparison_status = INCOMPLETE_BASELINE | NOT_COMPARABLE
-```
-
-rather than numeric fake improvement/regression values.
+Important boundary: `GA2-C07` remains **PARTIAL**. The new C10 regression proves the compound request reaches `EXTERNAL_VERIFICATION`, but it does not by itself prove all C07 acceptance cases (verified value propagation into generated output and no fabrication when evidence is unavailable/insufficient).
 
 ---
 
@@ -643,179 +412,6 @@ Required rules:
 - current Kubernetes -> config snippet,
 - provider unavailable -> no concrete current version fabricated,
 - fetched evidence without the requested version -> no concrete version fabricated.
-
----
-
-## GA2-C10 — Integrate `MultiIntentPlanner` into runtime
-
-### Current state
-
-`src/pipeline/multi_intent_planner.py` exists and has unit tests.
-
-Source audit shows the production runtime does not currently call `MultiIntentPlanner`; references are limited to the module/tests.
-
-Therefore helper existence does not satisfy C10.
-
-### Required integration
-
-The actual agent/request pipeline must construct and consume ordered plans for true multi-intent requests.
-
-Examples:
-
-```text
-Giải thích RAM là gì rồi kiểm tra RAM trên monitor.
-Tìm phiên bản hiện tại rồi tạo config dùng phiên bản đó.
-Kiểm tra CPU rồi RAM trên monitor.
-```
-
-Plan properties:
-
-- ordered steps,
-- typed step kinds,
-- target per step,
-- source constraints per step,
-- explicit dependencies,
-- failure/blocked propagation,
-- no unrelated fallback step.
-
-Do not create unrestricted ReAct/tool-selection behavior. Planning remains deterministic.
-
-### Acceptance
-
-A runtime-level test must prove that the agent consumes the plan, not merely that the planner object can produce one.
-
----
-
-## GA2-D07 — Fix correction semantics
-
-### Confirmed failing example
-
-```text
-Không phải CPU, tôi hỏi RAM.
-```
-
-The current correction helper can scan for `cpu` first and return CPU even though CPU is explicitly negated.
-
-A test that accepts either CPU or RAM is not valid coverage.
-
-### Required parser behavior
-
-Correction semantics must distinguish:
-
-```text
-negated concept
-replacement concept
-```
-
-Examples:
-
-```text
-Không phải CPU, tôi hỏi RAM.       -> RAM
-Ý tôi là disk, không phải memory.  -> DISK
-Not CPU, memory.                   -> MEMORY
-```
-
-Required state transition:
-
-```text
-active_concept = old
-correction(old -> new)
-active_concept = new
-```
-
-Do not union old + new.
-
-### Tests
-
-Assertions must require the exact corrected concept.
-
-Do not use permissive assertions such as:
-
-```python
-assert corrected in {"cpu", "ram"}
-```
-
-when only RAM is semantically correct.
-
----
-
-## GA2-D08 — Finish RAW / SHORT / EXPLAIN_PREVIOUS runtime behavior
-
-### Current state
-
-Conversation state supports:
-
-```text
-DEFAULT
-SHORT
-RAW
-EXPLAIN_PREVIOUS
-```
-
-but runtime response construction clearly applies SHORT more completely than RAW/EXPLAIN_PREVIOUS.
-
-### Required behavior
-
-#### SHORT
-
-- reduce boilerplate,
-- preserve critical warning/refusal/uncertainty/provenance.
-
-#### RAW
-
-For evidence-backed environment requests, return compact structured/raw facts rather than assessment prose.
-
-Do not bypass source/target safety.
-
-#### EXPLAIN_PREVIOUS
-
-Explain the previous resolved answer/evidence, not a newly invented environment request.
-
-Do not rerun collectors unless the user explicitly asks for a refresh.
-
-### Acceptance tests
-
-Use a multi-turn agent-level test, not only state-parser tests:
-
-```text
-turn 1: inspect memory on monitor
-turn 2: raw data only
-turn 3: explain previous answer
-```
-
-Verify response strategy and tool execution counts.
-
----
-
-## GA2-E02 — Preserve hard source constraints through conversation state
-
-### Required invariant
-
-```text
-initial hard source restriction
-→ clarification
-→ clarification answer
-→ follow-up
-=> same hard restriction unless user explicitly changes/resets it
-```
-
-Example:
-
-```text
-User: Chỉ dùng Grafana kiểm tra CPU.
-Orion: target nào?
-User: monitor.
-```
-
-Resolved request must still be Grafana-only.
-
-### Acceptance tests
-
-- Grafana-only + target clarification,
-- Zabbix-only + metric follow-up,
-- SSH-only + short/raw follow-up,
-- explicit source reset/change,
-- no accidental `ANY` conversion.
 
 ---
 
