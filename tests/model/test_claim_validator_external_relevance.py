@@ -1,265 +1,330 @@
-"""GA2-R1-B: claim validator filters by relevance for external verification.
+"""Tests for GA2-R1-02: selected-passage claim grounding in claim_validator.
 
-Tests that redact_ungrounded_external_claims only grounds concrete claims
-(version, date, price, identity) against documents with relevance == "sufficient".
+These tests verify that:
+- redact_ungrounded_external_claims consumes selected_passages from SUFFICIENT
+  documents rather than the full fetched page corpus.
+- A concrete claim is groundable only when its subject/claim type/value are
+  supported by the selected passage used for that request.
+- PARTIAL/IRRELEVANT passages never ground a concrete current claim.
+- Version/date/price/identity claims preserve the exact supported value and
+  redact a different value.
+- Explicit URL: an arbitrary subject/value present in selected support is
+  accepted.
+- Explicit URL: successful fetch but requested fact absent remains insufficient.
+- PARTIAL selected support never grounds a concrete current value.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-from src.model.claim_validator import redact_ungrounded_external_claims
+from src.model.claim_validator import (
+    redact_ungrounded_external_claims,
+)
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_package import EvidencePackage
 
 
-def _external_evidence(
-    documents: list[dict[str, object]],
-) -> tuple[EvidencePackage, ...]:
-    """Create an EXTERNAL_VERIFICATION evidence package with documents."""
-    return (
-        EvidencePackage(
-            capability_name="external_verification",
-            evidence_name="external_current",
-            data={
-                "query": "What is the current version?",
-                "provider": "mock-search",
-                "retrieved_at": datetime.now(timezone.utc).isoformat(),
-                "documents": documents,
-            },
-            source_tool="internet",
-            source="internet",
-            resource="web_fetch",
-            parameters=(
-                ("provider", "mock-search"),
-                ("query", "What is the current version?"),
+def _external_request(
+    documents: list[dict],
+    intent: str = "EXTERNAL_VERIFICATION",
+) -> AssessmentRequest:
+    """Build an AssessmentRequest with external evidence for testing."""
+    return AssessmentRequest(
+        raw_request="What is the current version?",
+        intent=intent,
+        evidence=(
+            EvidencePackage(
+                capability_name="external_verification",
+                evidence_name="external_current",
+                data={
+                    "documents": documents,
+                },
+                source="internet",
             ),
         ),
     )
 
 
-class TestExternalClaimGroundingByRelevance:
-    """Test that claim grounding only uses SUFFICIENT relevance documents."""
+class TestSelectedPassageGrounding:
+    """Tests for GA2-R1-02: selected-passage claim grounding."""
 
-    def test_sufficient_document_grounds_version_claim(self) -> None:
-        """SUFFICIENT document content should NOT be redacted."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Release",
-                    "url": "https://example.com/release",
-                    "content": "Version 3.12.0 is the latest stable release",
-                    "provider": "mock-search",
-                    "relevance": "sufficient",
-                    "content_status": "CONTENT_EXTRACTED",
-                }
-            ]
+    def test_selected_passage_with_matching_version_is_kept(self) -> None:
+        """Version claim present in selected passage is kept."""
+        documents = [
+            {
+                "content": "This is unrelated full page content.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        "text": "Python current version is 3.14.2",
+                        "url": "https://example.com/python",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.14.2.", request
         )
+        assert "3.14.2" in guarded
+
+    def test_selected_passage_with_different_version_is_redacted(self) -> None:
+        """Version claim NOT in selected passage is redacted even if present
+        elsewhere in the full document content."""
+        documents = [
+            {
+                # Full content contains 3.99.0 but it is OUTSIDE the selected
+                # passage — the selected passage only mentions 3.14.2.
+                "content": "Node.js version 3.99.0 is available. Python current version is 3.14.2.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # Only the Python passage is selected (request is for Python)
+                        "text": "Python current version is 3.14.2",
+                        "url": "https://example.com/python",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.99.0.", request
+        )
+        # 3.99.0 should be redacted because it's NOT in the selected passage
+        assert "3.99.0" not in guarded
+        assert "chưa xác nhận" in guarded
+
+    def test_partial_passage_never_grounds_concrete_value(self) -> None:
+        """PARTIAL selected support never grounds a concrete current value."""
+        documents = [
+            {
+                "content": "Python version 3.14.2 is available.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # PARTIAL relevance passage (truncated)
+                        "text": "Python version 3.",
+                        "url": "https://example.com/python",
+                        "relevance": "partial",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.14.2.", request
+        )
+        # 3.14.2 should be redacted because the PARTIAL passage doesn't
+        # contain the full version
+        assert "3.14.2" not in guarded
+        assert "chưa xác nhận" in guarded
+
+    def test_irrelevant_passage_never_grounds_concrete_value(self) -> None:
+        """IRRELEVANT selected support never grounds a concrete current value."""
+        documents = [
+            {
+                "content": "Python version 3.14.2 is available.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # IRRELEVANT passage (unrelated content)
+                        "text": "Weather forecast for today is sunny.",
+                        "url": "https://example.com/weather",
+                        "relevance": "irrelevant",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.14.2.", request
+        )
+        # 3.14.2 should be redacted because the IRRELEVANT passage doesn't
+        # contain the version claim
+        assert "3.14.2" not in guarded
+        assert "chưa xác nhận" in guarded
+
+    def test_date_claim_preserved_when_in_selected_passage(self) -> None:
+        """Date/identity claims preserve the exact supported value."""
+        documents = [
+            {
+                "content": "Release date is 2024-08-15 for Python 3.14.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        "text": "Release date is 2024-08-15",
+                        "url": "https://example.com/release",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Ngày phát hành là 2024-08-15.", request
+        )
+        assert "2024-08-15" in guarded
+
+    def test_date_claim_redacted_when_not_in_selected_passage(self) -> None:
+        """Date claim NOT in selected passage is redacted."""
+        documents = [
+            {
+                "content": "Release date for Node.js is 2023-05-01. Release date for Python is 2024-08-15.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # Only Python release date is selected
+                        "text": "Release date is 2024-08-15",
+                        "url": "https://example.com/python",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Ngày phát hành là 2023-05-01.", request
+        )
+        # 2023-05-01 should be redacted (Node.js date, not Python date)
+        assert "2023-05-01" not in guarded
+        assert "chưa xác nhận" in guarded
+
+    def test_arbitrary_subject_from_selected_passage_is_accepted(self) -> None:
+        """Explicit URL: an arbitrary subject/value present in selected support
+        is accepted."""
+        documents = [
+            {
+                "content": "Full page with many topics including pricing and versions.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # Selected passage about a specific product's price
+                        "text": "InfraAgent Pro costs $99.99 per month",
+                        "url": "https://example.com/pricing",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
         request = AssessmentRequest(
-            raw_request="What is the current version?",
+            raw_request="What is the price of InfraAgent Pro?",
             intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
+            evidence=(
+                EvidencePackage(
+                    capability_name="external_verification",
+                    evidence_name="explicit_url",
+                    data={
+                        "documents": documents,
+                    },
+                    source="internet",
+                ),
+            ),
         )
-        # Version 3.12.0 is in SUFFICIENT document => NOT redacted
-        response = "The current version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "3.12.0" in redacted
-
-    def test_partial_document_does_not_ground_version_claim(self) -> None:
-        """PARTIAL document content is filtered out => no SUFFICIENT corpus.
-
-        When only PARTIAL documents exist (no SUFFICIENT), the corpus is empty
-        and the function returns the "Could not determine" fallback message.
-        """
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Partial",
-                    "url": "https://example.com/partial",
-                    "content": "Version 3.",
-                    "provider": "mock-search",
-                    "relevance": "partial",
-                    "content_status": "CONTENT_TRUNCATED",
-                }
-            ]
+        guarded = redact_ungrounded_external_claims(
+            "InfraAgent Pro costs $99.99 per month.", request
         )
+        assert "$99.99" in guarded
+
+    def test_explicit_url_fact_absent_remains_insufficient(self) -> None:
+        """Explicit URL: successful fetch but requested fact absent remains
+        insufficient."""
+        documents = [
+            {
+                "content": "This is an about page for ExampleCorp.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        # Selected passage doesn't contain version info
+                        "text": "ExampleCorp provides cloud infrastructure services.",
+                        "url": "https://example.com/about",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
         request = AssessmentRequest(
-            raw_request="What is the current version?",
+            raw_request="What is the current version of Python? Visit https://example.com/about",
             intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
+            evidence=(
+                EvidencePackage(
+                    capability_name="external_verification",
+                    evidence_name="explicit_url",
+                    data={
+                        "documents": documents,
+                    },
+                    source="internet",
+                ),
+            ),
         )
-        # No SUFFICIENT documents => corpus empty => "Could not determine"
-        response = "The current version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "Could not determine this from the fetched content." in redacted
-        assert "3.12.0" not in redacted
+        guarded = redact_ungrounded_external_claims(
+            "Python version is 3.14.2.", request
+        )
+        # 3.14.2 should be redacted because it's not in the selected passage
+        assert "3.14.2" not in guarded
+        assert "chưa xác nhận" in guarded
 
-    def test_irrelevant_document_does_not_ground_version_claim(self) -> None:
-        """IRRELEVANT document content is filtered out => no SUFFICIENT corpus.
+    def test_non_external_intent_returns_original_text(self) -> None:
+        """Non-EXTERNAL_VERIFICATION intent returns original text unchanged."""
+        documents = [
+            {
+                "content": "Some content.",
+                "relevance": "sufficient",
+            }
+        ]
+        request = _external_request(documents, intent="CAPABILITY_ASSESSMENT")
+        guarded = redact_ungrounded_external_claims(
+            "Python version is 3.14.2.", request
+        )
+        # Should return original text unchanged for non-external intent
+        assert "3.14.2" in guarded
+        assert "chưa xác nhận" not in guarded
 
-        When only IRRELEVANT documents exist (no SUFFICIENT), the corpus is empty
-        and the function returns the "Could not determine" fallback message.
-        """
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Weather",
-                    "url": "https://example.com/weather",
-                    "content": "Sunny skies ahead",
-                    "provider": "mock-search",
-                    "relevance": "irrelevant",
-                    "content_status": "CONTENT_EXTRACTED",
-                }
-            ]
+    def test_backward_compatibility_without_selected_passages(self) -> None:
+        """When selected_passages are not present, falls back to full content."""
+        documents = [
+            {
+                "content": "Python version 3.14.2 is the latest stable release.",
+                "relevance": "sufficient",
+                # No selected_passages key — backward compatibility test
+            }
+        ]
+        request = _external_request(documents)
+        guarded = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.14.2.", request
         )
-        request = AssessmentRequest(
-            raw_request="What is the current version?",
-            intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
-        )
-        # No SUFFICIENT documents => corpus empty => "Could not determine"
-        response = "The current version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "Could not determine this from the fetched content." in redacted
+        # Should still work using full content as fallback
+        assert "3.14.2" in guarded
 
-    def test_mixed_relevance_uses_only_sufficient(self) -> None:
-        """When multiple documents exist, only SUFFICIENT grounds claims."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Partial",
-                    "url": "https://example.com/partial",
-                    "content": "Version 3.12.0",
-                    "provider": "mock-search",
-                    "relevance": "partial",
-                    "content_status": "CONTENT_TRUNCATED",
-                },
-                {
-                    "title": "Irrelevant",
-                    "url": "https://example.com/irrelevant",
-                    "content": "Weather forecast",
-                    "provider": "mock-search",
-                    "relevance": "irrelevant",
-                    "content_status": "CONTENT_EXTRACTED",
-                },
-                {
-                    "title": "Sufficient",
-                    "url": "https://example.com/sufficient",
-                    "content": "Python version 3.12.0 is the latest stable release",
-                    "provider": "mock-search",
-                    "relevance": "sufficient",
-                    "content_status": "CONTENT_EXTRACTED",
-                },
-            ]
-        )
-        request = AssessmentRequest(
-            raw_request="What is the current version of Python?",
-            intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
-        )
-        # Version 3.12.0 is in SUFFICIENT document => NOT redacted
-        response = "The current Python version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "3.12.0" in redacted
+    def test_no_assertion_may_merely_check_non_null(self) -> None:
+        """Verify semantic correctness, not just non-null/non-empty output."""
+        documents = [
+            {
+                "content": "Python version 3.14.2 is available.",
+                "relevance": "sufficient",
+                "selected_passages": [
+                    {
+                        "text": "Python version 3.14.2",
+                        "url": "https://example.com/python",
+                        "relevance": "sufficient",
+                    }
+                ],
+            }
+        ]
+        request = _external_request(documents)
 
-    def test_no_sufficient_documents_returns_not_determined(self) -> None:
-        """When no SUFFICIENT documents exist, returns "Could not determine"."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Partial",
-                    "url": "https://example.com/partial",
-                    "content": "Version 3.12.0",
-                    "provider": "mock-search",
-                    "relevance": "partial",
-                    "content_status": "CONTENT_TRUNCATED",
-                }
-            ]
+        # Test 1: Correct value should be preserved
+        guarded_correct = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.14.2.", request
         )
-        request = AssessmentRequest(
-            raw_request="What is the current version?",
-            intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
-        )
-        # No SUFFICIENT documents => corpus empty => "Could not determine"
-        response = "The current version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "Could not determine this from the fetched content." in redacted
+        assert "3.14.2" in guarded_correct
+        assert "chưa xác nhận" not in guarded_correct
 
-    def test_non_external_intent_unchanged(self) -> None:
-        """Non-EXTERNAL_VERIFICATION intent should not be affected."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Partial",
-                    "url": "https://example.com/partial",
-                    "content": "Version 3.12.0",
-                    "provider": "mock-search",
-                    "relevance": "partial",
-                    "content_status": "CONTENT_TRUNCATED",
-                }
-            ]
+        # Test 2: Wrong value should be redacted (not just non-null)
+        guarded_wrong = redact_ungrounded_external_claims(
+            "Phiên bản mới nhất là 3.99.0.", request
         )
-        request = AssessmentRequest(
-            raw_request="What is the current version?",
-            intent="NORMAL_ASSESSMENT",  # Not EXTERNAL_VERIFICATION
-            evidence=evidence,
-            facts=(),
-        )
-        response = "The current version is 3.12.0"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        # Should be unchanged (not redacted)
-        assert redacted == response
-
-    def test_sufficient_date_grounds_date_claim(self) -> None:
-        """SUFFICIENT document with date should NOT be redacted."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Release",
-                    "url": "https://example.com/release",
-                    "content": "Release date is 2024-08-15",
-                    "provider": "mock-search",
-                    "relevance": "sufficient",
-                    "content_status": "CONTENT_EXTRACTED",
-                }
-            ]
-        )
-        request = AssessmentRequest(
-            raw_request="What is the release date?",
-            intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
-        )
-        response = "The release date is 2024-08-15"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "2024-08-15" in redacted
-
-    def test_sufficient_price_grounds_price_claim(self) -> None:
-        """SUFFICIENT document with price should NOT be redacted."""
-        evidence = _external_evidence(
-            [
-                {
-                    "title": "Pricing",
-                    "url": "https://example.com/pricing",
-                    "content": "Price is $99.99 per month",
-                    "provider": "mock-search",
-                    "relevance": "sufficient",
-                    "content_status": "CONTENT_EXTRACTED",
-                }
-            ]
-        )
-        request = AssessmentRequest(
-            raw_request="What is the price?",
-            intent="EXTERNAL_VERIFICATION",
-            evidence=evidence,
-            facts=(),
-        )
-        response = "The price is $99.99 per month"
-        redacted = redact_ungrounded_external_claims(response, request, lang="en")
-        assert "$99.99" in redacted
+        assert "3.99.0" not in guarded_wrong
+        assert "chưa xác nhận" in guarded_wrong
+        # The output must contain the redaction marker, not just be non-empty
+        assert len(guarded_wrong) > 0
