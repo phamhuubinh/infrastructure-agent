@@ -1162,6 +1162,8 @@ class DeterministicAgent:
         """Serialize only bounded validation facts into a safe trace stage."""
         if validation is None:
             return {}
+        raw_issues = validation.get("issues", ())
+        findings = list(raw_issues) if isinstance(raw_issues, (list, tuple)) else []
         return {
             "artifact_validation": StageTrace(
                 name="artifact_validation",
@@ -1170,7 +1172,7 @@ class DeterministicAgent:
                     if validation["final_valid"]
                     else StageStatus.FAILED
                 ),
-                findings=list(validation["issues"]),
+                findings=findings,
                 message=(
                     f"{validation['artifact_type']}; "
                     f"initial_valid={validation['initial_valid']}; "
@@ -1248,7 +1250,7 @@ class DeterministicAgent:
         repair_attempted = repaired is not None
         final = (
             ConfigValidator.validate(artifact_type, repaired)
-            if repair_attempted
+            if repaired is not None
             else initial
         )
         issues = tuple(

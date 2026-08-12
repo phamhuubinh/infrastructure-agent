@@ -92,25 +92,25 @@ class _SafeEvaluator:
                     raise ValueError("Invalid numeric constant.") from exc
             raise ValueError("Only numeric constants are allowed.")
         if isinstance(node, ast.BinOp):
-            op = _BINOPS.get(type(node.op))
-            if op is None:
+            bin_op = _BINOPS.get(type(node.op))
+            if bin_op is None:
                 raise ValueError("Unsupported binary operator.")
             left = self._visit(node.left)
             right = self._visit(node.right)
             if not isinstance(left, Decimal) or not isinstance(right, Decimal):
                 raise ValueError("Operands must be numeric.")
             try:
-                return op(left, right)
+                return bin_op(left, right)
             except ZeroDivisionError as exc:
                 raise ValueError(str(exc)) from exc
         if isinstance(node, ast.UnaryOp):
-            op = _UNARYOPS.get(type(node.op))
-            if op is None:
+            unary_op = _UNARYOPS.get(type(node.op))
+            if unary_op is None:
                 raise ValueError("Unsupported unary operator.")
             value = self._visit(node.operand)
             if not isinstance(value, Decimal):
                 raise ValueError("Operand must be numeric.")
-            return op(value)
+            return unary_op(value)
         if isinstance(node, ast.Call):
             func_name = self._safe_name(node.func)
             if func_name not in _ALLOWED_FUNCTIONS:

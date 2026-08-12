@@ -40,6 +40,9 @@ def _get_ssh(
     if has_context:
         if not all(isinstance(value, str) and value for value in supplied_context):
             raise ValueError("SSH context requires user, host, and addr together.")
+        assert isinstance(user, str)
+        assert isinstance(host, str)
+        assert isinstance(addr, str)
         if not _SSH_CONTEXT_USER.fullmatch(user):
             raise ValueError("SSH context user is invalid.")
         if not _SSH_CONTEXT_HOST.fullmatch(host) or ".." in host:
