@@ -58,7 +58,8 @@ def _numbers(cases: list[dict[str, Any]], key: str) -> list[float]:
     values: list[float] = []
     for case in cases:
         metrics = case.get("actual", {}).get("runtime_metrics") or {}
-        value = metrics.get(key)
+        response_metrics = case.get("actual", {}).get("response_metrics") or {}
+        value = metrics.get(key, response_metrics.get(key))
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             values.append(float(value))
     return values
@@ -87,6 +88,16 @@ def runtime_summary(report: dict[str, Any]) -> dict[str, dict[str, float | None]
         "expansion_rounds": {
             "median": _median(_numbers(cases, "expansion_rounds")),
             "p95": percentile(_numbers(cases, "expansion_rounds"), 0.95),
+        },
+        "response_characters": {
+            "median": _median(_numbers(cases, "character_count")),
+            "p95": percentile(_numbers(cases, "character_count"), 0.95),
+        },
+        "estimated_output_tokens": {
+            "median": _median(_numbers(cases, "estimated_output_tokens")),
+            "p95": percentile(
+                _numbers(cases, "estimated_output_tokens"), 0.95
+            ),
         },
     }
 

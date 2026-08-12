@@ -524,7 +524,8 @@ def test_content_generation_skips_environment_pipeline_without_refusal() -> None
     result = agent.run_with_steps("Viết lệnh restart nginx nhưng không chạy lệnh.")
 
     assert result["response"] == "systemctl restart nginx"
-    assert result["execution_trace"] is None
+    assert result["execution_trace"]["answer_strategy"] == "CHAT"
+    assert result["execution_trace"]["response_strategy"] == "ARTIFACT_GENERATION"
     engine.execute.assert_not_called()
     model.assess.assert_not_called()
     model.assess_raw.assert_called_once()
@@ -542,7 +543,195 @@ def test_conceptual_technical_comparison_never_enters_environment_pipeline() -> 
 
     result = agent.run_with_steps("RAM và swap khác nhau thế nào?")
 
-    assert result["execution_trace"] is None
+    assert result["execution_trace"]["answer_strategy"] == "CHAT"
+    engine.execute.assert_not_called()
+    model.assess_raw.assert_called_once()
+
+
+def test_generated_github_actions_is_validated_in_actual_chat_path() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = """```yaml
+name: CI
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest
+```"""
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a GitHub Actions workflow for CI.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert result["execution_trace"]["response_strategy"] == "ARTIFACT_GENERATION"
+    assert validation["status"] == "SUCCEEDED"
+    assert "github_actions" in validation["message"]
+    assert "Validation warning" not in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_invalid_generated_workflow_reaches_user_with_validation_warning() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```yaml\nname: [unclosed\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Create a GitHub Actions workflow.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "FAILED"
+    assert "Validation warning" in result["response"]
+    assert "not validated successfully" in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_generated_shell_is_validated_without_environment_execution() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```bash\necho 'unclosed\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Write a shell script to show the hostname.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "FAILED"
+    assert "Validation warning" in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_invalid_workflow_is_repaired_once_then_revalidated() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = """Here is the workflow:
+name: CI
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: pytest
+"""
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a GitHub Actions workflow.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "SUCCEEDED"
+    assert "initial_valid=False" in validation["message"]
+    assert "repair_attempted=True" in validation["message"]
+    assert result["response"].startswith("name: CI")
+    assert "Validation warning" not in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_unrepairable_generated_artifact_keeps_warning_after_one_attempt() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```yaml\nname: [unclosed\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a GitHub Actions workflow.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "FAILED"
+    assert "repair_attempted=False" in validation["message"]
+    assert "Validation warning" in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_generated_mutating_shell_preserves_validation_notice() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```bash\nsystemctl restart nginx\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Write a bash script to restart nginx.")
+
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "SUCCEEDED"
+    assert "Validation notice" in result["response"]
+    assert "does not execute it" in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_generated_repeated_shell_is_not_truncated_as_repetitive_prose() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```sh\n" + "echo keep\n" * 6 + "```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a shell script with repeated lines.")
+
+    assert result["response"].count("echo keep") == 6
+    assert result["execution_trace"]["stages"]["artifact_validation"]["status"] == "SUCCEEDED"
+    engine.execute.assert_not_called()
+
+
+def test_short_generated_invalid_artifact_keeps_validation_warning() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```yaml\nname: [unclosed\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a short GitHub Actions workflow.")
+
+    assert "Validation warning" in result["response"]
+    assert "not validated successfully" in result["response"]
+    engine.execute.assert_not_called()
+
+
+def test_response_metrics_include_budget_without_extra_execution() -> None:
+    from src.agent.deterministic_agent import DeterministicAgent
+    from src.model.assessment_model_adapter import AssessmentModelAdapter
+    from src.pipeline.execution_engine import ExecutionEngine
+
+    engine = mock.MagicMock(spec=ExecutionEngine)
+    model = mock.MagicMock(spec=AssessmentModelAdapter)
+    model.assess_raw.return_value = "```yaml\nname: [unclosed\n```"
+    agent = DeterministicAgent(engine, model)
+
+    result = agent.run_with_steps("Generate a GitHub Actions workflow.")
+
+    metrics = result["execution_trace"]["response_metrics"]
+    assert metrics["budget_class"] == "artifact"
+    assert metrics["character_count"] == len(result["response"])
+    assert metrics["byte_count"] == len(result["response"].encode("utf-8"))
+    assert metrics["estimated_output_tokens"] > 0
+    assert metrics["input_tokens"] is None
     engine.execute.assert_not_called()
     model.assess_raw.assert_called_once()
 

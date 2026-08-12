@@ -654,6 +654,134 @@ def test_get_ssh_absent_directive_in_effective_config_uses_default(monkeypatch) 
     assert result.data["permit_root_login"] == "prohibit-password"
 
 
+def test_get_ssh_uses_context_specific_effective_config(monkeypatch) -> None:
+    """A complete safe context must be passed as argv to ``sshd -T -C``."""
+    calls: list[list[str]] = []
+
+    def fake_run(command, timeout=5):
+        calls.append(command)
+        if command == [
+            "sshd",
+            "-T",
+            "-C",
+            "user=deploy,host=app.example,addr=203.0.113.10",
+        ]:
+            return True, "permitrootlogin no\nport 22\npasswordauthentication yes\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+    result = LinuxTool().execute(
+        {
+            "action": "get_ssh",
+            "user": "deploy",
+            "host": "app.example",
+            "addr": "203.0.113.10",
+        }
+    )
+
+    assert result.success is True
+    assert result.data["source"] == "effective_sshd_config_context"
+    assert result.data["permit_root_login"] == "no"
+    assert ["sshd", "-T"] not in calls
+
+
+def test_get_ssh_rejects_incomplete_or_unsafe_context_without_execution(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: calls.append(command) or (False, ""),
+    )
+    tool = LinuxTool()
+    for context in (
+        {"user": "deploy"},
+        {"user": "deploy;id", "host": "app.example", "addr": "203.0.113.10"},
+        {"user": "deploy", "host": "app.example", "addr": "not-an-ip"},
+    ):
+        result = tool.execute({"action": "get_ssh", **context})
+        assert result.success is False
+        assert result.data is None
+    assert calls == []
+
+
+def test_get_ssh_normalizes_invalid_permit_root_login_to_unknown(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["sshd", "-T"]:
+            return True, "permitrootlogin definitely\n"
+        return True, "active"
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+    result = LinuxTool().execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data["permit_root_login"] == "UNKNOWN"
+
+
+def test_get_ssh_match_without_context_is_context_specific_unknown(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == ["sshd", "-T"]:
+            return True, "permitrootlogin no\nport 22\n"
+        if command == ["cat", "/etc/ssh/sshd_config"]:
+            return True, "PermitRootLogin no\nMatch User deploy\n  PermitRootLogin yes\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+    result = LinuxTool().execute({"action": "get_ssh"})
+
+    assert result.success is True
+    assert result.data["permit_root_login"] == "UNKNOWN"
+    assert result.data["source"] == "context_specific_unknown"
+
+
+def test_get_ssh_match_with_context_returns_context_specific_value(monkeypatch) -> None:
+    def fake_run(command, timeout=5):
+        if command == [
+            "sshd",
+            "-T",
+            "-C",
+            "user=deploy,host=app.example,addr=203.0.113.10",
+        ]:
+            return True, "permitrootlogin yes\nport 22\n"
+        if command == ["systemctl", "is-active", "ssh"]:
+            return True, "active"
+        return False, ""
+
+    monkeypatch.setattr(
+        LinuxTool,
+        "_run",
+        lambda self, command, timeout=5: fake_run(command, timeout),
+    )
+    result = LinuxTool().execute(
+        {
+            "action": "get_ssh",
+            "user": "deploy",
+            "host": "app.example",
+            "addr": "203.0.113.10",
+        }
+    )
+
+    assert result.success is True
+    assert result.data["permit_root_login"] == "yes"
+    assert result.data["source"] == "effective_sshd_config_context"
+
+
 def test_get_ssh_raw_config_fallback_reports_unknown_when_directive_absent(
     monkeypatch,
 ) -> None:

@@ -209,6 +209,7 @@ def extract_actual(result: dict[str, Any]) -> dict[str, Any]:
         "required_evidence": required_evidence,
         "total_duration_ms": trace_dict.get("total_duration_ms"),
         "runtime_metrics": trace_dict.get("runtime_metrics"),
+        "response_metrics": trace_dict.get("response_metrics"),
         "_context": investigation_context(investigation, trace_dict),
     }
 

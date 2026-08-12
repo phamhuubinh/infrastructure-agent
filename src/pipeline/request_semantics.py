@@ -442,6 +442,18 @@ class RequestSemanticsClassifier:
                 freshness_window=freshness_window,
             )
 
+        if self._is_self_contained_request(lower):
+            return RequestSemantics(
+                domain=RequestDomain.GENERAL,
+                information_scope=InformationScope.STABLE_KNOWLEDGE,
+                external_need=ExternalNeed.NONE,
+                source_constraints=source_constraints,
+                excluded_sources=excluded_sources,
+                execution_intent=ExecutionIntent.EXPLAIN,
+                freshness_phrase=freshness_phrase,
+                freshness_window=freshness_window,
+            )
+
         if execution_intent is ExecutionIntent.INSPECT_READ_ONLY:
             return RequestSemantics(
                 domain=RequestDomain.ENVIRONMENT,
@@ -696,6 +708,33 @@ class RequestSemanticsClassifier:
             tuple(dict.fromkeys(allowed)) or (SourceConstraint.ANY,),
             tuple(dict.fromkeys(excluded)),
         )
+
+    @staticmethod
+    def _is_self_contained_request(lower: str) -> bool:
+        """Recognize supplied-data reasoning that must not inspect a host."""
+        live_markers = (
+            " current ",
+            " current?",
+            " live ",
+            " hiện tại",
+            "thực tế",
+            "tren localhost",
+            "trên localhost",
+        )
+        if any(marker in lower for marker in live_markers):
+            return False
+        supplied_markers = (
+            "supplied",
+            "provided",
+            "given ",
+            "hypothetical",
+            "this config",
+            "these values",
+            "cấu hình giả định",
+            "giá trị đã cho",
+            "dữ liệu đã cho",
+        )
+        return any(marker in lower for marker in supplied_markers)
 
     def _execution_intent(self, lower: str) -> ExecutionIntent:
         if any(marker in lower for marker in self._GENERATION_MARKERS):

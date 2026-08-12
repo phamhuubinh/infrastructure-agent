@@ -287,10 +287,40 @@ def redact_ungrounded_external_claims(
         else "[unverified current claim]"
     )
 
+    def _replace_version_if_absent(match: re.Match[str]) -> str:
+        """Keep an exact verified version or a safe container-image variant.
+
+        A verified release such as ``3.14.2`` is commonly rendered as
+        ``python:3.14.2-slim`` in a generated Dockerfile.  The selected
+        passage normally contains the release value, not every image-tag
+        suffix.  Accept that narrow representation only for the requested
+        subject; do not use it as a general rewrite/allow-list for unrelated
+        version-like strings elsewhere in an artifact.
+        """
+
+        claimed = match.group(0)
+        if claimed.casefold() in corpus:
+            return claimed
+
+        base_version = re.match(r"\d+(?:\.\d+){1,3}", claimed)
+        if base_version is None or base_version.group(0).casefold() not in corpus:
+            if _is_non_claim_artifact_version(response_text, match):
+                return claimed
+            return marker
+        if not requested_subject or claimed == base_version.group(0):
+            return marker
+
+        image_reference = re.compile(
+            rf"\b{re.escape(requested_subject)}:{re.escape(claimed)}\b",
+            re.IGNORECASE,
+        )
+        return claimed if image_reference.search(response_text) else marker
+
+    guarded = _CURRENT_VERSION.sub(_replace_version_if_absent, response_text)
+
     def _replace_if_absent(match: re.Match[str]) -> str:
         return match.group(0) if match.group(0).casefold() in corpus else marker
 
-    guarded = _CURRENT_VERSION.sub(_replace_if_absent, response_text)
     guarded = _CURRENT_DATE.sub(_replace_if_absent, guarded)
     guarded = _CURRENT_PRICE.sub(_replace_if_absent, guarded)
 
@@ -315,6 +345,33 @@ def redact_ungrounded_external_claims(
         ):
             return f"{result} [{lang == 'vi' and 'chưa xác nhận' or 'unverified'}]"
     return result
+
+
+def _is_non_claim_artifact_version(
+    response_text: str, match: re.Match[str]
+) -> bool:
+    """Recognize narrow code/config values that are not current-value claims.
+
+    Package pins and schema labels frequently contain version-shaped values.
+    They must remain their own values; an externally verified runtime version
+    is not a license to rewrite or redact them.  This deliberately covers
+    only reviewed assignment forms, leaving ordinary prose claims subject to
+    the external grounding guard.
+    """
+
+    line_start = response_text.rfind("\n", 0, match.start()) + 1
+    line_end = response_text.find("\n", match.end())
+    line = response_text[line_start : None if line_end == -1 else line_end]
+    if "==" in line:
+        return True
+    return bool(
+        re.search(
+            r"\b(?:schema(?:[_-]?version)?|api[_-]?version)\s*[:=]\s*"
+            r"v?\d+(?:\.\d+){1,3}\b",
+            line,
+            re.IGNORECASE,
+        )
+    )
 
 
 def _extract_requested_subject(request_lower: str) -> str | None:

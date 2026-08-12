@@ -94,6 +94,10 @@ class InvestigationRequest:
     health_summary: HealthSummary | None = None
     evidence_expansion: tuple[ExpansionCandidate, ...] = ()
     execution_budget: ExecutionBudget | None = None
+    # Safe, bounded final-output validation metadata. This records only
+    # deterministic artifact-validation results, never model prompts or
+    # generated artifact bodies.
+    artifact_validation: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         if self.request_frame is None and isinstance(

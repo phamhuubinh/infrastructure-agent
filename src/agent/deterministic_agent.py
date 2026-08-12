@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -14,7 +15,11 @@ from src.agent.session_investigation_context import (
 )
 from src.model.assessment_guard import apply_assessment_guards
 from src.model.assessment_model_adapter import AssessmentModelAdapter
-from src.model.output_sanitizer import enforce_language_quality, sanitize_model_output
+from src.model.output_sanitizer import (
+    enforce_language_quality,
+    sanitize_api_response,
+    sanitize_model_output,
+)
 from src.model.protocol.prompt_builder_v2 import (
     _detect_language,
     _normalize_evidence,
@@ -23,14 +28,21 @@ from src.model.protocol.prompt_builder_v2 import (
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
-from src.pipeline.basic_calculator import calculate, format_value, looks_like_arithmetic
+from src.pipeline.basic_calculator import (
+    calculate,
+    calculate_supplied_text,
+    format_value,
+    looks_like_arithmetic,
+)
 from src.pipeline.clarification_responder import ClarificationResponder
+from src.pipeline.config_validator import ConfigValidator
 from src.pipeline.deterministic_responder import DeterministicResponder
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_trace import (
     AnswerStrategy,
     ExecutionTrace,
     LLMUsageReason,
+    ResponseStrategy,
     StageStatus,
     StageTrace,
     now_ms,
@@ -44,6 +56,7 @@ from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
+from src.pipeline.narrow_logic import evaluate_text
 from src.pipeline.normalizer import Normalizer
 from src.pipeline.provenance_responder import (
     ProvenanceAnswer,
@@ -55,6 +68,7 @@ from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
 )
+from src.pipeline.response_budget import ResponseBudgetPolicy
 from src.pipeline.routing_decision import (
     EvidenceStatus,
     RoutingClarificationError,
@@ -157,6 +171,12 @@ class DeterministicAgent:
             store.set_summarize_fn(self._assessment_model.assess_raw)
 
     def run(self, user_request: str) -> str:
+        """Run an investigation and apply the universal delivery boundary."""
+        return self._finalize_user_visible(
+            self._run_unfinalized(user_request), user_request
+        )
+
+    def _run_unfinalized(self, user_request: str) -> str:
         """Run a full deterministic investigation and return assessment.
 
         Args:
@@ -168,6 +188,9 @@ class DeterministicAgent:
         arithmetic = self._arithmetic_response(user_request)
         if arithmetic is not None:
             return arithmetic
+        logic = self._logic_response(user_request)
+        if logic is not None:
+            return logic
         provenance = self._provenance_response(user_request)
         if provenance is not None:
             return provenance
@@ -236,6 +259,33 @@ class DeterministicAgent:
             )
 
     def run_with_steps(self, user_request: str) -> dict:
+        """Run with trace metadata and finalize the one visible response field."""
+        result = self._run_with_steps_unfinalized(user_request)
+        result["response"] = self._finalize_user_visible(
+            result["response"], user_request
+        )
+        trace = result.get("execution_trace")
+        if isinstance(trace, dict):
+            strategy_name = trace.get("response_strategy")
+            strategy = (
+                ResponseStrategy[strategy_name]
+                if isinstance(strategy_name, str)
+                and strategy_name in ResponseStrategy.__members__
+                else ResponseStrategy.GENERAL_EXPLANATION
+            )
+            budget = ResponseBudgetPolicy.for_strategy(strategy)
+            text = result["response"]
+            trace["response_metrics"] = {
+                "character_count": len(text),
+                "byte_count": len(text.encode("utf-8")),
+                "estimated_output_tokens": ResponseBudgetPolicy.estimated_tokens(text),
+                "input_tokens": None,
+                "budget_class": budget.budget_class,
+                "max_output_tokens": budget.max_output_tokens,
+            }
+        return result
+
+    def _run_with_steps_unfinalized(self, user_request: str) -> dict:
         """Run pipeline + assessment, return structured result with steps.
 
         Single entry point for CLI and web. Returns a dict with:
@@ -258,6 +308,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.RESOLVED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.SELF_CONTAINED_REASONING,
                 request_class=frame.answer_type,
                 actual_request_frame=frame.to_dict(),
             )
@@ -268,6 +319,22 @@ class DeterministicAgent:
                 "trace_id": trace.trace_id,
                 "execution_trace": trace.to_dict(),
             }
+        logic = self._logic_response(user_request)
+        if logic is not None:
+            frame = Normalizer().normalize(user_request).evolve(
+                routing_status=RoutingStatus.RESOLVED
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+                llm_usage_reason=LLMUsageReason.NONE,
+                routing_status=RoutingStatus.RESOLVED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.SELF_CONTAINED_REASONING,
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            return {"response": logic, "steps": [], "investigation": None, "trace_id": trace.trace_id, "execution_trace": trace.to_dict()}
         provenance = self._provenance_response(user_request)
         if provenance is not None:
             frame = (
@@ -281,6 +348,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.RESOLVED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.PROVENANCE,
                 request_class=frame.answer_type,
                 actual_request_frame=frame.to_dict(),
             )
@@ -304,6 +372,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.RESOLVED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.GENERAL_EXPLANATION,
                 request_class=frame.answer_type,
                 actual_request_frame=frame.to_dict(),
             )
@@ -332,6 +401,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.EXPECTED_ASSESSMENT,
                 routing_status=RoutingStatus.RESOLVED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.GENERAL_EXPLANATION,
                 request_class=frame.answer_type,
                 actual_request_frame=frame.to_dict(),
             )
@@ -357,12 +427,25 @@ class DeterministicAgent:
             return plan_result
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
+            response, validation = self._chat_response(user_request)
+            frame = decision.request_frame
+            trace = ExecutionTrace(
+                user_request=user_request,
+                stages=self._artifact_validation_stage(validation),
+                answer_strategy=AnswerStrategy.CHAT,
+                llm_usage_reason=LLMUsageReason.EXPECTED_ASSESSMENT,
+                routing_status=RoutingStatus.GENERAL_CHAT,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=self._general_response_strategy(user_request),
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
             return {
-                "response": self.chat(user_request),
+                "response": response,
                 "steps": [],
                 "investigation": None,
-                "trace_id": None,
-                "execution_trace": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
             }
         if decision.status is RoutingStatus.EXTERNAL_VERIFICATION:
             outcome = self._external_verifier.collect(
@@ -416,6 +499,7 @@ class DeterministicAgent:
                     )
                 ),
                 request_class=decision.request_frame.answer_type,
+                response_strategy=ResponseStrategy.EXTERNAL_VERIFICATION,
                 actual_request_frame=decision.request_frame.to_dict(),
                 runtime_metrics={
                     "external_search_calls": outcome.search_calls,
@@ -452,6 +536,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=decision.status,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
                 request_class=decision.request_frame.answer_type,
                 actual_request_frame=decision.request_frame.to_dict(),
             )
@@ -496,6 +581,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.CLARIFICATION_REQUIRED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
                 request_class=exc.decision.request_frame.answer_type,
                 actual_request_frame=exc.decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
@@ -534,6 +620,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.CLARIFICATION_REQUIRED,
                 evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
                 request_class=decision.request_frame.answer_type,
                 actual_request_frame=decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
@@ -554,6 +641,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.SOURCE_UNAVAILABLE,
                 evidence_status=EvidenceStatus.UNAVAILABLE,
+                response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
                 request_class=decision.request_frame.answer_type,
                 actual_request_frame=decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
@@ -588,6 +676,7 @@ class DeterministicAgent:
                 llm_usage_reason=LLMUsageReason.NONE,
                 routing_status=RoutingStatus.FALLBACK,
                 evidence_status=EvidenceStatus.UNAVAILABLE,
+                response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
                 request_class=decision.request_frame.answer_type,
                 actual_request_frame=decision.request_frame.to_dict(),
                 total_duration_ms=now_ms() - t0,
@@ -607,18 +696,26 @@ class DeterministicAgent:
     def _arithmetic_response(self, user_request: str) -> str | None:
         """GA2-H04: deterministic answer for pure self-contained arithmetic."""
         cleaned = user_request.strip()
-        if not looks_like_arithmetic(cleaned):
+        supplied = calculate_supplied_text(cleaned)
+        if supplied.recognized:
+            result = supplied.result
+        elif looks_like_arithmetic(cleaned):
+            result = calculate(cleaned)
+        else:
             return None
-        result = calculate(cleaned)
         if not result.ok or result.value is None:
-            # Missing/invalid inputs are never invented; the caller routes to
-            # pipeline/chat which can ask for the missing values.
-            return None
+            return "Không đủ dữ liệu để tính toán an toàn."
         lang = _detect_language(user_request)
         value = format_value(result.value)
+        suffix = f" {supplied.unit}" if supplied.recognized and supplied.unit else ""
         if lang == "en":
-            return f"Result: {value}"
-        return f"Kết quả: {value}"
+            return f"Result: {value}{suffix}"
+        return f"Kết quả: {value}{suffix}"
+
+    @staticmethod
+    def _logic_response(user_request: str) -> str | None:
+        outcome = evaluate_text(user_request)
+        return outcome.value if outcome is not None else None
 
     def _provenance_response(self, user_request: str) -> str | None:
         """GA2-E08: answer provenance questions from what was *actually*
@@ -666,6 +763,20 @@ class DeterministicAgent:
                 ),
             )
         else:
+            if self._session_context.last_evidence_status == "UNAVAILABLE":
+                attempted = ProvenanceResponder.sources_from_constraints(
+                    self._session_context.active_sources
+                )
+                attempted_text = ", ".join(attempted)
+                if lang == "en":
+                    return (
+                        "No usable evidence was collected in the most recent "
+                        f"investigation. Attempted/requested sources: {attempted_text or 'unknown'}."
+                    )
+                return (
+                    "Không thu thập được bằng chứng dùng được trong lần điều tra gần nhất. "
+                    f"Nguồn đã yêu cầu/thử: {attempted_text or 'không xác định'}."
+                )
             sources = ProvenanceResponder.sources_from_constraints(
                 self._session_context.active_sources
             )
@@ -717,8 +828,41 @@ class DeterministicAgent:
             investigation,
             answer_strategy=answer_strategy,
             llm_usage_reason=llm_reason,
+            response_strategy=self._live_response_strategy(investigation),
             total_duration_ms=total_duration_ms,
         )
+
+    @staticmethod
+    def _live_response_strategy(
+        investigation: InvestigationRequest,
+    ) -> ResponseStrategy:
+        frame = investigation.request_frame
+        constraints = getattr(frame, "source_constraints", ()) if frame else ()
+        if len(constraints) >= 2:
+            return ResponseStrategy.MULTI_SOURCE_COMPARISON
+        return ResponseStrategy.LIVE_ENVIRONMENT
+
+    @staticmethod
+    def _general_response_strategy(user_request: str) -> ResponseStrategy:
+        request = user_request.casefold()
+        if any(marker in request for marker in ("translate", "dịch", "rewrite", "viết lại")):
+            return ResponseStrategy.TRANSLATION_REWRITE
+        if any(
+            marker in request
+            for marker in (
+                "generate",
+                "create",
+                "write",
+                "workflow",
+                "yaml",
+                "shell",
+                "bash",
+                "tạo",
+                "viết",
+            )
+        ):
+            return ResponseStrategy.ARTIFACT_GENERATION
+        return ResponseStrategy.GENERAL_EXPLANATION
 
     def _build_pipeline_steps(self, investigation: InvestigationRequest) -> list[dict]:
         """Serialize pipeline stages into step dicts for UI."""
@@ -924,13 +1068,12 @@ class DeterministicAgent:
         if comparison_note:
             response += f"\n\n{comparison_note}"
 
-        # GA2-D08: a confident SHORT request trims assessment boilerplate
-        # (never hides warnings/refusal reasons or provenance).
-        if self._answer_shape_is_short(user_request):
-            response = self._trim_to_short(response)
-
-        # GA2-H12: pathological repetition must not reach the user.
-        response = self._apply_repetition_guard(response)
+        response, validation = self._finalize_model_response(
+            user_request,
+            response,
+            apply_short=self._answer_shape_is_short(user_request),
+        )
+        investigation.artifact_validation = validation
 
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
@@ -971,6 +1114,170 @@ class DeterministicAgent:
         if repetition.pathological and repetition.recovered_text:
             return repetition.recovered_text
         return response
+
+    def _finalize_model_response(
+        self,
+        user_request: str,
+        response: str,
+        *,
+        apply_short: bool,
+    ) -> tuple[str, dict[str, object] | None]:
+        """Single model-output boundary before text becomes user-visible.
+
+        Order is deliberate: strip hidden model text and language leakage,
+        identify/validate artifacts, recover only prose repetition, then apply
+        SHORT only to prose. Validation warnings are appended after any
+        shortening, while code/config is exempt from prose repetition and
+        shortening so its syntax and safety notice remain intact.
+        """
+        finalized = enforce_language_quality(
+            sanitize_model_output(response), _detect_language(user_request)
+        )
+        if not finalized:
+            finalized = "Không thể trả về nội dung đó an toàn."
+        is_artifact = self._generated_artifact_candidate(user_request, finalized)
+        if is_artifact is None:
+            finalized = self._apply_repetition_guard(finalized)
+            if apply_short:
+                finalized = self._trim_to_short(finalized)
+        return self._validate_generated_artifact(user_request, finalized)
+
+    def _finalize_user_visible(self, response: str, user_request: str) -> str:
+        """Universal final boundary for every public-agent response path.
+
+        It has no model, tool, collector, or repair capability. Model paths
+        have already performed artifact validation above; this final pass only
+        applies the API-safe sanitizer to all early-return strategies and
+        avoids prose repetition recovery for recognized generated artifacts.
+        """
+        visible = sanitize_api_response(response, user_request)
+        if self._generated_artifact_candidate(user_request, visible) is not None:
+            return visible
+        return self._apply_repetition_guard(visible)
+
+    @staticmethod
+    def _artifact_validation_stage(
+        validation: dict[str, object] | None,
+    ) -> dict[str, StageTrace]:
+        """Serialize only bounded validation facts into a safe trace stage."""
+        if validation is None:
+            return {}
+        return {
+            "artifact_validation": StageTrace(
+                name="artifact_validation",
+                status=(
+                    StageStatus.SUCCEEDED
+                    if validation["final_valid"]
+                    else StageStatus.FAILED
+                ),
+                findings=list(validation["issues"]),
+                message=(
+                    f"{validation['artifact_type']}; "
+                    f"initial_valid={validation['initial_valid']}; "
+                    f"repair_attempted={validation['repair_attempted']}"
+                ),
+            )
+        }
+
+    @staticmethod
+    def _generated_artifact_candidate(
+        user_request: str, response: str
+    ) -> tuple[str, str] | None:
+        """Identify a supported *generated* artifact without executing it."""
+        request = user_request.casefold()
+        generation_words = (
+            "generate",
+            "create",
+            "write",
+            "produce",
+            "provide",
+            "tạo",
+            "viet",
+            "viết",
+            "sinh",
+            "cho tôi",
+        )
+        if not any(word in request for word in generation_words):
+            return None
+
+        fence = re.search(r"```(?P<lang>[a-zA-Z0-9_+-]*)\s*\n(?P<body>.*?)(?:```|\Z)", response, re.DOTALL)
+        language = fence.group("lang").casefold() if fence else ""
+        content = fence.group("body").rstrip() if fence else response
+        github_request = any(
+            marker in request
+            for marker in ("github actions", "github action", "workflow", ".github/")
+        )
+        yaml_request = any(marker in request for marker in ("yaml", ".yml", ".yaml"))
+        shell_request = any(
+            marker in request
+            for marker in ("shell", "bash", "sh script", "shell script", "script sh")
+        )
+
+        if github_request or (
+            language in {"yaml", "yml"}
+            and "jobs:" in content
+            and ("runs-on:" in content or "uses:" in content)
+        ):
+            return "github_actions", content
+        if language in {"yaml", "yml"} or yaml_request:
+            return "yaml", content
+        if language in {"sh", "shell", "bash", "zsh"} or shell_request:
+            return "shell", content
+        return None
+
+    @classmethod
+    def _validate_generated_artifact(
+        cls, user_request: str, response: str
+    ) -> tuple[str, dict[str, object] | None]:
+        """Validate generated config content at the final delivery boundary.
+
+        This deliberately performs parser/structural validation only. The
+        returned metadata is bounded and excludes both prompts and artifact
+        bodies, so it is safe for execution traces.
+        """
+        candidate = cls._generated_artifact_candidate(user_request, response)
+        if candidate is None:
+            return response, None
+        artifact_type, content = candidate
+        initial = ConfigValidator.validate(artifact_type, content)
+        repaired = (
+            ConfigValidator.safe_repair(artifact_type, content)
+            if not initial.valid
+            else None
+        )
+        repair_attempted = repaired is not None
+        final = (
+            ConfigValidator.validate(artifact_type, repaired)
+            if repair_attempted
+            else initial
+        )
+        issues = tuple(
+            issue.message[:180] for issue in (initial.issues + final.issues)[:3]
+        )
+        metadata: dict[str, object] = {
+            "artifact_type": artifact_type,
+            "initial_valid": initial.valid,
+            "repair_attempted": repair_attempted,
+            "final_valid": final.valid,
+            "issues": issues,
+        }
+        if final.valid:
+            delivered = repaired if repair_attempted and repaired is not None else response
+            warnings = tuple(
+                issue.message[:180] for issue in final.issues if issue.kind == "warning"
+            )
+            if warnings:
+                delivered = f"{delivered}\n\nValidation notice: {'; '.join(warnings)}"
+            return (
+                delivered,
+                metadata,
+            )
+        summary = "; ".join(issues) or "validation failed"
+        warning = (
+            f"Validation warning: generated {artifact_type} was not validated "
+            f"successfully ({summary}). It was not executed."
+        )
+        return f"{response}\n\n{warning}", metadata
 
     @staticmethod
     def _comparison_status_note(investigation: InvestigationRequest) -> str | None:
@@ -1546,7 +1853,11 @@ class DeterministicAgent:
         # GA2-H12: pathological repetition must not reach the user here
         # either — this is a genuine model-generated response, same as
         # the assessment path.
-        response = self._apply_repetition_guard(response)
+        response, _ = self._finalize_model_response(
+            user_request,
+            response,
+            apply_short=self._answer_shape_is_short(user_request),
+        )
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
         return response
@@ -1736,12 +2047,17 @@ class DeterministicAgent:
         Returns:
             The model's response string.
         """
+        response, _ = self._chat_response(user_request)
+        return self._finalize_user_visible(response, user_request)
+
+    def _chat_response(self, user_request: str) -> tuple[str, dict[str, object] | None]:
+        """Return chat output plus safe artifact-validation metadata."""
         # Security guard: check for dangerous patterns in user input
         # before sending to the LLM. This covers the chat() path which
         # bypasses KnowledgeTool entirely.
         danger = self._check_chat_safety(user_request)
         if danger:
-            return danger
+            return danger, None
 
         try:
             from src.model.protocol.prompt_loader import PromptLoader
@@ -1762,16 +2078,20 @@ class DeterministicAgent:
                 sanitize_model_output(self._assessment_model.assess_raw(prompt)), lang
             )
             if not response:
-                return "Không thể trả về nội dung đó an toàn."
+                return "Không thể trả về nội dung đó an toàn.", None
             # GA2-H12: chat() is a genuine model-generated response path too
             # (it bypasses the pipeline entirely via assess_raw()) — must
             # not be exempt from the repetition/degeneration guard.
-            response = self._apply_repetition_guard(response)
+            response, validation = self._finalize_model_response(
+                user_request,
+                response,
+                apply_short=self._answer_shape_is_short(user_request),
+            )
             if self._conversation_store:
                 self._conversation_store.add_turn(user_request, response)
-            return response
+            return response, validation
         except Exception as exc:
-            return f"Sorry, I couldn't process that: {exc}"
+            return f"Sorry, I couldn't process that: {exc}", None
 
     @staticmethod
     def _check_chat_safety(user_request: str) -> str | None:
@@ -1946,12 +2266,18 @@ class DeterministicAgent:
         # per collected fact), independent of any hard source constraint the
         # user did or didn't state — this is what a provenance question must
         # answer from, not active_sources (the request-time constraint).
+        fact_sources = frozenset(fact.source for fact in investigation.fact_set.facts)
+        comparison_status = compute_comparison_status(
+            frame.source_constraints, fact_sources
+        )
+        status = comparison_status or (
+            "COMPLETE" if investigation.evidence_complete else "PARTIAL"
+        )
         receipts = build_evidence_receipts(
             investigation.fact_set,
-            status=("COMPLETE" if investigation.evidence_complete else "PARTIAL"),
+            status=status,
         )
-        if receipts:
-            context = context.with_evidence_receipts(receipts)
+        context = context.with_investigation_evidence(receipts, status=status)
         # GA2-D08: persist a confident answer-shape request into the session
         # for later response construction (never a tool/source decision).
         shape = SessionContextResolver.requested_answer_shape(frame.raw_request)

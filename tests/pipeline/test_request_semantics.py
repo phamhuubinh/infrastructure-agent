@@ -63,6 +63,20 @@ def test_identity_meta_and_supplied_calculation_are_general_not_environment() ->
     assert calculation.request_domain is RequestDomain.GENERAL
 
 
+def test_supplied_comparison_and_hypothetical_config_are_self_contained() -> None:
+    comparison = Normalizer().normalize("Compare the supplied values 20 and 40.")
+    config = Normalizer().normalize(
+        "Analyze this hypothetical config: PermitRootLogin no."
+    )
+    live = Normalizer().normalize(
+        "Compare this supplied 20% value with the current CPU usage on localhost."
+    )
+
+    assert comparison.request_domain is RequestDomain.GENERAL
+    assert config.request_domain is RequestDomain.GENERAL
+    assert live.request_domain is RequestDomain.ENVIRONMENT
+
+
 def test_external_fact_subject_is_never_kept_as_an_environment_target() -> None:
     frame = Normalizer().normalize("CEO hiện tại của Microsoft là ai?")
 

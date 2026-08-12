@@ -11,9 +11,15 @@ These tests verify:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.external_verification import (
+    BoundedPassage,
+    ExternalDocument,
     ExternalEvidenceRelevance,
     ExternalVerificationExecutor,
+    ExternalVerificationOutcome,
 )
 from src.pipeline.request_frame import RequestFrame
 from src.shared.execution.tool_result import ToolResult
@@ -436,3 +442,143 @@ class TestNoAssertionMayMerelyCheckNonNull:
         # The wrong version should NOT be in the passages
         for passage in doc.selected_passages:
             assert "3.99.0" not in passage.text
+
+
+# ===========================================================================
+# GA2-R1-03 EXTERNAL -> GENERATE RUNTIME CLOSURE
+# ===========================================================================
+
+
+def _external_outcome(
+    *,
+    passage_text: str,
+    relevance: ExternalEvidenceRelevance = ExternalEvidenceRelevance.SUFFICIENT,
+) -> ExternalVerificationOutcome:
+    """Build selected-passage evidence for the real agent runtime path."""
+    document = ExternalDocument(
+        title="Release notes",
+        url="https://example.com/releases",
+        content=passage_text,
+        provider="test-provider",
+        retrieved_at=datetime.now(timezone.utc),
+        relevance=relevance,
+        selected_passages=(
+            BoundedPassage(
+                text=passage_text,
+                url="https://example.com/releases",
+                title="Release notes",
+                provider="test-provider",
+                start_offset=0,
+                end_offset=len(passage_text),
+                relevance=relevance,
+            ),
+        ),
+    )
+    evidence = EvidencePackage(
+        capability_name="external_verification",
+        evidence_name="external_current",
+        data={"documents": [document.to_dict()]},
+        source="internet",
+    )
+    return ExternalVerificationOutcome(evidence=evidence, documents=(document,))
+
+
+def _agent_with_external_outcome(outcome: ExternalVerificationOutcome):
+    """Use the real routing/runtime path while mocking only its boundaries."""
+    from unittest.mock import MagicMock
+
+    from src.agent.deterministic_agent import DeterministicAgent
+
+    engine = MagicMock()
+    model = MagicMock()
+    verifier = MagicMock()
+    verifier.collect.return_value = outcome
+    return DeterministicAgent(engine, model, external_verifier=verifier), model, verifier
+
+
+class TestVerifiedValueGeneratedArtifact:
+    """Runtime proof that verified selected support reaches generated output."""
+
+    def test_python_verified_value_reaches_dockerfile_without_rewriting_other_values(
+        self,
+    ) -> None:
+        outcome = _external_outcome(
+            passage_text="Python current version is 3.14.2."
+        )
+        agent, model, verifier = _agent_with_external_outcome(outcome)
+        model.assess.return_value = (
+            "FROM python:3.14.2-slim\n"
+            "RUN pip install demo==25.1\n"
+            "LABEL schema_version=1.2"
+        )
+
+        result = agent.run_with_steps(
+            "Find the current Python version and write a Dockerfile using it."
+        )
+
+        assert "FROM python:3.14.2-slim" in result["response"]
+        # The guard must not globally substitute unrelated version-like strings.
+        assert "demo==25.1" in result["response"]
+        assert "schema_version=1.2" in result["response"]
+        request = model.assess.call_args.args[0]
+        assert request.intent == "EXTERNAL_VERIFICATION"
+        assert request.evidence[0].data["documents"][0]["selected_passages"][0][
+            "text"
+        ] == "Python current version is 3.14.2."
+        verifier.collect.assert_called_once()
+        assert result["execution_trace"]["evidence_status"] == "SUFFICIENT"
+        assert (
+            result["execution_trace"]["actual_request_frame"]["execution_intent"]
+            == "GENERATE_CONTENT"
+        )
+
+    def test_kubernetes_verified_value_reaches_generated_config(self) -> None:
+        outcome = _external_outcome(
+            passage_text="Kubernetes current version is 1.32.3."
+        )
+        agent, model, _verifier = _agent_with_external_outcome(outcome)
+        model.assess.return_value = "apiVersion: v1\ndata:\n  kubernetesVersion: 1.32.3"
+
+        result = agent.run_with_steps(
+            "Find the current Kubernetes version and create a config snippet using it."
+        )
+
+        assert "kubernetesVersion: 1.32.3" in result["response"]
+        assert result["execution_trace"]["evidence_status"] == "SUFFICIENT"
+        model.assess.assert_called_once()
+
+    def test_missing_or_partial_support_never_generates_a_current_value(self) -> None:
+        for outcome in (
+            _external_outcome(
+                passage_text="Python is a programming language.",
+                relevance=ExternalEvidenceRelevance.IRRELEVANT,
+            ),
+            _external_outcome(
+                passage_text="Python current version is 3.",
+                relevance=ExternalEvidenceRelevance.PARTIAL,
+            ),
+        ):
+            agent, model, _verifier = _agent_with_external_outcome(outcome)
+            model.assess.return_value = "FROM python:3.14.2-slim"
+
+            result = agent.run_with_steps(
+                "Find the current Python version and write a Dockerfile using it."
+            )
+
+            assert "3.14.2" not in result["response"]
+            assert "Không thể kiểm chứng thông tin hiện tại" in result["response"]
+            model.assess.assert_not_called()
+
+    def test_wrong_subject_value_is_redacted_from_generated_artifact(self) -> None:
+        outcome = _external_outcome(
+            passage_text="Node.js current version is 18.0.1."
+        )
+        agent, model, _verifier = _agent_with_external_outcome(outcome)
+        model.assess.return_value = "FROM python:18.0.1-slim"
+
+        result = agent.run_with_steps(
+            "Find the current Python version and write a Dockerfile using it."
+        )
+
+        assert "18.0.1" not in result["response"]
+        assert "unverified current claim" in result["response"]

@@ -35,7 +35,11 @@ def _report(
                         "parallel_ratio": 1.0,
                         "expansion_rounds": 0,
                         "security_inspections_total": inspections,
-                    }
+                    },
+                    "response_metrics": {
+                        "character_count": 120,
+                        "estimated_output_tokens": 30,
+                    },
                 },
             }
         ],
@@ -50,6 +54,8 @@ def test_stage_gate_passes_reviewed_fixture_and_reports_runtime_metrics() -> Non
     assert result.passed is True
     assert result.metrics["runtime"]["tool_calls"]["p95"] == 2.0
     assert result.metrics["runtime"]["parallel_ratio"]["median"] == 1.0
+    assert result.metrics["runtime"]["response_characters"]["p95"] == 120.0
+    assert result.metrics["runtime"]["estimated_output_tokens"]["median"] == 30.0
     assert result.metrics["empty_response_count"] == 0
 
 

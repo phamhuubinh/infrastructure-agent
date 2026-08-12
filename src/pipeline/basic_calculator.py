@@ -37,6 +37,15 @@ class CalculationResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class SuppliedCalculation:
+    """A recognized natural-language calculation with an optional unit."""
+
+    result: CalculationResult
+    unit: str | None = None
+    recognized: bool = False
+
+
 def _safe_div(left: Decimal, right: Decimal) -> Decimal:
     """Division that rejects a zero divisor explicitly."""
     if right == 0:
@@ -173,6 +182,44 @@ def calculate(expression: str) -> CalculationResult:
     return CalculationResult(True, value=value)
 
 
+def calculate_supplied_text(text: str) -> SuppliedCalculation:
+    """Parse only reviewed VI/EN supplied-data arithmetic forms."""
+    lower = " ".join(text.casefold().split())
+    numbers = [Decimal(value.replace(",", ".")) for value in re.findall(r"\d+(?:[.,]\d+)?", lower)]
+
+    if any(marker in lower for marker in ("average", "trung bình", "trung binh")):
+        if len(numbers) < 2:
+            return SuppliedCalculation(CalculationResult(False, error="Missing values."), recognized=True)
+        return SuppliedCalculation(
+            CalculationResult(True, sum(numbers, Decimal(0)) / Decimal(len(numbers))),
+            recognized=True,
+        )
+    remaining = re.search(
+        r"(\d+(?:[.,]\d+)?)\s*gb\s*(?:total|tổng|tong).*?(\d+(?:[.,]\d+)?)\s*gb\s*(?:used|đã dùng|da dung)",
+        lower,
+    )
+    if remaining:
+        total, used = (Decimal(item.replace(",", ".")) for item in remaining.groups())
+        return SuppliedCalculation(CalculationResult(True, total - used), unit="GB", recognized=True)
+    if ("then divide by" in lower or "rồi chia" in lower or "roi chia" in lower) and len(numbers) >= 2:
+        divisor = numbers[-1]
+        if divisor == 0:
+            return SuppliedCalculation(CalculationResult(False, error="division by zero"), recognized=True)
+        return SuppliedCalculation(CalculationResult(True, sum(numbers[:-1], Decimal(0)) / divisor), recognized=True)
+    if "availability" in lower or "sẵn sàng" in lower or "san sang" in lower:
+        availability = re.search(r"(\d+(?:[.,]\d+)?)\s*%", lower)
+        days = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:days?|ngày|ngay)", lower)
+        if availability is None or days is None:
+            return SuppliedCalculation(CalculationResult(False, error="Missing availability period."), recognized=True)
+        percent = Decimal(availability.group(1).replace(",", "."))
+        period_days = Decimal(days.group(1).replace(",", "."))
+        if not Decimal(0) <= percent <= Decimal(100) or period_days <= 0:
+            return SuppliedCalculation(CalculationResult(False, error="Invalid availability input."), recognized=True)
+        downtime_minutes = period_days * Decimal(24 * 60) * (Decimal(100) - percent) / Decimal(100)
+        return SuppliedCalculation(CalculationResult(True, downtime_minutes), unit="minutes", recognized=True)
+    return SuppliedCalculation(CalculationResult(False), recognized=False)
+
+
 def format_value(value: Decimal) -> str:
     """Render a Decimal as a compact human-readable number."""
     if value == value.to_integral_value():
@@ -184,5 +231,7 @@ __all__ = [
     "CalculationResult",
     "calculate",
     "format_value",
+    "calculate_supplied_text",
+    "SuppliedCalculation",
     "looks_like_arithmetic",
 ]

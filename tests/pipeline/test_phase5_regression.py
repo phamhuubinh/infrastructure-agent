@@ -188,12 +188,12 @@ def test_run_catches_unknown_target_error() -> None:
 
     from src.agent.deterministic_agent import DeterministicAgent
 
-    run_source = inspect.getsource(DeterministicAgent.run)
+    run_source = inspect.getsource(DeterministicAgent._run_unfinalized)
     assert "try:" in run_source
     assert "except Exception" in run_source
     assert "chat" in run_source
 
-    run_steps_source = inspect.getsource(DeterministicAgent.run_with_steps)
+    run_steps_source = inspect.getsource(DeterministicAgent._run_with_steps_unfinalized)
     assert "try:" in run_steps_source
     assert "except Exception" in run_steps_source
     assert "chat" in run_steps_source

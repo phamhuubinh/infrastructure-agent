@@ -150,3 +150,61 @@ def test_supplied_arithmetic_uses_user_values() -> None:
     environment probe."""
     raw = "64 GB total - 18 GB used"
     assert "64" in raw and "18" in raw
+
+
+def test_self_contained_agent_requests_do_not_execute_collectors() -> None:
+    """R4-01: supplied reasoning stays on the agent's no-collector path."""
+    from unittest import mock
+
+    from src.agent.deterministic_agent import DeterministicAgent
+
+    engine = mock.MagicMock()
+    model = mock.MagicMock()
+    model.assess_raw.return_value = "Self-contained response."
+    agent = DeterministicAgent(engine, model)
+
+    for request in (
+        "Rewrite these supplied values: CPU 20%, RAM 30%.",
+        "Compare the supplied values 20 and 40.",
+        "Analyze this hypothetical config: PermitRootLogin no.",
+    ):
+        result = agent.run_with_steps(request)
+        assert result["steps"] == []
+
+    engine.execute.assert_not_called()
+
+
+def test_natural_arithmetic_agent_path_is_deterministic_and_collector_free() -> None:
+    from unittest import mock
+
+    from src.agent.deterministic_agent import DeterministicAgent
+
+    engine = mock.MagicMock()
+    model = mock.MagicMock()
+    agent = DeterministicAgent(engine, model)
+
+    assert "40" in agent.run_with_steps("20 + 40 + 60 then divide by 3")["response"]
+    assert "46 GB" in agent.run_with_steps("64 GB total, 18 GB used")["response"]
+    assert "43.2 minutes" in agent.run_with_steps("99.9% availability over 30 days")["response"]
+    assert "Không đủ dữ liệu" in agent.run_with_steps("99.9% availability")["response"]
+    engine.execute.assert_not_called()
+    model.assess.assert_not_called()
+
+
+def test_narrow_logic_agent_path_is_collector_free() -> None:
+    from unittest import mock
+
+    from src.agent.deterministic_agent import DeterministicAgent
+
+    engine = mock.MagicMock()
+    model = mock.MagicMock()
+    agent = DeterministicAgent(engine, model)
+    result = agent.run_with_steps(
+        "Premises: All servers in the cluster are linux; "
+        "Conclusion: Server A is running linux"
+    )
+
+    assert result["response"] == "ENTAILED"
+    assert result["steps"] == []
+    engine.execute.assert_not_called()
+    model.assess.assert_not_called()

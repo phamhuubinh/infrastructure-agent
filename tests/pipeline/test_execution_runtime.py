@@ -113,6 +113,57 @@ class TestSingleNode:
         )
 
 
+def test_explicit_multi_source_clones_dispatch_every_named_source() -> None:
+    """A source-pinned comparison must call Grafana and Zabbix independently."""
+    knowledge_tool = mock.MagicMock()
+    knowledge_tool.source_kind.side_effect = lambda source: source
+    knowledge_tool.execute.side_effect = lambda arguments: ToolResult(
+        success=True,
+        data={"source": arguments["source"]},
+    )
+    router = CapabilityRouter()
+    router._route_candidates["CPU Information"] = [
+        (("grafana", "cpu_query"), {}),
+        (("zabbix", "cpu_query"), {}),
+    ]
+    runtime = ExecutionRuntime(knowledge_tool=knowledge_tool, router=router)
+    graph = _graph_from_steps(
+        [
+            ExecutionStep(
+                capability=CapabilityReference(
+                    name="CPU Information::grafana", evidence_name="CPU"
+                ),
+                metadata={
+                    "base_capability": "CPU Information",
+                    "forced_source": "grafana",
+                },
+            ),
+            ExecutionStep(
+                capability=CapabilityReference(
+                    name="CPU Information::zabbix", evidence_name="CPU"
+                ),
+                metadata={
+                    "base_capability": "CPU Information",
+                    "forced_source": "zabbix",
+                },
+            ),
+        ]
+    )
+
+    results, metrics = runtime.execute(
+        graph,
+        required_evidence_names=set(),
+        allowed_sources=frozenset({"grafana", "zabbix"}),
+    )
+
+    assert set(results) == {"CPU Information::grafana", "CPU Information::zabbix"}
+    assert {call.args[0]["source"] for call in knowledge_tool.execute.call_args_list} == {
+        "grafana",
+        "zabbix",
+    }
+    assert metrics.early_completed is False
+
+
 # ---------------------------------------------------------------------------
 # Dependency ordering
 # ---------------------------------------------------------------------------

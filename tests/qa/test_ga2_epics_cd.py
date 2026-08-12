@@ -738,6 +738,124 @@ def test_assess_appends_explicit_partial_note_when_one_comparison_source_missing
     assert "ZABBIX" in response
 
 
+def test_agent_runtime_comparison_status_uses_actual_fact_sources() -> None:
+    """COMPLETE/PARTIAL/UNAVAILABLE must be derived in run_with_steps()."""
+    from unittest import mock
+
+    from src.pipeline.fact_set import FactSet
+    from src.pipeline.investigation_request import InvestigationRequest
+    from src.pipeline.request_frame import RequestFrame
+    from src.pipeline.routing_decision import RoutingStatus
+
+    request_text = (
+        "So sánh CPU từ Grafana và Zabbix trên localhost "
+        "trong 7 ngày qua so với 7 ngày trước."
+    )
+    constraints = (SourceConstraint.GRAFANA, SourceConstraint.ZABBIX)
+    cases = (
+        (
+            (
+                _make_fact("cpu.usage", 40, source="grafana"),
+                _make_fact("cpu.usage", 45, source="zabbix"),
+            ),
+            "COMPLETE",
+            (),
+        ),
+        (
+            (_make_fact("cpu.usage", 40, source="grafana"),),
+            "PARTIAL",
+            ("ZABBIX",),
+        ),
+        (
+            (_make_fact("cpu.usage", 40, source="linux"),),
+            "UNAVAILABLE",
+            ("GRAFANA", "ZABBIX"),
+        ),
+    )
+    for facts, expected_status, expected_labels in cases:
+        agent, mock_engine, mock_model = _make_agent_with_mocks()
+        agent._deterministic_responder.try_response = mock.Mock(return_value=None)
+        mock_model.assess.return_value = "Comparison result."
+        mock_engine.execute.return_value = InvestigationRequest(
+            raw_request=request_text,
+            request_frame=RequestFrame(
+                raw_request=request_text,
+                source_constraints=constraints,
+            ),
+            fact_set=FactSet(facts),
+            evidence_complete=expected_status == "COMPLETE",
+            routing_status=RoutingStatus.RESOLVED,
+        )
+
+        result = agent.run_with_steps(request_text)
+
+        assert result["execution_trace"]["routing_status"] == "RESOLVED"
+        assert result["execution_trace"]["response_strategy"] == "MULTI_SOURCE_COMPARISON"
+        mock_engine.execute.assert_called_once()
+        mock_model.assess.assert_called_once()
+        if expected_status == "COMPLETE":
+            assert "PARTIAL" not in result["response"]
+            assert "không thực hiện được" not in result["response"]
+        else:
+            if expected_status == "PARTIAL":
+                assert "PARTIAL" in result["response"]
+            else:
+                assert "không thực hiện được" in result["response"]
+            for label in expected_labels:
+                assert label in result["response"]
+
+
+def test_comparison_provenance_reports_only_actual_receipt_sources() -> None:
+    """A provenance follow-up must not relabel requested sources as used."""
+    from unittest import mock
+
+    from src.pipeline.fact_set import FactSet
+    from src.pipeline.investigation_request import InvestigationRequest
+    from src.pipeline.request_frame import RequestFrame
+    from src.pipeline.routing_decision import RoutingStatus
+
+    request_text = (
+        "So sánh CPU từ Grafana và Zabbix trên localhost "
+        "trong 7 ngày qua so với 7 ngày trước."
+    )
+    constraints = (SourceConstraint.GRAFANA, SourceConstraint.ZABBIX)
+    cases = (
+        (
+            (_make_fact("cpu.usage", 40, source="grafana"), _make_fact("cpu.usage", 45, source="zabbix")),
+            "Grafana",
+            "Zabbix",
+        ),
+        ((_make_fact("cpu.usage", 40, source="grafana"),), "Grafana", None),
+        ((), "Không thu thập được bằng chứng", "Grafana, Zabbix"),
+    )
+    for facts, required, secondary in cases:
+        agent, mock_engine, mock_model = _make_agent_with_mocks()
+        agent._deterministic_responder.try_response = mock.Mock(return_value=None)
+        mock_model.assess.return_value = "Comparison result."
+        mock_engine.execute.return_value = InvestigationRequest(
+            raw_request=request_text,
+            request_frame=RequestFrame(
+                raw_request=request_text,
+                source_constraints=constraints,
+            ),
+            fact_set=FactSet(facts),
+            evidence_complete=len(facts) == 2,
+            routing_status=RoutingStatus.RESOLVED,
+        )
+
+        agent.run_with_steps(request_text)
+        provenance = agent.run_with_steps("Nguồn dữ liệu nào vừa được dùng?")
+
+        assert required in provenance["response"]
+        if secondary is None:
+            assert "Zabbix" not in provenance["response"]
+        elif required == "Không thu thập được bằng chứng":
+            assert secondary in provenance["response"]
+        else:
+            assert secondary in provenance["response"]
+        assert mock_engine.execute.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # GA2-E02 — hard source constraint must survive a target-clarification round
 # trip (previously: any CLARIFICATION_REQUIRED return path skipped session

@@ -282,18 +282,67 @@ def _summary(
     by_suite: dict[str, dict[str, object]] = {}
     for record in records:
         suite = str(record["suite"])
-        current = by_suite.setdefault(suite, {"cases": 0, "latency_ms": []})
+        current = by_suite.setdefault(
+            suite,
+            {
+                "cases": 0,
+                "latency_ms": [],
+                "tool_calls": [],
+                "expansion_rounds": [],
+                "response_characters": [],
+                "estimated_output_tokens": [],
+            },
+        )
         current["cases"] = int(current["cases"]) + 1
         current["latency_ms"].append(float(record["elapsed_ms"]))  # type: ignore[index]
+        trace = record.get("execution_trace")
+        trace = trace if isinstance(trace, dict) else {}
+        runtime = trace.get("runtime_metrics")
+        runtime = runtime if isinstance(runtime, dict) else {}
+        response = trace.get("response_metrics")
+        response = response if isinstance(response, dict) else {}
+        for name, source, key in (
+            ("tool_calls", runtime, "tool_calls"),
+            ("expansion_rounds", runtime, "expansion_rounds"),
+            ("response_characters", response, "character_count"),
+            ("estimated_output_tokens", response, "estimated_output_tokens"),
+        ):
+            value = source.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                current[name].append(float(value))  # type: ignore[index]
     suites: dict[str, object] = {}
     for name, values in by_suite.items():
-        latency = sorted(values.pop("latency_ms"))  # type: ignore[arg-type]
+        def aggregate(
+            key: str, row: dict[str, object] = values
+        ) -> tuple[float | None, float | None]:
+            samples = sorted(row.pop(key))  # type: ignore[arg-type]
+            if not samples:
+                return None, None
+            return (
+                samples[len(samples) // 2],
+                samples[min(len(samples) - 1, int(len(samples) * 0.95))],
+            )
+
+        latency_median, latency_p95 = aggregate("latency_ms")
+
+        aggregates: dict[str, float | None] = {
+            "median_latency_ms": latency_median,
+            "p95_latency_ms": latency_p95,
+        }
+
+        for key in (
+            "tool_calls",
+            "expansion_rounds",
+            "response_characters",
+            "estimated_output_tokens",
+        ):
+            median, p95 = aggregate(key)
+            aggregates[f"median_{key}"] = median
+            aggregates[f"p95_{key}"] = p95
+
         suites[name] = {
             **values,
-            "median_latency_ms": latency[len(latency) // 2] if latency else None,
-            "p95_latency_ms": latency[min(len(latency) - 1, int(len(latency) * 0.95))]
-            if latency
-            else None,
+            **aggregates,
         }
     return {
         "cases": len(records),

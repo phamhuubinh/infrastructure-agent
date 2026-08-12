@@ -10,10 +10,13 @@ It NEVER executes deployment commands.  Supported artifact types:
 
 from __future__ import annotations
 
+import re
 import shlex
+import subprocess
 from dataclasses import dataclass
 
 import yaml
+from yaml.nodes import MappingNode, Node, ScalarNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +79,31 @@ class ConfigValidator:
         )
 
     @staticmethod
+    def safe_repair(artifact_type: str, content: str) -> str | None:
+        """Apply one narrow, syntax-preserving local formatting repair.
+
+        Model replies sometimes prefix an otherwise complete YAML artifact
+        with prose (for example, ``Here is the workflow:``) without using a
+        Markdown fence. Removing only that preamble is safe: it neither adds
+        nor changes configuration values. All other syntax defects are left
+        untouched for an explicit validation warning.
+        """
+        if artifact_type not in {"yaml", "github_actions"}:
+            return None
+        start = re.search(
+            r"(?m)^(?:---\s*\n)?(?:name|on|permissions|env|defaults|jobs):\s*",
+            content,
+        )
+        if start is None or start.start() == 0:
+            return None
+        prefix = content[: start.start()]
+        if not prefix.strip() or ":" not in prefix:
+            return None
+        return content[start.start() :].strip()
+
+    @staticmethod
     def _shell(content: str) -> ValidationResult:
-        """Syntax-only shell check using shlex; never executes anything."""
+        """Parse shell syntax with ``sh -n``; never executes the snippet."""
         if not content.strip():
             return ValidationResult(
                 "shell", False, (ValidationIssue("error", "Shell snippet is empty."),)
@@ -89,6 +115,28 @@ class ConfigValidator:
                 "shell",
                 False,
                 (ValidationIssue("error", f"Shell syntax error: {exc}"),),
+            )
+        try:
+            parsed = subprocess.run(
+                ["sh", "-n"],
+                input=content,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=3,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return ValidationResult(
+                "shell",
+                False,
+                (ValidationIssue("error", f"Shell syntax check unavailable: {exc}"),),
+            )
+        if parsed.returncode != 0:
+            detail = parsed.stderr.strip().splitlines()[-1][:180]
+            return ValidationResult(
+                "shell",
+                False,
+                (ValidationIssue("error", f"Shell syntax error: {detail}"),),
             )
         lower = content.casefold()
         warning = (
@@ -120,21 +168,85 @@ class ConfigValidator:
         base = cls._yaml(content)
         if not base.valid:
             return base
+        document = yaml.compose(content)
+        duplicate_keys = cls._duplicate_mapping_keys(document)
         data = yaml.safe_load(content)
-        if not isinstance(data, dict) or "jobs" not in data:
+        if not isinstance(data, dict) or not isinstance(data.get("jobs"), dict):
             return ValidationResult(
                 "github_actions",
                 False,
                 (ValidationIssue("error", "Workflow is missing a 'jobs' mapping."),),
             )
-        issues: list[ValidationIssue] = []
+        issues: list[ValidationIssue] = [
+            ValidationIssue("error", f"Duplicate YAML key '{key}'.")
+            for key in duplicate_keys
+        ]
+        allowed_top_level = {
+            "name",
+            "on",
+            "permissions",
+            "env",
+            "defaults",
+            "concurrency",
+            "jobs",
+            "run-name",
+        }
+        for key in data:
+            if key is True:
+                continue
+            if str(key) not in allowed_top_level:
+                issues.append(
+                    ValidationIssue(
+                        "error", f"Unsupported workflow key '{key}'.",
+                    )
+                )
         for job_name, job in data["jobs"].items():
-            if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
+            if not isinstance(job, dict):
+                issues.append(
+                    ValidationIssue("error", f"Job '{job_name}' must be a mapping.")
+                )
+                continue
+            if "uses" in job and any(key in job for key in ("runs-on", "steps")):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        f"Job '{job_name}' mixes reusable 'uses' with steps/runs-on.",
+                    )
+                )
+            if "uses" in job:
+                continue
+            if not isinstance(job.get("steps"), list):
                 issues.append(
                     ValidationIssue("error", f"Job '{job_name}' has no steps list.")
                 )
                 continue
             steps = job["steps"]
+            strategy = job.get("strategy")
+            matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
+            claims_matrix = "matrix" in str(job_name).casefold() or any(
+                "matrix" in str(step.get("name", "")).casefold()
+                for step in steps
+                if isinstance(step, dict)
+            )
+            if claims_matrix and not isinstance(matrix, dict):
+                issues.append(
+                    ValidationIssue(
+                        "error",
+                        f"Job '{job_name}' claims a matrix but has no strategy.matrix mapping.",
+                    )
+                )
+            if strategy is not None and not isinstance(strategy, dict):
+                issues.append(
+                    ValidationIssue(
+                        "error", f"Job '{job_name}' has malformed strategy mapping."
+                    )
+                )
+            if matrix is not None and not isinstance(matrix, dict):
+                issues.append(
+                    ValidationIssue(
+                        "error", f"Job '{job_name}' has malformed strategy.matrix mapping."
+                    )
+                )
             seen_out: set[str] = set()
             for step in steps:
                 if isinstance(step, dict) and step.get("id"):
@@ -179,6 +291,35 @@ class ConfigValidator:
             not any(i.kind == "error" for i in issues),
             tuple(issues),
         )
+
+    @staticmethod
+    def _duplicate_mapping_keys(node: Node | None) -> tuple[str, ...]:
+        """Preserve duplicate-key signals that ``safe_load`` would discard."""
+        if node is None:
+            return ()
+        duplicates: list[str] = []
+
+        def visit(current: Node) -> None:
+            if isinstance(current, MappingNode):
+                seen: set[str] = set()
+                for key, value in current.value:
+                    key_name = (
+                        key.value if isinstance(key, ScalarNode) else str(key.value)
+                    )
+                    if key_name in seen:
+                        duplicates.append(key_name)
+                    seen.add(key_name)
+                    visit(value)
+            elif hasattr(current, "value") and isinstance(current.value, list):
+                for child in current.value:
+                    if isinstance(child, tuple):
+                        for item in child:
+                            visit(item)
+                    elif isinstance(child, Node):
+                        visit(child)
+
+        visit(node)
+        return tuple(duplicates)
 
 
 __all__ = ["ConfigValidator", "ValidationResult"]

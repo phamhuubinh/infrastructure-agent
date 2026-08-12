@@ -176,6 +176,27 @@ def test_web_fetch_truncated(
 
 @patch("src.tool.internet_tool._open_pinned_request")
 @patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_invalid_utf8_is_decoded_deterministically(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    """Malformed public text must be bounded text, never an exception leak."""
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(body=b"Python version \xff is published."),
+    )
+
+    result = _web_fetch(url="http://example.com/releases")
+
+    assert result["fetch_status"] == "FETCH_SUCCESS"
+    assert result["content_status"] == "CONTENT_EXTRACTED"
+    assert isinstance(result["data"], str)
+    assert "Python version" in result["data"]
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
 def test_web_fetch_empty_body_is_not_content_evidence(
     mock_validate: MagicMock,
     mock_open: MagicMock,
@@ -441,6 +462,25 @@ def test_redirect_to_public_target_is_followed_with_a_new_validated_address(
     assert result["url"] == "https://www.example.net/next"
     assert mock_open.call_count == 2
     assert mock_open.call_args_list[1].args[0].addresses[0].ip == "1.1.1.1"
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool.socket.getaddrinfo")
+def test_redirect_chain_is_bounded_and_fails_closed(
+    mock_getaddrinfo: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_getaddrinfo.return_value = _public_dns()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(status=302, location="https://example.com/again"),
+    )
+
+    result = _web_fetch(url="http://example.com/")
+
+    assert "too many redirects" in str(result["error"]).lower()
+    # The redirect cap is enforced before an unbounded chain can occur.
+    assert mock_open.call_count == 6
 
 
 @patch("src.tool.internet_tool.socket.getaddrinfo")

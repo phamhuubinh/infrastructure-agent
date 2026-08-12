@@ -123,6 +123,9 @@ class SessionInvestigationContext:
     # GA2-E08: what was *actually* used to produce the previous answer(s),
     # most-recent-last, capped to bound growth. Never raw evidence values.
     previous_evidence_receipts: tuple[EvidenceReceipt, ...] = ()
+    # The last completed investigation status distinguishes "no investigation"
+    # from an attempted comparison that yielded no usable facts.
+    last_evidence_status: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -143,6 +146,7 @@ class SessionInvestigationContext:
             "previous_evidence_receipts": [
                 receipt.to_dict() for receipt in self.previous_evidence_receipts
             ],
+            "last_evidence_status": self.last_evidence_status,
         }
 
     @classmethod
@@ -189,6 +193,7 @@ class SessionInvestigationContext:
             ),
             pending_clarification_field=_optional_text(pending_field),
             previous_evidence_receipts=receipts[-_MAX_EVIDENCE_RECEIPTS:],
+            last_evidence_status=_optional_text(value.get("last_evidence_status")),
         )
 
     def update_from_frame(self, frame: RequestFrame) -> SessionInvestigationContext:
@@ -235,6 +240,7 @@ class SessionInvestigationContext:
             # A successful resolution answers any pending clarification.
             pending_clarification_field=None,
             previous_evidence_receipts=self.previous_evidence_receipts,
+            last_evidence_status=self.last_evidence_status,
         )
 
     def with_answer_shape(self, shape: str) -> SessionInvestigationContext:
@@ -259,6 +265,13 @@ class SessionInvestigationContext:
             self, previous_evidence_receipts=combined[-_MAX_EVIDENCE_RECEIPTS:]
         )
 
+    def with_investigation_evidence(
+        self, receipts: tuple[EvidenceReceipt, ...], *, status: str
+    ) -> SessionInvestigationContext:
+        """Record an investigation outcome even when it produced no facts."""
+        context = replace(self, last_evidence_status=status)
+        return context.with_evidence_receipts(receipts) if receipts else context
+
     def with_corrected_concept(self, concept: str) -> SessionInvestigationContext:
         """GA2-D07: replace the active concept with the corrected one."""
         return replace(self, active_concept=concept)
@@ -272,6 +285,7 @@ class SessionInvestigationContext:
             active_excluded_sources=self.active_excluded_sources,
             requested_answer_shape=self.requested_answer_shape,
             previous_evidence_receipts=self.previous_evidence_receipts,
+            last_evidence_status=self.last_evidence_status,
         )
 
     def reset(self) -> SessionInvestigationContext:

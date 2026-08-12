@@ -6,9 +6,29 @@ from decimal import Decimal
 
 from src.pipeline.basic_calculator import (
     calculate,
+    calculate_supplied_text,
     format_value,
     looks_like_arithmetic,
 )
+
+
+def test_natural_language_supplied_forms() -> None:
+    assert calculate_supplied_text("average of 20, 40, 60").result.value == Decimal("40")
+    remaining = calculate_supplied_text("64 GB total, 18 GB used")
+    assert remaining.result.value == Decimal("46")
+    assert remaining.unit == "GB"
+    assert calculate_supplied_text("64 GB tổng, 18 GB đã dùng").result.value == Decimal("46")
+    assert calculate_supplied_text("20 + 40 + 60 then divide by 3").result.value == Decimal("40")
+    assert calculate_supplied_text("20 + 40 + 60 rồi chia 3").result.value == Decimal("40")
+    downtime = calculate_supplied_text("99.9% availability over 30 days")
+    assert downtime.result.value == Decimal("43.2")
+    assert downtime.unit == "minutes"
+
+
+def test_natural_language_availability_requires_period() -> None:
+    result = calculate_supplied_text("99.9% availability")
+    assert result.recognized is True
+    assert result.result.ok is False
 
 
 def test_basic_subtraction() -> None:

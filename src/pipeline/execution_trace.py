@@ -45,6 +45,20 @@ class AnswerStrategy(Enum):
     CHAT = auto()
 
 
+class ResponseStrategy(Enum):
+    """User-visible response category, independent of implementation path."""
+
+    GENERAL_EXPLANATION = auto()
+    TRANSLATION_REWRITE = auto()
+    SELF_CONTAINED_REASONING = auto()
+    LIVE_ENVIRONMENT = auto()
+    EXTERNAL_VERIFICATION = auto()
+    PROVENANCE = auto()
+    MULTI_SOURCE_COMPARISON = auto()
+    ARTIFACT_GENERATION = auto()
+    CLARIFICATION_REFUSAL = auto()
+
+
 class LLMUsageReason(Enum):
     """Why (or why not) the LLM was invoked for this request.
 
@@ -130,6 +144,8 @@ class ExecutionTrace:
     request_class: object | None = None
     routing_status: object | None = None
     evidence_status: object | None = None
+    response_strategy: ResponseStrategy | None = None
+    response_metrics: dict[str, Any] | None = None
     expected_request_frame: dict[str, Any] | None = None
     actual_request_frame: dict[str, Any] | None = None
 
@@ -180,6 +196,8 @@ class ExecutionTrace:
             "request_class": _name(self.request_class),
             "routing_status": _name(self.routing_status),
             "evidence_status": _name(self.evidence_status),
+            "response_strategy": _name(self.response_strategy),
+            "response_metrics": self.response_metrics,
             "expected_request_frame": self.expected_request_frame,
             "actual_request_frame": self.actual_request_frame,
             "total_duration_ms": (
@@ -202,6 +220,7 @@ class ExecutionTrace:
         trace_id: str | None = None,
         answer_strategy: AnswerStrategy | None = None,
         llm_usage_reason: LLMUsageReason | None = None,
+        response_strategy: ResponseStrategy | None = None,
         total_duration_ms: float | None = None,
     ) -> ExecutionTrace:
         """Build a trace from an InvestigationRequest.
@@ -336,6 +355,23 @@ class ExecutionTrace:
             message="assessment prepared",
         )
 
+        artifact_validation = getattr(request, "artifact_validation", None)
+        if artifact_validation is not None:
+            stages["artifact_validation"] = StageTrace(
+                name="artifact_validation",
+                status=(
+                    StageStatus.SUCCEEDED
+                    if artifact_validation.get("final_valid")
+                    else StageStatus.FAILED
+                ),
+                findings=list(artifact_validation.get("issues", ())),
+                message=(
+                    f"{artifact_validation.get('artifact_type')}; "
+                    f"initial_valid={artifact_validation.get('initial_valid')}; "
+                    f"repair_attempted={artifact_validation.get('repair_attempted')}"
+                ),
+            )
+
         metrics = getattr(request, "runtime_metrics", None)
         runtime_metrics: dict[str, Any] | None = None
         if metrics is not None:
@@ -383,6 +419,7 @@ class ExecutionTrace:
             request_class=getattr(request, "answer_type", None),
             routing_status=getattr(request, "routing_status", None),
             evidence_status=getattr(request, "evidence_status", None),
+            response_strategy=response_strategy,
             expected_request_frame=(
                 expected.to_dict() if expected is not None else None
             ),

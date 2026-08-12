@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import ipaddress
+import re
+
 from .common import CommandRunner
 
+_SSH_CONTEXT_USER = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}\Z")
+_SSH_CONTEXT_HOST = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,252}\Z")
+_PERMIT_ROOT_LOGIN_VALUES = frozenset(
+    {"yes", "no", "prohibit-password", "forced-commands-only"}
+)
 
-def _get_ssh(run: CommandRunner) -> dict[str, object]:
+
+def _get_ssh(
+    run: CommandRunner,
+    *,
+    user: str | None = None,
+    host: str | None = None,
+    addr: str | None = None,
+) -> dict[str, object]:
     """
     Subsystem: SSH server configuration summary (no keys, no secrets).
 
@@ -20,8 +35,24 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
         "passwordauthentication": "yes",
     }
 
-    effective = run(["sshd", "-T"])
-    source = "effective_sshd_config"
+    supplied_context = (user, host, addr)
+    has_context = any(value is not None for value in supplied_context)
+    if has_context:
+        if not all(isinstance(value, str) and value for value in supplied_context):
+            raise ValueError("SSH context requires user, host, and addr together.")
+        if not _SSH_CONTEXT_USER.fullmatch(user):
+            raise ValueError("SSH context user is invalid.")
+        if not _SSH_CONTEXT_HOST.fullmatch(host) or ".." in host:
+            raise ValueError("SSH context host is invalid.")
+        try:
+            ipaddress.ip_address(addr)
+        except ValueError as exc:
+            raise ValueError("SSH context addr must be an IP address.") from exc
+        effective = run(["sshd", "-T", "-C", f"user={user},host={host},addr={addr}"])
+        source = "effective_sshd_config_context"
+    else:
+        effective = run(["sshd", "-T"])
+        source = "effective_sshd_config"
 
     def _parse_effective(output: str) -> dict[str, str]:
         values: dict[str, str] = {}
@@ -31,6 +62,13 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
                 continue
             values[parts[0].lower()] = parts[1].strip().split()[0]
         return values
+
+    def _has_active_match(output: str) -> bool:
+        return any(
+            re.match(r"^\s*match\b", line, re.IGNORECASE)
+            for line in output.splitlines()
+            if not line.lstrip().startswith("#")
+        )
 
     if effective.success:
         effective_values = _parse_effective(effective.stdout)
@@ -44,11 +82,20 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
             effective_values.get("passwordauthentication")
             or _SSHD_DEFAULTS["passwordauthentication"]
         )
+        # ``sshd -T`` without ``-C`` is global effective state.  A top-level
+        # Match block can change PermitRootLogin for individual connections,
+        # so never present that global value as universal when context is absent.
+        if not has_context:
+            config_result = run(["cat", "/etc/ssh/sshd_config"])
+            if config_result.success and _has_active_match(config_result.stdout):
+                prl_raw = "UNKNOWN"
+                source = "context_specific_unknown"
     else:
         source = "raw_config_fallback"
         port = None
         permit_root_login = None
         password_authentication = None
+        has_match = False
         config_result = run(["cat", "/etc/ssh/sshd_config"])
         if config_result.success:
             for line in config_result.stdout.splitlines():
@@ -65,6 +112,8 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
                 key = parts[0].lower()
                 value = parts[1].strip().split()[0]
                 if not is_commented:
+                    if key == "match":
+                        has_match = True
                     if key == "port":
                         port = value
                     elif key == "permitrootlogin":
@@ -80,8 +129,13 @@ def _get_ssh(run: CommandRunner) -> dict[str, object]:
             if password_authentication is not None
             else "UNKNOWN"
         )
+        if has_match:
+            prl_raw = "UNKNOWN"
+            source = "context_specific_unknown"
 
-    prl = prl_raw or "UNKNOWN"
+    prl = (prl_raw or "UNKNOWN").casefold()
+    if prl not in _PERMIT_ROOT_LOGIN_VALUES:
+        prl = "UNKNOWN"
     port_str = port_raw or _SSHD_DEFAULTS["port"]
     pa = (
         password_raw

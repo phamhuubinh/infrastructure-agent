@@ -22,8 +22,14 @@ from src.tool.capability_result import CapabilityStatus
 class _FakeKnowledgeTool:
     """Minimal knowledge_tool stand-in yielding controlled failures."""
 
-    def __init__(self, fetch_payload: dict[str, object] | None = None):
+    def __init__(
+        self,
+        fetch_payload: dict[str, object] | None = None,
+        *,
+        fetch_error: str | None = None,
+    ):
         self._fetch_payload = fetch_payload
+        self._fetch_error = fetch_error
 
     def source_names(self) -> list[str]:
         return ["internet"]
@@ -36,6 +42,8 @@ class _FakeKnowledgeTool:
 
     def execute(self, arguments: dict[str, object]) -> ToolResult:
         if arguments.get("resource") == "web_fetch":
+            if self._fetch_error:
+                return ToolResult(success=False, error=self._fetch_error)
             if self._fetch_payload is None:
                 return ToolResult(success=False, error="network failure")
             return ToolResult(
@@ -64,9 +72,13 @@ def _frame(explicit_url: str) -> RequestFrame:
     )
 
 
-def _executor(payload: dict[str, object] | None) -> ExternalVerificationExecutor:
+def _executor(
+    payload: dict[str, object] | None,
+    *,
+    fetch_error: str | None = None,
+) -> ExternalVerificationExecutor:
     return ExternalVerificationExecutor(
-        _FakeKnowledgeTool(payload),  # type: ignore[arg-type]
+        _FakeKnowledgeTool(payload, fetch_error=fetch_error),  # type: ignore[arg-type]
         now=lambda: datetime(2026, 8, 8, tzinfo=timezone.utc),
         enabled=True,
     )
@@ -124,6 +136,32 @@ def test_dns_failure_never_sufficient() -> None:
     executor = _executor(None)
     outcome = executor.collect(_frame("https://unknown.invalid/x"), "q")
     assert outcome.verified is False
+
+
+def test_timeout_never_sufficient_or_cacheable_evidence() -> None:
+    executor = _executor(None, fetch_error="Request timed out")
+    outcome = executor.collect(_frame("https://example.com/slow"), "q")
+
+    assert outcome.verified is False
+    assert outcome.evidence is None
+    assert outcome.documents == ()
+    assert outcome.failures == ("Request timed out",)
+
+
+def test_extraction_and_blocked_content_never_become_evidence() -> None:
+    for content_status in (
+        ExternalContentStatus.EXTRACTION_FAILED,
+        ExternalContentStatus.CONTENT_BLOCKED,
+    ):
+        executor = _executor(
+            _payload(content_status.value, data=None, content_length=0)
+        )
+        outcome = executor.collect(_frame("https://example.com/x"), "q")
+
+        assert outcome.verified is False
+        assert outcome.evidence is None
+        assert outcome.documents == ()
+        assert outcome.failures
 
 
 def test_oversized_body_is_truncated_partial() -> None:
