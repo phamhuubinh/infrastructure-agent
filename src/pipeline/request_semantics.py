@@ -23,6 +23,11 @@ class RequestDomain(Enum):
     EXTERNAL_INFORMATION = auto()
     CONTENT_GENERATION = auto()
     ACTION = auto()
+    # Appended to preserve the numeric values of the existing runtime members.
+    # Semantic plans use these safe pre-validation states; the current
+    # deterministic classifier always returns one of the concrete members.
+    UNSPECIFIED = auto()
+    UNKNOWN = auto()
 
 
 class InformationScope(Enum):
@@ -54,6 +59,10 @@ class SourceConstraint(Enum):
     INTERNET = auto()
     URL_ONLY = auto()
     NO_INTERNET = auto()
+    # Model-proposed semantic plans distinguish an omitted source instruction
+    # from an explicit but unrecognized one.  Neither state is executable.
+    UNSPECIFIED = auto()
+    UNKNOWN = auto()
 
 
 class ExecutionIntent(Enum):
@@ -63,6 +72,9 @@ class ExecutionIntent(Enum):
     GENERATE_CONTENT = auto()
     INSPECT_READ_ONLY = auto()
     MUTATE_ENVIRONMENT = auto()
+    # Safe pre-validation states for model-proposed semantic plans.
+    UNSPECIFIED = auto()
+    UNKNOWN = auto()
 
 
 @dataclass(frozen=True, slots=True)
