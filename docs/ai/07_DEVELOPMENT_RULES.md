@@ -1,60 +1,123 @@
 # 07 - Development Rules
-These rules are mandatory for all work performed in this repository. If implementation convenience conflicts with these rules, the rules take precedence. This file is the highest-priority document after `00_BOOTSTRAP.md` (see conflict priority there).
-## 1. Development Goals
-Prioritize: deterministic execution, evidence quality, simplicity, maintainability, extensibility, token efficiency, benchmarkability. Avoid unnecessary complexity. The platform should become more capable by improving deterministic execution rather than increasing AI reasoning.
-## 2. Architecture is Authoritative
-The approved architecture (`02_CURRENT_ARCHITECTURE.md`, and `03_PLATFORM_ARCHITECTURE.md` once WP1+ is underway) is the source of truth. Do not modify responsibilities, dependencies, ownership, or architectural boundaries without explicit approval. Architecture changes require context, motivation, trade-off analysis, and impact analysis. Implementation must never change architecture implicitly.
-## 3. Deterministic Before AI
-Prefer deterministic logic wherever it can solve the problem: intent routing, target resolution, evidence planning, capability selection, result aggregation, severity calculation, threshold evaluation. Do not introduce AI reasoning where deterministic execution is sufficient.
-## 4. Single Responsibility
+
+These rules apply to all repository work.
+
+## 1. Repository truth
+
+Inspect current code, configuration, schemas, and tests before changing the
+system. Reuse existing abstractions and correct documentation that disagrees
+with the repository. Do not create parallel implementations.
+
+## 2. Current architecture is authoritative
+
+Preserve the responsibilities and dependency direction documented in
+`02_CURRENT_ARCHITECTURE.md`. Architecture changes require explicit approval,
+motivation, trade-off analysis, and impact analysis.
+
+## 3. Deterministic before AI
+
+Use deterministic logic for request semantics, target/source resolution,
+parameter validation, evidence/capability selection, execution, aggregation,
+thresholds, and safety policy. The model explains evidence; it does not control
+investigation or tools.
+
+## 4. Responsibility boundaries
+
 | Component | Responsibility |
 |---|---|
-| Assessment Model | Evidence interpretation |
-| Execution Engine | Investigation execution |
-| KnowledgeTool | Capability routing |
-| Child Tool | Evidence collection |
-| Environment | Source of Truth |
-Responsibilities must never overlap.
-## 5. Evidence First
-Preferred order: Better Tool → Better Evidence → Better Assessment. Do not compensate poor evidence with larger prompts, more iterations, or more AI reasoning.
-## 6. Composite Before Atomic
-Prefer `assess_machine()` over requiring callers to chain `cpu()`, `memory()`, `disk()`, `network()`, `service()` independently — reduces token usage, iterations, planning complexity.
-## 7. Batch Before Loop
-Execute independent evidence requests together (parallel), not as a tool → LLM → tool → LLM loop. Minimize investigation iterations.
-## 8. Stateless Execution
-Execution state exists only during a single investigation. Never persist execution state, observations, tool outputs, or runtime context beyond that — except where `03_PLATFORM_ARCHITECTURE.md` explicitly introduces persistent Agent history in the platform Database (WP4). The `PostgresConversationStore` (WP4 in progress) persists conversation history (summaries only, not raw observations) — this is the only exception to the stateless rule and should not be treated as a precedent for storing execution state.
-## 9. Child Tools & 10. Capability Design
-See `06_TOOL_AND_CAPABILITY_DESIGN.md` — the full contract for Child Tools, capabilities, and KnowledgeTool lives there, not duplicated here.
-## 11. Coding Principles
-Prefer small functions, explicit naming, readable code, deterministic logic, incremental patches. Avoid unnecessary abstraction.
-## 12. No Over-Engineering
-Do not introduce Factory, Strategy, Repository Pattern, Plugin System, Event Bus, Middleware, or Service Locator patterns unless an actual implementation problem requires them.
-## 13. Repository First
-Before changing code: understand the repository, reuse existing implementations, extend existing abstractions, avoid duplicate implementations. Never create parallel solutions.
-## 14. Backward Compatibility
-Do not break public interfaces, capability outputs, APIs, or data formats without explicit approval. Backward compatibility is the default.
-## 15. Dependencies
-Prefer the Python standard library. Do not introduce external dependencies unless technically justified and approved. Any dependency that is actually used must be declared in `pyproject.toml` — an empty `dependencies = []` while the code imports third-party packages is a rule violation, not a style choice.
-## 16. Credential and Secret Handling
-No credential, token, password, or API key may be hardcoded in source code, as a default parameter value, or committed to the repository — including under `src/tool/grafana/` or `src/tool/zabbix/`. Secrets live outside version control (gitignored config, environment variable, or OS credential store, per the current agreed mechanism — see `09_ARCHITECTURE_DECISIONS.md` for which one is in effect). If a secret is ever found hardcoded in a file that may have been committed or shared, treat it as compromised and flag it for rotation — do not just delete it silently.
-## 17. Intentional Security Trade-offs Must Be Documented, Not Silently Changed
-Some security-relevant defaults are intentional for the current local, trusted-network scope (e.g. SSH host key checking currently disabled — see `09_ARCHITECTURE_DECISIONS.md`). Do not "fix" these unilaterally. If a trade-off looks wrong, raise it — do not change it without recording the decision (or its reversal) in `09_ARCHITECTURE_DECISIONS.md`.
-## 18. Local Scope Until the Roadmap Says Otherwise
-The project runs on one local machine today (`02_CURRENT_ARCHITECTURE.md`). The Docker installation bundles PostgreSQL and enables API-key protection behind a localhost reverse proxy; source Web mode defaults to SQLite and optional API-key auth. Do not add multi-user accounts, remote hosting, or public production deployment speculatively — that work is sequenced in `04_ROADMAP.md` WP1 and only begins once public VM access is available.
-## 19. Implementation Mode
-Unless explicitly requested otherwise, operate in Implementation Mode: implement approved designs, preserve existing behavior, avoid unrelated refactoring, keep patches small, stop after the scoped task. Architecture discussion happens only when explicitly requested.
-## 20. Implementation Rules
-Modify only the approved scope. Avoid speculative features, APIs, or workflows. Preserve existing behavior unless required otherwise. Never guess missing requirements — ask or state the assumption explicitly instead.
-## 21. Verification Before Every Commit
-Review implementation, verify responsibilities/dependencies/architecture boundaries, review `git diff` and `git status`, resolve regressions before committing.
-Always run: unit tests for the touched module(s). Only run the full benchmark suite (`python -m benchmark`) when the change touches `src/pipeline/` or `src/model/` AND alters scoring, prompt content, or evidence-collection logic. Do NOT run benchmarks for documentation, lint/formatting, config, test-only, or cleanup tasks. If unsure whether a change qualifies, state the assumption and skip the benchmark run rather than running it by default. When benchmarks are run, they must be invoked from the repository root as `python -m benchmark --domain <domain> --json`, and output must be written under `benchmark_results/` — never to the repository root.
-## 22. Definition of Done
-A task is complete only when: implementation is complete, tests pass (when tests exist for the touched area), the benchmark suite passes if rule #21's benchmark criteria applied to this task, no regressions remain, architecture remains intact, the repository is clean, and it's one logical change per commit.
-## 23. Benchmark-Driven Development
-New capabilities should exist because a benchmark scenario requires additional evidence — not because they appear useful. Benchmark quality matters more than implementation quantity. (Current status: benchmark runner exists at `benchmark/` — see `08_PROJECT_STATE.md`.)
-## 24. Capability Metadata — One Source of Truth
-Child Tools define capabilities. KnowledgeTool aggregates metadata. The Execution Engine consumes metadata. Capability definitions must never be duplicated.
-## 25. Reporting — Never Claim Undone Work as Done
-Never report planned work as completed. Completed work must be verifiable through `git diff`, `git status`, test results, or benchmark results. Claims without evidence are not considered complete. This applies to `08_PROJECT_STATE.md` above all — that file must always reflect what is actually verifiable in the repository, not aspirational status.
-## 26. Final Principle
-Whenever uncertain, choose the simpler solution. Priority order: Evidence → Deterministic Execution → Architecture → Correctness → Maintainability → Performance → Convenience. Simple solutions are preferred until benchmark results prove otherwise.
+| Assessment Model | Evidence interpretation and user-facing explanation |
+| DeterministicAgent | Routing, response orchestration, and session-aware context |
+| Execution Engine | Infrastructure investigation execution |
+| KnowledgeTool | Capability aggregation and dispatch |
+| Child Tool | Evidence collection for one domain |
+| Environment | Source of operational truth |
+
+Project RAG remains isolated from Chat and uses its own project/document
+lifecycle.
+
+## 5. Evidence first
+
+Improve in this order: Tool -> Evidence -> Assessment. Do not compensate for
+missing or invalid evidence with larger prompts, more model iterations, or
+fabricated defaults.
+
+## 6. Batch and composite operations
+
+Prefer operational/composite capabilities over model-mediated chains of atomic
+calls. Execute independent evidence nodes in parallel under the shared budget.
+
+## 7. Execution state and persistence
+
+Discard command outputs, raw observations, DAG state, and runtime execution
+context after an investigation. Persist only the implemented conversation
+history/summary and the bounded semantic `SessionInvestigationContext`. Cache
+reuse follows freshness and validity policy and never turns failed, partial, or
+stale evidence into success.
+
+## 8. Simplicity
+
+Prefer small functions, explicit names, readable deterministic code, and
+incremental patches. Do not introduce a factory, strategy, repository, plugin
+system, event bus, middleware, or service locator unless a concrete current
+problem requires it.
+
+## 9. Compatibility
+
+Preserve public interfaces, API response fields, capability names, data
+formats, and supported configuration unless the task explicitly changes them.
+Compatibility adapters must remain explicit and tested.
+
+## 10. Dependencies
+
+Prefer the standard library. Every imported third-party runtime dependency
+must be declared in `pyproject.toml`; add dependencies only with technical
+justification.
+
+## 11. Credentials and transport security
+
+Never hardcode credentials, tokens, passwords, private keys, or deployment
+URLs in source or tracked registry metadata. Packaged Grafana/Zabbix secrets
+belong in `/etc/orion/tool-credentials.json`. Treat any exposed secret as
+compromised and rotate it.
+
+SSH host-key verification is enabled by default. A target-level
+`strict_host_key_checking: false` value is an explicit trusted-network
+exception and must not become a global default.
+
+## 12. Deployment scope
+
+Keep product behavior within the implemented local, single-operator runtime.
+Docker Compose supplies loopback HTTP, API-key protection, PostgreSQL, and the
+internal RAG service. Source mode supplies local FastAPI/Vite and SQLite. Do not
+document or implement unapproved deployment modes.
+
+## 13. Scope discipline
+
+Modify only the requested area. Preserve existing behavior unless the request
+requires a change. Avoid unrelated cleanup, generated-file edits, speculative
+features, and silent requirement guesses.
+
+## 14. Validation
+
+Review `git diff` and `git status`. Run the smallest relevant local unit,
+syntax, lint, or type checks for the changed area. Do not run smoke, E2E,
+full-QA, Docker-based validation, benchmarks, or external-service tests unless
+the current user request explicitly authorizes that class of validation.
+
+The benchmark runner is relevant only when pipeline/model changes alter
+scoring, prompts, or evidence collection. Documentation-only changes do not
+require benchmarks.
+
+## 15. Documentation
+
+Active documentation describes only the current implementation. Do not add
+roadmaps, backlogs, milestones, target architecture, proposed features, or
+unfinished work. Historical delivery detail belongs in Git history or the
+changelog, not in `08_PROJECT_STATE.md`.
+
+## 16. Completion
+
+A task is complete when the requested change is present, the diff contains no
+accidental edits, appropriate permitted validation has succeeded, and the
+final report states exactly which checks ran. Never claim unexecuted tests or
+unverifiable behavior.

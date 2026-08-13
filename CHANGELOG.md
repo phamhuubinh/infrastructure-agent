@@ -13,41 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Committed Python build metadata, stale machine-specific QA reports, benchmark history, and a duplicate BM25 edge-case script.
 
 ### Changed
-- Moved project plans to `docs/project/`, OpenAPI schema to `docs/api/`, and manual QA runners to `scripts/qa/`; QA output now goes to ignored `artifacts/qa/`.
+- Reduced active documentation to implemented behavior and current operating contracts; removed roadmap, backlog, target-architecture, phase-plan, and migration-plan documents. OpenAPI remains under `docs/api/`, and QA output goes to ignored `artifacts/qa/`.
 - Restored foreground `orion web` lifecycle semantics for Docker installs: it follows only current API/UI logs without replaying historical proxy noise and stops Web services on `Ctrl+C`, while `orion log` follows the complete stack without stopping it.
 - Made uninstall clean model/session/RAG volumes and private runtime state by default, with a separate interactive choice for removing shared Grafana/Zabbix credentials.
-
-### Release verification — Deterministic Reasoning v1
-
-Before promoting a DR1 release candidate, record the candidate commit and configuration hash, then
-complete all of the following. A successful fixture run proves the CI gate is wired correctly; it is
-not a substitute for the meaningful model/config baseline.
-
-- [ ] The candidate changes are grouped into reviewable logical commits; each completed DR1 task
-  has its scoped implementation/doc changes and recorded test evidence in
-  `docs/project/DETERMINISTIC_REASONING_BACKLOG.md`. Where an earlier historical commit delivered
-  a batch of task IDs, link each ID to the relevant files and verification evidence in that batch.
-- [ ] Required CI jobs are green, including the Python, UI, RAG, container/smoke, and
-  `acceptance-gates` jobs.
-- [ ] The P0 offline suite passes: `tests/qa/test_golden_schema.py`,
-  `tests/qa/test_transcript_regression.py`, `tests/qa/test_acceptance_scoring.py`, and
-  `tests/security/`.
-- [ ] Run `python3 scripts/qa/run_acceptance.py --report
-  tests/data/qa_cases/acceptance_fixture.json --output-dir artifacts/qa` and retain
-  `artifacts/qa/acceptance_gates.json` plus `artifacts/qa/acceptance_gates.md` with PASS status.
-- [ ] With the configured assessment model healthy, run `python3 scripts/qa/run_baseline.py
-  --server <server> --output-dir benchmark_results`; retain the timestamped
-  `benchmark_results/baseline_<timestamp>.json` and `.md` files. Their metadata records the Git
-  commit, config hash, provider/model, and capture time. A `smoke_<timestamp>` report is not a
-  release baseline.
-- [ ] Compare the meaningful baseline to the approved prior baseline; all mandatory gates in
-  `docs/project/DETERMINISTIC_REASONING_BACKLOG.md` section 14 pass, including no unsafe receipt,
-  no empty success response, and the accepted accuracy/performance budget.
-- [ ] Review `git diff --check` and `git status --short`; publish only after the release reviewer
-  has linked the CI run and retained artifacts to the release record.
-
-Completing this checklist authorizes a release decision; it does not by itself change Orion's local,
-single-user deployment scope.
 
 ## [0.1.0] — 2026-07-22
 

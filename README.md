@@ -2,9 +2,7 @@
 
 Evidence-driven investigation with AI-powered assessment.
 
-> **Current status:** local, single-user. Chat sessions use isolated agents and SQLite by default (optional PostgreSQL). The Web UI also exposes project-isolated RAG analysis; RAG is not part of the chat tool flow. Optional API key auth (`ORION_API_KEY`), CLI + Web UI + Desktop App. No accounts or remote hosting.
->
-> **Long-term direction:** evolve into a shared AI Platform (Web UI + API + Auth + Agent + RAG + Document Service + PostgreSQL, reachable over HTTPS from a VM, plus a Desktop App using the same backend). See `docs/ai/03_PLATFORM_ARCHITECTURE.md` for the target architecture and `docs/ai/04_ROADMAP.md` for the work sequencing (WP1–WP5). Some platform capabilities (PostgreSQL session store, API key auth, Electron desktop) are partially implemented — check `08_PROJECT_STATE.md` for status.
+> **Current status:** local, single-operator. Chat sessions use isolated agents and SQLite by default; Docker Compose uses PostgreSQL. The Web UI also exposes project-isolated RAG analysis, separate from Chat. API-key middleware (`ORION_API_KEY`), CLI, Web UI, and Electron Desktop are included.
 
 ## Architecture
 
@@ -89,9 +87,7 @@ On a new machine, securely copy an existing credential file to `/etc/orion/tool-
 
 ### Internet fetch
 
-The `InternetTool` fetches external URLs with built-in SSRF protection. It is opt-in per request — the pipeline never invokes it automatically.
-
-> **⚠️ Security note:** The Grafana token was previously hardcoded in source code and pushed to git history. It should be considered compromised. Revoke/rotate the token on your Grafana server and update `/etc/orion/tool-credentials.json` when convenient.
+The `InternetTool` provides bounded public search and URL fetch with built-in SSRF protection. Requests for current public information and explicit URLs can select this deterministic verification path. Query-based verification requires a configured search provider; direct public-URL fetch works independently. A failed verification is returned as unverified/unknown rather than answered from stale model memory.
 
 ## Quick Start
 
@@ -115,7 +111,7 @@ docker compose exec api orion model add primary \
 docker compose exec api orion model test primary
 ```
 
-Orion can connect to OpenAI-compatible, Ollama, or vLLM endpoints, but it does not install or manage those runtimes or their model weights.
+The CLI and Web settings connect to OpenAI-compatible, Ollama, or vLLM endpoints, but Orion does not install or manage those runtimes or their model weights. The runtime also accepts manually configured Anthropic connections for Chat; RAG synthesis requires an OpenAI-compatible connection.
 In the Docker installation, loopback model URLs such as `http://localhost:11434` are mapped to the host automatically.
 
 ### Uninstall
@@ -187,7 +183,7 @@ The `docs/` directory is the **Source of Truth** for architectural and design do
 
 `docs/ai/` is written for AI coding agents working in this repo (start at `docs/ai/00_BOOTSTRAP.md` for reading order and conflict priority). It covers:
 
-- current architecture (local, today) vs. target platform architecture (future)
+- the implemented local architecture
 - the deterministic execution pipeline and tool/capability design rules
 - mandatory development rules
 - `docs/ai/08_PROJECT_STATE.md` — the single source of truth for what is actually implemented right now; if any other doc disagrees with it, this file wins
@@ -198,5 +194,4 @@ The `docs/` directory is the **Source of Truth** for architectural and design do
 Additional project references:
 
 - `docs/api/` — API reference and generated OpenAPI schema
-- `docs/project/` — historical backlog and implementation plans
 - `scripts/qa/` — manual end-to-end QA runners; generated output goes to `artifacts/qa/`

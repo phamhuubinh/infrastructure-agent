@@ -8,13 +8,12 @@ The Zabbix Tool queries a Zabbix server via its JSON-RPC API to collect monitori
 
 ## Capabilities
 
-| Capability | Description |
-|------------|-------------|
-| `hosts` | List hosts, search hosts, host groups, inventory, interfaces |
-| `triggers` | Trigger state, problem listing, severity levels |
-| `events` | Event history, problem timeline, maintenance status, event summary, user listing |
-| `templates` | Template listing |
-| `history` | Metric history retrieval, API version check, item listing |
+| Area | Registered capabilities |
+|---|---|
+| API and hosts | `get_api_version`, `get_hosts`, `get_host`, `search_hosts`, `get_host_groups`, `get_host_inventory`, `get_host_interfaces` |
+| Monitoring data | `get_items`, `get_triggers`, `get_problems` |
+| Events | `get_events`, `get_problem_timeline`, `get_event_summary`, `get_maintenance_status` |
+| Configuration | `get_templates`, `get_users` |
 
 ## Usage Examples
 
@@ -37,23 +36,14 @@ Expected response:
 
 ```json
 {
-  "response": "...",
+  "assessment": "...",
   "steps": [
     {
       "stage": "evidence",
       "items": [
         {
           "evidence_name": "zabbix_triggers",
-          "success": true,
-          "data": {
-            "triggers": [
-              {
-                "description": "Disk space critically low on /var",
-                "priority": "4",
-                "status": "PROBLEM"
-              }
-            ]
-          }
+          "success": true
         }
       ]
     }
@@ -65,15 +55,11 @@ Expected response:
 
 ```python
 from src.tool.zabbix import ZabbixTool
-from src.tool.zabbix.client import ZabbixClient
-
-client = ZabbixClient(
-    base_url="https://zabbix.example.com/api_jsonrpc.php",
-    username="api_user",
-    password="api_password",
+tool = ZabbixTool(
+    url="https://zabbix.example.com/api_jsonrpc.php",
+    token="your-zabbix-api-token",
 )
-tool = ZabbixTool(client=client)
-result = tool.execute({"capability": "hosts"})
+result = tool.execute({"action": "get_hosts"})
 print(result.data)
 ```
 
@@ -94,7 +80,7 @@ Docker Compose mounts this ignored file read-only into the API container. After 
 
 ## Notes
 
-- Uses Zabbix JSON-RPC API (v2.0+).
+- Uses the Zabbix JSON-RPC API with token authentication.
 - All responses are formatted into consistent dict structures with string-based severity labels.
 - Host search supports fuzzy matching.
 - Event timeline queries default to 50 results, configurable via limit parameter.

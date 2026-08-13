@@ -40,7 +40,7 @@ RAG_VECTOR_STORE=memory
 RAG_RERANKER=noop
 ```
 
-The backend supplies Orion's active model as request-scoped internal data for each analysis. It is never stored as shared mutable state in the RAG service, so concurrent projects cannot switch one another's model client. The `memory` vector provider is process-local but persists to `RAG_DATA_DIR/vectors.json`. For larger deployments, install `qdrant-client` and select `RAG_VECTOR_STORE=qdrant`.
+The backend supplies Orion's active model as request-scoped internal data for each analysis. It is never stored as shared mutable state in the RAG service, so concurrent projects cannot switch one another's model client. The packaged `memory` vector provider is process-local and persists to `RAG_DATA_DIR/vectors.json`.
 
 ## Active API
 

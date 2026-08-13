@@ -1,37 +1,63 @@
 # 00 - Bootstrap
-> Read this document first, every time. It defines how the rest of `docs/ai/` is organized and how conflicts are resolved.
+
+> Read this document first. Orion documentation describes the repository as it
+> exists; it does not contain roadmaps, speculative architecture, or unfinished
+> feature plans.
+
 ## Reading order
-1. `00_BOOTSTRAP.md` — this file
-2. `07_DEVELOPMENT_RULES.md` — mandatory rules, highest priority after this file
-3. `08_PROJECT_STATE.md` — what is actually true right now (source of truth for status)
-4. `01_VISION.md` — why this exists, current scope vs long-term direction
-5. `02_CURRENT_ARCHITECTURE.md` — how the system works today
-6. `03_PLATFORM_ARCHITECTURE.md` — where the system is going (future, not yet built)
-7. `04_ROADMAP.md` — the work packages that connect today to the future state
-8. `05_EXECUTION_PIPELINE.md` — the deterministic investigation pipeline
-9. `06_TOOL_AND_CAPABILITY_DESIGN.md` — how tools/capabilities are added
-10. `09_ARCHITECTURE_DECISIONS.md` — permanent record of decisions and why
-11. `10_PHASE6_PLAN.md` — Phase 6: Pipeline Architecture Hardening plan (planned, not yet implemented)
-## Conflict priority
-If two documents disagree, resolve in this order (highest wins):
-1. `07_DEVELOPMENT_RULES.md`
-2. `08_PROJECT_STATE.md`
-3. `09_ARCHITECTURE_DECISIONS.md`
-4. Everything else
-`08_PROJECT_STATE.md` wins over vision/architecture docs specifically because vision and architecture describe *intent*, while project state describes *reality*. Never assume a feature exists because it is described in `01_VISION.md` or `03_PLATFORM_ARCHITECTURE.md` — check `08_PROJECT_STATE.md`.
-## Scope note (read this)
-This project currently runs **local, single-user, with optional PostgreSQL and API key auth**. The Agent makes outbound calls to targets/Grafana/Zabbix/LLM/Internet APIs. `03_PLATFORM_ARCHITECTURE.md` and `04_ROADMAP.md` describe a future multi-user, VM-hosted platform that is not fully built yet. Check `08_PROJECT_STATE.md` before assuming any platform feature exists.
+
+1. `07_DEVELOPMENT_RULES.md` — mandatory engineering rules.
+2. `08_PROJECT_STATE.md` — concise inventory of the current implementation.
+3. `02_CURRENT_ARCHITECTURE.md` — runtime and component boundaries.
+4. `05_EXECUTION_PIPELINE.md` — deterministic request/evidence flow.
+5. `06_TOOL_AND_CAPABILITY_DESIGN.md` — Child Tool contracts.
+6. `01_VISION.md` — current product purpose and scope.
+7. `09_ARCHITECTURE_DECISIONS.md` — decisions enforced by the implementation.
+
+Read the relevant operator, API, testing, or tool document only when the task
+touches that area.
+
+## Source-of-truth order
+
+When documentation conflicts with the repository, use this order:
+
+1. Current source code, configuration, public schemas, and tests.
+2. `07_DEVELOPMENT_RULES.md`.
+3. `08_PROJECT_STATE.md`.
+4. `09_ARCHITECTURE_DECISIONS.md` and accepted ADRs.
+5. Other documentation.
+
+Fix stale documentation in the same change. Do not preserve an incorrect claim
+as historical context in an active architecture or status document.
+
+## Current documentation policy
+
+- Document only behavior, interfaces, deployment modes, and constraints that
+  are verifiable in the repository.
+- Do not add roadmap, backlog, milestone, horizon, proposed architecture, or
+  “coming soon” sections.
+- Do not list an unimplemented feature as though its design were approved.
+- Git history and the changelog hold historical information; active docs stay
+  focused on the current system.
+
+## Current scope
+
+Orion is a local, single-operator application. It provides a deterministic
+infrastructure investigation pipeline, model-backed assessment, a separate
+project RAG workflow, CLI, Web UI, FastAPI API, Docker Compose packaging, and
+an Electron wrapper for the installed Web application. Source mode uses SQLite;
+the Compose stack uses PostgreSQL. API-key middleware provides single-tenant
+API protection, not user accounts.
+
 ## Document set
+
 | File | Purpose |
 |---|---|
-| 00_BOOTSTRAP.md | Reading order, conflict priority |
-| 01_VISION.md | Why the project exists, current vs long-term scope |
-| 02_CURRENT_ARCHITECTURE.md | Architecture as it exists today (local) |
-| 03_PLATFORM_ARCHITECTURE.md | Target architecture (AI Platform, future) |
-| 04_ROADMAP.md | WP1–WP5 work packages |
-| 05_EXECUTION_PIPELINE.md | Deterministic investigation pipeline |
-| 06_TOOL_AND_CAPABILITY_DESIGN.md | Tool/capability design rules |
-| 07_DEVELOPMENT_RULES.md | Mandatory engineering rules |
-| 08_PROJECT_STATE.md | Current implementation status (source of truth) |
-| 09_ARCHITECTURE_DECISIONS.md | ADR log |
-| 10_PHASE6_PLAN.md | Phase 6 implementation plan (32 tasks, 9 WPs) |
+| `00_BOOTSTRAP.md` | Reading order and documentation policy |
+| `01_VISION.md` | Current product purpose and scope |
+| `02_CURRENT_ARCHITECTURE.md` | Implemented runtime architecture |
+| `05_EXECUTION_PIPELINE.md` | Implemented request and evidence pipeline |
+| `06_TOOL_AND_CAPABILITY_DESIGN.md` | Implemented tool/capability contracts |
+| `07_DEVELOPMENT_RULES.md` | Mandatory engineering rules |
+| `08_PROJECT_STATE.md` | Current implementation inventory |
+| `09_ARCHITECTURE_DECISIONS.md` | Active architecture decisions |

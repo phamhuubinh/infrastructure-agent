@@ -32,7 +32,7 @@ def _smoke_args(**overrides: object) -> argparse.Namespace:
         "health_timeout": 5.0,
         "output_root": "artifacts/qa/runs",
         "run_dir": None,
-        "evidence_output": "docs/project/GA2_VERIFICATION_EVIDENCE.md",
+        "evidence_output": "artifacts/qa/GA2_VERIFICATION_EVIDENCE.md",
     }
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

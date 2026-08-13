@@ -17,8 +17,6 @@ production or untrusted networks.
 
 ### Credential Management
 - Grafana and Zabbix tokens are stored outside the project in `/etc/orion/tool-credentials.json`
-- Tokens were previously hardcoded in source code — assume any previously committed
-  token is compromised and rotate it on the respective server
 - Never hardcode credentials in source files
 
 ### Infrastructure Exposure
@@ -27,7 +25,7 @@ The application makes outbound connections to:
 - Grafana API
 - Zabbix API
 - LLM API endpoints (as configured in `servers.json`)
-- External URLs via `InternetTool` (SSRF-protected, opt-in per request). Every redirect
+- External URLs via deterministic `InternetTool` search/fetch selection. Every redirect
   hop is revalidated, all DNS answers must be globally routable, and the validated numeric
   address is pinned for the socket connection to prevent DNS rebinding.
 - RAG service (`RAGTool` microservice)

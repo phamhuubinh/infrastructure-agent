@@ -16,14 +16,14 @@ The offline `memory` vector provider persists all collections to `RAG_DATA_DIR/v
 ## Pipeline
 
 ```text
-File → parser → optional OCR repair → hierarchical/semantic chunks
+File → parser → hierarchical/semantic chunks
      → embedding → project dense collection + project BM25 index
 
 Analysis request → dense + BM25 retrieval → RRF → reranker
                  → required project RAG LLM synthesis
 ```
 
-Always-available offline providers are pypdf/text parsing, hash embeddings, the persistent memory vector store, BM25, RRF, and a no-op reranker. Optional providers include Docling/Marker/MinerU, PaddleOCR, Qwen3/BGE/OpenAI-compatible embeddings, Qdrant, BGE reranking, GraphRAG/LightRAG, HyDE, RAPTOR, and Ragas.
+The root Compose configuration uses pypdf/text parsing, hash embeddings, the persistent memory vector store, BM25, RRF, a no-op reranker, and a no-op OCR provider.
 
 ## Running locally
 
@@ -51,8 +51,6 @@ export RAG_LLM_MODEL=your-model
 export RAG_LLM_API_KEY=your-key
 ```
 
-For production retrieval quality, select an OpenAI-compatible/Qwen3/BGE embedding provider and optionally Qdrant. Install only the optional dependencies needed by the selected providers; the base image intentionally stays offline-testable.
-
 ## API
 
 ```text
@@ -73,9 +71,3 @@ Upload uses multipart field `file` and rejects files over 50 MiB. Analysis accep
 ```
 
 The response includes `answer` and `retrieved`. When no model is configured, analysis returns HTTP 503 rather than a retrieval-only answer. Legacy `/ingest` and `/query` endpoints remain isolated in the built-in `default` project for older clients; Chat does not use them.
-
-## Current limitations
-
-- Scanned-PDF detection exists, but parser-specific PDF-page image extraction still needs to be connected before automatic OCR repair is complete.
-- Graph indexes remain batch-built optional indexes; they are not updated by every upload.
-- The JSON-backed local project store is appropriate for the current single-instance deployment. A multi-instance deployment would require transactional shared metadata storage and distributed locking.

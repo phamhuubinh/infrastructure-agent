@@ -1,79 +1,55 @@
-# ADR-0002
-# Status
-Accepted
----
-# Cross-reference
-Short-form summary: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-002
----
-# Context
-The investigation pipeline is primarily deterministic: intent resolution, target resolution, evidence planning, capability selection, execution scheduling, and evidence collection all run without any LLM call. Only the final step — interpreting the collected evidence — needs the reasoning capability of a language model.
+# ADR-0002 — Model has no investigation authority
 
-The original architecture allowed the model to participate in earlier pipeline stages (intent recognition, execution planning). This created several problems:
-- The model needed access to tool metadata, capability lists, and infrastructure context, coupling the model layer to execution internals.
-- Token usage grew because prompts had to include tool schemas and capability metadata.
-- Latency increased because the model was consulted before execution could begin.
-- Non-determinism in planning made benchmarking and regression testing unreliable.
-- The pipeline could not complete offline (without an LLM) because the model was required to plan, not just assess.
+## Status
 
-The Assessment Layer — the final step that transforms evidence into findings and recommendations — is the only part of the pipeline that genuinely benefits from LLM-level reasoning. All earlier stages can and should be deterministic.
----
-# Decision
-The LLM is used exclusively for assessment.
+Accepted.
 
-Specifically:
+## Context
 
-1. **The LLM receives completed evidence only.** It never sees tool schemas, capability metadata, execution plans, or raw infrastructure access. The pipeline delivers a finished `AssessmentRequest` containing only the evidence that was collected, plus the original user request and the resolved intent.
+Orion supports infrastructure investigation, current external verification,
+stable general requests, and content generation. Tool access must remain
+auditable and independent of model output.
 
-2. **The LLM never participates in execution.** It does not choose targets, plan evidence collection, select capabilities, or schedule execution. All of those stages are deterministic code.
+## Decision
 
-3. **The LLM has no access to tools.** The `AssessmentModelAdapter` interface (`src/model/assessment_model_adapter.py`) exposes only `assess()` — it has no tool registry, no capability library, and no execution context. The `LLMAssessmentAdapter` (`src/model/llm_assessment_adapter.py`) uses a `PromptBuilderV2` to construct a prompt from the evidence package alone.
+The model has two tool-less interfaces:
 
-4. **The pipeline can run without an LLM.** A `MockAssessmentAdapter` (`src/model/mock_assessment_adapter.py`) provides deterministic output for testing and offline mode, proving that the pipeline does not depend on the model for execution.
+- `assess(AssessmentRequest)` interprets bounded collected evidence and
+  deterministic Findings.
+- `assess_raw(prompt)` handles separately routed stable/general requests and
+  content generation.
 
-5. **The boundary is enforced by the adapter contract.** `AssessmentAdapter` (`src/pipeline/assessment_adapter.py`) is the only bridge between the deterministic pipeline and the model layer. It constructs an `AssessmentRequest` from the investigation's evidence — and nothing else. The model layer never imports from `src/pipeline/`, `src/tool/`, or `src/execution/`.
+The model does not receive a tool registry, backend, command API, mutable
+execution context, or permission to choose targets, capabilities, queries,
+URLs, retries, recovery, or evidence expansion. Those decisions are
+deterministic code paths completed before assessment.
 
-6. **The `assess_raw()` method is a narrow general-chat escape hatch.** It is never used to classify or route an investigation. Ambiguous infrastructure requests receive deterministic clarification instead of a model decision.
+`AssessmentModelAdapter` is the model boundary. Implementations consume the
+pipeline-owned `AssessmentRequest` data contract but have no dependency on
+Child Tool implementations or runtime dispatch objects. Linux command
+templates remain in reviewed capabilities and accept only validated typed
+parameters.
 
-7. **Execution is read-only and fail-closed.** `KnowledgeTool` installs the
-   read-only, parameter-safety, and target inspectors even when a caller does
-   not supply a chain. Every dispatch receives a name-only inspector receipt;
-   execution traces count passed and blocked receipts. Capability mutation
-   risk comes from Child Tool metadata and unknown capabilities are denied.
+The read-only action-claim guard remains mandatory. Evidence-grounding,
+numeric, and language guards apply according to the current claim-guard
+configuration, and `/api/query` applies the final hidden-reasoning/language/
+non-empty response sanitizer.
 
-8. **Models cannot supply commands.** The assessment adapter exposes no tool,
-   registry, backend, subprocess, or raw-command API. Linux command templates
-   remain inside reviewed Child Tool capabilities and receive only validated,
-   typed parameters. Chat rejects explicit requests for Orion to execute
-   mutating commands and model prompts state that no action was performed.
----
-# Consequences
+When no model is configured, `UnconfiguredAssessmentAdapter` reports setup
+mode. `MockAssessmentAdapter` supplies deterministic test behavior.
 
-## Positive
-- Token usage is minimized: prompts contain only evidence, not tool schemas or capability metadata.
-- Latency is reduced because the model is called only once per investigation, not multiple times during planning.
-- The pipeline is deterministic and testable without an LLM.
-- The model layer is decoupled from execution internals. A model swap requires no change to the pipeline.
-- Regression testing is reliable because evidence collection always produces the same result regardless of model choice.
-- Prompt-injection text cannot cross the model/Tool boundary or create a raw
-  shell dispatch.
+## Consequences
 
-## Negative
-- The model cannot recover from incomplete evidence by requesting more data — it must assess what it receives.
-- The model cannot adapt its assessment strategy based on tool availability or infrastructure context.
+- Model selection cannot change collection or safety authority.
+- Infrastructure routing and evidence collection are testable without an LLM.
+- Prompts contain evidence and response context rather than tool schemas.
+- Incomplete evidence is reported explicitly; the model cannot start another
+  collection loop.
 
-## Mitigations
-- The `EvidenceCompleteness` stage (before assessment) ensures the evidence package is as complete as possible, reducing recovery need.
-- The assessment output can flag insufficient evidence and recommend re-investigation, which is handled as a new pipeline invocation.
----
-# Related ADRs
-- ADR-0001 (`docs/adr/ADR-0001-agent-responsibility-boundary.md`) — establishes the Agent as an execution engine. **Note:** ADR-0001's execution model description (iterative Action → Observation loop) was superseded by the deterministic pipeline architecture documented in ADR-0007. The responsibility boundaries defined in ADR-0001 remain valid.
-- ADR-0003 (`docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`) — KnowledgeTool enforces the assessment layer's isolation from domain-specific implementations
-- ADR-0007 (`docs/adr/ADR-0007-deterministic-pipeline.md`) — documents the deterministic single-pass pipeline that supersedes ADR-0001's model-driven iterative loop
-- AD-012 (`docs/ai/09_ARCHITECTURE_DECISIONS.md`) — one-directional dependencies; assessment layer never imports from pipeline or tool layers
-# Referenced files
-- `src/pipeline/assessment_adapter.py` — adapter that builds AssessmentRequest from pipeline evidence
-- `src/model/assessment_model_adapter.py` — abstract interface for assessment-only models
-- `src/model/llm_assessment_adapter.py` — real LLM adapter (no tool access)
-- `src/model/mock_assessment_adapter.py` — deterministic stand-in for testing
-- `src/pipeline/assessment_request.py` — data class for assessment input
-- `docs/ai/09_ARCHITECTURE_DECISIONS.md` — short-form AD-002 summary of this decision
+## Related records
+
+- `ADR-0001-agent-responsibility-boundary.md`
+- `ADR-0003-knowledge-tool-single-entry-point.md`
+- `ADR-0007-deterministic-pipeline.md`
+- `ADR-0008-evidence-validity.md`
+- `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-002 and AD-011

@@ -1,108 +1,104 @@
 # 06 - Tool and Capability Design
 
 Child Tools collect evidence deterministically. They do not reason, select
-other tools, choose commands from model text, make recommendations, or call an
-Assessment Model. The pipeline reaches them only through `KnowledgeTool`.
+other tools, accept commands from model text, make recommendations, or call an
+assessment model. The pipeline reaches them only through `KnowledgeTool`.
 
-## Ownership and dispatch
+## Current domains and ownership
 
-Each capability belongs to exactly one Child Tool and one infrastructure
-domain. The current chat-runtime domains are `LinuxTool`, `GrafanaTool`,
-`ZabbixTool`, and opt-in `InternetTool`; project RAG is a separate
-application flow and is not a chat Child Tool. `KnowledgeTool` is the sole
-runtime dispatch entry point, while Child Tool metadata is the source of truth
-for what a capability can collect.
+The chat runtime registers four domains:
 
-A capability declares its operational name, evidence name, typed parameter
-specifications, produced Facts, target/precondition requirements, required or
-optional binaries, cost/reliability characteristics, declared alternatives,
-recoverable errors, and `mutation_risk`. The read-only inspector chain rejects
-unsafe capabilities/parameters before a Child Tool is called.
+- `LinuxTool` for local/SSH host evidence.
+- `GrafanaTool` for dashboards, data sources, alerts, and annotations.
+- `ZabbixTool` for hosts, items/history, triggers, events, templates, and
+  maintenance state.
+- `InternetTool` for bounded public search and fetch.
 
-The command strategy is owned by the Child Tool implementation. For example,
-Linux service collection chooses its reviewed systemd → SysV → OpenRC →
-process → listening-port fallback sequence inside the capability. The planner
-chooses a declared capability, not a shell command; the model has no command
-generation or execution path.
+Project RAG is a separate API/UI workflow and is not a Child Tool.
 
-## Required result contract
+Each capability belongs to one Child Tool. The Child Tool metadata is the
+single source of truth for operational name, evidence name, typed parameters,
+produced Facts, target/precondition requirements, required/optional binaries,
+cost, reliability, alternatives, recoverable errors, and mutation risk.
+`KnowledgeTool` aggregates that metadata; pipeline modules do not duplicate it.
 
-One command attempt returns a `CommandResult`:
+## Dispatch and safety
+
+`ExecutionRuntime` dispatches only through `KnowledgeTool`. The inspector chain
+applies the read-only, parameter-safety, tool, and target policies before
+external access. The selected Child Tool owns its reviewed collection/fallback
+sequence. Neither callers nor the model can provide an arbitrary command.
+
+Target preflight checks reachability, operating system/init support,
+privilege, procfs/sysfs availability, and binaries. A target-wide transport
+failure stops dependent work. Optional dependency absence produces a typed
+unsupported/failure result while independent evidence continues.
+
+## Result contracts
+
+One backend attempt returns `CommandResult`:
 
 | Field | Meaning |
-| --- | --- |
-| `status` | `SUCCESS`, `EMPTY_SUCCESS`, or an explicit transport/environment/command/parser failure |
-| `exit_code` | Process exit status when available; never inferred from output text |
-| `stdout`, `stderr` | Kept separately for diagnosis; serialized with credential redaction |
-| `error_type`, `command_id`, `target`, `duration_ms` | Safe, correlatable execution metadata |
+|---|---|
+| `status` | Explicit success, empty success, or transport/environment/command/parser failure |
+| `exit_code` | Process exit status when available |
+| `stdout`, `stderr` | Separate streams, redacted on serialization |
+| `error_type`, `command_id`, `target`, `duration_ms` | Safe execution metadata |
 
-One capability returns a `CapabilityResult`:
+One capability returns `CapabilityResult`:
 
-| Status | May satisfy required evidence? | Meaning |
-| --- | --- | --- |
-| `VALID` | Yes | A non-empty, schema-valid observation was collected. |
-| `VALID_EMPTY` | Yes | The collection succeeded and the observed domain is empty. |
-| `PARTIAL` | No | Some inspectable data exists, but the evidence contract is incomplete. |
-| `COLLECTION_FAILED` | No | Collection did not yield valid evidence. |
-| `UNSUPPORTED` | No | Target/environment cannot support this capability/strategy. |
-| `INVALID_PARAMETERS` | No | Inputs were absent, invalid, or blocked before execution. |
-| `PARSE_FAILED` | No | A command/source response was received but cannot satisfy the schema. |
+| Status | Satisfies required evidence | Meaning |
+|---|---:|---|
+| `VALID` | Yes | Non-empty schema-valid observation |
+| `VALID_EMPTY` | Yes | Successful observation of an empty domain |
+| `PARTIAL` | No | Inspectable but incomplete data |
+| `COLLECTION_FAILED` | No | No valid observation |
+| `UNSUPPORTED` | No | Unsupported target, environment, or dependency |
+| `INVALID_PARAMETERS` | No | Missing, invalid, or blocked input |
+| `PARSE_FAILED` | No | Response cannot satisfy the expected schema |
 
-Every non-success result carries `CapabilityError` with a stable code,
-category (`transport`, `environment`, `command`, `parameter`, `parser`,
-`source_api`, or `internal`), recoverability, and optional command ID. Code
-uses these fields for retry/recovery; it must not parse a human-readable error
-message.
+Every non-success result contains a stable `CapabilityError` code, category,
+recoverability flag, and optional command ID. Runtime policy uses these fields,
+not error-message parsing.
 
-## Validity, normalization, and provenance
+## Validity and provenance
 
-Child Tools return normalized operational data and preserve their
-`CommandResult` records; they do not create recommendations. `EvidenceMerge`
-then produces an `EvidencePackage`, with the raw payload kept separately from
-canonical Facts. Fact normalizers attach source, target, times, parameters,
-command IDs, schema version, and confidence as `Provenance`.
+`EvidenceMerge` converts tool results into `EvidencePackage` records. Raw data
+is separate from canonical Facts. Fact normalizers attach source, target,
+times, parameters, command IDs, schema version, confidence, and provenance.
 
-Do not fabricate defaults after a failed collection. In particular:
+- A numeric zero is valid only when observed in valid evidence.
+- An empty list/object is valid only with `VALID_EMPTY`.
+- Partial evidence can be shown as partial context but cannot satisfy a
+  required Fact.
+- Unsupported dependencies remain `UNSUPPORTED`; they do not produce a
+  substitute healthy value.
 
-- `0` is valid only when it was actually observed in a `VALID` Fact.
-- An empty list/object is valid only with `VALID_EMPTY`, not after a failed
-  command or API request.
-- `PARTIAL` output may be displayed as partial context but cannot satisfy a
-  required Fact/evidence requirement.
-- Unsupported binaries and environments report `UNSUPPORTED`; they are not
-  substituted with an unrelated command or a healthy result.
+## Recovery
 
-## Preconditions and recovery
+Recovery can use only alternatives declared in the failed capability's
+metadata. It requires a declared recoverable error, is capped at depth two,
+shares the execution budget, and records each attempt. Child Tool internal
+fallbacks are fixed reviewed sequences.
 
-Target preflight determines reachability, OS/init capabilities, privilege,
-procfs/sysfs availability, and binary support before dispatch. A target-wide
-transport failure stops dependent remote attempts. Optional dependencies do
-not make the whole investigation fail: the affected capability returns the
-appropriate structured status and remaining independent evidence can run.
+## Engineering contract
 
-Bounded recovery is limited to the alternatives declared by the failed
-capability. It requires a declared recoverable error, is capped at depth two,
-shares the execution budget, and records its attempts. Child Tools may use
-their own reviewed internal fallback sequence, but may never accept an
-arbitrary command from a caller or a model.
-
-## Implementation rules
-
-- Validate all typed parameters before external access. Unknown parameters and
-  unsafe values fail closed.
-- Prefer explicit units such as `*_bytes`, `*_seconds`, and `*_percent`.
-- Keep filesystem capacity, inode pressure, cumulative I/O, and disk-health
-  observations separate; one does not imply another.
-- Run independent capabilities in parallel only through the execution DAG;
-  keep a capability's own requests bounded and deterministic.
-- Keep tools stateless. Caches are request-scoped or policy-controlled and
-  never replace live evidence with a stale success.
-- Return `CapabilityResult` directly in new handlers. Direct use of the
-  legacy raw-payload adapter and tuple unpacking `CommandResult` is deprecated
-  and emits a warning during the compatibility window.
+- Validate typed parameters before external access; unknown or unsafe values
+  fail closed.
+- Use explicit units such as `*_bytes`, `*_seconds`, and `*_percent`.
+- Keep capacity, inode pressure, cumulative I/O, and device-health facts
+  separate.
+- Schedule independent capabilities through the execution DAG.
+- Keep Child Tools stateless; policy-controlled caches never turn stale data
+  into fresh success.
+- Return `CapabilityResult` at capability boundaries. The raw-payload and tuple
+  adapters exist only for current backward compatibility and emit deprecation
+  warnings for direct use.
 
 ## Related documents
 
-- `05_EXECUTION_PIPELINE.md` — how results become evidence and assessment.
-- `docs/tools/linux.md` — Linux capability and target semantics.
-- `docs/migrations/deterministic_reasoning_v1.md` — adapter migration plan.
+- `05_EXECUTION_PIPELINE.md`
+- `docs/tools/linux.md`
+- `docs/tools/grafana.md`
+- `docs/tools/zabbix.md`
+- `docs/tools/internet.md`

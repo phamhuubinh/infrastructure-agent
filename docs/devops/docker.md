@@ -17,7 +17,7 @@ The installer creates `.env` with private random secrets, initializes `/etc/orio
 | Service | Internal port | Host exposure | Purpose |
 |---|---:|---:|---|
 | `reverse-proxy` | 80 | `127.0.0.1:80` | Local browser entry point |
-| `api` | 61888 | 61888 | API/debug access and CI smoke tests |
+| `api` | 61888 | `127.0.0.1:61888` | API/debug access and CI smoke tests |
 | `ui` | 3000 | none | TanStack Start SSR frontend behind proxy |
 | `postgres` | 5432 | none | Chat/document metadata |
 | `rag-service` | 8080 | none | Internal project RAG API |
@@ -93,7 +93,7 @@ The model registry is persisted in `orion-data`. Changes made by the CLI are det
 
 The Compose API maps `host.docker.internal` to the Docker host. When a saved model URL uses `localhost`, `127.0.0.1`, or `::1`, Orion rewrites only that loopback host to `host.docker.internal`; this lets a user-managed model runtime on the same machine work without exposing it publicly.
 
-RAG retrieval itself uses bundled hash embeddings, persistent vectors, BM25, and a no-op reranker by default. For larger deployments, configure an OpenAI-compatible embedding endpoint and optionally Qdrant; see `src/tool/RAGTool/README.md`.
+The packaged RAG service uses hash embeddings, the persistent memory vector store, BM25, RRF, a no-op reranker, and a no-op OCR provider. See `src/tool/RAGTool/README.md`.
 
 ## Desktop wrapper
 
@@ -101,8 +101,7 @@ The current Desktop application is an Electron client for an installed, running 
 stack. It does not start Docker or an independent backend. Its embedded local server forwards
 `/api/*` requests to `http://127.0.0.1:80/api/*`, allowing nginx to inject the installation's
 private `X-API-Key`. Start the Compose installation first, then build the UI and run
-`make desktop-start`. A future standalone installer will own a bundled backend and its local
-SQLite/RAG lifecycle instead of depending on Docker.
+`make desktop-start`.
 
 ## Common commands
 

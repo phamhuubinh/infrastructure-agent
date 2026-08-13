@@ -10,9 +10,13 @@ The Grafana Tool queries a Grafana instance via its HTTP API to collect observab
 
 | Capability | Description |
 |------------|-------------|
-| `dashboards` | List dashboards with panel metadata, metrics, and transformations |
+| `dashboards` | List dashboards |
+| `dashboard_search` | Search dashboards |
+| `dashboard_summary` | Summarize dashboard inventory |
+| `dashboard_details` | Read panels and queries for one dashboard |
+| `folders` | List dashboard folders |
 | `datasources` | List configured datasources with type and domain classification |
-| `alerts` | Fetch alert rules, current state, and firing alerts |
+| `alert_rules` | Fetch alert rules and state |
 | `annotations` | Retrieve annotation events (deployments, incidents, changes) |
 | `health` | Grafana instance health check |
 | `version` | Grafana server version and admin statistics |
@@ -38,23 +42,14 @@ Expected response:
 
 ```json
 {
-  "response": "...",
+  "assessment": "...",
   "steps": [
     {
       "stage": "evidence",
       "items": [
         {
           "evidence_name": "grafana_alerts",
-          "success": true,
-          "data": {
-            "alert_rules": [
-              {
-                "title": "High CPU Usage",
-                "state": "firing",
-                "severity": "critical"
-              }
-            ]
-          }
+          "success": true
         }
       ]
     }
@@ -66,14 +61,12 @@ Expected response:
 
 ```python
 from src.tool.grafana import GrafanaTool
-from src.tool.grafana.provider import GrafanaProvider
 
-provider = GrafanaProvider(
-    base_url="https://grafana.example.com",
-    api_token="glsa_...",
+tool = GrafanaTool(
+    url="https://grafana.example.com",
+    token="glsa_...",
 )
-tool = GrafanaTool(provider=provider)
-result = tool.execute({"capability": "dashboards"})
+result = tool.execute({"action": "dashboards"})
 print(result.data)
 ```
 

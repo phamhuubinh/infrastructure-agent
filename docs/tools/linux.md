@@ -1,25 +1,34 @@
 # Linux Tool
 
-> Remote Linux system investigation via SSH.
+> Read-only Linux evidence from the Orion runtime or registered SSH targets.
 
 ## Overview
 
-The Linux Tool connects to remote targets over SSH and executes diagnostic commands to collect system evidence. It is one of the core Child Tools dispatched by the KnowledgeTool.
+The Linux Tool uses `LocalExecutionBackend` for `localhost` and
+`SSHExecutionBackend` for registered remote targets. It is dispatched only
+through `KnowledgeTool`.
 
 ## Capabilities
 
-| Capability | Description | Evidence Name |
-|------------|-------------|---------------|
-| `assess_machine` | Full system health snapshot | `assess_machine` |
-| `cpu` | CPU info, load, usage | `cpu` |
-| `memory` | Memory and swap usage | `memory` |
-| `disk` | Disk usage, filesystem health, block devices | `disk` |
-| `network` | Interfaces, DNS, listening ports | `network` |
-| `process` | Process list, zombie detection, process search | `process` |
-| `service` | Service status, Docker, LXD containers | `service` |
-| `system` | Users, hardware, PCI, USB, GPU, journal, logs, time, locale, env, sessions, modules, recent logins | `system` |
-| `package` | Installed packages, package search | `package` |
-| `security` | SSH config, Secure Boot, AppArmor, SELinux, firewall, certificates | `security` |
+The registered operational capabilities are:
+
+- System and performance: `get_system`, `get_cpu`, `get_cpu_usage`,
+  `get_system_load`, `get_memory`, `get_swap`, `get_uptime`, `get_boot_time`,
+  `get_time`, `get_time_sync`, `get_locale`, and `get_environment`.
+- Storage: `get_disk`, `get_disk_usage`, `get_filesystem`,
+  `get_filesystem_health`, `get_filesystem_inode`, `get_disk_io`,
+  `get_block_device`, and `get_disk_device_health`.
+- Network: `get_network`, `get_dns`, `get_listening_ports`,
+  `get_interface_stats`, `get_bandwidth`, and `get_ping_latency`.
+- Services and processes: `get_services`, `search_service`, `get_service`,
+  `get_service_logs`, `get_process`, `search_process`, and
+  `get_process_by_name`.
+- Inventory and containers: `get_user`, `get_session`, `get_recent_logins`,
+  `get_package`, `search_package`, `get_hardware`, `get_pci`, `get_usb`,
+  `get_gpu`, `get_module`, `get_docker`, and `get_lxd`.
+- Security and logs: `get_ssh`, `get_secureboot`, `get_apparmor`,
+  `get_selinux`, `get_firewall`, `get_certificate`, `get_journal`, and
+  `get_log`.
 
 Core output uses explicit units (`*_bytes`, `*_seconds`, `*_percent`) and is
 schema-validated before a capability can return `VALID`. Capacity, inode
@@ -86,7 +95,7 @@ Expected response structure:
 
 ```json
 {
-  "response": "...",
+  "assessment": "...",
   "steps": [
     {
       "stage": "intent",
@@ -99,12 +108,7 @@ Expected response structure:
         {
           "evidence_name": "cpu",
           "target": "webserver01",
-          "success": true,
-          "data": {
-            "cores": 8,
-            "model": "Intel Xeon",
-            "usage_percent": 45.2
-          }
+          "success": true
         }
       ]
     }
@@ -125,7 +129,7 @@ backend = SSHExecutionBackend(
     identity_file="~/.ssh/id_rsa",
 )
 tool = LinuxTool(backend=backend)
-result = tool.execute({"capability": "cpu"})
+result = tool.execute({"action": "get_cpu_usage"})
 print(result.data)  # CPU diagnostic data
 ```
 

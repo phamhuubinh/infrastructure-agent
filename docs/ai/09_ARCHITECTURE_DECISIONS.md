@@ -1,118 +1,200 @@
 # 09 - Architecture Decisions
-Records long-term architectural decisions. Each entry: Decision, Context, Reason, Consequence. Do not put implementation details, TODOs, or roadmap items here — those belong in `04_ROADMAP.md` and `08_PROJECT_STATE.md`.
-> A separate, narrative ADR set also exists at `docs/adr/` (e.g. `ADR-0001-agent-responsibility-boundary.md`, `ADR-0002-llm-assessment-only.md`, `ADR-0003-knowledge-tool-single-entry-point.md`, `ADR-0004-stateless-state-management.md`) for longer-form decision records. AD-002 is the short-form summary of ADR-0002, AD-003 of ADR-0003, AD-007 of ADR-0004, AD-020 of ADR-0001, AD-023 of ADR-0008, and AD-024 of ADR-0009; read the `docs/adr/` files for full context if needed. Numbering in `docs/adr/` is independent of the AD-### numbering here — do not assume they line up 1:1.
----
-## AD-001 — Infrastructure investigation is deterministic
-**Decision:** Investigation execution is deterministic wherever possible.
-**Context:** Most infrastructure investigation follows repeatable operational procedures.
-**Reason:** Deterministic execution is faster, cheaper, easier to benchmark, and more reliable than AI planning.
-**Consequence:** Intent resolution, target resolution, evidence planning, capability selection, and execution scheduling all use deterministic code whenever possible.
-## AD-002 — The language model performs assessment only
-**Decision:** The LLM interprets evidence; it does not plan, execute, or access infrastructure.
-**Context:** The LLM is best suited to interpreting evidence, not controlling execution.
-**Reason:** Separating investigation from assessment reduces token usage and improves consistency.
-**Consequence:** The model explains findings and generates recommendations. It never plans investigations, executes tools, or touches infrastructure directly.
-> Long-form ADR: `docs/adr/ADR-0002-llm-assessment-only.md`
-## AD-003 — KnowledgeTool is the single runtime entry point
-**Decision:** `KnowledgeTool` is the only entry point for evidence collection.
-**Context:** The chat runtime supports multiple infrastructure domains (Linux, Grafana, Zabbix, Internet fetch; more later). Project RAG is a separate application flow.
-**Reason:** The assessment layer should never depend on domain-specific implementations.
-**Consequence:** `KnowledgeTool` exposes capability metadata, routes requests, aggregates results. Child Tools stay hidden behind it.
-> Long-form ADR: `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
-## AD-004 — Each Child Tool owns exactly one infrastructure domain
-**Decision:** One domain per Child Tool, no overlap.
-**Context:** Operational evidence should stay modular.
-**Reason:** High cohesion → simpler maintenance, easier extension.
-**Consequence:** `LinuxTool`, `GrafanaTool`, `ZabbixTool`, and `InternetTool` are current chat-runtime domains; any future infrastructure domain gets its own tool rather than being bolted onto an existing one.
-## AD-005 — Capability definitions belong exclusively to Child Tools
-**Decision:** One location owns each capability definition.
-**Reason:** Capability metadata must stay synchronized and non-duplicated.
-**Consequence:** Child Tools define capabilities; `KnowledgeTool` aggregates metadata; the Execution Engine consumes aggregated metadata only.
-## AD-006 — Infrastructure is always the Source of Truth
-**Decision:** Runtime always prefers live infrastructure over cached information.
-**Reason:** Operational decisions must rely on current state, not stale snapshots.
-**Consequence:** Snapshots/caches are optional and never replace live evidence.
-## AD-007 — Execution remains stateless
-**Decision:** Execution state is discarded after every completed investigation.
-**Context:** Each investigation must be independent; see `docs/adr/ADR-0004-stateless-state-management.md` for full reasoning, including the Stable vs. Dynamic Information split.
-**Reason:** Stateless execution reduces coupling and prevents stale operational decisions.
-**Consequence:** Only summarized session knowledge may persist, never raw observations, tool outputs, or execution state.
-> Long-form ADR: `docs/adr/ADR-0004-stateless-state-management.md`
-## AD-008 — Session memory stores summaries only
-**Decision:** No raw observations, tool outputs, execution state, or reasoning history in session memory.
-**Reason:** Summaries reduce redundant execution without reintroducing implicit state; see `docs/adr/ADR-0004-stateless-state-management.md` for the Stable vs. Dynamic Information split that motivates this rule.
-## AD-009 — Evidence quality outranks AI reasoning complexity
-**Decision:** Tool → Evidence → Assessment is the improvement order; prompt engineering is secondary.
-**Reason:** Improving deterministic evidence is a more reliable lever than increasing prompt complexity.
-## AD-010 — Composite capabilities are preferred over atomic ones
-**Decision:** Expose operational capabilities, not just low-level API wrappers.
-**Reason:** Fewer iterations, smaller prompts, simpler planning.
-## AD-011 — Execution should minimize model interaction
-**Decision:** Batch, parallelize, and deterministically aggregate before requesting AI assessment.
-**Reason:** LLM calls are the expensive, latency-heavy part of the pipeline.
-## AD-012 — Dependencies remain strictly one-directional
-**Decision:** `Assessment Model → Execution Engine → KnowledgeTool → Child Tool → Environment`. Reverse dependencies are prohibited.
-**Reason:** Layered architecture keeps coupling low.
-> Long-form ADRs: `docs/adr/ADR-0002-llm-assessment-only.md`, `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
-## AD-013 — Providers are optional infrastructure adapters
-**Decision:** Only introduce a Provider layer when access complexity justifies it; simple environments may be accessed directly by Child Tools.
-**Reason:** Avoid unnecessary abstraction (see `07_DEVELOPMENT_RULES.md`, rule 12).
-## AD-014 — Architecture ownership belongs to the human reviewer
-**Decision:** AI implements approved architecture; architectural changes always require explicit human approval.
-**Reason:** Prevent uncontrolled architectural drift over a long-lived project.
-## AD-015 — Repository state always overrides assumptions
-**Decision:** Inspect the repository before implementing; repository contents override documentation, memory, or prior reasoning.
-**Reason:** Documentation can go stale; the repository is the authoritative implementation. This is also why `08_PROJECT_STATE.md` exists as the single status source of truth.
-## AD-016 — Platform evolution is incremental
-**Decision:** Prefer small, benchmark-validated patches over large redesigns unless explicitly approved.
-**Reason:** Small verified improvements are easier to validate and maintain in a long-lived project.
----
-## AD-017 — SSH host key verification is intentionally disabled (current scope)
-**Decision:** `LinuxTool`'s SSH execution backend uses `StrictHostKeyChecking=yes` and
-the Orion runtime user's `~/.ssh/known_hosts` by default. Operators must verify and record a
-target host key before connecting. A target can explicitly set
-`strict_host_key_checking: false` for a temporary trusted-network exception.
-**Context:** The Agent currently runs local-only, against infrastructure inside a trusted internal network (`02_CURRENT_ARCHITECTURE.md`).
-**Reason:** This is a deliberate trade-off for the current trusted-network, single-operator scope — not an oversight. It avoids host-key friction when investigating many/ephemeral targets during local use.
-**Consequence:** This setting is a real MITM exposure if the Agent ever executes SSH commands over an untrusted network. **This decision must be revisited before or during WP4** (`04_ROADMAP.md`), when the Agent starts running as a platform capability potentially reachable by multiple users/targets outside a single trusted local network. Do not silently "fix" this in the meantime (`07_DEVELOPMENT_RULES.md`, rule 17) — if it needs to change, that change gets its own AD entry.
-## AD-018 — No credentials hardcoded in tool source code
-**Decision:** Grafana/Zabbix tokens (or any secret) must never be hardcoded as default values or literals in `src/tool/*.py` or committed to the repository.
-**Context:** A real Grafana service-account token and internal URL were previously found hardcoded as default parameter values in `grafana_tool.py`.
-**Reason:** Hardcoded secrets in source are effectively public once the repository is shared, backed up, or committed to any remote — regardless of intent.
-**Consequence:** `tools.json` is tracked and contains non-secret registry metadata only. Grafana/Zabbix endpoints and tokens live outside the checkout at the account-independent `/etc/orion/tool-credentials.json` path (or an explicit override); Docker Compose mounts that file read-only instead of copying it into an image. The previously exposed Grafana token must be treated as compromised and rotated on the Grafana server, independent of the code fix. **Status of which supply mechanism is actually implemented: see `08_PROJECT_STATE.md`.**
-## AD-019 — Local-first, platform-second sequencing
-**Decision:** The project stays on the local architecture (`02_CURRENT_ARCHITECTURE.md`) until public VM access triggers `04_ROADMAP.md` WP1. The platform architecture (`03_PLATFORM_ARCHITECTURE.md`) is accepted as the long-term target but is not built speculatively ahead of that trigger.
-**Reason:** Avoid building multi-user infrastructure with no environment to run it on yet, and avoid diverging effort from the working local tool.
-**Consequence:** A single-user PostgreSQL session store and API key auth are in place for the packaged Web API runtime; source Web mode can use the same features through configuration. Multi-user state, accounts, and remote hosting remain out of scope until WP1 (see `04_ROADMAP.md`).
-## AD-020 — Agent is an execution engine, not a reasoning component
-**Decision:** The Agent executes pipeline-generated actions and returns raw observations; it never reasons, plans, generates commands, or analyzes results. All intelligence belongs to the reasoning model.
-**Context:** The project originally explored an autonomous-agent architecture where the Agent would reason and plan independently.
-**Reason:** Separating execution from reasoning keeps the Agent deterministic, predictable, and model-agnostic. The reasoning model can be swapped without changing the Agent.
-**Consequence:** Architecture follows a deterministic single-pass pipeline (see ADR-0007). The Agent is a pure execution engine. New reasoning models can replace existing ones without modifying the Agent.
-> Long-form ADR: `docs/adr/ADR-0001-agent-responsibility-boundary.md` (**Note:** ADR-0001's execution model superseded by ADR-0007 `docs/adr/ADR-0007-deterministic-pipeline.md`).
 
-## AD-021 — Project RAG is isolated from Chat
-**Decision:** RAG is available only through the Web UI's explicit document-analysis flow. It is not registered as an Agent Child Tool and is never selected by chat routing.
-**Context:** Chat investigations operate on live infrastructure, while document analysis operates on a user-selected corpus with different lifecycle and isolation requirements.
-**Reason:** Implicitly mixing document context into chat risks cross-project retrieval, hidden context, and session coupling.
-**Consequence:** Every RAG project owns a separate document collection, BM25 index, and analysis history. Every analysis receives a request-scoped model client rather than mutating shared model state. Every chat session owns a separate Agent, conversation store, cache, and lock. The API is the only browser-facing entry point to the internal RAG service.
+This file summarizes decisions enforced by the current implementation. Detailed
+records live under `docs/adr/`.
 
-## AD-022 — Model installation is independent from Orion
-**Decision:** The standard installer deploys every Orion-owned application component, but never installs a model runtime or downloads model weights. The installer, CLI, and Web UI only save and test connections to endpoints operated by the user.
-**Context:** Users may operate an OpenAI-compatible endpoint, Ollama, vLLM, or another compatible runtime, and model lifecycle requirements differ substantially between environments.
-**Reason:** Installing or managing model infrastructure couples Orion to a provider, consumes large machine resources unexpectedly, and crosses the application's ownership boundary.
-**Consequence:** Orion starts in an explicit setup mode with an empty model registry. Chat assessment and RAG analysis require a configured endpoint; RAG has no retrieval-only mode. Model runtime installation, model downloads, upgrades, and removal remain entirely outside Orion.
+## AD-001 — Deterministic before AI
 
-## AD-023 — Evidence validity is explicit and source-linked
-**Decision:** Command/capability/evidence outcomes distinguish valid observations from empty observations, failure, unsupported state, stale data, and contradictions; claims retain provenance links.
-**Context:** Empty/default values previously allowed collection failures to look like measurements.
-**Reason:** Deterministic completeness, cache policy, rules, and assessment grounding need a trustworthy evidence state.
-**Consequence:** Only valid fresh evidence satisfies requirements; failed/stale/contradictory evidence is exposed as uncertainty rather than converted to a healthy value.
-> Long-form ADR: `docs/adr/ADR-0008-evidence-validity.md`
+**Decision:** Deterministic code owns request semantics, target/source
+resolution, evidence selection, execution, recovery, thresholds, and safety.
 
-## AD-024 — Deterministic reasoning v1 is bounded and reviewed
-**Decision:** Orion uses canonical Facts, reviewed atomic/composite rules, bounded recovery, and weighted missing-evidence selection; the LLM explains but does not plan these operations.
-**Context:** Model-driven investigation control is non-deterministic, while a broad self-learning expert system is not justified.
-**Reason:** Bounded code paths make rule decisions, recovery cost, and uncertainty testable and auditable.
-**Consequence:** Rules require version/owner/review metadata; recovery can use only declared alternatives under budget; missing evidence remains insufficient rather than false.
-> Long-form ADR: `docs/adr/ADR-0009-deterministic-reasoning-v1.md`
+**Consequence:** Model output cannot select a tool, command, target, retry, or
+recovery path.
+
+## AD-002 — The model assesses bounded evidence
+
+**Decision:** The assessment model interprets evidence and writes the final
+explanation when a deterministic response is not sufficient.
+
+**Consequence:** The model sees bounded prompt/evidence contracts and never
+receives infrastructure authority.
+
+> Detailed record: `docs/adr/ADR-0002-llm-assessment-only.md`
+
+## AD-003 — KnowledgeTool is the single collection entry point
+
+**Decision:** `ExecutionRuntime` reaches Child Tools only through
+`KnowledgeTool`.
+
+**Consequence:** Capability routing and inspectors apply consistently, and the
+pipeline does not depend on domain implementations.
+
+> Detailed record: `docs/adr/ADR-0003-knowledge-tool-single-entry-point.md`
+
+## AD-004 — One Child Tool owns one domain
+
+**Decision:** The chat domains are Linux, Grafana, Zabbix, and Internet.
+
+**Consequence:** Each domain owns its capability metadata and reviewed
+collection strategy. Project RAG remains outside chat registration.
+
+## AD-005 — Child Tool metadata is canonical
+
+**Decision:** Capability definitions belong to Child Tools. `KnowledgeTool`
+aggregates them and the execution pipeline consumes the aggregation.
+
+**Consequence:** Capability names, parameters, produced Facts, prerequisites,
+cost, reliability, alternatives, and mutation risk are not duplicated in
+pipeline modules.
+
+## AD-006 — Live infrastructure is the operational source of truth
+
+**Decision:** Fresh valid observations outrank cached or model-known data.
+
+**Consequence:** Cache reuse requires valid fresh evidence and never hides a
+collection failure, contradiction, or stale result.
+
+## AD-007 — Execution state is ephemeral
+
+**Decision:** Commands, raw observations, DAG state, and runtime context exist
+only for the investigation that produced them.
+
+**Consequence:** Execution behavior does not depend on hidden operational state
+from earlier requests.
+
+> Detailed record: `docs/adr/ADR-0004-stateless-state-management.md`
+
+## AD-008 — Conversation persistence is bounded
+
+**Decision:** Session stores persist user/assistant turns, compressed summaries,
+and the typed `SessionInvestigationContext`; they do not persist raw tool
+outputs or execution state as conversation memory.
+
+**Consequence:** Follow-ups can inherit supported semantic fields without
+turning an old infrastructure observation into current evidence.
+
+## AD-009 — Evidence quality outranks prompt complexity
+
+**Decision:** Improve Tool -> Evidence -> Assessment in that order.
+
+**Consequence:** Missing evidence remains explicit instead of being compensated
+for with longer prompts or additional model loops.
+
+## AD-010 — Composite operational capabilities are preferred
+
+**Decision:** Expose bounded operational capabilities instead of requiring
+model-mediated chains of atomic calls.
+
+**Consequence:** The execution DAG can batch independent work and reduce model
+interaction.
+
+## AD-011 — Dependencies remain one-directional
+
+**Decision:** The infrastructure path follows
+`Agent -> ExecutionEngine -> KnowledgeTool -> Child Tool -> Environment`.
+
+**Consequence:** Reverse dependencies and direct pipeline-to-domain imports are
+prohibited.
+
+## AD-012 — Architecture changes require human approval
+
+**Decision:** Repository work preserves documented ownership and boundaries
+unless the user explicitly approves an architecture change.
+
+**Consequence:** Architecture does not change implicitly during feature or bug
+work.
+
+## AD-013 — Repository state overrides stale documentation
+
+**Decision:** Current code, configuration, schemas, and tests are the primary
+implementation evidence.
+
+**Consequence:** Documentation is corrected when it disagrees with verifiable
+repository behavior.
+
+## AD-014 — SSH host-key verification defaults to enabled
+
+**Decision:** SSH uses `StrictHostKeyChecking=yes` and the Orion runtime user's
+known-hosts file by default. A target can explicitly disable the check.
+
+**Consequence:** Operators verify and register host keys. A per-target disabled
+check is a deliberate trusted-network exception with weaker transport
+authentication.
+
+## AD-015 — Secrets remain outside source and tracked registry metadata
+
+**Decision:** Credentials and deployment endpoints are not hardcoded or stored
+in tracked `tools.json`.
+
+**Consequence:** Packaged Grafana/Zabbix credentials come from
+`/etc/orion/tool-credentials.json`, mounted read-only. Logs, traces, command
+serialization, and provenance apply credential redaction.
+
+## AD-016 — The supported deployment is local and single-operator
+
+**Decision:** Source mode and Docker Compose expose local runtimes. API-key
+middleware protects a single tenant.
+
+**Consequence:** Compose binds browser/API ports to loopback and keeps database,
+SSR UI, and RAG services internal.
+
+## AD-017 — DeterministicAgent orchestrates; it does not grant model authority
+
+**Decision:** `DeterministicAgent` owns semantic routing, session context,
+response selection, and assessment orchestration. `ExecutionEngine` owns the
+infrastructure investigation.
+
+**Consequence:** Deterministic reasoning and safety remain code paths; the model
+is replaceable without changing collection authority.
+
+> Detailed records: `docs/adr/ADR-0001-agent-responsibility-boundary.md` and
+> `docs/adr/ADR-0007-deterministic-pipeline.md`.
+
+## AD-018 — Project RAG is isolated from Chat
+
+**Decision:** RAG is available through explicit project API/UI operations and
+is never registered as a chat Child Tool.
+
+**Consequence:** Each project owns separate documents, indexes, and analysis
+history. Each analysis receives request-scoped model configuration.
+
+## AD-019 — Model lifecycle is external to Orion
+
+**Decision:** Orion stores/tests connections but does not install model
+runtimes or weights.
+
+**Consequence:** Orion can start without a model. Chat assessment and RAG
+analysis report setup-required behavior until a compatible endpoint is active.
+
+## AD-020 — Evidence validity and provenance are explicit
+
+**Decision:** Command, capability, evidence, Fact, and Finding contracts
+distinguish valid, empty, partial, failed, unsupported, stale, and contradictory
+states.
+
+**Consequence:** Only valid fresh evidence satisfies requirements; claims retain
+source links and failures cannot become healthy default values.
+
+> Detailed record: `docs/adr/ADR-0008-evidence-validity.md`
+
+## AD-021 — Deterministic reasoning is bounded and reviewed
+
+**Decision:** Orion uses reviewed atomic/composite rules, declared recovery
+alternatives, one bounded missing-evidence expansion, and a shared execution
+budget.
+
+**Consequence:** Rules carry version/owner/review metadata; unavailable evidence
+remains insufficient rather than false.
+
+> Detailed record: `docs/adr/ADR-0009-deterministic-reasoning-v1.md`
+
+## AD-022 — Current external facts require deterministic verification
+
+**Decision:** Current public information and explicit URLs use the fixed
+Internet search/fetch evidence path.
+
+**Consequence:** External answers carry provider/URL/retrieval provenance.
+Unavailable verification is reported as unknown rather than replaced by model
+memory.
+
+> Detailed record: `docs/adr/ADR-0010-deterministic-external-verification.md`

@@ -82,7 +82,7 @@ The evidence boundary is explicit and typed.
 
 # Related records
 
-- Short-form decision: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-023.
+- Short-form decision: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-020.
 - `ADR-0007-deterministic-pipeline.md` — pipeline boundary.
 - `ADR-0009-deterministic-reasoning-v1.md` — how valid Facts become Findings.
 - `docs/ai/05_EXECUTION_PIPELINE.md` — runtime contract.

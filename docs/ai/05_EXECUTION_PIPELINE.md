@@ -1,145 +1,153 @@
 # 05 - Execution Pipeline
 
-This document describes the implemented deterministic investigation pipeline.
-`08_PROJECT_STATE.md` remains the source of truth for delivery status; this
-document defines the execution contract.
+This document describes the implemented deterministic request, collection, and
+assessment flow.
 
 ## Boundary
 
-Orion follows **Code investigates. AI explains.** Deterministic code resolves
-the request, validates parameters, selects declared capabilities, runs only
-reviewed collection strategies, normalizes evidence, and evaluates rules. The
-Assessment Model receives an `AssessmentRequest` after that work; it never
-chooses a target, capability, command, fallback, or recovery path.
+Orion follows **Code investigates. AI explains.** Deterministic code owns
+routing, target and source selection, parameters, capability selection,
+execution, recovery, evidence validity, and reviewed rules. The assessment
+model receives bounded evidence and has no command or tool authority.
 
 ```text
 User request + session context
         |
         v
-RequestFrame -> routing / clarification -> target / parameters
-        |
-        v
-Evidence requirements -> capability plan -> execution DAG
-        |
-        v
-KnowledgeTool -> Child Tool -> CommandResult -> CapabilityResult
-        |
-        v
-EvidencePackage (raw + failures + canonical Facts + provenance)
-        |
-        v
-Completeness / reconciliation -> atomic & composite Findings
-        |
-        +--> DeterministicResponder for bounded fact/list/table responses
-        |
-        +--> AssessmentRequest -> LLM explanation -> output guards
-        |
-        v
-Final response + ExecutionTrace
+RequestFrame semantics and routing
+   |             |                 |
+   |             |                 +-> current/URL -> Internet verification
+   |             +-> stable/general/generation -> model without collectors
+   +-> infrastructure inspection
+                    |
+                    v
+      target + parameters + source constraints
+                    |
+                    v
+      evidence requirements + capability plan
+                    |
+                    v
+      execution DAG -> KnowledgeTool -> Child Tool
+                    |
+                    v
+      CommandResult -> CapabilityResult -> EvidencePackage
+                    |
+                    v
+      completeness + Facts + Findings + health summary
+                    |
+          +---------+----------+
+          |                    |
+          v                    v
+ DeterministicResponder   AssessmentRequest -> model
+          |                    |
+          +---------+----------+
+                    v
+       output guards + response + ExecutionTrace
 ```
 
-Every investigation has one `ExecutionTrace`; it records stage outcomes,
-resolved target and parameters, planned and collected evidence, strategy, LLM
-usage reason, and a safe failure stage/reason when execution cannot continue.
+Every handled request emits one credential-safe `ExecutionTrace` with stage
+outcomes, routing status, resolved target and parameters, plan, evidence names,
+answer strategy, model-usage reason, and safe failure information.
 
-## Stages
+## Semantic routing
 
-1. **Request and routing** — `Normalizer`, session-context resolver, and
-   `IntentResolver` create/complete an immutable `RequestFrame`. Ambiguous,
-   unsafe, unsupported, or unknown-target requests return a deterministic
-   clarification or refusal. They do not fall back to model planning.
-2. **Evidence and capability planning** — `EvidencePlanner`,
-   `CapabilityPlanner`, `CapabilityResolver`, and `ParameterBinder` express
-   requirements as canonical metric/target/parameter contracts and resolve
-   them to registered Child Tool capabilities. Required parameters are
-   validated before dispatch.
-3. **Execution** — `ExecutionPlanner` and `ExecutionGraphBuilder` create a
-   dependency DAG. `ExecutionRuntime` dispatches each node only through
-   `KnowledgeTool`, runs independent nodes in parallel, applies the shared
-   budget, and records safe runtime metrics.
-4. **Merge and validity** — `EvidenceMerge` retains raw payloads for audit,
-   carries structured failures, normalizes valid output into Facts, reconciles
-   conflicts, and runs `EvidenceCompleteness`. A cache may reuse only fresh
-   `VALID`/`VALID_EMPTY` evidence.
-5. **Deterministic reasoning** — atomic thresholds and reviewed composite
-   rules turn valid, fresh Facts into source-linked Findings. Missing, stale,
-   contradictory, unsupported, and failed observations are represented as
-   unknown/insufficient evidence, never coerced to a healthy value.
-6. **Response** — `DeterministicResponder` answers simple supported requests
-   directly. Otherwise `AssessmentAdapter` builds an `AssessmentRequest` for
-   the model. Output guards keep claims grounded and preserve the read-only
-   boundary.
+`RequestSemanticsClassifier`, `Normalizer`, and the session context build an
+immutable `RequestFrame`. The frame distinguishes stable knowledge, live
+environment inspection, current external information, explicit URLs, source
+constraints, content generation, explanation, and mutation intent.
 
-## Result contracts and failure semantics
+- Ambiguous semantics or missing required parameters produce deterministic
+  clarification.
+- Explicit unknown targets never fall back to `localhost`.
+- Exact source constraints are enforced before capability dispatch and fail
+  closed when the selected source cannot supply required evidence.
+- Mutation requests are refused by the routing/safety boundary.
+- Coordinated requests are decomposed into at most four ordered subframes and
+  share target/time semantics where the request makes that relationship
+  explicit.
 
-`CommandResult` is the immutable result of one backend command. It contains
-`status`, `exit_code`, separate `stdout`/`stderr`, `error_type`, safe target
-metadata, duration, and a redacted serialization. `success` is true only for
-`SUCCESS` and `EMPTY_SUCCESS`; an empty successful command is distinct from a
-collection error.
+## Infrastructure execution stages
 
-`CapabilityResult` is the Child Tool outcome. `VALID` and `VALID_EMPTY` are
-the only successful statuses. `PARTIAL`, `COLLECTION_FAILED`, `UNSUPPORTED`,
-`INVALID_PARAMETERS`, and `PARSE_FAILED` retain their data/diagnostics where
-safe but cannot satisfy a required-evidence contract. They carry a stable
-`CapabilityError` code/category/recoverability value, not policy inferred from
-an error message.
+1. `IntentResolver` and `TargetResolver` complete the request contract.
+2. `EvidencePlanner`, `CapabilityPlanner`, `CapabilityResolver`, and
+   `ParameterBinder` map the request to typed evidence and capability
+   requirements.
+3. `ExecutionPlanner` and `ExecutionGraphBuilder` build the dependency DAG.
+4. `ExecutionRuntime` sends every node through `KnowledgeTool`, executes
+   independent nodes in parallel, applies the shared budget and retry policy,
+   and records runtime metrics.
+5. `EvidenceMerge` retains structured failures, normalizes enabled outputs into
+   Facts, reconciles conflicts, and runs `EvidenceCompleteness`.
+6. Atomic thresholds and enabled reviewed composite rules produce source-linked
+   Findings and a deterministic health summary.
+7. `DeterministicResponder` answers supported fact/list/table requests;
+   remaining requests use `AssessmentRequest` and the configured model.
 
-`EvidencePackage` preserves the capability result, raw data (opt-in and size
-bounded in serialization), warnings, collection failures, source/parameters,
-command provenance, Facts, and recovery metadata. A package is valid for a
-requirement only when it is fresh and has status `VALID` or `VALID_EMPTY`.
+## External verification
 
-No stage may turn a failure into `0`, `[]`, `{}`, or `None` and present it as a
-measurement. `VALID_EMPTY` means a collector successfully observed an empty
-domain; it does not mean an unsuccessful command found nothing.
+Requests classified as current/external use a fixed
+`web_search -> deterministic select -> web_fetch -> evidence` flow. Explicit
+public URLs can use fetch directly. Search and fetch share public-address
+validation, redirect and DNS checks, time/size/tool-call budgets, short-lived
+valid-only caching, and credential-safe provenance. A failed verification is
+reported as unverified/unknown; model memory is not presented as current
+evidence.
 
-## Facts, provenance, and Findings
+## Result contracts
 
-A canonical `Fact` is immutable and identifies a subject, dotted metric,
-value, explicit unit, observed/collected time, source, target, validity,
-freshness, confidence, dimensions, and `Provenance`. Only a valid zero is a
-numeric zero. A stale, contradictory, schema-invalid, unsupported, failed, or
-not-collected Fact is kept distinct so that `EvidenceCompleteness` and rules
-can report the actual limitation.
+`CommandResult` is the immutable backend outcome. It contains status, exit
+code, separate stdout/stderr, error type, safe command/target metadata,
+duration, and redacted serialization. `SUCCESS` and `EMPTY_SUCCESS` are the
+only command-success states.
 
-`FactReconciler` marks incompatible same-scope observations as contradictory.
-`Finding` records the deterministic rule decision, score/coverage/confidence,
-supporting and contradicting Fact IDs, missing metrics, rule version, and
-claim-source links. This makes both deterministic and model-generated claims
-auditable without exposing credentials or unbounded raw output.
+`CapabilityResult` is the Child Tool outcome. `VALID` and `VALID_EMPTY` are the
+only successful statuses. `PARTIAL`, `COLLECTION_FAILED`, `UNSUPPORTED`,
+`INVALID_PARAMETERS`, and `PARSE_FAILED` retain safe diagnostics but cannot
+satisfy required evidence. Failures carry stable code, category, and
+recoverability metadata.
 
-## Bounded recovery and expansion
+`EvidencePackage` retains the structured capability result, source,
+parameters, timeframe, warnings, failures, command provenance, Facts, recovery
+records, and bounded raw data. A package is reusable only when it is fresh and
+its status is `VALID` or `VALID_EMPTY`.
 
-Recovery is capability metadata, not a model decision. `CapabilityRecovery`
-may try declared alternatives only for declared recoverable errors, observes a
-maximum depth of two, stops on target-wide transport failure, and records every
-attempt. It cannot invent a shell command or retry a non-recoverable error.
+No stage converts collection failure into a zero, empty collection, or missing
+value that looks like a measurement.
 
-When evidence remains incomplete, `EvidenceExpander` can select one weighted
-missing-evidence round under the common `ExecutionBudget`. Stop conditions
-include sufficient evidence, transport failure, exhausted duration/tool-call
-budget, and no eligible candidate. The Assessment Model cannot request another
-round.
+## Facts, Findings, and bounded recovery
 
-## Compatibility and rollout
+A `Fact` contains subject, dotted metric, value, unit, observation and
+collection times, source, target, validity, freshness, confidence, dimensions,
+and `Provenance`. `FactReconciler` marks incompatible same-scope observations
+as contradictory.
 
-Legacy tuple unpacking of `CommandResult` and raw Child Tool payloads are
-temporary adapters. They continue to work during the migration window but emit
-`DeprecationWarning` for direct callers; new code must use named
-`CommandResult` fields and return `CapabilityResult`. See
-`docs/migrations/deterministic_reasoning_v1.md` for the caller matrix and
-removal criteria.
+Reviewed atomic and composite rules produce `Finding` records with rule
+identity/version, decision, score/coverage/confidence, supporting and
+contradicting Fact IDs, missing metrics, and source links.
 
-`config/feature_flags.yaml` and `ORION_FEATURE_*` overrides can roll back
-structured command provenance, canonical Fact exposure, composite findings,
-and claim grounding independently without changing the external response
-schema. Flags are migration controls, not permanent product configuration.
+`CapabilityRecovery` can use only alternatives declared in capability
+metadata, only for recoverable errors, to a maximum depth of two and within the
+shared `ExecutionBudget`. `EvidenceExpander` can add one bounded
+missing-evidence round. The model cannot request either operation.
+
+## Current feature switches
+
+`FeatureFlagStore` reads an optional file selected by
+`ORION_FEATURE_FLAGS_FILE`; when no file exists it uses
+`FeatureFlagsConfig` defaults. Environment variables override individual
+fields. Structured command exposure, canonical Fact exposure, composite rules,
+and claim grounding default to disabled. General-agent routing, external
+verification, web search, and source constraints default to enabled. The
+read-only action boundary remains mandatory regardless of these switches.
+
+The runtime still accepts tuple-unpacked `CommandResult` and raw Child Tool
+payloads through explicit deprecated compatibility adapters. Current code uses
+the named structured contracts at the primary runtime boundaries.
 
 ## Related documents
 
-- `06_TOOL_AND_CAPABILITY_DESIGN.md` — Child Tool ownership and contracts.
-- `docs/adr/ADR-0008-evidence-validity.md` — evidence validity decision.
-- `docs/adr/ADR-0009-deterministic-reasoning-v1.md` — deterministic reasoning
-  decision.
-- `docs/troubleshooting.md` — operator diagnosis for collection failures.
+- `06_TOOL_AND_CAPABILITY_DESIGN.md`
+- `docs/adr/ADR-0008-evidence-validity.md`
+- `docs/adr/ADR-0009-deterministic-reasoning-v1.md`
+- `docs/adr/ADR-0010-deterministic-external-verification.md`
+- `docs/troubleshooting.md`

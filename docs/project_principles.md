@@ -1,87 +1,61 @@
 # Project Principles
-## Mục tiêu
-Xây dựng một Infrastructure AI Agent tối giản, stateless, evidence-driven.
 
-Mọi quyết định phải phục vụ mục tiêu hoàn thành MVP trước khi tối ưu.
+## Mục tiêu hiện tại
 
----
-# Core Principles
+Orion là ứng dụng điều tra hạ tầng local, single-operator, deterministic và
+evidence-driven; phân tích tài liệu RAG là một luồng project riêng biệt.
 
-## 1. Simplicity First
-Luôn ưu tiên giải pháp đơn giản nhất.
-Không thêm abstraction nếu chưa thực sự cần.
+## Nguyên tắc
 
-## 2. Single Responsibility
-Mỗi component chỉ có một trách nhiệm duy nhất.
-Không trộn nhiều vai trò vào cùng một component.
+### 1. Code investigates. AI explains.
 
-## 3. Code Investigates. AI Explains.
-Investigation là deterministic, thuộc về code.
-AI chỉ interpret evidence đã collected.
+Code quyết định routing, target, source, parameter, capability, execution,
+recovery, evidence validity và rule. Model chỉ giải thích evidence hoặc xử lý
+general chat không có quyền gọi tool.
 
-## 4. Stateless
-Mỗi investigation là độc lập.
-Execution state chỉ tồn tại trong một request.
+### 2. Evidence first
 
-## 5. Evidence First
-Better Tool → Better Evidence → Better Assessment.
-Không compensate poor evidence với prompt engineering.
+Ưu tiên theo thứ tự Tool -> Evidence -> Assessment. Không dùng prompt để che
+lấp evidence thiếu, lỗi hoặc stale.
 
-## 6. Deterministic Before AI
-Luôn ưu tiên deterministic logic.
-AI chỉ được dùng khi deterministic không đủ.
+### 3. Deterministic before AI
 
-## 7. MVP First
-Làm cho hệ thống chạy trước.
-Sau đó mới:
-- Refactor
-- Optimize
-- Extend
-Không thiết kế cho nhu cầu chưa tồn tại.
+Logic có thể kiểm thử và lặp lại được phải nằm trong code/config đã review.
 
-## 8. Explicit Over Implicit
-Mọi component phải có:
-- Responsibility rõ ràng
-- Boundary rõ ràng
-- Dependency rõ ràng
+### 4. Trách nhiệm rõ ràng
 
-## 9. Low Coupling
-Component chỉ giao tiếp thông qua contract.
-Không truy cập trực tiếp implementation của component khác.
+- `DeterministicAgent`: routing và response orchestration.
+- `ExecutionEngine`: điều tra hạ tầng.
+- `KnowledgeTool`: capability routing và dispatch.
+- Child Tool: thu thập evidence trong một domain.
+- Assessment Model: giải thích evidence.
+- RAG service: phân tích corpus của project được chọn.
 
-## 10. Benchmark-Driven
-Mọi cải tiến phải được validate bằng benchmark.
-Không tối ưu dựa trên giả định.
+### 5. Execution state là tạm thời
 
----
-# Design Rules
-- Đơn giản hơn phức tạp.
-- Rõ ràng hơn thông minh.
-- Ít abstraction hơn nhiều abstraction.
-- Ít dependency hơn nhiều dependency.
-- Có thể chạy quan trọng hơn thiết kế đẹp.
-- Không tối ưu sớm.
-- Không over-engineering.
+Command, raw observation, DAG và runtime state chỉ tồn tại trong một lần điều
+tra. Session chỉ lưu conversation, summary và semantic context có kiểu; cache
+chỉ tái sử dụng evidence hợp lệ và còn fresh.
 
----
-# Out of Scope
-Không triển khai nếu chưa có nhu cầu thực tế:
-- Plugin System
-- Search Engine
-- Embedding
-- Cache
-- Scheduler
-- Distributed Runtime
-- Workflow Engine
-- Multi-Agent
+### 6. Explicit over implicit
 
----
-# Success Criteria
-Một thay đổi được coi là tốt khi:
-- Kiến trúc đơn giản hơn.
-- Trách nhiệm rõ ràng hơn.
-- Ít coupling hơn.
-- Dễ đọc hơn.
-- Dễ kiểm thử hơn.
-- Không làm tăng độ phức tạp không cần thiết.
-- Benchmark evidence cho thấy cải thiện.
+Contract, status, unit, provenance, failure và boundary phải được biểu diễn rõ.
+Không suy diễn success từ giá trị rỗng hoặc lỗi dạng text.
+
+### 7. Simplicity and low coupling
+
+Tái sử dụng abstraction đang có, giữ dependency một chiều, tránh pattern hoặc
+dependency không giải quyết vấn đề hiện tại.
+
+### 8. Current-state documentation
+
+Tài liệu mô tả đúng code/config/test hiện tại. Không lưu roadmap, backlog,
+target architecture hoặc feature chưa triển khai trong tài liệu hoạt động.
+
+## Tiêu chí cho một thay đổi
+
+- Đúng phạm vi yêu cầu và giữ nguyên public contract ngoài phạm vi đó.
+- Không phá vỡ boundary giữa model, pipeline và tool.
+- Failure/unknown không bị chuyển thành kết quả khỏe mạnh.
+- Có validation phù hợp với mức rủi ro và được báo cáo chính xác.
+- Diff không chứa refactor hoặc tài liệu không liên quan.

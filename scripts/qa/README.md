@@ -10,4 +10,4 @@ python3 scripts/qa/run_tests_v2.py
 python3 scripts/qa/run_acceptance.py
 ```
 
-Generated JSON reports are written to `artifacts/qa/`, which is intentionally excluded from version control.
+Generated JSON/Markdown reports and runtime-evidence pointers are written to `artifacts/qa/`, which is intentionally excluded from version control.

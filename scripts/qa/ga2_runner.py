@@ -583,7 +583,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--evidence-output",
-        default="docs/project/GA2_VERIFICATION_EVIDENCE.md",
+        default="artifacts/qa/GA2_VERIFICATION_EVIDENCE.md",
         help="Write the current runtime-evidence pointer to this Markdown file.",
     )
     args = parser.parse_args()

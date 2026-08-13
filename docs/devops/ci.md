@@ -25,7 +25,7 @@ Node 22 runs `npm ci`, ESLint, Vitest, and the production client/SSR build.
 
 ### Desktop
 
-Node 22 installs the pinned Electron dependencies, verifies the Docker reverse-proxy API contract, builds the UI, packages an unpacked Linux Electron application, and uploads it as an artifact. The `electron-builder` configuration also defines the Windows NSIS `OrionSetup` installer for the later standalone-distribution work.
+Node 22 installs the pinned Electron dependencies, verifies the Docker reverse-proxy API contract, builds the UI, packages an unpacked Linux Electron application, and uploads it as an artifact. The checked-in `electron-builder` configuration also defines a Windows NSIS `OrionSetup` target.
 
 ### Containers
 

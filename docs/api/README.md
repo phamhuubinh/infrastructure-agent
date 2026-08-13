@@ -1,6 +1,6 @@
 # API Reference
 
-> Orion Platform API — all endpoints with curl examples and expected responses.
+> Orion local API — current endpoints with curl examples and response shapes.
 
 Base URL: `http://localhost:61888`
 
@@ -20,7 +20,15 @@ curl http://localhost:61888/api/health
 
 **Response:**
 ```json
-{"status": "ok", "version": "1.0.0"}
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "runtime_dependencies": {
+    "ready": true,
+    "required_binaries": ["df", "ip", "lsblk", "ping", "ps", "ssh", "ss", "top"],
+    "missing_binaries": []
+  }
+}
 ```
 
 ---
@@ -99,7 +107,9 @@ Orion accepts an empty model registry. The API below is also used by Web UI **C�
 
 ### POST /api/models
 
-Save and optionally activate an OpenAI-compatible, Ollama, or vLLM connection. A base URL ending in `/v1` is accepted and normalized.
+Save and optionally activate an OpenAI-compatible, Ollama, vLLM, or Anthropic
+connection. A base URL ending in `/v1` is accepted and normalized. Anthropic
+is available for Chat assessment but is rejected for RAG synthesis.
 
 ```bash
 curl -X POST http://localhost:61888/api/models \
@@ -136,6 +146,10 @@ curl -X POST http://localhost:61888/api/query \
 {
   "session_id": "f39a84f716c2",
   "assessment": "The disk on webserver01 is healthy. / is at 45% usage (32GB/80GB).",
+  "response_time_ms": 842,
+  "asked_at": "2026-08-13T08:00:00+00:00",
+  "trace_id": "9a9f54f5e87b4f31",
+  "execution_trace": {"trace_id": "9a9f54f5e87b4f31", "routing_status": "resolved"},
   "steps": [
     {
       "stage": "intent",
@@ -244,17 +258,25 @@ Analysis requires an active Orion model and returns HTTP 503 when none is config
 
 ### POST /api/documents/upload
 
-Upload a document.
+Store UTF-8 text content through the generic document service. Project RAG
+uploads use the multipart endpoint documented above.
 
 ```bash
 curl -X POST http://localhost:61888/api/documents/upload \
   -H "Content-Type: application/json" \
-  -d '{"filename": "guide.pdf", "content": "<base64>", "session_id": "abc123"}'
+  -d '{"filename": "guide.txt", "content": "Operator guide text", "session_id": "abc123"}'
 ```
 
 **Response:**
 ```json
-{"doc_id": "abc-def-123", "status": "uploaded"}
+{
+  "id": "abc-def-123",
+  "filename": "guide.txt",
+  "content_type": "text/plain",
+  "size_bytes": 19,
+  "storage_path": "/home/orion/.orion/documents/abc-def-123.txt",
+  "session_id": "abc123"
+}
 ```
 
 ---
@@ -273,10 +295,11 @@ curl "http://localhost:61888/api/documents?session_id=abc123&limit=10"
 {
   "documents": [
     {
-      "doc_id": "abc-def-123",
-      "filename": "guide.pdf",
+      "id": "abc-def-123",
+      "filename": "guide.txt",
+      "content_type": "text/plain",
       "created_at": "2026-07-23T08:00:00Z",
-      "size_bytes": 1048576,
+      "size_bytes": 19,
       "session_id": "abc123"
     }
   ]
@@ -316,6 +339,18 @@ curl -X DELETE http://localhost:61888/api/documents/abc-def-123
 ---
 
 ## Sessions
+
+### POST /api/sessions
+
+Create an empty Web session.
+
+```bash
+curl -X POST http://localhost:61888/api/sessions
+```
+
+```json
+{"session_id": "abc123def456"}
+```
 
 ### GET /api/sessions
 
@@ -370,4 +405,5 @@ curl -H "Authorization: Bearer $ORION_API_KEY" http://localhost:61888/api/status
 
 **Error response (401):**
 ```json
-{"detail": "Unauthorized"}
+{"detail": "Invalid or missing API key"}
+```

@@ -1,8 +1,7 @@
 """Schema and coverage tests for the DR1-004 golden dataset.
 
 Validates that the human-reviewed golden cases under tests/data/qa_cases/
-are structurally correct and satisfy the acceptance criteria from
-DR1-004 historical golden-schema contract; current state is tracked in docs/project/GA2_BACKLOG.md:
+are structurally correct and satisfy the current golden-schema contract:
 
 - every group A-J has coverage
 - Vietnamese, English, typo, code-switching, follow-up, unknown target,

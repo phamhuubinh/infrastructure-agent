@@ -1,178 +1,89 @@
 # Testing Guide
 
-> Testing conventions, fixtures, and best practices for Orion.
+Orion separates deterministic local checks from environment-dependent QA.
 
----
-
-## Quick Start
+## Python unit and contract tests
 
 ```bash
-# Run all tests (excluding slow/integration tests)
-python3 -m pytest tests/ -q -x -k "not slow"
+# Whole Python suite
+python3 -m pytest tests/ -q --tb=short
 
-# Run with coverage
-python3 -m pytest tests/ -q --cov=src --cov-report=term
+# Affected areas
+python3 -m pytest tests/pipeline/ -q --tb=short
+python3 -m pytest tests/tool/ -q --tb=short
+python3 -m pytest tests/backend/ -q --tb=short
 
-# Run a specific module
-python3 -m pytest tests/pipeline/ -q
-
-# Run benchmark suite
-python3 -m benchmark --domain all --json
+# Coverage
+python3 -m pytest tests/ --cov=src --cov-report=term-missing -q
 ```
 
----
+The top-level suite contains agent, backend, benchmark-helper, CLI, model,
+pipeline, QA-schema, security, shared-contract, and tool tests. Container smoke
+tests live in the suite but skip unless their required environment is present.
 
-## Test Structure
+## Static checks
 
-```
-tests/
-├── agent/                    # Agent-level tests
-│   ├── test_conversation_store.py
-│   ├── test_conversation_store_thread_safety.py
-│   ├── test_deterministic_agent.py
-│   └── test_runtime_factory.py
-├── backend/                  # API & backend tests
-│   ├── test_app.py
-│   ├── test_auth.py
-│   └── test_routers.py
-├── benchmark/               # Benchmark runner tests
-│   ├── test_assessment_evaluator.py
-│   ├── test_get_prompt.py
-│   ├── test_main_integration.py
-│   ├── test_metadata.py
-│   ├── test_registry.py
-│   └── test_report_wiring.py
-├── data/                     # Test data fixtures
-│   ├── grafana_responses.json
-│   ├── linux_command_outputs.json
-│   └── zabbix_responses.json
-├── model/                    # Assessment model tests
-│   ├── test_llm_assessment_adapter.py
-│   ├── test_llm_client.py
-│   ├── test_mock_assessment_adapter.py
-│   └── protocol/
-├── pipeline/                 # Pipeline component tests
-│   ├── test_assessment_adapter.py
-│   ├── test_assessment_request.py
-│   ├── test_capability_resolver.py
-│   ├── test_capability_router.py
-│   ├── test_deterministic_responder.py
-│   ├── test_evidence_completeness.py
-│   ├── test_evidence_merge.py
-│   ├── test_evidence_package.py
-│   ├── test_evidence_planner.py
-│   ├── test_execution_engine.py
-│   ├── test_execution_graph.py
-│   └── test_execution_planner.py
-├── shared/                   # Shared utility tests
-└── tool/                     # Tool integration tests
+```bash
+ruff check .
+python3 -m mypy src --ignore-missing-imports
+
+cd ui
+npm run lint
+npx tsc --noEmit
 ```
 
----
+## UI and Desktop
 
-## Writing Tests
+```bash
+cd ui
+npm test -- --run
+npm run build
 
-### Naming Convention
-
-- Test files: `test_<module>.py`
-- Test classes: `Test<Component>`
-- Test methods: `test_<scenario>_<expected_behavior>`
-
-### Example
-
-```python
-import pytest
-from src.pipeline.intent_resolver import IntentResolver, Intent
-
-class TestIntentResolver:
-    def test_resolve_disk_query_returns_disk_intent(self):
-        resolver = IntentResolver()
-        request = resolver.resolve("Check disk usage on webserver01")
-        assert request.intent == Intent.DISK_USAGE
-        assert request.confidence > 0.8
-
-    def test_resolve_unknown_query_returns_general(self):
-        resolver = IntentResolver()
-        request = resolver.resolve("hello world")
-        assert request.confidence < 0.5
+cd ../desktop
+npm test
 ```
 
-### Mocking External Dependencies
+The UI uses Vitest and produces both client and SSR output. Desktop tests cover
+the installed Docker reverse-proxy/API contract without starting Electron.
 
-```python
-from unittest.mock import MagicMock, patch
+## RAG service
 
-@patch("src.tool.internet_tool._fetch_url")
-def test_fetch_timeout_handling(self, mock_fetch):
-    mock_fetch.side_effect = TimeoutError("Connection timed out")
-    tool = InternetTool()
-    result = tool.execute({"capability": "web_fetch", "url": "https://slow.example.com"})
-    assert result.success is False
-    assert "timeout" in result.error.lower()
+The RAG service has an independent locked environment:
+
+```bash
+cd src/tool/RAGTool
+uv sync --frozen --group dev
+uv run pytest tests -q --tb=short
 ```
 
-### Thread Safety Tests
+Its default test configuration uses offline providers.
 
-Thread safety tests use `threading.Thread` with `threading.Barrier` for synchronization:
+## Benchmark code
 
-```python
-import threading
+`tests/benchmark/` tests benchmark scoring/reporting code without constituting
+a model benchmark run:
 
-def test_concurrent_writes(self):
-    store = ConversationStore(session_id="test")
-    barrier = threading.Barrier(4)
-    errors = []
-
-    def writer():
-        try:
-            barrier.wait()
-            for _ in range(10):
-                store.add_turn("user", "assistant")
-        except Exception as e:
-            errors.append(e)
-
-    threads = [threading.Thread(target=writer) for _ in range(4)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert len(errors) == 0
+```bash
+python3 -m pytest tests/benchmark/ -q --tb=short
 ```
 
----
+The runtime benchmark entry point is `python3 -m benchmark`; it can call a
+configured model/infrastructure and writes results under `benchmark_results/`.
 
-## Test Categories
+## Manual QA
 
-| Marker | Description | Command |
-|--------|-------------|---------|
-| (none) | Standard unit tests | `pytest tests/` |
-| `slow` | Integration/container tests | `pytest tests/ -m slow` |
-| `benchmark` | Performance benchmarks | `python -m benchmark` |
+`scripts/qa/` contains configured-target/model runners. They can start Docker
+or make real outbound requests and write ignored artifacts under
+`artifacts/qa/`. They are not part of ordinary unit validation.
 
----
+## Test-writing contract
 
-## Coverage Targets
+- Name files `test_<module>.py` and tests `test_<behavior>`.
+- Prefer deterministic fixtures and explicit typed-result assertions.
+- Mock network, model, subprocess, and external API boundaries in unit tests.
+- Cover success, valid-empty, partial, typed failure, unsafe input, and
+  redaction behavior where the contract exposes those states.
+- Use thread barriers/locks for concurrency tests instead of timing-only sleeps.
+- Never claim a check passed unless its command was executed successfully.
 
-| Module | Target | Current |
-|--------|--------|---------|
-| `src/pipeline/` | 90% | ✓ |
-| `src/agent/` | 85% | ✓ |
-| `src/backend/` | 85% | ✓ |
-| `src/model/` | 85% | ✓ |
-| `src/tool/` | 80% | ✓ |
-| `src/shared/` | 90% | ✓ |
-
----
-
-## CI Integration
-
-Tests run automatically in CI on every push. Failures block merging. See `docs/devops/ci.md` for the full CI pipeline.
-
-## Manual end-to-end QA
-
-The configured-target/model runners live in `scripts/qa/`. They can make real outbound requests and are intentionally separate from the deterministic unit test suite. Generated reports are written to the ignored `artifacts/qa/` directory.
-
----
-
-> **Last updated:** 2026-08-02
+CI job details are documented in `docs/devops/ci.md`.

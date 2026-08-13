@@ -6,7 +6,7 @@ Common issues encountered when running Orion and how to resolve them.
 
 - [Vite Dev Server Issues](#vite-dev-server-issues)
 - [Database Connection Issues](#database-connection-issues)
-- [Certificate/SSL Warnings](#certificatessl-warnings)
+- [TLS](#tls)
 - [LLM / Assessment Model Issues](#llm--assessment-model-issues)
 - [Docker Compose Issues](#docker-compose-issues)
 - [SSH / Linux Tool Issues](#ssh--linux-tool-issues)
@@ -29,7 +29,7 @@ Common issues encountered when running Orion and how to resolve them.
 - `node_modules` not installed in the `ui/` directory.
 
 **Resolution:**
-1. Ensure Node.js 18+ is installed: `node --version`.
+1. Use Node.js 22, matching CI: `node --version`.
 2. Run `cd ui && npm install` to install frontend dependencies.
 3. Check if port 5173 is in use: `lsof -i :5173` and kill the process if needed.
 4. Use a different frontend port: `ORION_FRONTEND_PORT=5174 python3 -m src.cli web`.
@@ -60,7 +60,8 @@ ORION_FRONTEND_PORT=5174 python3 -m src.cli web
 **Resolution:**
 1. In Docker Compose: `docker compose up -d postgres` and wait for health check.
 2. Direct connection: verify `psql` can connect with the same DSN.
-3. Check `POSTGRES_PASSWORD`, `POSTGRES_USER`, `POSTGRES_HOST` env vars.
+3. Check `ORION_DATABASE_URL` in source mode, or `POSTGRES_PASSWORD`,
+   `POSTGRES_USER`, and `POSTGRES_DB` in Compose.
 4. Verify the PostgreSQL port (5432) is accessible.
 
 ### Database connection times out from pool
@@ -269,15 +270,26 @@ This starts the API + Vite frontend in development mode on localhost, stays atta
 
 ### How do I add a new target server?
 
-Edit `targets.json`:
+Use the CLI:
+
+```bash
+orion add-target myserver@192.168.1.100 \
+  --ssh-user admin \
+  --ssh-identity-file ~/.ssh/id_rsa
+```
+
+Or edit `targets.json` using the schema loaded by `TargetStore`:
+
 ```json
 {
   "targets": {
     "myserver": {
+      "backend": "ssh",
       "host": "192.168.1.100",
-      "username": "admin",
-      "auth_method": "key",
-      "key_path": "~/.ssh/id_rsa"
+      "port": 22,
+      "user": "admin",
+      "identity_file": "~/.ssh/id_rsa",
+      "strict_host_key_checking": true
     }
   }
 }
@@ -304,7 +316,8 @@ When running: `http://localhost:61888/docs` directly or `http://localhost/docs` 
 
 - Installed Docker stack: `orion log` follows all service logs.
 - Console: printed to stderr by default.
-- File rotation: enabled with `ORION_LOG_FILE=/path/to/logs/orion.log`, rotates at 10MB with 5 backups.
+- File: `$ORION_LOG_DIR/orion.log`, or `~/.orion/orion.log` when
+  `ORION_LOG_DIR` is unset; rotation is 10 MiB with five backups.
 - Structured JSON: set `ORION_LOG_FORMAT=json` for machine-readable logs.
 
 > **Last updated:** 2026-08-02

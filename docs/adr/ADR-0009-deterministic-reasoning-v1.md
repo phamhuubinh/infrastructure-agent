@@ -75,7 +75,7 @@ Deterministic reasoning v1 is a limited code path over canonical Facts:
 
 # Related records
 
-- Short-form decision: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-024.
+- Short-form decision: `docs/ai/09_ARCHITECTURE_DECISIONS.md` AD-021.
 - `ADR-0008-evidence-validity.md` — Fact validity/freshness/provenance.
 - `ADR-0002-llm-assessment-only.md` — LLM boundary.
 - `docs/ai/05_EXECUTION_PIPELINE.md` — runtime flow and bounded recovery.

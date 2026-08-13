@@ -895,8 +895,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         "Fields we structurally could not observe for this case (chat/target/"
         "pipeline short-circuit, or a trace value that was never set). Not "
-        "counted as mismatches — see `docs/project/DETERMINISTIC_REASONING_"
-        "BACKLOG.md` DR1-308/DR1-505 for closing these.",
+        "counted as behavioral mismatches; they are reported separately.",
         "",
     ]
     gaps = report["diagnostics"]["trace_observability_gaps"]

@@ -1,37 +1,52 @@
-# 01 - Vision
-## What this is today
-An **Infrastructure Investigation Agent** plus a separate **project document-analysis workspace**. Chat investigates live infrastructure via SSH, Grafana, Zabbix, and explicit Internet fetch. RAG analyzes only the corpus selected in a Web UI project and never enters chat implicitly.
-Core principle (unchanged by anything below):
+# 01 - Product Purpose and Scope
+
+Orion is an evidence-driven infrastructure investigation application with a
+separate project document-analysis workspace.
+
+Its governing principle is:
+
 > **Code investigates. AI explains.**
-Investigation steps (what evidence to collect, from where, how) are deterministic and written in code. The LLM is only used at the assessment step, to read the evidence already collected and explain what it means. This principle applies regardless of whether the project stays local or becomes a hosted platform — it is not up for revision by infrastructure changes.
-## Where this is going
-If public VM access is available, the long-term goal changes from "a local CLI/web tool" to **a shared AI Platform**: one backend, reachable over the internet, used from multiple devices (work PC, laptop, phone) with the same account, same conversations, same files, same agent history — everywhere.
-```
-Internet
-    │
-   HTTPS
-    │
-    ▼
-AI Platform (VM)
-│
-├── Web UI
-├── API
-├── Auth
-├── Agent            (this project's investigation pipeline)
-├── RAG
-├── Document Service
-└── Database
-```
-Key shift: **stop storing state on the local machine.** Users, conversations, uploaded files, document history, knowledge base metadata, agent history, and job queues all move to a central database (PostgreSQL). A user can start something on one device and continue it on another because nothing important lives only on disk on one machine.
-A **Desktop App** (Tauri or Electron) is planned alongside the Web UI. Both talk to the same API, same database, same account — the only difference between them is presentation, not data or capability. Upload a file on the desktop app at work, open the web UI at home, the file, the chat, and the running agent job are all still there.
-See `03_PLATFORM_ARCHITECTURE.md` for the target architecture in detail and `04_ROADMAP.md` for how the work is sequenced.
-## What does not change
-- Evidence-driven, deterministic-first investigation (`Code investigates. AI explains.`) stays the design center of the Agent component regardless of what platform it runs inside.
-- The Agent's tools (SSH execution, Grafana, Zabbix, Internet fetch) keep their current design contract. RAG keeps a separate project/document lifecycle (see `06_TOOL_AND_CAPABILITY_DESIGN.md` and AD-021).
-- Internet access from the Agent is opt-in per request, never automatic (see `04_ROADMAP.md`). This is enforced by the pipeline — `InternetTool` is only invoked when the user explicitly requests it.
-## What explicitly changes later, not now
-- Local file-based state (targets.json, local config) → PostgreSQL-backed state, multi-user.
-- Single local process → API server + separate clients (Web UI, Desktop App).
-- No accounts → Auth.
-- Agent-only → Agent as one integrated capability inside a platform that also provides general chat, knowledge base/RAG, and document handling through first-party services.
-Some of these (PostgreSQL session store, API key auth) are partially implemented. Check `08_PROJECT_STATE.md` before building against any of them.
+
+Deterministic code classifies requests, resolves targets and source
+constraints, validates parameters, selects declared capabilities, collects and
+normalizes evidence, evaluates reviewed rules, and enforces safety boundaries.
+The assessment model receives bounded evidence and explains it; it does not
+choose tools, commands, targets, retries, or recovery paths.
+
+## Current product surfaces
+
+- An interactive CLI for chat, target management, and model connection
+  management.
+- A local Web application for isolated chat sessions, model settings, API-key
+  settings, and project-scoped document analysis.
+- A FastAPI API used by the Web UI and the Electron desktop wrapper.
+- A Docker Compose installation containing Nginx, API, SSR UI, PostgreSQL, and
+  the internal RAG service.
+- An Electron wrapper that serves the packaged UI and connects to an already
+  running local Docker installation.
+
+## Current investigation domains
+
+- Linux hosts through local execution or registered SSH targets.
+- Grafana through its HTTP API.
+- Zabbix through its API.
+- Public Internet sources through bounded search and fetch with SSRF controls.
+
+Stable general questions and content generation use the configured model
+without infrastructure collection. Requests for current public information or
+explicit URLs use deterministic external verification when the relevant
+Internet provider is configured. Infrastructure mutations are refused.
+
+## Document analysis
+
+RAG is an explicit, project-scoped Web workflow. Each project owns its
+documents, dense collection, BM25 index, and analysis history. Chat does not
+register or call the RAG service. RAG analysis uses the active Orion model and
+does not expose a retrieval-only answer mode.
+
+## Deployment scope
+
+The supported runtime is local and single-operator. Source mode stores sessions
+in SQLite. Docker Compose stores sessions in PostgreSQL and exposes the
+application on loopback HTTP through Nginx. API-key authentication protects one
+tenant; it is not an account or authorization system.
