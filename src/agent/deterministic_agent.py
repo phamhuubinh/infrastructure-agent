@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -8,6 +9,10 @@ if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
     from src.pipeline.request_frame import RequestFrame
 
+from src.agent.semantic_session_context_selector import (
+    SemanticSessionContextSelector,
+    SessionContextSelectionStatus,
+)
 from src.agent.session_investigation_context import (
     SessionContextResolver,
     SessionInvestigationContext,
@@ -24,6 +29,14 @@ from src.model.protocol.prompt_builder_v2 import (
     _detect_language,
     _normalize_evidence,
     build_assessment_prompt,
+)
+from src.model.protocol.semantic_planner_prompt import (
+    PlannerPromptContext,
+    planner_context_to_dict,
+)
+from src.model.semantic_planner_adapter import (
+    SemanticPlannerAdapter,
+    SemanticPlannerOutcomeStatus,
 )
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
@@ -76,6 +89,12 @@ from src.pipeline.routing_decision import (
     RoutingStatus,
 )
 from src.pipeline.safety_policy import sensitive_refusal
+from src.pipeline.semantic_plan import SemanticPlanRoute
+from src.pipeline.semantic_plan_harness import SemanticPlanHarnessValidator
+from src.pipeline.semantic_plan_validation import (
+    SemanticPlanValidationReason,
+    SemanticPlanValidationStatus,
+)
 from src.pipeline.source_constraints import (
     SourceConstraintUnavailableError,
     compute_comparison_status,
@@ -111,6 +130,7 @@ class DeterministicAgent:
         claim_guard_enabled: bool = True,
         external_verifier: ExternalVerificationExecutor | None = None,
         general_agent_routing_enabled: bool = True,
+        semantic_planner: SemanticPlannerAdapter | None = None,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -127,6 +147,7 @@ class DeterministicAgent:
         self._evidence_cache = evidence_cache
         self._claim_guard_enabled = claim_guard_enabled
         self._general_agent_routing_enabled = general_agent_routing_enabled
+        self._semantic_planner = semantic_planner
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
             getattr(execution_engine, "knowledge_tool", None)
         )
@@ -197,6 +218,9 @@ class DeterministicAgent:
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
             return reset_response
+        semantic_direct = self._semantic_direct_response(user_request)
+        if semantic_direct is not None:
+            return semantic_direct[0]
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
@@ -407,6 +431,63 @@ class DeterministicAgent:
             )
             return {
                 "response": explain_previous,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
+        semantic_direct = self._semantic_direct_response(user_request)
+        if semantic_direct is not None:
+            response, semantic_trace, validation = semantic_direct
+            semantic_valid = semantic_trace.get("status") == "valid"
+            semantic_rejected = semantic_trace.get("status") == "reject"
+            semantic_routing = (
+                RoutingStatus.GENERAL_CHAT
+                if semantic_valid
+                else RoutingStatus.UNSUPPORTED
+                if semantic_rejected
+                else RoutingStatus.CLARIFICATION_REQUIRED
+            )
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=semantic_routing)
+            )
+            trace = ExecutionTrace(
+                user_request=user_request,
+                stages={
+                    "semantic_plan": StageTrace(
+                        name="semantic_plan",
+                        status=(
+                            StageStatus.SUCCEEDED
+                            if semantic_valid
+                            else StageStatus.FAILED
+                        ),
+                        message=str(semantic_trace["reason"]),
+                    ),
+                    **self._artifact_validation_stage(validation),
+                },
+                answer_strategy=(
+                    AnswerStrategy.CHAT
+                    if semantic_valid
+                    else AnswerStrategy.REFUSAL
+                    if semantic_rejected
+                    else AnswerStrategy.CLARIFICATION
+                ),
+                llm_usage_reason=(
+                    LLMUsageReason.EXPECTED_ASSESSMENT
+                    if semantic_valid
+                    else LLMUsageReason.NONE
+                ),
+                routing_status=semantic_routing,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                response_strategy=self._general_response_strategy(user_request),
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+                runtime_metrics={"semantic_plan": semantic_trace},
+            )
+            return {
+                "response": response,
                 "steps": [],
                 "investigation": None,
                 "trace_id": trace.trace_id,
@@ -2052,7 +2133,13 @@ class DeterministicAgent:
         response, _ = self._chat_response(user_request)
         return self._finalize_user_visible(response, user_request)
 
-    def _chat_response(self, user_request: str) -> tuple[str, dict[str, object] | None]:
+    def _chat_response(
+        self,
+        user_request: str,
+        *,
+        semantic_context: PlannerPromptContext | None = None,
+        bounded_context_only: bool = False,
+    ) -> tuple[str, dict[str, object] | None]:
         """Return chat output plus safe artifact-validation metadata."""
         # Security guard: check for dangerous patterns in user input
         # before sending to the LLM. This covers the chat() path which
@@ -2067,7 +2154,24 @@ class DeterministicAgent:
             lang = _detect_language(user_request)
             loader = PromptLoader()
             system = loader.render("chat_system.j2", language=lang)
-            if self._conversation_store:
+            if bounded_context_only:
+                context_payload = (
+                    planner_context_to_dict(semantic_context)
+                    if semantic_context is not None
+                    else {}
+                )
+                context_text = (
+                    "\n\nRelevant semantic context: "
+                    + json.dumps(
+                        context_payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    if context_payload
+                    else ""
+                )
+                prompt = f"{system}{context_text}\n\nUser: {user_request}\n\nAssistant:"
+            elif self._conversation_store:
                 context = self._build_chat_context()
                 if context:
                     prompt = f"{context}\n\nUser: {user_request}\n\nAssistant:"
@@ -2094,6 +2198,96 @@ class DeterministicAgent:
             return response, validation
         except Exception as exc:
             return f"Sorry, I couldn't process that: {exc}", None
+
+    def _semantic_direct_response(
+        self,
+        user_request: str,
+    ) -> tuple[str, dict[str, object], dict[str, object] | None] | None:
+        """Return a validated no-tool response, or leave routing unchanged."""
+
+        if self._semantic_planner is None:
+            return None
+        selection = SemanticSessionContextSelector().select(
+            user_request,
+            self._session_context,
+        )
+        outcome = self._semantic_planner.plan_safely(
+            user_request,
+            context=selection.context,
+        )
+        if (
+            outcome.status is not SemanticPlannerOutcomeStatus.VALID
+            or outcome.plan is None
+            or outcome.plan.route is not SemanticPlanRoute.DIRECT_ANSWER
+        ):
+            return None
+        harness = SemanticPlanHarnessValidator(
+            self._execution_engine.target_resolver,
+            self._execution_engine.knowledge_tool,
+        ).validate(
+            outcome.plan,
+            raw_request=user_request,
+        )
+        trace = harness.to_trace_dict()
+        trace["planner"] = outcome.to_trace_dict()
+        if harness.validation.status is not SemanticPlanValidationStatus.VALID:
+            return (
+                self._semantic_validation_response(
+                    harness.validation.reason,
+                    user_request,
+                ),
+                trace,
+                None,
+            )
+        response, artifact_validation = self._chat_response(
+            user_request,
+            semantic_context=selection.context,
+            bounded_context_only=True,
+        )
+        if selection.status is SessionContextSelectionStatus.CLEAR:
+            self._session_context = self._session_context.reset()
+            setter = getattr(
+                self._conversation_store,
+                "set_investigation_context",
+                None,
+            )
+            if callable(setter):
+                setter(self._session_context)
+        return response, trace, artifact_validation
+
+    @staticmethod
+    def _semantic_validation_response(
+        reason: SemanticPlanValidationReason,
+        user_request: str,
+    ) -> str:
+        """Explain a rejected direct plan without consulting model memory."""
+
+        english = _detect_language(user_request) == "en"
+        if reason in {
+            SemanticPlanValidationReason.FRESHNESS_UNVERIFIED,
+            SemanticPlanValidationReason.FRESHNESS_UNAVAILABLE,
+        }:
+            return (
+                "This request requires verified live evidence, so I will not "
+                "answer it from model memory."
+                if english
+                else "Yêu cầu này cần bằng chứng trực tiếp đã xác minh, nên tôi "
+                "không trả lời bằng trí nhớ của mô hình."
+            )
+        if reason is SemanticPlanValidationReason.MUTATION_UNSAFE:
+            return (
+                "This action is outside Orion's read-only boundary and was not run."
+                if english
+                else "Thao tác này vượt ngoài ranh giới chỉ đọc của Orion và không "
+                "được thực thi."
+            )
+        return (
+            "I cannot safely use the proposed direct-answer plan; clarification or "
+            "validated evidence is required."
+            if english
+            else "Không thể dùng kế hoạch trả lời trực tiếp một cách an toàn; cần "
+            "làm rõ hoặc có bằng chứng đã xác minh."
+        )
 
     @staticmethod
     def _check_chat_safety(user_request: str) -> str | None:

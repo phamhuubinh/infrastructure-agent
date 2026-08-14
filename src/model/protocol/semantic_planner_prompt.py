@@ -83,6 +83,14 @@ def build_semantic_planner_prompt(
     )
 
 
+def planner_context_to_dict(context: PlannerPromptContext) -> dict[str, object]:
+    """Return the same bounded allowlisted context used by planner prompts."""
+
+    if not isinstance(context, PlannerPromptContext):
+        raise TypeError("context must be PlannerPromptContext.")
+    return _compact_context(context)
+
+
 def _compact_context(context: PlannerPromptContext) -> dict[str, object]:
     values: tuple[tuple[str, object], ...] = (
         ("target", _optional_context_text(context.target, "target")),
@@ -147,4 +155,5 @@ __all__ = [
     "PlannerPromptContext",
     "SemanticPlannerPrompt",
     "build_semantic_planner_prompt",
+    "planner_context_to_dict",
 ]

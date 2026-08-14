@@ -165,6 +165,11 @@ class TargetRegistry:
     def target_names(self) -> list[str]:
         return sorted(set(self._backends) | set(self._domain_tools))
 
+    def domain_tool_names(self) -> tuple[str, ...]:
+        """Return configured provider names without exposing registry internals."""
+
+        return tuple(sorted(self._domain_tools))
+
     def backend(self, name: str) -> ExecutionBackend | None:
         return self._backends.get(name)
 

@@ -78,6 +78,10 @@ class ExecutionEngine:
     def knowledge_tool(self) -> KnowledgeTool:
         return self._knowledge_tool
 
+    @property
+    def target_resolver(self) -> TargetResolver:
+        return self._target_resolver
+
     def __init__(
         self,
         intent_resolver: IntentResolver,

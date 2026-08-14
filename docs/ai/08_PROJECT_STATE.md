@@ -93,8 +93,18 @@ RAG is intentionally absent from chat tool registration.
 - Provider-neutral semantic-planning contracts cover a strict versioned
   `SemanticPlan` wire shape, bounded prompt context, structured provider
   failures/clarifications, compact capability summaries, single-capability
-  detail expansion, and typed pre-execution validation results. These
-  contracts do not participate in the current deterministic chat runtime.
+  detail expansion, and typed pre-execution validation results.
+- `SemanticPlanHarnessValidator` validates mutation intent, registry-backed
+  target references, exact source constraints/exclusions, and normalized
+  freshness before binding. `SemanticPlanBinder` maps validated
+  capability-assisted plans onto the existing evidence planner, capability
+  resolver/router, and parameter binder without granting raw-command authority.
+- `DeterministicAgent` accepts an optional semantic-planner adapter. When one is
+  supplied, a validated stable `DIRECT_ANSWER` plan uses a no-infrastructure
+  response path with only the original request and bounded relevant semantic
+  context. Rejected mutation/current-data plans do not fall back to model
+  memory. Current application entry points do not configure this optional
+  adapter.
 - User-managed model endpoints are stored and health-tested by
   `ModelConfigStore`.
 - Chat can use registered OpenAI-compatible and Anthropic provider adapters

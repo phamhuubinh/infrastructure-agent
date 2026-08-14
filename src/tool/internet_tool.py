@@ -12,7 +12,7 @@ from html.parser import HTMLParser
 from typing import Protocol
 from urllib import parse as urllib_parse
 
-from src.shared.capability import Capability
+from src.shared.capability import Capability, ParameterSpec
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityResult, CapabilityStatus
 from src.tool.errors import source_api_error
@@ -647,6 +647,7 @@ _CAPABILITIES: dict[str, Capability] = {
         description="Search the public web through a configured bounded provider",
         supported_targets=("internet",),
         parameters=("query", "locale", "max_results", "timeout"),
+        parameter_specs=(ParameterSpec("query", required=True),),
         estimated_cost=0.2,
     ),
     "web_fetch": Capability(
@@ -659,6 +660,7 @@ _CAPABILITIES: dict[str, Capability] = {
         description="Fetch a URL from the internet and return its content as text or parsed JSON",
         supported_targets=("internet",),
         parameters=("url", "timeout", "max_bytes"),
+        parameter_specs=(ParameterSpec("url", required=True),),
         estimated_cost=0.2,
     ),
 }

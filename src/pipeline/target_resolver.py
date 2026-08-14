@@ -12,7 +12,18 @@ import yaml
 from src.pipeline.alias_store import AliasStore
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.request_frame import RequestFrame
+from src.pipeline.request_semantics import RequestDomain
 from src.pipeline.semantic_candidate_retriever import normalize_lexical_text
+from src.pipeline.semantic_plan import (
+    SemanticPlan,
+    SemanticPlanRoute,
+    TargetReferenceKind,
+)
+from src.pipeline.semantic_plan_validation import (
+    SemanticPlanValidationReason,
+    SemanticPlanValidationResult,
+    SemanticPlanValidationValue,
+)
 
 if TYPE_CHECKING:
     from src.shared.pipeline_state import PipelineState, StateUpdate
@@ -81,6 +92,23 @@ class TargetResolution:
     candidates: tuple[TargetCandidate, ...]
     ambiguity_margin: float | None
     request_frame: RequestFrame
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticTargetValidationResult:
+    """Registry-backed validation of one planner-proposed target reference."""
+
+    validation: SemanticPlanValidationResult
+    resolved_target: str | None = None
+    candidates: tuple[TargetCandidate, ...] = ()
+
+    def to_trace_dict(self) -> dict[str, object]:
+        trace = self.validation.to_trace_dict()
+        if self.resolved_target is not None:
+            trace["resolved_target"] = self.resolved_target
+        if self.candidates:
+            trace["candidates"] = [item.to_dict() for item in self.candidates]
+        return trace
 
 
 class TargetResolver:
@@ -307,7 +335,175 @@ class TargetResolver:
             return [], []
         return (
             self._registry.target_names(),
-            list(self._registry._domain_tools.keys()),
+            list(self._registry.domain_tool_names()),
+        )
+
+    def validate_semantic_target(
+        self,
+        plan: SemanticPlan,
+        *,
+        allow_implicit_localhost: bool = True,
+    ) -> SemanticTargetValidationResult:
+        """Validate a semantic target without parsing the request again.
+
+        ``localhost`` is defaulted only for an omitted target on an
+        infrastructure capability plan. Explicit and inherited references
+        always resolve through the configured registry and alias policy.
+        """
+
+        if not isinstance(plan, SemanticPlan):
+            raise TypeError("plan must be a SemanticPlan.")
+        reference = plan.target
+
+        if reference.kind is TargetReferenceKind.AMBIGUOUS:
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.clarify(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_AMBIGUOUS,
+                    values=(
+                        SemanticPlanValidationValue.safe(
+                            "target",
+                            original=reference.value,
+                            normalized=None,
+                        ),
+                    ),
+                )
+            )
+        if reference.kind is TargetReferenceKind.UNKNOWN:
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.clarify(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_UNKNOWN,
+                    values=(
+                        SemanticPlanValidationValue.safe(
+                            "target",
+                            original=reference.value,
+                            normalized=None,
+                        ),
+                    ),
+                )
+            )
+
+        if reference.kind is TargetReferenceKind.UNSPECIFIED:
+            requires_environment_target = (
+                plan.route is SemanticPlanRoute.CAPABILITY_ASSISTED
+                and plan.domain is RequestDomain.ENVIRONMENT
+            )
+            if not requires_environment_target:
+                return SemanticTargetValidationResult(
+                    SemanticPlanValidationResult.valid(plan)
+                )
+            known_names, _domain_names = self._known_targets()
+            if not allow_implicit_localhost:
+                return SemanticTargetValidationResult(
+                    SemanticPlanValidationResult.clarify(
+                        plan,
+                        SemanticPlanValidationReason.TARGET_MISSING,
+                    )
+                )
+            if "localhost" not in known_names:
+                return SemanticTargetValidationResult(
+                    SemanticPlanValidationResult.unavailable(
+                        plan,
+                        SemanticPlanValidationReason.TARGET_UNKNOWN,
+                    )
+                )
+            candidate = TargetCandidate("localhost", 0.8, "implicit_default")
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.valid(
+                    plan,
+                    values=(
+                        SemanticPlanValidationValue.safe(
+                            "target",
+                            original=None,
+                            normalized="localhost",
+                        ),
+                        SemanticPlanValidationValue.safe(
+                            "target.resolution",
+                            original="omitted",
+                            normalized="implicit_default",
+                        ),
+                    ),
+                ),
+                resolved_target="localhost",
+                candidates=(candidate,),
+            )
+
+        if reference.value is None:
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.clarify(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_MISSING,
+                )
+            )
+
+        self._ensure_loaded()
+        known_names, domain_names = self._known_targets()
+        try:
+            resolved, _score, candidates, _margin = self._resolve_explicit(
+                reference.value,
+                known_names,
+                domain_names,
+            )
+        except AmbiguousTargetError as exc:
+            candidate_values = tuple(
+                TargetCandidate(item, 0.0, "ambiguous") for item in exc.candidates
+            )
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.clarify(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_AMBIGUOUS,
+                    values=(
+                        SemanticPlanValidationValue.safe(
+                            "target",
+                            original=reference.value,
+                            normalized=None,
+                        ),
+                    ),
+                ),
+                candidates=candidate_values,
+            )
+        except UnknownTargetError:
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.clarify(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_UNKNOWN,
+                    values=(
+                        SemanticPlanValidationValue.safe(
+                            "target",
+                            original=reference.value,
+                            normalized=None,
+                        ),
+                    ),
+                )
+            )
+
+        if resolved not in known_names:
+            return SemanticTargetValidationResult(
+                SemanticPlanValidationResult.unavailable(
+                    plan,
+                    SemanticPlanValidationReason.TARGET_UNKNOWN,
+                )
+            )
+        resolution_source = candidates[0].source if candidates else "registry"
+        return SemanticTargetValidationResult(
+            SemanticPlanValidationResult.valid(
+                plan,
+                values=(
+                    SemanticPlanValidationValue.safe(
+                        "target",
+                        original=reference.value,
+                        normalized=resolved,
+                    ),
+                    SemanticPlanValidationValue.safe(
+                        "target.resolution",
+                        original=reference.kind.value,
+                        normalized=resolution_source,
+                    ),
+                ),
+            ),
+            resolved_target=resolved,
+            candidates=candidates,
         )
 
     def _explicit_target_candidate(
@@ -527,8 +723,6 @@ class TargetResolver:
             "target_score": resolution.score,
             "target_margin": resolution.ambiguity_margin,
         }
-
-
     def resolve(self, request: InvestigationRequest) -> None:
         """Resolve the target for the given investigation request.
 
