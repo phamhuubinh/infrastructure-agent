@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from src.agent.final_response_guard import (
     FinalResponseConstraints,
     FinalResponseGuard,
+    FinalResponseViolation,
 )
 from src.agent.semantic_loop_coordinator import (
     SemanticLoopConfig,
@@ -48,6 +49,11 @@ from src.model.protocol.semantic_planner_prompt import (
     planner_context_to_dict,
 )
 from src.model.semantic_planner_adapter import SemanticPlannerAdapter
+from src.model.semantic_relevance_verifier import (
+    SemanticRelevanceResult,
+    SemanticRelevanceVerifier,
+    SemanticRelevanceVerifierProtocol,
+)
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
@@ -151,6 +157,7 @@ class DeterministicAgent:
         external_verifier: ExternalVerificationExecutor | None = None,
         general_agent_routing_enabled: bool = True,
         semantic_planner: SemanticPlannerAdapter | None = None,
+        semantic_relevance_verifier: SemanticRelevanceVerifierProtocol | None = None,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -168,6 +175,11 @@ class DeterministicAgent:
         self._claim_guard_enabled = claim_guard_enabled
         self._general_agent_routing_enabled = general_agent_routing_enabled
         self._semantic_planner = semantic_planner
+        self._semantic_relevance_verifier = semantic_relevance_verifier or (
+            SemanticRelevanceVerifier(assessment_model)
+            if semantic_planner is not None
+            else None
+        )
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
             getattr(execution_engine, "knowledge_tool", None)
         )
@@ -2422,12 +2434,30 @@ class DeterministicAgent:
                 used_provenance=tuple(dict.fromkeys(provenance)),
             ),
         )
+        text = guard.text
+        postconditions = guard.to_trace_dict()
+        verifier = self._semantic_relevance_verifier
+        if guard.passed and response.model_used and verifier is not None:
+            relevance = verifier.verify(user_request, plan, response.text)
+            if not isinstance(relevance, SemanticRelevanceResult):
+                raise TypeError("semantic relevance result contract is invalid")
+            postconditions["relevance"] = relevance.to_trace_dict()
+            if not relevance.aligned:
+                postconditions["passed"] = False
+                violations = postconditions["violations"]
+                assert isinstance(violations, list)
+                violations.append(FinalResponseViolation.SEMANTIC_NOT_ALIGNED.value)
+                text = (
+                    "Câu trả lời bị chặn vì không trả lời đúng yêu cầu hiện tại."
+                    if _detect_language(user_request) == "vi"
+                    else "The response was blocked because it did not answer the current request."
+                )
         return SemanticLoopResponse(
-            text=guard.text,
+            text=text,
             answer_strategy=response.answer_strategy,
             model_used=response.model_used,
             artifact_validation=response.artifact_validation,
-            postcondition_validation=guard.to_trace_dict(),
+            postcondition_validation=postconditions,
         )
 
     def _semantic_loop_direct_response(

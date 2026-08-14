@@ -81,6 +81,11 @@ protection.
   boundary, exact calculator output, represented language/shape constraints,
   and actually used provenance. Failed checks return a safe deterministic
   replacement and are recorded without model repair.
+- Otherwise-valid model drafts in the semantic loop receive one compact
+  semantic relevance check. The verifier sees only the original request, an
+  allowlisted plan summary, and a bounded draft; it returns only an
+  `aligned`/`not_aligned` decision and reason code. Deterministic responses and
+  drafts already rejected by hard postconditions do not invoke it.
 
 ## Child Tools
 

@@ -19,6 +19,7 @@ class FinalResponseViolation(str, Enum):
     LANGUAGE_MISMATCH = "language_mismatch"
     SHAPE_MISMATCH = "shape_mismatch"
     PROVENANCE_NOT_USED = "provenance_not_used"
+    SEMANTIC_NOT_ALIGNED = "semantic_not_aligned"
 
 
 @dataclass(frozen=True, slots=True)

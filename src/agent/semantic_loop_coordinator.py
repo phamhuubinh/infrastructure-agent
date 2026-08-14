@@ -163,6 +163,11 @@ class SemanticLoopResult:
                 ),
                 "unit": self.calculation.unit,
             }
+        postconditions = _bounded_postcondition_trace(
+            self.response.postcondition_validation
+        )
+        if postconditions is not None:
+            trace["postconditions"] = postconditions
         return trace
 
 
@@ -600,6 +605,35 @@ def _planner_failure(
     if status is SemanticPlannerOutcomeStatus.UNSUPPORTED:
         return SemanticLoopFailure.PLANNER_UNSUPPORTED
     return SemanticLoopFailure.PROVIDER_FAILURE
+
+
+def _bounded_postcondition_trace(
+    value: dict[str, object] | None,
+) -> dict[str, object] | None:
+    """Expose only stable postcondition and relevance codes in loop traces."""
+
+    if value is None:
+        return None
+    raw_violations = value.get("violations", ())
+    violations = (
+        [str(item)[:64] for item in raw_violations[:8]]
+        if isinstance(raw_violations, (list, tuple))
+        else []
+    )
+    trace: dict[str, object] = {
+        "passed": bool(value.get("passed")),
+        "violations": violations,
+    }
+    relevance = value.get("relevance")
+    if isinstance(relevance, dict):
+        decision = relevance.get("decision")
+        reason = relevance.get("reason")
+        if isinstance(decision, str) and isinstance(reason, str):
+            trace["relevance"] = {
+                "decision": decision[:32],
+                "reason": reason[:64],
+            }
+    return trace
 
 
 def _record(

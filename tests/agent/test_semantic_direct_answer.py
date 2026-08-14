@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -40,7 +41,25 @@ class CapturingAssessmentModel(AssessmentModelAdapter):
 
     def assess_raw(self, prompt: str) -> str:
         self.prompts.append(prompt)
+        if "compact final-answer relevance verifier" in prompt:
+            return '{"decision":"aligned","reason":"aligned"}'
         return "Câu trả lời trực tiếp."
+
+
+class RelevanceScenarioModel(AssessmentModelAdapter):
+    def __init__(self, draft: str, verifier_response: str) -> None:
+        self.draft = draft
+        self.verifier_response = verifier_response
+        self.prompts: list[str] = []
+
+    def assess(self, _assessment_request: AssessmentRequest) -> str:
+        return self.draft
+
+    def assess_raw(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        if "compact final-answer relevance verifier" in prompt:
+            return self.verifier_response
+        return self.draft
 
 
 class FixedPlannerProvider:
@@ -106,6 +125,24 @@ def _agent(
     )
 
 
+def _scenario_agent(
+    request_concept: str,
+    draft: str,
+    verifier_response: str,
+) -> tuple[DeterministicAgent, RelevanceScenarioModel]:
+    engine = NoExecutionEngine()
+    model = RelevanceScenarioModel(draft, verifier_response)
+    plan = replace(_direct_plan(), concept=request_concept)
+    return (
+        DeterministicAgent(
+            engine,  # type: ignore[arg-type]
+            model,
+            semantic_planner=SemanticPlannerAdapter([FixedPlannerProvider(plan)]),
+        ),
+        model,
+    )
+
+
 @pytest.mark.parametrize(
     "user_text",
     (
@@ -130,6 +167,87 @@ def test_validated_direct_answers_make_zero_infrastructure_calls(
     assert result["execution_trace"]["evidence_status"] == "NOT_APPLICABLE"
     assert engine.execute_calls == 0
     assert user_text in model.prompts[-1]
+
+
+@pytest.mark.parametrize(
+    ("user_request", "concept", "draft", "reason", "blocked_marker"),
+    (
+        (
+            "Cảm ơn bạn nhé",
+            "gratitude acknowledgement",
+            "Bạn nên lắp camera và cảm biến cửa để bảo vệ ngôi nhà.",
+            "cross_task",
+            "bị chặn",
+        ),
+        (
+            "Review the HTTP retry logic.",
+            "HTTP retry review",
+            "The production server has 32 CPU cores and 128 GB RAM.",
+            "request_not_answered",
+            "blocked",
+        ),
+    ),
+)
+def test_semantic_relevance_rejects_otherwise_valid_cross_task_drafts(
+    user_request: str,
+    concept: str,
+    draft: str,
+    reason: str,
+    blocked_marker: str,
+) -> None:
+    agent, model = _scenario_agent(
+        concept,
+        draft,
+        json.dumps({"decision": "not_aligned", "reason": reason}),
+    )
+
+    result = agent.run_with_steps(user_request)
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert blocked_marker in result["response"]
+    assert draft not in result["response"]
+    assert semantic["postconditions"]["relevance"] == {
+        "decision": "not_aligned",
+        "reason": reason,
+    }
+    assert semantic["postconditions"]["violations"] == [
+        "semantic_not_aligned"
+    ]
+    assert len(model.prompts) == 2
+    assert "analysis" not in json.dumps(semantic)
+
+
+@pytest.mark.parametrize(
+    ("user_request", "concept", "draft"),
+    (
+        ("Cảm ơn bạn nhé", "gratitude acknowledgement", "Không có gì!"),
+        (
+            "Review the HTTP retry logic.",
+            "HTTP retry review",
+            "The retry loop stops after three transient failures.",
+        ),
+    ),
+)
+def test_semantic_relevance_keeps_correct_concise_drafts(
+    user_request: str,
+    concept: str,
+    draft: str,
+) -> None:
+    agent, _model = _scenario_agent(
+        concept,
+        draft,
+        '{"decision":"aligned","reason":"aligned"}',
+    )
+
+    result = agent.run_with_steps(user_request)
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert result["response"] == draft
+    assert semantic["postconditions"]["relevance"] == {
+        "decision": "aligned",
+        "reason": "aligned",
+    }
+    assert semantic["postconditions"]["passed"] is True
 
 
 def test_valid_direct_answer_does_not_enter_infrastructure_discovery(

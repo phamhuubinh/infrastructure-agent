@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import MappingProxyType
@@ -23,6 +23,11 @@ from src.model.semantic_planner_adapter import (
     SemanticPlannerOutcome,
     SemanticPlannerOutcomeReason,
     SemanticPlannerOutcomeStatus,
+)
+from src.model.semantic_relevance_verifier import (
+    SemanticRelevanceDecision,
+    SemanticRelevanceReason,
+    SemanticRelevanceResult,
 )
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.basic_calculator import (
@@ -526,6 +531,7 @@ class LoopAssessmentModel(AssessmentModelAdapter):
     def __init__(self) -> None:
         self.assess_calls = 0
         self.requests: list[AssessmentRequest] = []
+        self.raw_prompts: list[str] = []
 
     def assess(self, assessment_request: AssessmentRequest) -> str:
         self.assess_calls += 1
@@ -533,7 +539,22 @@ class LoopAssessmentModel(AssessmentModelAdapter):
         return "Bounded assessment."
 
     def assess_raw(self, _prompt: str) -> str:
+        self.raw_prompts.append(_prompt)
+        if "compact final-answer relevance verifier" in _prompt:
+            return '{"decision":"aligned","reason":"aligned"}'
         return "Hello."
+
+
+@dataclass
+class CountingRelevanceVerifier:
+    calls: int = 0
+
+    def verify(self, _request, _plan, _draft) -> SemanticRelevanceResult:
+        self.calls += 1
+        return SemanticRelevanceResult(
+            SemanticRelevanceDecision.ALIGNED,
+            SemanticRelevanceReason.ALIGNED,
+        )
 
 
 class AgentLoopExecutionEngine:
@@ -627,6 +648,65 @@ def test_deterministic_agent_returns_exact_structured_calculator_result() -> Non
     assert semantic["actual_tool_calls"] == 0
     assert engine.execute_calls == 0
     assert model.assess_calls == 0
+    assert model.raw_prompts == []
+
+
+def test_relevance_verifier_runs_only_after_hard_postconditions_need_it() -> None:
+    plan = _direct_plan()
+    verifier = CountingRelevanceVerifier()
+    agent = DeterministicAgent(
+        AgentLoopExecutionEngine(),  # type: ignore[arg-type]
+        LoopAssessmentModel(),
+        semantic_planner=StaticPlanner(_outcome(plan)),  # type: ignore[arg-type]
+        semantic_relevance_verifier=verifier,
+    )
+    model_draft = SemanticLoopResponse(
+        text="Hello.",
+        answer_strategy="CHAT",
+        model_used=True,
+    )
+    deterministic_draft = SemanticLoopResponse(
+        text="Hello.",
+        answer_strategy="DETERMINISTIC_TEMPLATE",
+        model_used=False,
+    )
+
+    aligned = agent._semantic_loop_verify_response(  # noqa: SLF001
+        "Say hello",
+        model_draft,
+        plan,
+        _harness(plan),
+        None,
+        None,
+    )
+    agent._semantic_loop_verify_response(  # noqa: SLF001
+        "Say hello",
+        deterministic_draft,
+        plan,
+        _harness(plan),
+        None,
+        None,
+    )
+    current_plan = replace(plan, freshness=FreshnessRequirement.CURRENT)
+    hard_rejection = agent._semantic_loop_verify_response(  # noqa: SLF001
+        "What is the current value?",
+        SemanticLoopResponse(
+            text="The current value is 100.",
+            answer_strategy="CHAT",
+            model_used=True,
+        ),
+        current_plan,
+        _harness(current_plan),
+        None,
+        None,
+    )
+
+    assert verifier.calls == 1
+    assert aligned.postcondition_validation["relevance"]["decision"] == "aligned"
+    assert "semantic_not_aligned" not in aligned.postcondition_validation["violations"]
+    assert hard_rejection.postcondition_validation["violations"] == [
+        "current_unverified"
+    ]
 
 
 def test_ambiguous_structured_compute_is_rejected_before_execution() -> None:

@@ -121,6 +121,14 @@ and cited provenance where those constraints are known. A violation produces a
 safe deterministic replacement and a bounded trace record; it does not trigger
 a model repair call.
 
+When those hard postconditions pass but a model-generated draft still has no
+deterministic relevance proof, `SemanticRelevanceVerifier` performs one compact
+authority-free check. Its input contains only the original request, an
+allowlisted semantic-plan summary, and a byte-bounded draft. The result is an
+`aligned`/`not_aligned` decision plus a stable reason code. It cannot call tools,
+claim external evidence, retry, or store model reasoning. Deterministic and
+already-rejected drafts skip this verifier.
+
 ## Result contracts
 
 `CommandResult` is the immutable backend outcome. It contains status, exit
