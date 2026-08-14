@@ -548,14 +548,20 @@ class TestVerifiedValueGeneratedArtifact:
         model.assess.assert_called_once()
 
     def test_missing_or_partial_support_never_generates_a_current_value(self) -> None:
-        for outcome in (
-            _external_outcome(
-                passage_text="Python is a programming language.",
-                relevance=ExternalEvidenceRelevance.IRRELEVANT,
+        for outcome, expected_status in (
+            (
+                _external_outcome(
+                    passage_text="Python is a programming language.",
+                    relevance=ExternalEvidenceRelevance.IRRELEVANT,
+                ),
+                "UNAVAILABLE",
             ),
-            _external_outcome(
-                passage_text="Python current version is 3.",
-                relevance=ExternalEvidenceRelevance.PARTIAL,
+            (
+                _external_outcome(
+                    passage_text="Python current version is 3.",
+                    relevance=ExternalEvidenceRelevance.PARTIAL,
+                ),
+                "PARTIAL",
             ),
         ):
             agent, model, _verifier = _agent_with_external_outcome(outcome)
@@ -566,7 +572,8 @@ class TestVerifiedValueGeneratedArtifact:
             )
 
             assert "3.14.2" not in result["response"]
-            assert "Không thể kiểm chứng thông tin hiện tại" in result["response"]
+            assert "cannot be verified" in result["response"].casefold()
+            assert result["execution_trace"]["evidence_status"] == expected_status
             model.assess.assert_not_called()
 
     def test_wrong_subject_value_is_redacted_from_generated_artifact(self) -> None:

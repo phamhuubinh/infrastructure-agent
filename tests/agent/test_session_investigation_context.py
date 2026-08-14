@@ -60,6 +60,8 @@ def test_switch_target_clears_target_scoped_resources() -> None:
         active_concept="service",
         active_service="nginx",
         active_path="/var/log/nginx",
+        active_sources=(SourceConstraint.GRAFANA,),
+        active_excluded_sources=(SourceConstraint.INTERNET,),
     )
 
     switched = context.switch_target("server02")
@@ -68,6 +70,31 @@ def test_switch_target_clears_target_scoped_resources() -> None:
     assert switched.active_service is None
     assert switched.active_path is None
     assert switched.active_concept is None
+    assert switched.active_sources == ()
+    assert switched.active_excluded_sources == ()
+
+
+def test_explicit_source_replaces_prior_source_and_clears_stale_exclusion() -> None:
+    context = SessionInvestigationContext(
+        active_target="monitor",
+        active_sources=(SourceConstraint.GRAFANA,),
+        active_excluded_sources=(SourceConstraint.INTERNET,),
+    )
+    frame = Normalizer().normalize("Chỉ dùng Zabbix kiểm tra CPU trên monitor")
+
+    updated = context.update_from_frame(frame.evolve(target_resolved="monitor"))
+
+    assert updated.active_sources == (SourceConstraint.ZABBIX,)
+    assert updated.active_excluded_sources == ()
+
+
+def test_unresolved_new_target_does_not_replace_validated_context() -> None:
+    context = SessionInvestigationContext(active_target="monitor")
+    unresolved = Normalizer().normalize("Kiểm tra CPU trên doesnotexist123")
+
+    updated = context.update_from_frame(unresolved)
+
+    assert updated.active_target == "monitor"
 
 
 def test_context_persists_without_raw_evidence(tmp_path) -> None:

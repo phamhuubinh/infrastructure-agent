@@ -56,6 +56,11 @@ protection.
 - `CommandResult`, `CapabilityResult`, `ToolResult`, and `EvidencePackage`
   preserve typed outcomes, separate streams, structured failure metadata,
   provenance, and bounded serialization.
+- Assessment-model evidence has a deterministic global byte/item budget.
+  Canonical facts, status, missing markers, contradictions, source/target
+  identity, and compact provenance take priority. Raw payload is allowed only
+  when an assessment request explicitly requires a valid fact-less package,
+  under a separate redacted budget.
 - Only fresh `VALID`/`VALID_EMPTY` evidence satisfies requirements or enters
   cache reuse.
 - Fact normalizers cover Linux, Grafana, and Zabbix evidence. Reconciliation
@@ -71,6 +76,11 @@ protection.
   cleanup, and a non-empty fallback apply at the final API boundary.
   Evidence-grounding and numeric claim guards apply when `claim_guard` is
   enabled.
+- Semantic-loop responses also pass deterministic postcondition checks for
+  validated target identity, current-data verification, the read-only
+  boundary, exact calculator output, represented language/shape constraints,
+  and actually used provenance. Failed checks return a safe deterministic
+  replacement and are recorded without model repair.
 
 ## Child Tools
 
@@ -101,13 +111,25 @@ RAG is intentionally absent from chat tool registration.
   resolver/router, and parameter binder without granting raw-command authority.
 - `DeterministicAgent` accepts an optional semantic-planner adapter. When one is
   supplied, `SemanticLoopCoordinator` runs the finite states `PLAN`,
-  `VALIDATE`, `EXECUTE`, `ASSESS/RESPOND`, and `DONE`/`FAIL`. Direct answers
-  skip binding and execution; capability-assisted plans can call the execution
-  engine once after validation and binding, under the existing execution
-  budget. Provider, validation, binding, execution, response, and state-limit
-  failures terminate without planner-controlled retries. Trace data contains
-  bounded state/reason codes and counters, not prompts or hidden reasoning.
-  Current application entry points do not configure this optional adapter.
+  `VALIDATE`, `EXECUTE`, `ASSESS/RESPOND`, and `DONE`/`FAIL`. Ordinary direct
+  answers skip binding and execution. Structured compute runs the calculator
+  once without a tool; capability-assisted plans dispatch once to either the
+  infrastructure engine or the external verifier after validation/binding and
+  under their existing budgets. Provider, validation, binding, execution,
+  response, and state-limit failures terminate without planner-controlled
+  retries. Trace data contains bounded state/reason codes and counters, not
+  prompts or hidden reasoning. Current application entry points do not
+  configure this optional adapter.
+- A semantic plan may include a structured `CalculatorRequest` with typed,
+  operation-specific operands and units. The harness validates it and the loop
+  runs the reviewed deterministic calculator once without tool or model access.
+  Supported arithmetic includes binary operations, average, percent-of,
+  worker/task rate, and rate-unit conversion; invalid or ambiguous contracts
+  fail explicitly.
+- Capability-assisted semantic plans for current external information and
+  explicit public URLs execute through the existing bounded external verifier.
+  Verified evidence/provenance is assessed; unavailable search/fetch returns an
+  explicit unverified response and never falls back to stale model memory.
 - User-managed model endpoints are stored and health-tested by
   `ModelConfigStore`.
 - Chat can use registered OpenAI-compatible and Anthropic provider adapters
@@ -129,8 +151,11 @@ RAG is intentionally absent from chat tool registration.
   conversation memory.
 - Semantic-planner context selection inherits only relevant
   target/concept/service/path/time/source/clarification fields for a follow-up;
-  unrelated new requests clear that planner context and evidence receipts are
-  never included in it.
+  unrelated new requests receive no inherited planner context and do not erase
+  stored infrastructure state. An explicit target switch clears task-scoped
+  concepts, resources, and source filters before applying the new request;
+  explicit sources/exclusions replace stale filters. Evidence receipts are
+  never included in planner context.
 - RAG project metadata, document data, vector collections, BM25 indexes, and
   the latest 100 analyses persist under `RAG_DATA_DIR` in the RAG volume.
 

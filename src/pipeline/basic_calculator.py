@@ -19,6 +19,83 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from enum import Enum
+
+
+class CalculatorOperation(str, Enum):
+    ADD = "add"
+    SUBTRACT = "subtract"
+    MULTIPLY = "multiply"
+    DIVIDE = "divide"
+    AVERAGE = "average"
+    PERCENT_OF = "percent_of"
+    WORKER_TASK_RATE = "worker_task_rate"
+    RATE_CONVERT = "rate_convert"
+
+
+class CalculatorRateUnit(str, Enum):
+    PER_SECOND = "per_second"
+    PER_MINUTE = "per_minute"
+    PER_HOUR = "per_hour"
+
+
+class CalculatorDurationUnit(str, Enum):
+    SECONDS = "seconds"
+    MINUTES = "minutes"
+    HOURS = "hours"
+
+
+class CalculatorResultStatus(str, Enum):
+    SUCCESS = "success"
+    AMBIGUOUS = "ambiguous"
+    INVALID = "invalid"
+    UNSUPPORTED = "unsupported"
+
+
+@dataclass(frozen=True, slots=True)
+class CalculatorRequest:
+    """Structured arithmetic selected by semantic planning.
+
+    Fields are operation-specific.  The calculator never discovers operands
+    by scraping arbitrary prose on this path.
+    """
+
+    operation: CalculatorOperation
+    values: tuple[Decimal, ...] = ()
+    left: Decimal | None = None
+    right: Decimal | None = None
+    base_value: Decimal | None = None
+    percent: Decimal | None = None
+    total_tasks: Decimal | None = None
+    workers: Decimal | None = None
+    duration: Decimal | None = None
+    duration_unit: CalculatorDurationUnit | None = None
+    rate_value: Decimal | None = None
+    rate_unit: CalculatorRateUnit | None = None
+    target_rate_unit: CalculatorRateUnit | None = None
+    unit: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CalculatorContractResult:
+    status: CalculatorResultStatus
+    operation: CalculatorOperation | None
+    value: Decimal | None = None
+    unit: str | None = None
+    reason: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status is CalculatorResultStatus.SUCCESS
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status.value,
+            "operation": self.operation.value if self.operation is not None else None,
+            "value": str(self.value) if self.value is not None else None,
+            "unit": self.unit,
+            "reason": self.reason,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,6 +259,249 @@ def calculate(expression: str) -> CalculationResult:
     return CalculationResult(True, value=value)
 
 
+def calculate_request(request: CalculatorRequest) -> CalculatorContractResult:
+    """Execute one validated structured request without reading user prose."""
+
+    if not isinstance(request, CalculatorRequest):
+        raise TypeError("request must be a CalculatorRequest.")
+    operation = request.operation
+    if not isinstance(operation, CalculatorOperation):
+        return CalculatorContractResult(
+            CalculatorResultStatus.UNSUPPORTED,
+            None,
+            reason="unsupported_operation",
+        )
+
+    invalid_field = _invalid_decimal_field(request)
+    if invalid_field is not None:
+        return CalculatorContractResult(
+            CalculatorResultStatus.INVALID,
+            operation,
+            reason=f"invalid_{invalid_field}",
+        )
+
+    if operation is CalculatorOperation.AVERAGE:
+        if not request.values or _has_values_outside(request, {"values", "unit"}):
+            return _ambiguous(operation, "average_requires_values_only")
+        value = sum(request.values, Decimal(0)) / Decimal(len(request.values))
+        return _success(request, value, request.unit)
+
+    binary = {
+        CalculatorOperation.ADD: lambda left, right: left + right,
+        CalculatorOperation.SUBTRACT: lambda left, right: left - right,
+        CalculatorOperation.MULTIPLY: lambda left, right: left * right,
+        CalculatorOperation.DIVIDE: _safe_div,
+    }.get(operation)
+    if binary is not None:
+        if (
+            request.left is None
+            or request.right is None
+            or _has_values_outside(request, {"left", "right", "unit"})
+        ):
+            return _ambiguous(operation, "binary_operation_requires_left_and_right")
+        try:
+            value = binary(request.left, request.right)
+        except ZeroDivisionError:
+            return CalculatorContractResult(
+                CalculatorResultStatus.INVALID,
+                operation,
+                reason="division_by_zero",
+            )
+        return _success(request, value, request.unit)
+
+    if operation is CalculatorOperation.PERCENT_OF:
+        if (
+            request.base_value is None
+            or request.percent is None
+            or _has_values_outside(request, {"base_value", "percent", "unit"})
+        ):
+            return _ambiguous(operation, "percent_of_requires_base_and_percent")
+        if request.percent < 0 or request.percent > 100:
+            return CalculatorContractResult(
+                CalculatorResultStatus.INVALID,
+                operation,
+                reason="percent_out_of_range",
+            )
+        return _success(
+            request,
+            request.base_value * request.percent / Decimal(100),
+            request.unit,
+        )
+
+    if operation is CalculatorOperation.WORKER_TASK_RATE:
+        if (
+            request.total_tasks is None
+            or request.workers is None
+            or request.duration is None
+            or request.duration_unit is None
+            or _has_values_outside(
+                request,
+                {"total_tasks", "workers", "duration", "duration_unit"},
+            )
+        ):
+            return _ambiguous(
+                operation,
+                "worker_task_rate_requires_tasks_workers_duration",
+            )
+        if request.total_tasks < 0 or request.workers <= 0 or request.duration <= 0:
+            return CalculatorContractResult(
+                CalculatorResultStatus.INVALID,
+                operation,
+                reason="worker_task_rate_requires_positive_denominators",
+            )
+        minutes = _duration_in_minutes(request.duration, request.duration_unit)
+        return _success(
+            request,
+            request.total_tasks / request.workers / minutes,
+            "tasks/worker/minute",
+        )
+
+    if operation is CalculatorOperation.RATE_CONVERT:
+        if (
+            request.rate_value is None
+            or request.rate_unit is None
+            or request.target_rate_unit is None
+            or _has_values_outside(
+                request,
+                {"rate_value", "rate_unit", "target_rate_unit", "unit"},
+            )
+        ):
+            return _ambiguous(operation, "rate_convert_requires_rate_and_units")
+        if request.rate_value < 0:
+            return CalculatorContractResult(
+                CalculatorResultStatus.INVALID,
+                operation,
+                reason="rate_must_be_non_negative",
+            )
+        per_second = request.rate_value / _seconds_per_rate_unit(request.rate_unit)
+        value = per_second * _seconds_per_rate_unit(request.target_rate_unit)
+        base = request.unit or "items"
+        unit = f"{base}/{_rate_unit_label(request.target_rate_unit)}"
+        return _success(request, value, unit)
+
+    return CalculatorContractResult(
+        CalculatorResultStatus.UNSUPPORTED,
+        operation,
+        reason="unsupported_operation",
+    )
+
+
+def _success(
+    request: CalculatorRequest,
+    value: Decimal,
+    unit: str | None,
+) -> CalculatorContractResult:
+    return CalculatorContractResult(
+        CalculatorResultStatus.SUCCESS,
+        request.operation,
+        value=value,
+        unit=unit,
+    )
+
+
+def _ambiguous(
+    operation: CalculatorOperation,
+    reason: str,
+) -> CalculatorContractResult:
+    return CalculatorContractResult(
+        CalculatorResultStatus.AMBIGUOUS,
+        operation,
+        reason=reason,
+    )
+
+
+def _invalid_decimal_field(request: CalculatorRequest) -> str | None:
+    names = (
+        "left",
+        "right",
+        "base_value",
+        "percent",
+        "total_tasks",
+        "workers",
+        "duration",
+        "rate_value",
+    )
+    for name in names:
+        value = getattr(request, name)
+        if value is not None and not isinstance(value, Decimal):
+            return name
+    if not isinstance(request.values, tuple) or any(
+        not isinstance(value, Decimal) for value in request.values
+    ):
+        return "values"
+    if request.unit is not None and (
+        not isinstance(request.unit, str)
+        or not request.unit.strip()
+        or len(request.unit) > 64
+    ):
+        return "unit"
+    if request.duration_unit is not None and not isinstance(
+        request.duration_unit, CalculatorDurationUnit
+    ):
+        return "duration_unit"
+    if request.rate_unit is not None and not isinstance(
+        request.rate_unit, CalculatorRateUnit
+    ):
+        return "rate_unit"
+    if request.target_rate_unit is not None and not isinstance(
+        request.target_rate_unit, CalculatorRateUnit
+    ):
+        return "target_rate_unit"
+    return None
+
+
+def _has_values_outside(
+    request: CalculatorRequest,
+    allowed: set[str],
+) -> bool:
+    values: dict[str, object] = {
+        "values": request.values,
+        "left": request.left,
+        "right": request.right,
+        "base_value": request.base_value,
+        "percent": request.percent,
+        "total_tasks": request.total_tasks,
+        "workers": request.workers,
+        "duration": request.duration,
+        "duration_unit": request.duration_unit,
+        "rate_value": request.rate_value,
+        "rate_unit": request.rate_unit,
+        "target_rate_unit": request.target_rate_unit,
+        "unit": request.unit,
+    }
+    return any(
+        name not in allowed and value not in (None, (), "")
+        for name, value in values.items()
+    )
+
+
+def _duration_in_minutes(
+    value: Decimal,
+    unit: CalculatorDurationUnit,
+) -> Decimal:
+    return {
+        CalculatorDurationUnit.SECONDS: value / Decimal(60),
+        CalculatorDurationUnit.MINUTES: value,
+        CalculatorDurationUnit.HOURS: value * Decimal(60),
+    }[unit]
+
+
+def _seconds_per_rate_unit(unit: CalculatorRateUnit) -> Decimal:
+    return {
+        CalculatorRateUnit.PER_SECOND: Decimal(1),
+        CalculatorRateUnit.PER_MINUTE: Decimal(60),
+        CalculatorRateUnit.PER_HOUR: Decimal(3600),
+    }[unit]
+
+
+def _rate_unit_label(unit: CalculatorRateUnit) -> str:
+    return {
+        CalculatorRateUnit.PER_SECOND: "second",
+        CalculatorRateUnit.PER_MINUTE: "minute",
+        CalculatorRateUnit.PER_HOUR: "hour",
+    }[unit]
+
+
 def calculate_supplied_text(text: str) -> SuppliedCalculation:
     """Parse only reviewed VI/EN supplied-data arithmetic forms."""
     lower = " ".join(text.casefold().split())
@@ -228,8 +548,15 @@ def format_value(value: Decimal) -> str:
 
 
 __all__ = [
+    "CalculatorContractResult",
+    "CalculatorDurationUnit",
+    "CalculatorOperation",
+    "CalculatorRateUnit",
+    "CalculatorRequest",
+    "CalculatorResultStatus",
     "CalculationResult",
     "calculate",
+    "calculate_request",
     "format_value",
     "calculate_supplied_text",
     "SuppliedCalculation",

@@ -5,11 +5,76 @@ from __future__ import annotations
 from decimal import Decimal
 
 from src.pipeline.basic_calculator import (
+    CalculatorDurationUnit,
+    CalculatorOperation,
+    CalculatorRateUnit,
+    CalculatorRequest,
+    CalculatorResultStatus,
     calculate,
+    calculate_request,
     calculate_supplied_text,
     format_value,
     looks_like_arithmetic,
 )
+
+
+def test_structured_average_uses_exact_operands() -> None:
+    result = calculate_request(
+        CalculatorRequest(
+            CalculatorOperation.AVERAGE,
+            values=(Decimal("20"), Decimal("40"), Decimal("60")),
+        )
+    )
+
+    assert result.status is CalculatorResultStatus.SUCCESS
+    assert result.value == Decimal("40")
+
+
+def test_structured_worker_task_rate_has_explicit_formula_fields() -> None:
+    result = calculate_request(
+        CalculatorRequest(
+            CalculatorOperation.WORKER_TASK_RATE,
+            total_tasks=Decimal("800"),
+            workers=Decimal("8"),
+            duration=Decimal("10"),
+            duration_unit=CalculatorDurationUnit.MINUTES,
+        )
+    )
+
+    assert result.value == Decimal("10")
+    assert result.unit == "tasks/worker/minute"
+
+
+def test_structured_rate_conversion_preserves_unit_semantics() -> None:
+    result = calculate_request(
+        CalculatorRequest(
+            CalculatorOperation.RATE_CONVERT,
+            rate_value=Decimal("120"),
+            rate_unit=CalculatorRateUnit.PER_MINUTE,
+            target_rate_unit=CalculatorRateUnit.PER_SECOND,
+            unit="requests",
+        )
+    )
+
+    assert result.value == Decimal("2")
+    assert result.unit == "requests/second"
+
+
+def test_structured_percent_and_ambiguous_requests_fail_explicitly() -> None:
+    invalid_percent = calculate_request(
+        CalculatorRequest(
+            CalculatorOperation.PERCENT_OF,
+            base_value=Decimal("200"),
+            percent=Decimal("120"),
+        )
+    )
+    ambiguous = calculate_request(
+        CalculatorRequest(CalculatorOperation.DIVIDE, left=Decimal("10"))
+    )
+
+    assert invalid_percent.status is CalculatorResultStatus.INVALID
+    assert invalid_percent.reason == "percent_out_of_range"
+    assert ambiguous.status is CalculatorResultStatus.AMBIGUOUS
 
 
 def test_natural_language_supplied_forms() -> None:

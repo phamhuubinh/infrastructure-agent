@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from decimal import Decimal
 
 import pytest
 
+from src.pipeline.basic_calculator import CalculatorOperation, CalculatorRequest
 from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
@@ -76,6 +78,7 @@ def test_wire_round_trip_is_lossless_and_compact(rich_plan: SemanticPlan) -> Non
         "p",
         "u",
         "dc",
+        "calc",
         "q",
     }
 
@@ -87,6 +90,28 @@ def test_default_plan_round_trips_without_becoming_executable() -> None:
     assert parsed.route is SemanticPlanRoute.UNSPECIFIED
     assert parsed.target.kind is TargetReferenceKind.UNSPECIFIED
     assert parsed.source_constraints == (SourceConstraint.UNSPECIFIED,)
+
+
+def test_structured_calculation_round_trips_with_exact_decimal_operands() -> None:
+    plan = SemanticPlan(
+        route=SemanticPlanRoute.DIRECT_ANSWER,
+        domain=RequestDomain.GENERAL,
+        execution_intent=ExecutionIntent.EXPLAIN,
+        source_constraints=(SourceConstraint.ANY,),
+        freshness=FreshnessRequirement.STABLE,
+        deterministic_compute=DeterministicComputeIntent.REQUIRED,
+        calculation=CalculatorRequest(
+            CalculatorOperation.AVERAGE,
+            values=(Decimal("20"), Decimal("40"), Decimal("60")),
+        ),
+        clarification=ClarificationState.NOT_REQUIRED,
+    )
+
+    wire = semantic_plan_to_wire(plan)
+    parsed = semantic_plan_from_wire(wire)
+
+    assert parsed == plan
+    assert wire["calc"]["values"] == ["20", "40", "60"]
 
 
 @pytest.mark.parametrize(

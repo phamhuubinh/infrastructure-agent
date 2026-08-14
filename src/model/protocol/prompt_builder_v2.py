@@ -6,6 +6,7 @@ from typing import Any
 
 from src.model.protocol.prompt_loader import PromptLoader
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.evidence_model_context import EvidenceModelContextSerializer
 from src.pipeline.intent_resolver import Intent
 
 # Vietnamese characters with diacritics (Unicode range)
@@ -191,6 +192,7 @@ def build_assessment_prompt(
         A prompt string for the model.
     """
     instruction = _resolve_intent_prompt(assessment_request.intent)
+    model_context = EvidenceModelContextSerializer().serialize(assessment_request)
 
     lang = _detect_language(assessment_request.raw_request)
     if lang == "vi":
@@ -249,10 +251,13 @@ def build_assessment_prompt(
     if confirmed_facts:
         lines.append("")
         lines.append("--- Confirmed facts (you may cite these) ---")
+        compact_facts = model_context["facts"]
+        assert isinstance(compact_facts, list)
         fact_json = json.dumps(
             [
-                confirmed_facts[fact_id].to_dict()
-                for fact_id in sorted(confirmed_facts)[:20]
+                fact
+                for fact in compact_facts
+                if fact["id"] in confirmed_facts
             ],
             indent=1,
             ensure_ascii=False,
@@ -308,33 +313,29 @@ def build_assessment_prompt(
 
     lines.append("")
     lines.append("--- Evidence ---")
-    for pkg in assessment_request.evidence:
-        if not pkg.valid_for_requirements:
+    compact_packages = model_context["packages"]
+    assert isinstance(compact_packages, list)
+    for package in compact_packages:
+        if package["status"] not in {"valid", "valid_empty"} or package["stale"]:
             continue
-        lines.append(f"=== {pkg.capability_name} ({pkg.evidence_name}) ===")
-
-        usable_facts = [fact.to_dict() for fact in pkg.facts if fact.usable]
-        if usable_facts:
+        lines.append(f"=== {package['capability']} ({package['evidence']}) ===")
+        if package["fact_ids"]:
             lines.append("Canonical facts listed above; raw payload omitted.")
-            lines.append("")
-            continue
-
-        # DR1-702: no compact per-evidence-type key-guessing summary.
-        # Every capability from a covered provider (linux/zabbix/grafana)
-        # always yields at least one usable canonical Fact (see
-        # FactNormalizerRegistry's generic fallback), so packages reaching
-        # this point without usable facts are from providers with no fact
-        # normalizer at all (e.g. internet_tool). For those, a full JSON
-        # dump of the normalized (truncated) payload is strictly more
-        # informative than a hand-picked key subset and cannot silently
-        # drop fields a normalizer wasn't written for yet.
-        normalized = _normalize_evidence(pkg.data)
-        json_str = json.dumps(normalized, indent=1)
-        if len(json_str) > 2000:
-            json_str = json_str[:2000] + "\n ..."
-        lines.append(json_str)
-
+        elif "raw" in package:
+            lines.append(
+                json.dumps(package["raw"], indent=1, ensure_ascii=False)
+            )
+        else:
+            lines.append("No model-visible raw evidence is available.")
         lines.append("")
+
+    omitted = model_context["omitted"]
+    assert isinstance(omitted, dict)
+    if any(int(count) > 0 for count in omitted.values()):
+        lines.append(
+            "Evidence context budget: "
+            + json.dumps(omitted, ensure_ascii=False, sort_keys=True)
+        )
 
     lines.append("--- End ---")
     lines.append("")

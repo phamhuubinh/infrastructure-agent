@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from src.pipeline.basic_calculator import CalculatorRequest
 from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
@@ -109,6 +110,7 @@ class SemanticPlan:
     deterministic_compute: DeterministicComputeIntent = (
         DeterministicComputeIntent.UNSPECIFIED
     )
+    calculation: CalculatorRequest | None = None
     clarification: ClarificationState = ClarificationState.UNSPECIFIED
     clarification_field: str | None = None
 

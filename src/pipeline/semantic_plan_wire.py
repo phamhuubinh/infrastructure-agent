@@ -8,10 +8,17 @@ unknown fields, and never coerces malformed data into executable defaults.
 from __future__ import annotations
 
 import json
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from json import JSONDecodeError
 from typing import TypeVar
 
+from src.pipeline.basic_calculator import (
+    CalculatorDurationUnit,
+    CalculatorOperation,
+    CalculatorRateUnit,
+    CalculatorRequest,
+)
 from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
@@ -32,6 +39,7 @@ MAX_SEMANTIC_PLAN_BYTES = 4096
 MAX_SEMANTIC_TEXT_LENGTH = 256
 MAX_SEMANTIC_URL_LENGTH = 2048
 MAX_SOURCE_CONSTRAINTS = 8
+MAX_CALCULATOR_VALUES = 32
 
 _PLAN_KEYS = frozenset(
     {
@@ -49,11 +57,30 @@ _PLAN_KEYS = frozenset(
         "p",
         "u",
         "dc",
+        "calc",
         "q",
     }
 )
 _TARGET_KEYS = frozenset({"k", "v"})
 _CLARIFICATION_KEYS = frozenset({"s", "f"})
+_CALCULATION_KEYS = frozenset(
+    {
+        "op",
+        "values",
+        "l",
+        "r",
+        "base",
+        "pct",
+        "tasks",
+        "workers",
+        "duration",
+        "duration_unit",
+        "rate",
+        "rate_unit",
+        "target_rate_unit",
+        "unit",
+    }
+)
 
 _EnumT = TypeVar("_EnumT", bound=Enum)
 
@@ -105,6 +132,7 @@ def semantic_plan_to_wire(plan: SemanticPlan) -> dict[str, object]:
             DeterministicComputeIntent,
             "dc",
         ),
+        "calc": _encode_calculation(plan.calculation),
         "q": {
             "s": _encode_enum(plan.clarification, ClarificationState, "q.s"),
             "f": _optional_text(plan.clarification_field, "q.f"),
@@ -155,6 +183,7 @@ def semantic_plan_from_wire(payload: object) -> SemanticPlan:
             root["dc"],
             "dc",
         ),
+        calculation=_parse_calculation(root["calc"]),
         clarification=_parse_enum(
             ClarificationState,
             clarification["s"],
@@ -249,6 +278,12 @@ def semantic_plan_json_schema() -> dict[str, object]:
             "dc": {
                 "type": "string",
                 "enum": _enum_values(DeterministicComputeIntent),
+            },
+            "calc": {
+                "anyOf": [
+                    _calculation_schema(),
+                    {"type": "null"},
+                ]
             },
             "q": {
                 "type": "object",
@@ -351,6 +386,174 @@ def _validate_source_items(
         )
     if len(set(values)) != len(values):
         raise SemanticPlanWireError(f"{field} must not contain duplicate items.")
+
+
+def _encode_calculation(value: object) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, CalculatorRequest):
+        raise SemanticPlanWireError("calc must be a CalculatorRequest or null.")
+    if len(value.values) > MAX_CALCULATOR_VALUES:
+        raise SemanticPlanWireError(
+            f"calc.values must contain at most {MAX_CALCULATOR_VALUES} items."
+        )
+    return {
+        "op": _encode_enum(value.operation, CalculatorOperation, "calc.op"),
+        "values": [_decimal_text(item, "calc.values[]") for item in value.values],
+        "l": _optional_decimal_text(value.left, "calc.l"),
+        "r": _optional_decimal_text(value.right, "calc.r"),
+        "base": _optional_decimal_text(value.base_value, "calc.base"),
+        "pct": _optional_decimal_text(value.percent, "calc.pct"),
+        "tasks": _optional_decimal_text(value.total_tasks, "calc.tasks"),
+        "workers": _optional_decimal_text(value.workers, "calc.workers"),
+        "duration": _optional_decimal_text(value.duration, "calc.duration"),
+        "duration_unit": _optional_enum_text(
+            value.duration_unit,
+            CalculatorDurationUnit,
+            "calc.duration_unit",
+        ),
+        "rate": _optional_decimal_text(value.rate_value, "calc.rate"),
+        "rate_unit": _optional_enum_text(
+            value.rate_unit,
+            CalculatorRateUnit,
+            "calc.rate_unit",
+        ),
+        "target_rate_unit": _optional_enum_text(
+            value.target_rate_unit,
+            CalculatorRateUnit,
+            "calc.target_rate_unit",
+        ),
+        "unit": _optional_text(value.unit, "calc.unit", max_length=64),
+    }
+
+
+def _parse_calculation(value: object) -> CalculatorRequest | None:
+    if value is None:
+        return None
+    root = _exact_object(value, _CALCULATION_KEYS, "calc")
+    raw_values = root["values"]
+    if not isinstance(raw_values, list):
+        raise SemanticPlanWireError("calc.values must be an array.")
+    if len(raw_values) > MAX_CALCULATOR_VALUES:
+        raise SemanticPlanWireError(
+            f"calc.values must contain at most {MAX_CALCULATOR_VALUES} items."
+        )
+    return CalculatorRequest(
+        operation=_parse_enum(CalculatorOperation, root["op"], "calc.op"),
+        values=tuple(_parse_decimal(item, "calc.values[]") for item in raw_values),
+        left=_optional_decimal(root["l"], "calc.l"),
+        right=_optional_decimal(root["r"], "calc.r"),
+        base_value=_optional_decimal(root["base"], "calc.base"),
+        percent=_optional_decimal(root["pct"], "calc.pct"),
+        total_tasks=_optional_decimal(root["tasks"], "calc.tasks"),
+        workers=_optional_decimal(root["workers"], "calc.workers"),
+        duration=_optional_decimal(root["duration"], "calc.duration"),
+        duration_unit=_optional_enum(
+            CalculatorDurationUnit,
+            root["duration_unit"],
+            "calc.duration_unit",
+        ),
+        rate_value=_optional_decimal(root["rate"], "calc.rate"),
+        rate_unit=_optional_enum(
+            CalculatorRateUnit,
+            root["rate_unit"],
+            "calc.rate_unit",
+        ),
+        target_rate_unit=_optional_enum(
+            CalculatorRateUnit,
+            root["target_rate_unit"],
+            "calc.target_rate_unit",
+        ),
+        unit=_optional_text(root["unit"], "calc.unit", max_length=64),
+    )
+
+
+def _decimal_text(value: object, field: str) -> str:
+    if not isinstance(value, Decimal) or not value.is_finite():
+        raise SemanticPlanWireError(f"{field} must be a finite Decimal value.")
+    return str(value)
+
+
+def _optional_decimal_text(value: object, field: str) -> str | None:
+    return None if value is None else _decimal_text(value, field)
+
+
+def _parse_decimal(value: object, field: str) -> Decimal:
+    if not isinstance(value, str) or not value or len(value) > 64:
+        raise SemanticPlanWireError(f"{field} must be a bounded decimal string.")
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise SemanticPlanWireError(f"{field} must be a decimal string.") from exc
+    if not parsed.is_finite():
+        raise SemanticPlanWireError(f"{field} must be finite.")
+    return parsed
+
+
+def _optional_decimal(value: object, field: str) -> Decimal | None:
+    return None if value is None else _parse_decimal(value, field)
+
+
+def _optional_enum_text(
+    value: _EnumT | None,
+    enum_type: type[_EnumT],
+    field: str,
+) -> str | None:
+    return None if value is None else _encode_enum(value, enum_type, field)
+
+
+def _optional_enum(
+    enum_type: type[_EnumT],
+    value: object,
+    field: str,
+) -> _EnumT | None:
+    return None if value is None else _parse_enum(enum_type, value, field)
+
+
+def _calculation_schema() -> dict[str, object]:
+    nullable_decimal = {
+        "anyOf": [
+            {"type": "string", "minLength": 1, "maxLength": 64},
+            {"type": "null"},
+        ]
+    }
+    nullable_duration_unit = {
+        "anyOf": [
+            {"type": "string", "enum": _enum_values(CalculatorDurationUnit)},
+            {"type": "null"},
+        ]
+    }
+    nullable_rate_unit = {
+        "anyOf": [
+            {"type": "string", "enum": _enum_values(CalculatorRateUnit)},
+            {"type": "null"},
+        ]
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(_CALCULATION_KEYS),
+        "properties": {
+            "op": {"type": "string", "enum": _enum_values(CalculatorOperation)},
+            "values": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                "maxItems": MAX_CALCULATOR_VALUES,
+            },
+            "l": nullable_decimal,
+            "r": nullable_decimal,
+            "base": nullable_decimal,
+            "pct": nullable_decimal,
+            "tasks": nullable_decimal,
+            "workers": nullable_decimal,
+            "duration": nullable_decimal,
+            "duration_unit": nullable_duration_unit,
+            "rate": nullable_decimal,
+            "rate_unit": nullable_rate_unit,
+            "target_rate_unit": nullable_rate_unit,
+            "unit": _nullable_text_schema(64),
+        },
+    }
 
 
 def _optional_text(

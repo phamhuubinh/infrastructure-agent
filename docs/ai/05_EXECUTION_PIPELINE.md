@@ -83,6 +83,14 @@ constraints, content generation, explanation, and mutation intent.
 7. `DeterministicResponder` answers supported fact/list/table requests;
    remaining requests use `AssessmentRequest` and the configured model.
 
+Before model assessment, `EvidenceModelContextSerializer` converts the
+assessment request into a deterministic byte/item-bounded context. It keeps
+canonical facts, validity, missing/failure status, target/source identity, and
+compact provenance. Contradictions are retained ahead of ordinary facts. Raw
+provider payload is exposed only when `AssessmentRequest` explicitly requires
+it for valid packages without canonical facts, through a separate bounded and
+credential-redacted allowance.
+
 ## External verification
 
 Requests classified as current/external use a fixed
@@ -92,6 +100,26 @@ validation, redirect and DNS checks, time/size/tool-call budgets, short-lived
 valid-only caching, and credential-safe provenance. A failed verification is
 reported as unverified/unknown; model memory is not presented as current
 evidence.
+
+The optional semantic loop dispatches external-information plans through this
+same executor. It does not send a semantic `web_search` capability directly to
+the infrastructure execution engine. Explicit URLs therefore retain the same
+public-address, redirect, DNS, timeout, and size checks.
+
+## Structured calculation and final postconditions
+
+Semantic plans can carry a typed `CalculatorRequest` for reviewed arithmetic
+operations. The harness rejects missing, ambiguous, invalid, or conflicting
+compute contracts. Successful requests execute once in `basic_calculator.py`
+without a collector or assessment-model call, and the exact decimal result and
+unit become the deterministic response.
+
+Before a semantic-loop response reaches the public boundary,
+`FinalResponseGuard` checks the validated target, live-verification status,
+read-only boundary, deterministic calculator value, requested language/shape,
+and cited provenance where those constraints are known. A violation produces a
+safe deterministic replacement and a bounded trace record; it does not trigger
+a model repair call.
 
 ## Result contracts
 

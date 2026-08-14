@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from src.pipeline.basic_calculator import (
+    CalculatorResultStatus,
+    calculate_request,
+)
 from src.pipeline.external_verification_policy import (
     ExternalVerificationPolicy,
     SemanticFreshnessValidationResult,
@@ -13,11 +17,13 @@ from src.pipeline.semantic_mutation_validator import (
     SemanticMutationValidator,
 )
 from src.pipeline.semantic_plan import (
+    DeterministicComputeIntent,
     SemanticPlan,
     SemanticPlanRoute,
     TargetReferenceKind,
 )
 from src.pipeline.semantic_plan_validation import (
+    SemanticPlanValidationReason,
     SemanticPlanValidationResult,
     SemanticPlanValidationStatus,
     SemanticPlanValidationValue,
@@ -91,6 +97,10 @@ class SemanticPlanHarnessValidator:
                 mutation=mutation,
             )
 
+        compute_validation = _validate_compute(plan)
+        if not _valid(compute_validation):
+            return SemanticPlanHarnessResult(validation=compute_validation)
+
         if (
             plan.route is SemanticPlanRoute.DIRECT_ANSWER
             and plan.target.kind is TargetReferenceKind.UNSPECIFIED
@@ -149,6 +159,38 @@ class SemanticPlanHarnessValidator:
             freshness=freshness,
             mutation=mutation,
         )
+
+
+def _validate_compute(plan: SemanticPlan) -> SemanticPlanValidationResult:
+    if plan.deterministic_compute is DeterministicComputeIntent.REQUIRED:
+        if plan.calculation is None:
+            return SemanticPlanValidationResult.clarify(
+                plan,
+                SemanticPlanValidationReason.COMPUTE_MISSING,
+            )
+        if plan.route is not SemanticPlanRoute.DIRECT_ANSWER:
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.COMPUTE_CONFLICT,
+                plan=plan,
+            )
+        result = calculate_request(plan.calculation)
+        if result.status is CalculatorResultStatus.AMBIGUOUS:
+            return SemanticPlanValidationResult.clarify(
+                plan,
+                SemanticPlanValidationReason.COMPUTE_INVALID,
+            )
+        if not result.ok:
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.COMPUTE_INVALID,
+                plan=plan,
+            )
+        return SemanticPlanValidationResult.valid(plan)
+    if plan.calculation is not None:
+        return SemanticPlanValidationResult.reject(
+            SemanticPlanValidationReason.COMPUTE_CONFLICT,
+            plan=plan,
+        )
+    return SemanticPlanValidationResult.valid(plan)
 
 
 def _valid(result: SemanticPlanValidationResult) -> bool:

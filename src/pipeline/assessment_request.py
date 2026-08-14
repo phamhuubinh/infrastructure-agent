@@ -42,6 +42,8 @@ class AssessmentRequest:
             the model is permitted to ground numeric, target, or severity
             claims in. Anything not traceable to one of these ids is an
             ungrounded claim.
+        raw_evidence_required: Explicit permission for the bounded model-context
+            serializer to include fact-less provider payload. False by default.
     """
 
     raw_request: str
@@ -57,6 +59,7 @@ class AssessmentRequest:
     unknowns: tuple[str, ...] = ()
     evidence_status: str = ""
     allowed_claims: tuple[str, ...] = field(default_factory=tuple)
+    raw_evidence_required: bool = False
 
     def __post_init__(self) -> None:
         if self.request_frame is not None and not isinstance(

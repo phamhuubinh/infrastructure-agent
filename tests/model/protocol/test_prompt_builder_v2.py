@@ -99,7 +99,11 @@ class TestBuildAssessmentPrompt:
             success=True,
             data={"model": "Intel Xeon", "logical_cores": 8, "custom_field": "x"},
         )
-        req = AssessmentRequest(raw_request="check cpu", evidence=(evidence,))
+        req = AssessmentRequest(
+            raw_request="check cpu",
+            evidence=(evidence,),
+            raw_evidence_required=True,
+        )
 
         prompt = build_assessment_prompt(req)
 

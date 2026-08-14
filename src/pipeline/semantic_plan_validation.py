@@ -42,6 +42,9 @@ class SemanticPlanValidationReason(str, Enum):
     CAPABILITY_SOURCE_MISMATCH = "capability_source_mismatch"
     PARAMETER_MISSING = "parameter_missing"
     PARAMETER_INVALID = "parameter_invalid"
+    COMPUTE_MISSING = "compute_missing"
+    COMPUTE_INVALID = "compute_invalid"
+    COMPUTE_CONFLICT = "compute_conflict"
 
 
 @dataclass(frozen=True, slots=True)

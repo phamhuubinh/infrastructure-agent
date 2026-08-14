@@ -3,12 +3,17 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
     from src.pipeline.request_frame import RequestFrame
 
+from src.agent.final_response_guard import (
+    FinalResponseConstraints,
+    FinalResponseGuard,
+)
 from src.agent.semantic_loop_coordinator import (
     SemanticLoopConfig,
     SemanticLoopCoordinator,
@@ -20,7 +25,6 @@ from src.agent.semantic_loop_coordinator import (
 )
 from src.agent.semantic_session_context_selector import (
     SemanticSessionContextSelector,
-    SessionContextSelectionStatus,
 )
 from src.agent.session_investigation_context import (
     SessionContextResolver,
@@ -48,6 +52,7 @@ from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.basic_calculator import (
+    CalculatorContractResult,
     calculate,
     calculate_supplied_text,
     format_value,
@@ -56,8 +61,10 @@ from src.pipeline.basic_calculator import (
 from src.pipeline.clarification_responder import ClarificationResponder
 from src.pipeline.config_validator import ConfigValidator
 from src.pipeline.deterministic_responder import DeterministicResponder
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.execution_budget import ExecutionBudgetConfig
 from src.pipeline.execution_engine import ExecutionEngine
+from src.pipeline.execution_runtime import RuntimeMetrics
 from src.pipeline.execution_trace import (
     AnswerStrategy,
     ExecutionTrace,
@@ -73,6 +80,7 @@ from src.pipeline.external_verification import (
     ExternalVerificationOutcome,
 )
 from src.pipeline.external_verification_policy import ExternalVerificationPolicy
+from src.pipeline.fact_set import FactSet
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
@@ -96,8 +104,12 @@ from src.pipeline.routing_decision import (
     RoutingStatus,
 )
 from src.pipeline.safety_policy import sensitive_refusal
+from src.pipeline.semantic_plan import FreshnessRequirement, SemanticPlan
 from src.pipeline.semantic_plan_binding import SemanticPlanBinder
-from src.pipeline.semantic_plan_harness import SemanticPlanHarnessValidator
+from src.pipeline.semantic_plan_harness import (
+    SemanticPlanHarnessResult,
+    SemanticPlanHarnessValidator,
+)
 from src.pipeline.semantic_plan_validation import (
     SemanticPlanValidationReason,
     SemanticPlanValidationStatus,
@@ -214,7 +226,11 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
-        arithmetic = self._arithmetic_response(user_request)
+        arithmetic = (
+            self._arithmetic_response(user_request)
+            if self._semantic_planner is None
+            else None
+        )
         if arithmetic is not None:
             return arithmetic
         logic = self._logic_response(user_request)
@@ -327,7 +343,11 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
-        arithmetic = self._arithmetic_response(user_request)
+        arithmetic = (
+            self._arithmetic_response(user_request)
+            if self._semantic_planner is None
+            else None
+        )
         if arithmetic is not None:
             frame = (
                 Normalizer()
@@ -1069,6 +1089,7 @@ class DeterministicAgent:
                     unknowns=assessment_request.unknowns,
                     evidence_status=assessment_request.evidence_status,
                     allowed_claims=assessment_request.allowed_claims,
+                    raw_evidence_required=assessment_request.raw_evidence_required,
                 )
 
         _record(AnswerStrategy.LLM_ASSESSMENT.name)
@@ -1858,8 +1879,9 @@ class DeterministicAgent:
             return self._external_verification_unavailable_response(
                 decision,
                 outcome.failures[0] if outcome.failures else None,
+                user_request=user_request,
             )
-        evidence = outcome.evidence
+        evidence = self._verified_external_evidence(outcome)
         facts = evidence.facts
         request = AssessmentRequest(
             raw_request=user_request,
@@ -1872,6 +1894,7 @@ class DeterministicAgent:
             request_frame=decision.request_frame.to_dict(),
             evidence_status=("PARTIAL" if outcome.partial else "SUFFICIENT"),
             allowed_claims=tuple(fact.id for fact in facts),
+            raw_evidence_required=True,
         )
         response = self._assessment_model.assess(request)
         response = apply_assessment_guards(
@@ -1879,7 +1902,7 @@ class DeterministicAgent:
             request,
             enable_claim_guard=self._claim_guard_enabled,
         )
-        sources = self._render_external_sources(outcome)
+        sources = self._render_external_sources(outcome, user_request)
         if sources:
             response = f"{response}\n\n---\n\n{sources}"
         response = enforce_language_quality(
@@ -1900,41 +1923,95 @@ class DeterministicAgent:
         return response
 
     @staticmethod
+    def _verified_external_evidence(
+        outcome: ExternalVerificationOutcome,
+    ) -> EvidencePackage:
+        """Expose only SUFFICIENT documents/facts to final model assessment."""
+
+        evidence = outcome.evidence
+        if evidence is None:
+            raise ValueError("Verified external outcome requires evidence.")
+        documents = tuple(
+            document
+            for document in outcome.documents
+            if document.relevance is ExternalEvidenceRelevance.SUFFICIENT
+        )
+        urls = {document.url for document in documents}
+        facts = tuple(
+            fact
+            for fact in evidence.facts
+            if fact.provenance.source_reference in urls
+        )
+        raw = evidence.data if isinstance(evidence.data, dict) else {}
+        data = {
+            "query": raw.get("query"),
+            "provider": raw.get("provider"),
+            "retrieved_at": raw.get("retrieved_at"),
+            "documents": [document.to_dict() for document in documents],
+        }
+        return replace(evidence, data=data, raw_data=data, facts=facts)
+
+    @staticmethod
     def _external_verification_unavailable_response(
         decision: RoutingDecision,
         failure: str | None = None,
+        *,
+        user_request: str = "",
     ) -> str:
         """Honest deterministic fallback; never phrase model memory as current."""
         frame = decision.request_frame
+        english = _detect_language(user_request) == "en"
         if frame.url_error:
-            return f"Không thể kiểm chứng URL: {frame.url_error}"
+            return (
+                f"Unable to verify URL: {frame.url_error}"
+                if english
+                else f"Không thể kiểm chứng URL: {frame.url_error}"
+            )
         if "no-Internet" in (decision.reason or ""):
             return (
-                "Không thể kiểm chứng thông tin bên ngoài vì yêu cầu này "
+                "External information cannot be verified because this request also "
+                "forbids Internet access."
+                if english
+                else "Không thể kiểm chứng thông tin bên ngoài vì yêu cầu này "
                 "đồng thời cấm dùng Internet."
             )
         if frame.explicit_url:
             return (
-                "Không thể đọc URL này ở thời điểm này. Không suy đoán nội dung "
+                "This URL cannot be read now, so its content will not be guessed. "
+                f"Reason: {failure or 'external evidence was unavailable.'}"
+                if english
+                else "Không thể đọc URL này ở thời điểm này. Không suy đoán nội dung "
                 f"của URL. Lý do: {failure or 'không thu thập được external evidence.'}"
             )
         return (
-            "Không thể kiểm chứng thông tin hiện tại từ Internet ở thời điểm "
+            "Current information cannot be verified from the Internet now: "
+            f"{failure or 'the search provider is not configured.'} Potentially stale "
+            "model memory will not be presented as verified current information."
+            if english
+            else "Không thể kiểm chứng thông tin hiện tại từ Internet ở thời điểm "
             f"này: {failure or 'search provider chưa được cấu hình.'} Không dùng kiến thức "
             "model có thể đã cũ để trả lời như một thông tin đã được kiểm chứng."
         )
 
     @staticmethod
-    def _render_external_sources(outcome: ExternalVerificationOutcome) -> str:
+    def _render_external_sources(
+        outcome: ExternalVerificationOutcome,
+        user_request: str,
+    ) -> str:
         if not outcome.documents:
             return ""
-        lines = ["Nguồn đã kiểm chứng:"]
+        english = _detect_language(user_request) == "en"
+        lines = ["Verified sources:" if english else "Nguồn đã kiểm chứng:"]
         for document in outcome.documents:
+            if document.relevance is not ExternalEvidenceRelevance.SUFFICIENT:
+                continue
             timestamp = document.retrieved_at.isoformat()
             title = document.title.replace("\n", " ").strip()
-            lines.append(f"- {title}: {document.url} (lấy lúc {timestamp})")
+            suffix = f"retrieved at {timestamp}" if english else f"lấy lúc {timestamp}"
+            lines.append(f"- {title}: {document.url} ({suffix})")
         if outcome.failures:
-            lines.append(f"Giới hạn: {outcome.failures[0]}")
+            label = "Limit" if english else "Giới hạn"
+            lines.append(f"{label}: {outcome.failures[0]}")
         return "\n".join(lines)
 
     @staticmethod
@@ -2168,16 +2245,6 @@ class DeterministicAgent:
             user_request,
             self._session_context,
         )
-        if selection.status is SessionContextSelectionStatus.CLEAR:
-            self._session_context = self._session_context.reset()
-            setter = getattr(
-                self._conversation_store,
-                "set_investigation_context",
-                None,
-            )
-            if callable(setter):
-                setter(self._session_context)
-
         engine_budget = getattr(
             self._execution_engine,
             "execution_budget_config",
@@ -2199,9 +2266,11 @@ class DeterministicAgent:
             binder_factory=lambda: SemanticPlanBinder(
                 self._execution_engine.knowledge_tool
             ),
-            execute=self._execution_engine.execute,
+            execute=self._semantic_loop_execute,
             respond_direct=self._semantic_loop_direct_response,
             respond_assessment=self._semantic_loop_assessment_response,
+            respond_compute=self._semantic_loop_compute_response,
+            verify_response=self._semantic_loop_verify_response,
             respond_failure=self._semantic_loop_failure_response,
             config=config,
         )
@@ -2211,6 +2280,154 @@ class DeterministicAgent:
             user_request,
             context=selection.context,
             timeframe=timeframe,
+        )
+
+    def _semantic_loop_execute(self, frame: RequestFrame) -> InvestigationRequest:
+        """Dispatch semantic execution through the existing deterministic path."""
+
+        if frame.request_domain is not RequestDomain.EXTERNAL_INFORMATION:
+            return self._execution_engine.execute(frame)
+        outcome = self._external_verifier.collect(frame, frame.raw_request)
+        evidence = [outcome.evidence] if outcome.evidence is not None else []
+        verified_urls = {
+            document.url
+            for document in outcome.documents
+            if document.relevance is ExternalEvidenceRelevance.SUFFICIENT
+        }
+        facts = (
+            tuple(
+                fact
+                for fact in outcome.evidence.facts
+                if fact.provenance.source_reference in verified_urls
+            )
+            if outcome.evidence is not None
+            else ()
+        )
+        return InvestigationRequest(
+            raw_request=frame.raw_request,
+            target=frame.target_resolved,
+            request_frame=frame,
+            evidence=evidence,
+            evidence_complete=outcome.verified and not outcome.partial,
+            missing_evidence=(
+                () if outcome.verified else ("verified-current-information",)
+            ),
+            fact_set=FactSet(facts),
+            evidence_status=(
+                EvidenceStatus.PARTIAL
+                if outcome.partial
+                else (
+                    EvidenceStatus.SUFFICIENT
+                    if outcome.verified
+                    else EvidenceStatus.UNAVAILABLE
+                )
+            ),
+            runtime_metrics=RuntimeMetrics(
+                execution_duration=outcome.elapsed_ms / 1000.0,
+                total_nodes=outcome.search_calls + outcome.fetch_calls,
+                successful_nodes=(
+                    outcome.search_calls + outcome.fetch_calls
+                    if outcome.verified
+                    else 0
+                ),
+                failed_nodes=len(outcome.failures),
+                tool_calls=outcome.search_calls + outcome.fetch_calls,
+                evidence_complete=outcome.verified and not outcome.partial,
+            ),
+            external_verification=outcome,
+        )
+
+    def _semantic_loop_compute_response(
+        self,
+        user_request: str,
+        _plan: SemanticPlan,
+        result: CalculatorContractResult,
+    ) -> SemanticLoopResponse:
+        if not result.ok or result.value is None:
+            raise ValueError("A successful calculator result is required.")
+        value = format_value(result.value)
+        unit = f" {result.unit}" if result.unit else ""
+        text = (
+            f"Kết quả: {value}{unit}."
+            if _detect_language(user_request) == "vi"
+            else f"Result: {value}{unit}."
+        )
+        return SemanticLoopResponse(
+            text=text,
+            answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE.name,
+            model_used=False,
+        )
+
+    def _semantic_loop_verify_response(
+        self,
+        user_request: str,
+        response: SemanticLoopResponse,
+        plan: SemanticPlan,
+        harness: SemanticPlanHarnessResult,
+        investigation: InvestigationRequest | None,
+        calculation: CalculatorContractResult | None,
+    ) -> SemanticLoopResponse:
+        target = getattr(harness, "resolved_target", None)
+        current_required = plan.freshness in {
+            FreshnessRequirement.CURRENT,
+            FreshnessRequirement.LATEST,
+            FreshnessRequirement.RECENT,
+            FreshnessRequirement.REAL_TIME,
+        }
+        external = (
+            investigation.external_verification
+            if investigation is not None
+            else None
+        )
+        current_verified = bool(
+            external.verified
+            if external is not None
+            else investigation is not None
+            and (
+                investigation.evidence_complete
+                or any(fact.usable for fact in investigation.fact_set.facts)
+            )
+        )
+        provenance: list[str] = []
+        if investigation is not None:
+            provenance.extend(
+                fact.provenance.source_reference
+                for fact in investigation.fact_set.facts
+                if fact.provenance.source_reference
+            )
+            for package in investigation.evidence:
+                provenance.extend(
+                    str(link["href"])
+                    for link in package.source_links
+                    if link.get("href")
+                )
+        if external is not None:
+            provenance.extend(
+                document.url
+                for document in external.documents
+                if document.relevance is ExternalEvidenceRelevance.SUFFICIENT
+            )
+
+        guard = FinalResponseGuard().validate(
+            response.text,
+            FinalResponseConstraints(
+                validated_target=target,
+                current_required=current_required,
+                current_verified=current_verified,
+                calculator_result=calculation,
+                requested_language=_detect_language(user_request),
+                requested_shape=(
+                    "SHORT" if self._answer_shape_is_short(user_request) else None
+                ),
+                used_provenance=tuple(dict.fromkeys(provenance)),
+            ),
+        )
+        return SemanticLoopResponse(
+            text=guard.text,
+            answer_strategy=response.answer_strategy,
+            model_used=response.model_used,
+            artifact_validation=response.artifact_validation,
+            postcondition_validation=guard.to_trace_dict(),
         )
 
     def _semantic_loop_direct_response(
@@ -2237,6 +2454,30 @@ class DeterministicAgent:
         investigation: InvestigationRequest,
     ) -> SemanticLoopResponse:
         self._remember_investigation(investigation)
+        external = investigation.external_verification
+        if external is not None:
+            frame = investigation.request_frame
+            if frame is None:
+                raise ValueError("External verification requires a request frame.")
+            decision = RoutingDecision(
+                status=RoutingStatus.EXTERNAL_VERIFICATION,
+                request_frame=frame,
+                reason="semantic external verification",
+            )
+            response = self._respond_external_verification(
+                user_request,
+                decision,
+                external,
+            )
+            return SemanticLoopResponse(
+                text=response,
+                answer_strategy=(
+                    AnswerStrategy.LLM_ASSESSMENT.name
+                    if external.verified
+                    else AnswerStrategy.DETERMINISTIC_TEMPLATE.name
+                ),
+                model_used=external.verified,
+            )
         strategy_out: list[str] = []
         response = self._assess(
             user_request,
@@ -2403,6 +2644,29 @@ class DeterministicAgent:
             "stages"
         ]
         trace["stages"].update(semantic_stage_trace)
+        postcondition = result.response.postcondition_validation
+        if postcondition is not None:
+            raw_violations = postcondition.get("violations", ())
+            violations = (
+                list(raw_violations)
+                if isinstance(raw_violations, (list, tuple))
+                else []
+            )
+            postcondition_stage = ExecutionTrace(
+                stages={
+                    "final_response_postconditions": StageTrace(
+                        name="final_response_postconditions",
+                        status=(
+                            StageStatus.SUCCEEDED
+                            if postcondition.get("passed")
+                            else StageStatus.FAILED
+                        ),
+                        findings=violations,
+                        message="deterministic final-response postconditions",
+                    )
+                }
+            ).to_dict()["stages"]
+            trace["stages"].update(postcondition_stage)
         runtime_metrics = trace.get("runtime_metrics")
         if not isinstance(runtime_metrics, dict):
             runtime_metrics = {}

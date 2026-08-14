@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from src.pipeline.execution_budget import ExecutionBudget
     from src.pipeline.execution_graph import ExecutionGraph
     from src.pipeline.execution_plan import ExecutionPlan
+    from src.pipeline.external_verification import ExternalVerificationOutcome
     from src.pipeline.finding import Finding
     from src.pipeline.health_aggregator import HealthSummary
     from src.pipeline.intent_resolver import Confidence, Intent
@@ -98,6 +99,9 @@ class InvestigationRequest:
     # deterministic artifact-validation results, never model prompts or
     # generated artifact bodies.
     artifact_validation: dict[str, object] | None = None
+    # Present only when the semantic loop dispatched the existing bounded
+    # external-verification executor instead of the infrastructure engine.
+    external_verification: ExternalVerificationOutcome | None = None
 
     def __post_init__(self) -> None:
         if self.request_frame is None and isinstance(

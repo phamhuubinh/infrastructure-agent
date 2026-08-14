@@ -79,6 +79,7 @@ class TestLLMAssessmentAdapter:
                     },
                 ),
             ),
+            raw_evidence_required=True,
         )
         result = adapter.assess(req)
         assert result == "CPU is healthy."

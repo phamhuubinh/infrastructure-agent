@@ -38,6 +38,7 @@ class TestAssessmentAdapter:
         assert result.evidence[0].data["cores"] == _EXPECTED_CORES
         assert result.evidence_complete is True
         assert result.missing_evidence == ()
+        assert result.raw_evidence_required is True
 
     def test_build_no_intent(self) -> None:
         inv = InvestigationRequest(raw_request="check")

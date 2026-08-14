@@ -84,4 +84,8 @@ class AssessmentAdapter:
             unknowns=unknowns,
             evidence_status=evidence_status_name,
             allowed_claims=allowed_claims,
+            raw_evidence_required=any(
+                package.valid_for_requirements and not package.facts
+                for package in request.evidence
+            ),
         )

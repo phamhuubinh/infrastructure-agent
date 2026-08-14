@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal
 from types import MappingProxyType
 
+import pytest
+
+from src.agent.conversation_store import ConversationStore
 from src.agent.deterministic_agent import DeterministicAgent
 from src.agent.semantic_loop_coordinator import (
     SemanticLoopConfig,
@@ -12,6 +17,7 @@ from src.agent.semantic_loop_coordinator import (
     SemanticLoopResponse,
     SemanticLoopState,
 )
+from src.agent.session_investigation_context import SessionInvestigationContext
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.semantic_planner_adapter import (
     SemanticPlannerOutcome,
@@ -19,9 +25,19 @@ from src.model.semantic_planner_adapter import (
     SemanticPlannerOutcomeStatus,
 )
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.basic_calculator import (
+    CalculatorOperation,
+    CalculatorRequest,
+)
 from src.pipeline.capability_reference import CapabilityReference
+from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.execution_budget import ExecutionBudget, ExecutionBudgetConfig
 from src.pipeline.execution_runtime import RuntimeMetrics
+from src.pipeline.external_verification import (
+    ExternalDocument,
+    ExternalEvidenceRelevance,
+    ExternalVerificationOutcome,
+)
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.request_frame import RequestFrame
 from src.pipeline.request_semantics import (
@@ -48,6 +64,7 @@ from src.pipeline.semantic_plan_validation import (
     SemanticPlanValidationResult,
 )
 from src.pipeline.target_resolver import TargetResolver
+from src.tool.internet_tool import InternetTool
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 
@@ -74,6 +91,37 @@ def _capability_plan() -> SemanticPlan:
         source_constraints=(SourceConstraint.ANY,),
         freshness=FreshnessRequirement.CURRENT,
         concept="cpu",
+        deterministic_compute=DeterministicComputeIntent.NOT_REQUIRED,
+        clarification=ClarificationState.NOT_REQUIRED,
+    )
+
+
+def _compute_plan() -> SemanticPlan:
+    return SemanticPlan(
+        route=SemanticPlanRoute.DIRECT_ANSWER,
+        domain=RequestDomain.GENERAL,
+        execution_intent=ExecutionIntent.EXPLAIN,
+        source_constraints=(SourceConstraint.ANY,),
+        freshness=FreshnessRequirement.STABLE,
+        concept="average",
+        deterministic_compute=DeterministicComputeIntent.REQUIRED,
+        calculation=CalculatorRequest(
+            CalculatorOperation.AVERAGE,
+            values=(Decimal("20"), Decimal("40"), Decimal("60")),
+        ),
+        clarification=ClarificationState.NOT_REQUIRED,
+    )
+
+
+def _external_plan(*, url: str | None = None) -> SemanticPlan:
+    return SemanticPlan(
+        route=SemanticPlanRoute.CAPABILITY_ASSISTED,
+        domain=RequestDomain.EXTERNAL_INFORMATION,
+        execution_intent=ExecutionIntent.INSPECT_READ_ONLY,
+        source_constraints=((SourceConstraint.URL_ONLY,) if url else (SourceConstraint.INTERNET,)),
+        freshness=FreshnessRequirement.CURRENT,
+        concept="current version",
+        explicit_url=url,
         deterministic_compute=DeterministicComputeIntent.NOT_REQUIRED,
         clarification=ClarificationState.NOT_REQUIRED,
     )
@@ -295,6 +343,39 @@ def test_one_tool_request_completes_in_one_bounded_cycle() -> None:
     assert result.budget.rounds == 1
 
 
+def test_structured_compute_uses_calculator_without_tool_execution() -> None:
+    plan = _compute_plan()
+    execute_calls = 0
+
+    def execute(_frame):
+        nonlocal execute_calls
+        execute_calls += 1
+        raise AssertionError("calculator plan must not dispatch a tool")
+
+    coordinator = SemanticLoopCoordinator(
+        planner=StaticPlanner(_outcome(plan)),
+        validator=StaticValidator(_harness(plan)),
+        binder_factory=lambda: StaticBinder(_binding(_capability_plan(), 1)),
+        execute=execute,
+        respond_direct=lambda _request, _context: _response(),
+        respond_assessment=lambda _request, _investigation: _response(),
+        respond_compute=lambda _request, _plan, result: _response(
+            f"Result: {result.value}"
+        ),
+        respond_failure=lambda _request, _failure, _detail: _response("failed"),
+    )
+
+    result = coordinator.run("average 20 40 60")
+
+    assert result.succeeded
+    assert result.response.text == "Result: 40"
+    assert result.calculator_calls == 1
+    assert result.actual_tool_calls == 0
+    assert execute_calls == 0
+    assert result.to_trace_dict()["calculator_calls"] == 1
+    assert result.to_trace_dict()["calculator"]["operation"] == "average"
+
+
 def test_multi_step_evidence_request_remains_one_finite_execution_cycle() -> None:
     plan = _capability_plan()
     config = SemanticLoopConfig(
@@ -444,10 +525,15 @@ def test_provider_execution_and_state_limit_failures_terminate_once() -> None:
 class LoopAssessmentModel(AssessmentModelAdapter):
     def __init__(self) -> None:
         self.assess_calls = 0
+        self.requests: list[AssessmentRequest] = []
 
     def assess(self, assessment_request: AssessmentRequest) -> str:
         self.assess_calls += 1
+        self.requests.append(assessment_request)
         return "Bounded assessment."
+
+    def assess_raw(self, _prompt: str) -> str:
+        return "Hello."
 
 
 class AgentLoopExecutionEngine:
@@ -462,6 +548,27 @@ class AgentLoopExecutionEngine:
     def execute(self, frame: RequestFrame) -> InvestigationRequest:
         self.execute_calls += 1
         return _investigation(frame, tool_calls=1)
+
+
+class ExternalLoopExecutionEngine(AgentLoopExecutionEngine):
+    def __init__(self) -> None:
+        registry = TargetRegistry()
+        registry.add("localhost")
+        registry.register_tool("internet", InternetTool())
+        self.knowledge_tool = KnowledgeTool(registry)
+        self.target_resolver = TargetResolver(registry)
+        self.execution_budget_config = ExecutionBudgetConfig()
+        self.execute_calls = 0
+
+
+@dataclass
+class FakeExternalVerifier:
+    outcome: ExternalVerificationOutcome
+    frames: list[RequestFrame]
+
+    def collect(self, frame: RequestFrame, _user_request: str) -> ExternalVerificationOutcome:
+        self.frames.append(frame)
+        return self.outcome
 
 
 def test_deterministic_agent_uses_coordinator_for_capability_plan() -> None:
@@ -500,3 +607,192 @@ def test_deterministic_agent_uses_coordinator_for_capability_plan() -> None:
     assert stages["semantic_assess_respond"]["status"] == "SUCCEEDED"
     assert stages["semantic_done"]["status"] == "SUCCEEDED"
     assert stages["semantic_fail"]["status"] == "SKIPPED"
+
+
+def test_deterministic_agent_returns_exact_structured_calculator_result() -> None:
+    planner = StaticPlanner(_outcome(_compute_plan()))
+    engine = AgentLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        semantic_planner=planner,  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps("Average 20, 40, and 60")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert result["response"] == "Result: 40."
+    assert semantic["calculator_calls"] == 1
+    assert semantic["actual_tool_calls"] == 0
+    assert engine.execute_calls == 0
+    assert model.assess_calls == 0
+
+
+def test_ambiguous_structured_compute_is_rejected_before_execution() -> None:
+    plan = _compute_plan()
+    invalid = SemanticPlan(
+        route=plan.route,
+        domain=plan.domain,
+        execution_intent=plan.execution_intent,
+        source_constraints=plan.source_constraints,
+        freshness=plan.freshness,
+        concept=plan.concept,
+        deterministic_compute=plan.deterministic_compute,
+        calculation=CalculatorRequest(CalculatorOperation.AVERAGE),
+        clarification=plan.clarification,
+    )
+    engine = AgentLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        semantic_planner=StaticPlanner(_outcome(invalid)),  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps("Compute the average")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert semantic["failure"] == "validation_failed"
+    assert semantic["failure_detail"] == "compute_invalid"
+    assert engine.execute_calls == 0
+    assert model.assess_calls == 0
+
+
+def test_semantic_current_info_uses_verified_external_executor_path() -> None:
+    document = ExternalDocument(
+        title="OpenSSH release",
+        url="https://example.com/openssh",
+        content="OpenSSH current release information",
+        provider="fake",
+        retrieved_at=datetime(2026, 8, 14, tzinfo=timezone.utc),
+        relevance=ExternalEvidenceRelevance.SUFFICIENT,
+    )
+    unrelated = ExternalDocument(
+        title="Unrelated page",
+        url="https://unrelated.example/page",
+        content="unrelated content",
+        provider="fake",
+        retrieved_at=datetime(2026, 8, 14, tzinfo=timezone.utc),
+        relevance=ExternalEvidenceRelevance.IRRELEVANT,
+    )
+    outcome = ExternalVerificationOutcome(
+        evidence=EvidencePackage(
+            "Internet verification",
+            "Current External Information",
+            data={"passage": "OpenSSH current release information"},
+            source="internet",
+        ),
+        documents=(document, unrelated),
+        search_calls=1,
+        fetch_calls=1,
+    )
+    verifier = FakeExternalVerifier(outcome, [])
+    engine = ExternalLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        external_verifier=verifier,  # type: ignore[arg-type]
+        semantic_planner=StaticPlanner(_outcome(_external_plan())),  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps("What is the current OpenSSH release?")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert verifier.frames
+    assert engine.execute_calls == 0
+    assert model.assess_calls == 1
+    assert semantic["actual_tool_calls"] == 2
+    assert "https://example.com/openssh" in result["response"]
+    assert "unrelated.example" not in result["response"]
+    model_documents = model.requests[0].evidence[0].data["documents"]
+    assert [item["url"] for item in model_documents] == [
+        "https://example.com/openssh"
+    ]
+
+
+@pytest.mark.parametrize(
+    "user_request",
+    (
+        "What is the latest OpenSSH version?",
+        "What is in the news today?",
+        "What is the current Python version?",
+        "Who is the current CEO?",
+        "What is the current price?",
+        "What is the current weather?",
+    ),
+)
+def test_semantic_external_unavailable_never_uses_model_memory(
+    user_request: str,
+) -> None:
+    verifier = FakeExternalVerifier(
+        ExternalVerificationOutcome(failures=("search unavailable",)),
+        [],
+    )
+    engine = ExternalLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        external_verifier=verifier,  # type: ignore[arg-type]
+        semantic_planner=StaticPlanner(_outcome(_external_plan())),  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps(user_request)
+
+    assert "cannot be verified" in result["response"]
+    assert len(verifier.frames) == 1
+    assert model.assess_calls == 0
+    assert engine.execute_calls == 0
+    assert (
+        result["execution_trace"]["stages"]["final_response_postconditions"][
+            "status"
+        ]
+        == "SUCCEEDED"
+    )
+
+
+def test_semantic_explicit_url_uses_external_fetch_path() -> None:
+    verifier = FakeExternalVerifier(
+        ExternalVerificationOutcome(failures=("fetch unavailable",)),
+        [],
+    )
+    engine = ExternalLoopExecutionEngine()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        LoopAssessmentModel(),
+        external_verifier=verifier,  # type: ignore[arg-type]
+        semantic_planner=StaticPlanner(  # type: ignore[arg-type]
+            _outcome(_external_plan(url="https://example.com/status"))
+        ),
+    )
+
+    result = agent.run_with_steps("Read https://example.com/status")
+
+    assert verifier.frames[0].explicit_url == "https://example.com/status"
+    assert "cannot be read" in result["response"]
+    assert engine.execute_calls == 0
+
+
+def test_unrelated_semantic_chat_does_not_mutate_infrastructure_context(
+    tmp_path,
+) -> None:
+    store = ConversationStore("semantic-context", store_dir=str(tmp_path))
+    original = SessionInvestigationContext(
+        active_target="monitor",
+        active_concept="cpu",
+        active_sources=(SourceConstraint.GRAFANA,),
+    )
+    store.set_investigation_context(original)
+    agent = DeterministicAgent(
+        AgentLoopExecutionEngine(),  # type: ignore[arg-type]
+        LoopAssessmentModel(),
+        conversation_store=store,
+        semantic_planner=StaticPlanner(_outcome(_direct_plan())),  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps("Hello there")
+
+    assert result["response"] == "Hello."
+    assert store.investigation_context == original

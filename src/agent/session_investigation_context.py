@@ -215,6 +215,7 @@ class SessionInvestigationContext:
             (item for item in frame.concepts if item != "machine"),
             self.active_concept,
         )
+        explicit_sources = frame.source_constraints != (SourceConstraint.ANY,)
         return SessionInvestigationContext(
             active_target=frame.target_resolved or self.active_target,
             active_concept=concept,
@@ -228,13 +229,13 @@ class SessionInvestigationContext:
             incident_ids=incidents,
             active_sources=(
                 frame.source_constraints
-                if frame.source_constraints != (SourceConstraint.ANY,)
+                if explicit_sources
                 else self.active_sources
             ),
             active_excluded_sources=(
                 frame.excluded_sources
                 if frame.excluded_sources
-                else self.active_excluded_sources
+                else (() if explicit_sources else self.active_excluded_sources)
             ),
             requested_answer_shape=self.requested_answer_shape,
             # A successful resolution answers any pending clarification.
@@ -277,12 +278,10 @@ class SessionInvestigationContext:
         return replace(self, active_concept=concept)
 
     def switch_target(self, target: str) -> SessionInvestigationContext:
-        """Switch target and clear target-scoped resource details."""
+        """Switch target and clear target/task-scoped inherited semantics."""
         return SessionInvestigationContext(
             active_target=target,
             incident_ids=self.incident_ids,
-            active_sources=self.active_sources,
-            active_excluded_sources=self.active_excluded_sources,
             requested_answer_shape=self.requested_answer_shape,
             previous_evidence_receipts=self.previous_evidence_receipts,
             last_evidence_status=self.last_evidence_status,
