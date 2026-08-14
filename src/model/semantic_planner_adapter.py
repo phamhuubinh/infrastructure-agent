@@ -18,7 +18,17 @@ from src.model.protocol.semantic_planner_prompt import (
     PlannerPromptContext,
     build_semantic_planner_prompt,
 )
-from src.pipeline.semantic_plan import SemanticPlan
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    RequestDomain,
+    SourceConstraint,
+)
+from src.pipeline.semantic_plan import (
+    ClarificationState,
+    SemanticPlan,
+    SemanticPlanRoute,
+    TargetReferenceKind,
+)
 from src.pipeline.semantic_plan_wire import (
     SemanticPlanWireError,
     semantic_plan_from_json,
@@ -77,6 +87,31 @@ class PlannerFailureReason(str, Enum):
     INVALID_OUTPUT = "invalid_output"
 
 
+class SemanticPlannerOutcomeStatus(str, Enum):
+    """Bounded outcome at the untrusted planner boundary."""
+
+    VALID = "valid"
+    CLARIFY = "clarify"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+
+
+class SemanticPlannerOutcomeReason(str, Enum):
+    """Stable, trace-safe reasons that never require message parsing."""
+
+    PLAN_VALID = "plan_valid"
+    CLARIFICATION_REQUIRED = "clarification_required"
+    AMBIGUOUS_TARGET = "ambiguous_target"
+    INCOMPLETE_PLAN = "incomplete_plan"
+    CONTRADICTORY_PLAN = "contradictory_plan"
+    PLANNER_UNCERTAIN = "planner_uncertain"
+    NO_PROVIDER = "no_provider"
+    PROVIDER_TIMEOUT = "provider_timeout"
+    PROVIDER_UNAVAILABLE = "provider_unavailable"
+    PROVIDER_ERROR = "provider_error"
+    MALFORMED_OUTPUT = "malformed_output"
+
+
 @dataclass(frozen=True, slots=True)
 class PlannerAttemptFailure:
     provider: str
@@ -113,6 +148,47 @@ class SemanticPlannerResult:
     raw_usage: Mapping[str, object] | None
     purpose: ModelCallPurpose
     latency_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticPlannerOutcome:
+    """Fail-closed planner result suitable for orchestration and tracing.
+
+    ``plan`` is deliberately absent for failures and unsupported semantics, so
+    malformed planner output cannot accidentally reach capability dispatch.
+    A clarification may retain the parsed advisory plan, but still is not a
+    valid execution plan.
+    """
+
+    status: SemanticPlannerOutcomeStatus
+    reason: SemanticPlannerOutcomeReason
+    plan: SemanticPlan | None = None
+    clarification_field: str | None = None
+    result: SemanticPlannerResult | None = None
+    failures: tuple[PlannerAttemptFailure, ...] = ()
+
+    @property
+    def can_dispatch(self) -> bool:
+        return self.status is SemanticPlannerOutcomeStatus.VALID
+
+    def to_trace_dict(self) -> dict[str, object]:
+        trace: dict[str, object] = {
+            "status": self.status.value,
+            "reason": self.reason.value,
+            "can_dispatch": self.can_dispatch,
+        }
+        if self.clarification_field is not None:
+            trace["clarification_field"] = self.clarification_field
+        if self.result is not None:
+            trace["provider"] = self.result.provider
+            trace["model"] = self.result.model
+            trace["latency_ms"] = self.result.latency_ms
+        if self.failures:
+            trace["attempts"] = [
+                {"provider": item.provider, "reason": item.reason.value}
+                for item in self.failures
+            ]
+        return trace
 
 
 class SemanticPlannerAdapter:
@@ -196,7 +272,7 @@ class SemanticPlannerAdapter:
                     )
                 )
                 continue
-            except RuntimeError as exc:
+            except Exception as exc:
                 failures.append(
                     _failure(provider_label, PlannerFailureReason.PROVIDER_ERROR, exc)
                 )
@@ -212,6 +288,205 @@ class SemanticPlannerAdapter:
             )
 
         raise SemanticPlannerError(tuple(failures))
+
+    def plan_safely(
+        self,
+        raw_request: str,
+        *,
+        context: PlannerPromptContext | None = None,
+        request_id: str | None = None,
+    ) -> SemanticPlannerOutcome:
+        """Return one structured outcome without inventing fallback semantics.
+
+        Provider failover remains bounded to one call per configured provider;
+        this method performs no repair prompt and no retry loop.
+        """
+
+        try:
+            result = self.plan(
+                raw_request,
+                context=context,
+                request_id=request_id,
+            )
+        except SemanticPlannerError as exc:
+            return SemanticPlannerOutcome(
+                status=SemanticPlannerOutcomeStatus.FAILED,
+                reason=_outcome_reason_for_failure(exc.reason),
+                failures=exc.failures,
+            )
+        return _classify_semantic_plan(result)
+
+
+def _classify_semantic_plan(result: SemanticPlannerResult) -> SemanticPlannerOutcome:
+    plan = result.plan
+    if plan.target.kind is TargetReferenceKind.AMBIGUOUS:
+        return _clarification_outcome(
+            result,
+            SemanticPlannerOutcomeReason.AMBIGUOUS_TARGET,
+            "target",
+        )
+    if (
+        plan.clarification is ClarificationState.REQUIRED
+        or plan.route is SemanticPlanRoute.CLARIFY
+    ):
+        return _clarification_outcome(
+            result,
+            SemanticPlannerOutcomeReason.CLARIFICATION_REQUIRED,
+            plan.clarification_field or "request",
+        )
+
+    if _is_contradictory(plan):
+        return SemanticPlannerOutcome(
+            status=SemanticPlannerOutcomeStatus.FAILED,
+            reason=SemanticPlannerOutcomeReason.CONTRADICTORY_PLAN,
+            result=result,
+        )
+
+    if _is_uncertain(plan):
+        return SemanticPlannerOutcome(
+            status=SemanticPlannerOutcomeStatus.UNSUPPORTED,
+            reason=SemanticPlannerOutcomeReason.PLANNER_UNCERTAIN,
+            result=result,
+        )
+
+    if _is_incomplete(plan):
+        field = _missing_semantic_field(plan)
+        if field is not None:
+            return _clarification_outcome(
+                result,
+                SemanticPlannerOutcomeReason.INCOMPLETE_PLAN,
+                field,
+            )
+        return SemanticPlannerOutcome(
+            status=SemanticPlannerOutcomeStatus.UNSUPPORTED,
+            reason=SemanticPlannerOutcomeReason.INCOMPLETE_PLAN,
+            result=result,
+        )
+
+    return SemanticPlannerOutcome(
+        status=SemanticPlannerOutcomeStatus.VALID,
+        reason=SemanticPlannerOutcomeReason.PLAN_VALID,
+        plan=plan,
+        result=result,
+    )
+
+
+def _clarification_outcome(
+    result: SemanticPlannerResult,
+    reason: SemanticPlannerOutcomeReason,
+    field: str,
+) -> SemanticPlannerOutcome:
+    return SemanticPlannerOutcome(
+        status=SemanticPlannerOutcomeStatus.CLARIFY,
+        reason=reason,
+        plan=result.plan,
+        clarification_field=field,
+        result=result,
+    )
+
+
+def _is_contradictory(plan: SemanticPlan) -> bool:
+    target_has_value = plan.target.value is not None
+    target_forbids_value = plan.target.kind in {
+        TargetReferenceKind.UNSPECIFIED,
+        TargetReferenceKind.UNKNOWN,
+    }
+    direct_with_execution = (
+        plan.route is SemanticPlanRoute.DIRECT_ANSWER
+        and plan.execution_intent
+        in {
+            ExecutionIntent.INSPECT_READ_ONLY,
+            ExecutionIntent.MUTATE_ENVIRONMENT,
+        }
+    )
+    conflicting_sources = bool(
+        set(plan.source_constraints).intersection(plan.excluded_sources)
+    )
+    stray_clarification_field = (
+        plan.clarification is ClarificationState.NOT_REQUIRED
+        and plan.clarification_field is not None
+    )
+    return (
+        (target_forbids_value and target_has_value)
+        or direct_with_execution
+        or conflicting_sources
+        or stray_clarification_field
+    )
+
+
+def _is_uncertain(plan: SemanticPlan) -> bool:
+    return (
+        plan.route is SemanticPlanRoute.UNKNOWN
+        or plan.domain is RequestDomain.UNKNOWN
+        or plan.execution_intent is ExecutionIntent.UNKNOWN
+        or plan.target.kind is TargetReferenceKind.UNKNOWN
+        or plan.clarification is ClarificationState.UNKNOWN
+        or SourceConstraint.UNKNOWN in plan.source_constraints
+    )
+
+
+def _is_incomplete(plan: SemanticPlan) -> bool:
+    return (
+        plan.route is SemanticPlanRoute.UNSPECIFIED
+        or plan.domain is RequestDomain.UNSPECIFIED
+        or plan.execution_intent is ExecutionIntent.UNSPECIFIED
+        or plan.clarification is ClarificationState.UNSPECIFIED
+        or SourceConstraint.UNSPECIFIED in plan.source_constraints
+        or (
+            _requires_target(plan)
+            and (
+                plan.target.kind is TargetReferenceKind.UNSPECIFIED
+                or (
+                    plan.target.kind
+                    in {
+                        TargetReferenceKind.EXPLICIT,
+                        TargetReferenceKind.INHERITED,
+                    }
+                    and plan.target.value is None
+                )
+            )
+        )
+    )
+
+
+def _missing_semantic_field(plan: SemanticPlan) -> str | None:
+    if (
+        _requires_target(plan)
+        and plan.target.kind
+        in {
+            TargetReferenceKind.UNSPECIFIED,
+            TargetReferenceKind.EXPLICIT,
+            TargetReferenceKind.INHERITED,
+        }
+        and plan.target.value is None
+    ):
+        return "target"
+    return None
+
+
+def _requires_target(plan: SemanticPlan) -> bool:
+    return (
+        plan.route is SemanticPlanRoute.CAPABILITY_ASSISTED
+        and plan.domain is RequestDomain.ENVIRONMENT
+    )
+
+
+def _outcome_reason_for_failure(
+    reason: PlannerFailureReason,
+) -> SemanticPlannerOutcomeReason:
+    return {
+        PlannerFailureReason.NO_PROVIDER: SemanticPlannerOutcomeReason.NO_PROVIDER,
+        PlannerFailureReason.TIMEOUT: SemanticPlannerOutcomeReason.PROVIDER_TIMEOUT,
+        PlannerFailureReason.PROVIDER_UNAVAILABLE: (
+            SemanticPlannerOutcomeReason.PROVIDER_UNAVAILABLE
+        ),
+        PlannerFailureReason.PROVIDER_ERROR: (
+            SemanticPlannerOutcomeReason.PROVIDER_ERROR
+        ),
+        PlannerFailureReason.INVALID_OUTPUT: (
+            SemanticPlannerOutcomeReason.MALFORMED_OUTPUT
+        ),
+    }[reason]
 
 
 def _parse_provider_payload(payload: object) -> SemanticPlan:
@@ -264,6 +539,9 @@ __all__ = [
     "PlannerProviderResponse",
     "SemanticPlannerAdapter",
     "SemanticPlannerError",
+    "SemanticPlannerOutcome",
+    "SemanticPlannerOutcomeReason",
+    "SemanticPlannerOutcomeStatus",
     "SemanticPlannerResult",
     "StructuredPlannerProvider",
 ]

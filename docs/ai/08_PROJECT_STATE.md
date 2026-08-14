@@ -90,6 +90,11 @@ RAG is intentionally absent from chat tool registration.
 
 - Orion starts with an empty model registry and an explicit unconfigured
   assessment adapter.
+- Provider-neutral semantic-planning contracts cover a strict versioned
+  `SemanticPlan` wire shape, bounded prompt context, structured provider
+  failures/clarifications, compact capability summaries, single-capability
+  detail expansion, and typed pre-execution validation results. These
+  contracts do not participate in the current deterministic chat runtime.
 - User-managed model endpoints are stored and health-tested by
   `ModelConfigStore`.
 - Chat can use registered OpenAI-compatible and Anthropic provider adapters
@@ -109,6 +114,10 @@ RAG is intentionally absent from chat tool registration.
   source constraints, incident IDs, pending clarification, answer shape,
   evidence receipts, and prior evidence status; raw tool observations are not
   conversation memory.
+- Semantic-planner context selection inherits only relevant
+  target/concept/service/path/time/source/clarification fields for a follow-up;
+  unrelated new requests clear that planner context and evidence receipts are
+  never included in it.
 - RAG project metadata, document data, vector collections, BM25 indexes, and
   the latest 100 analyses persist under `RAG_DATA_DIR` in the RAG volume.
 
