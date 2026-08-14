@@ -9,6 +9,15 @@ if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
     from src.pipeline.request_frame import RequestFrame
 
+from src.agent.semantic_loop_coordinator import (
+    SemanticLoopConfig,
+    SemanticLoopCoordinator,
+    SemanticLoopFailure,
+    SemanticLoopRecordStatus,
+    SemanticLoopResponse,
+    SemanticLoopResult,
+    SemanticLoopState,
+)
 from src.agent.semantic_session_context_selector import (
     SemanticSessionContextSelector,
     SessionContextSelectionStatus,
@@ -34,10 +43,7 @@ from src.model.protocol.semantic_planner_prompt import (
     PlannerPromptContext,
     planner_context_to_dict,
 )
-from src.model.semantic_planner_adapter import (
-    SemanticPlannerAdapter,
-    SemanticPlannerOutcomeStatus,
-)
+from src.model.semantic_planner_adapter import SemanticPlannerAdapter
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
@@ -50,6 +56,7 @@ from src.pipeline.basic_calculator import (
 from src.pipeline.clarification_responder import ClarificationResponder
 from src.pipeline.config_validator import ConfigValidator
 from src.pipeline.deterministic_responder import DeterministicResponder
+from src.pipeline.execution_budget import ExecutionBudgetConfig
 from src.pipeline.execution_engine import ExecutionEngine
 from src.pipeline.execution_trace import (
     AnswerStrategy,
@@ -89,7 +96,7 @@ from src.pipeline.routing_decision import (
     RoutingStatus,
 )
 from src.pipeline.safety_policy import sensitive_refusal
-from src.pipeline.semantic_plan import SemanticPlanRoute
+from src.pipeline.semantic_plan_binding import SemanticPlanBinder
 from src.pipeline.semantic_plan_harness import SemanticPlanHarnessValidator
 from src.pipeline.semantic_plan_validation import (
     SemanticPlanValidationReason,
@@ -101,6 +108,7 @@ from src.pipeline.source_constraints import (
     missing_comparison_sources,
 )
 from src.pipeline.target_resolver import AmbiguousTargetError, UnknownTargetError
+from src.pipeline.time_range_resolver import TimeRange
 from src.shared.logger import warning as _warning
 from src.tool.tool import Tool
 
@@ -218,9 +226,9 @@ class DeterministicAgent:
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
             return reset_response
-        semantic_direct = self._semantic_direct_response(user_request)
-        if semantic_direct is not None:
-            return semantic_direct[0]
+        semantic_loop = self._run_semantic_loop(user_request)
+        if semantic_loop is not None:
+            return semantic_loop.response.text
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
@@ -436,63 +444,9 @@ class DeterministicAgent:
                 "trace_id": trace.trace_id,
                 "execution_trace": trace.to_dict(),
             }
-        semantic_direct = self._semantic_direct_response(user_request)
-        if semantic_direct is not None:
-            response, semantic_trace, validation = semantic_direct
-            semantic_valid = semantic_trace.get("status") == "valid"
-            semantic_rejected = semantic_trace.get("status") == "reject"
-            semantic_routing = (
-                RoutingStatus.GENERAL_CHAT
-                if semantic_valid
-                else RoutingStatus.UNSUPPORTED
-                if semantic_rejected
-                else RoutingStatus.CLARIFICATION_REQUIRED
-            )
-            frame = (
-                Normalizer()
-                .normalize(user_request)
-                .evolve(routing_status=semantic_routing)
-            )
-            trace = ExecutionTrace(
-                user_request=user_request,
-                stages={
-                    "semantic_plan": StageTrace(
-                        name="semantic_plan",
-                        status=(
-                            StageStatus.SUCCEEDED
-                            if semantic_valid
-                            else StageStatus.FAILED
-                        ),
-                        message=str(semantic_trace["reason"]),
-                    ),
-                    **self._artifact_validation_stage(validation),
-                },
-                answer_strategy=(
-                    AnswerStrategy.CHAT
-                    if semantic_valid
-                    else AnswerStrategy.REFUSAL
-                    if semantic_rejected
-                    else AnswerStrategy.CLARIFICATION
-                ),
-                llm_usage_reason=(
-                    LLMUsageReason.EXPECTED_ASSESSMENT
-                    if semantic_valid
-                    else LLMUsageReason.NONE
-                ),
-                routing_status=semantic_routing,
-                evidence_status=EvidenceStatus.NOT_APPLICABLE,
-                response_strategy=self._general_response_strategy(user_request),
-                request_class=frame.answer_type,
-                actual_request_frame=frame.to_dict(),
-                runtime_metrics={"semantic_plan": semantic_trace},
-            )
-            return {
-                "response": response,
-                "steps": [],
-                "investigation": None,
-                "trace_id": trace.trace_id,
-                "execution_trace": trace.to_dict(),
-            }
+        semantic_loop = self._run_semantic_loop(user_request)
+        if semantic_loop is not None:
+            return self._semantic_loop_payload(user_request, semantic_loop)
         # GA2-C10: consume MultiIntentPlanner's ordered plan for a sequenced
         # compound request *before* the single-shot routing decision below,
         # or a request such as "Giải thích RAM là gì rồi kiểm tra RAM trên
@@ -2139,6 +2093,7 @@ class DeterministicAgent:
         *,
         semantic_context: PlannerPromptContext | None = None,
         bounded_context_only: bool = False,
+        raise_errors: bool = False,
     ) -> tuple[str, dict[str, object] | None]:
         """Return chat output plus safe artifact-validation metadata."""
         # Security guard: check for dangerous patterns in user input
@@ -2197,52 +2152,21 @@ class DeterministicAgent:
                 self._conversation_store.add_turn(user_request, response)
             return response, validation
         except Exception as exc:
+            if raise_errors:
+                raise
             return f"Sorry, I couldn't process that: {exc}", None
 
-    def _semantic_direct_response(
+    def _run_semantic_loop(
         self,
         user_request: str,
-    ) -> tuple[str, dict[str, object], dict[str, object] | None] | None:
-        """Return a validated no-tool response, or leave routing unchanged."""
+    ) -> SemanticLoopResult | None:
+        """Run one bounded semantic cycle when a planner is configured."""
 
         if self._semantic_planner is None:
             return None
         selection = SemanticSessionContextSelector().select(
             user_request,
             self._session_context,
-        )
-        outcome = self._semantic_planner.plan_safely(
-            user_request,
-            context=selection.context,
-        )
-        if (
-            outcome.status is not SemanticPlannerOutcomeStatus.VALID
-            or outcome.plan is None
-            or outcome.plan.route is not SemanticPlanRoute.DIRECT_ANSWER
-        ):
-            return None
-        harness = SemanticPlanHarnessValidator(
-            self._execution_engine.target_resolver,
-            self._execution_engine.knowledge_tool,
-        ).validate(
-            outcome.plan,
-            raw_request=user_request,
-        )
-        trace = harness.to_trace_dict()
-        trace["planner"] = outcome.to_trace_dict()
-        if harness.validation.status is not SemanticPlanValidationStatus.VALID:
-            return (
-                self._semantic_validation_response(
-                    harness.validation.reason,
-                    user_request,
-                ),
-                trace,
-                None,
-            )
-        response, artifact_validation = self._chat_response(
-            user_request,
-            semantic_context=selection.context,
-            bounded_context_only=True,
         )
         if selection.status is SessionContextSelectionStatus.CLEAR:
             self._session_context = self._session_context.reset()
@@ -2253,7 +2177,308 @@ class DeterministicAgent:
             )
             if callable(setter):
                 setter(self._session_context)
-        return response, trace, artifact_validation
+
+        engine_budget = getattr(
+            self._execution_engine,
+            "execution_budget_config",
+            None,
+        )
+        config = SemanticLoopConfig(
+            execution_budget=(
+                engine_budget
+                if isinstance(engine_budget, ExecutionBudgetConfig)
+                else ExecutionBudgetConfig()
+            )
+        )
+        coordinator = SemanticLoopCoordinator(
+            planner=self._semantic_planner,
+            validator=SemanticPlanHarnessValidator(
+                self._execution_engine.target_resolver,
+                self._execution_engine.knowledge_tool,
+            ),
+            binder_factory=lambda: SemanticPlanBinder(
+                self._execution_engine.knowledge_tool
+            ),
+            execute=self._execution_engine.execute,
+            respond_direct=self._semantic_loop_direct_response,
+            respond_assessment=self._semantic_loop_assessment_response,
+            respond_failure=self._semantic_loop_failure_response,
+            config=config,
+        )
+        raw_timeframe = Normalizer().normalize(user_request).timeframe
+        timeframe = raw_timeframe if isinstance(raw_timeframe, TimeRange) else None
+        return coordinator.run(
+            user_request,
+            context=selection.context,
+            timeframe=timeframe,
+        )
+
+    def _semantic_loop_direct_response(
+        self,
+        user_request: str,
+        context: PlannerPromptContext | None,
+    ) -> SemanticLoopResponse:
+        response, artifact_validation = self._chat_response(
+            user_request,
+            semantic_context=context,
+            bounded_context_only=True,
+            raise_errors=True,
+        )
+        return SemanticLoopResponse(
+            text=response,
+            answer_strategy=AnswerStrategy.CHAT.name,
+            model_used=True,
+            artifact_validation=artifact_validation,
+        )
+
+    def _semantic_loop_assessment_response(
+        self,
+        user_request: str,
+        investigation: InvestigationRequest,
+    ) -> SemanticLoopResponse:
+        self._remember_investigation(investigation)
+        strategy_out: list[str] = []
+        response = self._assess(
+            user_request,
+            investigation,
+            _strategy_out=strategy_out,
+        )
+        strategy = (
+            strategy_out[0]
+            if strategy_out
+            else AnswerStrategy.DETERMINISTIC_TEMPLATE.name
+        )
+        return SemanticLoopResponse(
+            text=response,
+            answer_strategy=strategy,
+            model_used=strategy == AnswerStrategy.LLM_ASSESSMENT.name,
+            artifact_validation=investigation.artifact_validation,
+        )
+
+    def _semantic_loop_failure_response(
+        self,
+        user_request: str,
+        failure: SemanticLoopFailure,
+        detail: str | None,
+    ) -> SemanticLoopResponse:
+        validation_reason = (
+            SemanticPlanValidationReason(detail)
+            if detail in {item.value for item in SemanticPlanValidationReason}
+            else None
+        )
+        if validation_reason is not None:
+            text = self._semantic_validation_response(
+                validation_reason,
+                user_request,
+            )
+        else:
+            english = _detect_language(user_request) == "en"
+            if failure is SemanticLoopFailure.PLANNER_CLARIFICATION:
+                text = (
+                    "I need clarification before I can safely continue."
+                    if english
+                    else "Tôi cần bạn làm rõ yêu cầu trước khi có thể tiếp tục an toàn."
+                )
+            elif failure in {
+                SemanticLoopFailure.PROVIDER_FAILURE,
+                SemanticLoopFailure.RESPONSE_FAILED,
+            }:
+                text = (
+                    "The model provider failed, so the bounded loop stopped and no "
+                    "additional tools were run."
+                    if english
+                    else "Provider mô hình gặp lỗi nên vòng lặp hữu hạn đã dừng và "
+                    "không chạy thêm công cụ nào."
+                )
+            elif failure is SemanticLoopFailure.EXECUTION_FAILED:
+                text = (
+                    "The deterministic execution failed; the loop stopped without "
+                    "retrying or inventing evidence."
+                    if english
+                    else "Thực thi deterministic gặp lỗi; vòng lặp đã dừng, không "
+                    "thử lại và không tạo bằng chứng giả."
+                )
+            elif failure in {
+                SemanticLoopFailure.BUDGET_EXHAUSTED,
+                SemanticLoopFailure.STATE_LIMIT,
+            }:
+                text = (
+                    "The bounded loop reached its safety budget and stopped."
+                    if english
+                    else "Vòng lặp đã chạm ngân sách an toàn và dừng lại."
+                )
+            else:
+                text = (
+                    "The semantic plan could not be validated safely, so nothing was "
+                    "executed."
+                    if english
+                    else "Không thể xác thực semantic plan một cách an toàn nên không "
+                    "có thao tác nào được thực thi."
+                )
+        strategy = (
+            AnswerStrategy.CLARIFICATION
+            if failure is SemanticLoopFailure.PLANNER_CLARIFICATION
+            else AnswerStrategy.REFUSAL
+        )
+        return SemanticLoopResponse(
+            text=text,
+            answer_strategy=strategy.name,
+            model_used=False,
+        )
+
+    def _semantic_loop_payload(
+        self,
+        user_request: str,
+        result: SemanticLoopResult,
+    ) -> dict[str, object]:
+        """Build one public payload from a completed semantic loop."""
+
+        answer_strategy = AnswerStrategy.__members__.get(
+            result.response.answer_strategy,
+            AnswerStrategy.REFUSAL,
+        )
+        coordinator_stages = self._semantic_loop_stages(result)
+        if result.succeeded and result.investigation is not None:
+            base_trace = self._build_execution_trace(
+                result.investigation,
+                strategy_out=[answer_strategy.name],
+            )
+            steps = self._build_pipeline_steps(result.investigation)
+            investigation: InvestigationRequest | None = result.investigation
+        else:
+            routing = self._semantic_loop_routing(result)
+            frame = Normalizer().normalize(user_request).evolve(routing_status=routing)
+            evidence_status = (
+                EvidenceStatus.UNAVAILABLE
+                if result.failure
+                in {
+                    SemanticLoopFailure.BUDGET_EXHAUSTED,
+                    SemanticLoopFailure.EXECUTION_FAILED,
+                }
+                else EvidenceStatus.NOT_APPLICABLE
+            )
+            failed_record = next(
+                (
+                    record
+                    for record in result.records
+                    if record.status is SemanticLoopRecordStatus.FAILED
+                    and record.state is not SemanticLoopState.FAIL
+                ),
+                None,
+            )
+            base_trace = ExecutionTrace(
+                user_request=user_request,
+                stages=self._artifact_validation_stage(
+                    result.response.artifact_validation
+                ),
+                failure_stage=(
+                    f"semantic_{failed_record.state.name.casefold()}"
+                    if failed_record is not None
+                    else None
+                ),
+                failure_reason=(
+                    result.failure.value if result.failure is not None else None
+                ),
+                answer_strategy=answer_strategy,
+                llm_usage_reason=(
+                    LLMUsageReason.EXPECTED_ASSESSMENT
+                    if result.response.model_used
+                    else LLMUsageReason.NONE
+                ),
+                routing_status=routing,
+                evidence_status=evidence_status,
+                response_strategy=(
+                    self._general_response_strategy(user_request)
+                    if result.succeeded
+                    else ResponseStrategy.CLARIFICATION_REFUSAL
+                ),
+                request_class=frame.answer_type,
+                actual_request_frame=frame.to_dict(),
+            )
+            steps = []
+            investigation = None
+
+        trace = base_trace.to_dict()
+        semantic_stage_trace = ExecutionTrace(stages=coordinator_stages).to_dict()[
+            "stages"
+        ]
+        trace["stages"].update(semantic_stage_trace)
+        runtime_metrics = trace.get("runtime_metrics")
+        if not isinstance(runtime_metrics, dict):
+            runtime_metrics = {}
+            trace["runtime_metrics"] = runtime_metrics
+        runtime_metrics["semantic_loop"] = result.to_trace_dict()
+        return {
+            "response": result.response.text,
+            "steps": steps,
+            "investigation": investigation,
+            "trace_id": trace["trace_id"],
+            "execution_trace": trace,
+        }
+
+    @staticmethod
+    def _semantic_loop_routing(result: SemanticLoopResult) -> RoutingStatus:
+        if result.succeeded:
+            return (
+                RoutingStatus.RESOLVED
+                if result.investigation is not None
+                else RoutingStatus.GENERAL_CHAT
+            )
+        if result.failure is SemanticLoopFailure.PLANNER_CLARIFICATION:
+            return RoutingStatus.CLARIFICATION_REQUIRED
+        if (
+            result.harness is not None
+            and result.harness.validation.status is SemanticPlanValidationStatus.CLARIFY
+        ):
+            return RoutingStatus.CLARIFICATION_REQUIRED
+        return RoutingStatus.UNSUPPORTED
+
+    @staticmethod
+    def _semantic_loop_stages(
+        result: SemanticLoopResult,
+    ) -> dict[str, StageTrace]:
+        record_by_state = {record.state: record for record in result.records}
+        stages: dict[str, StageTrace] = {}
+        for state in SemanticLoopState:
+            record = record_by_state.get(state)
+            if record is None:
+                status = StageStatus.SKIPPED
+                message = "not_reached"
+                duration_ms = None
+            else:
+                status = {
+                    SemanticLoopRecordStatus.SUCCEEDED: StageStatus.SUCCEEDED,
+                    SemanticLoopRecordStatus.FAILED: StageStatus.FAILED,
+                    SemanticLoopRecordStatus.SKIPPED: StageStatus.SKIPPED,
+                }[record.status]
+                message = record.reason
+                duration_ms = record.duration_ms
+            key = f"semantic_{state.name.casefold()}"
+            stages[key] = StageTrace(
+                name=state.value,
+                status=status,
+                target=(
+                    result.harness.resolved_target
+                    if state is SemanticLoopState.VALIDATE
+                    and result.harness is not None
+                    else None
+                ),
+                planned_capabilities=(
+                    [item.reference.name for item in result.binding.capabilities]
+                    if state is SemanticLoopState.VALIDATE
+                    and result.binding is not None
+                    else None
+                ),
+                evidence_names=(
+                    [item.evidence_name for item in result.investigation.evidence]
+                    if state is SemanticLoopState.EXECUTE
+                    and result.investigation is not None
+                    else None
+                ),
+                message=message,
+                duration_ms=duration_ms,
+            )
+        return stages
 
     @staticmethod
     def _semantic_validation_response(

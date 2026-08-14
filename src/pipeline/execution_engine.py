@@ -82,6 +82,10 @@ class ExecutionEngine:
     def target_resolver(self) -> TargetResolver:
         return self._target_resolver
 
+    @property
+    def execution_budget_config(self) -> ExecutionBudgetConfig:
+        return self._budget_config
+
     def __init__(
         self,
         intent_resolver: IntentResolver,

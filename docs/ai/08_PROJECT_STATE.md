@@ -100,11 +100,14 @@ RAG is intentionally absent from chat tool registration.
   capability-assisted plans onto the existing evidence planner, capability
   resolver/router, and parameter binder without granting raw-command authority.
 - `DeterministicAgent` accepts an optional semantic-planner adapter. When one is
-  supplied, a validated stable `DIRECT_ANSWER` plan uses a no-infrastructure
-  response path with only the original request and bounded relevant semantic
-  context. Rejected mutation/current-data plans do not fall back to model
-  memory. Current application entry points do not configure this optional
-  adapter.
+  supplied, `SemanticLoopCoordinator` runs the finite states `PLAN`,
+  `VALIDATE`, `EXECUTE`, `ASSESS/RESPOND`, and `DONE`/`FAIL`. Direct answers
+  skip binding and execution; capability-assisted plans can call the execution
+  engine once after validation and binding, under the existing execution
+  budget. Provider, validation, binding, execution, response, and state-limit
+  failures terminate without planner-controlled retries. Trace data contains
+  bounded state/reason codes and counters, not prompts or hidden reasoning.
+  Current application entry points do not configure this optional adapter.
 - User-managed model endpoints are stored and health-tested by
   `ModelConfigStore`.
 - Chat can use registered OpenAI-compatible and Anthropic provider adapters
