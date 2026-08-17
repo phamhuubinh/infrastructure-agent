@@ -276,6 +276,40 @@ def _p0_violations(record: dict[str, object]) -> list[str]:
     return violations
 
 
+_MODEL_USAGE_FIELDS = (
+    ("model_latency_ms", "latency_ms"),
+    ("model_input_tokens", "input_tokens"),
+    ("model_reasoning_tokens", "reasoning_tokens"),
+    ("model_visible_output_tokens", "visible_output_tokens"),
+)
+
+
+def _model_usage_samples(usage: object) -> dict[str, float]:
+    """Flatten one case's bounded model-usage section into known samples.
+
+    Unknown (null) fields contribute nothing, so "unavailable" stays absent
+    instead of being coerced to zero.
+    """
+
+    if not isinstance(usage, dict):
+        return {}
+    samples: dict[str, float] = {}
+    calls = usage.get("calls")
+    if isinstance(calls, int) and not isinstance(calls, bool):
+        samples["model_calls"] = float(calls)
+    by_purpose = usage.get("by_purpose")
+    if not isinstance(by_purpose, dict):
+        return samples
+    for purpose in by_purpose.values():
+        if not isinstance(purpose, dict):
+            continue
+        for name, field in _MODEL_USAGE_FIELDS:
+            value = purpose.get(field)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                samples[name] = samples.get(name, 0.0) + float(value)
+    return samples
+
+
 def _summary(
     records: list[dict[str, object]], p0: list[dict[str, str]]
 ) -> dict[str, object]:
@@ -291,6 +325,11 @@ def _summary(
                 "expansion_rounds": [],
                 "response_characters": [],
                 "estimated_output_tokens": [],
+                "model_calls": [],
+                "model_latency_ms": [],
+                "model_input_tokens": [],
+                "model_reasoning_tokens": [],
+                "model_visible_output_tokens": [],
             },
         )
         current["cases"] = int(current["cases"]) + 1
@@ -310,6 +349,8 @@ def _summary(
             value = source.get(key)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 current[name].append(float(value))  # type: ignore[index]
+        for name, value in _model_usage_samples(runtime.get("model_usage")).items():
+            current[name].append(value)  # type: ignore[index]
     suites: dict[str, object] = {}
     for name, values in by_suite.items():
         def aggregate(
@@ -335,6 +376,11 @@ def _summary(
             "expansion_rounds",
             "response_characters",
             "estimated_output_tokens",
+            "model_calls",
+            "model_latency_ms",
+            "model_input_tokens",
+            "model_reasoning_tokens",
+            "model_visible_output_tokens",
         ):
             median, p95 = aggregate(key)
             aggregates[f"median_{key}"] = median
@@ -368,13 +414,15 @@ def _render_markdown(
         "",
         "## Suites",
         "",
-        "| Suite | Cases | Median ms | P95 ms |",
-        "|---|---:|---:|---:|",
+        "| Suite | Cases | Median ms | P95 ms | Model calls (med) | Vis. out tokens (med) |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for name, values in dict(summary["suites"]).items():
         row = dict(values)
         lines.append(
-            f"| {name} | {row['cases']} | {row['median_latency_ms']} | {row['p95_latency_ms']} |"
+            f"| {name} | {row['cases']} | {row['median_latency_ms']} | "
+            f"{row['p95_latency_ms']} | {row['median_model_calls']} | "
+            f"{row['median_model_visible_output_tokens']} |"
         )
     lines.extend(["", "## P0 violations", ""])
     if not p0:

@@ -502,16 +502,33 @@ def _rate_unit_label(unit: CalculatorRateUnit) -> str:
     }[unit]
 
 
+_COUNT_NOUN_PATTERN = (
+    r"\b\d+(?:[.,]\d+)?\s+"
+    r"(?:máy|may|máy chủ|may chu|machines?|workers?|servers?|nodes?|hosts?|vms?|"
+    r"containers?|instances?|processes?)\b"
+)
+
+
 def calculate_supplied_text(text: str) -> SuppliedCalculation:
     """Parse only reviewed VI/EN supplied-data arithmetic forms."""
     lower = " ".join(text.casefold().split())
     numbers = [Decimal(value.replace(",", ".")) for value in re.findall(r"\d+(?:[.,]\d+)?", lower)]
 
     if any(marker in lower for marker in ("average", "trung bình", "trung binh")):
-        if len(numbers) < 2:
+        # A count of machines/workers (e.g. "3 máy") is context, not an
+        # operand; averaging it in silently corrupts the result.
+        filtered = re.sub(_COUNT_NOUN_PATTERN, " ", lower)
+        operands = [
+            Decimal(value.replace(",", "."))
+            for value in re.findall(r"\d+(?:[.,]\d+)?", filtered)
+        ]
+        if len(operands) < 2:
             return SuppliedCalculation(CalculationResult(False, error="Missing values."), recognized=True)
         return SuppliedCalculation(
-            CalculationResult(True, sum(numbers, Decimal(0)) / Decimal(len(numbers))),
+            CalculationResult(
+                True,
+                sum(operands, Decimal(0)) / Decimal(len(operands)),
+            ),
             recognized=True,
         )
     remaining = re.search(

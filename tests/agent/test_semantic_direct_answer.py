@@ -47,9 +47,21 @@ class CapturingAssessmentModel(AssessmentModelAdapter):
 
 
 class RelevanceScenarioModel(AssessmentModelAdapter):
-    def __init__(self, draft: str, verifier_response: str) -> None:
+    def __init__(
+        self,
+        draft: str,
+        verifier_response: str | list[str],
+        repair_response: str | None = None,
+        repair_error: Exception | None = None,
+    ) -> None:
         self.draft = draft
-        self.verifier_response = verifier_response
+        self.verifier_responses = (
+            list(verifier_response)
+            if isinstance(verifier_response, list)
+            else [verifier_response]
+        )
+        self.repair_response = repair_response if repair_response is not None else draft
+        self.repair_error = repair_error
         self.prompts: list[str] = []
 
     def assess(self, _assessment_request: AssessmentRequest) -> str:
@@ -58,7 +70,13 @@ class RelevanceScenarioModel(AssessmentModelAdapter):
     def assess_raw(self, prompt: str) -> str:
         self.prompts.append(prompt)
         if "compact final-answer relevance verifier" in prompt:
-            return self.verifier_response
+            if len(self.verifier_responses) > 1:
+                return self.verifier_responses.pop(0)
+            return self.verifier_responses[0]
+        if "final-response repairer" in prompt:
+            if self.repair_error is not None:
+                raise self.repair_error
+            return self.repair_response
         return self.draft
 
 
@@ -128,10 +146,17 @@ def _agent(
 def _scenario_agent(
     request_concept: str,
     draft: str,
-    verifier_response: str,
+    verifier_response: str | list[str],
+    repair_response: str | None = None,
+    repair_error: Exception | None = None,
 ) -> tuple[DeterministicAgent, RelevanceScenarioModel]:
     engine = NoExecutionEngine()
-    model = RelevanceScenarioModel(draft, verifier_response)
+    model = RelevanceScenarioModel(
+        draft,
+        verifier_response,
+        repair_response,
+        repair_error,
+    )
     plan = replace(_direct_plan(), concept=request_concept)
     return (
         DeterministicAgent(
@@ -213,8 +238,69 @@ def test_semantic_relevance_rejects_otherwise_valid_cross_task_drafts(
     assert semantic["postconditions"]["violations"] == [
         "semantic_not_aligned"
     ]
-    assert len(model.prompts) == 2
+    assert semantic["postconditions"]["repair"] == {
+        "attempted": True,
+        "status": "repaired",
+    }
+    assert len(model.prompts) == 4
     assert "analysis" not in json.dumps(semantic)
+
+
+def test_single_repair_can_restore_an_irrelevant_direct_answer() -> None:
+    agent, model = _scenario_agent(
+        "gratitude acknowledgement",
+        "You should install cameras and sensors for your house.",
+        [
+            '{"decision":"not_aligned","reason":"cross_task"}',
+            '{"decision":"aligned","reason":"aligned"}',
+        ],
+        repair_response="Không có gì!",
+    )
+
+    result = agent.run_with_steps("Cảm ơn bạn nhé")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert result["response"] == "Không có gì!"
+    assert semantic["postconditions"] == {
+        "passed": True,
+        "violations": [],
+        "relevance": {"decision": "aligned", "reason": "aligned"},
+        "repair": {"attempted": True, "status": "repaired"},
+    }
+    assert len(model.prompts) == 4
+
+
+@pytest.mark.parametrize(
+    ("repair_response", "repair_error", "expected_status", "prompt_count"),
+    (
+        (" \n", None, "empty_response", 3),
+        (None, RuntimeError("provider down"), "provider_unavailable", 3),
+    ),
+)
+def test_failed_repair_terminates_with_safe_fallback(
+    repair_response: str | None,
+    repair_error: Exception | None,
+    expected_status: str,
+    prompt_count: int,
+) -> None:
+    agent, model = _scenario_agent(
+        "gratitude acknowledgement",
+        "You should install cameras and sensors for your house.",
+        '{"decision":"not_aligned","reason":"cross_task"}',
+        repair_response=repair_response,
+        repair_error=repair_error,
+    )
+
+    result = agent.run_with_steps("Cảm ơn bạn nhé")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert "bị chặn" in result["response"]
+    assert semantic["postconditions"]["passed"] is False
+    assert semantic["postconditions"]["repair"] == {
+        "attempted": True,
+        "status": expected_status,
+    }
+    assert len(model.prompts) == prompt_count
 
 
 @pytest.mark.parametrize(

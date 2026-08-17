@@ -92,8 +92,9 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
                 status="success",
                 mode="raw",
                 duration_ms=latency,
-                input_tokens=usage.get("prompt_tokens", "N/A") if usage else "N/A",
-                output_tokens=usage.get("completion_tokens", "N/A") if usage else "N/A",
+                input_tokens=usage.input_tokens if usage else "N/A",
+                reasoning_tokens=usage.reasoning_tokens if usage else "N/A",
+                output_tokens=usage.visible_output_tokens if usage else "N/A",
                 message="LLM raw response received",
             )
             return response
@@ -128,7 +129,11 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
             )
 
         try:
-            response = self._client.generate(prompt, system_prompt=_ORION_SYSTEM_PROMPT)
+            response = self._client.generate(
+                prompt,
+                system_prompt=_ORION_SYSTEM_PROMPT,
+                purpose="assessment",
+            )
         except Exception as exc:
             _info(
                 "llm",
@@ -148,8 +153,8 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         latency = round((_time.perf_counter() - t0) * 1000, 1)
 
         usage = self._client.last_usage
-        pt = usage.get("prompt_tokens") if usage else None
-        ct = usage.get("completion_tokens") if usage else None
+        pt = usage.input_tokens if usage else None
+        ct = usage.visible_output_tokens if usage else None
         _info(
             "llm",
             status="success",

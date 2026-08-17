@@ -77,6 +77,55 @@ class TestLLMClient:
         assert LLMClient().generate("hello") == "Visible answer"
 
     @mock.patch("urllib.request.urlopen")
+    def test_generate_normalizes_usage_payload(self, mock_urlopen: mock.Mock) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "ok"}}], "usage": {'
+            b'"prompt_tokens": 12, "completion_tokens": 40, '
+            b'"completion_tokens_details": {"reasoning_tokens": 15}}}'
+        )
+        client = LLMClient(base_url="https://api.openai.com", model="gpt-4")
+
+        assert client.generate("test", purpose="assessment") == "ok"
+
+        usage = client.last_usage
+        assert usage is not None
+        assert usage.input_tokens == 12
+        assert usage.reasoning_tokens == 15
+        assert usage.visible_output_tokens == 25
+        assert usage.total_output_tokens == 40
+        assert usage.model == "gpt-4"
+        assert usage.provider == "openai"
+        assert usage.purpose == "assessment"
+        assert usage.latency_ms is not None and usage.latency_ms >= 0
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_without_usage_keeps_tokens_unknown(
+        self, mock_urlopen: mock.Mock
+    ) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "ok"}}]}'
+        )
+        client = LLMClient()
+
+        client.generate("test")
+
+        usage = client.last_usage
+        assert usage is not None
+        assert usage.input_tokens is None
+        assert usage.total_output_tokens is None
+        assert usage.model == "gpt-4"
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_failure_resets_last_usage(self, mock_urlopen: mock.Mock) -> None:
+        mock_urlopen.side_effect = OSError("down")
+        client = LLMClient()
+
+        with pytest.raises(RuntimeError):
+            client.generate("test")
+
+        assert client.last_usage is None
+
+    @mock.patch("urllib.request.urlopen")
     def test_generate_rejects_reasoning_only_response(
         self, mock_urlopen: mock.Mock
     ) -> None:

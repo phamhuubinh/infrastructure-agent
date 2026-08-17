@@ -347,6 +347,16 @@ class SessionContextResolver:
         "briefly",
         "tóm tắt ngắn",
         "tom tat ngan",
+        "đúng 3 câu",
+        "dung 3 cau",
+        "trong 3 câu",
+        "trong 3 cau",
+        "đúng 2 câu",
+        "dung 2 cau",
+        "trong 2 câu",
+        "trong 2 cau",
+        "in 3 sentences",
+        "in 2 sentences",
     )
     _RAW_ANSWER = (
         "raw data only",

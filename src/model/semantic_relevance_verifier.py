@@ -10,6 +10,7 @@ from typing import Protocol, runtime_checkable
 from src.model.protocol.semantic_relevance_prompt import (
     build_semantic_relevance_prompt,
 )
+from src.model.usage_metadata import ModelCallUsage
 from src.pipeline.semantic_plan import SemanticPlan
 
 MAX_RELEVANCE_OUTPUT_CHARS = 256
@@ -69,6 +70,13 @@ class SemanticRelevanceVerifier:
         if not isinstance(model, RawRelevanceModel):
             raise TypeError("model must implement assess_raw().")
         self._model = model
+
+    @property
+    def last_usage(self) -> ModelCallUsage | None:
+        """Normalized usage of the most recent verify call, when reported."""
+
+        usage = getattr(self._model, "last_usage", None)
+        return usage if isinstance(usage, ModelCallUsage) else None
 
     def verify(
         self,

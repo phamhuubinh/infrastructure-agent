@@ -35,6 +35,10 @@ protection.
   information, explicit URLs, source constraints, and mutation intent.
 - Stable/general and generation requests do not collect infrastructure
   evidence. Mutations are refused.
+- Sensitive disclosure requests (hidden instructions, credentials,
+  credential files) are refused deterministically before any model call,
+  including possession questions about specific credentials. Definitional
+  questions about credential concepts remain answerable.
 - Current/online and explicit-URL requests use bounded deterministic Internet
   verification; unavailable verification remains unverified/unknown.
 - Infrastructure requests resolve explicit targets before planning. Unknown or
@@ -86,6 +90,20 @@ protection.
   allowlisted plan summary, and a bounded draft; it returns only an
   `aligned`/`not_aligned` decision and reason code. Deterministic responses and
   drafts already rejected by hard postconditions do not invoke it.
+- A model draft rejected at the final boundary gets at most one repair
+  attempt. The repair prompt contains only the original request, the failed
+  postcondition/relevance reason, and required grounded facts. A repaired
+  draft re-enters the same deterministic verification once; a second failure
+  or an unavailable/empty repair falls back to the safe deterministic
+  replacement. Traces record the repair attempt/status without hidden
+  reasoning.
+- Provider token usage is normalized into one per-call contract
+  (`ModelCallUsage`) separating input, reasoning, visible-output, and total
+  output tokens plus model/provider, purpose, and latency. Unknown fields
+  stay null — never zero — and hidden reasoning text is never stored.
+- Semantic-loop execution traces expose bounded per-call model usage and
+  per-purpose aggregates (planner/response/relevance/repair) under
+  `runtime_metrics.model_usage`.
 
 ## Child Tools
 
@@ -131,6 +149,8 @@ RAG is intentionally absent from chat tool registration.
   Supported arithmetic includes binary operations, average, percent-of,
   worker/task rate, and rate-unit conversion; invalid or ambiguous contracts
   fail explicitly.
+- Supplied-text arithmetic recognizes reviewed VI/EN forms and excludes
+  machine/worker count nouns (e.g. "3 máy") from average operands.
 - Capability-assisted semantic plans for current external information and
   explicit public URLs execute through the existing bounded external verifier.
   Verified evidence/provenance is assessed; unavailable search/fetch returns an

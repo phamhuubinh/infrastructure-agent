@@ -29,8 +29,8 @@ class SensitiveRequestPolicy:
         re.IGNORECASE,
     )
     _CREDENTIAL = re.compile(
-        r"\b(?:api[ _-]?key|access[ _-]?token|secret|password|credential|"
-        r"private\s+(?:ssh\s+)?key|ssh\s+private\s+key)\b"
+        r"\b(?:api[ _-]?keys?|access[ _-]?tokens?|secrets?|passwords?|"
+        r"credentials?|private\s+(?:ssh\s+)?keys?|ssh\s+private\s+keys?)\b"
         r"|(?:khóa|khoa)\s*(?:api|bí\s*mật|bi\s*mat|riêng|rieng)"
         r"|mật\s*khẩu|mat\s*khau|thông\s*tin\s*đăng\s*nhập",
         re.IGNORECASE,
@@ -54,6 +54,21 @@ class SensitiveRequestPolicy:
         r"mat\s*khau|khóa\s*riêng|khoa\s*rieng)",
         re.IGNORECASE,
     )
+    # A question about a *specific* credential value ("the root password",
+    # "API keys do you have") is a disclosure attempt even without an
+    # explicit disclosure verb. Definitional questions ("what is an API
+    # key?") deliberately do not match: the possessor or the possession
+    # verb is required.
+    _CREDENTIAL_POSSESSION = re.compile(
+        r"\b(?:what|which|where|give|show|tell|get|have|find|see|access|print|"
+        r"reveal|hiển\s*thị|hien\s*thi|cho|đọc|doc)\b.{0,40}"
+        r"\b(?:the|your|our|its|my|root|admin|orion|server'?s?)\s+"
+        r"(?:[a-z]{0,20}\s+)?"
+        r"(?:api[ _-]?keys?|passwords?|private\s+keys?|credentials?|secrets?|tokens?)\b"
+        r"|\b(?:api[ _-]?keys?|passwords?|credentials?|secrets?|tokens?)\b"
+        r"(?:\s+\w+){0,4}\s+\b(?:have|has|get|find|see|access)\b",
+        re.IGNORECASE,
+    )
 
     @classmethod
     def classify(cls, raw_request: str) -> SensitiveRequestKind | None:
@@ -67,7 +82,11 @@ class SensitiveRequestPolicy:
             return SensitiveRequestKind.HIDDEN_INSTRUCTIONS
         if cls._CREDENTIAL_FILE.search(text) and disclosure:
             return SensitiveRequestKind.CREDENTIAL_FILE
-        if cls._CREDENTIAL.search(text) and (disclosure or cls._OWNED_CREDENTIAL.search(text)):
+        if cls._CREDENTIAL.search(text) and (
+            disclosure
+            or cls._OWNED_CREDENTIAL.search(text)
+            or cls._CREDENTIAL_POSSESSION.search(text)
+        ):
             return SensitiveRequestKind.CREDENTIAL
         return None
 

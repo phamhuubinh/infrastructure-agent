@@ -6,6 +6,7 @@ from urllib import error as urlerror
 from urllib import request
 
 from src.model.output_sanitizer import sanitize_model_output
+from src.model.usage_metadata import ModelCallUsage, normalize_openai_usage
 from src.shared.logger import debug, info
 from src.shared.logger import error as log_error
 
@@ -43,11 +44,11 @@ class LLMClient:
         self._timeout = timeout
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._last_usage: dict[str, int] | None = None
+        self._last_usage: ModelCallUsage | None = None
         self._provider = _extract_provider(base_url, model)
 
     @property
-    def last_usage(self) -> dict[str, int] | None:
+    def last_usage(self) -> ModelCallUsage | None:
         return self._last_usage
 
     def generate(
@@ -55,6 +56,7 @@ class LLMClient:
         prompt: str,
         request_id: str | None = None,
         system_prompt: str | None = None,
+        purpose: str | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system_prompt:
@@ -96,6 +98,7 @@ class LLMClient:
         )
 
         elapsed_ms: int = 0
+        self._last_usage = None
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
                 data: dict[str, object] = json.loads(response.read().decode("utf-8"))
@@ -181,13 +184,14 @@ class LLMClient:
             msg = "LLM API returned no user-visible content"
             raise RuntimeError(msg)
 
-        raw_usage = data.get("usage")
-        if isinstance(raw_usage, dict):
-            self._last_usage = {
-                k: int(v) for k, v in raw_usage.items() if isinstance(v, (int, float))
-            }
-        else:
-            self._last_usage = None
+        usage = data.get("usage")
+        self._last_usage = normalize_openai_usage(
+            usage,
+            model=self._model,
+            provider=self._provider,
+            purpose=purpose,
+            latency_ms=elapsed_ms,
+        )
 
         finish_reason: str | None = None
         if isinstance(first, dict):
@@ -204,15 +208,10 @@ class LLMClient:
             max_tokens=self._max_tokens,
             temperature=self._temperature,
             timeout=self._timeout,
-            input_tokens=self._last_usage.get("prompt_tokens")
-            if self._last_usage
-            else None,
-            output_tokens=self._last_usage.get("completion_tokens")
-            if self._last_usage
-            else None,
-            total_tokens=self._last_usage.get("total_tokens")
-            if self._last_usage
-            else None,
+            input_tokens=self._last_usage.input_tokens,
+            reasoning_tokens=self._last_usage.reasoning_tokens,
+            output_tokens=self._last_usage.visible_output_tokens,
+            total_tokens=self._last_usage.total_output_tokens,
             duration_ms=elapsed_ms,
             finish_reason=finish_reason,
             message="LLM response received",

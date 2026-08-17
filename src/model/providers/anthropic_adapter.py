@@ -4,6 +4,7 @@ from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.assessment_result import AssessmentResult
 from src.model.output_sanitizer import sanitize_model_output
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
+from src.model.usage_metadata import ModelCallUsage, normalize_anthropic_usage
 from src.pipeline.assessment_request import AssessmentRequest
 from src.shared.logger import info as _info
 from src.shared.logger import warning as _warning
@@ -31,11 +32,37 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
         self._timeout = timeout
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._last_usage: dict[str, int] | None = None
+        self._last_usage: ModelCallUsage | None = None
 
     @property
-    def last_usage(self) -> dict[str, int] | None:
+    def last_usage(self) -> ModelCallUsage | None:
         return self._last_usage
+
+    @staticmethod
+    def _normalize_usage(
+        response: object,
+        latency_ms: float,
+        purpose: str | None = None,
+    ) -> ModelCallUsage:
+        """Normalize a Messages API response without storing content."""
+
+        content = getattr(response, "content", None)
+        has_hidden_reasoning = (
+            any(
+                "thinking" in str(getattr(block, "type", "")).lower()
+                for block in content
+            )
+            if isinstance(content, (list, tuple))
+            else None
+        )
+        return normalize_anthropic_usage(
+            getattr(response, "usage", None),
+            has_hidden_reasoning=has_hidden_reasoning,
+            model=getattr(response, "model", None) or None,
+            provider="anthropic",
+            purpose=purpose,
+            latency_ms=latency_ms,
+        )
 
     def _get_client(self):
         """Lazy-import the Anthropic client.
@@ -81,10 +108,7 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
             content = sanitize_model_output(
                 response.content[0].text if response.content else ""
             )
-            self._last_usage = {
-                "input_tokens": getattr(response.usage, "input_tokens", 0),
-                "output_tokens": getattr(response.usage, "output_tokens", 0),
-            }
+            self._last_usage = self._normalize_usage(response, latency)
             _info(
                 "llm",
                 status="success",
@@ -92,8 +116,9 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
                 provider="anthropic",
                 model=self._model,
                 duration_ms=latency,
-                input_tokens=self._last_usage.get("input_tokens", "N/A"),
-                output_tokens=self._last_usage.get("output_tokens", "N/A"),
+                input_tokens=self._last_usage.input_tokens,
+                reasoning_tokens=self._last_usage.reasoning_tokens,
+                output_tokens=self._last_usage.visible_output_tokens,
                 message="Anthropic raw response received",
             )
             return content
@@ -179,20 +204,22 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
             response.content[0].text if response.content else ""
         )
 
-        pt = getattr(response.usage, "input_tokens", None) if response.usage else None
-        ct = getattr(response.usage, "output_tokens", None) if response.usage else None
-        self._last_usage = {
-            "input_tokens": pt or 0,
-            "output_tokens": ct or 0,
-        }
+        self._last_usage = self._normalize_usage(
+            response,
+            latency,
+            purpose="assessment",
+        )
+        pt = self._last_usage.input_tokens
+        ct = self._last_usage.total_output_tokens
         _info(
             "llm",
             status="success",
             provider="anthropic",
             model=self._model,
             duration_ms=latency,
-            input_tokens=pt or "N/A",
-            output_tokens=ct or "N/A",
+            input_tokens=pt,
+            reasoning_tokens=self._last_usage.reasoning_tokens,
+            output_tokens=self._last_usage.visible_output_tokens,
             message="Anthropic response received",
         )
         return AssessmentResult(

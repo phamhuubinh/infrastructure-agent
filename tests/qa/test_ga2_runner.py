@@ -214,3 +214,187 @@ def test_run_with_run_dir_writes_directly_into_the_given_directory(
 
     # summary.json is a complete, valid JSON report (no crash serializing).
     assert report["summary"]["mode"] == "smoke"
+
+
+def _usage_case(
+    suite: str,
+    elapsed_ms: float,
+    usage: object = None,
+) -> dict[str, object]:
+    record: dict[str, object] = {"suite": suite, "elapsed_ms": elapsed_ms}
+    runtime: dict[str, object] = {}
+    if usage is not None:
+        runtime["model_usage"] = usage
+    record["execution_trace"] = {"runtime_metrics": runtime}
+    return record
+
+
+def test_summary_aggregates_model_usage_metrics() -> None:
+    runner = _runner_module()
+    records = [
+        _usage_case(
+            "smoke",
+            100.0,
+            {
+                "calls": 4,
+                "by_purpose": {
+                    "planner": {
+                        "calls": 1,
+                        "latency_ms": 10.0,
+                        "input_tokens": 100,
+                        "reasoning_tokens": 40,
+                        "visible_output_tokens": 60,
+                        "total_output_tokens": 100,
+                    },
+                    "relevance": {
+                        "calls": 1,
+                        "latency_ms": 2.0,
+                        "input_tokens": 20,
+                        "reasoning_tokens": None,
+                        "visible_output_tokens": 10,
+                        "total_output_tokens": 10,
+                    },
+                },
+            },
+        ),
+        _usage_case(
+            "smoke",
+            200.0,
+            {
+                "calls": 2,
+                "by_purpose": {
+                    "response": {
+                        "calls": 1,
+                        "latency_ms": 5.0,
+                        "input_tokens": 30,
+                        "reasoning_tokens": 0,
+                        "visible_output_tokens": 30,
+                        "total_output_tokens": 30,
+                    },
+                    "repair": {
+                        "calls": 1,
+                        "latency_ms": None,
+                        "input_tokens": None,
+                        "reasoning_tokens": None,
+                        "visible_output_tokens": None,
+                        "total_output_tokens": None,
+                    },
+                },
+            },
+        ),
+    ]
+
+    summary = runner._summary(records, [])
+
+    suite = summary["suites"]["smoke"]
+    assert suite["median_model_calls"] == 4.0
+    assert suite["p95_model_calls"] == 4.0
+    assert suite["median_model_latency_ms"] == 12.0
+    assert suite["median_model_input_tokens"] == 120.0
+    assert suite["median_model_reasoning_tokens"] == 40.0
+    assert suite["median_model_visible_output_tokens"] == 70.0
+
+
+def test_summary_keeps_unavailable_model_usage_absent_not_zero() -> None:
+    runner = _runner_module()
+    records = [
+        _usage_case("unknown-usage", 50.0),
+        _usage_case(
+            "unknown-usage",
+            60.0,
+            {"calls": None, "by_purpose": {}},
+        ),
+        _usage_case(
+            "unknown-usage",
+            70.0,
+            {
+                "calls": 1,
+                "by_purpose": {
+                    "planner": {
+                        "calls": 1,
+                        "latency_ms": None,
+                        "input_tokens": None,
+                        "reasoning_tokens": None,
+                        "visible_output_tokens": None,
+                        "total_output_tokens": None,
+                    },
+                },
+            },
+        ),
+    ]
+
+    summary = runner._summary(records, [])
+
+    suite = summary["suites"]["unknown-usage"]
+    assert suite["median_model_calls"] == 1.0
+    assert suite["median_model_latency_ms"] is None
+    assert suite["median_model_input_tokens"] is None
+    assert suite["median_model_reasoning_tokens"] is None
+    assert suite["median_model_visible_output_tokens"] is None
+
+
+def test_summary_keeps_existing_keys_and_no_raw_arrays() -> None:
+    runner = _runner_module()
+    records = [
+        _usage_case(
+            "smoke",
+            30.0,
+            {
+                "calls": 1,
+                "by_purpose": {
+                    "response": {
+                        "calls": 1,
+                        "latency_ms": 1.0,
+                        "input_tokens": 10,
+                        "reasoning_tokens": 2,
+                        "visible_output_tokens": 8,
+                        "total_output_tokens": 10,
+                    },
+                },
+            },
+        ),
+    ]
+
+    summary = runner._summary(records, [])
+
+    assert summary["cases"] == 1
+    assert summary["p0_violations"] == 0
+    assert summary["grading_status"] == "PENDING_MANUAL_REVIEW"
+    suite = summary["suites"]["smoke"]
+    for key in ("median_latency_ms", "p95_latency_ms", "median_tool_calls"):
+        assert key in suite
+    for value in suite.values():
+        assert not isinstance(value, list)
+
+
+def test_markdown_report_includes_model_usage_columns() -> None:
+    runner = _runner_module()
+    summary = runner._summary(
+        [
+            _usage_case(
+                "smoke",
+                30.0,
+                {
+                    "calls": 3,
+                    "by_purpose": {
+                        "response": {
+                            "calls": 1,
+                            "latency_ms": 1.0,
+                            "input_tokens": 10,
+                            "reasoning_tokens": 0,
+                            "visible_output_tokens": 12,
+                            "total_output_tokens": 12,
+                        },
+                    },
+                },
+            ),
+        ],
+        [],
+    )
+    manifest = {"git_sha": "abc1234", "dirty_worktree": False}
+
+    markdown = runner._render_markdown(manifest, summary, [])
+
+    assert "Model calls (med)" in markdown
+    assert "Vis. out tokens (med)" in markdown
+    assert "| smoke | 1 | 30.0 | 30.0 | 3.0 | 12.0 |" in markdown

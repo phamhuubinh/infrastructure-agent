@@ -633,6 +633,14 @@ def _bounded_postcondition_trace(
                 "decision": decision[:32],
                 "reason": reason[:64],
             }
+    repair = value.get("repair")
+    if isinstance(repair, dict):
+        status = repair.get("status")
+        if isinstance(status, str):
+            trace["repair"] = {
+                "attempted": bool(repair.get("attempted")),
+                "status": status[:64],
+            }
     return trace
 
 

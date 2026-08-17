@@ -54,6 +54,12 @@ from src.model.semantic_relevance_verifier import (
     SemanticRelevanceVerifier,
     SemanticRelevanceVerifierProtocol,
 )
+from src.model.semantic_response_repairer import (
+    SemanticResponseRepairer,
+    SemanticResponseRepairerProtocol,
+)
+from src.model.usage_metadata import ModelCallUsage
+from src.model.usage_recorder import ModelUsageRecorder
 from src.pipeline.answer_type import AnswerType
 from src.pipeline.assessment_adapter import AssessmentAdapter
 from src.pipeline.assessment_request import AssessmentRequest
@@ -158,6 +164,7 @@ class DeterministicAgent:
         general_agent_routing_enabled: bool = True,
         semantic_planner: SemanticPlannerAdapter | None = None,
         semantic_relevance_verifier: SemanticRelevanceVerifierProtocol | None = None,
+        semantic_response_repairer: SemanticResponseRepairerProtocol | None = None,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -179,6 +186,14 @@ class DeterministicAgent:
             SemanticRelevanceVerifier(assessment_model)
             if semantic_planner is not None
             else None
+        )
+        self._semantic_response_repairer = semantic_response_repairer or (
+            SemanticResponseRepairer(assessment_model)
+            if semantic_planner is not None
+            else None
+        )
+        self._usage_recorder = (
+            ModelUsageRecorder() if semantic_planner is not None else None
         )
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
             getattr(execution_engine, "knowledge_tool", None)
@@ -2253,6 +2268,8 @@ class DeterministicAgent:
 
         if self._semantic_planner is None:
             return None
+        if self._usage_recorder is not None:
+            self._usage_recorder.reset()
         selection = SemanticSessionContextSelector().select(
             user_request,
             self._session_context,
@@ -2288,10 +2305,29 @@ class DeterministicAgent:
         )
         raw_timeframe = Normalizer().normalize(user_request).timeframe
         timeframe = raw_timeframe if isinstance(raw_timeframe, TimeRange) else None
-        return coordinator.run(
+        result = coordinator.run(
             user_request,
             context=selection.context,
             timeframe=timeframe,
+        )
+        self._record_planner_usage(result)
+        return result
+
+    def _record_planner_usage(self, result: SemanticLoopResult) -> None:
+        """Record the planner call metadata from a completed loop outcome."""
+
+        if self._usage_recorder is None:
+            return
+        outcome = result.planner_outcome
+        planner_result = outcome.result if outcome is not None else None
+        if planner_result is None:
+            return
+        self._usage_recorder.record_mapping(
+            planner_result.raw_usage,
+            purpose=planner_result.purpose.value,
+            provider=planner_result.provider,
+            model=planner_result.model,
+            latency_ms=planner_result.latency_ms,
         )
 
     def _semantic_loop_execute(self, frame: RequestFrame) -> InvestigationRequest:
@@ -2370,6 +2406,25 @@ class DeterministicAgent:
             model_used=False,
         )
 
+    def _record_usage_from(
+        self,
+        usage: object,
+        purpose: str,
+    ) -> None:
+        """Record one normalized model call under the given purpose."""
+
+        if self._usage_recorder is None or not isinstance(usage, ModelCallUsage):
+            return
+        self._usage_recorder.record(replace(usage, purpose=purpose))
+
+    def _record_assessment_usage(self, purpose: str) -> None:
+        """Record the assessment model's most recent call, when reported."""
+
+        self._record_usage_from(
+            getattr(self._assessment_model, "last_usage", None),
+            purpose,
+        )
+
     def _semantic_loop_verify_response(
         self,
         user_request: str,
@@ -2378,6 +2433,8 @@ class DeterministicAgent:
         harness: SemanticPlanHarnessResult,
         investigation: InvestigationRequest | None,
         calculation: CalculatorContractResult | None,
+        *,
+        _allow_repair: bool = True,
     ) -> SemanticLoopResponse:
         target = getattr(harness, "resolved_target", None)
         current_required = plan.freshness in {
@@ -2439,6 +2496,10 @@ class DeterministicAgent:
         verifier = self._semantic_relevance_verifier
         if guard.passed and response.model_used and verifier is not None:
             relevance = verifier.verify(user_request, plan, response.text)
+            self._record_usage_from(
+                getattr(verifier, "last_usage", None),
+                "relevance",
+            )
             if not isinstance(relevance, SemanticRelevanceResult):
                 raise TypeError("semantic relevance result contract is invalid")
             postconditions["relevance"] = relevance.to_trace_dict()
@@ -2451,6 +2512,63 @@ class DeterministicAgent:
                     "Câu trả lời bị chặn vì không trả lời đúng yêu cầu hiện tại."
                     if _detect_language(user_request) == "vi"
                     else "The response was blocked because it did not answer the current request."
+                )
+        if (
+            not bool(postconditions.get("passed"))
+            and response.model_used
+            and _allow_repair
+            and self._semantic_response_repairer is not None
+        ):
+            raw_violations = postconditions.get("violations", ())
+            violations = (
+                tuple(str(item) for item in raw_violations[:8])
+                if isinstance(raw_violations, (list, tuple))
+                else ()
+            )
+            relevance_trace = postconditions.get("relevance")
+            relevance_reason = (
+                relevance_trace.get("reason")
+                if isinstance(relevance_trace, dict)
+                and isinstance(relevance_trace.get("reason"), str)
+                else None
+            )
+            facts = (
+                tuple(investigation.fact_set.facts)
+                if investigation is not None
+                else ()
+            )
+            repair = self._semantic_response_repairer.repair(
+                user_request,
+                violations=violations,
+                relevance_reason=relevance_reason,
+                facts=facts,
+            )
+            self._record_usage_from(
+                getattr(self._semantic_response_repairer, "last_usage", None),
+                "repair",
+            )
+            if not repair.repaired:
+                postconditions["repair"] = repair.to_trace_dict()
+            else:
+                repaired = self._semantic_loop_verify_response(
+                    user_request,
+                    SemanticLoopResponse(
+                        text=repair.text or "",
+                        answer_strategy=response.answer_strategy,
+                        model_used=True,
+                        artifact_validation=response.artifact_validation,
+                    ),
+                    plan,
+                    harness,
+                    investigation,
+                    calculation,
+                    _allow_repair=False,
+                )
+                repaired_postconditions = repaired.postcondition_validation or {}
+                repaired_postconditions["repair"] = repair.to_trace_dict()
+                return replace(
+                    repaired,
+                    postcondition_validation=repaired_postconditions,
                 )
         return SemanticLoopResponse(
             text=text,
@@ -2471,6 +2589,7 @@ class DeterministicAgent:
             bounded_context_only=True,
             raise_errors=True,
         )
+        self._record_assessment_usage("response")
         return SemanticLoopResponse(
             text=response,
             answer_strategy=AnswerStrategy.CHAT.name,
@@ -2519,6 +2638,8 @@ class DeterministicAgent:
             if strategy_out
             else AnswerStrategy.DETERMINISTIC_TEMPLATE.name
         )
+        if strategy == AnswerStrategy.LLM_ASSESSMENT.name:
+            self._record_assessment_usage("response")
         return SemanticLoopResponse(
             text=response,
             answer_strategy=strategy,
@@ -2702,6 +2823,8 @@ class DeterministicAgent:
             runtime_metrics = {}
             trace["runtime_metrics"] = runtime_metrics
         runtime_metrics["semantic_loop"] = result.to_trace_dict()
+        if self._usage_recorder is not None:
+            runtime_metrics["model_usage"] = self._usage_recorder.to_trace_dict()
         return {
             "response": result.response.text,
             "steps": steps,
