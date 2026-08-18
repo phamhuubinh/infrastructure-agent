@@ -179,21 +179,32 @@ def test_build_chat_context_truncates_long_messages(tmp_path: Path) -> None:
 # Task 501: try/except in run() catches exceptions
 # ------------------------------------------------------------------
 def test_run_catches_unknown_target_error() -> None:
-    """Verify that run() and run_with_steps() have try/except wrapping.
-
-    This is a structural test — we verify the methods exist and have
-    try/except blocks by checking the source code.
-    """
-    import inspect
+    """Unknown targets become bounded clarifications on both public run paths."""
+    from unittest import mock
 
     from src.agent.deterministic_agent import DeterministicAgent
+    from src.pipeline.request_frame import RequestFrame
+    from src.pipeline.routing_decision import RoutingDecision, RoutingStatus
+    from src.pipeline.target_resolver import UnknownTargetError
 
-    run_source = inspect.getsource(DeterministicAgent._run_unfinalized)
-    assert "try:" in run_source
-    assert "except Exception" in run_source
-    assert "chat" in run_source
+    engine = mock.MagicMock()
+    model = mock.MagicMock()
+    agent = DeterministicAgent(engine, model)
+    frame = RequestFrame(raw_request="check ghost-999")
+    decision = RoutingDecision(
+        status=RoutingStatus.RESOLVED,
+        request_frame=frame,
+    )
+    agent._route_request = mock.Mock(return_value=decision)
+    engine.execute.side_effect = UnknownTargetError("ghost-999", ["localhost"])
 
-    run_steps_source = inspect.getsource(DeterministicAgent._run_with_steps_unfinalized)
-    assert "try:" in run_steps_source
-    assert "except Exception" in run_steps_source
-    assert "chat" in run_steps_source
+    response = agent.run("check ghost-999")
+    assert "Bạn muốn kiểm tra target nào?" in response
+    assert "localhost" in response
+
+    result = agent.run_with_steps("check ghost-999")
+    assert result["steps"] == []
+    trace = result["execution_trace"]
+    assert trace["routing_status"] == "CLARIFICATION_REQUIRED"
+    assert trace["failure_stage"] == "target"
+    assert "localhost" in result["response"]

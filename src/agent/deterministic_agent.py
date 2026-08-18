@@ -103,7 +103,6 @@ from src.pipeline.input_context_budget import (
 )
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
-from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
 from src.pipeline.narrow_logic import evaluate_text
 from src.pipeline.normalizer import Normalizer
 from src.pipeline.provenance_responder import (
@@ -206,10 +205,6 @@ class DeterministicAgent:
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
             getattr(execution_engine, "knowledge_tool", None)
         )
-        # GA2-C10: the runtime must construct and consume ordered plans for
-        # true multi-intent requests, not merely have the planner available
-        # as an untested helper (see _maybe_run_explain_then_inspect_plan).
-        self._multi_intent_planner = MultiIntentPlanner()
         if self._conversation_store:
             self._conversation_store.set_summarize_fn(self._assessment_model.assess_raw)
 
@@ -513,9 +508,9 @@ class DeterministicAgent:
             }
         if self._semantic_planner is not None:
             # Semantic-primary cutover (#52): same authority rule as
-            # ``_run_unfinalized``. This branch precedes both the lexical
-            # MultiIntentPlanner and the legacy ``_route_request()`` path
-            # below — neither may decide a planner-configured primary
+            # ``_run_unfinalized``. This branch precedes the legacy
+            # ``_route_request()`` compatibility path below, which may not
+            # decide a planner-configured primary request.
             # request, and no semantic-loop outcome (including failure)
             # falls through to them.
             semantic_loop = self._run_semantic_primary(user_request)
@@ -524,19 +519,6 @@ class DeterministicAgent:
         # Legacy deterministic-routing compatibility path (no semantic
         # planner configured). Preserved for existing APIs/tests.
         # ------------------------------------------------------------------
-        # GA2-C10: consume MultiIntentPlanner's ordered plan for a sequenced
-        # compound request *before* the single-shot routing decision below,
-        # or a request such as "Giải thích RAM là gì rồi kiểm tra RAM trên
-        # monitor." collapses into whichever branch the last-mentioned
-        # concept happens to match (previously: pure GENERAL_CHAT on the
-        # trailing "là gì" cue) and the live-inspection half is silently
-        # dropped rather than executed. Every other plan shape (e.g.
-        # EXTERNAL-then-GENERATE) returns None here and falls through
-        # unchanged: RoutingStatus.EXTERNAL_VERIFICATION below already
-        # executes that pattern correctly end-to-end.
-        plan_result = self._maybe_run_explain_then_inspect_plan(user_request)
-        if plan_result is not None:
-            return plan_result
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             response, validation = self._chat_response(user_request)
@@ -3318,105 +3300,6 @@ class DeterministicAgent:
         if self._conversation_store:
             self._conversation_store.add_turn(user_request, response)
         return response
-
-    def _maybe_run_explain_then_inspect_plan(self, user_request: str) -> dict | None:
-        """GA2-C10: execute MultiIntentPlanner's EXPLAIN-then-INSPECT plan.
-
-        Returns ``None`` (meaning: fall through to the normal single-shot
-        routing path in ``run_with_steps``) unless ``user_request`` is a
-        sequenced compound request whose first step is a stable-knowledge
-        explanation and whose second step is a live environment read —
-        e.g. "Giải thích RAM là gì rồi kiểm tra RAM trên monitor.". Any
-        other plan shape (including EXTERNAL-then-GENERATE) is left to the
-        existing ``RoutingStatus.EXTERNAL_VERIFICATION`` path, which
-        already executes it correctly end-to-end.
-
-        Each half is executed through the exact same deterministic
-        machinery it would use standalone (``chat`` for the explanation,
-        the full ``run_with_steps`` pipeline — including target/source
-        resolution and all existing error handling — for the live read),
-        never a free-form ReAct/tool-selection loop. Conversation-store
-        persistence is deferred and done once here with the *original*
-        compound request text, so history/session state reflect what the
-        user actually asked rather than the two synthetic sub-clauses.
-        """
-        frame = SessionContextResolver().resolve(
-            Normalizer().normalize(user_request), self._session_context
-        )
-        plan = self._multi_intent_planner.plan(frame)
-        if plan is None or plan.steps[0].kind is not StepKind.EXPLAIN:
-            return None
-        clauses = self._multi_intent_planner.split_sequenced_clauses(user_request)
-        if clauses is None:
-            return None
-        explain_request, inspect_request = clauses
-
-        t0 = now_ms()
-        store = self._conversation_store
-        self._conversation_store = None
-        try:
-            explanation = self.chat(explain_request)
-            inspect_result = self.run_with_steps(inspect_request)
-        finally:
-            self._conversation_store = store
-
-        combined_response = f"{explanation}\n\n---\n\n{inspect_result['response']}"
-        inspect_trace = inspect_result.get("execution_trace") or {}
-        stages = {
-            "step_1_explain": StageTrace(
-                name="step_1_explain", status=StageStatus.SUCCEEDED
-            ),
-            "step_2_inspect": StageTrace(
-                name="step_2_inspect",
-                status=(
-                    StageStatus.FAILED
-                    if inspect_trace.get("failure_stage")
-                    else StageStatus.SUCCEEDED
-                ),
-            ),
-        }
-        resolved_frame = frame.evolve(routing_status=RoutingStatus.RESOLVED)
-        trace = ExecutionTrace(
-            user_request=user_request,
-            stages=stages,
-            answer_strategy=AnswerStrategy.LLM_ASSESSMENT,
-            llm_usage_reason=LLMUsageReason.EXPECTED_ASSESSMENT,
-            routing_status=RoutingStatus.RESOLVED,
-            evidence_status=(
-                EvidenceStatus.SUFFICIENT
-                if not inspect_trace.get("failure_stage")
-                else EvidenceStatus.PARTIAL
-            ),
-            request_class=frame.answer_type,
-            actual_request_frame=resolved_frame.to_dict(),
-            total_duration_ms=now_ms() - t0,
-            runtime_metrics={
-                "plan_steps": len(plan.steps),
-                "plan_source": plan.source,
-            },
-        )
-        if self._conversation_store:
-            setter = getattr(
-                self._conversation_store, "set_investigation_context", None
-            )
-            if callable(setter):
-                setter(self._session_context)
-            self._conversation_store.add_turn(user_request, combined_response)
-        return {
-            "response": combined_response,
-            "steps": [
-                {
-                    "type": "planned_step",
-                    "order": 1,
-                    "kind": "EXPLAIN",
-                    "status": "SUCCEEDED",
-                },
-                *inspect_result.get("steps", []),
-            ],
-            "investigation": inspect_result.get("investigation"),
-            "trace_id": trace.trace_id,
-            "execution_trace": trace.to_dict(),
-        }
 
     def _build_tool_links(
         self,

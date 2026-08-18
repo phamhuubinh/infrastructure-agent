@@ -195,27 +195,9 @@ def test_vague_referent_never_inherits_implicit_target() -> None:
 
 
 # ---------------------------------------------------------------------------
-# GA2-C10 — runtime integration (the agent must consume the plan, not just
-# be able to construct one; see MultiIntentPlanner's own unit tests for the
-# planner-only coverage).
+# #60 — setup mode must not revive legacy lexical multi-intent routing.
+# Configured multi-intent behavior is covered by the semantic planner tests.
 # ---------------------------------------------------------------------------
-
-
-def test_multi_intent_planner_is_actually_referenced_by_the_agent_runtime() -> None:
-    """Source-level guard against the exact regression GA2-C10 reports:
-
-    'the production runtime does not currently call MultiIntentPlanner;
-    references are limited to the module/tests.' A future edit that removes
-    the runtime wiring (leaving only the planner + its own unit tests)
-    should fail this test rather than silently reintroducing the gap.
-    """
-    import inspect
-
-    from src.agent import deterministic_agent
-
-    source = inspect.getsource(deterministic_agent)
-    assert "MultiIntentPlanner" in source
-    assert "self._multi_intent_planner.plan(" in source
 
 
 def test_no_model_runtime_does_not_revive_legacy_explain_then_inspect_plan() -> None:
@@ -239,24 +221,6 @@ def test_no_model_runtime_does_not_revive_legacy_explain_then_inspect_plan() -> 
     assert execute.call_count == 0
     semantic = trace["runtime_metrics"]["semantic_loop"]
     assert semantic["actual_tool_calls"] == 0
-
-def test_agent_still_uses_single_shot_routing_for_non_explain_plans() -> None:
-    """The EXTERNAL-then-GENERATE plan shape is intentionally *not*
-    special-cased by the new integration: RoutingStatus.EXTERNAL_VERIFICATION
-    already executes it correctly end-to-end (the full compound request is
-    sent to the assessment model together with the verified facts, and the
-    unavailable path already fails closed without fabricating a value —
-    GA2-C07/F07). This guards against silently disabling that existing,
-    working path when adding new plan-kind handling in the future.
-    """
-    from src.agent.runtime_factory import create_deterministic_agent
-
-    agent = create_deterministic_agent()
-    decision = agent._route_request(
-        "Tìm phiên bản Python mới nhất rồi viết Dockerfile dùng phiên bản đó."
-    )
-    assert decision.status.name == "EXTERNAL_VERIFICATION"
-
 
 # ---------------------------------------------------------------------------
 # GA2-D08 — RAW / EXPLAIN_PREVIOUS runtime behavior (SHORT was already
