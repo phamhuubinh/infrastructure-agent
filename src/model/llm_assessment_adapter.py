@@ -8,6 +8,7 @@ from src.model.assessment_result import AssessmentResult
 from src.model.llm_client import LLMClient
 from src.model.protocol.orion_system_prompt import ORION_SYSTEM_PROMPT
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
+from src.model.reasoning_effort import ModelRequestClass, ReasoningEffortPolicy
 from src.model.usage_metadata import ModelCallUsage
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.input_context_budget import InputContextBudget
@@ -87,10 +88,16 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
         self._last_input_estimate = InputContextBudget.estimated_tokens(
             _ORION_SYSTEM_PROMPT + prompt
         )
+        effort = ReasoningEffortPolicy.for_call(
+            purpose="response",
+            request_class=ModelRequestClass.NORMAL,
+        )
         try:
             response = self._client.generate(
                 prompt,
                 system_prompt=_ORION_SYSTEM_PROMPT,
+                purpose="response",
+                reasoning_effort=effort,
             )
             latency = round((_time.perf_counter() - t0) * 1000, 1)
             usage = self._client.last_usage
@@ -117,6 +124,30 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
             )
             raise
 
+    @staticmethod
+    def _assessment_request_class(
+        assessment_request: AssessmentRequest,
+    ) -> ModelRequestClass:
+        """Classify evidence complexity without inspecting free-form request text."""
+
+        sources = {
+            source.casefold()
+            for package in assessment_request.evidence
+            for source in (package.source, package.source_tool)
+            if isinstance(source, str) and source.strip()
+        }
+        intent = assessment_request.intent.strip().casefold()
+        diagnostic_intent = any(
+            marker in intent
+            for marker in ("assessment", "diagnos", "health", "investigat")
+        )
+        contradictory = (
+            assessment_request.evidence_status.strip().upper() == "CONTRADICTORY"
+        )
+        if len(sources) >= 2 and (diagnostic_intent or contradictory):
+            return ModelRequestClass.MULTI_SOURCE_DIAGNOSIS
+        return ModelRequestClass.EVIDENCE_ASSISTED
+
     def _assess_with_result(
         self,
         assessment_request: AssessmentRequest,
@@ -140,11 +171,17 @@ class LLMAssessmentAdapter(AssessmentModelAdapter):
             _ORION_SYSTEM_PROMPT + prompt
         )
 
+        request_class = self._assessment_request_class(assessment_request)
+        effort = ReasoningEffortPolicy.for_call(
+            purpose="assessment",
+            request_class=request_class,
+        )
         try:
             response = self._client.generate(
                 prompt,
                 system_prompt=_ORION_SYSTEM_PROMPT,
                 purpose="assessment",
+                reasoning_effort=effort,
             )
         except Exception as exc:
             _info(

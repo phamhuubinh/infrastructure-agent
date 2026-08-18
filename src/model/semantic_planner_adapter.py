@@ -18,6 +18,11 @@ from src.model.protocol.semantic_planner_prompt import (
     PlannerPromptContext,
     build_semantic_planner_prompt,
 )
+from src.model.reasoning_effort import (
+    ModelRequestClass,
+    ReasoningEffort,
+    ReasoningEffortPolicy,
+)
 from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
@@ -58,6 +63,15 @@ class PlannerProviderRequest:
     timeout_seconds: float
     request_id: str | None = None
 
+    @property
+    def reasoning_effort(self) -> ReasoningEffort:
+        """Preferred planner effort; providers may ignore unsupported controls."""
+
+        return ReasoningEffortPolicy.for_call(
+            purpose=self.purpose.value,
+            request_class=ModelRequestClass.TRIVIAL,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PlannerProviderResponse:
@@ -67,6 +81,7 @@ class PlannerProviderResponse:
     provider: str
     model: str
     raw_usage: Mapping[str, object] | None = None
+    configured_effort: ReasoningEffort | None = None
 
 
 @runtime_checkable
@@ -161,6 +176,7 @@ class SemanticPlannerResult:
     final_answer: str | None = None
     estimated_input_tokens: int | None = None
     input_budget_class: str | None = None
+    configured_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +214,7 @@ class SemanticPlannerOutcome:
             trace["latency_ms"] = self.result.latency_ms
             trace["estimated_input_tokens"] = self.result.estimated_input_tokens
             trace["input_budget_class"] = self.result.input_budget_class
+            trace["configured_effort"] = self.result.configured_effort
         if self.failures:
             trace["attempts"] = [
                 {"provider": item.provider, "reason": item.reason.value}
@@ -264,6 +281,13 @@ class SemanticPlannerAdapter:
                 parsed = _parse_provider_payload(response.payload)
                 model_label = _bounded_identity(response.model, "unknown")
                 raw_usage = _copy_raw_usage(response.raw_usage)
+                configured_effort = response.configured_effort
+                if configured_effort is not None and not isinstance(
+                    configured_effort, ReasoningEffort
+                ):
+                    raise SemanticPlanWireError(
+                        "Provider configured_effort must be ReasoningEffort or null."
+                    )
             except TimeoutError as exc:
                 failures.append(
                     _failure(provider_label, PlannerFailureReason.TIMEOUT, exc)
@@ -303,6 +327,9 @@ class SemanticPlannerAdapter:
                 final_answer=parsed.final_answer,
                 estimated_input_tokens=prompt.estimated_input_tokens,
                 input_budget_class=prompt.input_budget_class,
+                configured_effort=(
+                    configured_effort.value if configured_effort is not None else None
+                ),
             )
 
         raise SemanticPlannerError(tuple(failures))

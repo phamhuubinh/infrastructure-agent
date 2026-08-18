@@ -24,7 +24,9 @@ class ModelCallUsage:
     ``estimated_input_tokens`` is a provider-neutral character-derived
     estimate of the call's input context computed at context construction;
     it is deliberately distinct from the provider-reported ``input_tokens``
-    and never overwrites or reinterprets it.
+    and never overwrites or reinterprets it. ``configured_effort`` records
+    only the effort option actually sent to a supporting provider; it is
+    separate from provider-reported ``reasoning_tokens``.
     """
 
     input_tokens: int | None = None
@@ -36,6 +38,7 @@ class ModelCallUsage:
     purpose: str | None = None
     latency_ms: float | None = None
     estimated_input_tokens: int | None = None
+    configured_effort: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize with explicit ``None`` so unknown stays unknown."""
@@ -50,6 +53,7 @@ class ModelCallUsage:
             "purpose": self.purpose,
             "latency_ms": self.latency_ms,
             "estimated_input_tokens": self.estimated_input_tokens,
+            "configured_effort": self.configured_effort,
         }
 
 
@@ -70,6 +74,7 @@ def normalize_openai_usage(
     provider: str | None = None,
     purpose: str | None = None,
     latency_ms: float | None = None,
+    configured_effort: str | None = None,
 ) -> ModelCallUsage:
     """Normalize an OpenAI-compatible chat-completions ``usage`` payload.
 
@@ -84,6 +89,7 @@ def normalize_openai_usage(
         provider=provider,
         purpose=purpose,
         latency_ms=latency_ms,
+        configured_effort=configured_effort,
     )
     if not isinstance(usage, dict):
         return metadata
@@ -107,6 +113,7 @@ def normalize_openai_usage(
         provider=provider,
         purpose=purpose,
         latency_ms=latency_ms,
+        configured_effort=configured_effort,
     )
 
 
@@ -118,6 +125,7 @@ def normalize_anthropic_usage(
     provider: str | None = "anthropic",
     purpose: str | None = None,
     latency_ms: float | None = None,
+    configured_effort: str | None = None,
 ) -> ModelCallUsage:
     """Normalize an Anthropic Messages API ``usage`` object.
 
@@ -142,6 +150,7 @@ def normalize_anthropic_usage(
         provider=provider,
         purpose=purpose,
         latency_ms=latency_ms,
+        configured_effort=configured_effort,
     )
 
 
@@ -152,6 +161,7 @@ def normalize_usage_mapping(
     provider: str | None = None,
     model: str | None = None,
     latency_ms: float | None = None,
+    configured_effort: str | None = None,
 ) -> ModelCallUsage:
     """Normalize a provider-neutral raw-usage mapping.
 
@@ -168,6 +178,7 @@ def normalize_usage_mapping(
             provider=provider,
             purpose=purpose,
             latency_ms=latency_ms,
+            configured_effort=configured_effort,
         )
     if "prompt_tokens" in raw_usage or "completion_tokens" in raw_usage:
         usage_payload: dict[str, object] = {
@@ -189,6 +200,7 @@ def normalize_usage_mapping(
             provider=provider,
             purpose=purpose,
             latency_ms=latency_ms,
+            configured_effort=configured_effort,
         )
     # A raw usage mapping alone does not prove the response had no
     # hidden/thinking content, so the visible-output share stays unknown —
@@ -201,6 +213,7 @@ def normalize_usage_mapping(
         provider=provider,
         purpose=purpose,
         latency_ms=latency_ms,
+        configured_effort=configured_effort,
     )
 
 

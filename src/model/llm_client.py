@@ -6,6 +6,7 @@ from urllib import error as urlerror
 from urllib import request
 
 from src.model.output_sanitizer import sanitize_model_output
+from src.model.reasoning_effort import ReasoningEffort
 from src.model.usage_metadata import ModelCallUsage, normalize_openai_usage
 from src.shared.logger import debug, info
 from src.shared.logger import error as log_error
@@ -35,6 +36,7 @@ class LLMClient:
         timeout: int = 180,
         temperature: float = 0.0,
         max_tokens: int = 2048,
+        supports_reasoning_effort: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v1"):
@@ -44,6 +46,9 @@ class LLMClient:
         self._timeout = timeout
         self._temperature = temperature
         self._max_tokens = max_tokens
+        if not isinstance(supports_reasoning_effort, bool):
+            raise TypeError("supports_reasoning_effort must be bool.")
+        self._supports_reasoning_effort = supports_reasoning_effort
         self._last_usage: ModelCallUsage | None = None
         self._provider = _extract_provider(base_url, model)
 
@@ -57,19 +62,27 @@ class LLMClient:
         request_id: str | None = None,
         system_prompt: str | None = None,
         purpose: str | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self._model,
             "messages": messages,
             "temperature": self._temperature,
             "max_tokens": self._max_tokens,
             "stream": False,
         }
+        configured_effort: str | None = None
+        if reasoning_effort is not None:
+            if not isinstance(reasoning_effort, ReasoningEffort):
+                raise TypeError("reasoning_effort must be ReasoningEffort or None.")
+            if self._supports_reasoning_effort:
+                configured_effort = reasoning_effort.value
+                payload["reasoning_effort"] = configured_effort
 
         headers: dict[str, str] = {
             "Content-Type": "application/json",
@@ -191,6 +204,7 @@ class LLMClient:
             provider=self._provider,
             purpose=purpose,
             latency_ms=elapsed_ms,
+            configured_effort=configured_effort,
         )
 
         finish_reason: str | None = None
@@ -210,6 +224,7 @@ class LLMClient:
             timeout=self._timeout,
             input_tokens=self._last_usage.input_tokens,
             reasoning_tokens=self._last_usage.reasoning_tokens,
+            configured_effort=self._last_usage.configured_effort,
             output_tokens=self._last_usage.visible_output_tokens,
             total_tokens=self._last_usage.total_output_tokens,
             duration_ms=elapsed_ms,

@@ -100,7 +100,21 @@ class TestNormalizeOpenAIUsage:
             "provider": None,
             "purpose": None,
             "latency_ms": None,
+            "configured_effort": None,
         }
+
+    def test_configured_effort_stays_separate_from_reasoning_tokens(self) -> None:
+        usage = normalize_openai_usage(
+            {
+                "prompt_tokens": 8,
+                "completion_tokens": 13,
+                "completion_tokens_details": {"reasoning_tokens": 5},
+            },
+            configured_effort="low",
+        )
+
+        assert usage.configured_effort == "low"
+        assert usage.reasoning_tokens == 5
 
 
 class TestNormalizeAnthropicUsage:
