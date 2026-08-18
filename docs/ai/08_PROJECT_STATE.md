@@ -13,8 +13,8 @@ protection.
 
 ## Application surfaces
 
-- `orion run`: interactive deterministic chat with SQLite conversation
-  persistence.
+- `orion run`: interactive semantic-planner chat with deterministic
+  validation/execution boundaries and SQLite conversation persistence.
 - `python3 -m src.cli web`: source FastAPI + Vite Web runtime.
 - Installed `orion web` / `orion log`: Docker service control and log viewing.
 - CLI target commands: add, list, and remove JSON-backed local/SSH targets.
@@ -30,29 +30,46 @@ protection.
 
 ## Routing and execution
 
-- `RequestFrame` and deterministic semantics distinguish stable knowledge,
-  content generation, live infrastructure inspection, current external
-  information, explicit URLs, source constraints, and mutation intent.
-- Stable/general and generation requests do not collect infrastructure
-  evidence. Mutations are refused.
+- RuntimeFactory-built CLI/Web agents use `SemanticPlannerAdapter` as the
+  primary natural-language semantic interpreter. The planner emits a strict
+  typed `SemanticPlan`; legacy lexical routing remains only as a compatibility
+  path for explicitly constructed agents without a planner.
+- The first planner prompt contains the request plus bounded relevant session
+  context and schema only. It contains no commands, credentials, tool schemas,
+  capability details, evidence, or hidden reasoning.
+- `SemanticPlanHarnessValidator` owns hard mutation/read-only checks,
+  registry-backed target validation, exact source constraints/exclusions,
+  freshness normalization, compute validation, and multi-intent structure.
+  Planner failure or invalid output fails closed and does not revive lexical
+  live routing.
+- Stable/general and generation plans do not collect infrastructure evidence.
+  Deterministic compute uses the reviewed calculator. Capability-assisted
+  plans must bind successfully before any collector can run.
 - Sensitive disclosure requests (hidden instructions, credentials,
-  credential files) are refused deterministically before any model call,
-  including possession questions about specific credentials. Definitional
-  questions about credential concepts remain answerable.
-- Current/online and explicit-URL requests use bounded deterministic Internet
-  verification; unavailable verification remains unverified/unknown.
-- Infrastructure requests resolve explicit targets before planning. Unknown or
-  ambiguous explicit targets clarify without `localhost` fallback.
-- Exact Grafana/Zabbix/SSH/Internet source constraints and exclusions are
-  enforced before capability execution.
-- Metadata-driven parameter binding validates required fields, types, patterns,
-  ranges, and unsafe values before dispatch.
-- Coordinated requests use bounded decomposition and a deduplicated capability
-  graph.
+  credential files) have deterministic refusal paths. Definitional questions
+  about credential concepts remain answerable.
+- Current/online and explicit-URL plans use bounded deterministic Internet
+  verification; unavailable verification remains unverified/unknown and never
+  falls back to stale model memory.
+- `SemanticPlanBinder` maps validated capability-assisted plans onto the
+  existing evidence planner, capability resolver/router, parameter binder, and
+  canonical `RequestFrame`. Unknown/ambiguous targets and unavailable exact
+  sources fail closed rather than silently falling back.
+- Multi-intent plans contain 2-4 non-recursive child subplans. Dependencies may
+  point only to earlier children; child execution is isolated and prerequisite
+  results are passed only through explicit dependencies. One parent response is
+  produced.
 - Canonical `TimeRange` and `TemporalEvidenceGuard` enforce compatible windows
   for comparison and sufficient series/growth-model evidence for forecast.
+- `SemanticLoopCoordinator` runs the finite states `PLAN`, `VALIDATE`,
+  `EXECUTE`, `ASSESS/RESPOND`, and `DONE`/`FAIL` with a default maximum of six
+  state transitions. There is no planner-controlled retry loop; configured
+  planner provider failover is bounded to one call per provider.
 - Every request exposes a credential-safe `trace_id` and `execution_trace` in
-  `/api/query`, alongside the existing `steps` array.
+  `/api/query`, alongside the existing `steps` array. The API trace projector
+  bounds size/depth and removes/redacts prompt, credential, raw-output, and
+  hidden-reasoning fields while preserving safe planner/validation/usage
+  metadata.
 
 ## Evidence and reasoning
 
@@ -80,30 +97,30 @@ protection.
   cleanup, and a non-empty fallback apply at the final API boundary.
   Evidence-grounding and numeric claim guards apply when `claim_guard` is
   enabled.
-- Semantic-loop responses also pass deterministic postcondition checks for
-  validated target identity, current-data verification, the read-only
-  boundary, exact calculator output, represented language/shape constraints,
-  and actually used provenance. Failed checks return a safe deterministic
-  replacement and are recorded without model repair.
-- Otherwise-valid model drafts in the semantic loop receive one compact
-  semantic relevance check. The verifier sees only the original request, an
-  allowlisted plan summary, and a bounded draft; it returns only an
-  `aligned`/`not_aligned` decision and reason code. Deterministic responses and
-  drafts already rejected by hard postconditions do not invoke it.
-- A model draft rejected at the final boundary gets at most one repair
-  attempt. The repair prompt contains only the original request, the failed
-  postcondition/relevance reason, and required grounded facts. A repaired
-  draft re-enters the same deterministic verification once; a second failure
-  or an unavailable/empty repair falls back to the safe deterministic
-  replacement. Traces record the repair attempt/status without hidden
-  reasoning.
-- Provider token usage is normalized into one per-call contract
-  (`ModelCallUsage`) separating input, reasoning, visible-output, and total
-  output tokens plus model/provider, purpose, and latency. Unknown fields
-  stay null — never zero — and hidden reasoning text is never stored.
-- Semantic-loop execution traces expose bounded per-call model usage and
-  per-purpose aggregates (planner/response/relevance/repair) under
-  `runtime_metrics.model_usage`.
+- Semantic-loop responses pass deterministic postcondition checks for validated
+  target identity, current-data verification, the read-only boundary, exact
+  calculator output, represented language/shape constraints, and actually used
+  provenance. A failed check first creates a safe deterministic replacement and
+  bounded violation metadata.
+- If hard postconditions pass and the draft is model-generated, one compact
+  `SemanticRelevanceVerifier` call checks request/answer alignment. It sees only
+  the original request, an allowlisted plan summary, and a bounded draft; it
+  returns only `aligned`/`not_aligned` plus a stable reason code.
+- When final postconditions are not satisfied and the response was
+  model-generated, `SemanticResponseRepairer` gets at most one bounded repair
+  attempt. The repaired candidate re-enters the same deterministic verification
+  once with repair disabled. A second failure, unavailable repair, or empty
+  repair leaves the safe deterministic replacement. Traces record only bounded
+  repair status/reason metadata.
+- Provider usage is normalized into `ModelCallUsage`, separating provider/model,
+  purpose, latency, input tokens, reasoning tokens, visible-output tokens,
+  total-output tokens, configured effort, and the separate
+  `estimated_input_tokens` estimate. Unknown provider fields stay `null` —
+  never zero — and hidden reasoning text is never stored.
+- `ModelUsageRecorder` exposes per-purpose aggregates and at most 16 per-call
+  entries under `runtime_metrics.model_usage`. Aggregate token fields use strict
+  unknown propagation rather than partial sums; excess entries are counted in
+  `dropped_calls`.
 
 ## Child Tools
 
@@ -121,40 +138,59 @@ RAG is intentionally absent from chat tool registration.
 
 ## Models
 
-- Orion starts with an empty model registry and an explicit unconfigured
-  assessment adapter.
-- Provider-neutral semantic-planning contracts cover a strict versioned
+- Orion can start with an empty model registry. RuntimeFactory then installs
+  both `UnconfiguredAssessmentAdapter` and `UnconfiguredPlannerProvider`, so
+  model-dependent semantic requests return a clear setup-mode response instead
+  of falling back to guessed lexical live routing. Deterministic hard-safety,
+  health, and model-management paths remain operational.
+- With a configured model, RuntimeFactory builds a session-local
+  `SemanticPlannerAdapter` from the same selected assessment adapter or ordered
+  fallback chain. OpenAI-compatible adapters reuse their existing `LLMClient`;
+  test/other adapters use the narrow raw-assessment bridge. No credentials are
+  copied into planner prompts or traces, and provider clients hold no mutable
+  conversation state.
+- Provider-neutral semantic-planning contracts cover the strict versioned
   `SemanticPlan` wire shape, bounded prompt context, structured provider
   failures/clarifications, compact capability summaries, single-capability
   detail expansion, and typed pre-execution validation results.
+- The first-pass planner prompt is under the SIMPLE input-context budget and
+  contains only the bounded request/context/schema contract. Session context
+  can include relevant target/concept/service/path/time/source/exclusion and
+  pending-clarification fields; evidence receipts are not planner context.
+- `CapabilitySummaryIndex` and `LazyCapabilityDetailExpander` implement compact
+  post-selection disclosure contracts, but the first-pass planner receives no
+  capability index. The current `SemanticPlanBinder` binds validated semantics
+  through the existing evidence planner/capability resolver/parameter binder
+  without returning raw capability detail or command authority to the model.
 - `SemanticPlanHarnessValidator` validates mutation intent, registry-backed
-  target references, exact source constraints/exclusions, and normalized
-  freshness before binding. `SemanticPlanBinder` maps validated
-  capability-assisted plans onto the existing evidence planner, capability
-  resolver/router, and parameter binder without granting raw-command authority.
-- `DeterministicAgent` accepts an optional semantic-planner adapter. When one is
-  supplied, `SemanticLoopCoordinator` runs the finite states `PLAN`,
-  `VALIDATE`, `EXECUTE`, `ASSESS/RESPOND`, and `DONE`/`FAIL`. Ordinary direct
-  answers skip binding and execution. Structured compute runs the calculator
-  once without a tool; capability-assisted plans dispatch once to either the
-  infrastructure engine or the external verifier after validation/binding and
-  under their existing budgets. Provider, validation, binding, execution,
-  response, and state-limit failures terminate without planner-controlled
-  retries. Trace data contains bounded state/reason codes and counters, not
-  prompts or hidden reasoning. Current application entry points do not
-  configure this optional adapter.
+  target references, exact source constraints/exclusions, freshness, compute,
+  and bounded multi-intent structure before binding. A planner-provided final
+  answer is eligible only for conservative stable/general cases that do not
+  require tools, current data, calculation, clarification, target resolution,
+  or URL verification.
+- `SemanticLoopCoordinator` is the primary RuntimeFactory request loop. Direct
+  answers skip binding/execution; structured compute runs the reviewed
+  calculator once; capability-assisted plans dispatch through the environment
+  engine or external verifier after validation/binding; multi-intent uses
+  isolated validated child runs. Provider, validation, binding, execution,
+  response, budget, and state-limit failures terminate without planner-
+  controlled retries.
+- `SemanticRelevanceVerifier` and `SemanticResponseRepairer` are created with a
+  planner-configured Agent. Relevance is checked only for model-used responses
+  that pass the hard guard; at most one repair attempt can follow a failed
+  final verification, and the repair is verified once more.
 - A semantic plan may include a structured `CalculatorRequest` with typed,
   operation-specific operands and units. The harness validates it and the loop
-  runs the reviewed deterministic calculator once without tool or model access.
+  runs the reviewed deterministic calculator once without tool access.
   Supported arithmetic includes binary operations, average, percent-of,
   worker/task rate, and rate-unit conversion; invalid or ambiguous contracts
   fail explicitly.
 - Supplied-text arithmetic recognizes reviewed VI/EN forms and excludes
   machine/worker count nouns (e.g. "3 máy") from average operands.
 - Capability-assisted semantic plans for current external information and
-  explicit public URLs execute through the existing bounded external verifier.
-  Verified evidence/provenance is assessed; unavailable search/fetch returns an
-  explicit unverified response and never falls back to stale model memory.
+  explicit public URLs execute through the bounded external verifier. Verified
+  evidence/provenance is assessed; unavailable search/fetch returns an explicit
+  unverified response and never falls back to stale model memory.
 - User-managed model endpoints are stored and health-tested by
   `ModelConfigStore`.
 - Chat can use registered OpenAI-compatible and Anthropic provider adapters
@@ -210,7 +246,9 @@ RAG is intentionally absent from chat tool registration.
   apply unless `ORION_FEATURE_FLAGS_FILE` or per-flag environment overrides are
   provided.
 - General-agent routing, external verification, web search, and source
-  constraints default to enabled.
+  constraints default to enabled. The general-agent routing flag is retained
+  for compatibility; RuntimeFactory still uses semantic planning as the
+  primary natural-language path.
 - Structured command exposure, canonical Fact exposure, composite rules, and
   model claim grounding default to disabled. Mandatory action safety remains
   enabled independently.

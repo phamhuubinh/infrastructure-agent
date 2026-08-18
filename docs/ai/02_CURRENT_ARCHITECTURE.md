@@ -50,22 +50,45 @@ explicit registered SSH target.
 
 ## Chat request flow
 
+Normal CLI/Web agents are built by `RuntimeFactory` with a session-local
+`SemanticPlannerAdapter`. The planner interprets natural-language semantics;
+its output is advisory until deterministic validation succeeds.
+
 ```text
 User request
-  -> session context and RequestFrame semantics
-  -> deterministic route
-       -> stable/general or generation: model response, no collectors
-       -> current public information / URL: Internet verification
-       -> infrastructure inspection: ExecutionEngine
-  -> deterministic response or evidence-bounded model assessment
-  -> output sanitizer
-  -> response + steps + ExecutionTrace
+  -> narrow deterministic safety/session controls
+  -> bounded planner prompt
+       request + relevant session context only
+       no tool schema, command, credential, or evidence payload
+  -> SemanticPlannerAdapter -> typed SemanticPlan
+  -> SemanticPlanHarnessValidator
+       -> invalid/unsafe/unconfigured: bounded clarification/refusal/setup result
+       -> direct stable answer: no collectors
+       -> deterministic compute: reviewed calculator
+       -> capability-assisted: SemanticPlanBinder
+            -> environment: ExecutionEngine
+            -> current/external: ExternalVerificationExecutor
+       -> multi-intent: 2-4 validated non-recursive child subplans
+  -> deterministic final postconditions
+       -> model relevance check when applicable
+       -> at most one bounded model repair, then re-verify once
+  -> response budget + universal output sanitizer
+  -> response + steps + credential-safe ExecutionTrace
 ```
 
-The infrastructure path resolves intent, target, source constraints,
-parameters, evidence requirements, capability references, an execution DAG,
-and bounded recovery in deterministic code. `KnowledgeTool` is the only runtime
-entry point to Child Tools. The model has no tool authority.
+The harness owns read-only safety, target/source/freshness validation,
+capability binding, execution budgets, evidence/provenance requirements, and
+final hard postconditions. `KnowledgeTool` remains the only infrastructure
+runtime entry point to Child Tools. Planner or model failure never grants tool
+authority and never falls back to regex-first primary routing.
+
+The first planner call receives no capability registry. Compact
+`CapabilitySummaryIndex` records and `LazyCapabilityDetailExpander` implement a
+post-selection disclosure contract: summaries contain no commands or parameter
+schemas, and detail expansion can resolve only one already-selected capability
+after a valid plan. The current `SemanticPlanBinder` then maps the validated
+plan onto the existing evidence/capability/parameter pipeline; it does not send
+expanded capability details back to the model.
 
 ## Tool boundary
 
@@ -90,16 +113,29 @@ the packaged installation. SSH host-key checking is enabled by default.
 
 ## Model boundary
 
-- `AssessmentModelAdapter` is the assessment interface.
-- `LLMAssessmentAdapter` handles configured model endpoints.
-- `UnconfiguredAssessmentAdapter` keeps the application operational in setup
-  mode when no model connection exists.
-- `MockAssessmentAdapter` is used by tests.
+- `SemanticPlannerAdapter` is the provider-neutral, schema-constrained semantic
+  planning boundary. It exposes no execution or tool interface.
+- `AssessmentModelAdapter`/`LLMAssessmentAdapter` provide direct-response and
+  evidence-assessment model calls after routing/collection decisions are
+  bounded by the harness.
+- `SemanticRelevanceVerifier` can perform one compact relevance check on a
+  model-generated response after hard postconditions pass.
+- `SemanticResponseRepairer` can make at most one bounded repair attempt; the
+  repaired candidate is verified once more with repair disabled.
+- `ModelUsageRecorder` records bounded provider/model/purpose/latency and token
+  metadata without prompts, credentials, or hidden reasoning text.
+- `UnconfiguredAssessmentAdapter` plus `UnconfiguredPlannerProvider` keep the
+  application operational in setup mode when no model connection exists.
+- `MockAssessmentAdapter` and scripted planner providers are used by tests.
 - Model connections are persisted by `ModelConfigStore`; the installer does
   not install model runtimes or weights.
 
-Chat supports configured provider adapters. Project RAG synthesis accepts the
-active OpenAI-compatible connection passed by the API for that request.
+`RuntimeFactory` reuses the selected assessment provider/fallback chain to
+construct the session-local planner. Web sessions keep separate Agent/context/
+cache/lock state; provider client infrastructure can be reused without sharing
+mutable conversation state. Chat supports configured provider adapters.
+Project RAG synthesis separately accepts the active OpenAI-compatible
+connection passed by the API for that request.
 
 ## RAG boundary
 

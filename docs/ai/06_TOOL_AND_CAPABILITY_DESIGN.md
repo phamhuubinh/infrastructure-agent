@@ -22,6 +22,33 @@ produced Facts, target/precondition requirements, required/optional binaries,
 cost, reliability, alternatives, recoverable errors, and mutation risk.
 `KnowledgeTool` aggregates that metadata; pipeline modules do not duplicate it.
 
+## Planner disclosure boundary
+
+The semantic planner is deliberately not a general tool-calling interface.
+The first-pass planner prompt contains the user request, bounded relevant
+session context, and the semantic output schema; it does not include commands,
+credentials, evidence payloads, tool schemas, or the full capability registry.
+
+The repository implements compact/lazy capability disclosure contracts for
+post-selection use:
+
+- `CapabilitySummaryIndex` stores at most 128 compact provider-neutral
+  summaries. Each summary contains only capability ID, purpose, source family,
+  target kind, data kind, and availability. It never contains commands or
+  parameter schemas, and `payload_for_plan()` filters summaries to the source
+  families relevant to a capability-assisted semantic plan.
+- `LazyCapabilityDetailExpander` accepts one already-selected capability ID and
+  a `VALID` semantic-plan validation result. It expands that ID only, enforces
+  source constraints, and returns structured `NOT_FOUND`, `UNAVAILABLE`,
+  `SOURCE_BLOCKED`, or `PLAN_NOT_VALID` outcomes. It never searches for a
+  different capability as fallback.
+
+The current primary `SemanticPlanBinder` performs post-validation binding by
+reusing `EvidencePlanner`, `CapabilityResolver`, and `ParameterBinder`. It
+binds registered `CapabilityReference` values and typed parameters for
+execution, but does not send expanded capability details back to the planner.
+This preserves the core rule: semantic model output can propose intent, while
+code remains authoritative for capability availability and dispatch.
 ## Dispatch and safety
 
 `ExecutionRuntime` dispatches only through `KnowledgeTool`. The inspector chain

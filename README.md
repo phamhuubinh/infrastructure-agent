@@ -1,6 +1,6 @@
 # Orion
 
-Evidence-driven investigation with AI-powered assessment.
+Evidence-driven investigation with AI-powered semantic planning and assessment.
 
 > **Current status:** local, single-operator. Chat sessions use isolated agents and SQLite by default; Docker Compose uses PostgreSQL. The Web UI also exposes project-isolated RAG analysis, separate from Chat. API-key middleware (`ORION_API_KEY`), CLI, Web UI, and Electron Desktop are included.
 
@@ -26,36 +26,37 @@ The two flows are deliberately isolated: chat cannot register or call the RAG to
 The chat investigation flow is:
 
 ```
-User Request
+User Request + bounded session context
     ↓
-Normalizer (deterministic) — semantic normalization (language-only)
+Semantic Planner (AI) — typed advisory route/intent/target/source/freshness plan
     ↓
-Parameter Extractor (deterministic) — service_name, port, time_range, process, path
-    ↓
-Answer Type Classifier (deterministic) — Fact/List/Table/Chart/Assessment/Comparison
-    ↓
-Target Resolution (deterministic) — hostname detection, fuzzy matching, aliases
-    ↓
-Tool Selector (deterministic) — Linux/Grafana/Zabbix/Internet routing
-    ↓
-Capability Planner (deterministic) — concept+action → capability plan
-    ↓
-Evidence Collection (deterministic)
-    ├── Execution Engine → KnowledgeTool → Child Tools (Linux, Grafana, Zabbix, Internet)
-    └── Evidence Cache (per-session, TTL 60s)
-    ↓
-Evidence Merge + Correlation (deterministic)
-    ↓
-Assessment Pipeline
-    ├── Deterministic Responder (short-circuit for Fact/List/Table answers)
-    ├── Threshold Evaluator (severity: ok/info/warning/critical)
-    └── LLM Assessment (AI) → evidence interpretation + recommendations
-    ↓
-Response
+Deterministic Harness
+    ├── read-only / target / source / freshness / compute validation
+    ├── direct stable answer → no infrastructure collectors
+    ├── deterministic calculator → reviewed compute contract
+    ├── current public information / URL → bounded Internet verification
+    └── infrastructure plan → typed capability binding
+                              ↓
+                      Execution Engine
+                              ↓
+                    KnowledgeTool → Child Tools
+                 (Linux, Grafana, Zabbix, Internet)
+                              ↓
+                 Evidence Merge + Facts/Findings
+                              ↓
+              deterministic or bounded AI response
+                              ↓
+       hard postconditions → relevance check when needed
+             → at most one bounded repair → sanitizer
+                              ↓
+                  Response + safe ExecutionTrace
 ```
 
-The investigation pipeline is fully deterministic.
-AI is used only for assessment.
+Natural-language semantic planning is model-driven in normal CLI/Web runtime.
+Investigation and execution authority remain deterministic: the model has no
+direct command/tool API, and planner output must pass the harness before any
+collector can run. Planner/model failure does not fall back to regex-first live
+routing.
 
 ## Configuration
 
@@ -87,7 +88,7 @@ On a new machine, securely copy an existing credential file to `/etc/orion/tool-
 
 ### Internet fetch
 
-The `InternetTool` provides bounded public search and URL fetch with built-in SSRF protection. Requests for current public information and explicit URLs can select this deterministic verification path. Query-based verification requires a configured search provider; direct public-URL fetch works independently. A failed verification is returned as unverified/unknown rather than answered from stale model memory.
+The `InternetTool` provides bounded public search and URL fetch with built-in SSRF protection. A harness-validated semantic plan that requires current public information or an explicit URL is forced through this deterministic verification path. Query-based verification requires a configured search provider; direct public-URL fetch works independently. A failed verification is returned as unverified/unknown rather than answered from stale model memory.
 
 ## Quick Start
 
@@ -101,7 +102,7 @@ Docker Engine with Docker Compose is the only platform prerequisite. The install
 # → `orion help` is available from the host shell
 ```
 
-The installer asks whether to skip model setup or connect an existing OpenAI-compatible endpoint. Skipping is valid: Orion still installs and starts, while Chat assessment and RAG analysis explain that a model must be configured. A user-managed endpoint can be added later in **Cài đặt → Kết nối model** or through the CLI:
+The installer asks whether to skip model setup or connect an existing OpenAI-compatible endpoint. Skipping is valid: Orion still installs and starts. Model-dependent Chat requests return a clear setup-required response without dispatching guessed live tools, while deterministic hard-safety/model-management paths remain available; RAG analysis also reports that a model must be configured. A user-managed endpoint can be added later in **Cài đặt → Kết nối model** or through the CLI:
 
 ```bash
 docker compose exec api orion model list
