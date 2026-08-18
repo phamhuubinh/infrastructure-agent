@@ -23,6 +23,8 @@ services:
       context: .
       dockerfile: docker/Dockerfile.api
     container_name: orion-api
+    group_add:
+      - "${ORION_TOOL_SECRETS_GID:-10001}"
     environment:
       ORION_DATABASE_URL: postgresql://${POSTGRES_USER:-orion}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-orion}
       ORION_API_KEY: ${ORION_API_KEY:?ORION_API_KEY is required}

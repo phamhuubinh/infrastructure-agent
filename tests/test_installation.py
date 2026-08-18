@@ -66,6 +66,7 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     assert "COPY pyproject.toml uv.lock ." in dockerfile
     assert "uv sync --frozen --no-dev --extra web" in dockerfile
     assert "USER orion" in dockerfile
+    assert api["group_add"] == ["${ORION_TOOL_SECRETS_GID:-10001}"]
     assert "uv.lock" not in dockerignore
     assert "tools.json" not in dockerignore
     assert api["environment"]["ORION_SECRETS_PATH"] == (
@@ -250,13 +251,19 @@ def test_host_web_launcher_separates_web_and_all_service_logs(tmp_path: Path) ->
 
 
 def test_installer_uses_external_tool_credentials_file() -> None:
-    installer = (ROOT / "install.sh").read_text()
+    installer_path = ROOT / "install.sh"
+    installer = installer_path.read_text()
+    subprocess.run(["bash", "-n", str(installer_path)], check=True)
 
     assert "/etc/orion/tool-credentials.json" in installer
     assert 'ensure_env_value "ORION_TOOL_SECRETS_FILE"' in installer
-    assert 'ensure_tool_credentials_file "$tool_secrets_path"' in installer
+    assert 'ensure_env_value "ORION_TOOL_SECRETS_GID"' in installer
+    assert 'ensure_tool_credentials_file "$tool_secrets_path" "$tool_secrets_gid"' in installer
+    assert 'group_name="orion-tool-secrets"' in installer
+    assert 'chgrp "$credentials_gid"' in installer
+    assert 'chmod 640 "$credentials_path"' in installer
     assert "printf '{}\\n'" in installer
-    assert 'install -D -m 600' in installer
+    assert 'install -D -m 640' in installer
     assert "Grafana/Zabbix setup skipped" in installer
     assert '(("grafana", "Grafana"), ("zabbix", "Zabbix"))' in installer
     assert "connection disabled (missing:" in installer

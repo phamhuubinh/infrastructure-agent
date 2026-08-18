@@ -28,46 +28,83 @@ ensure_env_value() {
     fi
 }
 
+run_privileged() {
+    if ((EUID == 0)); then
+        "$@"
+        return
+    fi
+    if command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+        return
+    fi
+    "$@"
+}
+
+ensure_tool_credentials_group() {
+    local group_name="orion-tool-secrets"
+    local group_entry
+    local group_gid
+
+    if ! command -v getent >/dev/null 2>&1; then
+        echo "getent is required to configure the Orion tool-credentials group." >&2
+        exit 1
+    fi
+
+    group_entry="$(getent group "$group_name" || true)"
+    if [[ -z "$group_entry" ]]; then
+        if ! command -v groupadd >/dev/null 2>&1; then
+            echo "groupadd is required to create the Orion tool-credentials group." >&2
+            exit 1
+        fi
+        if ! run_privileged groupadd --system "$group_name"; then
+            echo "Failed to create the Orion tool-credentials group." >&2
+            exit 1
+        fi
+        group_entry="$(getent group "$group_name" || true)"
+    fi
+
+    group_gid="$(printf '%s\n' "$group_entry" | cut -d: -f3)"
+    if [[ ! "$group_gid" =~ ^[0-9]+$ ]]; then
+        echo "Unable to resolve numeric GID for $group_name." >&2
+        exit 1
+    fi
+    printf '%s\n' "$group_gid"
+}
+
 ensure_tool_credentials_file() {
     local credentials_path="$1"
+    local credentials_gid="$2"
     local empty_credentials
     local installer_uid
-    local installer_gid
-    local -a privilege_prefix=()
 
     if [[ "$credentials_path" != /* ]]; then
         echo "ORION_TOOL_SECRETS_FILE must be an absolute path: $credentials_path" >&2
+        exit 1
+    fi
+    if [[ ! "$credentials_gid" =~ ^[0-9]+$ ]]; then
+        echo "ORION_TOOL_SECRETS_GID must be numeric: $credentials_gid" >&2
         exit 1
     fi
     if [[ -e "$credentials_path" && ! -f "$credentials_path" ]]; then
         echo "Tool credentials path is not a regular file: $credentials_path" >&2
         exit 1
     fi
+
     if [[ -f "$credentials_path" ]]; then
-        if [[ ! -r "$credentials_path" ]]; then
-            echo "Tool credentials exist but are not readable: $credentials_path" >&2
-            echo "Make the file readable by the account running install.sh." >&2
+        if ! run_privileged chgrp "$credentials_gid" "$credentials_path" \
+                || ! run_privileged chmod 640 "$credentials_path"; then
+            echo "Failed to secure tool credentials at $credentials_path" >&2
             exit 1
         fi
-        chmod 600 "$credentials_path" 2>/dev/null || true
         echo "Using external tool credentials at $credentials_path"
         return
     fi
 
-    if ((EUID != 0)); then
-        if ! command -v sudo >/dev/null 2>&1; then
-            echo "Cannot create $credentials_path without root access or sudo." >&2
-            exit 1
-        fi
-        privilege_prefix=(sudo)
-    fi
-
     empty_credentials="$(mktemp)"
     printf '{}\n' > "$empty_credentials"
-    installer_uid="$(id -u)"
-    installer_gid="$(id -g)"
-    if ! "${privilege_prefix[@]}" install -D -m 600 \
-            -o "$installer_uid" -g "$installer_gid" \
+    installer_uid="${SUDO_UID:-$(id -u)}"
+    if ! run_privileged install -D -m 640 \
+            -o "$installer_uid" -g "$credentials_gid" \
             "$empty_credentials" "$credentials_path"; then
         rm -f -- "$empty_credentials"
         echo "Failed to install tool credentials at $credentials_path" >&2
@@ -103,10 +140,16 @@ ensure_env_value "POSTGRES_DB" "orion"
 ensure_env_value "ORION_API_KEY" "$(random_hex)"
 env_tool_secrets_path="$(sed -n 's/^ORION_TOOL_SECRETS_FILE=//p' .env | tail -n 1)"
 tool_secrets_path="${ORION_TOOL_SECRETS_FILE:-${env_tool_secrets_path:-/etc/orion/tool-credentials.json}}"
+env_tool_secrets_gid="$(sed -n 's/^ORION_TOOL_SECRETS_GID=//p' .env | tail -n 1)"
+tool_secrets_gid="${ORION_TOOL_SECRETS_GID:-${env_tool_secrets_gid:-}}"
+if [[ -z "$tool_secrets_gid" ]]; then
+    tool_secrets_gid="$(ensure_tool_credentials_group)"
+fi
 ensure_env_value "ORION_TOOL_SECRETS_FILE" "$tool_secrets_path"
+ensure_env_value "ORION_TOOL_SECRETS_GID" "$tool_secrets_gid"
 echo "Private runtime configuration is ready in .env"
 
-ensure_tool_credentials_file "$tool_secrets_path"
+ensure_tool_credentials_file "$tool_secrets_path" "$tool_secrets_gid"
 
 "$PROJECT_DIR/scripts/install-cli"
 
