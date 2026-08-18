@@ -319,6 +319,20 @@ class SessionContextResolver:
         }
     )
 
+    # GA2-D08: explicit exact-sentence-count output constraints.  This is a
+    # small deterministic output-format parser only — it never decides
+    # semantic intent, targets, tools, or sources.  Supports generic
+    # VI ("đúng 3 câu", "trong 3 câu", unaccented "dung 3 cau") and EN
+    # ("exactly 3 sentences", "in 3 sentences") forms within a small safe
+    # integer range; "3 câu hỏi" (questions, not answer sentences) is
+    # excluded.
+    MAX_REQUESTED_SENTENCES = 12
+    _SENTENCE_COUNT = re.compile(
+        r"(?<!\w)(?:đúng|dung|trong|exactly|in)\s+(\d{1,2})\s+"
+        r"(?:c(?:âu|au)|sentences?)\b(?!\s*(?:hỏi|hoi)\b)",
+        re.IGNORECASE,
+    )
+
     # GA2-D09: ambiguous/vague referents.  They resolve only when exactly one
     # safe referent exists in session state; no implicit localhost guess.
     _VAGUE_REFERENTS = (
@@ -336,7 +350,10 @@ class SessionContextResolver:
         "that one",
     )
 
-    # GA2-D08: answer-shape phrases.
+    # GA2-D08: answer-shape phrases.  Exact sentence-count requests ("đúng 3
+    # câu", "exactly 3 sentences") are NOT generic SHORT — they carry a hard
+    # sentence count, parsed separately by ``requested_sentence_count`` so
+    # the final-response guard can enforce the exact number deterministically.
     _SHORT_ANSWER = (
         "ngắn thôi",
         "ngan thoi",
@@ -347,16 +364,6 @@ class SessionContextResolver:
         "briefly",
         "tóm tắt ngắn",
         "tom tat ngan",
-        "đúng 3 câu",
-        "dung 3 cau",
-        "trong 3 câu",
-        "trong 3 cau",
-        "đúng 2 câu",
-        "dung 2 cau",
-        "trong 2 câu",
-        "trong 2 cau",
-        "in 3 sentences",
-        "in 2 sentences",
     )
     _RAW_ANSWER = (
         "raw data only",
@@ -475,6 +482,23 @@ class SessionContextResolver:
             if any(phrase in lower for phrase in phrases):
                 return shape
         return None
+
+    @classmethod
+    def requested_sentence_count(cls, raw_request: str) -> int | None:
+        """GA2-D08: parse an explicit exact-sentence-count output constraint.
+
+        Returns the requested count within
+        ``1..MAX_REQUESTED_SENTENCES``, or ``None`` when the request does
+        not constrain the sentence count. Deterministic output-format
+        enforcement only; not semantic intent routing.
+        """
+        match = cls._SENTENCE_COUNT.search(raw_request.casefold())
+        if match is None:
+            return None
+        count = int(match.group(1))
+        if not 1 <= count <= cls.MAX_REQUESTED_SENTENCES:
+            return None
+        return count
 
     @classmethod
     def is_vague_referent(cls, raw_request: str) -> bool:

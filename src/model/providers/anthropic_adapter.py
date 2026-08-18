@@ -95,6 +95,9 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
         """Send a raw prompt to Claude without evidence wrapper."""
         import time as _time
 
+        # Reset before the call so a client/provider failure cannot leave
+        # a previous successful call's usage exposed as this call's usage.
+        self._last_usage = None
         t0 = _time.perf_counter()
         try:
             client = self._get_client()
@@ -160,6 +163,9 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
         """Internal implementation using Anthropic Messages API."""
         import time as _time
 
+        # Reset before any work so prompt-construction or provider failures
+        # cannot leave a stale previous call's usage exposed as this one's.
+        self._last_usage = None
         t0 = _time.perf_counter()
 
         try:

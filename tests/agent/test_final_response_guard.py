@@ -76,3 +76,51 @@ def test_verified_read_only_response_with_used_source_passes() -> None:
     )
 
     assert result.passed
+
+
+def test_exact_sentence_count_passes_for_matching_response() -> None:
+    result = FinalResponseGuard().validate(
+        "Tôi là Orion. Tôi có thể hỗ trợ phân tích. "
+        "Tôi hoạt động theo các giới hạn an toàn.",
+        FinalResponseConstraints(requested_sentence_count=3),
+    )
+
+    assert result.passed
+
+
+def test_exact_sentence_count_rejects_a_shorter_response() -> None:
+    result = FinalResponseGuard().validate(
+        "Câu trả lời ngắn đúng ba câu.",
+        FinalResponseConstraints(requested_sentence_count=3),
+    )
+
+    assert not result.passed
+    assert FinalResponseViolation.SHAPE_MISMATCH in result.violations
+
+
+def test_exact_sentence_count_rejects_a_longer_response() -> None:
+    result = FinalResponseGuard().validate(
+        "One. Two. Three. Four.",
+        FinalResponseConstraints(requested_sentence_count=3),
+    )
+
+    assert not result.passed
+    assert FinalResponseViolation.SHAPE_MISMATCH in result.violations
+
+
+def test_sentence_count_ignores_decimals_and_supports_unicode_terminators() -> None:
+    result = FinalResponseGuard().validate(
+        "Giá trị là 3.14. Tiếp theo。Kết thúc!",
+        FinalResponseConstraints(requested_sentence_count=3),
+    )
+
+    assert result.passed
+
+
+def test_without_sentence_count_constraint_no_shape_check_applies() -> None:
+    result = FinalResponseGuard().validate(
+        "Câu trả lời ngắn đúng ba câu.",
+        FinalResponseConstraints(),
+    )
+
+    assert result.passed

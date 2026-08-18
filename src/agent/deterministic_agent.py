@@ -55,6 +55,7 @@ from src.model.semantic_relevance_verifier import (
     SemanticRelevanceVerifierProtocol,
 )
 from src.model.semantic_response_repairer import (
+    SemanticRepairStatus,
     SemanticResponseRepairer,
     SemanticResponseRepairerProtocol,
 )
@@ -2488,6 +2489,9 @@ class DeterministicAgent:
                 requested_shape=(
                     "SHORT" if self._answer_shape_is_short(user_request) else None
                 ),
+                requested_sentence_count=(
+                    SessionContextResolver.requested_sentence_count(user_request)
+                ),
                 used_provenance=tuple(dict.fromkeys(provenance)),
             ),
         )
@@ -2565,7 +2569,17 @@ class DeterministicAgent:
                     _allow_repair=False,
                 )
                 repaired_postconditions = repaired.postcondition_validation or {}
-                repaired_postconditions["repair"] = repair.to_trace_dict()
+                # GA2-C08: "repaired" must mean the candidate was generated
+                # AND passed the second final verification AND became the
+                # accepted answer. A candidate that fails verification is
+                # traced as verification_failed, never as repaired.
+                repair_trace: dict[str, object] = repair.to_trace_dict()
+                if not bool(repaired_postconditions.get("passed")):
+                    repair_trace = {
+                        "attempted": True,
+                        "status": SemanticRepairStatus.VERIFICATION_FAILED.value,
+                    }
+                repaired_postconditions["repair"] = repair_trace
                 return replace(
                     repaired,
                     postcondition_validation=repaired_postconditions,
@@ -2618,6 +2632,12 @@ class DeterministicAgent:
                 decision,
                 external,
             )
+            # GA2-C06: a verified external request that actually invoked the
+            # assessment model must record exactly one response usage entry;
+            # an unverified outcome used only the deterministic fallback and
+            # must not fabricate one.
+            if external.verified:
+                self._record_assessment_usage("response")
             return SemanticLoopResponse(
                 text=response,
                 answer_strategy=(

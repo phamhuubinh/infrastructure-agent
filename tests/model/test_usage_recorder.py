@@ -19,7 +19,55 @@ def test_aggregates_counts_latency_and_tokens_by_purpose() -> None:
     recorder.record(
         ModelCallUsage(
             input_tokens=30,
-            reasoning_tokens=None,
+            reasoning_tokens=20,
+            visible_output_tokens=25,
+            total_output_tokens=45,
+            purpose="relevance",
+            latency_ms=3.0,
+        )
+    )
+    recorder.record(
+        ModelCallUsage(
+            input_tokens=20,
+            reasoning_tokens=10,
+            visible_output_tokens=10,
+            total_output_tokens=20,
+            purpose="relevance",
+            latency_ms=2.0,
+        )
+    )
+
+    trace = recorder.to_trace_dict()
+
+    assert trace["calls"] == 3
+    assert trace["dropped_calls"] == 0
+    assert trace["by_purpose"]["planner"] == {
+        "calls": 1,
+        "latency_ms": 12.5,
+        "input_tokens": 10,
+        "reasoning_tokens": 4,
+        "visible_output_tokens": 6,
+        "total_output_tokens": 10,
+    }
+    assert trace["by_purpose"]["relevance"] == {
+        "calls": 2,
+        "latency_ms": 5.0,
+        "input_tokens": 50,
+        "reasoning_tokens": 30,
+        "visible_output_tokens": 35,
+        "total_output_tokens": 65,
+    }
+    assert len(trace["per_call"]) == 3
+
+
+def test_unknown_in_any_call_makes_the_purpose_aggregate_unknown() -> None:
+    """Strict unknown propagation: one call reporting a field and another
+    not must never look like a complete exact total."""
+    recorder = ModelUsageRecorder()
+    recorder.record(
+        ModelCallUsage(
+            input_tokens=30,
+            reasoning_tokens=40,
             visible_output_tokens=25,
             total_output_tokens=25,
             purpose="relevance",
@@ -39,26 +87,28 @@ def test_aggregates_counts_latency_and_tokens_by_purpose() -> None:
 
     trace = recorder.to_trace_dict()
 
-    assert trace["calls"] == 3
-    assert trace["dropped_calls"] == 0
-    assert trace["by_purpose"]["planner"] == {
-        "calls": 1,
-        "latency_ms": 12.5,
-        "input_tokens": 10,
-        "reasoning_tokens": 4,
-        "visible_output_tokens": 6,
-        "total_output_tokens": 10,
-    }
+    assert trace["calls"] == 2
     assert trace["by_purpose"]["relevance"] == {
         "calls": 2,
-        "latency_ms": 3.0,
-        "input_tokens": 30,
+        "latency_ms": None,
+        "input_tokens": None,
         "reasoning_tokens": None,
-        "visible_output_tokens": 25,
-        "total_output_tokens": 25,
+        "visible_output_tokens": None,
+        "total_output_tokens": None,
     }
-    assert len(trace["per_call"]) == 3
-    assert trace["per_call"][2]["input_tokens"] is None
+    assert trace["per_call"][1]["reasoning_tokens"] is None
+
+
+def test_call_count_stays_exact_under_strict_unknown_propagation() -> None:
+    recorder = ModelUsageRecorder()
+    recorder.record(ModelCallUsage(input_tokens=5, purpose="planner"))
+    recorder.record(ModelCallUsage(input_tokens=None, purpose="planner"))
+
+    trace = recorder.to_trace_dict()
+
+    assert trace["calls"] == 2
+    assert trace["by_purpose"]["planner"]["calls"] == 2
+    assert trace["by_purpose"]["planner"]["input_tokens"] is None
 
 
 def test_unknown_purpose_buckets_under_unknown() -> None:
@@ -120,9 +170,11 @@ def test_record_mapping_normalizes_openai_and_anthropic_shapes() -> None:
         "visible_output_tokens": 9,
         "total_output_tokens": 12,
     }
+    # An Anthropic-style mapping alone cannot prove there was no hidden
+    # thinking, so the visible share must stay unknown.
     assert by_purpose["response"]["input_tokens"] == 7
     assert by_purpose["response"]["total_output_tokens"] == 9
-    assert by_purpose["response"]["visible_output_tokens"] == 9
+    assert by_purpose["response"]["visible_output_tokens"] is None
     assert by_purpose["response"]["reasoning_tokens"] is None
 
 

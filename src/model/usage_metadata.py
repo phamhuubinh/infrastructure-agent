@@ -186,9 +186,13 @@ def normalize_usage_mapping(
             purpose=purpose,
             latency_ms=latency_ms,
         )
+    # A raw usage mapping alone does not prove the response had no
+    # hidden/thinking content, so the visible-output share stays unknown —
+    # never assume every output token was visible. Only callers that
+    # actually inspected the response content (e.g. the Anthropic adapter
+    # checking for thinking blocks) may declare visible == total.
     return normalize_anthropic_usage(
         _AnthropicUsageView(raw_usage),
-        has_hidden_reasoning=False,
         model=model,
         provider=provider,
         purpose=purpose,

@@ -178,3 +178,41 @@ def test_follow_up_preserves_hard_source_constraint(tmp_path) -> None:
     assert follow_up.request_frame is not None
     assert follow_up.request_frame.source_constraints == (SourceConstraint.GRAFANA,)
     assert "source" in follow_up.request_frame.context_applied
+
+
+# ---------------------------------------------------------------------------
+# GA2-D08 — explicit exact-sentence-count output constraints
+# ---------------------------------------------------------------------------
+
+
+def test_exact_sentence_count_is_parsed_from_explicit_forms() -> None:
+    assert SessionContextResolver.requested_sentence_count("đúng 3 câu") == 3
+    assert SessionContextResolver.requested_sentence_count("dung 3 cau") == 3
+    assert SessionContextResolver.requested_sentence_count("trong 3 câu") == 3
+    assert SessionContextResolver.requested_sentence_count("trong 2 cau") == 2
+    assert SessionContextResolver.requested_sentence_count("exactly 3 sentences") == 3
+    assert SessionContextResolver.requested_sentence_count("in 2 sentences") == 2
+    assert (
+        SessionContextResolver.requested_sentence_count(
+            "Hãy giới thiệu bản thân đúng 3 câu"
+        )
+        == 3
+    )
+
+
+def test_exact_sentence_count_is_not_generic_short_and_bounds_the_range() -> None:
+    assert SessionContextResolver.requested_sentence_count("briefly") is None
+    assert SessionContextResolver.requested_sentence_count("ngắn thôi") is None
+    # Out-of-range counts never become a constraint.
+    assert SessionContextResolver.requested_sentence_count("đúng 0 câu") is None
+    assert SessionContextResolver.requested_sentence_count("đúng 99 câu") is None
+    # "3 câu hỏi" asks for three *questions*, not a three-sentence answer.
+    assert (
+        SessionContextResolver.requested_sentence_count("trả lời đúng 3 câu hỏi")
+        is None
+    )
+
+
+def test_exact_sentence_count_does_not_turn_into_short_shape() -> None:
+    assert SessionContextResolver.requested_answer_shape("đúng 3 câu") is None
+    assert SessionContextResolver.requested_answer_shape("exactly 3 sentences") is None

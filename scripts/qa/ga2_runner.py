@@ -287,8 +287,12 @@ _MODEL_USAGE_FIELDS = (
 def _model_usage_samples(usage: object) -> dict[str, float]:
     """Flatten one case's bounded model-usage section into known samples.
 
-    Unknown (null) fields contribute nothing, so "unavailable" stays absent
-    instead of being coerced to zero.
+    A per-case metric total is only emitted when *every* participating
+    model-call purpose bucket reports it. A single purpose bucket with an
+    unknown (null) metric makes that metric unavailable for the case — a
+    partial sum over the known subset is never presented as a complete
+    total, and unknown is never coerced to zero. ``model_calls`` remains
+    countable whenever the call count itself is known.
     """
 
     if not isinstance(usage, dict):
@@ -300,13 +304,20 @@ def _model_usage_samples(usage: object) -> dict[str, float]:
     by_purpose = usage.get("by_purpose")
     if not isinstance(by_purpose, dict):
         return samples
+    totals: dict[str, float] = {}
+    incomplete: set[str] = set()
     for purpose in by_purpose.values():
         if not isinstance(purpose, dict):
             continue
         for name, field in _MODEL_USAGE_FIELDS:
             value = purpose.get(field)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
-                samples[name] = samples.get(name, 0.0) + float(value)
+                totals[name] = totals.get(name, 0.0) + float(value)
+            else:
+                incomplete.add(name)
+    for name, total in totals.items():
+        if name not in incomplete:
+            samples[name] = total
     return samples
 
 

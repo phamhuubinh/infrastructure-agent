@@ -68,11 +68,16 @@ def ALIGNED_for_test() -> str:
 
 
 def test_sentence_count_shape_is_enforced_and_repaired_once() -> None:
+    """A one-sentence draft violates the exact 3-sentence request; one repair
+    returning exactly three sentences passes the second verification and
+    becomes the final answer."""
     env = fake_environment(localhost=True)
-    long_draft = "Một câu. " * 120  # well over the SHORT character budget
     model = ScriptedAssessmentModel(
-        draft=long_draft,
-        repair_response="Câu trả lời ngắn đúng ba câu.",
+        draft="Câu trả lời ngắn đúng ba câu.",  # one sentence — count mismatch
+        repair_response=(
+            "Tôi là Orion. Tôi có thể hỗ trợ phân tích. "
+            "Tôi hoạt động theo các giới hạn an toàn."
+        ),
     )
     agent = _agent(
         plan=direct_answer_plan(concept="self introduction"),
@@ -85,13 +90,57 @@ def test_sentence_count_shape_is_enforced_and_repaired_once() -> None:
 
     result = agent.run_with_steps("Hãy giới thiệu bản thân đúng 3 câu")
 
-    assert result["response"] == "Câu trả lời ngắn đúng ba câu."
+    assert result["response"] == (
+        "Tôi là Orion. Tôi có thể hỗ trợ phân tích. "
+        "Tôi hoạt động theo các giới hạn an toàn."
+    )
     semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
     assert semantic["postconditions"]["passed"] is True
     assert semantic["postconditions"]["repair"] == {
         "attempted": True,
         "status": "repaired",
     }
+    # Exactly one repair call: initial draft, repair, second verification.
+    assert [call.kind for call in model.calls] == [
+        "response",
+        "repair",
+        "verifier",
+    ]
+
+
+def test_repaired_draft_still_wrong_sentence_count_is_rejected_not_repaired() -> None:
+    """A repair candidate that still violates the exact sentence count must
+    fail the second verification: safe deterministic fallback, exactly one
+    repair call, no third attempt, and never traced as repaired."""
+    env = fake_environment(localhost=True)
+    model = ScriptedAssessmentModel(
+        draft="Một câu. " * 20,  # twenty sentences — count mismatch
+        repair_response="Câu trả lời ngắn đúng ba câu.",  # still one sentence
+    )
+    agent = _agent(
+        plan=direct_answer_plan(concept="self introduction"),
+        model=model,
+        engine=RecordingEngine(env),
+        planner_responses=[
+            plan_response(direct_answer_plan(concept="self introduction"))
+        ],
+    )
+
+    result = agent.run_with_steps("Hãy giới thiệu bản thân đúng 3 câu")
+
+    assert result["response"] == (
+        "Câu trả lời bị chặn vì không khớp bằng chứng đã xác thực."
+    )
+    assert "Câu trả lời ngắn đúng ba câu." != result["response"]
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert semantic["postconditions"]["passed"] is False
+    assert "shape_mismatch" in semantic["postconditions"]["violations"]
+    assert semantic["postconditions"]["repair"] == {
+        "attempted": True,
+        "status": "verification_failed",
+    }
+    assert [call.kind for call in model.calls].count("repair") == 1
+    assert [call.kind for call in model.calls].count("verifier") == 0
 
 
 def test_retry_policy_review_cannot_return_a_network_assessment() -> None:

@@ -92,3 +92,37 @@ def test_provider_failure_or_empty_repair_is_explicit_and_safe() -> None:
     assert not unavailable.repaired
     assert empty.status is SemanticRepairStatus.EMPTY_RESPONSE
     assert not empty.repaired
+
+
+def test_oversized_original_request_is_rejected_before_any_model_call() -> None:
+    """GA2-C09: an oversized original request must fail safely inside the
+    repair boundary — the repair model is never called and the result is an
+    explicit input_rejected status, not an exception bubbling upward."""
+    model = MockRepairModel("never used")
+    oversized = "x" * 4097
+
+    result = SemanticResponseRepairer(model).repair(
+        oversized,
+        violations=("semantic_not_aligned",),
+        relevance_reason=None,
+        facts=(),
+    )
+
+    assert result.status is SemanticRepairStatus.INPUT_REJECTED
+    assert not result.repaired
+    assert result.to_trace_dict() == {
+        "attempted": True,
+        "status": "input_rejected",
+    }
+    assert model.prompts == []
+
+
+def test_missing_failure_reason_is_also_rejected_without_model_call() -> None:
+    model = MockRepairModel("never used")
+
+    result = SemanticResponseRepairer(model).repair(
+        "Say hello", violations=(), relevance_reason=None, facts=()
+    )
+
+    assert result.status is SemanticRepairStatus.INPUT_REJECTED
+    assert model.prompts == []

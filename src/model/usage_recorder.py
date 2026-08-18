@@ -68,9 +68,17 @@ class ModelUsageRecorder:
         )
 
     def to_trace_dict(self) -> dict[str, Any]:
-        """Emit counts, per-purpose aggregates, and bounded per-call entries."""
+        """Emit counts, per-purpose aggregates, and bounded per-call entries.
+
+        Aggregates use strict unknown propagation: a per-purpose field is
+        only emitted as a numeric total when *every* call of that purpose
+        reported it. One unknown call makes the aggregate unknown (None) —
+        a partial sum is never presented as a complete exact total. The
+        call count itself always stays exact.
+        """
 
         by_purpose: dict[str, dict[str, Any]] = {}
+        unknown_fields: dict[str, set[str]] = {}
         for call in self._calls:
             key = call.purpose or "unknown"
             bucket = by_purpose.setdefault(
@@ -81,6 +89,7 @@ class ModelUsageRecorder:
             for field in _AGGREGATE_FIELDS:
                 value = getattr(call, field)
                 if value is None:
+                    unknown_fields.setdefault(key, set()).add(field)
                     continue
                 current = bucket[field]
                 if current is None:
@@ -89,6 +98,9 @@ class ModelUsageRecorder:
                     bucket[field] = current + value
                 else:
                     bucket[field] = float(current) + float(value)
+        for key, fields in unknown_fields.items():
+            for field in fields:
+                by_purpose[key][field] = None
         recorded = self._calls[:MAX_RECORDED_CALLS]
         return {
             "calls": len(self._calls),

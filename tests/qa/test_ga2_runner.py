@@ -291,8 +291,72 @@ def test_summary_aggregates_model_usage_metrics() -> None:
     assert suite["p95_model_calls"] == 4.0
     assert suite["median_model_latency_ms"] == 12.0
     assert suite["median_model_input_tokens"] == 120.0
-    assert suite["median_model_reasoning_tokens"] == 40.0
+    # The first case's relevance bucket reports reasoning_tokens=None and
+    # the second case's repair bucket is entirely unknown, so no complete
+    # reasoning total exists for either case — the metric must stay absent.
+    assert suite["median_model_reasoning_tokens"] is None
     assert suite["median_model_visible_output_tokens"] == 70.0
+
+
+def test_summary_partial_token_totals_are_absent_not_partial() -> None:
+    """One known purpose bucket plus one unknown bucket must never be summed
+    into a numeric total that falsely looks complete."""
+    runner = _runner_module()
+    records = [
+        _usage_case(
+            "mixed",
+            50.0,
+            {
+                "calls": 2,
+                "by_purpose": {
+                    "response": {
+                        "calls": 1,
+                        "latency_ms": 5.0,
+                        "input_tokens": 30,
+                        "reasoning_tokens": 0,
+                        "visible_output_tokens": 30,
+                        "total_output_tokens": 30,
+                    },
+                    "repair": {
+                        "calls": 1,
+                        "latency_ms": None,
+                        "input_tokens": None,
+                        "reasoning_tokens": None,
+                        "visible_output_tokens": None,
+                        "total_output_tokens": None,
+                    },
+                },
+            },
+        ),
+        _usage_case(
+            "mixed",
+            60.0,
+            {
+                "calls": 1,
+                "by_purpose": {
+                    "planner": {
+                        "calls": 1,
+                        "latency_ms": 2.0,
+                        "input_tokens": 20,
+                        "reasoning_tokens": 10,
+                        "visible_output_tokens": 10,
+                        "total_output_tokens": 20,
+                    },
+                },
+            },
+        ),
+    ]
+
+    summary = runner._summary(records, [])
+
+    suite = summary["suites"]["mixed"]
+    assert suite["median_model_calls"] == 2.0
+    # The fully-known case contributes the only totals; the mixed
+    # known/unknown case contributes none of the four token metrics.
+    assert suite["median_model_latency_ms"] == 2.0
+    assert suite["median_model_input_tokens"] == 20.0
+    assert suite["median_model_reasoning_tokens"] == 10.0
+    assert suite["median_model_visible_output_tokens"] == 10.0
 
 
 def test_summary_keeps_unavailable_model_usage_absent_not_zero() -> None:

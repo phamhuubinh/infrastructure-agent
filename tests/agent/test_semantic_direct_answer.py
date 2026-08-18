@@ -13,6 +13,10 @@ from src.model.semantic_planner_adapter import (
     PlannerProviderResponse,
     SemanticPlannerAdapter,
 )
+from src.model.semantic_response_repairer import (
+    SemanticRepairResult,
+    SemanticRepairStatus,
+)
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.request_semantics import (
     ExecutionIntent,
@@ -235,12 +239,12 @@ def test_semantic_relevance_rejects_otherwise_valid_cross_task_drafts(
         "decision": "not_aligned",
         "reason": reason,
     }
-    assert semantic["postconditions"]["violations"] == [
-        "semantic_not_aligned"
-    ]
+    assert semantic["postconditions"]["violations"] == ["semantic_not_aligned"]
+    # The repair candidate (the same irrelevant draft) failed the second
+    # verification, so it must never be traced as repaired.
     assert semantic["postconditions"]["repair"] == {
         "attempted": True,
-        "status": "repaired",
+        "status": "verification_failed",
     }
     assert len(model.prompts) == 4
     assert "analysis" not in json.dumps(semantic)
@@ -334,6 +338,66 @@ def test_semantic_relevance_keeps_correct_concise_drafts(
         "reason": "aligned",
     }
     assert semantic["postconditions"]["passed"] is True
+
+
+class _InputRejectedRepairer:
+    """Mimics the repair boundary rejecting an unacceptable repair input
+    (e.g. an oversized original request) without ever calling a model."""
+
+    def repair(self, original_request, *, violations, relevance_reason, facts):
+        return SemanticRepairResult(SemanticRepairStatus.INPUT_REJECTED)
+
+
+def test_oversized_original_request_fails_safely_at_the_loop_boundary() -> None:
+    """A >4096-character request is rejected at the bounded loop boundary
+    with a deterministic message — never a generic RESPONSE_FAILED and never
+    a model call."""
+    long_request = "Cảm ơn bạn nhé " + "xem " * 1200  # well over 4096 chars
+    agent, model = _scenario_agent(
+        "gratitude acknowledgement",
+        "You should install cameras and sensors for your house.",
+        '{"decision":"not_aligned","reason":"cross_task"}',
+    )
+
+    result = agent.run_with_steps(long_request)
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert semantic["terminal_state"] == "FAIL"
+    assert semantic["failure"] == "provider_failure"
+    assert "đã dừng" in result["response"]
+    assert model.prompts == []
+
+
+def test_rejected_repair_input_fails_safely_without_loop_failure() -> None:
+    """GA2-C09: when the repair boundary rejects its input, the loop keeps
+    the deterministic guard fallback, traces input_rejected, and never
+    degrades into a generic RESPONSE_FAILED."""
+    engine = NoExecutionEngine()
+    model = RelevanceScenarioModel(
+        "You should install cameras and sensors for your house.",
+        '{"decision":"not_aligned","reason":"cross_task"}',
+    )
+    plan = replace(_direct_plan(), concept="gratitude acknowledgement")
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        semantic_planner=SemanticPlannerAdapter([FixedPlannerProvider(plan)]),
+        semantic_response_repairer=_InputRejectedRepairer(),
+    )
+
+    result = agent.run_with_steps("Cảm ơn bạn nhé")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert semantic["terminal_state"] == "DONE"
+    assert semantic["failure"] is None
+    assert "bị chặn" in result["response"]
+    assert semantic["postconditions"]["repair"] == {
+        "attempted": True,
+        "status": "input_rejected",
+    }
+    # Only the chat response and the relevance verifier called the model;
+    # the repairer never received a model call.
+    assert len(model.prompts) == 2
 
 
 def test_valid_direct_answer_does_not_enter_infrastructure_discovery(

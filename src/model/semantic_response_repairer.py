@@ -15,6 +15,12 @@ class SemanticRepairStatus(str, Enum):
     REPAIRED = "repaired"
     EMPTY_RESPONSE = "empty_response"
     PROVIDER_UNAVAILABLE = "provider_unavailable"
+    # A repair candidate was generated but did not pass the second final
+    # verification, so it did not become the accepted answer.
+    VERIFICATION_FAILED = "verification_failed"
+    # Repair input was unacceptable (e.g. an oversized original request);
+    # the repair model was never called.
+    INPUT_REJECTED = "input_rejected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +78,20 @@ class SemanticResponseRepairer:
         relevance_reason: str | None,
         facts: tuple[Fact, ...],
     ) -> SemanticRepairResult:
-        prompt = build_semantic_repair_prompt(
-            original_request,
-            violations=violations,
-            relevance_reason=relevance_reason,
-            facts=facts,
-        )
+        # GA2-C09: an unacceptable repair input (e.g. an oversized original
+        # request) must fail safely *inside* the repair boundary without
+        # ever calling the repair model — it must not bubble into the
+        # semantic coordinator as a generic response failure. The original
+        # request is never silently truncated.
+        try:
+            prompt = build_semantic_repair_prompt(
+                original_request,
+                violations=violations,
+                relevance_reason=relevance_reason,
+                facts=facts,
+            )
+        except ValueError:
+            return SemanticRepairResult(SemanticRepairStatus.INPUT_REJECTED)
         try:
             text = self._model.assess_raw(prompt.render())
         except Exception:

@@ -31,6 +31,10 @@ class FinalResponseConstraints:
     calculator_result: CalculatorContractResult | None = None
     requested_language: str | None = None
     requested_shape: str | None = None
+    # GA2-D08: an explicit "đúng 3 câu"/"exactly 3 sentences" request must
+    # keep its exact count — never collapse it into the generic SHORT
+    # budget. None means no exact sentence count was requested.
+    requested_sentence_count: int | None = None
     used_provenance: tuple[str, ...] = ()
 
 
@@ -119,6 +123,12 @@ class FinalResponseGuard:
         ):
             violations.append(FinalResponseViolation.SHAPE_MISMATCH)
 
+        if (
+            constraints.requested_sentence_count is not None
+            and _count_sentences(response) != constraints.requested_sentence_count
+        ):
+            violations.append(FinalResponseViolation.SHAPE_MISMATCH)
+
         allowed_urls = {_normalize_url(value) for value in constraints.used_provenance}
         cited_urls = {_normalize_url(value) for value in _URL.findall(response)}
         if cited_urls - allowed_urls:
@@ -131,6 +141,23 @@ class FinalResponseGuard:
             _fallback(constraints, unique, language),
             unique,
         )
+
+
+# ASCII "." only ends a sentence when followed by whitespace or end-of-text
+# (so decimals like "3.14" are not split); the Unicode equivalents 。！？ are
+# unambiguous sentence ends and need no following whitespace.
+_SENTENCE_BOUNDARY = re.compile(r"[.!?]+(?=\s|$)|[。！？…]+")
+
+
+def _count_sentences(response: str) -> int:
+    """Count sentences deterministically on VI/EN terminators.
+
+    No model call is involved; this is pure output-format validation.
+    """
+    parts = [
+        part for part in _SENTENCE_BOUNDARY.split(response.strip()) if part.strip()
+    ]
+    return len(parts)
 
 
 def _result_claim(response: str) -> Decimal | None:

@@ -6,6 +6,7 @@ from src.model.usage_metadata import (
     ModelCallUsage,
     normalize_anthropic_usage,
     normalize_openai_usage,
+    normalize_usage_mapping,
 )
 
 
@@ -142,3 +143,45 @@ class TestNormalizeAnthropicUsage:
         assert usage.input_tokens is None
         assert usage.total_output_tokens is None
         assert usage.visible_output_tokens is None
+
+
+class TestNormalizeUsageMapping:
+    def test_openai_style_mapping_keeps_the_visible_split(self) -> None:
+        usage = normalize_usage_mapping(
+            {
+                "prompt_tokens": 11,
+                "completion_tokens": 12,
+                "completion_tokens_details": {"reasoning_tokens": 3},
+            },
+            purpose="planner",
+        )
+
+        assert usage.input_tokens == 11
+        assert usage.reasoning_tokens == 3
+        assert usage.visible_output_tokens == 9
+        assert usage.total_output_tokens == 12
+        assert usage.purpose == "planner"
+
+    def test_anthropic_style_mapping_never_assumes_all_output_was_visible(self) -> None:
+        """A raw usage mapping alone does not prove there was no hidden
+        thinking content, so visible output must stay unknown."""
+        usage = normalize_usage_mapping(
+            {"input_tokens": 7, "output_tokens": 9},
+            purpose="response",
+            provider="anthropic",
+        )
+
+        assert usage.input_tokens == 7
+        assert usage.total_output_tokens == 9
+        assert usage.reasoning_tokens is None
+        assert usage.visible_output_tokens is None
+        assert usage.provider == "anthropic"
+
+    def test_unknown_payload_keeps_every_token_field_unknown(self) -> None:
+        usage = normalize_usage_mapping(None, purpose="planner")
+
+        assert usage.input_tokens is None
+        assert usage.reasoning_tokens is None
+        assert usage.visible_output_tokens is None
+        assert usage.total_output_tokens is None
+        assert usage.purpose == "planner"
