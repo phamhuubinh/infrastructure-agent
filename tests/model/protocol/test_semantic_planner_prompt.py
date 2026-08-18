@@ -28,7 +28,7 @@ def test_simple_first_pass_prompt_is_tiny_and_has_no_catalog(user_text: str) -> 
 
     assert user_payload == {"request": user_text}
     assert len(combined) < 700
-    assert "OrionSemanticPlanV1" in prompt.system_prompt
+    assert "OrionPlannerOutputV1" in prompt.system_prompt
     assert "plan is advisory" in prompt.system_prompt
     assert "harness" in prompt.system_prompt
     for forbidden in (
@@ -102,7 +102,7 @@ def test_prompt_rejects_unbounded_or_malformed_input() -> None:
 def test_response_schema_is_out_of_band_and_provider_neutral() -> None:
     prompt = build_semantic_planner_prompt("hello")
 
-    assert prompt.response_schema["title"] == "OrionSemanticPlanV1"
+    assert prompt.response_schema["title"] == "OrionPlannerOutputV1"
     assert "response_format" not in prompt.response_schema
     assert "anthropic" not in prompt.system_prompt.casefold()
     assert "openai" not in prompt.system_prompt.casefold()

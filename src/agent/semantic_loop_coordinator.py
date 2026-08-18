@@ -33,6 +33,7 @@ from src.pipeline.semantic_plan_binding import (
 )
 from src.pipeline.semantic_plan_harness import (
     SemanticPlanHarnessResult,
+    planner_final_answer_allowed,
 )
 from src.pipeline.semantic_plan_validation import SemanticPlanValidationStatus
 from src.pipeline.time_range_resolver import TimeRange
@@ -205,6 +206,7 @@ ExecuteCallback = Callable[[RequestFrame], InvestigationRequest]
 DirectResponseCallback = Callable[
     [str, PlannerPromptContext | None], SemanticLoopResponse
 ]
+PlannerAnswerCallback = Callable[[str, str], SemanticLoopResponse]
 AssessmentResponseCallback = Callable[[str, InvestigationRequest], SemanticLoopResponse]
 ComputeCallback = Callable[[CalculatorRequest], CalculatorContractResult]
 ComputeResponseCallback = Callable[
@@ -242,6 +244,7 @@ class SemanticLoopCoordinator:
         compute: ComputeCallback = calculate_request,
         respond_compute: ComputeResponseCallback | None = None,
         verify_response: ResponseVerifierCallback | None = None,
+        accept_planner_answer: PlannerAnswerCallback | None = None,
         config: SemanticLoopConfig | None = None,
     ) -> None:
         self._planner = planner
@@ -254,6 +257,7 @@ class SemanticLoopCoordinator:
         self._compute = compute
         self._respond_compute = respond_compute
         self._verify_response = verify_response
+        self._accept_planner_answer = accept_planner_answer
         self._config = config or SemanticLoopConfig()
 
     def run(
@@ -281,6 +285,8 @@ class SemanticLoopCoordinator:
         calculator_calls = 0
         calculation: CalculatorContractResult | None = None
         budget: ExecutionBudget | None = None
+        planner_final_answer: str | None = None
+        use_planner_answer = False
 
         for _transition in range(self._config.max_state_transitions):
             started = time.perf_counter()
@@ -304,6 +310,10 @@ class SemanticLoopCoordinator:
                     records.append(_record(state, False, failure_detail, started))
                     state = SemanticLoopState.FAIL
                     continue
+                planner_result = planner_outcome.result
+                planner_final_answer = (
+                    planner_result.final_answer if planner_result is not None else None
+                )
                 records.append(_record(state, True, "plan_valid", started))
                 state = SemanticLoopState.VALIDATE
                 continue
@@ -339,6 +349,14 @@ class SemanticLoopCoordinator:
                             _record(state, True, "calculator_bound", started)
                         )
                         state = SemanticLoopState.EXECUTE
+                    elif (
+                        self._accept_planner_answer is not None
+                        and planner_final_answer is not None
+                        and planner_final_answer_allowed(plan)
+                    ):
+                        use_planner_answer = True
+                        records.append(_record(state, True, "planner_answer", started))
+                        state = SemanticLoopState.ASSESS_RESPOND
                     else:
                         records.append(_record(state, True, "direct_answer", started))
                         state = SemanticLoopState.ASSESS_RESPOND
@@ -469,6 +487,11 @@ class SemanticLoopCoordinator:
                         )
                     elif investigation is not None:
                         response = self._respond_assessment(raw_request, investigation)
+                    elif use_planner_answer and planner_final_answer is not None:
+                        response = self._accept_planner_answer(
+                            raw_request,
+                            planner_final_answer,
+                        )
                     else:
                         response = self._respond_direct(raw_request, context)
                     if not isinstance(response, SemanticLoopResponse):

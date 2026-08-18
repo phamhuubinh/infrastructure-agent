@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import pytest
 
@@ -21,6 +21,8 @@ from src.pipeline.semantic_plan import (
     SemanticPlanRoute,
 )
 from src.pipeline.semantic_plan_wire import (
+    planner_output_to_json,
+    planner_output_to_wire,
     semantic_plan_to_json,
     semantic_plan_to_wire,
 )
@@ -78,7 +80,7 @@ def test_openai_compatible_json_response_produces_valid_plan(
     request = provider.requests[0]
     assert request.purpose is ModelCallPurpose.PLANNER
     assert request.request_id == "req-1"
-    assert request.response_schema["title"] == "OrionSemanticPlanV1"
+    assert request.response_schema["title"] == "OrionPlannerOutputV1"
 
 
 def test_anthropic_style_object_response_produces_same_plan(
@@ -213,3 +215,61 @@ def test_provider_request_contract_has_no_tool_or_execution_authority() -> None:
         "execution_engine",
         "knowledge_tool",
     }
+
+
+def test_envelope_payload_carries_final_answer_beside_the_plan(
+    greeting_plan: SemanticPlan,
+) -> None:
+    provider = FakeStructuredProvider(
+        PlannerProviderResponse(
+            payload=planner_output_to_wire(greeting_plan, "Xin chào!"),
+            provider="openai-compatible",
+            model="planner-model",
+        )
+    )
+
+    result = SemanticPlannerAdapter([provider]).plan("hello")
+
+    assert result.plan == greeting_plan
+    assert result.final_answer == "Xin chào!"
+
+
+def test_envelope_json_payload_with_null_answer_is_valid(
+    greeting_plan: SemanticPlan,
+) -> None:
+    provider = FakeStructuredProvider(
+        PlannerProviderResponse(
+            payload=planner_output_to_json(greeting_plan),
+            provider="openai-compatible",
+            model="planner-model",
+        )
+    )
+
+    result = SemanticPlannerAdapter([provider]).plan("hello")
+
+    assert result.plan == greeting_plan
+    assert result.final_answer is None
+
+
+def test_mismatched_envelope_answer_is_rejected_fail_closed(
+    greeting_plan: SemanticPlan,
+) -> None:
+    mismatched = {
+        "v": 1,
+        "p": semantic_plan_to_wire(
+            replace(greeting_plan, route=SemanticPlanRoute.CAPABILITY_ASSISTED)
+        ),
+        "a": "answer text",
+    }
+    provider = FakeStructuredProvider(
+        PlannerProviderResponse(
+            payload=mismatched,
+            provider="bad-provider",
+            model="bad-model",
+        )
+    )
+
+    with pytest.raises(SemanticPlannerError) as captured:
+        SemanticPlannerAdapter([provider]).plan("hello")
+
+    assert captured.value.reason is PlannerFailureReason.INVALID_OUTPUT

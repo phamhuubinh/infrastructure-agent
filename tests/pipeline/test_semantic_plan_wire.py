@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
@@ -22,9 +23,17 @@ from src.pipeline.semantic_plan import (
     TargetReferenceKind,
 )
 from src.pipeline.semantic_plan_wire import (
+    MAX_PLANNER_FINAL_ANSWER_LENGTH,
     MAX_SEMANTIC_PLAN_BYTES,
+    PLANNER_OUTPUT_WIRE_VERSION,
     SEMANTIC_PLAN_WIRE_VERSION,
+    PlannerWireOutput,
     SemanticPlanWireError,
+    planner_output_from_json,
+    planner_output_from_wire,
+    planner_output_json_schema,
+    planner_output_to_json,
+    planner_output_to_wire,
     semantic_plan_from_json,
     semantic_plan_from_wire,
     semantic_plan_json_schema,
@@ -223,3 +232,131 @@ def test_wire_contract_has_no_execution_or_evidence_fields(
         "tool_schema",
     ):
         assert forbidden not in encoded
+
+
+@pytest.fixture
+def direct_answer_plan(rich_plan: SemanticPlan) -> SemanticPlan:
+    return replace(
+        rich_plan,
+        route=SemanticPlanRoute.DIRECT_ANSWER,
+        domain=RequestDomain.GENERAL,
+        execution_intent=ExecutionIntent.EXPLAIN,
+        target=TargetReference(),
+        source_constraints=(SourceConstraint.ANY,),
+        excluded_sources=(),
+        freshness=FreshnessRequirement.STABLE,
+        metric=None,
+        service=None,
+        path=None,
+        explicit_url=None,
+    )
+
+
+def test_planner_output_round_trip_carries_bounded_final_answer(
+    direct_answer_plan: SemanticPlan,
+) -> None:
+    answer = "Xin chào! Tôi có thể giúp gì cho bạn?"
+    wire = planner_output_to_wire(direct_answer_plan, answer)
+
+    assert set(wire) == {"v", "p", "a"}
+    assert wire["v"] == PLANNER_OUTPUT_WIRE_VERSION
+    assert wire["a"] == answer
+
+    parsed = planner_output_from_wire(wire)
+    assert isinstance(parsed, PlannerWireOutput)
+    assert parsed.plan == direct_answer_plan
+    assert parsed.final_answer == answer
+
+    encoded = planner_output_to_json(direct_answer_plan, answer)
+    assert ": " not in encoded
+    assert ", " not in encoded
+    assert len(encoded.encode()) < MAX_SEMANTIC_PLAN_BYTES
+    assert planner_output_from_json(encoded) == parsed
+    assert planner_output_from_json(encoded.encode()) == parsed
+
+
+def test_planner_output_without_answer_round_trips(
+    direct_answer_plan: SemanticPlan,
+) -> None:
+    parsed = planner_output_from_wire(planner_output_to_wire(direct_answer_plan))
+
+    assert parsed.plan == direct_answer_plan
+    assert parsed.final_answer is None
+
+
+def test_planner_output_rejects_final_answer_on_non_direct_route(
+    rich_plan: SemanticPlan,
+) -> None:
+    with pytest.raises(SemanticPlanWireError, match="direct_answer"):
+        planner_output_to_wire(rich_plan, "hello")
+
+    mismatched = planner_output_to_wire(
+        replace(rich_plan, route=SemanticPlanRoute.DIRECT_ANSWER),
+        "hello",
+    )
+    mismatched["p"] = semantic_plan_to_wire(rich_plan)
+    with pytest.raises(SemanticPlanWireError, match="direct_answer"):
+        planner_output_from_wire(mismatched)
+
+
+@pytest.mark.parametrize(
+    "answer",
+    (
+        "",
+        " untrimmed ",
+        "has\ncontrol",
+        "x" * (MAX_PLANNER_FINAL_ANSWER_LENGTH + 1),
+    ),
+)
+def test_planner_output_rejects_malformed_final_answer(
+    direct_answer_plan: SemanticPlan,
+    answer: str,
+) -> None:
+    with pytest.raises(SemanticPlanWireError):
+        planner_output_to_wire(direct_answer_plan, answer)
+
+
+def test_legacy_plan_only_payload_still_parses_as_planner_output(
+    direct_answer_plan: SemanticPlan,
+) -> None:
+    parsed = planner_output_from_wire(semantic_plan_to_wire(direct_answer_plan))
+
+    assert parsed.plan == direct_answer_plan
+    assert parsed.final_answer is None
+
+    parsed_json = planner_output_from_json(semantic_plan_to_json(direct_answer_plan))
+    assert parsed_json == parsed
+
+
+def test_planner_output_rejects_malformed_envelopes() -> None:
+    with pytest.raises(SemanticPlanWireError, match="must be an object"):
+        planner_output_from_wire([])
+    with pytest.raises(SemanticPlanWireError, match="must be an object"):
+        planner_output_from_json("[]")
+    with pytest.raises(SemanticPlanWireError, match="valid JSON"):
+        planner_output_from_json("{")
+
+    envelope = {"v": PLANNER_OUTPUT_WIRE_VERSION, "p": {}, "a": None}
+    with pytest.raises(SemanticPlanWireError, match="missing fields"):
+        planner_output_from_wire(envelope)
+
+    duplicate = '{"v":1,"v":1,"p":{},"a":null}'
+    with pytest.raises(SemanticPlanWireError, match="Duplicate JSON field"):
+        planner_output_from_json(duplicate)
+
+
+def test_planner_output_schema_embeds_plan_and_bounded_answer() -> None:
+    schema = planner_output_json_schema()
+    properties = schema["properties"]
+
+    assert schema["title"] == "OrionPlannerOutputV1"
+    assert set(schema["required"]) == {"v", "p", "a"}
+    assert properties["v"]["enum"] == [PLANNER_OUTPUT_WIRE_VERSION]
+    assert properties["p"]["additionalProperties"] is False
+    assert "direct_answer" in properties["p"]["properties"]["r"]["enum"]
+    assert properties["a"]["anyOf"][0] == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": MAX_PLANNER_FINAL_ANSWER_LENGTH,
+    }
+    assert json.dumps(schema)

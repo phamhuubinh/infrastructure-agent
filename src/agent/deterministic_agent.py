@@ -2343,6 +2343,7 @@ class DeterministicAgent:
             respond_assessment=self._semantic_loop_assessment_response,
             respond_compute=self._semantic_loop_compute_response,
             verify_response=self._semantic_loop_verify_response,
+            accept_planner_answer=self._semantic_loop_planner_answer,
             respond_failure=self._semantic_loop_failure_response,
             config=config,
         )
@@ -2651,6 +2652,33 @@ class DeterministicAgent:
             answer_strategy=AnswerStrategy.CHAT.name,
             model_used=True,
             artifact_validation=artifact_validation,
+        )
+
+    def _semantic_loop_planner_answer(
+        self,
+        user_request: str,
+        final_answer: str,
+    ) -> SemanticLoopResponse:
+        """Deliver a harness-eligible planner final answer without a second
+        response-model call.
+
+        The loop already gated eligibility and the harness validated the
+        plan.  This boundary re-applies the full model-output finalization
+        (sanitizer, language quality, artifact validation, repetition
+        recovery) exactly like the chat path, and the loop's response
+        verifier still applies final-response postconditions afterwards.
+        """
+
+        finalized, validation = self._finalize_model_response(
+            user_request,
+            final_answer,
+            apply_short=self._answer_shape_is_short(user_request),
+        )
+        return SemanticLoopResponse(
+            text=finalized,
+            answer_strategy=AnswerStrategy.CHAT.name,
+            model_used=False,
+            artifact_validation=validation,
         )
 
     def _semantic_loop_assessment_response(

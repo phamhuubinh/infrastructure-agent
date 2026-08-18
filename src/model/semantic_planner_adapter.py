@@ -30,9 +30,10 @@ from src.pipeline.semantic_plan import (
     TargetReferenceKind,
 )
 from src.pipeline.semantic_plan_wire import (
+    PlannerWireOutput,
     SemanticPlanWireError,
-    semantic_plan_from_json,
-    semantic_plan_from_wire,
+    planner_output_from_json,
+    planner_output_from_wire,
 )
 from src.shared.execution.command_result import redact_sensitive
 
@@ -140,7 +141,12 @@ class SemanticPlannerError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class SemanticPlannerResult:
-    """Validated plan plus provider metadata kept outside the plan itself."""
+    """Validated plan plus provider metadata kept outside the plan itself.
+
+    ``final_answer`` is optional planner-provided answer prose kept outside
+    ``plan``.  It is not trusted output: only the harness eligibility gate
+    and the final-delivery validations may release it to the user.
+    """
 
     plan: SemanticPlan
     provider: str
@@ -148,6 +154,7 @@ class SemanticPlannerResult:
     raw_usage: Mapping[str, object] | None
     purpose: ModelCallPurpose
     latency_ms: float
+    final_answer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,7 +253,7 @@ class SemanticPlannerAdapter:
                         "Provider returned an invalid response contract."
                     )
                 provider_label = _bounded_identity(response.provider, provider_label)
-                plan = _parse_provider_payload(response.payload)
+                parsed = _parse_provider_payload(response.payload)
                 model_label = _bounded_identity(response.model, "unknown")
                 raw_usage = _copy_raw_usage(response.raw_usage)
             except TimeoutError as exc:
@@ -279,12 +286,13 @@ class SemanticPlannerAdapter:
                 continue
 
             return SemanticPlannerResult(
-                plan=plan,
+                plan=parsed.plan,
                 provider=provider_label,
                 model=model_label,
                 raw_usage=raw_usage,
                 purpose=ModelCallPurpose.PLANNER,
                 latency_ms=round((time.perf_counter() - started) * 1000, 1),
+                final_answer=parsed.final_answer,
             )
 
         raise SemanticPlannerError(tuple(failures))
@@ -489,13 +497,13 @@ def _outcome_reason_for_failure(
     }[reason]
 
 
-def _parse_provider_payload(payload: object) -> SemanticPlan:
+def _parse_provider_payload(payload: object) -> PlannerWireOutput:
     if isinstance(payload, dict):
-        return semantic_plan_from_wire(payload)
+        return planner_output_from_wire(payload)
     if isinstance(payload, (str, bytes)):
-        return semantic_plan_from_json(payload)
+        return planner_output_from_json(payload)
     raise SemanticPlanWireError(
-        "Provider payload must be a semantic-plan object or JSON text."
+        "Provider payload must be a planner-output object or JSON text."
     )
 
 

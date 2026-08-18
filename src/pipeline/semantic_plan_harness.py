@@ -12,12 +12,19 @@ from src.pipeline.external_verification_policy import (
     ExternalVerificationPolicy,
     SemanticFreshnessValidationResult,
 )
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    RequestDomain,
+    SourceConstraint,
+)
 from src.pipeline.semantic_mutation_validator import (
     SemanticMutationValidationResult,
     SemanticMutationValidator,
 )
 from src.pipeline.semantic_plan import (
+    ClarificationState,
     DeterministicComputeIntent,
+    FreshnessRequirement,
     SemanticPlan,
     SemanticPlanRoute,
     TargetReferenceKind,
@@ -193,6 +200,45 @@ def _validate_compute(plan: SemanticPlan) -> SemanticPlanValidationResult:
     return SemanticPlanValidationResult.valid(plan)
 
 
+_PLANNER_ANSWER_DOMAINS = frozenset(
+    {RequestDomain.GENERAL, RequestDomain.CONTENT_GENERATION}
+)
+_PLANNER_ANSWER_INTENTS = frozenset(
+    {ExecutionIntent.EXPLAIN, ExecutionIntent.GENERATE_CONTENT}
+)
+_PLANNER_ANSWER_FRESHNESS = frozenset(
+    {FreshnessRequirement.STABLE, FreshnessRequirement.HISTORICAL}
+)
+_PLANNER_ANSWER_SOURCES = frozenset(
+    {SourceConstraint.ANY, SourceConstraint.NO_INTERNET}
+)
+
+
+def planner_final_answer_allowed(plan: SemanticPlan) -> bool:
+    """Whether a validated plan may deliver a planner-provided final answer.
+
+    This is the deterministic eligibility gate for the single-call path.
+    It is a conservative allow-list: only trivial, stable, tool-free
+    requests may use planner answer prose.  Requests that need live
+    infrastructure, current/external information, mutation, deterministic
+    calculation, capability execution, or clarification always take their
+    existing validated paths and never consume planner final text.
+    """
+
+    return (
+        plan.route is SemanticPlanRoute.DIRECT_ANSWER
+        and plan.domain in _PLANNER_ANSWER_DOMAINS
+        and plan.execution_intent in _PLANNER_ANSWER_INTENTS
+        and plan.freshness in _PLANNER_ANSWER_FRESHNESS
+        and plan.deterministic_compute is DeterministicComputeIntent.NOT_REQUIRED
+        and plan.calculation is None
+        and plan.clarification is ClarificationState.NOT_REQUIRED
+        and plan.target.kind is TargetReferenceKind.UNSPECIFIED
+        and plan.explicit_url is None
+        and all(item in _PLANNER_ANSWER_SOURCES for item in plan.source_constraints)
+    )
+
+
 def _valid(result: SemanticPlanValidationResult) -> bool:
     return result.status is SemanticPlanValidationStatus.VALID
 
@@ -207,4 +253,8 @@ def _merge_values(
     return tuple(merged.values())
 
 
-__all__ = ["SemanticPlanHarnessResult", "SemanticPlanHarnessValidator"]
+__all__ = [
+    "SemanticPlanHarnessResult",
+    "SemanticPlanHarnessValidator",
+    "planner_final_answer_allowed",
+]

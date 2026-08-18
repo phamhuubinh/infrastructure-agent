@@ -8,6 +8,7 @@ unknown fields, and never coerces malformed data into executable defaults.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from json import JSONDecodeError
@@ -41,6 +42,9 @@ MAX_SEMANTIC_URL_LENGTH = 2048
 MAX_SOURCE_CONSTRAINTS = 8
 MAX_CALCULATOR_VALUES = 32
 
+PLANNER_OUTPUT_WIRE_VERSION = 1
+MAX_PLANNER_FINAL_ANSWER_LENGTH = 512
+
 _PLAN_KEYS = frozenset(
     {
         "v",
@@ -63,6 +67,7 @@ _PLAN_KEYS = frozenset(
 )
 _TARGET_KEYS = frozenset({"k", "v"})
 _CLARIFICATION_KEYS = frozenset({"s", "f"})
+_PLANNER_OUTPUT_KEYS = frozenset({"v", "p", "a"})
 _CALCULATION_KEYS = frozenset(
     {
         "op",
@@ -87,6 +92,19 @@ _EnumT = TypeVar("_EnumT", bound=Enum)
 
 class SemanticPlanWireError(ValueError):
     """A semantic-plan payload violates the versioned wire contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class PlannerWireOutput:
+    """One validated planner output: a plan plus an optional final answer.
+
+    ``final_answer`` is deliberately outside ``SemanticPlan``: answer prose
+    is never part of execution-authoritative semantics.  The harness gate,
+    not the planner, decides whether the text may be delivered.
+    """
+
+    plan: SemanticPlan
+    final_answer: str | None
 
 
 def semantic_plan_to_wire(plan: SemanticPlan) -> dict[str, object]:
@@ -204,25 +222,68 @@ def semantic_plan_to_json(plan: SemanticPlan) -> str:
 def semantic_plan_from_json(payload: str | bytes) -> SemanticPlan:
     """Parse bounded JSON and reject duplicate object keys."""
 
-    if isinstance(payload, bytes):
-        if len(payload) > MAX_SEMANTIC_PLAN_BYTES:
-            raise SemanticPlanWireError("Semantic-plan payload exceeds 4096 bytes.")
-        try:
-            text = payload.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise SemanticPlanWireError("Semantic-plan payload is not UTF-8.") from exc
-    elif isinstance(payload, str):
-        if len(payload.encode("utf-8")) > MAX_SEMANTIC_PLAN_BYTES:
-            raise SemanticPlanWireError("Semantic-plan payload exceeds 4096 bytes.")
-        text = payload
-    else:
-        raise SemanticPlanWireError("Semantic-plan JSON must be text or bytes.")
+    return semantic_plan_from_wire(_decode_payload_json(payload))
 
-    try:
-        decoded = json.loads(text, object_pairs_hook=_object_without_duplicate_keys)
-    except JSONDecodeError as exc:
-        raise SemanticPlanWireError("Semantic-plan payload is not valid JSON.") from exc
-    return semantic_plan_from_wire(decoded)
+
+def planner_output_to_wire(
+    plan: SemanticPlan,
+    final_answer: str | None = None,
+) -> dict[str, object]:
+    """Return the compact planner-output envelope for ``plan``.
+
+    ``final_answer`` is optional bounded answer prose for an eligible
+    DIRECT_ANSWER plan.  A non-null answer on any other route is a
+    mismatched payload and is rejected fail-closed.
+    """
+
+    if not isinstance(plan, SemanticPlan):
+        raise SemanticPlanWireError("Expected a SemanticPlan instance.")
+    answer = _optional_text(
+        final_answer,
+        "a",
+        max_length=MAX_PLANNER_FINAL_ANSWER_LENGTH,
+    )
+    _validate_final_answer_route(plan, answer)
+    payload: dict[str, object] = {
+        "v": PLANNER_OUTPUT_WIRE_VERSION,
+        "p": semantic_plan_to_wire(plan),
+        "a": answer,
+    }
+    _ensure_payload_size(payload)
+    return payload
+
+
+def planner_output_from_wire(payload: object) -> PlannerWireOutput:
+    """Parse one planner output: the envelope or a legacy plan-only payload.
+
+    The envelope is the current model/harness shape.  A payload without the
+    answer key is parsed as a legacy flat semantic plan for backward
+    compatibility with pre-envelope providers; it carries no final answer.
+    """
+
+    if not isinstance(payload, dict):
+        raise SemanticPlanWireError("Planner output must be an object.")
+    if "a" in payload:
+        return _parse_planner_output_envelope(payload)
+    return PlannerWireOutput(
+        plan=semantic_plan_from_wire(payload),
+        final_answer=None,
+    )
+
+
+def planner_output_to_json(
+    plan: SemanticPlan,
+    final_answer: str | None = None,
+) -> str:
+    """Serialize a planner output as compact UTF-8 JSON text."""
+
+    return _compact_json(planner_output_to_wire(plan, final_answer))
+
+
+def planner_output_from_json(payload: str | bytes) -> PlannerWireOutput:
+    """Parse bounded planner-output JSON and reject duplicate object keys."""
+
+    return planner_output_from_wire(_decode_payload_json(payload))
 
 
 def semantic_plan_json_schema() -> dict[str, object]:
@@ -296,6 +357,35 @@ def semantic_plan_json_schema() -> dict[str, object]:
                     },
                     "f": nullable_text,
                 },
+            },
+        },
+    }
+
+
+def planner_output_json_schema() -> dict[str, object]:
+    """Return the provider-neutral JSON Schema for the planner-output envelope."""
+
+    plan_schema = semantic_plan_json_schema()
+    plan_schema.pop("$schema", None)
+    plan_schema.pop("title", None)
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "OrionPlannerOutputV1",
+        "type": "object",
+        "additionalProperties": False,
+        "required": sorted(_PLANNER_OUTPUT_KEYS),
+        "properties": {
+            "v": {"type": "integer", "enum": [PLANNER_OUTPUT_WIRE_VERSION]},
+            "p": plan_schema,
+            "a": {
+                "anyOf": [
+                    {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_PLANNER_FINAL_ANSWER_LENGTH,
+                    },
+                    {"type": "null"},
+                ]
             },
         },
     }
@@ -577,6 +667,56 @@ def _optional_text(
     return value
 
 
+def _parse_planner_output_envelope(
+    payload: dict[str, object],
+) -> PlannerWireOutput:
+    root = _exact_object(payload, _PLANNER_OUTPUT_KEYS, "planner output")
+    if type(root["v"]) is not int or root["v"] != PLANNER_OUTPUT_WIRE_VERSION:
+        raise SemanticPlanWireError(
+            f"v must be the integer {PLANNER_OUTPUT_WIRE_VERSION}."
+        )
+    plan = semantic_plan_from_wire(root["p"])
+    final_answer = _optional_text(
+        root["a"],
+        "a",
+        max_length=MAX_PLANNER_FINAL_ANSWER_LENGTH,
+    )
+    _validate_final_answer_route(plan, final_answer)
+    _ensure_payload_size(root)
+    return PlannerWireOutput(plan=plan, final_answer=final_answer)
+
+
+def _validate_final_answer_route(
+    plan: SemanticPlan,
+    final_answer: str | None,
+) -> None:
+    if final_answer is not None and plan.route is not SemanticPlanRoute.DIRECT_ANSWER:
+        raise SemanticPlanWireError(
+            "a is only allowed when the plan route is direct_answer."
+        )
+
+
+def _decode_payload_json(payload: str | bytes) -> object:
+    if isinstance(payload, bytes):
+        if len(payload) > MAX_SEMANTIC_PLAN_BYTES:
+            raise SemanticPlanWireError("Semantic-plan payload exceeds 4096 bytes.")
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise SemanticPlanWireError("Semantic-plan payload is not UTF-8.") from exc
+    elif isinstance(payload, str):
+        if len(payload.encode("utf-8")) > MAX_SEMANTIC_PLAN_BYTES:
+            raise SemanticPlanWireError("Semantic-plan payload exceeds 4096 bytes.")
+        text = payload
+    else:
+        raise SemanticPlanWireError("Semantic-plan JSON must be text or bytes.")
+
+    try:
+        return json.loads(text, object_pairs_hook=_object_without_duplicate_keys)
+    except JSONDecodeError as exc:
+        raise SemanticPlanWireError("Semantic-plan payload is not valid JSON.") from exc
+
+
 def _ensure_payload_size(payload: dict[str, object]) -> None:
     if len(_compact_json(payload).encode("utf-8")) > MAX_SEMANTIC_PLAN_BYTES:
         raise SemanticPlanWireError("Semantic-plan payload exceeds 4096 bytes.")
@@ -611,9 +751,17 @@ def _nullable_text_schema(max_length: int) -> dict[str, object]:
 
 
 __all__ = [
+    "MAX_PLANNER_FINAL_ANSWER_LENGTH",
     "MAX_SEMANTIC_PLAN_BYTES",
+    "PLANNER_OUTPUT_WIRE_VERSION",
     "SEMANTIC_PLAN_WIRE_VERSION",
+    "PlannerWireOutput",
     "SemanticPlanWireError",
+    "planner_output_from_json",
+    "planner_output_from_wire",
+    "planner_output_json_schema",
+    "planner_output_to_json",
+    "planner_output_to_wire",
     "semantic_plan_from_json",
     "semantic_plan_from_wire",
     "semantic_plan_json_schema",

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.semantic_plan_wire import (
     MAX_SOURCE_CONSTRAINTS,
-    semantic_plan_json_schema,
+    planner_output_json_schema,
 )
 
 MAX_PLANNER_REQUEST_CHARS = 4096
@@ -16,12 +16,15 @@ MAX_PLANNER_CONTEXT_CHARS = 256
 MAX_PLANNER_CONTEXT_BYTES = 1024
 
 _PLANNER_SYSTEM_PROMPT = (
-    "You are Orion's semantic planner. Return exactly one JSON object matching "
-    "the supplied OrionSemanticPlanV1 schema. Interpret only the original user "
-    "request and optional bounded semantic context. The plan is advisory: "
-    "Orion's harness validates it and exclusively controls tools, targets, "
-    "sources, safety, and execution. Never emit commands, tool schemas, "
-    "credentials, evidence, prose, or hidden reasoning. Use unspecified or "
+    "You are Orion's semantic planner. Return one JSON object matching "
+    "OrionPlannerOutputV1: plan under p, answer under a. Use only the "
+    "original user request and bounded semantic context. The plan is "
+    "advisory: Orion's harness validates it and exclusively controls tools, "
+    "targets, sources, safety, and execution. Fill a only for trivial "
+    "direct_answer requests from stable knowledge (no tools, live/current "
+    "data, calculation, or clarification: greetings, thanks, translations). "
+    "Otherwise set a to null. Never emit commands, tool schemas, credentials, "
+    "evidence, hidden reasoning, or prose outside a. Use unspecified or "
     "unknown instead of guessing."
 )
 
@@ -79,7 +82,7 @@ def build_semantic_planner_prompt(
     return SemanticPlannerPrompt(
         system_prompt=_PLANNER_SYSTEM_PROMPT,
         user_prompt=user_prompt,
-        response_schema=semantic_plan_json_schema(),
+        response_schema=planner_output_json_schema(),
     )
 
 
