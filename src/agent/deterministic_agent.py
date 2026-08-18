@@ -270,9 +270,21 @@ class DeterministicAgent:
         reset_response = self._reset_context_response(user_request)
         if reset_response is not None:
             return reset_response
-        semantic_loop = self._run_semantic_loop(user_request)
-        if semantic_loop is not None:
-            return semantic_loop.response.text
+        if self._semantic_planner is not None:
+            # Semantic-primary cutover (#52): with a semantic planner
+            # configured, the bounded semantic loop is the sole authority
+            # for natural-language intent on the primary request path.
+            # Every terminal loop outcome — including planner failure,
+            # invalid/unsupported plans, and malformed planner output — is
+            # answered by the loop's bounded failure response. The legacy
+            # regex-first routing below is compatibility behavior and is
+            # never consulted as a fallback for planner-configured
+            # requests.
+            return self._run_semantic_primary(user_request).response.text
+        # ------------------------------------------------------------------
+        # Legacy deterministic-routing compatibility path (no semantic
+        # planner configured). Preserved for existing APIs/tests.
+        # ------------------------------------------------------------------
         decision = self._route_request(user_request)
         if decision.status is RoutingStatus.GENERAL_CHAT:
             return self.chat(user_request)
@@ -492,9 +504,19 @@ class DeterministicAgent:
                 "trace_id": trace.trace_id,
                 "execution_trace": trace.to_dict(),
             }
-        semantic_loop = self._run_semantic_loop(user_request)
-        if semantic_loop is not None:
+        if self._semantic_planner is not None:
+            # Semantic-primary cutover (#52): same authority rule as
+            # ``_run_unfinalized``. This branch precedes both the lexical
+            # MultiIntentPlanner and the legacy ``_route_request()`` path
+            # below — neither may decide a planner-configured primary
+            # request, and no semantic-loop outcome (including failure)
+            # falls through to them.
+            semantic_loop = self._run_semantic_primary(user_request)
             return self._semantic_loop_payload(user_request, semantic_loop)
+        # ------------------------------------------------------------------
+        # Legacy deterministic-routing compatibility path (no semantic
+        # planner configured). Preserved for existing APIs/tests.
+        # ------------------------------------------------------------------
         # GA2-C10: consume MultiIntentPlanner's ordered plan for a sequenced
         # compound request *before* the single-shot routing decision below,
         # or a request such as "Giải thích RAM là gì rồi kiểm tra RAM trên
@@ -2260,6 +2282,26 @@ class DeterministicAgent:
             if raise_errors:
                 raise
             return f"Sorry, I couldn't process that: {exc}", None
+
+    def _run_semantic_primary(self, user_request: str) -> SemanticLoopResult:
+        """Run the semantic loop as the sole intent authority for a
+        planner-configured primary request.
+
+        The bounded loop always produces a terminal result — success or
+        failure — so callers answer from it directly. ``None`` here would
+        be an internal invariant violation (the loop only returns ``None``
+        when no planner is configured); raising keeps the semantic-primary
+        cutover fail-closed instead of falling through to legacy
+        regex-first routing.
+        """
+
+        result = self._run_semantic_loop(user_request)
+        if result is None:  # pragma: no cover - planner-configured invariant
+            raise RuntimeError(
+                "Semantic planner is configured but the semantic loop "
+                "produced no result; refusing to fall back to legacy routing."
+            )
+        return result
 
     def _run_semantic_loop(
         self,
