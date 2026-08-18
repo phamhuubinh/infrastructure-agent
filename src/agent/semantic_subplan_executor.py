@@ -84,7 +84,7 @@ def execute_semantic_subplans(
     if plan.route is not SemanticPlanRoute.MULTI_INTENT or not plan.subplans:
         raise ValueError("multi-intent execution requires bounded subplans")
 
-    results = []
+    results: list[SemanticLoopResult] = []
     execution_cycles = 0
     planned_tool_calls = 0
     actual_tool_calls = 0

@@ -278,7 +278,7 @@ class SemanticLoopCoordinator:
         self._respond_assessment = respond_assessment
         self._respond_failure = respond_failure
         self._compute = compute
-        self._respond_compute = respond_compute
+        self._respond_compute: ComputeResponseCallback | None = respond_compute
         self._verify_response = verify_response
         self._accept_planner_answer = accept_planner_answer
         self._config = config or SemanticLoopConfig()
@@ -542,9 +542,10 @@ class SemanticLoopCoordinator:
                     if subplan_execution is not None:
                         response = subplan_execution.response
                     elif calculation is not None:
-                        if plan is None or self._respond_compute is None:
+                        respond_compute = self._respond_compute
+                        if plan is None or respond_compute is None:
                             raise TypeError("compute response callback is unavailable")
-                        response = self._respond_compute(
+                        response = respond_compute(
                             raw_request,
                             plan,
                             calculation,
@@ -552,7 +553,10 @@ class SemanticLoopCoordinator:
                     elif investigation is not None:
                         response = self._respond_assessment(raw_request, investigation)
                     elif use_planner_answer and planner_final_answer is not None:
-                        response = self._accept_planner_answer(
+                        accept_planner_answer = self._accept_planner_answer
+                        if accept_planner_answer is None:
+                            raise TypeError("planner answer callback is unavailable")
+                        response = accept_planner_answer(
                             raw_request,
                             planner_final_answer,
                         )
