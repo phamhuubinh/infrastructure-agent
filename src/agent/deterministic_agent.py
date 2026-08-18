@@ -39,6 +39,7 @@ from src.model.output_sanitizer import (
     sanitize_api_response,
     sanitize_model_output,
 )
+from src.model.protocol.orion_system_prompt import ORION_SYSTEM_PROMPT
 from src.model.protocol.prompt_builder_v2 import (
     _detect_language,
     _normalize_evidence,
@@ -94,6 +95,12 @@ from src.pipeline.external_verification import (
 )
 from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.fact_set import FactSet
+from src.pipeline.input_context_budget import (
+    InputContextBudgetClass,
+    InputContextBudgetError,
+    InputContextBudgetPolicy,
+    InputContextSection,
+)
 from src.pipeline.intent_resolver import Intent
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.multi_intent_planner import MultiIntentPlanner, StepKind
@@ -1056,7 +1063,13 @@ class DeterministicAgent:
         )
 
         assessment_request = self._assessment_adapter.build(investigation)
-        prompt = build_assessment_prompt(assessment_request)
+        try:
+            prompt = build_assessment_prompt(assessment_request)
+        except InputContextBudgetError:
+            prompt = (
+                "evidence-assisted input context exceeds its budget; "
+                "the provider call was rejected deterministically"
+            )
         steps.append(
             {
                 "type": "prompt",
@@ -2221,6 +2234,7 @@ class DeterministicAgent:
         semantic_context: PlannerPromptContext | None = None,
         bounded_context_only: bool = False,
         raise_errors: bool = False,
+        _estimate_out: list[int | None] | None = None,
     ) -> tuple[str, dict[str, object] | None]:
         """Return chat output plus safe artifact-validation metadata."""
         # Security guard: check for dangerous patterns in user input
@@ -2252,7 +2266,37 @@ class DeterministicAgent:
                     if context_payload
                     else ""
                 )
-                prompt = f"{system}{context_text}\n\nUser: {user_request}\n\nAssistant:"
+                mandatory = f"\n\nUser: {user_request}\n\nAssistant:"
+                budget = InputContextBudgetPolicy.for_class(
+                    InputContextBudgetClass.NORMAL
+                )
+                # The fixed Orion system instruction, the rendered system
+                # instructions, and the user request are mandatory; the
+                # bounded semantic context is optional and is dropped whole
+                # (never sliced) before the budget is exceeded.  Accounting
+                # includes the fixed instruction so the complete
+                # model-visible input stays within the class budget.
+                enforced = budget.enforce(
+                    mandatory=(
+                        InputContextSection(
+                            "fixed_system_instructions", ORION_SYSTEM_PROMPT
+                        ),
+                        InputContextSection("system_instructions", system),
+                        InputContextSection("user_request", mandatory),
+                    ),
+                    optional=(
+                        (InputContextSection("semantic_context", context_text),)
+                        if context_text
+                        else ()
+                    ),
+                )
+                prompt = (
+                    f"{system}{mandatory}"
+                    if "semantic_context" not in enforced.optional_included
+                    else f"{system}{context_text}{mandatory}"
+                )
+                if _estimate_out is not None:
+                    _estimate_out[:] = [enforced.estimated_input_tokens]
             elif self._conversation_store:
                 context = self._build_chat_context()
                 if context:
@@ -2372,6 +2416,7 @@ class DeterministicAgent:
             provider=planner_result.provider,
             model=planner_result.model,
             latency_ms=planner_result.latency_ms,
+            estimated_input_tokens=planner_result.estimated_input_tokens,
         )
 
     def _semantic_loop_execute(self, frame: RequestFrame) -> InvestigationRequest:
@@ -2454,19 +2499,39 @@ class DeterministicAgent:
         self,
         usage: object,
         purpose: str,
+        *,
+        estimated_input_tokens: int | None = None,
     ) -> None:
-        """Record one normalized model call under the given purpose."""
+        """Record one normalized model call under the given purpose.
+
+        ``estimated_input_tokens`` is a provider-neutral input-context
+        estimate; it never overwrites the provider-reported token fields.
+        """
 
         if self._usage_recorder is None or not isinstance(usage, ModelCallUsage):
             return
-        self._usage_recorder.record(replace(usage, purpose=purpose))
+        if estimated_input_tokens is None and usage.estimated_input_tokens is not None:
+            estimated_input_tokens = usage.estimated_input_tokens
+        self._usage_recorder.record(
+            replace(
+                usage,
+                purpose=purpose,
+                estimated_input_tokens=estimated_input_tokens,
+            )
+        )
 
-    def _record_assessment_usage(self, purpose: str) -> None:
+    def _record_assessment_usage(
+        self,
+        purpose: str,
+        *,
+        estimated_input_tokens: int | None = None,
+    ) -> None:
         """Record the assessment model's most recent call, when reported."""
 
         self._record_usage_from(
             getattr(self._assessment_model, "last_usage", None),
             purpose,
+            estimated_input_tokens=estimated_input_tokens,
         )
 
     def _semantic_loop_verify_response(
@@ -2640,13 +2705,18 @@ class DeterministicAgent:
         user_request: str,
         context: PlannerPromptContext | None,
     ) -> SemanticLoopResponse:
+        estimate_out: list[int | None] = []
         response, artifact_validation = self._chat_response(
             user_request,
             semantic_context=context,
             bounded_context_only=True,
             raise_errors=True,
+            _estimate_out=estimate_out,
         )
-        self._record_assessment_usage("response")
+        self._record_assessment_usage(
+            "response",
+            estimated_input_tokens=estimate_out[0] if estimate_out else None,
+        )
         return SemanticLoopResponse(
             text=response,
             answer_strategy=AnswerStrategy.CHAT.name,

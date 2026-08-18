@@ -146,6 +146,10 @@ class SemanticPlannerResult:
     ``final_answer`` is optional planner-provided answer prose kept outside
     ``plan``.  It is not trusted output: only the harness eligibility gate
     and the final-delivery validations may release it to the user.
+
+    ``estimated_input_tokens`` is the provider-neutral character-derived
+    estimate of the enforced SIMPLE input context, kept separate from the
+    provider-reported ``raw_usage`` values.
     """
 
     plan: SemanticPlan
@@ -155,6 +159,8 @@ class SemanticPlannerResult:
     purpose: ModelCallPurpose
     latency_ms: float
     final_answer: str | None = None
+    estimated_input_tokens: int | None = None
+    input_budget_class: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +196,8 @@ class SemanticPlannerOutcome:
             trace["provider"] = self.result.provider
             trace["model"] = self.result.model
             trace["latency_ms"] = self.result.latency_ms
+            trace["estimated_input_tokens"] = self.result.estimated_input_tokens
+            trace["input_budget_class"] = self.result.input_budget_class
         if self.failures:
             trace["attempts"] = [
                 {"provider": item.provider, "reason": item.reason.value}
@@ -293,6 +301,8 @@ class SemanticPlannerAdapter:
                 purpose=ModelCallPurpose.PLANNER,
                 latency_ms=round((time.perf_counter() - started) * 1000, 1),
                 final_answer=parsed.final_answer,
+                estimated_input_tokens=prompt.estimated_input_tokens,
+                input_budget_class=prompt.input_budget_class,
             )
 
         raise SemanticPlannerError(tuple(failures))

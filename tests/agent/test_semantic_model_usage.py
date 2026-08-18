@@ -193,15 +193,22 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
     usage = _model_usage(result)
     assert usage["calls"] == 3
     assert usage["dropped_calls"] == 0
-    assert usage["by_purpose"]["planner"] == {
+    planner_usage = usage["by_purpose"]["planner"]
+    assert planner_usage == {
         "calls": 1,
-        "latency_ms": usage["by_purpose"]["planner"]["latency_ms"],
+        "latency_ms": planner_usage["latency_ms"],
         "input_tokens": 11,
         "reasoning_tokens": 3,
         "visible_output_tokens": 9,
         "total_output_tokens": 12,
+        "estimated_input_tokens": planner_usage["estimated_input_tokens"],
     }
-    assert usage["by_purpose"]["planner"]["latency_ms"] is not None
+    assert planner_usage["latency_ms"] is not None
+    # The provider-neutral planner estimate is recorded separately from the
+    # provider-reported input tokens (11) and is never substituted for it.
+    planner_estimate = planner_usage["estimated_input_tokens"]
+    assert isinstance(planner_estimate, int)
+    assert planner_estimate > 11
     assert usage["by_purpose"]["response"] == {
         "calls": 1,
         "latency_ms": 10.0,
@@ -209,7 +216,14 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
         "reasoning_tokens": 80,
         "visible_output_tokens": 40,
         "total_output_tokens": 120,
+        "estimated_input_tokens": (
+            usage["by_purpose"]["response"]["estimated_input_tokens"]
+        ),
     }
+    response_estimate = usage["by_purpose"]["response"]["estimated_input_tokens"]
+    assert isinstance(response_estimate, int)
+    assert response_estimate > 0
+    assert response_estimate != 120
     assert usage["by_purpose"]["relevance"] == {
         "calls": 1,
         "latency_ms": 2.0,
@@ -217,6 +231,7 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
         "reasoning_tokens": 0,
         "visible_output_tokens": 10,
         "total_output_tokens": 10,
+        "estimated_input_tokens": None,
     }
     per_call = usage["per_call"]
     assert [entry["purpose"] for entry in per_call] == [
@@ -234,7 +249,12 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
             "provider",
             "purpose",
             "latency_ms",
+            "estimated_input_tokens",
         }
+    planner_entry = next(entry for entry in per_call if entry["purpose"] == "planner")
+    assert planner_entry["input_tokens"] == 11
+    assert planner_entry["estimated_input_tokens"] == planner_estimate
+    assert planner_entry["estimated_input_tokens"] != planner_entry["input_tokens"]
     json.dumps(usage)
 
 
@@ -278,5 +298,6 @@ def test_repair_call_usage_is_recorded_with_repair_purpose() -> None:
         "reasoning_tokens": None,
         "visible_output_tokens": 12,
         "total_output_tokens": 12,
+        "estimated_input_tokens": None,
     }
     assert result["response"] == "Không có gì!"

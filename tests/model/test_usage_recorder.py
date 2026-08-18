@@ -48,6 +48,7 @@ def test_aggregates_counts_latency_and_tokens_by_purpose() -> None:
         "reasoning_tokens": 4,
         "visible_output_tokens": 6,
         "total_output_tokens": 10,
+        "estimated_input_tokens": None,
     }
     assert trace["by_purpose"]["relevance"] == {
         "calls": 2,
@@ -56,6 +57,7 @@ def test_aggregates_counts_latency_and_tokens_by_purpose() -> None:
         "reasoning_tokens": 30,
         "visible_output_tokens": 35,
         "total_output_tokens": 65,
+        "estimated_input_tokens": None,
     }
     assert len(trace["per_call"]) == 3
 
@@ -95,6 +97,7 @@ def test_unknown_in_any_call_makes_the_purpose_aggregate_unknown() -> None:
         "reasoning_tokens": None,
         "visible_output_tokens": None,
         "total_output_tokens": None,
+        "estimated_input_tokens": None,
     }
     assert trace["per_call"][1]["reasoning_tokens"] is None
 
@@ -124,6 +127,7 @@ def test_unknown_purpose_buckets_under_unknown() -> None:
         "reasoning_tokens": None,
         "visible_output_tokens": None,
         "total_output_tokens": None,
+        "estimated_input_tokens": None,
     }
 
 
@@ -158,6 +162,7 @@ def test_record_mapping_normalizes_openai_and_anthropic_shapes() -> None:
         {"input_tokens": 7, "output_tokens": 9},
         purpose="response",
         provider="anthropic",
+        estimated_input_tokens=45,
     )
 
     by_purpose = recorder.to_trace_dict()["by_purpose"]
@@ -169,6 +174,7 @@ def test_record_mapping_normalizes_openai_and_anthropic_shapes() -> None:
         "reasoning_tokens": 3,
         "visible_output_tokens": 9,
         "total_output_tokens": 12,
+        "estimated_input_tokens": None,
     }
     # An Anthropic-style mapping alone cannot prove there was no hidden
     # thinking, so the visible share must stay unknown.
@@ -176,6 +182,9 @@ def test_record_mapping_normalizes_openai_and_anthropic_shapes() -> None:
     assert by_purpose["response"]["total_output_tokens"] == 9
     assert by_purpose["response"]["visible_output_tokens"] is None
     assert by_purpose["response"]["reasoning_tokens"] is None
+    # The provider-neutral estimate stays separate from provider-reported
+    # input tokens and is never used to fill them in.
+    assert by_purpose["response"]["estimated_input_tokens"] == 45
 
 
 def test_record_mapping_ignores_unrecognized_payloads() -> None:

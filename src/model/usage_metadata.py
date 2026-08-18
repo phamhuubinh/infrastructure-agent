@@ -21,6 +21,10 @@ class ModelCallUsage:
     ``visible_output_tokens`` is derived: the provider total output minus any
     reported reasoning tokens. When the provider reports no reasoning
     breakdown, the total is treated as visible best-effort.
+    ``estimated_input_tokens`` is a provider-neutral character-derived
+    estimate of the call's input context computed at context construction;
+    it is deliberately distinct from the provider-reported ``input_tokens``
+    and never overwrites or reinterprets it.
     """
 
     input_tokens: int | None = None
@@ -31,6 +35,7 @@ class ModelCallUsage:
     provider: str | None = None
     purpose: str | None = None
     latency_ms: float | None = None
+    estimated_input_tokens: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize with explicit ``None`` so unknown stays unknown."""
@@ -44,6 +49,7 @@ class ModelCallUsage:
             "provider": self.provider,
             "purpose": self.purpose,
             "latency_ms": self.latency_ms,
+            "estimated_input_tokens": self.estimated_input_tokens,
         }
 
 
@@ -125,9 +131,7 @@ def normalize_anthropic_usage(
     input_tokens = _to_int(getattr(usage, "input_tokens", None))
     total_output_tokens = _to_int(getattr(usage, "output_tokens", None))
     visible_output_tokens = (
-        total_output_tokens
-        if has_hidden_reasoning is False
-        else None
+        total_output_tokens if has_hidden_reasoning is False else None
     )
     return ModelCallUsage(
         input_tokens=input_tokens,

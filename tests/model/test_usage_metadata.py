@@ -92,6 +92,7 @@ class TestNormalizeOpenAIUsage:
     def test_to_dict_keeps_unknown_fields_null(self) -> None:
         assert ModelCallUsage().to_dict() == {
             "input_tokens": None,
+            "estimated_input_tokens": None,
             "reasoning_tokens": None,
             "visible_output_tokens": None,
             "total_output_tokens": None,

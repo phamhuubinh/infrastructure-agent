@@ -8,6 +8,7 @@ aggregates.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from src.model.usage_metadata import (
@@ -23,6 +24,7 @@ _AGGREGATE_FIELDS = (
     "reasoning_tokens",
     "visible_output_tokens",
     "total_output_tokens",
+    "estimated_input_tokens",
 )
 
 
@@ -54,18 +56,24 @@ class ModelUsageRecorder:
         provider: str | None = None,
         model: str | None = None,
         latency_ms: float | None = None,
+        estimated_input_tokens: int | None = None,
     ) -> None:
-        """Normalize a provider-neutral raw-usage mapping and record it."""
+        """Normalize a provider-neutral raw-usage mapping and record it.
 
-        self.record(
-            normalize_usage_mapping(
-                raw_usage,
-                purpose=purpose,
-                provider=provider,
-                model=model,
-                latency_ms=latency_ms,
-            )
+        ``estimated_input_tokens`` is recorded alongside — never instead of
+        — the provider-reported input tokens from ``raw_usage``.
+        """
+
+        usage = normalize_usage_mapping(
+            raw_usage,
+            purpose=purpose,
+            provider=provider,
+            model=model,
+            latency_ms=latency_ms,
         )
+        if estimated_input_tokens is not None:
+            usage = replace(usage, estimated_input_tokens=estimated_input_tokens)
+        self.record(usage)
 
     def to_trace_dict(self) -> dict[str, Any]:
         """Emit counts, per-purpose aggregates, and bounded per-call entries.

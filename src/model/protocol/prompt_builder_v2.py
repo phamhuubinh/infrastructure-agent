@@ -4,9 +4,15 @@ import json
 import re
 from typing import Any
 
+from src.model.protocol.orion_system_prompt import ORION_SYSTEM_PROMPT
 from src.model.protocol.prompt_loader import PromptLoader
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.evidence_model_context import EvidenceModelContextSerializer
+from src.pipeline.input_context_budget import (
+    InputContextBudgetClass,
+    InputContextBudgetError,
+    InputContextBudgetPolicy,
+)
 from src.pipeline.intent_resolver import Intent
 
 # Vietnamese characters with diacritics (Unicode range)
@@ -202,29 +208,6 @@ def build_assessment_prompt(
             "Tất cả văn bản, giải thích, đánh giá, và khuyến nghị đều phải bằng tiếng Việt."
         )
 
-    lines: list[str] = [
-        instruction,
-        "",
-        f"User request: {assessment_request.raw_request}",
-        f"Investigation intent: {assessment_request.intent}",
-        f"Evidence complete: {assessment_request.evidence_complete}",
-        (
-            "Safety boundary: Orion is read-only. No mutation was executed. "
-            "Never claim that a file, process, service, package, or system state "
-            "was changed; recommendations are proposals only."
-        ),
-    ]
-    if assessment_request.missing_evidence:
-        lines.append(
-            f"Missing evidence: {', '.join(assessment_request.missing_evidence)}"
-        )
-
-    if assessment_request.evidence_status:
-        preamble = _evidence_status_preamble(assessment_request.evidence_status, lang)
-        lines.append(f"Evidence status: {assessment_request.evidence_status}")
-        if preamble:
-            lines.append(preamble)
-
     # DR1-701/DR1-702: findings and facts are grouped explicitly so the model
     # never has to infer confirmed vs. contradicting vs. missing from a flat
     # evidence blob.
@@ -248,27 +231,28 @@ def build_assessment_prompt(
         if fact.validity.value == "contradictory"
     }
 
-    if confirmed_facts:
-        lines.append("")
-        lines.append("--- Confirmed facts (you may cite these) ---")
+    def _facts_section() -> tuple[str, ...]:
+        if not confirmed_facts:
+            return ()
         compact_facts = model_context["facts"]
         assert isinstance(compact_facts, list)
-        fact_json = json.dumps(
-            [
-                fact
-                for fact in compact_facts
-                if fact["id"] in confirmed_facts
-            ],
-            indent=1,
-            ensure_ascii=False,
+        confirmed_compact = [
+            fact for fact in compact_facts if fact["id"] in confirmed_facts
+        ]
+        # Confirmed facts are mandatory required evidence: they are rendered
+        # in full (already compacted by the canonical evidence serializer) and
+        # the class budget either keeps them intact or rejects the call —
+        # this layer never pre-emptively drops them.
+        return (
+            "",
+            "--- Confirmed facts (you may cite these) ---",
+            json.dumps(confirmed_compact, indent=1, ensure_ascii=False),
         )
-        if len(fact_json) > 2500:
-            fact_json = fact_json[:2500] + "\n ..."
-        lines.append(fact_json)
 
-    if assessment_request.findings:
-        lines.append("")
-        lines.append("--- Deterministic findings ---")
+    def _findings_section() -> tuple[str, ...]:
+        if not assessment_request.findings:
+            return ()
+        lines: list[str] = ["", "--- Deterministic findings ---"]
         for finding in assessment_request.findings[:15]:
             lines.append(
                 f"- [{finding.decision.value}] {finding.type} "
@@ -277,74 +261,194 @@ def build_assessment_prompt(
             )
             if finding.explanation:
                 lines.append(f"  {finding.explanation[:200]}")
+        return tuple(lines)
 
-    if contradicting_facts:
-        lines.append("")
-        lines.append(
-            "--- Contradicting facts (state the contradiction, do not pick one) ---"
-        )
+    def _contradicting_section() -> tuple[str, ...]:
+        if not contradicting_facts:
+            return ()
+        lines = [
+            "",
+            "--- Contradicting facts (state the contradiction, do not pick one) ---",
+        ]
         for fact_id in sorted(contradicting_facts)[:10]:
             fact = contradicting_facts[fact_id]
             lines.append(f"- {fact.metric} @ {fact.target} (id={fact.id})")
+        return tuple(lines)
 
-    if assessment_request.unknowns:
-        lines.append("")
-        lines.append("--- Missing facts / unknowns (do not infer these) ---")
-        lines.extend(f"- {metric}" for metric in assessment_request.unknowns[:20])
-
-    if assessment_request.collection_failures:
-        lines.append("")
-        lines.append(
-            "--- Scope limitations: collection failures (not measurements) ---"
-        )
-        lines.extend(
-            f"- {failure[:300]}"
-            for failure in assessment_request.collection_failures[:10]
+    def _unknowns_section() -> tuple[str, ...]:
+        if not assessment_request.unknowns:
+            return ()
+        return (
+            "",
+            "--- Missing facts / unknowns (do not infer these) ---",
+            *(f"- {metric}" for metric in assessment_request.unknowns[:20]),
         )
 
-    if assessment_request.allowed_claims:
-        lines.append("")
-        lines.append(
+    def _failures_section() -> tuple[str, ...]:
+        if not assessment_request.collection_failures:
+            return ()
+        return (
+            "",
+            "--- Scope limitations: collection failures (not measurements) ---",
+            *(
+                f"- {failure[:300]}"
+                for failure in assessment_request.collection_failures[:10]
+            ),
+        )
+
+    def _grounding_section() -> tuple[str, ...]:
+        if not assessment_request.allowed_claims:
+            return ()
+        return (
+            "",
             "Grounding rule: every numeric value, target name, and severity you "
             "state must trace to one of the confirmed facts or findings above "
             f"(allowed ids: {len(assessment_request.allowed_claims)} available). "
-            "Do not state a trend, health verdict, or action outside these facts/findings."
+            "Do not state a trend, health verdict, or action outside these facts/findings.",
         )
 
-    lines.append("")
-    lines.append("--- Evidence ---")
-    compact_packages = model_context["packages"]
-    assert isinstance(compact_packages, list)
-    for package in compact_packages:
-        if package["status"] not in {"valid", "valid_empty"} or package["stale"]:
-            continue
-        lines.append(f"=== {package['capability']} ({package['evidence']}) ===")
-        if package["fact_ids"]:
-            lines.append("Canonical facts listed above; raw payload omitted.")
-        elif "raw" in package:
-            lines.append(
-                json.dumps(package["raw"], indent=1, ensure_ascii=False)
+    def _evidence_section() -> tuple[str, ...]:
+        lines: list[str] = ["", "--- Evidence ---"]
+        compact_packages = model_context["packages"]
+        assert isinstance(compact_packages, list)
+        for package in compact_packages:
+            if package["status"] not in {"valid", "valid_empty"} or package["stale"]:
+                continue
+            lines.append(f"=== {package['capability']} ({package['evidence']}) ===")
+            if package["fact_ids"]:
+                lines.append("Canonical facts listed above; raw payload omitted.")
+            elif "raw" in package:
+                lines.append(json.dumps(package["raw"], indent=1, ensure_ascii=False))
+            else:
+                lines.append("No model-visible raw evidence is available.")
+            lines.append("")
+        return tuple(lines)
+
+    def _accounting_section() -> tuple[str, ...]:
+        omitted = model_context["omitted"]
+        assert isinstance(omitted, dict)
+        if any(int(count) > 0 for count in omitted.values()):
+            return (
+                "Evidence context budget: "
+                + json.dumps(omitted, ensure_ascii=False, sort_keys=True),
             )
-        else:
-            lines.append("No model-visible raw evidence is available.")
-        lines.append("")
+        return ()
 
-    omitted = model_context["omitted"]
-    assert isinstance(omitted, dict)
-    if any(int(count) > 0 for count in omitted.values()):
-        lines.append(
-            "Evidence context budget: "
-            + json.dumps(omitted, ensure_ascii=False, sort_keys=True)
+    def _tail_section() -> tuple[str, ...]:
+        if lang == "vi":
+            return (
+                "--- End ---",
+                "",
+                "Trả lời bằng tiếng Việt. Đánh giá bằng Markdown. Không JSON/code blocks.",
+            )
+        return ("--- End ---", "", "Assess in Markdown. No JSON/code blocks.")
+
+    mandatory_heads: list[str] = [
+        instruction,
+        "",
+        f"User request: {assessment_request.raw_request}",
+        f"Investigation intent: {assessment_request.intent}",
+        f"Evidence complete: {assessment_request.evidence_complete}",
+        (
+            "Safety boundary: Orion is read-only. No mutation was executed. "
+            "Never claim that a file, process, service, package, or system state "
+            "was changed; recommendations are proposals only."
+        ),
+    ]
+    if assessment_request.missing_evidence:
+        mandatory_heads.append(
+            f"Missing evidence: {', '.join(assessment_request.missing_evidence)}"
+        )
+    if assessment_request.evidence_status:
+        preamble = _evidence_status_preamble(assessment_request.evidence_status, lang)
+        mandatory_heads.append(f"Evidence status: {assessment_request.evidence_status}")
+        if preamble:
+            mandatory_heads.append(preamble)
+
+    facts_section = _facts_section()
+    contradicting_section = _contradicting_section()
+    findings_section = _findings_section()
+    unknowns_section = _unknowns_section()
+    failures_section = _failures_section()
+    grounding_section = _grounding_section()
+    evidence_section = _evidence_section()
+    accounting_section = _accounting_section()
+    tail_section = _tail_section()
+
+    # Mandatory content is never truncated: instructions, the fixed Orion
+    # system instruction, the original user request, hard constraints
+    # (safety boundary, evidence status, grounding rule), and required
+    # evidence (facts, contradicting facts, packages).  Optional sections
+    # are dropped one at a time from lowest semantic priority (findings,
+    # then unknowns, then collection failures); each drop is reported in an
+    # accounting line that is itself counted inside the budget.  If the
+    # mandatory content alone cannot fit, the call is rejected before any
+    # provider is invoked.
+    budget = InputContextBudgetPolicy.for_class(
+        InputContextBudgetClass.EVIDENCE_ASSISTED
+    )
+    optional_present = {
+        "collection_failures": bool(failures_section),
+        "unknowns": bool(unknowns_section),
+        "findings": bool(findings_section),
+    }
+
+    def _budget_accounting_line(dropped: tuple[str, ...]) -> tuple[str, ...]:
+        if not dropped:
+            return ()
+        return (
+            "Input context budget: "
+            + json.dumps(
+                {"dropped": list(dropped)},
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
         )
 
-    lines.append("--- End ---")
-    lines.append("")
+    def _assemble(dropped: tuple[str, ...]) -> str:
+        # Every slice is an exact fragment of the final prompt; plain
+        # concatenation makes len(prompt) equal the sum of the slice
+        # lengths, so enforcement accounts for every character, separator,
+        # and accounting line the model will see.
+        slices: list[str] = ["\n".join(mandatory_heads)]
 
-    if lang == "vi":
-        lines.append(
-            "Trả lời bằng tiếng Việt. Đánh giá bằng Markdown. Không JSON/code blocks."
+        def extend(lines: tuple[str, ...]) -> None:
+            if lines:
+                slices.append("\n" + "\n".join(lines))
+
+        extend(facts_section)
+        if "findings" not in dropped:
+            extend(findings_section)
+        extend(contradicting_section)
+        if "unknowns" not in dropped:
+            extend(unknowns_section)
+        if "collection_failures" not in dropped:
+            extend(failures_section)
+        extend(grounding_section)
+        extend(evidence_section)
+        extend(accounting_section)
+        extend(_budget_accounting_line(dropped))
+        extend(tail_section)
+        return "".join(slices)
+
+    def _complete_chars(prompt: str) -> int:
+        # Complete model-visible input: the fixed system instruction the
+        # provider sends plus the assembled prompt.
+        return len(ORION_SYSTEM_PROMPT) + len(prompt)
+
+    dropped: tuple[str, ...] = ()
+    for name in ("findings", "unknowns", "collection_failures"):
+        prompt = _assemble(dropped)
+        if _complete_chars(prompt) <= budget.max_chars:
+            return prompt
+        if not optional_present[name]:
+            continue
+        dropped = (*dropped, name)
+    prompt = _assemble(dropped)
+    if _complete_chars(prompt) > budget.max_chars:
+        raise InputContextBudgetError(
+            f"Mandatory input context for budget class "
+            f"'{budget.budget_class.value}' is {_complete_chars(prompt)} "
+            f"characters, exceeding the {budget.max_chars}-character budget."
         )
-    else:
-        lines.append("Assess in Markdown. No JSON/code blocks.")
-
-    return "\n".join(lines)
+    return prompt

@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from src.pipeline.input_context_budget import (
+    InputContextBudgetClass,
+    InputContextBudgetPolicy,
+    InputContextSection,
+)
 from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.semantic_plan_wire import (
     MAX_SOURCE_CONSTRAINTS,
@@ -45,11 +50,18 @@ class PlannerPromptContext:
 
 @dataclass(frozen=True, slots=True)
 class SemanticPlannerPrompt:
-    """Prompt text and out-of-band structured-output schema."""
+    """Prompt text and out-of-band structured-output schema.
+
+    ``estimated_input_tokens`` is the provider-neutral estimate of the
+    enforced input context (system prompt plus user prompt) for telemetry;
+    it is derived from characters, never from a provider tokenizer.
+    """
 
     system_prompt: str
     user_prompt: str
     response_schema: dict[str, object]
+    estimated_input_tokens: int = 0
+    input_budget_class: str = InputContextBudgetClass.SIMPLE.value
 
 
 def build_semantic_planner_prompt(
@@ -57,7 +69,13 @@ def build_semantic_planner_prompt(
     *,
     context: PlannerPromptContext | None = None,
 ) -> SemanticPlannerPrompt:
-    """Build a bounded prompt without tool, target-registry, or evidence data."""
+    """Build a bounded prompt without tool, target-registry, or evidence data.
+
+    Enforces the SIMPLE input-context budget at this construction boundary,
+    before any provider is invoked: the user request and the planner system
+    prompt are mandatory, while the bounded session context is optional and
+    is dropped whole (never sliced) if it would exceed the budget.
+    """
 
     if not isinstance(raw_request, str) or not raw_request.strip():
         raise ValueError("Planner request must be non-empty text.")
@@ -68,21 +86,48 @@ def build_semantic_planner_prompt(
     if context is not None and not isinstance(context, PlannerPromptContext):
         raise TypeError("context must be PlannerPromptContext or None.")
 
-    user_payload: dict[str, object] = {"request": raw_request}
-    if context is not None:
-        compact_context = _compact_context(context)
-        if compact_context:
-            user_payload["context"] = compact_context
-
-    user_prompt = json.dumps(
-        user_payload,
+    request_payload = json.dumps(
+        {"request": raw_request},
         ensure_ascii=False,
         separators=(",", ":"),
     )
+    # The optional section is the *additional* text the session context adds
+    # to the request payload, so the enforcement counts it exactly once.
+    optional_sections: tuple[InputContextSection, ...] = ()
+    context_payload: dict[str, object] | None = None
+    if context is not None:
+        compact_context = _compact_context(context)
+        if compact_context:
+            context_payload = compact_context
+            context_fragment = ',"context":' + json.dumps(
+                compact_context, ensure_ascii=False, separators=(",", ":")
+            )
+            optional_sections = (
+                InputContextSection("session_context", context_fragment),
+            )
+
+    budget = InputContextBudgetPolicy.for_class(InputContextBudgetClass.SIMPLE)
+    enforced = budget.enforce(
+        mandatory=(
+            InputContextSection("system_prompt", _PLANNER_SYSTEM_PROMPT),
+            InputContextSection("request_payload", request_payload),
+        ),
+        optional=optional_sections,
+    )
+
+    user_prompt = request_payload
+    if context_payload is not None and "session_context" in enforced.optional_included:
+        user_prompt = json.dumps(
+            {"request": raw_request, "context": context_payload},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
     return SemanticPlannerPrompt(
         system_prompt=_PLANNER_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         response_schema=planner_output_json_schema(),
+        estimated_input_tokens=enforced.estimated_input_tokens,
+        input_budget_class=budget.budget_class.value,
     )
 
 

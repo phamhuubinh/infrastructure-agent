@@ -41,9 +41,18 @@ class ResponseBudgetPolicy:
         return cls._ASSESSMENT
 
     @staticmethod
+    def estimated_tokens_from_chars(char_count: int) -> int:
+        """Conservative estimate for a known character count.
+
+        Shared by output budgets and input-context budgets so both use one
+        provider-independent estimation formula.
+        """
+        return (char_count + 3) // 4
+
+    @staticmethod
     def estimated_tokens(text: str) -> int:
         """Conservative, provider-independent estimate for trace reporting."""
-        return (len(text) + 3) // 4
+        return ResponseBudgetPolicy.estimated_tokens_from_chars(len(text))
 
 
 __all__ = ["ResponseBudget", "ResponseBudgetPolicy"]

@@ -206,6 +206,7 @@ def test_verified_external_response_records_exactly_one_response_usage() -> None
         "reasoning_tokens": 80,
         "visible_output_tokens": 40,
         "total_output_tokens": 120,
+        "estimated_input_tokens": None,
     }
     response_purposes = [
         entry["purpose"]

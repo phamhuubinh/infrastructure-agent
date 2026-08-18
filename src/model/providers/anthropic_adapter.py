@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.assessment_result import AssessmentResult
 from src.model.output_sanitizer import sanitize_model_output
 from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
 from src.model.usage_metadata import ModelCallUsage, normalize_anthropic_usage
 from src.pipeline.assessment_request import AssessmentRequest
+from src.pipeline.input_context_budget import InputContextBudget
 from src.shared.logger import info as _info
 from src.shared.logger import warning as _warning
 
@@ -111,7 +114,12 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
             content = sanitize_model_output(
                 response.content[0].text if response.content else ""
             )
-            self._last_usage = self._normalize_usage(response, latency)
+            # Provider-neutral input estimate from the constructed prompt,
+            # kept separate from the provider-reported token fields.
+            self._last_usage = replace(
+                self._normalize_usage(response, latency),
+                estimated_input_tokens=InputContextBudget.estimated_tokens(prompt),
+            )
             _info(
                 "llm",
                 status="success",
@@ -210,10 +218,16 @@ class AnthropicAssessmentAdapter(AssessmentModelAdapter):
             response.content[0].text if response.content else ""
         )
 
-        self._last_usage = self._normalize_usage(
-            response,
-            latency,
-            purpose="assessment",
+        # Provider-neutral input estimate from the enforced
+        # evidence-assisted prompt, kept separate from provider-reported
+        # input tokens.
+        self._last_usage = replace(
+            self._normalize_usage(
+                response,
+                latency,
+                purpose="assessment",
+            ),
+            estimated_input_tokens=InputContextBudget.estimated_tokens(prompt),
         )
         pt = self._last_usage.input_tokens
         ct = self._last_usage.total_output_tokens
