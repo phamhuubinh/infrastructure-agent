@@ -2,45 +2,69 @@
 
 ## Status
 
-Accepted.
+Accepted; amended after the semantic-primary cutover.
+
+The investigation pipeline remains deterministic after a semantic plan is
+validated. The superseded part of the original record is the requirement that
+lexical code classify every request before any model call.
 
 ## Context
 
-Infrastructure investigation uses repeatable routing, safety, collection, and
-evidence-validity rules. Model-directed iteration would make target selection,
-tool choice, cost, and failure behavior non-reproducible.
+Infrastructure investigation needs repeatable safety, capability binding,
+collection, evidence-validity, recovery, and budget rules. At the same time,
+natural-language routing proved too brittle when deterministic regex/keyword
+classification was the primary semantic interpreter.
 
 ## Decision
 
-Orion routes every request deterministically before any model or tool call.
+For RuntimeFactory-built agents, Orion uses a bounded model-planner/harness
+boundary:
 
-1. Request semantics and session context produce an immutable `RequestFrame`.
-2. Stable/general and generation requests bypass infrastructure collectors.
-3. Current external information and explicit public URLs use the fixed
-   deterministic Internet verification path.
-4. Infrastructure inspection resolves intent, target, typed source
-   constraints, parameters, evidence requirements, and capability references.
-5. `ExecutionPlanner` and `ExecutionGraphBuilder` produce a bounded DAG.
-6. `ExecutionRuntime` dispatches every node through `KnowledgeTool` and applies
-   inspectors, preflight, retry, recovery, and budget policy.
-7. `EvidenceMerge` preserves typed outcomes and enabled Facts; completeness,
-   reconciliation, and reviewed reasoning produce Findings/health state.
-8. `DeterministicResponder` handles supported simple answers. Remaining
-   infrastructure answers use one assessment request; general chat uses the
-   separate tool-less raw-assessment path.
+1. Narrow deterministic controls such as hard-safety/session operations may
+   terminate locally; otherwise `SemanticPlannerAdapter` produces a typed
+   semantic plan from the user request plus bounded semantic context.
+2. `SemanticPlanHarnessValidator` validates the plan contract, read-only
+   execution intent, target/source/freshness constraints, and other hard
+   invariants. Invalid, malformed, or unavailable planning fails closed rather
+   than falling through to lexical routing.
+3. `SemanticPlanBinder` maps a validated semantic plan to the canonical
+   `RequestFrame` and registered capability references. Capability details are
+   disclosed/bound only as required rather than sending a complete registry on
+   ordinary first turns.
+4. Stable/general generation can be answered without collectors. Deterministic
+   compute requests use the calculator contract. Current/external information
+   is forced through the fixed Internet verification path.
+5. Infrastructure inspection enters `ExecutionEngine`; `ExecutionPlanner` and
+   `ExecutionGraphBuilder` produce the bounded DAG.
+6. `ExecutionRuntime` dispatches nodes through `KnowledgeTool` and applies
+   inspectors, preflight, retry, declared recovery, and shared budget policy.
+7. `EvidenceMerge` preserves typed outcomes and Facts; completeness,
+   reconciliation, and reviewed deterministic reasoning produce
+   Findings/health state.
+8. The model may explain bounded evidence. Final postconditions, semantic
+   relevance verification, and at most one bounded response repair run before
+   the single user-visible response.
+9. Multi-intent requests use bounded typed semantic subplans with explicit
+   dependencies; child execution remains isolated and subject to the same
+   deterministic validation/execution boundaries.
 
-Ambiguity, unsafe parameters, unsupported actions, unknown targets, and exact
-source unavailability return deterministic clarification/refusal/failure. They
-do not fall back to model planning.
+Unsafe parameters, unsupported actions, unknown targets, invalid source
+constraints, planner failure, and unavailable required evidence return bounded
+clarification/refusal/failure outcomes. No failure grants the model a direct
+tool API or revives regex-first primary routing.
 
 ## Consequences
 
-- Tool and command selection is reproducible and testable without a model.
-- The model sees bounded evidence instead of tool schemas or execution plans.
-- Bounded multi-intent decomposition, recovery, and evidence expansion remain
-  deterministic code paths.
-- Insufficient evidence stays explicit and cannot trigger a model-controlled
-  tool loop.
+- Natural-language interpretation is model-driven, while tool/command
+  authorization remains deterministic.
+- The model sees bounded semantic/evidence contracts rather than an unrestricted
+  tool registry or execution API.
+- Capability binding, recovery, evidence expansion, and stop conditions remain
+  reproducible code paths.
+- Planner/model failure can prevent a semantic request from running, but cannot
+  widen execution authority.
+- Insufficient evidence stays explicit and cannot trigger an unbounded
+  model-controlled tool loop.
 
 ## Related records
 

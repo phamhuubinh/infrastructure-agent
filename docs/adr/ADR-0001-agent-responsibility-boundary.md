@@ -2,39 +2,59 @@
 
 ## Status
 
-Accepted; aligned with the deterministic pipeline in ADR-0007.
+Accepted; amended after the semantic-primary cutover.
+
+The original decision that model output must not gain infrastructure authority
+still applies. What changed is ownership of natural-language interpretation:
+the bounded model planner is now the primary semantic interpreter, while the
+harness remains authoritative for validation and execution.
 
 ## Context
 
-Orion must route general requests, execute infrastructure investigations, and
-produce responses without giving an assessment model infrastructure authority.
-The runtime therefore needs an explicit boundary between orchestration,
-execution, evidence collection, and model assessment.
+Orion must understand general requests, execute infrastructure investigations,
+and produce responses without turning model output into infrastructure
+authority. The runtime therefore needs an explicit boundary between semantic
+planning, deterministic validation, execution, evidence collection, and model
+response generation.
 
 ## Decision
 
-`DeterministicAgent` is the request/response orchestrator. It owns semantic
-routing, bounded session context, deterministic clarification/refusal,
-selection between deterministic response and assessment, and response traces.
+`DeterministicAgent` remains the request/response orchestrator. For
+RuntimeFactory-built agents it invokes a bounded `SemanticPlannerAdapter` for
+primary natural-language interpretation, carries bounded session context,
+coordinates the semantic loop, selects response paths, and emits traces.
 
-`ExecutionEngine` owns infrastructure investigation. It resolves the evidence
-contract, compiles and runs the execution DAG, merges evidence, evaluates
-implemented deterministic rules, and returns an `InvestigationRequest`.
+A semantic plan may propose a route/domain, execution intent, target reference,
+source/freshness constraints, concept, deterministic-compute/clarification
+state, and bounded subplans. Those fields are advisory until deterministic
+harness validation succeeds. Planner failure or malformed output fails closed;
+it does not fall back to the legacy lexical router.
 
-The Agent and engine do not accept model-generated commands, capabilities,
-targets, retries, or recovery decisions. Child Tools execute only registered
-capabilities with validated parameters. The assessment model receives a
-bounded request after evidence collection and writes an explanation; general
-chat uses the separate raw-assessment interface without tool access.
+The harness owns read-only and hard-safety enforcement, target/source
+validation, capability binding, budgets, evidence/provenance requirements,
+deterministic compute/reasoning, and final hard postconditions.
+`ExecutionEngine` owns infrastructure investigation: it compiles and runs the
+bounded execution DAG, merges evidence, evaluates implemented deterministic
+rules, and returns an `InvestigationRequest`.
+
+The model has no direct tool, command, retry, recovery, or mutable execution
+API. Model-proposed target/source semantics do not grant authority by
+themselves. Child Tools execute only registered capabilities with validated
+typed parameters. Model calls for direct responses, evidence assessment,
+semantic relevance checking, and the bounded repair pass remain tool-less.
 
 ## Consequences
 
-- Collection and safety behavior is independent of the selected model.
-- Model replacement does not change tool authority.
-- Infrastructure requests are reproducible from request, configuration,
-  environment, and evidence.
-- Session context can influence semantic resolution but never substitutes old
-  tool output for current evidence.
+- Semantic interpretation can improve with the configured model without moving
+  execution authority out of deterministic code.
+- Model replacement can change interpretation quality, but cannot bypass
+  read-only policy, registry validation, evidence requirements, or budgets.
+- Infrastructure execution remains reproducible from the validated plan,
+  configuration, environment, and evidence.
+- Session context can influence planning but never substitutes old tool output
+  for current evidence.
+- Compatibility lexical routing may remain behind explicit no-planner/direct
+  construction surfaces, but it is not the RuntimeFactory primary path.
 
 ## Related records
 

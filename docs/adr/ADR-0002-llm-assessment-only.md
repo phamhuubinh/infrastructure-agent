@@ -2,48 +2,62 @@
 
 ## Status
 
-Accepted.
+Accepted; amended after the semantic-primary cutover.
+
+The phrase "no investigation authority" means no authority to execute or
+authorize infrastructure effects. It no longer means that every semantic
+decision is made before the model is called.
 
 ## Context
 
 Orion supports infrastructure investigation, current external verification,
-stable general requests, and content generation. Tool access must remain
-auditable and independent of model output.
+stable general requests, and content generation. Semantic understanding needs
+model flexibility, while tool access and operational authority must remain
+auditable and independent of free-form model output.
 
 ## Decision
 
-The model has two tool-less interfaces:
+Model-facing operations are bounded and tool-less:
 
-- `assess(AssessmentRequest)` interprets bounded collected evidence and
-  deterministic Findings.
-- `assess_raw(prompt)` handles separately routed stable/general requests and
-  content generation.
+- `SemanticPlannerAdapter` obtains a small typed semantic plan or direct-answer
+  decision from the configured model connection/fallback chain.
+- `AssessmentModelAdapter` produces bounded direct responses or interprets
+  collected evidence and deterministic Findings.
+- semantic relevance verification and the single bounded repair pass operate
+  on response contracts; they do not receive execution authority.
 
-The model does not receive a tool registry, backend, command API, mutable
-execution context, or permission to choose targets, capabilities, queries,
-URLs, retries, recovery, or evidence expansion. Those decisions are
-deterministic code paths completed before assessment.
+The planner may propose semantic fields such as route/domain, execution intent,
+target reference, source/freshness constraints, concept, clarification state,
+and bounded subplans. Deterministic harness code validates those proposals,
+binds registered capabilities, enforces read-only/safety and budgets, and
+decides whether execution is permitted.
 
-`AssessmentModelAdapter` is the model boundary. Implementations consume the
-pipeline-owned `AssessmentRequest` data contract but have no dependency on
-Child Tool implementations or runtime dispatch objects. Linux command
-templates remain in reviewed capabilities and accept only validated typed
-parameters.
+The model does not receive a backend command API, mutable execution context, or
+permission to bypass registry validation, choose arbitrary commands, authorize
+a target, control retries/recovery, or extend evidence collection outside the
+bounded harness. Linux command templates remain in reviewed capabilities and
+accept only validated typed parameters.
 
-The read-only action-claim guard remains mandatory. Evidence-grounding,
-numeric, and language guards apply according to the current claim-guard
-configuration, and `/api/query` applies the final hidden-reasoning/language/
-non-empty response sanitizer.
+Provider clients can be shared safely between planner/assessment operations,
+but conversation/session state is not stored in those clients. Prompts and
+traces do not contain credentials or hidden reasoning text.
 
-When no model is configured, `UnconfiguredAssessmentAdapter` reports setup
-mode. `MockAssessmentAdapter` supplies deterministic test behavior.
+The final response still passes deterministic language, artifact, repetition,
+claim/postcondition, and API sanitization boundaries as applicable.
+
+When no model is configured, RuntimeFactory installs setup-mode planner/model
+adapters. Deterministic hard-safety refusals and model-management/health paths
+remain available, but semantic requests do not revive regex-first live routing.
 
 ## Consequences
 
-- Model selection cannot change collection or safety authority.
-- Infrastructure routing and evidence collection are testable without an LLM.
-- Prompts contain evidence and response context rather than tool schemas.
-- Incomplete evidence is reported explicitly; the model cannot start another
+- Model selection can change semantic interpretation and prose quality, but not
+  collection or safety authority.
+- The planner can express user intent without exposing a general tool-calling
+  interface.
+- Capability binding, execution, evidence validity, retries/recovery, and stop
+  conditions remain deterministic and testable.
+- Incomplete evidence stays explicit; the model cannot open an unbounded
   collection loop.
 
 ## Related records

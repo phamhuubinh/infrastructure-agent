@@ -3,21 +3,25 @@
 This file summarizes decisions enforced by the current implementation. Detailed
 records live under `docs/adr/`.
 
-## AD-001 — Deterministic before AI
+## AD-001 — Model plans semantics; deterministic code authorizes execution
 
-**Decision:** Deterministic code owns request semantics, target/source
-resolution, evidence selection, execution, recovery, thresholds, and safety.
+**Decision:** The bounded semantic planner is the primary natural-language
+interpreter. Deterministic harness code owns validation, target/source
+authority, capability binding, evidence requirements, execution, recovery,
+thresholds, budgets, and safety.
 
-**Consequence:** Model output cannot select a tool, command, target, retry, or
-recovery path.
+**Consequence:** Model output may propose semantic intent and typed
+target/source/freshness fields, but cannot directly authorize a tool, command,
+target, retry, recovery path, or budget expansion.
 
-## AD-002 — The model assesses bounded evidence
+## AD-002 — Model operations are bounded and tool-less
 
-**Decision:** The assessment model interprets evidence and writes the final
-explanation when a deterministic response is not sufficient.
+**Decision:** The model can produce typed semantic plans, direct/assessment
+responses, semantic relevance checks, and one bounded repair candidate. These
+operations receive bounded contracts rather than a general tool API.
 
-**Consequence:** The model sees bounded prompt/evidence contracts and never
-receives infrastructure authority.
+**Consequence:** Semantic flexibility does not grant infrastructure authority;
+hard validation/execution boundaries remain code-owned.
 
 > Detailed record: `docs/adr/ADR-0002-llm-assessment-only.md`
 
@@ -73,12 +77,14 @@ outputs or execution state as conversation memory.
 **Consequence:** Follow-ups can inherit supported semantic fields without
 turning an old infrastructure observation into current evidence.
 
-## AD-009 — Evidence quality outranks prompt complexity
+## AD-009 — Evidence quality outranks model-loop complexity
 
-**Decision:** Improve Tool -> Evidence -> Assessment in that order.
+**Decision:** Improve validated capability/evidence quality before increasing
+model context or response-loop work. The semantic loop remains bounded and can
+only execute through harness-approved paths.
 
-**Consequence:** Missing evidence remains explicit instead of being compensated
-for with longer prompts or additional model loops.
+**Consequence:** Missing evidence stays explicit; planner/relevance/repair calls
+cannot compensate for absent required evidence by opening arbitrary tool work.
 
 ## AD-010 — Composite operational capabilities are preferred
 
@@ -90,11 +96,11 @@ interaction.
 
 ## AD-011 — Dependencies remain one-directional
 
-**Decision:** The infrastructure path follows
+**Decision:** The infrastructure execution path follows
 `Agent -> ExecutionEngine -> KnowledgeTool -> Child Tool -> Environment`.
 
-**Consequence:** Reverse dependencies and direct pipeline-to-domain imports are
-prohibited.
+**Consequence:** The semantic planner can advise the Agent, but reverse
+dependencies and direct pipeline-to-domain imports remain prohibited.
 
 ## AD-012 — Architecture changes require human approval
 
@@ -138,14 +144,16 @@ middleware protects a single tenant.
 **Consequence:** Compose binds browser/API ports to loopback and keeps database,
 SSR UI, and RAG services internal.
 
-## AD-017 — DeterministicAgent orchestrates; it does not grant model authority
+## AD-017 — DeterministicAgent coordinates planner and harness authority
 
-**Decision:** `DeterministicAgent` owns semantic routing, session context,
-response selection, and assessment orchestration. `ExecutionEngine` owns the
-infrastructure investigation.
+**Decision:** `DeterministicAgent` orchestrates bounded semantic planning,
+session context, deterministic harness validation/execution, response
+selection, verification, and tracing. `ExecutionEngine` owns infrastructure
+investigation after a plan is validated/bound.
 
-**Consequence:** Deterministic reasoning and safety remain code paths; the model
-is replaceable without changing collection authority.
+**Consequence:** Semantic interpretation can be model-driven while deterministic
+reasoning, evidence, read-only policy, and execution authority remain code
+paths.
 
 > Detailed records: `docs/adr/ADR-0001-agent-responsibility-boundary.md` and
 > `docs/adr/ADR-0007-deterministic-pipeline.md`.
@@ -163,8 +171,10 @@ history. Each analysis receives request-scoped model configuration.
 **Decision:** Orion stores/tests connections but does not install model
 runtimes or weights.
 
-**Consequence:** Orion can start without a model. Chat assessment and RAG
-analysis report setup-required behavior until a compatible endpoint is active.
+**Consequence:** Orion can start without a model. Model-dependent semantic
+requests return setup-required behavior without reviving guessed live routing;
+deterministic hard-safety and model-management/health operations remain
+available.
 
 ## AD-020 — Evidence validity and provenance are explicit
 
@@ -179,22 +189,24 @@ source links and failures cannot become healthy default values.
 
 ## AD-021 — Deterministic reasoning is bounded and reviewed
 
-**Decision:** Orion uses reviewed atomic/composite rules, declared recovery
-alternatives, one bounded missing-evidence expansion, and a shared execution
-budget.
+**Decision:** After semantic plan validation, Orion uses reviewed
+atomic/composite rules, declared recovery alternatives, bounded
+missing-evidence expansion, and a shared execution budget.
 
-**Consequence:** Rules carry version/owner/review metadata; unavailable evidence
-remains insufficient rather than false.
+**Consequence:** Model planning cannot revise thresholds or authorize arbitrary
+recovery/expansion; unavailable evidence remains insufficient rather than
+false.
 
 > Detailed record: `docs/adr/ADR-0009-deterministic-reasoning-v1.md`
 
 ## AD-022 — Current external facts require deterministic verification
 
-**Decision:** Current public information and explicit URLs use the fixed
-Internet search/fetch evidence path.
+**Decision:** The semantic planner can mark external/current intent, but
+validated current public information and explicit URLs use the fixed Internet
+search/fetch evidence path.
 
 **Consequence:** External answers carry provider/URL/retrieval provenance.
 Unavailable verification is reported as unknown rather than replaced by model
-memory.
+memory, and planner failure does not fall back to lexical currentness routing.
 
 > Detailed record: `docs/adr/ADR-0010-deterministic-external-verification.md`
