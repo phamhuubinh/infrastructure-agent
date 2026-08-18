@@ -22,11 +22,15 @@ from src.pipeline.semantic_mutation_validator import (
     SemanticMutationValidator,
 )
 from src.pipeline.semantic_plan import (
+    MAX_SEMANTIC_SUBPLANS,
+    MAX_SUBPLAN_DEPENDENCIES,
+    MAX_SUBPLAN_REQUEST_LENGTH,
     ClarificationState,
     DeterministicComputeIntent,
     FreshnessRequirement,
     SemanticPlan,
     SemanticPlanRoute,
+    SemanticSubplan,
     TargetReferenceKind,
 )
 from src.pipeline.semantic_plan_validation import (
@@ -53,6 +57,7 @@ class SemanticPlanHarnessResult:
     sources: SemanticSourceValidationResult | None = None
     freshness: SemanticFreshnessValidationResult | None = None
     mutation: SemanticMutationValidationResult | None = None
+    subplans: tuple[SemanticPlanHarnessResult, ...] = ()
 
     @property
     def resolved_target(self) -> str | None:
@@ -71,6 +76,7 @@ class SemanticPlanHarnessResult:
         trace["requires_live_evidence"] = bool(
             self.freshness and self.freshness.requires_live_evidence
         )
+        trace["subplans"] = [item.to_trace_dict() for item in self.subplans]
         return trace
 
 
@@ -97,6 +103,12 @@ class SemanticPlanHarnessValidator:
         verification_available: bool = True,
         allow_implicit_localhost: bool = True,
     ) -> SemanticPlanHarnessResult:
+        if plan.route is SemanticPlanRoute.MULTI_INTENT:
+            return self._validate_multi_intent(
+                plan,
+                verification_available=verification_available,
+            )
+
         mutation = SemanticMutationValidator().validate(plan, raw_request)
         if not _valid(mutation.validation):
             return SemanticPlanHarnessResult(
@@ -167,6 +179,125 @@ class SemanticPlanHarnessValidator:
             mutation=mutation,
         )
 
+    def _validate_multi_intent(
+        self,
+        plan: SemanticPlan,
+        *,
+        verification_available: bool,
+    ) -> SemanticPlanHarnessResult:
+        structural = _validate_multi_intent_structure(plan)
+        if structural is not None:
+            return SemanticPlanHarnessResult(validation=structural)
+
+        validated: list[SemanticPlanHarnessResult] = []
+        for item in plan.subplans:
+            child = self.validate(
+                item.plan,
+                raw_request=item.request,
+                verification_available=verification_available,
+                allow_implicit_localhost=False,
+            )
+            validated.append(child)
+            if not _valid(child.validation):
+                return SemanticPlanHarnessResult(
+                    validation=_parent_subplan_failure(plan, child.validation),
+                    subplans=tuple(validated),
+                )
+        return SemanticPlanHarnessResult(
+            validation=SemanticPlanValidationResult.valid(plan),
+            subplans=tuple(validated),
+        )
+
+
+def _validate_multi_intent_structure(
+    plan: SemanticPlan,
+) -> SemanticPlanValidationResult | None:
+    if not isinstance(plan.subplans, tuple) or any(
+        not isinstance(item, SemanticSubplan) for item in plan.subplans
+    ):
+        return SemanticPlanValidationResult.reject(
+            SemanticPlanValidationReason.MALFORMED_PLAN,
+            plan=plan,
+        )
+    if len(plan.subplans) < 2 or len(plan.subplans) > MAX_SEMANTIC_SUBPLANS:
+        return SemanticPlanValidationResult.reject(
+            SemanticPlanValidationReason.MALFORMED_PLAN,
+            plan=plan,
+        )
+    for index, item in enumerate(plan.subplans):
+        if (
+            not isinstance(item.request, str)
+            or not item.request
+            or item.request != item.request.strip()
+            or len(item.request) > MAX_SUBPLAN_REQUEST_LENGTH
+            or any(ord(character) < 32 for character in item.request)
+        ):
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.MALFORMED_PLAN,
+                plan=plan,
+            )
+        if (
+            not isinstance(item.plan, SemanticPlan)
+            or item.plan.route
+            not in {
+                SemanticPlanRoute.DIRECT_ANSWER,
+                SemanticPlanRoute.CAPABILITY_ASSISTED,
+            }
+            or item.plan.subplans
+        ):
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.MALFORMED_PLAN,
+                plan=plan,
+            )
+        if (
+            not isinstance(item.depends_on, tuple)
+            or len(item.depends_on) > MAX_SUBPLAN_DEPENDENCIES
+            or len(set(item.depends_on)) != len(item.depends_on)
+            or any(
+                type(dep) is not int or dep < 0 or dep >= index
+                for dep in item.depends_on
+            )
+        ):
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.MALFORMED_PLAN,
+                plan=plan,
+            )
+        if SourceConstraint.UNSPECIFIED in item.plan.source_constraints:
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.MALFORMED_PLAN,
+                plan=plan,
+            )
+        if item.plan.freshness in {
+            FreshnessRequirement.UNSPECIFIED,
+            FreshnessRequirement.UNKNOWN,
+        }:
+            return SemanticPlanValidationResult.reject(
+                SemanticPlanValidationReason.MALFORMED_PLAN,
+                plan=plan,
+            )
+        if (
+            item.plan.route is SemanticPlanRoute.CAPABILITY_ASSISTED
+            and item.plan.domain is RequestDomain.ENVIRONMENT
+            and item.plan.target.kind
+            not in {TargetReferenceKind.EXPLICIT, TargetReferenceKind.INHERITED}
+        ):
+            return SemanticPlanValidationResult.clarify(
+                plan,
+                SemanticPlanValidationReason.TARGET_MISSING,
+            )
+    return None
+
+
+def _parent_subplan_failure(
+    plan: SemanticPlan,
+    child: SemanticPlanValidationResult,
+) -> SemanticPlanValidationResult:
+    if child.status is SemanticPlanValidationStatus.CLARIFY:
+        return SemanticPlanValidationResult.clarify(plan, child.reason)
+    if child.status is SemanticPlanValidationStatus.UNAVAILABLE:
+        return SemanticPlanValidationResult.unavailable(plan, child.reason)
+    return SemanticPlanValidationResult.reject(child.reason, plan=plan)
+
 
 def _validate_compute(plan: SemanticPlan) -> SemanticPlanValidationResult:
     if plan.deterministic_compute is DeterministicComputeIntent.REQUIRED:
@@ -226,7 +357,8 @@ def planner_final_answer_allowed(plan: SemanticPlan) -> bool:
     """
 
     return (
-        plan.route is SemanticPlanRoute.DIRECT_ANSWER
+        not plan.subplans
+        and plan.route is SemanticPlanRoute.DIRECT_ANSWER
         and plan.domain in _PLANNER_ANSWER_DOMAINS
         and plan.execution_intent in _PLANNER_ANSWER_INTENTS
         and plan.freshness in _PLANNER_ANSWER_FRESHNESS

@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol
 
+from src.agent.semantic_subplan_executor import (
+    MultiIntentExecution,
+    execute_semantic_subplans,
+)
 from src.model.protocol.semantic_planner_prompt import PlannerPromptContext
 from src.model.semantic_planner_adapter import (
     SemanticPlannerOutcome,
@@ -128,6 +132,7 @@ class SemanticLoopResult:
     calculator_calls: int = 0
     calculation: CalculatorContractResult | None = None
     budget: ExecutionBudget | None = None
+    subplan_results: tuple[SemanticLoopResult, ...] = ()
 
     @property
     def succeeded(self) -> bool:
@@ -169,6 +174,24 @@ class SemanticLoopResult:
         )
         if postconditions is not None:
             trace["postconditions"] = postconditions
+        if self.subplan_results:
+            trace["subplans"] = [
+                {
+                    "index": index,
+                    "terminal_state": item.terminal_state.value,
+                    "succeeded": item.succeeded,
+                    "state_history": [record.state.value for record in item.records],
+                    "execution_cycles": item.execution_cycles,
+                    "planned_tool_calls": item.planned_tool_calls,
+                    "actual_tool_calls": item.actual_tool_calls,
+                    "calculator_calls": item.calculator_calls,
+                    "failure": item.failure.value if item.failure is not None else None,
+                    "postconditions": _bounded_postcondition_trace(
+                        item.response.postcondition_validation
+                    ),
+                }
+                for index, item in enumerate(self.subplan_results, 1)
+            ]
         return trace
 
 
@@ -287,6 +310,7 @@ class SemanticLoopCoordinator:
         budget: ExecutionBudget | None = None
         planner_final_answer: str | None = None
         use_planner_answer = False
+        subplan_execution: MultiIntentExecution | None = None
 
         for _transition in range(self._config.max_state_transitions):
             started = time.perf_counter()
@@ -342,6 +366,10 @@ class SemanticLoopCoordinator:
                     failure_detail = harness.validation.reason.value
                     records.append(_record(state, False, failure_detail, started))
                     state = SemanticLoopState.FAIL
+                    continue
+                if plan.route is SemanticPlanRoute.MULTI_INTENT:
+                    records.append(_record(state, True, "subplans_validated", started))
+                    state = SemanticLoopState.EXECUTE
                     continue
                 if plan.route is SemanticPlanRoute.DIRECT_ANSWER:
                     if plan.calculation is not None:
@@ -406,6 +434,40 @@ class SemanticLoopCoordinator:
 
             if state is SemanticLoopState.EXECUTE:
                 plan = planner_outcome.plan if planner_outcome is not None else None
+                if plan is not None and plan.route is SemanticPlanRoute.MULTI_INTENT:
+                    try:
+                        subplan_execution = execute_semantic_subplans(
+                            plan=plan,
+                            validator=self._validator,
+                            binder_factory=self._binder_factory,
+                            execute=self._execute,
+                            respond_direct=self._respond_direct,
+                            respond_assessment=self._respond_assessment,
+                            respond_failure=self._respond_failure,
+                            compute=self._compute,
+                            respond_compute=self._respond_compute,
+                            verify_response=self._verify_response,
+                            config=self._config,
+                        )
+                    except Exception as exc:
+                        failure = SemanticLoopFailure.EXECUTION_FAILED
+                        failure_detail = type(exc).__name__
+                        records.append(_record(state, False, failure.value, started))
+                        state = SemanticLoopState.FAIL
+                        continue
+                    execution_cycles = subplan_execution.execution_cycles
+                    planned_tool_calls = subplan_execution.planned_tool_calls
+                    actual_tool_calls = subplan_execution.actual_tool_calls
+                    calculator_calls = subplan_execution.calculator_calls
+                    if subplan_execution.failure is not None:
+                        failure = subplan_execution.failure
+                        failure_detail = subplan_execution.failure_detail
+                        records.append(_record(state, False, failure.value, started))
+                        state = SemanticLoopState.FAIL
+                        continue
+                    records.append(_record(state, True, "subplans_executed", started))
+                    state = SemanticLoopState.ASSESS_RESPOND
+                    continue
                 if plan is not None and plan.calculation is not None:
                     calculator_calls += 1
                     try:
@@ -477,7 +539,9 @@ class SemanticLoopCoordinator:
                     plan = (
                         planner_outcome.plan if planner_outcome is not None else None
                     )
-                    if calculation is not None:
+                    if subplan_execution is not None:
+                        response = subplan_execution.response
+                    elif calculation is not None:
                         if plan is None or self._respond_compute is None:
                             raise TypeError("compute response callback is unavailable")
                         response = self._respond_compute(
@@ -496,7 +560,7 @@ class SemanticLoopCoordinator:
                         response = self._respond_direct(raw_request, context)
                     if not isinstance(response, SemanticLoopResponse):
                         raise TypeError("response contract is invalid")
-                    if self._verify_response is not None:
+                    if self._verify_response is not None and subplan_execution is None:
                         if plan is None or harness is None:
                             raise TypeError("response verification context is missing")
                         response = self._verify_response(
@@ -539,6 +603,7 @@ class SemanticLoopCoordinator:
                     budget,
                     calculator_calls,
                     calculation,
+                    subplan_execution.results if subplan_execution is not None else (),
                 )
 
             if state is SemanticLoopState.FAIL:
@@ -571,6 +636,7 @@ class SemanticLoopCoordinator:
                     budget,
                     calculator_calls,
                     calculation,
+                    subplan_execution.results if subplan_execution is not None else (),
                 )
 
         failure = SemanticLoopFailure.STATE_LIMIT
@@ -599,6 +665,7 @@ class SemanticLoopCoordinator:
             budget,
             calculator_calls,
             calculation,
+            subplan_execution.results if subplan_execution is not None else (),
         )
 
     def _safe_failure_response(
@@ -701,6 +768,7 @@ def _result(
     budget: ExecutionBudget | None,
     calculator_calls: int,
     calculation: CalculatorContractResult | None,
+    subplan_results: tuple[SemanticLoopResult, ...] = (),
 ) -> SemanticLoopResult:
     return SemanticLoopResult(
         terminal_state=terminal_state,
@@ -718,6 +786,7 @@ def _result(
         calculator_calls=calculator_calls,
         calculation=calculation,
         budget=budget,
+        subplan_results=subplan_results,
     )
 
 

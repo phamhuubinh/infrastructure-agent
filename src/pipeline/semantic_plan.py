@@ -21,6 +21,10 @@ from src.pipeline.request_semantics import (
     SourceConstraint,
 )
 
+MAX_SEMANTIC_SUBPLANS = 4
+MAX_SUBPLAN_REQUEST_LENGTH = 1024
+MAX_SUBPLAN_DEPENDENCIES = 3
+
 
 class SemanticPlanRoute(str, Enum):
     """The next semantic path proposed by the planner."""
@@ -29,6 +33,7 @@ class SemanticPlanRoute(str, Enum):
     UNKNOWN = "unknown"
     DIRECT_ANSWER = "direct_answer"
     CAPABILITY_ASSISTED = "capability_assisted"
+    MULTI_INTENT = "multi_intent"
     REFUSE = "refuse"
     CLARIFY = "clarify"
 
@@ -87,6 +92,15 @@ class ClarificationState(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class SemanticSubplan:
+    """One bounded non-recursive semantic task inside a multi-intent plan."""
+
+    request: str
+    plan: SemanticPlan
+    depends_on: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticPlan:
     """Compact, typed semantics proposed by a model planner.
 
@@ -113,14 +127,19 @@ class SemanticPlan:
     calculation: CalculatorRequest | None = None
     clarification: ClarificationState = ClarificationState.UNSPECIFIED
     clarification_field: str | None = None
+    subplans: tuple[SemanticSubplan, ...] = ()
 
 
 __all__ = [
     "ClarificationState",
+    "MAX_SEMANTIC_SUBPLANS",
+    "MAX_SUBPLAN_DEPENDENCIES",
+    "MAX_SUBPLAN_REQUEST_LENGTH",
     "DeterministicComputeIntent",
     "FreshnessRequirement",
     "SemanticPlan",
     "SemanticPlanRoute",
+    "SemanticSubplan",
     "TargetReference",
     "TargetReferenceKind",
 ]

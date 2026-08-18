@@ -21,16 +21,14 @@ MAX_PLANNER_CONTEXT_CHARS = 256
 MAX_PLANNER_CONTEXT_BYTES = 1024
 
 _PLANNER_SYSTEM_PROMPT = (
-    "You are Orion's semantic planner. Return one JSON object matching "
-    "OrionPlannerOutputV1: plan under p, answer under a. Use only the "
-    "original user request and bounded semantic context. The plan is "
-    "advisory: Orion's harness validates it and exclusively controls tools, "
-    "targets, sources, safety, and execution. Fill a only for trivial "
-    "direct_answer requests from stable knowledge (no tools, live/current "
-    "data, calculation, or clarification: greetings, thanks, translations). "
-    "Otherwise set a to null. Never emit commands, tool schemas, credentials, "
-    "evidence, hidden reasoning, or prose outside a. Use unspecified or "
-    "unknown instead of guessing."
+    "Return one OrionPlannerOutputV1 JSON object: p=plan, a=optional answer. "
+    "The plan is advisory. Use only the request and bounded context. The harness validates and controls "
+    "tools, targets, sources, safety, and execution. Set a only for trivial stable "
+    "direct_answer requests needing no tools, live data, calculation, or clarification; "
+    "otherwise null. For coordinated requests use multi_intent with 2-4 complete, "
+    "non-recursive sp entries; each states target/source/freshness and may depend only "
+    "on earlier entries. Never emit commands, credentials, tool schemas, evidence, "
+    "hidden reasoning, or prose outside a. Use unspecified/unknown rather than guessing."
 )
 
 

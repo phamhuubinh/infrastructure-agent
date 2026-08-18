@@ -89,6 +89,7 @@ def test_wire_round_trip_is_lossless_and_compact(rich_plan: SemanticPlan) -> Non
         "dc",
         "calc",
         "q",
+        "sp",
     }
 
 

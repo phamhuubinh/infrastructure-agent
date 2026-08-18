@@ -26,11 +26,15 @@ from src.pipeline.request_semantics import (
     SourceConstraint,
 )
 from src.pipeline.semantic_plan import (
+    MAX_SEMANTIC_SUBPLANS,
+    MAX_SUBPLAN_DEPENDENCIES,
+    MAX_SUBPLAN_REQUEST_LENGTH,
     ClarificationState,
     DeterministicComputeIntent,
     FreshnessRequirement,
     SemanticPlan,
     SemanticPlanRoute,
+    SemanticSubplan,
     TargetReference,
     TargetReferenceKind,
 )
@@ -63,11 +67,13 @@ _PLAN_KEYS = frozenset(
         "dc",
         "calc",
         "q",
+        "sp",
     }
 )
 _TARGET_KEYS = frozenset({"k", "v"})
 _CLARIFICATION_KEYS = frozenset({"s", "f"})
 _PLANNER_OUTPUT_KEYS = frozenset({"v", "p", "a"})
+_SUBPLAN_KEYS = frozenset({"r", "p", "d"})
 _CALCULATION_KEYS = frozenset(
     {
         "op",
@@ -155,6 +161,7 @@ def semantic_plan_to_wire(plan: SemanticPlan) -> dict[str, object]:
             "s": _encode_enum(plan.clarification, ClarificationState, "q.s"),
             "f": _optional_text(plan.clarification_field, "q.f"),
         },
+        "sp": _encode_subplans(plan),
     }
     _ensure_payload_size(payload)
     return payload
@@ -163,7 +170,7 @@ def semantic_plan_to_wire(plan: SemanticPlan) -> dict[str, object]:
 def semantic_plan_from_wire(payload: object) -> SemanticPlan:
     """Parse a strict wire mapping without applying semantic defaults."""
 
-    root = _exact_object(payload, _PLAN_KEYS, "plan")
+    root = _plan_object(payload, "plan")
     if type(root["v"]) is not int or root["v"] != SEMANTIC_PLAN_WIRE_VERSION:
         raise SemanticPlanWireError(
             f"v must be the integer {SEMANTIC_PLAN_WIRE_VERSION}."
@@ -208,7 +215,9 @@ def semantic_plan_from_wire(payload: object) -> SemanticPlan:
             "q.s",
         ),
         clarification_field=_optional_text(clarification["f"], "q.f"),
+        subplans=_parse_subplans(root["sp"]),
     )
+    _validate_subplan_container(plan)
     _ensure_payload_size(root)
     return plan
 
@@ -289,73 +298,100 @@ def planner_output_from_json(payload: str | bytes) -> PlannerWireOutput:
 def semantic_plan_json_schema() -> dict[str, object]:
     """Return the provider-neutral JSON Schema for wire version 1."""
 
+    schema = _semantic_plan_schema(allow_subplans=True)
+    schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    schema["title"] = "OrionSemanticPlanV1"
+    return schema
+
+
+def _semantic_plan_schema(*, allow_subplans: bool) -> dict[str, object]:
     nullable_text = _nullable_text_schema(MAX_SEMANTIC_TEXT_LENGTH)
     source_items = {"type": "string", "enum": _enum_values(SourceConstraint)}
+    properties: dict[str, object] = {
+        "v": {"type": "integer", "enum": [SEMANTIC_PLAN_WIRE_VERSION]},
+        "r": {"type": "string", "enum": _enum_values(SemanticPlanRoute)},
+        "d": {"type": "string", "enum": _enum_values(RequestDomain)},
+        "i": {"type": "string", "enum": _enum_values(ExecutionIntent)},
+        "t": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(_TARGET_KEYS),
+            "properties": {
+                "k": {"type": "string", "enum": _enum_values(TargetReferenceKind)},
+                "v": nullable_text,
+            },
+        },
+        "s": {
+            "type": "array",
+            "items": source_items,
+            "minItems": 1,
+            "maxItems": MAX_SOURCE_CONSTRAINTS,
+            "uniqueItems": True,
+        },
+        "x": {
+            "type": "array",
+            "items": source_items,
+            "maxItems": MAX_SOURCE_CONSTRAINTS,
+            "uniqueItems": True,
+        },
+        "f": {"type": "string", "enum": _enum_values(FreshnessRequirement)},
+        "m": nullable_text,
+        "c": nullable_text,
+        "svc": nullable_text,
+        "p": nullable_text,
+        "u": _nullable_text_schema(MAX_SEMANTIC_URL_LENGTH),
+        "dc": {
+            "type": "string",
+            "enum": _enum_values(DeterministicComputeIntent),
+        },
+        "calc": {"anyOf": [_calculation_schema(), {"type": "null"}]},
+        "q": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(_CLARIFICATION_KEYS),
+            "properties": {
+                "s": {"type": "string", "enum": _enum_values(ClarificationState)},
+                "f": nullable_text,
+            },
+        },
+        "sp": (
+            _semantic_subplan_schema()
+            if allow_subplans
+            else {"type": "array", "maxItems": 0}
+        ),
+    }
     return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "OrionSemanticPlanV1",
         "type": "object",
         "additionalProperties": False,
         "required": sorted(_PLAN_KEYS),
-        "properties": {
-            "v": {"type": "integer", "enum": [SEMANTIC_PLAN_WIRE_VERSION]},
-            "r": {"type": "string", "enum": _enum_values(SemanticPlanRoute)},
-            "d": {"type": "string", "enum": _enum_values(RequestDomain)},
-            "i": {"type": "string", "enum": _enum_values(ExecutionIntent)},
-            "t": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": sorted(_TARGET_KEYS),
-                "properties": {
-                    "k": {
-                        "type": "string",
-                        "enum": _enum_values(TargetReferenceKind),
-                    },
-                    "v": nullable_text,
+        "properties": properties,
+    }
+
+
+def _semantic_subplan_schema() -> dict[str, object]:
+    return {
+        "type": "array",
+        "maxItems": MAX_SEMANTIC_SUBPLANS,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(_SUBPLAN_KEYS),
+            "properties": {
+                "r": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_SUBPLAN_REQUEST_LENGTH,
                 },
-            },
-            "s": {
-                "type": "array",
-                "items": source_items,
-                "minItems": 1,
-                "maxItems": MAX_SOURCE_CONSTRAINTS,
-                "uniqueItems": True,
-            },
-            "x": {
-                "type": "array",
-                "items": source_items,
-                "maxItems": MAX_SOURCE_CONSTRAINTS,
-                "uniqueItems": True,
-            },
-            "f": {
-                "type": "string",
-                "enum": _enum_values(FreshnessRequirement),
-            },
-            "m": nullable_text,
-            "c": nullable_text,
-            "svc": nullable_text,
-            "p": nullable_text,
-            "u": _nullable_text_schema(MAX_SEMANTIC_URL_LENGTH),
-            "dc": {
-                "type": "string",
-                "enum": _enum_values(DeterministicComputeIntent),
-            },
-            "calc": {
-                "anyOf": [
-                    _calculation_schema(),
-                    {"type": "null"},
-                ]
-            },
-            "q": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": sorted(_CLARIFICATION_KEYS),
-                "properties": {
-                    "s": {
-                        "type": "string",
-                        "enum": _enum_values(ClarificationState),
+                "p": _semantic_plan_schema(allow_subplans=False),
+                "d": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": MAX_SEMANTIC_SUBPLANS - 1,
                     },
-                    "f": nullable_text,
+                    "maxItems": MAX_SUBPLAN_DEPENDENCIES,
+                    "uniqueItems": True,
                 },
             },
         },
@@ -389,6 +425,27 @@ def planner_output_json_schema() -> dict[str, object]:
             },
         },
     }
+
+
+def _plan_object(value: object, field: str) -> dict[str, object]:
+    """Parse a plan object while accepting pre-subplan v1 payloads."""
+
+    if not isinstance(value, dict):
+        raise SemanticPlanWireError(f"{field} must be an object.")
+    actual_keys = set(value)
+    unknown = actual_keys - _PLAN_KEYS
+    missing = (_PLAN_KEYS - {"sp"}) - actual_keys
+    if unknown:
+        raise SemanticPlanWireError(
+            f"{field} contains unknown fields: {', '.join(sorted(map(str, unknown)))}."
+        )
+    if missing:
+        raise SemanticPlanWireError(
+            f"{field} is missing fields: {', '.join(sorted(missing))}."
+        )
+    root = dict(value)
+    root.setdefault("sp", [])
+    return root
 
 
 def _exact_object(
@@ -476,6 +533,128 @@ def _validate_source_items(
         )
     if len(set(values)) != len(values):
         raise SemanticPlanWireError(f"{field} must not contain duplicate items.")
+
+
+def _encode_subplans(plan: SemanticPlan) -> list[dict[str, object]]:
+    _validate_subplan_container(plan)
+    encoded: list[dict[str, object]] = []
+    for index, item in enumerate(plan.subplans):
+        request = _optional_text(
+            item.request,
+            f"sp[{index}].r",
+            max_length=MAX_SUBPLAN_REQUEST_LENGTH,
+        )
+        assert request is not None
+        encoded.append(
+            {
+                "r": request,
+                "p": semantic_plan_to_wire(item.plan),
+                "d": list(item.depends_on),
+            }
+        )
+    return encoded
+
+
+def _parse_subplans(value: object) -> tuple[SemanticSubplan, ...]:
+    if not isinstance(value, list):
+        raise SemanticPlanWireError("sp must be an array.")
+    if len(value) > MAX_SEMANTIC_SUBPLANS:
+        raise SemanticPlanWireError(
+            f"sp must contain at most {MAX_SEMANTIC_SUBPLANS} items."
+        )
+    parsed: list[SemanticSubplan] = []
+    for index, raw in enumerate(value):
+        item = _exact_object(raw, _SUBPLAN_KEYS, f"sp[{index}]")
+        request = _optional_text(
+            item["r"],
+            f"sp[{index}].r",
+            max_length=MAX_SUBPLAN_REQUEST_LENGTH,
+        )
+        assert request is not None
+        parsed.append(
+            SemanticSubplan(
+                request=request,
+                plan=semantic_plan_from_wire(item["p"]),
+                depends_on=_parse_subplan_dependencies(item["d"], index),
+            )
+        )
+    return tuple(parsed)
+
+
+def _parse_subplan_dependencies(value: object, index: int) -> tuple[int, ...]:
+    if not isinstance(value, list):
+        raise SemanticPlanWireError(f"sp[{index}].d must be an array.")
+    if len(value) > MAX_SUBPLAN_DEPENDENCIES:
+        raise SemanticPlanWireError(
+            f"sp[{index}].d must contain at most {MAX_SUBPLAN_DEPENDENCIES} items."
+        )
+    if any(type(item) is not int for item in value):
+        raise SemanticPlanWireError(f"sp[{index}].d must contain integer indexes.")
+    if len(set(value)) != len(value):
+        raise SemanticPlanWireError(f"sp[{index}].d must not contain duplicates.")
+    if any(item < 0 or item >= index for item in value):
+        raise SemanticPlanWireError(
+            f"sp[{index}].d may reference earlier subplans only."
+        )
+    return tuple(value)
+
+
+def _validate_subplan_container(plan: SemanticPlan) -> None:
+    subplans = plan.subplans
+    if not isinstance(subplans, tuple) or any(
+        not isinstance(item, SemanticSubplan) for item in subplans
+    ):
+        raise SemanticPlanWireError("sp must be a tuple of SemanticSubplan values.")
+    if not subplans:
+        if plan.route is SemanticPlanRoute.MULTI_INTENT:
+            raise SemanticPlanWireError("multi_intent requires at least two subplans.")
+        return
+    if plan.route is not SemanticPlanRoute.MULTI_INTENT:
+        raise SemanticPlanWireError("sp is only allowed for multi_intent plans.")
+    if len(subplans) < 2 or len(subplans) > MAX_SEMANTIC_SUBPLANS:
+        raise SemanticPlanWireError(
+            f"multi_intent requires 2-{MAX_SEMANTIC_SUBPLANS} subplans."
+        )
+    for index, item in enumerate(subplans):
+        if not isinstance(item.plan, SemanticPlan):
+            raise SemanticPlanWireError(f"sp[{index}].p must be a SemanticPlan.")
+        if item.plan.subplans:
+            raise SemanticPlanWireError("Nested semantic subplans are not allowed.")
+        if item.plan.route not in {
+            SemanticPlanRoute.DIRECT_ANSWER,
+            SemanticPlanRoute.CAPABILITY_ASSISTED,
+        }:
+            raise SemanticPlanWireError(
+                f"sp[{index}] must use direct_answer or capability_assisted."
+            )
+        _optional_text(
+            item.request,
+            f"sp[{index}].r",
+            max_length=MAX_SUBPLAN_REQUEST_LENGTH,
+        )
+        if not isinstance(item.depends_on, tuple):
+            raise SemanticPlanWireError(f"sp[{index}].d must be a tuple of indexes.")
+        _parse_subplan_dependencies(list(item.depends_on), index)
+        if SourceConstraint.UNSPECIFIED in item.plan.source_constraints:
+            raise SemanticPlanWireError(
+                f"sp[{index}] must state source semantics explicitly."
+            )
+        if item.plan.freshness in {
+            FreshnessRequirement.UNSPECIFIED,
+            FreshnessRequirement.UNKNOWN,
+        }:
+            raise SemanticPlanWireError(
+                f"sp[{index}] must state freshness semantics explicitly."
+            )
+        if (
+            item.plan.route is SemanticPlanRoute.CAPABILITY_ASSISTED
+            and item.plan.domain is RequestDomain.ENVIRONMENT
+            and item.plan.target.kind
+            not in {TargetReferenceKind.EXPLICIT, TargetReferenceKind.INHERITED}
+        ):
+            raise SemanticPlanWireError(
+                f"sp[{index}] environment execution requires an explicit target."
+            )
 
 
 def _encode_calculation(value: object) -> dict[str, object] | None:
