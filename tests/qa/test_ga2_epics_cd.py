@@ -218,43 +218,27 @@ def test_multi_intent_planner_is_actually_referenced_by_the_agent_runtime() -> N
     assert "self._multi_intent_planner.plan(" in source
 
 
-def test_agent_executes_both_halves_of_an_explain_then_inspect_plan() -> None:
-    """GA2-C10 acceptance: a runtime-level test, not just a planner-object
-    test. Before this integration, 'Giải thích RAM là gì rồi kiểm tra RAM.'
-    routed as pure GENERAL_CHAT (matching only the trailing "là gì" cue)
-    and the live-inspection half was never executed at all — the second
-    step was silently dropped rather than executed or explicitly blocked.
-    """
+def test_no_model_runtime_does_not_revive_legacy_explain_then_inspect_plan() -> None:
+    # #60: setup mode must fail closed before guessed multi-intent dispatch.
+    # Configured semantic multi-intent execution is covered by #56.
+    from unittest import mock
+
     from src.agent.runtime_factory import create_deterministic_agent
-    from src.pipeline.target_resolver import TargetResolver
 
-    original_resolve = TargetResolver.resolve
+    agent = create_deterministic_agent()
+    execute = mock.Mock(side_effect=AssertionError("setup mode must not dispatch"))
+    agent._execution_engine.execute = execute
 
-    def patched_resolve(self, request):
-        request.target = "localhost"
+    result = agent.run_with_steps("Giải thích RAM là gì rồi kiểm tra RAM.")
 
-    TargetResolver.resolve = patched_resolve
-    try:
-        agent = create_deterministic_agent()
-        result = agent.run_with_steps("Giải thích RAM là gì rồi kiểm tra RAM.")
-    finally:
-        TargetResolver.resolve = original_resolve
-
-    # Both halves actually ran: the combined response carries content from
-    # each step (a "---" separator between them), not just the explanation.
-    assert "---" in result["response"]
-    # The live-inspection half genuinely executed the pipeline (produced
-    # pipeline steps), rather than being dropped as pure GENERAL_CHAT (which
-    # always returns steps=[]).
-    assert len(result["steps"]) > 0
-    assert result["execution_trace"]["routing_status"] == "RESOLVED"
-    # The plan the agent actually consumed is recorded on the trace.
-    assert result["execution_trace"]["runtime_metrics"]["plan_steps"] == 2
-    # The session now reflects what was actually inspected (RAM), proving
-    # the second step's evidence — not just the first step's explanation —
-    # updated investigation state.
-    assert agent._session_context.active_concept == "memory"
-
+    assert "Chưa cấu hình model" in result["response"]
+    assert result["steps"] == []
+    trace = result["execution_trace"]
+    assert trace["routing_status"] == "UNSUPPORTED"
+    assert trace["evidence_status"] == "UNAVAILABLE"
+    assert execute.call_count == 0
+    semantic = trace["runtime_metrics"]["semantic_loop"]
+    assert semantic["actual_tool_calls"] == 0
 
 def test_agent_still_uses_single_shot_routing_for_non_explain_plans() -> None:
     """The EXTERNAL-then-GENERATE plan shape is intentionally *not*
@@ -508,7 +492,8 @@ def test_provenance_falls_back_to_active_sources_before_any_investigation() -> N
 # ---------------------------------------------------------------------------
 
 
-def test_provider_unavailable_is_uniform_across_compound_and_simple_requests() -> None:
+def test_no_model_is_uniform_across_compound_and_simple_requests() -> None:
+    # #60: every model-dependent shape fails closed in setup mode.
     from src.agent.runtime_factory import create_deterministic_agent
 
     agent = create_deterministic_agent()
@@ -521,13 +506,13 @@ def test_provider_unavailable_is_uniform_across_compound_and_simple_requests() -
     responses = []
     for text in cases:
         result = agent.run_with_steps(text)
-        assert result["execution_trace"]["evidence_status"] == "UNAVAILABLE"
-        # Never a fabricated concrete value; the deterministic refusal is
-        # identical in substance across every shape of the request.
-        assert "Không thể kiểm chứng thông tin hiện tại" in result["response"]
+        trace = result["execution_trace"]
+        assert trace["evidence_status"] == "UNAVAILABLE"
+        assert trace["routing_status"] == "UNSUPPORTED"
+        assert "Chưa cấu hình model" in result["response"]
+        semantic = trace["runtime_metrics"]["semantic_loop"]
+        assert semantic["actual_tool_calls"] == 0
         responses.append(result["response"])
-    # Every case used the exact same fail-closed template, not four
-    # different ad hoc refusal implementations that could silently drift.
     assert len(set(responses)) == 1
 
 

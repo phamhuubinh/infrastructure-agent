@@ -1,0 +1,173 @@
+"""Runtime bridge from configured assessment adapters to semantic planning.
+
+The bridge deliberately exposes only the planner provider protocol. It reuses
+an already-constructed assessment adapter/client; it never owns credentials,
+conversation state, tools, or a second provider configuration.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+
+from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.llm_client import LLMClient
+from src.model.semantic_planner_adapter import (
+    PlannerProviderRequest,
+    PlannerProviderResponse,
+)
+from src.model.usage_metadata import ModelCallUsage
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    RequestDomain,
+    SourceConstraint,
+)
+from src.pipeline.safety_policy import sensitive_refusal
+from src.pipeline.semantic_plan import (
+    ClarificationState,
+    DeterministicComputeIntent,
+    FreshnessRequirement,
+    SemanticPlan,
+    SemanticPlanRoute,
+)
+from src.pipeline.semantic_plan_wire import (
+    PLANNER_OUTPUT_WIRE_VERSION,
+    semantic_plan_to_wire,
+)
+
+# Compact provider fallback contract. The canonical JSON Schema remains on the
+# PlannerProviderRequest and the parser remains authoritative; this hint exists
+# only for assessment adapters that do not expose a native structured-output
+# API. It contains no registry, tool catalog, evidence, or credentials.
+_WIRE_HINT = (
+    "JSON only. Envelope keys exactly v,p,a; v=1; a=string|null. "
+    "Plan p keys exactly v,r,d,i,t,s,x,f,m,c,svc,p,u,dc,calc,q,sp; p.v=1; "
+    "t={k,v}; q={s,f}; sp is an array of {r,p,d} and is empty unless r=multi_intent. "
+    "Routes: direct_answer,capability_assisted,multi_intent,refuse,clarify,"
+    "unspecified,unknown. Domains: general,environment,external_information,"
+    "content_generation,unspecified,unknown. Intent/source/freshness/target values "
+    "must use the schema vocabulary; use null for absent text. "
+    "calc must be null unless exact deterministic computation is required."
+)
+
+_PROTECTED_SETUP_REFUSAL = (
+    "I cannot disclose hidden instructions, secrets, credentials, or credential files."
+)
+
+
+class AssessmentPlannerProvider:
+    """Use one existing assessment adapter as a bounded planner provider."""
+
+    def __init__(self, model: AssessmentModelAdapter) -> None:
+        if not isinstance(model, AssessmentModelAdapter):
+            raise TypeError("model must be an AssessmentModelAdapter.")
+        self._model = model
+
+    def generate_structured(
+        self,
+        request: PlannerProviderRequest,
+    ) -> PlannerProviderResponse:
+        if not isinstance(request, PlannerProviderRequest):
+            raise TypeError("request must be PlannerProviderRequest.")
+
+        client = getattr(self._model, "_client", None)
+        if isinstance(client, LLMClient):
+            raw = client.generate(
+                request.user_prompt,
+                request_id=request.request_id,
+                system_prompt=f"{request.system_prompt} {_WIRE_HINT}",
+                purpose=request.purpose.value,
+                reasoning_effort=request.reasoning_effort,
+            )
+            usage = client.last_usage
+            fallback_provider = getattr(client, "_provider", "configured")
+            fallback_model = getattr(client, "_model", "configured")
+        else:
+            raw = self._model.assess_raw(
+                f"{request.system_prompt} {_WIRE_HINT}\n{request.user_prompt}"
+            )
+            usage = getattr(self._model, "last_usage", None)
+            fallback_provider = type(self._model).__name__
+            fallback_model = getattr(self._model, "_model", "configured")
+
+        normalized_usage = usage if isinstance(usage, ModelCallUsage) else None
+        return PlannerProviderResponse(
+            payload=raw,
+            provider=(
+                normalized_usage.provider
+                if normalized_usage is not None and normalized_usage.provider
+                else str(fallback_provider)
+            ),
+            model=(
+                normalized_usage.model
+                if normalized_usage is not None and normalized_usage.model
+                else str(fallback_model)
+            ),
+            raw_usage=_raw_usage(normalized_usage),
+            configured_effort=(
+                request.reasoning_effort
+                if normalized_usage is not None
+                and normalized_usage.configured_effort == request.reasoning_effort.value
+                else None
+            ),
+        )
+
+
+class UnconfiguredPlannerProvider:
+    """Deterministic setup-mode planner: no model call and no tool authority."""
+
+    def generate_structured(
+        self,
+        request: PlannerProviderRequest,
+    ) -> PlannerProviderResponse:
+        from src.model.unconfigured_adapter import model_unconfigured_message
+
+        if not isinstance(request, PlannerProviderRequest):
+            raise TypeError("request must be PlannerProviderRequest.")
+        try:
+            payload = json.loads(request.user_prompt)
+        except json.JSONDecodeError as exc:
+            raise ValueError("setup-mode planner request is malformed") from exc
+        raw_request = payload.get("request") if isinstance(payload, dict) else None
+        if not isinstance(raw_request, str) or not raw_request.strip():
+            raise ValueError("setup-mode planner request has no request text")
+
+        answer = (
+            _PROTECTED_SETUP_REFUSAL
+            if sensitive_refusal(raw_request) is not None
+            else model_unconfigured_message(raw_request)
+        )
+        plan = SemanticPlan(
+            route=SemanticPlanRoute.DIRECT_ANSWER,
+            domain=RequestDomain.GENERAL,
+            execution_intent=ExecutionIntent.EXPLAIN,
+            source_constraints=(SourceConstraint.ANY,),
+            freshness=FreshnessRequirement.STABLE,
+            deterministic_compute=DeterministicComputeIntent.NOT_REQUIRED,
+            clarification=ClarificationState.NOT_REQUIRED,
+        )
+        return PlannerProviderResponse(
+            payload={
+                "v": PLANNER_OUTPUT_WIRE_VERSION,
+                "p": semantic_plan_to_wire(plan),
+                "a": answer,
+            },
+            provider="unconfigured",
+            model="none",
+        )
+
+
+def _raw_usage(usage: ModelCallUsage | None) -> Mapping[str, object] | None:
+    if usage is None:
+        return None
+    raw: dict[str, object] = {}
+    if usage.input_tokens is not None:
+        raw["prompt_tokens"] = usage.input_tokens
+    if usage.total_output_tokens is not None:
+        raw["completion_tokens"] = usage.total_output_tokens
+    if usage.reasoning_tokens is not None:
+        raw["reasoning_tokens"] = usage.reasoning_tokens
+    return raw or None
+
+
+__all__ = ["AssessmentPlannerProvider", "UnconfiguredPlannerProvider"]

@@ -6,8 +6,14 @@ from typing import TYPE_CHECKING, Any
 from src.agent.conversation_store import ConversationStoreProtocol
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.assessment_planner_provider import (
+    AssessmentPlannerProvider,
+    UnconfiguredPlannerProvider,
+)
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
+from src.model.semantic_planner_adapter import SemanticPlannerAdapter
+from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
 
 if TYPE_CHECKING:
     from src.model.providers.registry import ProviderRegistry
@@ -425,6 +431,25 @@ def _build_provider_registry(
     return registry, primary_adapter
 
 
+def _build_semantic_planner(
+    assessment_adapter: AssessmentModelAdapter,
+) -> SemanticPlannerAdapter:
+    """Build one session-local semantic planner from the selected model chain."""
+
+    if isinstance(assessment_adapter, UnconfiguredAssessmentAdapter):
+        return SemanticPlannerAdapter((UnconfiguredPlannerProvider(),))
+
+    nested = getattr(assessment_adapter, "adapters", None)
+    models = (
+        tuple(nested)
+        if isinstance(nested, list) and nested
+        else (assessment_adapter,)
+    )
+    return SemanticPlannerAdapter(
+        tuple(AssessmentPlannerProvider(model) for model in models)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -523,8 +548,6 @@ def create_deterministic_agent(
     if assessment_adapter is None:
         model_config = get_config()
         if not model_config.servers:
-            from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
-
             assessment_adapter = UnconfiguredAssessmentAdapter()
             _warn("no model configured; Orion will start in setup mode")
         else:
@@ -555,6 +578,9 @@ def create_deterministic_agent(
             else:
                 assessment_adapter = primary_adapter
 
+    assert assessment_adapter is not None
+    semantic_planner = _build_semantic_planner(assessment_adapter)
+
     agent = DeterministicAgent(
         execution_engine=engine,
         assessment_model=assessment_adapter,
@@ -569,6 +595,7 @@ def create_deterministic_agent(
             ),
         ),
         general_agent_routing_enabled=feature_flags.general_agent_routing_v1,
+        semantic_planner=semantic_planner,
     )
     _info("orion", message="orion started")
     return agent

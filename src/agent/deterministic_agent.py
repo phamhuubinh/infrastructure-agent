@@ -2889,6 +2889,16 @@ class DeterministicAgent:
             result.response.answer_strategy,
             AnswerStrategy.REFUSAL,
         )
+        planner_result = (
+            result.planner_outcome.result
+            if result.planner_outcome is not None
+            else None
+        )
+        setup_mode = (
+            planner_result is not None and planner_result.provider == "unconfigured"
+        )
+        if setup_mode and answer_strategy is AnswerStrategy.CHAT:
+            answer_strategy = AnswerStrategy.DETERMINISTIC_TEMPLATE
         coordinator_stages = self._semantic_loop_stages(result)
         if result.succeeded and result.investigation is not None:
             base_trace = self._build_execution_trace(
@@ -2898,11 +2908,16 @@ class DeterministicAgent:
             steps = self._build_pipeline_steps(result.investigation)
             investigation: InvestigationRequest | None = result.investigation
         else:
-            routing = self._semantic_loop_routing(result)
+            routing = (
+                RoutingStatus.UNSUPPORTED
+                if setup_mode
+                else self._semantic_loop_routing(result)
+            )
             frame = Normalizer().normalize(user_request).evolve(routing_status=routing)
             evidence_status = (
                 EvidenceStatus.UNAVAILABLE
-                if result.failure
+                if setup_mode
+                or result.failure
                 in {
                     SemanticLoopFailure.BUDGET_EXHAUSTED,
                     SemanticLoopFailure.EXECUTION_FAILED,
@@ -2941,7 +2956,7 @@ class DeterministicAgent:
                 evidence_status=evidence_status,
                 response_strategy=(
                     self._general_response_strategy(user_request)
-                    if result.succeeded
+                    if result.succeeded and not setup_mode
                     else ResponseStrategy.CLARIFICATION_REFUSAL
                 ),
                 request_class=frame.answer_type,
