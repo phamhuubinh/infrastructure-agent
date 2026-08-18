@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -7,9 +8,132 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 
 from src.model.output_sanitizer import sanitize_api_response
+from src.shared.execution.command_result import redact_sensitive
 from src.shared.logger import set_context
 
 router = APIRouter(tags=["query"])
+
+_MAX_API_TRACE_DEPTH = 8
+_MAX_API_TRACE_DICT_ITEMS = 128
+_MAX_API_TRACE_LIST_ITEMS = 64
+_MAX_API_TRACE_TEXT_CHARS = 4096
+_MAX_API_TRACE_NODES = 512
+_MAX_API_TRACE_BYTES = 128 * 1024
+
+_SENSITIVE_TRACE_KEYS = frozenset(
+    {
+        "analysis",
+        "authorization",
+        "chain_of_thought",
+        "credential",
+        "credentials",
+        "hidden_reasoning",
+        "password",
+        "passwd",
+        "private_key",
+        "prompt",
+        "raw_output",
+        "raw_response",
+        "raw_usage",
+        "reasoning_text",
+        "secret",
+        "system_prompt",
+        "thinking",
+        "thoughts",
+        "token",
+        "access_token",
+        "api_key",
+        "user_prompt",
+    }
+)
+
+
+def _trace_key_is_sensitive(key: str) -> bool:
+    normalized = key.strip().casefold().replace("-", "_")
+    return normalized in _SENSITIVE_TRACE_KEYS or normalized.endswith(
+        ("_prompt", "_password", "_secret", "_api_key", "_access_token")
+    )
+
+
+def _sanitize_trace_text(value: str) -> str:
+    redacted = redact_sensitive(value)
+    if len(redacted) <= _MAX_API_TRACE_TEXT_CHARS:
+        return redacted
+    return redacted[:_MAX_API_TRACE_TEXT_CHARS] + "…"
+
+
+def _sanitize_trace_value(
+    value: object,
+    *,
+    depth: int,
+    remaining_nodes: list[int],
+) -> object:
+    if depth > _MAX_API_TRACE_DEPTH or remaining_nodes[0] <= 0:
+        return None
+    remaining_nodes[0] -= 1
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _sanitize_trace_text(value)
+    if isinstance(value, dict):
+        safe: dict[str, object] = {}
+        for raw_key, item in list(value.items())[:_MAX_API_TRACE_DICT_ITEMS]:
+            key = str(raw_key)
+            if _trace_key_is_sensitive(key):
+                continue
+            safe[key] = _sanitize_trace_value(
+                item,
+                depth=depth + 1,
+                remaining_nodes=remaining_nodes,
+            )
+        return safe
+    if isinstance(value, (list, tuple)):
+        return [
+            _sanitize_trace_value(
+                item,
+                depth=depth + 1,
+                remaining_nodes=remaining_nodes,
+            )
+            for item in value[:_MAX_API_TRACE_LIST_ITEMS]
+        ]
+    return None
+
+
+def _sanitize_execution_trace(value: object) -> dict[str, object] | None:
+    """Return a bounded, credential-safe copy of an agent execution trace."""
+
+    if not isinstance(value, dict):
+        return None
+    sanitized = _sanitize_trace_value(
+        value,
+        depth=0,
+        remaining_nodes=[_MAX_API_TRACE_NODES],
+    )
+    if not isinstance(sanitized, dict):
+        return None
+
+    encoded = json.dumps(
+        sanitized,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    if len(encoded) <= _MAX_API_TRACE_BYTES:
+        return sanitized
+
+    # Pathological/custom-agent traces fail closed to a stable summary.
+    summary_keys = (
+        "trace_id",
+        "answer_strategy",
+        "llm_usage_reason",
+        "routing_status",
+        "evidence_status",
+        "response_strategy",
+        "total_duration_ms",
+    )
+    summary = {key: sanitized[key] for key in summary_keys if key in sanitized}
+    summary["truncated"] = True
+    return summary
 
 
 @router.post("/api/query")
@@ -85,7 +209,7 @@ def query(body: dict, request: Request):
             # serializer is credential-safe and never includes raw tool
             # output, so it is safe to return beside the existing steps.
             "trace_id": result.get("trace_id"),
-            "execution_trace": result.get("execution_trace"),
+            "execution_trace": _sanitize_execution_trace(result.get("execution_trace")),
         }
     finally:
         set_context(request_id=None, session_id=None)
