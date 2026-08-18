@@ -596,3 +596,179 @@ def test_compute_plan_never_uses_planner_final_text_at_coordinator_level() -> No
     assert result.response.text == "Result: 40"
     assert answer_calls == 0
     assert result.calculator_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# Issues #57/#58: semantic artifact validation + response-budget preservation
+# ---------------------------------------------------------------------------
+
+
+def _artifact_generation_plan() -> SemanticPlan:
+    return replace(
+        _translation_plan(),
+        concept="generated artifact",
+    )
+
+
+class ArtifactResponseModel(AssessmentModelAdapter):
+    """Fake response model that keeps artifact generation on the response path."""
+
+    def __init__(self, draft: str) -> None:
+        self.draft = draft
+        self.response_calls = 0
+        self.relevance_calls = 0
+
+    def assess(self, _request: AssessmentRequest) -> str:
+        raise AssertionError("artifact generation should use direct response")
+
+    def assess_raw(self, prompt: str) -> str:
+        if "compact final-answer relevance verifier" in prompt:
+            self.relevance_calls += 1
+            return '{"decision":"aligned","reason":"aligned"}'
+        self.response_calls += 1
+        return self.draft
+
+
+def _artifact_agent(
+    response: str,
+) -> tuple[DeterministicAgent, NoExecutionEngine, ArtifactResponseModel]:
+    model = ArtifactResponseModel(response)
+    agent, engine, _model = _agent(
+        _artifact_generation_plan(),
+        None,
+        model=model,
+    )
+    return agent, engine, model
+
+
+def test_semantic_planner_valid_github_actions_is_validated_without_execution() -> None:
+    workflow = """```yaml
+name: CI
+on:
+  push:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+```"""
+    agent, engine, model = _artifact_agent(workflow)
+
+    result = agent.run_with_steps("Create a GitHub Actions workflow YAML.")
+
+    assert result["response"] == workflow
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "SUCCEEDED"
+    assert "github_actions" in validation["message"]
+    assert "repair_attempted=False" in validation["message"]
+    trace = result["execution_trace"]
+    assert trace["response_strategy"] == "ARTIFACT_GENERATION"
+    assert trace["response_metrics"]["budget_class"] == "artifact"
+    assert trace["response_metrics"]["max_output_tokens"] == 3000
+    assert engine.execute_calls == 0
+    assert model.response_calls == 1
+    assert model.relevance_calls == 1
+
+
+def test_semantic_planner_invalid_yaml_keeps_warning_in_final_response() -> None:
+    broken = """```yaml
+name: [broken
+```"""
+    agent, engine, model = _artifact_agent(broken)
+
+    result = agent.run_with_steps("Create a YAML config.")
+
+    assert broken in result["response"]
+    assert "Validation warning: generated yaml was not validated successfully" in result[
+        "response"
+    ]
+    assert "It was not executed." in result["response"]
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "FAILED"
+    metrics = result["execution_trace"]["response_metrics"]
+    assert metrics["character_count"] == len(result["response"])
+    assert metrics["byte_count"] == len(result["response"].encode("utf-8"))
+    assert engine.execute_calls == 0
+    assert model.response_calls == 1
+    assert model.relevance_calls == 1
+
+
+def test_semantic_planner_yaml_uses_at_most_one_local_repair() -> None:
+    repairable = "Here is the YAML: [broken\nname: demo\nenabled: true"
+    agent, engine, model = _artifact_agent(repairable)
+
+    result = agent.run_with_steps("Create a YAML config.")
+
+    assert result["response"] == "name: demo\nenabled: true"
+    validation = result["execution_trace"]["stages"]["artifact_validation"]
+    assert validation["status"] == "SUCCEEDED"
+    assert "initial_valid=False" in validation["message"]
+    assert "repair_attempted=True" in validation["message"]
+    assert engine.execute_calls == 0
+    assert model.response_calls == 1
+    assert model.relevance_calls == 1
+
+
+def test_semantic_planner_shell_validation_is_parse_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    def fake_run(args: object, **kwargs: object) -> object:
+        calls.append((args, kwargs))
+        return type("Result", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr("src.pipeline.config_validator.subprocess.run", fake_run)
+    script = """```bash
+systemctl restart nginx
+```"""
+    agent, engine, model = _artifact_agent(script)
+
+    result = agent.run_with_steps("Write a shell script that restarts nginx.")
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == ["sh", "-n"]
+    assert kwargs["input"] == "systemctl restart nginx"
+    assert kwargs["check"] is False
+    assert "Validation notice:" in result["response"]
+    assert "mutating/administrative command" in result["response"]
+    assert engine.execute_calls == 0
+    assert model.response_calls == 1
+    assert model.relevance_calls == 1
+
+
+def test_semantic_planner_preserves_repeated_valid_yaml_blocks() -> None:
+    response = """```yaml
+name: first
+```
+
+```yaml
+name: second
+```"""
+    agent, engine, model = _artifact_agent(response)
+
+    result = agent.run_with_steps("Create two YAML examples.")
+
+    assert result["response"] == response
+    assert result["response"].count("```yaml") == 2
+    assert engine.execute_calls == 0
+    assert model.response_calls == 1
+    assert model.relevance_calls == 1
+
+
+def test_semantic_simple_answer_uses_concise_budget_after_cutover() -> None:
+    agent, engine, model = _agent(
+        _direct_plan(),
+        "Hello!",
+        model=NoModelCalls(),
+    )
+
+    result = agent.run_with_steps("hello")
+
+    trace = result["execution_trace"]
+    assert trace["response_strategy"] == "SELF_CONTAINED_REASONING"
+    assert trace["response_metrics"]["budget_class"] == "concise"
+    assert trace["response_metrics"]["max_output_tokens"] == 500
+    assert engine.execute_calls == 0
+    assert model.calls == 0

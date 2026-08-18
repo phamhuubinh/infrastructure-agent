@@ -974,7 +974,7 @@ class DeterministicAgent:
             )
         ):
             return ResponseStrategy.ARTIFACT_GENERATION
-        return ResponseStrategy.GENERAL_EXPLANATION
+        return ResponseStrategy.SELF_CONTAINED_REASONING
 
     def _build_pipeline_steps(self, investigation: InvestigationRequest) -> list[dict]:
         """Serialize pipeline stages into step dicts for UI."""

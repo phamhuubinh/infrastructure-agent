@@ -34,3 +34,27 @@ def test_token_estimate_is_bounded_and_provider_independent() -> None:
     assert ResponseBudgetPolicy.estimated_tokens("") == 0
     assert ResponseBudgetPolicy.estimated_tokens("abcd") == 1
     assert ResponseBudgetPolicy.estimated_tokens("abcde") == 2
+
+
+def test_budget_tiers_keep_concise_assessment_and_artifact_ordered() -> None:
+    concise = ResponseBudgetPolicy.for_strategy(
+        ResponseStrategy.SELF_CONTAINED_REASONING
+    )
+    assessment = ResponseBudgetPolicy.for_strategy(
+        ResponseStrategy.LIVE_ENVIRONMENT
+    )
+    artifact = ResponseBudgetPolicy.for_strategy(ResponseStrategy.ARTIFACT_GENERATION)
+
+    assert concise.max_output_tokens < assessment.max_output_tokens
+    assert assessment.max_output_tokens < artifact.max_output_tokens
+
+
+def test_all_evidence_heavy_strategies_keep_the_assessment_bound() -> None:
+    for strategy in (
+        ResponseStrategy.LIVE_ENVIRONMENT,
+        ResponseStrategy.EXTERNAL_VERIFICATION,
+        ResponseStrategy.MULTI_SOURCE_COMPARISON,
+    ):
+        budget = ResponseBudgetPolicy.for_strategy(strategy)
+        assert budget.budget_class == "assessment"
+        assert budget.max_output_tokens == 1_500
