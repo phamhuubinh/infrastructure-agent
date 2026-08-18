@@ -24,7 +24,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -e ".[test,security,typecheck]"
 
       - name: Lint
@@ -40,7 +40,7 @@ jobs:
         if: always()
 
       - name: Dependency vulnerability scan (Safety)
-        run: safety check --full-report --exit-code --audit-level=high
+        run: safety check --full-report --exit-code
         if: always()
 
       - name: Package vulnerability scan (pip-audit)
