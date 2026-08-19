@@ -584,6 +584,45 @@ class TargetResolver:
             return stripped
         return None
 
+    def resolve_explicit_request_target(self, raw_request: str) -> str | None:
+        """Resolve only a target explicitly present in the original request.
+
+        Unlike ``resolve_frame()``, this helper never applies localhost or
+        intent defaults. It exists for the semantic-plan consistency boundary,
+        where a model-proposed target must not replace a hard user constraint.
+        """
+        if not isinstance(raw_request, str) or not raw_request.strip():
+            raise ValueError("raw_request must be non-empty text.")
+        self._ensure_loaded()
+        known_names, domain_names = self._known_targets()
+        explicit = self._explicit_target_candidate(
+            RequestFrame(raw_request=raw_request),
+            known_names,
+        )
+        if explicit is None:
+            return None
+
+        normalized_request = normalize_lexical_text(raw_request)
+        normalized_explicit = normalize_lexical_text(explicit)
+        normalized_domains = {
+            normalize_lexical_text(name) for name in domain_names
+        }
+        if (
+            normalized_explicit in normalized_domains
+            or re.search(
+                rf"\bfrom\s+{re.escape(normalized_explicit)}\b",
+                normalized_request,
+            )
+        ):
+            return None
+
+        resolved, _score, _candidates, _margin = self._resolve_explicit(
+            explicit,
+            known_names,
+            domain_names,
+        )
+        return resolved
+
     def _resolve_explicit(
         self,
         raw_target: str,

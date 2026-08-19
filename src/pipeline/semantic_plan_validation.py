@@ -28,6 +28,7 @@ class SemanticPlanValidationReason(str, Enum):
     VALID = "valid"
     MALFORMED_PLAN = "malformed_plan"
     PLANNER_UNCERTAIN = "planner_uncertain"
+    REQUEST_CONFLICT = "request_conflict"
     TARGET_MISSING = "target_missing"
     TARGET_UNKNOWN = "target_unknown"
     TARGET_AMBIGUOUS = "target_ambiguous"

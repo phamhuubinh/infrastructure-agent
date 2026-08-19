@@ -31,6 +31,7 @@ from src.pipeline.basic_calculator import (
 from src.pipeline.execution_budget import ExecutionBudget, ExecutionBudgetConfig
 from src.pipeline.investigation_request import InvestigationRequest
 from src.pipeline.request_frame import RequestFrame
+from src.pipeline.request_semantics import ExecutionIntent, RequestSemanticsClassifier
 from src.pipeline.semantic_plan import SemanticPlan, SemanticPlanRoute
 from src.pipeline.semantic_plan_binding import (
     SemanticPlanBindingResult,
@@ -39,7 +40,10 @@ from src.pipeline.semantic_plan_harness import (
     SemanticPlanHarnessResult,
     planner_final_answer_allowed,
 )
-from src.pipeline.semantic_plan_validation import SemanticPlanValidationStatus
+from src.pipeline.semantic_plan_validation import (
+    SemanticPlanValidationResult,
+    SemanticPlanValidationStatus,
+)
 from src.pipeline.time_range_resolver import TimeRange
 
 
@@ -350,11 +354,26 @@ class SemanticLoopCoordinator:
                     records.append(_record(state, False, failure_detail, started))
                     state = SemanticLoopState.FAIL
                     continue
+                trusted_setup_plan = (
+                    planner_result is not None
+                    and planner_result.provider == "unconfigured"
+                    and planner_result.model == "none"
+                    and planner_final_answer_allowed(plan)
+                    and RequestSemanticsClassifier()
+                    .classify(raw_request)
+                    .execution_intent
+                    is not ExecutionIntent.MUTATE_ENVIRONMENT
+                )
                 try:
-                    harness = self._validator.validate(
-                        plan,
-                        raw_request=raw_request,
-                    )
+                    if trusted_setup_plan:
+                        harness = SemanticPlanHarnessResult(
+                            validation=SemanticPlanValidationResult.valid(plan)
+                        )
+                    else:
+                        harness = self._validator.validate(
+                            plan,
+                            raw_request=raw_request,
+                        )
                 except Exception as exc:
                     failure = SemanticLoopFailure.VALIDATION_FAILED
                     failure_detail = type(exc).__name__

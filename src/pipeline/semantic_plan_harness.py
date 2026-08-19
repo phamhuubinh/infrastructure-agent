@@ -39,6 +39,9 @@ from src.pipeline.semantic_plan_validation import (
     SemanticPlanValidationStatus,
     SemanticPlanValidationValue,
 )
+from src.pipeline.semantic_request_consistency import (
+    SemanticRequestConsistencyValidator,
+)
 from src.pipeline.source_constraints import (
     SemanticSourceValidationResult,
     validate_semantic_sources,
@@ -139,6 +142,20 @@ class SemanticPlanHarnessValidator:
                 mutation=mutation,
             )
 
+        consistency = SemanticRequestConsistencyValidator(
+            self._target_resolver
+        ).validate(
+            plan,
+            raw_request=raw_request,
+            resolved_target=target.resolved_target,
+        )
+        if not _valid(consistency):
+            return SemanticPlanHarnessResult(
+                validation=consistency,
+                target=target,
+                mutation=mutation,
+            )
+
         sources = validate_semantic_sources(
             self._knowledge_tool,
             plan,
@@ -169,6 +186,7 @@ class SemanticPlanHarnessValidator:
             target.validation.values,
             sources.validation.values,
             freshness.validation.values,
+            consistency.values,
             mutation.validation.values,
         )
         return SemanticPlanHarnessResult(
