@@ -343,6 +343,9 @@ def _property_schema(spec: Mapping[str, object] | None) -> dict[str, object]:
             bound = spec.get(source_key)
             if isinstance(bound, (int, float)) and not isinstance(bound, bool):
                 result[schema_key] = bound
+    pattern = spec.get("pattern")
+    if isinstance(pattern, str) and pattern:
+        result["pattern"] = pattern
     return result
 
 
@@ -417,7 +420,11 @@ def _category_for_family(family: CapabilitySourceFamily) -> str:
 def _target_requirements(summary: CapabilitySummary) -> dict[str, object]:
     return {
         "kind": summary.target_kind.value,
-        "required": summary.target_kind is not CapabilityTargetKind.NONE,
+        # Only Linux-style machine capabilities consume a target-registry
+        # machine identity.  Grafana/Zabbix are source-backed capabilities;
+        # requiring a model-selected machine target here would incorrectly
+        # authorize an unrelated host as their monitoring source.
+        "required": summary.target_kind is CapabilityTargetKind.MACHINE,
     }
 
 

@@ -674,6 +674,39 @@ class TargetResolver:
                     return normalized, "localhost"
         return None, None
 
+    def resolve_exact_target_reference(self, value: str) -> str | None:
+        """Resolve one already-explicit target through exact registry authority.
+
+        This method intentionally accepts neither prose nor fuzzy/name-pattern
+        matching and never defaults to localhost.  It is for controller
+        authorization after a target has already been extracted into a typed
+        hard constraint.
+        """
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("value must be non-empty text.")
+        self._ensure_loaded()
+        known_names, domain_names = self._known_targets()
+        domain_set = {normalize_lexical_text(name) for name in domain_names}
+        targets_by_normalized = {
+            normalize_lexical_text(name): name
+            for name in known_names
+            if normalize_lexical_text(name) not in domain_set
+        }
+        candidate = normalize_lexical_text(value)
+        target = targets_by_normalized.get(candidate)
+        if target is not None:
+            return target
+        if self._alias_store is not None:
+            alias = self._alias_store.resolve(
+                candidate,
+                session_id=self._session_id,
+                user_id=self._user_id,
+                project_id=self._project_id,
+            )
+            if alias is not None and alias.target in targets_by_normalized.values():
+                return alias.target
+        return None
+
     def _resolve_explicit(
         self,
         raw_target: str,
