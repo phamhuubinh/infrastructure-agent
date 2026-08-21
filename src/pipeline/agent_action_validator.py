@@ -15,6 +15,12 @@ from types import MappingProxyType
 from urllib.parse import urlsplit
 
 from src.agent.controller_contracts import AgentAction
+from src.pipeline.basic_calculator import CalculatorRequest
+from src.pipeline.calculator_action_contract import (
+    CALCULATOR_CAPABILITY_ID,
+    CalculatorActionBindingError,
+    bind_calculator_action,
+)
 from src.pipeline.controller_capability_discovery import (
     CapabilityDetailStatus,
     ControllerCapabilityDiscovery,
@@ -106,6 +112,7 @@ class AgentActionValidationResult:
         default_factory=lambda: MappingProxyType({})
     )
     source_id: str | None = None
+    calculator_request: CalculatorRequest | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, AgentActionValidationStatus):
@@ -128,6 +135,10 @@ class AgentActionValidationResult:
             raise ValueError("source_id must be non-empty text or None.")
         if not isinstance(self.normalized_arguments, Mapping):
             raise TypeError("normalized_arguments must be a mapping.")
+        if self.calculator_request is not None and not isinstance(
+            self.calculator_request, CalculatorRequest
+        ):
+            raise TypeError("calculator_request must be a CalculatorRequest or None.")
         object.__setattr__(
             self,
             "normalized_arguments",
@@ -244,6 +255,27 @@ class AgentActionValidator:
             status, reason = failure
             return _result(status, reason, action, target_id, source_family)
 
+        calculator_request: CalculatorRequest | None = None
+        if action.capability_id == CALCULATOR_CAPABILITY_ID:
+            try:
+                calculator_request = bind_calculator_action(normalized)
+            except CalculatorActionBindingError as exc:
+                return _result(
+                    (
+                        AgentActionValidationStatus.CLARIFY
+                        if str(exc) == "missing_transport_fields"
+                        else AgentActionValidationStatus.REJECT
+                    ),
+                    (
+                        AgentActionValidationReason.ARGUMENT_REQUIRED
+                        if str(exc) == "missing_transport_fields"
+                        else AgentActionValidationReason.ARGUMENT_INVALID
+                    ),
+                    action,
+                    target_id,
+                    source_family,
+                )
+
         # 6. Reuse the existing typed read-only and parameter safety guards.
         read_only = schema.get("read_only") is True
         resource = action.capability_id.rpartition(".")[2]
@@ -318,6 +350,7 @@ class AgentActionValidator:
             source_family=source_family,
             normalized_arguments=normalized,
             source_id=source_id,
+            calculator_request=calculator_request,
         )
 
     def _validate_target(
@@ -407,7 +440,10 @@ def _source_allowed(
         excluded.add("internet")
     if family in excluded or (source_families and family not in source_families):
         return False
-    if family == "internet" and SourceConstraint.URL_ONLY in constraints.source_constraints:
+    if (
+        family == "internet"
+        and SourceConstraint.URL_ONLY in constraints.source_constraints
+    ):
         return "url" in action.arguments
     return True
 
@@ -513,14 +549,39 @@ def _value_matches_schema(value: object, schema: Mapping[str, object]) -> bool:
     if not any(_matches_json_type(value, value_type) for value_type in types):
         return False
     enum = schema.get("enum")
-    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes)) and value not in enum:
+    if (
+        isinstance(enum, Sequence)
+        and not isinstance(enum, (str, bytes))
+        and value not in enum
+    ):
         return False
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         minimum = schema.get("minimum")
         maximum = schema.get("maximum")
-        if isinstance(minimum, (int, float)) and not isinstance(minimum, bool) and value < minimum:
+        if (
+            isinstance(minimum, (int, float))
+            and not isinstance(minimum, bool)
+            and value < minimum
+        ):
             return False
-        if isinstance(maximum, (int, float)) and not isinstance(maximum, bool) and value > maximum:
+        if (
+            isinstance(maximum, (int, float))
+            and not isinstance(maximum, bool)
+            and value > maximum
+        ):
+            return False
+    if _matches_json_type(value, "array"):
+        minimum_items = schema.get("minItems")
+        maximum_items = schema.get("maxItems")
+        if isinstance(minimum_items, int) and len(value) < minimum_items:
+            return False
+        if isinstance(maximum_items, int) and len(value) > maximum_items:
+            return False
+        item_schema = schema.get("items")
+        if item_schema is not None and (
+            not isinstance(item_schema, Mapping)
+            or not all(_value_matches_schema(item, item_schema) for item in value)
+        ):
             return False
     pattern = schema.get("pattern")
     return not (
@@ -537,6 +598,7 @@ def _matches_json_type(value: object, value_type: object) -> bool:
         "boolean": type(value) is bool,
         "integer": type(value) is int,
         "number": type(value) in {int, float},
+        "array": isinstance(value, Sequence) and not isinstance(value, (str, bytes)),
     }.get(value_type, False)
 
 

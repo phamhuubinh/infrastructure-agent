@@ -65,9 +65,7 @@ def test_host_discovery_returns_only_bounded_host_summaries_in_order() -> None:
 
 def test_grafana_hard_constraint_excludes_host_alternatives() -> None:
     discovery = _discovery(grafana=True)
-    constraints = HardRequestConstraints(
-        source_constraints=(SourceConstraint.GRAFANA,)
-    )
+    constraints = HardRequestConstraints(source_constraints=(SourceConstraint.GRAFANA,))
 
     host = discovery.discover("host", constraints)
     grafana = discovery.discover("grafana", constraints)
@@ -77,10 +75,14 @@ def test_grafana_hard_constraint_excludes_host_alternatives() -> None:
     assert all(item["source_family"] == "grafana" for item in grafana.summaries)
 
 
-def test_selected_detail_exposes_one_closed_schema_compatible_with_controller_prompt() -> None:
+def test_selected_detail_exposes_one_closed_schema_compatible_with_controller_prompt() -> (
+    None
+):
     discovery = _discovery()
 
-    result = discovery.selected_detail("host.get_listening_ports", HardRequestConstraints())
+    result = discovery.selected_detail(
+        "host.get_listening_ports", HardRequestConstraints()
+    )
 
     assert result.status is CapabilityDetailStatus.DISCLOSED
     selected = result.selected_capability_schema
@@ -206,10 +208,13 @@ def test_optional_metadata_arguments_are_nullable_in_the_strict_transport_schema
         },
         "required_count": {"type": "integer", "minimum": 1, "maximum": 10},
     }
-    assert AgentAction(
-        "host.mixed_parameters",
-        {"required_count": 3, "optional_limit": None, "optional_mode": None},
-    ).arguments["optional_mode"] is None
+    assert (
+        AgentAction(
+            "host.mixed_parameters",
+            {"required_count": 3, "optional_limit": None, "optional_mode": None},
+        ).arguments["optional_mode"]
+        is None
+    )
     assert AgentAction("host.mixed_parameters", {"required_count": 3}).arguments == {
         "required_count": 3
     }
@@ -248,33 +253,59 @@ def test_unknown_and_unavailable_results_are_stable_and_do_not_substitute() -> N
     }
 
 
-def test_calculator_is_unavailable_without_a_canonical_v2_detail() -> None:
+def test_calculator_discovery_exposes_the_canonical_deterministic_action() -> None:
     discovery = _discovery()
 
-    assert discovery.discover("calculator", HardRequestConstraints()).to_payload() == {
-        "status": "unavailable_category",
-        "category": "calculator",
-    }
-    assert discovery.selected_detail(
+    result = discovery.discover("calculator", HardRequestConstraints())
+
+    assert result.status is CapabilityDiscoveryStatus.DISCOVERED
+    assert result.summaries == (
+        {
+            "capability_id": "compute.deterministic",
+            "purpose": "Perform exact deterministic computation",
+            "source_family": "compute",
+            "availability": "available",
+            "read_only": True,
+            "typed_arguments_required": True,
+        },
+    )
+    detail = discovery.selected_detail(
         "compute.deterministic", HardRequestConstraints()
-    ).to_payload() == {
-        "status": "unavailable_capability",
-        "capability_id": "compute.deterministic",
+    )
+    assert detail.status is CapabilityDetailStatus.DISCLOSED
+    assert detail.source_ids == ()
+    assert detail.selected_capability_schema is not None
+    assert detail.selected_capability_schema["target_requirements"] == {
+        "kind": "none",
+        "required": False,
     }
+    assert detail.selected_capability_schema["source_requirements"] == {
+        "family": "compute",
+        "required": False,
+    }
+    constrained = discovery.discover(
+        "calculator",
+        HardRequestConstraints(source_constraints=(SourceConstraint.GRAFANA,)),
+    )
+    assert constrained.status is CapabilityDiscoveryStatus.DISCOVERED
 
 
 def test_unrelated_capabilities_do_not_inflate_host_discovery() -> None:
     host_only = _discovery().discover("host", HardRequestConstraints()).to_payload()
-    all_sources = _discovery(grafana=True, zabbix=True, internet=True).discover(
-        "host", HardRequestConstraints()
-    ).to_payload()
+    all_sources = (
+        _discovery(grafana=True, zabbix=True, internet=True)
+        .discover("host", HardRequestConstraints())
+        .to_payload()
+    )
 
     assert all_sources == host_only
 
 
 def test_disclosure_payloads_expose_no_command_credential_or_endpoint_fields() -> None:
     discovery = _discovery(grafana=True, zabbix=True, internet=True)
-    discovery_payload = discovery.discover("internet", HardRequestConstraints()).to_payload()
+    discovery_payload = discovery.discover(
+        "internet", HardRequestConstraints()
+    ).to_payload()
     detail = discovery.selected_detail(
         "internet.web_fetch", HardRequestConstraints()
     ).to_payload()
@@ -282,4 +313,6 @@ def test_disclosure_payloads_expose_no_command_credential_or_endpoint_fields() -
     forbidden = {"command", "commands", "credential", "credentials", "endpoint", "url"}
     assert not (_keys(discovery_payload) & forbidden)
     assert not (_keys(detail) & (forbidden - {"url"}))
-    assert "url" in detail["selected_capability_schema"]["arguments_schema"]["properties"]
+    assert (
+        "url" in detail["selected_capability_schema"]["arguments_schema"]["properties"]
+    )

@@ -13,6 +13,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from src.pipeline.calculator_action_contract import (
+    CALCULATOR_CAPABILITY_ID,
+    calculator_arguments_schema,
+)
 from src.pipeline.capability_summary_index import (
     CapabilityAvailability,
     CapabilityDataKind,
@@ -108,7 +112,9 @@ class ControllerCapabilityDiscovery:
         ids = [detail.summary.capability_id for detail in details]
         if len(ids) != len(set(ids)):
             raise ValueError("Controller capability IDs must be unique.")
-        self._index = CapabilitySummaryIndex(tuple(detail.summary for detail in details))
+        self._index = CapabilitySummaryIndex(
+            tuple(detail.summary for detail in details)
+        )
         self._details = {detail.summary.capability_id: detail for detail in details}
         self._by_category = {
             category: tuple(
@@ -127,7 +133,9 @@ class ControllerCapabilityDiscovery:
         }
 
     @classmethod
-    def from_knowledge_tool(cls, knowledge_tool: KnowledgeTool) -> ControllerCapabilityDiscovery:
+    def from_knowledge_tool(
+        cls, knowledge_tool: KnowledgeTool
+    ) -> ControllerCapabilityDiscovery:
         """Build a read-only projection from ``KnowledgeTool`` metadata only."""
 
         if not isinstance(knowledge_tool, KnowledgeTool):
@@ -145,14 +153,13 @@ class ControllerCapabilityDiscovery:
                 capability_id = detail.summary.capability_id
                 existing = details_by_id.get(capability_id)
                 if existing is None:
-                    details_by_id[capability_id] = replace(
-                        detail, source_ids=(source,)
-                    )
+                    details_by_id[capability_id] = replace(detail, source_ids=(source,))
                 elif source not in existing.source_ids:
                     details_by_id[capability_id] = replace(
                         existing, source_ids=existing.source_ids + (source,)
                     )
         details = list(details_by_id.values())
+        details.append(_calculator_detail())
         configured_categories = {detail.category for detail in details}
         details.extend(_unavailable_category_details(configured_categories))
         return cls(details)
@@ -171,7 +178,7 @@ class ControllerCapabilityDiscovery:
         if category not in CONTROLLER_CAPABILITY_CATEGORIES:
             return CapabilityDiscoveryResult(CapabilityDiscoveryStatus.UNKNOWN_CATEGORY)
         allowed = _allowed_categories(hard_constraints)
-        if allowed is not None and category not in allowed:
+        if allowed is not None and category not in allowed and category != "calculator":
             return CapabilityDiscoveryResult(
                 CapabilityDiscoveryStatus.UNAVAILABLE_CATEGORY, category
             )
@@ -203,7 +210,9 @@ class ControllerCapabilityDiscovery:
             raise TypeError("hard_constraints must be HardRequestConstraints.")
         detail = self._details.get(capability_id)
         if detail is None:
-            return SelectedCapabilityDetailResult(CapabilityDetailStatus.UNKNOWN_CAPABILITY)
+            return SelectedCapabilityDetailResult(
+                CapabilityDetailStatus.UNKNOWN_CAPABILITY
+            )
         if (
             detail.summary.availability is CapabilityAvailability.UNAVAILABLE
             or not _summary_allowed(detail.summary, hard_constraints)
@@ -253,6 +262,21 @@ def _detail_from_metadata(category: str, entry: Mapping[str, object]) -> _Detail
         ),
     )
     return _Detail(category, summary, _arguments_schema(entry))
+
+
+def _calculator_detail() -> _Detail:
+    """Return the deterministic calculator without inventing a tool source."""
+
+    summary = next(
+        item
+        for item in CapabilitySummaryIndex.default().summaries
+        if item.capability_id == CALCULATOR_CAPABILITY_ID
+    )
+    return _Detail(
+        "calculator",
+        replace(summary, typed_arguments_required=True),
+        calculator_arguments_schema(),
+    )
 
 
 def _unavailable_category_details(
@@ -361,7 +385,11 @@ def _property_schema(spec: Mapping[str, object] | None) -> dict[str, object]:
 
 
 def _metadata_sequence(value: object) -> Sequence[object]:
-    return value if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) else ()
+    return (
+        value
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+        else ()
+    )
 
 
 def _metadata_name(entry: Mapping[str, object]) -> str:
@@ -370,17 +398,38 @@ def _metadata_name(entry: Mapping[str, object]) -> str:
 
 
 def _category_for_source_kind(source_kind: str) -> str | None:
-    return {"linux": "host", "grafana": "grafana", "zabbix": "zabbix", "internet": "internet"}.get(source_kind)
+    return {
+        "linux": "host",
+        "grafana": "grafana",
+        "zabbix": "zabbix",
+        "internet": "internet",
+    }.get(source_kind)
 
 
 def _category_metadata(
     category: str,
 ) -> tuple[CapabilitySourceFamily, CapabilityTargetKind, CapabilityDataKind]:
     return {
-        "host": (CapabilitySourceFamily.LINUX, CapabilityTargetKind.MACHINE, CapabilityDataKind.LIVE_STATE),
-        "grafana": (CapabilitySourceFamily.GRAFANA, CapabilityTargetKind.MONITORING, CapabilityDataKind.METRIC),
-        "zabbix": (CapabilitySourceFamily.ZABBIX, CapabilityTargetKind.MONITORING, CapabilityDataKind.MONITORING),
-        "internet": (CapabilitySourceFamily.INTERNET, CapabilityTargetKind.EXTERNAL, CapabilityDataKind.CURRENT_EXTERNAL),
+        "host": (
+            CapabilitySourceFamily.LINUX,
+            CapabilityTargetKind.MACHINE,
+            CapabilityDataKind.LIVE_STATE,
+        ),
+        "grafana": (
+            CapabilitySourceFamily.GRAFANA,
+            CapabilityTargetKind.MONITORING,
+            CapabilityDataKind.METRIC,
+        ),
+        "zabbix": (
+            CapabilitySourceFamily.ZABBIX,
+            CapabilityTargetKind.MONITORING,
+            CapabilityDataKind.MONITORING,
+        ),
+        "internet": (
+            CapabilitySourceFamily.INTERNET,
+            CapabilityTargetKind.EXTERNAL,
+            CapabilityDataKind.CURRENT_EXTERNAL,
+        ),
     }[category]
 
 
@@ -393,14 +442,17 @@ def _allowed_categories(constraints: HardRequestConstraints) -> frozenset[str] |
     return frozenset(allowed) if allowed else None
 
 
-def _summary_allowed(summary: CapabilitySummary, constraints: HardRequestConstraints) -> bool:
+def _summary_allowed(
+    summary: CapabilitySummary, constraints: HardRequestConstraints
+) -> bool:
+    if summary.source_family is CapabilitySourceFamily.COMPUTE:
+        return True
     category = _category_for_family(summary.source_family)
     allowed = _allowed_categories(constraints)
     if allowed is not None and category not in allowed:
         return False
     excluded = {
-        _category_for_constraint(source)
-        for source in constraints.excluded_sources
+        _category_for_constraint(source) for source in constraints.excluded_sources
     }
     if SourceConstraint.NO_INTERNET in constraints.source_constraints:
         excluded.add("internet")
@@ -447,7 +499,9 @@ def _source_requirements(summary: CapabilitySummary) -> dict[str, object]:
 
 
 def _ensure_payload_limit(value: Mapping[str, object], maximum: int) -> None:
-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     if len(encoded.encode("utf-8")) > maximum:
         raise ValueError("Capability disclosure exceeds its deterministic byte limit.")
 

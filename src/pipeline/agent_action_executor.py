@@ -16,6 +16,12 @@ from src.pipeline.agent_action_validator import (
     AgentActionValidationResult,
     AgentActionValidationStatus,
 )
+from src.pipeline.basic_calculator import (
+    CalculatorContractResult,
+    CalculatorResultStatus,
+    calculate_request,
+)
+from src.pipeline.calculator_action_contract import CALCULATOR_CAPABILITY_ID
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
 from src.shared.execution.tool_result import ToolResult
@@ -40,6 +46,7 @@ class AgentActionExecutionReason(str, Enum):
     VALIDATION_NOT_VALID = "validation_not_valid"
     BUDGET_EXHAUSTED = "budget_exhausted"
     CAPABILITY_BINDING_UNAVAILABLE = "capability_binding_unavailable"
+    CALCULATED = "calculated"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +60,7 @@ class AgentActionExecutionResult:
     source_id: str | None = None
     tool_result: ToolResult | None = None
     evidence: EvidencePackage | None = None
+    calculator_result: CalculatorContractResult | None = None
     dispatched: bool = False
 
     @property
@@ -108,6 +116,9 @@ class AgentActionExecutor:
                 AgentActionExecutionReason.BUDGET_EXHAUSTED,
             )
 
+        if validation.capability_id == CALCULATOR_CAPABILITY_ID:
+            return self._calculate(validation, budget)
+
         route = self._bind_exact_route(validation)
         if route is None:
             return self._not_executed(
@@ -139,6 +150,36 @@ class AgentActionExecutor:
             source_id=route.source,
             tool_result=result,
             evidence=evidence,
+            dispatched=True,
+        )
+
+    @staticmethod
+    def _calculate(
+        validation: AgentActionValidationResult,
+        budget: AgentActionToolBudget,
+    ) -> AgentActionExecutionResult:
+        request = validation.calculator_request
+        if request is None:
+            return AgentActionExecutor._not_executed(
+                validation,
+                budget,
+                AgentActionExecutionReason.CAPABILITY_BINDING_UNAVAILABLE,
+            )
+        # This is the one authorized high-level v2 execution unit.  It does
+        # not dispatch through KnowledgeTool or any Child Tool.
+        next_budget = budget.after_execution()
+        result = calculate_request(request)
+        status = (
+            AgentActionExecutionStatus.SUCCESS
+            if result.status is CalculatorResultStatus.SUCCESS
+            else AgentActionExecutionStatus.FAILURE
+        )
+        return AgentActionExecutionResult(
+            validation=validation,
+            status=status,
+            reason=AgentActionExecutionReason.CALCULATED,
+            budget=next_budget,
+            calculator_result=result,
             dispatched=True,
         )
 
@@ -203,9 +244,7 @@ class AgentActionExecutor:
             return None
         return _BoundRoute(source, resource, matching[0])
 
-    def _dispatch(
-        self, route: _BoundRoute, arguments: dict[str, object]
-    ) -> ToolResult:
+    def _dispatch(self, route: _BoundRoute, arguments: dict[str, object]) -> ToolResult:
         try:
             result = self._knowledge_tool.execute(arguments)
             return replace(
