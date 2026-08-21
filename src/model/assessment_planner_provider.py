@@ -11,6 +11,10 @@ import json
 from collections.abc import Mapping
 
 from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.controller_adapter import (
+    ControllerProviderRequest,
+    ControllerProviderResponse,
+)
 from src.model.llm_client import LLMClient
 from src.model.semantic_planner_adapter import (
     PlannerProviderRequest,
@@ -51,6 +55,16 @@ _WIRE_HINT = (
 )
 
 PLANNER_MAX_OUTPUT_TOKENS = 512
+CONTROLLER_MAX_OUTPUT_TOKENS = 256
+
+# This is only for providers that do not expose native JSON Schema output.
+# The controller parser remains strict and authoritative.
+_CONTROLLER_WIRE_HINT = (
+    "JSON only. Return exactly one AgentDecision wire object with keys "
+    "v,k,g,c,a,f,q,r; v=1. k is final, discover, action, clarify, or refuse. "
+    "Exactly one matching body is non-null: final=f, discover=c, action=a, "
+    "clarify=q, refuse=r."
+)
 
 
 def _planner_generation_schema(
@@ -338,6 +352,78 @@ class AssessmentPlannerProvider:
         )
 
 
+class AssessmentControllerProvider:
+    """Use one existing assessment adapter for the isolated v2 controller."""
+
+    def __init__(self, model: AssessmentModelAdapter) -> None:
+        if not isinstance(model, AssessmentModelAdapter):
+            raise TypeError("model must be an AssessmentModelAdapter.")
+        self._model = model
+
+    def generate_controller(
+        self,
+        request: ControllerProviderRequest,
+    ) -> ControllerProviderResponse:
+        if not isinstance(request, ControllerProviderRequest):
+            raise TypeError("request must be ControllerProviderRequest.")
+
+        client = getattr(self._model, "_client", None)
+        if isinstance(client, LLMClient):
+            max_tokens = min(CONTROLLER_MAX_OUTPUT_TOKENS, client.max_tokens)
+            if client.supports_structured_output:
+                raw = client.generate(
+                    request.user_prompt,
+                    request_id=request.request_id,
+                    purpose=request.purpose.value,
+                    reasoning_effort=request.reasoning_effort,
+                    system_prompt=request.system_prompt,
+                    response_schema=request.response_schema,
+                    max_tokens=max_tokens,
+                )
+            else:
+                raw = client.generate(
+                    request.user_prompt,
+                    request_id=request.request_id,
+                    purpose=request.purpose.value,
+                    reasoning_effort=request.reasoning_effort,
+                    system_prompt=f"{request.system_prompt} {_CONTROLLER_WIRE_HINT}",
+                    json_object=client.supports_json_object_output,
+                    max_tokens=max_tokens,
+                )
+            usage = client.last_usage
+            fallback_provider = getattr(client, "_provider", "configured")
+            fallback_model = getattr(client, "_model", "configured")
+        else:
+            raw = self._model.assess_raw(
+                f"{request.system_prompt} {_CONTROLLER_WIRE_HINT}\n{request.user_prompt}"
+            )
+            usage = getattr(self._model, "last_usage", None)
+            fallback_provider = type(self._model).__name__
+            fallback_model = getattr(self._model, "_model", "configured")
+
+        normalized_usage = usage if isinstance(usage, ModelCallUsage) else None
+        return ControllerProviderResponse(
+            payload=raw,
+            provider=(
+                normalized_usage.provider
+                if normalized_usage is not None and normalized_usage.provider
+                else str(fallback_provider)
+            ),
+            model=(
+                normalized_usage.model
+                if normalized_usage is not None and normalized_usage.model
+                else str(fallback_model)
+            ),
+            raw_usage=_raw_usage(normalized_usage),
+            configured_effort=(
+                request.reasoning_effort
+                if normalized_usage is not None
+                and normalized_usage.configured_effort == request.reasoning_effort.value
+                else None
+            ),
+        )
+
+
 class UnconfiguredPlannerProvider:
     """Deterministic setup-mode planner: no model call and no tool authority."""
 
@@ -396,7 +482,9 @@ def _raw_usage(usage: ModelCallUsage | None) -> Mapping[str, object] | None:
 
 
 __all__ = [
+    "AssessmentControllerProvider",
     "AssessmentPlannerProvider",
+    "CONTROLLER_MAX_OUTPUT_TOKENS",
     "PLANNER_MAX_OUTPUT_TOKENS",
     "UnconfiguredPlannerProvider",
 ]
