@@ -18,6 +18,7 @@ from src.agent.controller_contracts import AgentAction
 from src.pipeline.controller_capability_discovery import (
     CapabilityDetailStatus,
     ControllerCapabilityDiscovery,
+    SelectedCapabilityDetailResult,
 )
 from src.pipeline.hard_request_constraints import (
     HardRequestConstraints,
@@ -104,6 +105,7 @@ class AgentActionValidationResult:
     normalized_arguments: Mapping[str, object] = field(
         default_factory=lambda: MappingProxyType({})
     )
+    source_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, AgentActionValidationStatus):
@@ -120,6 +122,10 @@ class AgentActionValidationResult:
             not isinstance(self.source_family, str) or not self.source_family
         ):
             raise ValueError("source_family must be non-empty text or None.")
+        if self.source_id is not None and (
+            not isinstance(self.source_id, str) or not self.source_id
+        ):
+            raise ValueError("source_id must be non-empty text or None.")
         if not isinstance(self.normalized_arguments, Mapping):
             raise TypeError("normalized_arguments must be a mapping.")
         object.__setattr__(
@@ -140,6 +146,7 @@ class AgentActionValidationResult:
             "capability_id": self.capability_id,
             "target_id": self.target_id,
             "source_family": self.source_family,
+            "source_id": self.source_id,
         }
 
 
@@ -205,6 +212,15 @@ class AgentActionValidator:
             return _result(
                 AgentActionValidationStatus.REJECT,
                 AgentActionValidationReason.SOURCE_FORBIDDEN,
+                action,
+                source_family=source_family,
+            )
+
+        source_id = _authorized_source_id(detail_result, source_family)
+        if source_family in {"grafana", "zabbix", "internet"} and source_id is None:
+            return _result(
+                AgentActionValidationStatus.UNAVAILABLE,
+                AgentActionValidationReason.CAPABILITY_UNAVAILABLE,
                 action,
                 source_family=source_family,
             )
@@ -301,6 +317,7 @@ class AgentActionValidator:
             target_id=target_id,
             source_family=source_family,
             normalized_arguments=normalized,
+            source_id=source_id,
         )
 
     def _validate_target(
@@ -404,6 +421,18 @@ def _source_family(constraint: SourceConstraint) -> str | None:
         SourceConstraint.INTERNET: "internet",
         SourceConstraint.URL_ONLY: "internet",
     }.get(constraint)
+
+
+def _authorized_source_id(
+    detail_result: SelectedCapabilityDetailResult,
+    source_family: str | None,
+) -> str | None:
+    """Return the single metadata-authorized source for source-backed actions."""
+
+    if source_family not in {"grafana", "zabbix", "internet"}:
+        return None
+    source_ids = detail_result.source_ids
+    return source_ids[0] if len(source_ids) == 1 else None
 
 
 def _validate_arguments(

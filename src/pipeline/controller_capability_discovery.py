@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from src.pipeline.capability_summary_index import (
@@ -77,6 +77,7 @@ class SelectedCapabilityDetailResult:
     status: CapabilityDetailStatus
     capability_id: str | None = None
     selected_capability_schema: dict[str, object] | None = None
+    source_ids: tuple[str, ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         if self.status is CapabilityDetailStatus.UNKNOWN_CAPABILITY:
@@ -95,6 +96,7 @@ class _Detail:
     category: str
     summary: CapabilitySummary
     arguments_schema: dict[str, object]
+    source_ids: tuple[str, ...] = ()
 
 
 class ControllerCapabilityDiscovery:
@@ -130,8 +132,7 @@ class ControllerCapabilityDiscovery:
 
         if not isinstance(knowledge_tool, KnowledgeTool):
             raise TypeError("knowledge_tool must be a KnowledgeTool.")
-        details: list[_Detail] = []
-        seen_ids: set[str] = set()
+        details_by_id: dict[str, _Detail] = {}
         metadata = knowledge_tool.get_capability_metadata()
         for source in sorted(metadata):
             category = _category_for_source_kind(knowledge_tool.source_kind(source))
@@ -139,10 +140,19 @@ class ControllerCapabilityDiscovery:
                 continue
             for entry in sorted(metadata[source], key=_metadata_name):
                 detail = _detail_from_metadata(category, entry)
-                if detail is None or detail.summary.capability_id in seen_ids:
+                if detail is None:
                     continue
-                seen_ids.add(detail.summary.capability_id)
-                details.append(detail)
+                capability_id = detail.summary.capability_id
+                existing = details_by_id.get(capability_id)
+                if existing is None:
+                    details_by_id[capability_id] = replace(
+                        detail, source_ids=(source,)
+                    )
+                elif source not in existing.source_ids:
+                    details_by_id[capability_id] = replace(
+                        existing, source_ids=existing.source_ids + (source,)
+                    )
+        details = list(details_by_id.values())
         configured_categories = {detail.category for detail in details}
         details.extend(_unavailable_category_details(configured_categories))
         return cls(details)
@@ -215,6 +225,7 @@ class ControllerCapabilityDiscovery:
             CapabilityDetailStatus.DISCLOSED,
             capability_id,
             selected_schema,
+            detail.source_ids,
         )
 
 

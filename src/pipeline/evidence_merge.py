@@ -81,72 +81,92 @@ class EvidenceMerge:
             # original evidence requirement and keep their own source receipt.
             base_capability = cap_name.partition("::")[0]
             ev_name = ev_name_by_cap.get(base_capability, cap_name)
-            status = result.capability_status or (
-                CapabilityStatus.VALID
-                if result.success
-                else CapabilityStatus.COLLECTION_FAILED
-            )
-            is_valid = status in (
-                CapabilityStatus.VALID,
-                CapabilityStatus.VALID_EMPTY,
-            )
-            actual_source_kind = result.source_kind or source_tool
             packages.append(
-                EvidencePackage(
+                self.package_from_result(
                     capability_name=cap_name,
                     evidence_name=ev_name,
-                    data=(
-                        result.data
-                        if is_valid or status is CapabilityStatus.PARTIAL
-                        else None
-                    ),
-                    success=is_valid,
-                    error=result.error if not is_valid else None,
-                    source_tool=actual_source_kind,
-                    status=status,
-                    command_results=(
-                        result.command_results if self._structured_command_result else ()
-                    ),
-                    warnings=result.warnings,
-                    produced_fact_names=result.produced_fact_names,
-                    collection_failures=(
-                        (result.error,)
-                        if result.error is not None and not is_valid
-                        else ()
-                    ),
-                    capability_error=result.capability_error,
-                    facts=(
-                        self._normalizers.normalize(
-                            source_kind=actual_source_kind,
-                            capability=cap_name,
-                            resource=result.resource,
-                            data=result.data,
-                            status=status,
-                            target=request.target or result.source or "localhost",
-                            command_results=(
-                                result.command_results
-                                if self._structured_command_result
-                                else ()
-                            ),
-                            parameters=result.parameters,
-                            produced_fact_names=result.produced_fact_names,
-                            schema_version=result.schema_version,
-                        )
-                        if self._canonical_facts
-                        else ()
-                    ),
-                    source=result.source,
-                    resource=result.resource,
-                    parameters=result.parameters,
+                    result=result,
+                    target=request.target or result.source or "localhost",
+                    source_tool=source_tool,
                     timeframe=getattr(request.request_frame, "timeframe", None),
-                    schema_version=result.schema_version,
-                    recovery_attempts=result.recovery_attempts,
-                    recovered_by=result.recovered_by,
                 )
             )
 
         request.evidence = packages
         self.rebuild_fact_set(request)
+
+    def package_from_result(
+        self,
+        *,
+        capability_name: str,
+        evidence_name: str,
+        result: ToolResult,
+        target: str,
+        source_tool: str | None = None,
+        timeframe: object | None = None,
+    ) -> EvidencePackage:
+        """Build one normal evidence receipt without an investigation plan.
+
+        Runtime adapters that already have one reviewed ``ToolResult`` use
+        this shared conversion so failure, partial-data, Fact, and provenance
+        semantics remain identical to ordinary execution-engine collection.
+        """
+
+        status = result.capability_status or (
+            CapabilityStatus.VALID
+            if result.success
+            else CapabilityStatus.COLLECTION_FAILED
+        )
+        is_valid = status in (CapabilityStatus.VALID, CapabilityStatus.VALID_EMPTY)
+        actual_source_kind = result.source_kind or source_tool
+        command_results = (
+            result.command_results if self._structured_command_result else ()
+        )
+        return EvidencePackage(
+            capability_name=capability_name,
+            evidence_name=evidence_name,
+            data=(
+                result.data
+                if is_valid or status is CapabilityStatus.PARTIAL
+                else None
+            ),
+            success=is_valid,
+            error=result.error if not is_valid else None,
+            source_tool=actual_source_kind,
+            status=status,
+            command_results=command_results,
+            warnings=result.warnings,
+            produced_fact_names=result.produced_fact_names,
+            collection_failures=(
+                (result.error,)
+                if result.error is not None and not is_valid
+                else ()
+            ),
+            capability_error=result.capability_error,
+            facts=(
+                self._normalizers.normalize(
+                    source_kind=actual_source_kind,
+                    capability=capability_name,
+                    resource=result.resource,
+                    data=result.data,
+                    status=status,
+                    target=target,
+                    command_results=command_results,
+                    parameters=result.parameters,
+                    produced_fact_names=result.produced_fact_names,
+                    schema_version=result.schema_version,
+                )
+                if self._canonical_facts
+                else ()
+            ),
+            source=result.source,
+            resource=result.resource,
+            parameters=result.parameters,
+            timeframe=timeframe,
+            schema_version=result.schema_version,
+            recovery_attempts=result.recovery_attempts,
+            recovered_by=result.recovered_by,
+        )
 
     def rebuild_fact_set(self, request: InvestigationRequest) -> None:
         """Reconcile all packages after cached and newly collected evidence merge."""
