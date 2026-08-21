@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 
+from src.pipeline.hard_request_constraints import HardRequestConstraints
 from src.pipeline.input_context_budget import (
     InputContextBudgetClass,
     InputContextBudgetPolicy,
@@ -58,6 +59,40 @@ _PLANNER_SYSTEM_PROMPT = (
     "or one live lookup, is never multi_intent and MUST NOT contain a subplan. "
     "Never emit commands, credentials, tool schemas, evidence, hidden "
     "reasoning, or prose outside a."
+)
+
+_PLANNER_V2_SYSTEM_PROMPT = (
+    "Return one OrionPlannerOutputV1 JSON object matching the schema. "
+    "The user JSON contains the original request, bounded session context, "
+    "and an enforceable hard_constraints snapshot. The plan is advisory and "
+    "the harness remains authoritative for safety, targets, sources, "
+    "freshness, capabilities, and execution. Preserve concrete hard "
+    "constraints, but decide the request's domain, intent, concepts, "
+    "calculation, and route from the original request yourself. "
+    "A hard target with registered_target is an exact configured identity; "
+    "a target with null registered_target is an explicit unresolved reference. "
+    "Never turn an absent target into localhost. Keep explicit URLs only in u "
+    "and source constraints only in s/x. Use null for absent nullable text "
+    "fields t.v,m,c,svc,p,u,q.f; never put answer prose or placeholder words "
+    "such as unknown/none/null into them. m is only a requested measurement; "
+    "c is only a conceptual subject. s is allowed/required sources and x is "
+    "explicit exclusions; never place one source in both. For a greeting or "
+    "trivial stable general request: direct_answer/general/explain, target "
+    "unspecified with null value, s=[any], x=[], freshness=stable, "
+    "dc=not_required, calc=null, q.s=not_required, q.f=null; put answer prose "
+    "only in a. For a calculation, select the calculator contract only when "
+    "the request warrants it. For live environment inspection: "
+    "capability_assisted/environment/inspect_read_only, explicit or inherited "
+    "target as indicated, freshness=current, dc=not_required, calc=null, "
+    "a=null. For environment mutation: capability_assisted/action/"
+    "mutate_environment and a=null. For external current information preserve "
+    "its external/source and freshness requirements. For coordinated requests "
+    "use multi_intent with 2-4 complete non-recursive subplans depending only "
+    "on earlier ones. For every route other than multi_intent, sp MUST be "
+    "exactly []. A single question, including an explanation, calculation, "
+    "rewrite, code request, or one live lookup, is never multi_intent and MUST "
+    "NOT contain a subplan. Never emit commands, credentials, tool schemas, "
+    "evidence, hidden reasoning, or prose outside a."
 )
 
 
@@ -289,6 +324,81 @@ def build_semantic_planner_prompt(
     )
 
 
+def build_semantic_planner_v2_prompt(
+    raw_request: str,
+    *,
+    context: PlannerPromptContext | None = None,
+    hard_constraints: HardRequestConstraints | None = None,
+) -> SemanticPlannerPrompt:
+    """Build the primary v2 prompt without ``Normalizer`` semantic hints.
+
+    The hard snapshot is intentionally limited to independently enforceable
+    facts.  It does not decide a request's domain, concept, capability, or
+    calculator operation before the model receives the original text.
+    """
+    if not isinstance(raw_request, str) or not raw_request.strip():
+        raise ValueError("Planner request must be non-empty text.")
+    if len(raw_request) > MAX_PLANNER_REQUEST_CHARS:
+        raise ValueError(
+            f"Planner request exceeds {MAX_PLANNER_REQUEST_CHARS} characters."
+        )
+    if context is not None and not isinstance(context, PlannerPromptContext):
+        raise TypeError("context must be PlannerPromptContext or None.")
+    if hard_constraints is None:
+        hard_constraints = HardRequestConstraints()
+    if not isinstance(hard_constraints, HardRequestConstraints):
+        raise TypeError("hard_constraints must be HardRequestConstraints or None.")
+
+    request_payload = json.dumps(
+        {
+            "request": raw_request,
+            "hard_constraints": hard_constraints.to_dict(),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    optional_sections: tuple[InputContextSection, ...] = ()
+    context_payload: dict[str, object] | None = None
+    if context is not None:
+        compact_context = _compact_context(context)
+        if compact_context:
+            context_payload = compact_context
+            context_fragment = ',"context":' + json.dumps(
+                compact_context, ensure_ascii=False, separators=(",", ":")
+            )
+            optional_sections = (
+                InputContextSection("session_context", context_fragment),
+            )
+
+    budget = InputContextBudgetPolicy.for_class(InputContextBudgetClass.SIMPLE)
+    enforced = budget.enforce(
+        mandatory=(
+            InputContextSection("system_prompt", _PLANNER_V2_SYSTEM_PROMPT),
+            InputContextSection("request_payload", request_payload),
+        ),
+        optional=optional_sections,
+    )
+
+    user_prompt = request_payload
+    if context_payload is not None and "session_context" in enforced.optional_included:
+        user_prompt = json.dumps(
+            {
+                "request": raw_request,
+                "hard_constraints": hard_constraints.to_dict(),
+                "context": context_payload,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    return SemanticPlannerPrompt(
+        system_prompt=_PLANNER_V2_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        response_schema=planner_output_json_schema(),
+        estimated_input_tokens=enforced.estimated_input_tokens,
+        input_budget_class=budget.budget_class.value,
+    )
+
+
 def planner_context_to_dict(context: PlannerPromptContext) -> dict[str, object]:
     """Return the same bounded allowlisted context used by planner prompts."""
 
@@ -361,5 +471,6 @@ __all__ = [
     "PlannerPromptContext",
     "SemanticPlannerPrompt",
     "build_semantic_planner_prompt",
+    "build_semantic_planner_v2_prompt",
     "planner_context_to_dict",
 ]

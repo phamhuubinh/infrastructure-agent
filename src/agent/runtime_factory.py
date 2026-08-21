@@ -14,6 +14,7 @@ from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
 from src.model.semantic_planner_adapter import SemanticPlannerAdapter
 from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
+from src.pipeline.hard_request_constraints import HardRequestConstraintsBuilder
 
 if TYPE_CHECKING:
     from src.model.providers.registry import ProviderRegistry
@@ -436,18 +437,24 @@ def _build_provider_registry(
 
 def _build_semantic_planner(
     assessment_adapter: AssessmentModelAdapter,
+    *,
+    target_resolver: TargetResolver | None = None,
 ) -> SemanticPlannerAdapter:
     """Build one session-local semantic planner from the selected model chain."""
 
     if isinstance(assessment_adapter, UnconfiguredAssessmentAdapter):
-        return SemanticPlannerAdapter((UnconfiguredPlannerProvider(),))
+        return SemanticPlannerAdapter(
+            (UnconfiguredPlannerProvider(),),
+            hard_constraints_builder=HardRequestConstraintsBuilder(target_resolver),
+        )
 
     nested = getattr(assessment_adapter, "adapters", None)
     models = (
         tuple(nested) if isinstance(nested, list) and nested else (assessment_adapter,)
     )
     return SemanticPlannerAdapter(
-        tuple(AssessmentPlannerProvider(model) for model in models)
+        tuple(AssessmentPlannerProvider(model) for model in models),
+        hard_constraints_builder=HardRequestConstraintsBuilder(target_resolver),
     )
 
 
@@ -529,9 +536,10 @@ def create_deterministic_agent(
 
     feature_flags = FeatureFlagStore().load()
     evidence_cache = EvidenceCache()
+    target_resolver = TargetResolver(target_registry=registry)
     engine = ExecutionEngine(
         intent_resolver=IntentResolver(),
-        target_resolver=TargetResolver(target_registry=registry),
+        target_resolver=target_resolver,
         evidence_planner=EvidencePlanner(),
         capability_resolver=CapabilityResolver(),
         execution_planner=ExecutionPlanner(),
@@ -580,7 +588,10 @@ def create_deterministic_agent(
                 assessment_adapter = primary_adapter
 
     assert assessment_adapter is not None
-    semantic_planner = _build_semantic_planner(assessment_adapter)
+    semantic_planner = _build_semantic_planner(
+        assessment_adapter,
+        target_resolver=target_resolver,
+    )
 
     agent = DeterministicAgent(
         execution_engine=engine,

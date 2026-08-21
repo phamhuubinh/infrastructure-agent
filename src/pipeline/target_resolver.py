@@ -623,6 +623,57 @@ class TargetResolver:
         )
         return resolved
 
+    def extract_hard_constraint_target(
+        self,
+        raw_request: str,
+    ) -> tuple[str | None, str | None]:
+        """Return a literal request target and an exact registry resolution.
+
+        This deliberately narrow scanner is for the model-input hard-constraint
+        snapshot.  Unlike :meth:`resolve_explicit_request_target`, it never
+        applies name-pattern normalization, fuzzy matching, or an implicit
+        localhost default.  Its second return value is therefore present only
+        for an exact registered target or configured active alias.
+        """
+        if not isinstance(raw_request, str) or not raw_request.strip():
+            raise ValueError("raw_request must be non-empty text.")
+
+        self._ensure_loaded()
+        known_names, domain_names = self._known_targets()
+        domain_set = {
+            normalize_lexical_text(name) for name in domain_names
+        }
+        targets_by_normalized = {
+            normalize_lexical_text(name): name
+            for name in known_names
+            if normalize_lexical_text(name) not in domain_set
+        }
+        raw = normalize_lexical_text(raw_request)
+        words = self._extract_words(raw)
+
+        for word in words:
+            target = targets_by_normalized.get(word)
+            if target is not None:
+                return word, target
+
+        if self._alias_store is not None:
+            for word in words:
+                alias = self._alias_store.resolve(
+                    word,
+                    session_id=self._session_id,
+                    user_id=self._user_id,
+                    project_id=self._project_id,
+                )
+                if alias is not None and alias.target in targets_by_normalized.values():
+                    return word, alias.target
+
+        if "localhost" in targets_by_normalized.values():
+            for synonym in self._localhost_synonyms:
+                normalized = normalize_lexical_text(synonym)
+                if normalized and re.search(rf"\b{re.escape(normalized)}\b", raw):
+                    return normalized, "localhost"
+        return None, None
+
     def _resolve_explicit(
         self,
         raw_target: str,

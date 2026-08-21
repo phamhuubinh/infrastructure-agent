@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import fields, replace
 
 import pytest
@@ -81,6 +82,25 @@ def test_openai_compatible_json_response_produces_valid_plan(
     assert request.purpose is ModelCallPurpose.PLANNER
     assert request.request_id == "req-1"
     assert request.response_schema["title"] == "OrionPlannerOutputV1"
+
+
+def test_primary_adapter_uses_v2_hard_constraints_not_legacy_hints(
+    greeting_plan: SemanticPlan,
+) -> None:
+    provider = FakeStructuredProvider(
+        PlannerProviderResponse(
+            payload=semantic_plan_to_json(greeting_plan),
+            provider="test",
+            model="planner-model",
+        )
+    )
+
+    SemanticPlannerAdapter([provider]).plan("Tính 15% của 2 triệu.")
+
+    payload = json.loads(provider.requests[0].user_prompt)
+    assert "hints" not in payload
+    assert "hard_constraints" in payload
+    assert "calculation" not in payload["hard_constraints"]
 
 
 def test_anthropic_style_object_response_produces_same_plan(

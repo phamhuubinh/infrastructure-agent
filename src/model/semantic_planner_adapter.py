@@ -16,13 +16,14 @@ from typing import Protocol, runtime_checkable
 
 from src.model.protocol.semantic_planner_prompt import (
     PlannerPromptContext,
-    build_semantic_planner_prompt,
+    build_semantic_planner_v2_prompt,
 )
 from src.model.reasoning_effort import (
     ModelRequestClass,
     ReasoningEffort,
     ReasoningEffortPolicy,
 )
+from src.pipeline.hard_request_constraints import HardRequestConstraintsBuilder
 from src.pipeline.request_semantics import (
     ExecutionIntent,
     RequestDomain,
@@ -236,6 +237,7 @@ class SemanticPlannerAdapter:
         providers: Sequence[StructuredPlannerProvider],
         *,
         timeout_seconds: float = 30.0,
+        hard_constraints_builder: HardRequestConstraintsBuilder | None = None,
     ) -> None:
         if len(providers) > MAX_PLANNER_PROVIDERS:
             raise ValueError(
@@ -250,6 +252,9 @@ class SemanticPlannerAdapter:
                 )
         self._providers = tuple(providers)
         self._timeout_seconds = float(timeout_seconds)
+        self._hard_constraints_builder = (
+            hard_constraints_builder or HardRequestConstraintsBuilder()
+        )
 
     def plan(
         self,
@@ -260,7 +265,11 @@ class SemanticPlannerAdapter:
     ) -> SemanticPlannerResult:
         """Request and strictly validate one semantic plan."""
 
-        prompt = build_semantic_planner_prompt(raw_request, context=context)
+        prompt = build_semantic_planner_v2_prompt(
+            raw_request,
+            context=context,
+            hard_constraints=self._hard_constraints_builder.build(raw_request),
+        )
         if not self._providers:
             raise SemanticPlannerError(())
 

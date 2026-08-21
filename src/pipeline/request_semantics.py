@@ -606,9 +606,10 @@ class RequestSemanticsClassifier:
             return None, "Malformed HTTP/HTTPS URL."
         return candidate, None
 
-    def _source_constraints(
+    def _explicit_source_constraints(
         self, lower: str
     ) -> tuple[tuple[SourceConstraint, ...], tuple[SourceConstraint, ...]]:
+        """Parse only explicit source-only directives and exclusions."""
         allowed: list[SourceConstraint] = []
         excluded: list[SourceConstraint] = []
 
@@ -703,6 +704,22 @@ class RequestSemanticsClassifier:
             if any(phrase in lower for phrase in phrases):
                 excluded.append(source)
 
+        return (
+            tuple(dict.fromkeys(allowed)) or (SourceConstraint.ANY,),
+            tuple(dict.fromkeys(excluded)),
+        )
+
+    def _source_constraints(
+        self, lower: str
+    ) -> tuple[tuple[SourceConstraint, ...], tuple[SourceConstraint, ...]]:
+        """Parse legacy source constraints, including reviewed comparisons."""
+        explicit_allowed, excluded = self._explicit_source_constraints(lower)
+        allowed = [
+            source
+            for source in explicit_allowed
+            if source is not SourceConstraint.ANY
+        ]
+
         # A named Grafana/Zabbix comparison is a reviewed multi-source allow-set,
         # not a request to fall back to an arbitrary third source.
         comparison = ("so sánh", "compare", " versus ", " vs ")
@@ -722,7 +739,7 @@ class RequestSemanticsClassifier:
 
         return (
             tuple(dict.fromkeys(allowed)) or (SourceConstraint.ANY,),
-            tuple(dict.fromkeys(excluded)),
+            excluded,
         )
 
     @staticmethod
