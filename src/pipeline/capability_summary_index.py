@@ -59,6 +59,8 @@ class CapabilitySummary:
     target_kind: CapabilityTargetKind
     data_kind: CapabilityDataKind
     availability: CapabilityAvailability = CapabilityAvailability.AVAILABLE
+    read_only: bool = True
+    typed_arguments_required: bool = False
 
     def __post_init__(self) -> None:
         if not _CAPABILITY_ID.fullmatch(self.capability_id):
@@ -78,6 +80,10 @@ class CapabilitySummary:
         for value, enum_type, field in enum_values:
             if not isinstance(value, enum_type):
                 raise TypeError(f"{field} must be a {enum_type.__name__} value.")
+        if type(self.read_only) is not bool:
+            raise TypeError("read_only must be a bool.")
+        if type(self.typed_arguments_required) is not bool:
+            raise TypeError("typed_arguments_required must be a bool.")
 
     def to_prompt_dict(self) -> dict[str, str]:
         return {
@@ -88,6 +94,21 @@ class CapabilitySummary:
             "data": self.data_kind.value,
             "availability": self.availability.value,
         }
+
+    def to_discovery_dict(self) -> dict[str, object]:
+        """Return the allowlisted summary projection for controller discovery."""
+
+        result: dict[str, object] = {
+            "capability_id": self.capability_id,
+            "purpose": self.purpose,
+            "source_family": self.source_family.value,
+            "availability": self.availability.value,
+            "read_only": self.read_only,
+            "typed_arguments_required": self.typed_arguments_required,
+        }
+        if self.target_kind is not CapabilityTargetKind.NONE:
+            result["target_kind"] = self.target_kind.value
+        return result
 
 
 class CapabilitySummaryIndex:

@@ -23,6 +23,9 @@ from src.agent.controller_contracts import (
     MAX_TEXT_CHARS,
     AgentRunState,
 )
+from src.pipeline.controller_capability_discovery import (
+    CONTROLLER_CAPABILITY_CATEGORIES,
+)
 from src.pipeline.hard_request_constraints import HardRequestConstraints
 from src.pipeline.input_context_budget import (
     InputContextBudgetClass,
@@ -37,14 +40,6 @@ MAX_CONTROLLER_CAPABILITY_SUMMARIES = 16
 MAX_CONTROLLER_CAPABILITY_SUMMARY_BYTES = 1_024
 MAX_CONTROLLER_SELECTED_SCHEMA_BYTES = 2_048
 MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES = 1_024
-
-CONTROLLER_CAPABILITY_CATEGORIES = (
-    "host",
-    "grafana",
-    "zabbix",
-    "internet",
-    "calculator",
-)
 
 _CONTROLLER_SYSTEM_PROMPT = (
     "Answer directly when no external or tool work is needed. "
