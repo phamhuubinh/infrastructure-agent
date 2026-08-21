@@ -50,6 +50,12 @@ _HARD_SOURCE_CONSTRAINT = re.compile(
 _MIN_VIABILITY_CASES = 3
 _DOMINANT_FAILURE_RATE = 0.80
 _MAX_MALFORMED_PLANNER_OUTPUT_RATE = 0.20
+# The reviewed full corpus contains deliberately negative/unsafe cases, so a
+# tool-path gate measures only cases explicitly expected to execute a tool.
+# Five percent is intentionally conservative: it catches a provider/runtime
+# collapse such as 2 successful executions out of 149 required cases, without
+# requiring every representative capability to be available in one run.
+_MIN_REQUIRED_TOOL_SUCCESS_RATE = 0.05
 
 _EARLY_SAFETY_REQUEST = re.compile(
     r"system prompt|api key|password|/etc/shadow|private ssh key|"
@@ -68,6 +74,9 @@ class QaCase:
     id: str
     suite: str
     question: str
+    # Reviewed fixtures may opt out of heuristic classification, notably for
+    # intentional unknown-target and unsafe-request negatives.
+    requires_tool_execution: bool | None = None
 
 
 def _read_questions(path: Path) -> list[str]:
@@ -415,7 +424,8 @@ def _runtime_viability_summary(records: list[dict[str, object]]) -> dict[str, ob
         if terminal_state == "DONE":
             actual_tool_calls = _non_negative_int(loop.get("actual_tool_calls"))
             if actual_tool_calls:
-                successful_tool_execution_count += 1
+                if _requires_tool_execution(record):
+                    successful_tool_execution_count += 1
             else:
                 successful_direct_answer_count += 1
 
@@ -451,8 +461,11 @@ def _runtime_viability_summary(records: list[dict[str, object]]) -> dict[str, ob
             reasons.append("technical_fallback_responses_dominate")
         if model_required_case_count and model_execution_count == 0:
             reasons.append("zero_model_execution_for_required_cases")
-        if tool_required_case_count and successful_tool_execution_count == 0:
-            reasons.append("zero_successful_tool_execution_for_required_cases")
+        if tool_required_case_count and (
+            successful_tool_execution_count / tool_required_case_count
+            < _MIN_REQUIRED_TOOL_SUCCESS_RATE
+        ):
+            reasons.append("required_tool_execution_rate_below_threshold")
         status = "FAIL" if reasons else "PASS"
 
     return {
@@ -471,6 +484,11 @@ def _runtime_viability_summary(records: list[dict[str, object]]) -> dict[str, ob
         "model_execution_count": model_execution_count,
         "model_required_case_count": model_required_case_count,
         "tool_required_case_count": tool_required_case_count,
+        "required_tool_success_rate": (
+            successful_tool_execution_count / tool_required_case_count
+            if tool_required_case_count
+            else None
+        ),
     }
 
 

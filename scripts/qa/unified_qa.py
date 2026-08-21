@@ -128,7 +128,17 @@ RUNTIME_STAGES = (
     QaStage(
         "docker_build_start",
         "Build/start the intended Docker runtime once",
-        ("docker", "compose", "up", "--build", "-d"),
+        (
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.qa.yml",
+            "up",
+            "--build",
+            "-d",
+        ),
         runtime_only=True,
     ),
     QaStage(
@@ -683,7 +693,17 @@ def main() -> int:
     # Runtime phase: one Docker build/start, attestation, then the 386 Q&A.
     # ------------------------------------------------------------------
     docker_result = _run_subprocess(
-        ("docker", "compose", "up", "--build", "-d"),
+        (
+            "docker",
+            "compose",
+            "-f",
+            "docker-compose.yml",
+            "-f",
+            "docker-compose.qa.yml",
+            "up",
+            "--build",
+            "-d",
+        ),
         run_dir=run_dir,
         stage_id="docker_build_start",
     )

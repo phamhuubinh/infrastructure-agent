@@ -105,6 +105,25 @@ class TestLLMClient:
         }
 
     @mock.patch("urllib.request.urlopen")
+    def test_generate_with_json_object_mode(self, mock_urlopen: mock.Mock) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "{}"}}]}'
+        )
+
+        LLMClient(model="qwen").generate("test prompt", json_object=True)
+
+        import json
+
+        request = mock_urlopen.call_args[0][0]
+        assert json.loads(request.data)["response_format"] == {"type": "json_object"}
+
+    def test_qwen_keeps_the_native_schema_mode_proven_by_its_endpoint(self) -> None:
+        client = LLMClient(model="Qwen2.5")
+
+        assert client.supports_structured_output
+        assert client.supports_json_object_output
+
+    @mock.patch("urllib.request.urlopen")
     def test_generate_accepts_a_smaller_per_call_output_cap(
         self, mock_urlopen: mock.Mock
     ) -> None:

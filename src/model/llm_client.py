@@ -14,6 +14,8 @@ from src.shared.logger import error as log_error
 
 def _extract_provider(base_url: str, model: str = "") -> str:
     u = base_url.lower()
+    if "qwen" in model.lower():
+        return "qwen"
     if "ollama" in u:
         return "ollama"
     if "vllm" in model.lower() or "vllm" in u:
@@ -38,6 +40,7 @@ class LLMClient:
         max_tokens: int = 2048,
         supports_reasoning_effort: bool = False,
         supports_structured_output: bool | None = None,
+        supports_json_object_output: bool | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v1"):
@@ -61,6 +64,15 @@ class LLMClient:
             if supports_structured_output is None
             else supports_structured_output
         )
+        if supports_json_object_output is not None and not isinstance(
+            supports_json_object_output, bool
+        ):
+            raise TypeError("supports_json_object_output must be bool or None.")
+        self._supports_json_object_output = (
+            self._provider != "ollama"
+            if supports_json_object_output is None
+            else supports_json_object_output
+        )
 
     @property
     def last_usage(self) -> ModelCallUsage | None:
@@ -71,6 +83,12 @@ class LLMClient:
         """Whether this endpoint accepts OpenAI-compatible JSON Schema output."""
 
         return self._supports_structured_output
+
+    @property
+    def supports_json_object_output(self) -> bool:
+        """Whether the endpoint supports the broadly compatible JSON-object mode."""
+
+        return self._supports_json_object_output
 
     @property
     def max_tokens(self) -> int:
@@ -86,6 +104,7 @@ class LLMClient:
         purpose: str | None = None,
         reasoning_effort: ReasoningEffort | None = None,
         response_schema: dict[str, object] | None = None,
+        json_object: bool = False,
         max_tokens: int | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
@@ -110,6 +129,10 @@ class LLMClient:
             "max_tokens": output_token_limit,
             "stream": False,
         }
+        if not isinstance(json_object, bool):
+            raise TypeError("json_object must be bool.")
+        if response_schema is not None and json_object:
+            raise ValueError("response_schema and json_object are mutually exclusive.")
         if response_schema is not None:
             if not isinstance(response_schema, dict):
                 raise TypeError("response_schema must be a dict or None.")
@@ -121,6 +144,8 @@ class LLMClient:
                     "schema": response_schema,
                 },
             }
+        elif json_object:
+            payload["response_format"] = {"type": "json_object"}
 
         configured_effort: str | None = None
         if reasoning_effort is not None:
@@ -235,6 +260,9 @@ class LLMClient:
             raise RuntimeError(msg)
 
         content = message.get("content")
+        finish_reason = first.get("finish_reason")
+        if not isinstance(finish_reason, str):
+            finish_reason = None
         if not isinstance(content, str):
             msg = "LLM API returned no content in message"
             raise RuntimeError(msg)
@@ -252,12 +280,6 @@ class LLMClient:
             latency_ms=elapsed_ms,
             configured_effort=configured_effort,
         )
-
-        finish_reason: str | None = None
-        if isinstance(first, dict):
-            fr = first.get("finish_reason")
-            if isinstance(fr, str):
-                finish_reason = fr
 
         info(
             "llm",

@@ -286,7 +286,21 @@ class Normalizer:
         # 2 groups (concept + action) → 1.0 if both found, 0.5 if one found.
         confidence = (len(concept_syns) > 0) * 0.5 + (len(action_syns) > 0) * 0.5
 
-        target_raw = self._extract_target(user_request)
+        # First classify without a candidate target.  Otherwise an ordinary
+        # preposition in a meta/policy question (for example "trên model")
+        # can manufacture a target and make the classifier call its own
+        # false positive an environment request.
+        preliminary_semantics = RequestSemanticsClassifier().classify(
+            user_request,
+            concepts=tuple(concepts),
+            target_raw=None,
+        )
+        target_raw = (
+            self._extract_target(user_request)
+            if preliminary_semantics.domain
+            in {RequestDomain.ENVIRONMENT, RequestDomain.ACTION}
+            else None
+        )
         params = ParameterExtractor().extract(user_request)
         answer_type = AnswerTypeClassifier().classify(
             user_request,
@@ -531,6 +545,19 @@ class Normalizer:
 
         Returns None if no target-like word is found.
         """
+        # Inherent local-machine wording is an explicit identity, not an
+        # unknown target and not a general fallback.  It is deliberately
+        # limited to reviewed local aliases; arbitrary missing targets still
+        # return None and are handled by the normal clarification policy.
+        if re.search(
+            r"\b(?:this|current|local)\s+(?:machine|host|server)\b|"
+            r"(?:máy|server)\s+(?:này|hiện tại)\b|"
+            r"(?:của|trên)\s+(?:máy|server)\b",
+            raw,
+            re.IGNORECASE,
+        ):
+            return "localhost"
+
         # The explicit English target label carries more authority than a
         # later Vietnamese possessive marker. Without this priority,
         # "CPU của target monitor" incorrectly became target="target".

@@ -53,6 +53,9 @@ _PLANNER_SYSTEM_PROMPT = (
     "and a=null. For external current information preserve its external/source "
     "and freshness requirements. For coordinated requests use multi_intent "
     "with 2-4 complete non-recursive subplans depending only on earlier ones. "
+    "For every route other than multi_intent, sp MUST be exactly []. A single "
+    "question, including an explanation, calculation, rewrite, code request, "
+    "or one live lookup, is never multi_intent and MUST NOT contain a subplan. "
     "Never emit commands, credentials, tool schemas, evidence, hidden "
     "reasoning, or prose outside a."
 )
@@ -166,6 +169,49 @@ def _request_hints(raw_request: str) -> dict[str, object]:
             "operation": "percent_of",
             "percent": pct,
             "base_value": base,
+        }
+
+    remaining_match = re.search(
+        r"(?:có|co|has)\s*(?P<total>\d+(?:[.,]\d+)?)\s*(?:gb)?[\s\S]{0,80}?"
+        r"(?:đang dùng|dang dung|used)\s*(?P<used>\d+(?:[.,]\d+)?)\s*(?:gb)?[\s\S]{0,80}?"
+        r"(?:còn lại|con lai|remaining|left)",
+        raw_request,
+        re.IGNORECASE,
+    )
+    if remaining_match:
+        hints["deterministic_compute"] = "required"
+        hints["calculation"] = {
+            "operation": "subtract",
+            "left": remaining_match.group("total").replace(",", "."),
+            "right": remaining_match.group("used").replace(",", "."),
+        }
+
+    percent_values = re.findall(r"\d+(?:[.,]\d+)?(?=\s*%)", raw_request)
+    if (
+        any(marker in raw_request.casefold() for marker in ("trung bình", "trung binh", "average"))
+        and 2 <= len(percent_values) <= 8
+    ):
+        hints["deterministic_compute"] = "required"
+        hints["calculation"] = {
+            "operation": "average",
+            "values": [item.replace(",", ".") for item in percent_values],
+            "unit": "%",
+        }
+
+    availability_match = re.search(
+        r"availability\s*(\d+(?:[.,]\d+)?)%[\s\S]{0,100}?(\d+)\s*(?:ngày|ngay|days?)",
+        raw_request,
+        re.IGNORECASE,
+    )
+    if availability_match and any(
+        marker in raw_request.casefold() for marker in ("downtime", "gián đoạn", "gian doan")
+    ):
+        hints["deterministic_compute"] = "required"
+        hints["calculation"] = {
+            "operation": "availability_downtime",
+            "availability": availability_match.group(1).replace(",", "."),
+            "days": availability_match.group(2),
+            "unit": "minutes",
         }
 
     return hints

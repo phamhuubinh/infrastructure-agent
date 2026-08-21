@@ -153,6 +153,35 @@ def test_normalize_target_vietnamese() -> None:
     assert result.target_raw == "server01"
 
 
+def test_inherent_local_machine_wording_resolves_the_canonical_local_target() -> None:
+    normalizer = Normalizer()
+
+    assert normalizer.normalize("Hostname hiện tại của máy là gì?").target_raw == "localhost"
+    assert normalizer.normalize("CPU usage on the local machine?").target_raw == "localhost"
+    assert (
+        normalizer.normalize("What is the RAM usage on the current host?").target_raw
+        == "localhost"
+    )
+
+
+def test_unknown_target_is_not_rewritten_to_localhost() -> None:
+    assert Normalizer().normalize("Check CPU on testxyz999.").target_raw == "testxyz999"
+
+
+def test_meta_questions_do_not_turn_model_into_an_infrastructure_target() -> None:
+    for request in ("Bạn dựa trên model nào?", "What model are you using?", "Who are you?"):
+        frame = Normalizer().normalize(request)
+        assert frame.target_raw is None
+        assert frame.request_domain.name == "GENERAL"
+
+
+def test_conceptual_http_comparison_stays_general() -> None:
+    frame = Normalizer().normalize("HTTP GET khác POST thế nào?")
+
+    assert frame.target_raw is None
+    assert frame.request_domain.name == "GENERAL"
+
+
 def test_normalize_confidence_full_match() -> None:
     """Test that matching both concept and action gives confidence 1.0."""
     n = Normalizer()

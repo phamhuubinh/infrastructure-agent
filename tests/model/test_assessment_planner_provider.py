@@ -42,7 +42,7 @@ def test_forwards_decoder_compatible_response_schema(
 
     monkeypatch.setattr(LLMClient, "generate", fake_generate)
 
-    provider = AssessmentPlannerProvider(LLMAssessmentAdapter(LLMClient(model="qwen")))
+    provider = AssessmentPlannerProvider(LLMAssessmentAdapter(LLMClient(model="gpt-4")))
 
     schema: dict[str, object] = {
         "type": "object",
@@ -148,13 +148,66 @@ def test_environment_generation_schema_locks_hard_hints_without_empty_enum() -> 
     assert props["f"]["enum"] == ["current"]
     assert props["m"]["enum"] == ["cpu"]
     assert props["c"] == {"type": "null"}
-    assert props["sp"] == {"type": "array", "maxItems": 0}
+    assert props["sp"] == {"type": "array", "enum": [[]]}
 
     target = props["t"]["properties"]
     assert target["k"]["enum"] == ["explicit"]
     assert target["v"]["enum"] == ["monitor"]
 
     assert root["a"] == {"type": "null"}
+
+
+def test_external_and_url_generation_schema_lock_raw_request_authority() -> None:
+    from src.model.assessment_planner_provider import _planner_generation_schema
+    from src.pipeline.semantic_plan_wire import planner_output_json_schema
+
+    schema = _planner_generation_schema(
+        planner_output_json_schema(),
+        (
+            '{"request":"Read https://example.com/status",'
+            '"hints":{"domain":"external_information",'
+            '"intent":"generate_content","scope":"explicit_url",'
+            '"sources":["url_only"],"exclude":[],'
+            '"url":"https://example.com/status"}}'
+        ),
+    )
+    root = schema["properties"]
+    assert isinstance(root, dict)
+    plan = root["p"]
+    assert isinstance(plan, dict)
+    props = plan["properties"]
+    assert isinstance(props, dict)
+
+    assert props["r"] == {"type": "string", "enum": ["capability_assisted"]}
+    assert props["d"] == {"type": "string", "enum": ["external_information"]}
+    assert props["s"] == {"type": "array", "enum": [["url_only"]]}
+    assert props["f"] == {"type": "string", "enum": ["current"]}
+    assert props["u"] == {"type": "string", "enum": ["https://example.com/status"]}
+    assert root["a"] == {"type": "null"}
+
+
+def test_stable_general_generation_schema_prohibits_invented_subplans() -> None:
+    from src.model.assessment_planner_provider import _planner_generation_schema
+    from src.pipeline.semantic_plan_wire import planner_output_json_schema
+
+    schema = _planner_generation_schema(
+        planner_output_json_schema(),
+        (
+            '{"request":"Zombie process là gì?",'
+            '"hints":{"domain":"general","intent":"explain",'
+            '"scope":"stable_knowledge","sources":["any"],"exclude":[]}}'
+        ),
+    )
+    root = schema["properties"]
+    assert isinstance(root, dict)
+    plan = root["p"]
+    assert isinstance(plan, dict)
+    props = plan["properties"]
+    assert isinstance(props, dict)
+
+    assert props["r"] == {"type": "string", "enum": ["direct_answer"]}
+    assert props["f"] == {"type": "string", "enum": ["stable"]}
+    assert props["sp"] == {"type": "array", "enum": [[]]}
 
 
 def test_compliant_native_structured_response_reaches_valid_semantic_plan(
@@ -236,6 +289,26 @@ def test_malformed_native_planner_response_remains_non_dispatchable(
     assert outcome.reason.value == "malformed_output"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "Here is the plan: {\"v\":1}",
+        "<think>plan</think>{\"v\":1}",
+        "{\"v\":1,\"p\":{},\"a\":null} trailing prose",
+    ],
+)
+def test_representative_provider_malformed_payloads_remain_non_dispatchable(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: str,
+) -> None:
+    monkeypatch.setattr(LLMClient, "generate", lambda *_args, **_kwargs: payload)
+    provider = AssessmentPlannerProvider(LLMAssessmentAdapter(LLMClient()))
+
+    outcome = SemanticPlannerAdapter([provider]).plan_safely("Write a Python function")
+
+    assert outcome.reason.value == "malformed_output"
+
+
 def test_non_llm_assessment_adapter_uses_bounded_wire_hint_fallback() -> None:
     from src.model.assessment_model_adapter import AssessmentModelAdapter
     from src.pipeline.assessment_request import AssessmentRequest
@@ -296,6 +369,7 @@ def test_unsupported_openai_compatible_client_uses_bounded_wire_hint(
     provider.generate_structured(request)
 
     assert "response_schema" not in captured
+    assert captured["json_object"] is True
     system_prompt = captured["system_prompt"]
     assert isinstance(system_prompt, str)
     assert system_prompt.startswith("system JSON only. Envelope keys exactly v,p,a")

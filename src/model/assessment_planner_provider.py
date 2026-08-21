@@ -136,6 +136,64 @@ def _planner_generation_schema(
         },
     }
 
+    # Source, route and freshness are raw-request authority, not planning
+    # suggestions.  Narrowing them at generation time prevents a structurally
+    # valid payload from silently downgrading current/external/URL requests
+    # before the harness gets a chance to reject it.
+    sources = hints.get("sources")
+    excluded_sources = hints.get("exclude")
+    if isinstance(sources, list) and all(isinstance(item, str) for item in sources):
+        props["s"] = {"type": "array", "enum": [sources]}
+    if isinstance(excluded_sources, list) and all(
+        isinstance(item, str) for item in excluded_sources
+    ):
+        props["x"] = {"type": "array", "enum": [excluded_sources]}
+
+    domain = hints.get("domain")
+    intent = hints.get("intent")
+    scope = hints.get("scope")
+    if isinstance(domain, str):
+        props["d"] = {"type": "string", "enum": [domain]}
+    if isinstance(intent, str):
+        props["i"] = {"type": "string", "enum": [intent]}
+
+    if scope in {"current_external", "explicit_url"}:
+        props["r"] = {"type": "string", "enum": ["capability_assisted"]}
+        props["f"] = {"type": "string", "enum": ["current"]}
+        props["dc"] = {"type": "string", "enum": ["not_required"]}
+        props["calc"] = {"type": "null"}
+        props["sp"] = {"type": "array", "enum": [[]]}
+        root["a"] = {"type": "null"}
+        explicit_url = hints.get("url")
+        if isinstance(explicit_url, str) and explicit_url:
+            props["u"] = {"type": "string", "enum": [explicit_url]}
+        return result
+
+    # A single stable general request is not a coordinated request.  Qwen's
+    # native decoder can otherwise invent a structurally complete subplan
+    # beneath a direct answer, which the canonical wire parser must reject.
+    # This does not affect deliberate multi-intent requests, environment
+    # inspection, current external information, or explicit URLs.
+    if domain == "general" and scope == "stable_knowledge":
+        props["r"] = {"type": "string", "enum": ["direct_answer"]}
+        props["f"] = {"type": "string", "enum": ["stable"]}
+        props["sp"] = {"type": "array", "enum": [[]]}
+        calculation = hints.get("calculation")
+        if (
+            hints.get("deterministic_compute") == "required"
+            and isinstance(calculation, dict)
+            and calculation.get("operation") == "subtract"
+            and isinstance(calculation.get("left"), str)
+            and isinstance(calculation.get("right"), str)
+        ):
+            props["dc"] = {"type": "string", "enum": ["required"]}
+            props["calc"] = {
+                "type": "object",
+                "enum": [{"op": "subtract", "values": [], "l": calculation["left"], "r": calculation["right"], "base": None, "pct": None, "tasks": None, "workers": None, "duration": None, "duration_unit": None, "rate": None, "rate_unit": None, "target_rate_unit": None, "unit": "GB"}],
+            }
+            root["a"] = {"type": "null"}
+        return result
+
     if (
         hints.get("domain") != "environment"
         or hints.get("intent") != "inspect_read_only"
@@ -164,10 +222,7 @@ def _planner_generation_schema(
         "enum": ["not_required"],
     }
     props["calc"] = {"type": "null"}
-    props["sp"] = {
-        "type": "array",
-        "maxItems": 0,
-    }
+    props["sp"] = {"type": "array", "enum": [[]]}
 
     concepts = hints.get("concepts")
     if (
@@ -236,15 +291,17 @@ class AssessmentPlannerProvider:
                     max_tokens=max_tokens,
                 )
             else:
-                # Some OpenAI-compatible endpoints do not implement
-                # response_format/json_schema. Keep their compact fallback
-                # bounded and let the same strict parser fail closed.
+                # Some OpenAI-compatible endpoints (including Qwen gateways)
+                # accept JSON-object mode but not the full JSON-Schema dialect.
+                # Keep strict parsing authoritative while requesting the
+                # strongest contract this endpoint explicitly supports.
                 raw = client.generate(
                     request.user_prompt,
                     request_id=request.request_id,
                     purpose=request.purpose.value,
                     reasoning_effort=request.reasoning_effort,
                     system_prompt=f"{request.system_prompt} {_WIRE_HINT}",
+                    json_object=client.supports_json_object_output,
                     max_tokens=max_tokens,
                 )
             usage = client.last_usage

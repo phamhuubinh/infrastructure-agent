@@ -3,12 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.qa.unified_qa import (
+    RUNTIME_STAGES,
     TRANSCRIPTS,
     compare_runs,
     list_stages,
     new_run_dir,
     run_aggregate_report,
 )
+
+
+def test_full_qa_runtime_start_uses_the_qa_compose_overlay() -> None:
+    """The canonical full run must provision the same QA-only targets as smoke."""
+    start = next(stage for stage in RUNTIME_STAGES if stage.id == "docker_build_start")
+
+    assert start.command == (
+        "docker",
+        "compose",
+        "-f",
+        "docker-compose.yml",
+        "-f",
+        "docker-compose.qa.yml",
+        "up",
+        "--build",
+        "-d",
+    )
 
 
 def test_enumerate_all_stages_without_executing_them() -> None:

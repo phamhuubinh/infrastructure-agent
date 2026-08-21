@@ -6,6 +6,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_PATH = ROOT / "scripts/qa/ga2_runner.py"
 
@@ -160,6 +162,23 @@ def test_run_case_surfaces_routing_target_source_evidence_for_regression_diff() 
     assert record["target"] == "monitor"
     assert record["source"] == ["ANY"]
     assert record["evidence"] == "NOT_APPLICABLE"
+
+
+def test_run_case_preserves_explicit_tool_requirement_metadata() -> None:
+    runner = _runner_module()
+    case = runner.QaCase(
+        id="GA2-DEFAULT-NEGATIVE",
+        suite="DEFAULT",
+        question="Check CPU on testxyz999.",
+        requires_tool_execution=False,
+    )
+
+    runner._http_json = lambda *_args, **_kwargs: (200, {"assessment": "safe"})
+    record = runner._run_case(
+        case, base_url="http://x", api_key=None, session_id="s", timeout=1.0
+    )
+
+    assert record["requires_tool_execution"] is False
 
 
 def test_run_with_run_dir_writes_directly_into_the_given_directory(
@@ -473,6 +492,7 @@ def _viability_record(
     answer_strategy: str = "DETERMINISTIC_TEMPLATE",
     actual_tool_calls: int = 0,
     model_calls: int = 1,
+    requires_tool_execution: bool | None = None,
 ) -> dict[str, object]:
     semantic_loop: dict[str, object] = {
         "terminal_state": terminal_state,
@@ -481,7 +501,7 @@ def _viability_record(
     }
     if planner_reason is not None:
         semantic_loop["planner"] = {"reason": planner_reason}
-    return {
+    record: dict[str, object] = {
         "suite": "SMOKE",
         "elapsed_ms": 10.0,
         "question": question,
@@ -495,6 +515,9 @@ def _viability_record(
             },
         },
     }
+    if requires_tool_execution is not None:
+        record["requires_tool_execution"] = requires_tool_execution
+    return record
 
 
 def test_runtime_viability_fails_for_universal_malformed_planner_fallback() -> None:
@@ -548,9 +571,56 @@ def test_runtime_viability_fails_for_universal_provider_outage_without_p0() -> N
     assert summary["model_provider_failure_count"] == 4
     assert "planner_failures_dominate" in summary["viability_reasons"]
     assert (
-        "zero_successful_tool_execution_for_required_cases"
+        "required_tool_execution_rate_below_threshold"
         in summary["viability_reasons"]
     )
+
+
+def test_runtime_viability_fails_for_a_catastrophic_tool_success_fraction() -> None:
+    runner = _runner_module()
+    records = [
+        _viability_record(
+            question="tool case",
+            terminal_state="DONE",
+            actual_tool_calls=1 if index < 2 else 0,
+            requires_tool_execution=True,
+        )
+        for index in range(149)
+    ]
+
+    summary = runner._summary(records, [])
+
+    assert summary["tool_required_case_count"] == 149
+    assert summary["successful_tool_execution_count"] == 2
+    assert summary["required_tool_success_rate"] == pytest.approx(2 / 149)
+    assert "required_tool_execution_rate_below_threshold" in summary[
+        "viability_reasons"
+    ]
+
+
+def test_explicit_negative_tool_case_is_excluded_from_tool_viability() -> None:
+    runner = _runner_module()
+    records = [
+        _viability_record(
+            question="Check CPU on testxyz999.",
+            terminal_state="FAIL",
+            failure="validation_failed",
+            requires_tool_execution=False,
+        ),
+        _viability_record(
+            question="Check CPU on monitor.",
+            terminal_state="DONE",
+            actual_tool_calls=1,
+            requires_tool_execution=True,
+        ),
+        _viability_record(question="What is RAM?", terminal_state="DONE"),
+    ]
+
+    summary = runner._summary(records, [])
+
+    assert summary["tool_required_case_count"] == 1
+    assert summary["successful_tool_execution_count"] == 1
+    assert summary["viability_status"] == "PASS"
 
 
 def test_runtime_viability_passes_mixed_direct_tool_and_safe_refusal_paths() -> None:

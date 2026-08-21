@@ -106,6 +106,10 @@ class SemanticRelevanceVerifier:
                         if client.supports_structured_output
                         else None
                     ),
+                    json_object=(
+                        not client.supports_structured_output
+                        and client.supports_json_object_output
+                    ),
                     max_tokens=min(RELEVANCE_MAX_OUTPUT_TOKENS, client.max_tokens),
                 )
                 usage = client.last_usage
