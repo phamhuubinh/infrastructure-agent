@@ -531,6 +531,17 @@ class Normalizer:
 
         Returns None if no target-like word is found.
         """
+        # The explicit English target label carries more authority than a
+        # later Vietnamese possessive marker. Without this priority,
+        # "CPU của target monitor" incorrectly became target="target".
+        labeled = re.search(
+            r"\btarget\s+([a-z0-9_-]{2,30})",
+            raw,
+            re.IGNORECASE,
+        )
+        if labeled:
+            return labeled.group(1).strip()
+
         # Preposition markers: "on <X>", "for <X>", "at <X>", "from <X>",
         # "trên <X>", "của <X>"
         pattern = re.compile(

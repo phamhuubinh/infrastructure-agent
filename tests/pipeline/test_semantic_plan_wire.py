@@ -361,3 +361,36 @@ def test_planner_output_schema_embeds_plan_and_bounded_answer() -> None:
         "maxLength": MAX_PLANNER_FINAL_ANSWER_LENGTH,
     }
     assert json.dumps(schema)
+
+
+def test_calculation_schema_constrains_irrelevant_fields() -> None:
+    from src.pipeline.semantic_plan_wire import planner_output_json_schema
+
+    schema = planner_output_json_schema()
+    plan_schema = schema["properties"]["p"]
+    assert isinstance(plan_schema, dict)
+
+    plan_properties = plan_schema["properties"]
+    assert isinstance(plan_properties, dict)
+
+    calc = plan_properties["calc"]
+    assert isinstance(calc, dict)
+
+    calc_object = calc["anyOf"][0]
+    assert isinstance(calc_object, dict)
+
+    branches = calc_object["anyOf"]
+    assert isinstance(branches, list)
+
+    percent = next(
+        branch
+        for branch in branches
+        if branch["properties"]["op"]["enum"] == ["percent_of"]
+    )
+    properties = percent["properties"]
+
+    assert properties["base"]["type"] == "string"
+    assert properties["pct"]["type"] == "string"
+    assert properties["l"] == {"type": "null"}
+    assert properties["r"] == {"type": "null"}
+    assert properties["values"]["maxItems"] == 0

@@ -9,4 +9,12 @@ if [ ! -f "$config_path" ]; then
     chmod 600 "$config_path" 2>/dev/null || true
 fi
 
+targets_path="${ORION_TARGETS_FILE:-/app/targets.json}"
+if [ "$targets_path" != "/app/targets.json" ] && [ ! -f "$targets_path" ]; then
+    targets_dir=$(dirname "$targets_path")
+    mkdir -p "$targets_dir"
+    cp /app/targets.json "$targets_path"
+    chmod 600 "$targets_path" 2>/dev/null || true
+fi
+
 exec "$@"

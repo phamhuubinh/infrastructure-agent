@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from src.pipeline.input_context_budget import (
@@ -10,6 +11,7 @@ from src.pipeline.input_context_budget import (
     InputContextBudgetPolicy,
     InputContextSection,
 )
+from src.pipeline.normalizer import Normalizer
 from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.semantic_plan_wire import (
     MAX_SOURCE_CONSTRAINTS,
@@ -21,14 +23,38 @@ MAX_PLANNER_CONTEXT_CHARS = 256
 MAX_PLANNER_CONTEXT_BYTES = 1024
 
 _PLANNER_SYSTEM_PROMPT = (
-    "Return one OrionPlannerOutputV1 JSON object: p=plan, a=optional answer. "
-    "The plan is advisory. Use only the request and bounded context. The harness validates and controls "
-    "tools, targets, sources, safety, and execution. Set a only for trivial stable "
-    "direct_answer requests needing no tools, live data, calculation, or clarification; "
-    "otherwise null. For coordinated requests use multi_intent with 2-4 complete, "
-    "non-recursive sp entries; each states target/source/freshness and may depend only "
-    "on earlier entries. Never emit commands, credentials, tool schemas, evidence, "
-    "hidden reasoning, or prose outside a. Use unspecified/unknown rather than guessing."
+    "Return one OrionPlannerOutputV1 JSON object matching the schema. "
+    "The user JSON contains request plus deterministic hints parsed from that "
+    "same request. The plan is advisory. Preserve concrete hint values; they "
+    "are not model guesses and grant no execution authority. The harness "
+    "remains authoritative for targets, sources, safety, capabilities and "
+    "execution. do not use unknown for a clear request; never weaken a "
+    "concrete hint to unknown or unspecified. A hints.target value is an "
+    "explicit user target; a target from session context is inherited. "
+    "t is only an execution-target identity. Never use a concept, source name, "
+    "model, memory, internet, or URL as t.v. Keep explicit URLs only in u and "
+    "source constraints only in s/x; do not rewrite an explicit user target. "
+    "Use null for absent nullable text fields t.v,m,c,svc,p,u,q.f; never put "
+    "answer prose or placeholder words such as unknown/none/null into them. "
+    "m is only a requested measurement such as cpu; c is only a conceptual "
+    "subject. s is allowed/required sources and x is explicit exclusions; "
+    "never place one source in both. "
+    "For a greeting or trivial stable general request: "
+    "direct_answer/general/explain, target unspecified with null value, "
+    "s=[any], x=[], freshness=stable, dc=not_required, calc=null, "
+    "q.s=not_required, q.f=null; put answer prose only in a. "
+    "Exact arithmetic: direct_answer/general/explain, target unspecified, "
+    "s=[any], x=[], freshness=stable, dc=required, populate calc exactly for "
+    "the requested operation, and a=null. "
+    "Live environment inspection: capability_assisted/environment/"
+    "inspect_read_only, explicit or inherited target as indicated, "
+    "freshness=current, dc=not_required, calc=null, a=null. "
+    "For environment mutation: capability_assisted/action/mutate_environment "
+    "and a=null. For external current information preserve its external/source "
+    "and freshness requirements. For coordinated requests use multi_intent "
+    "with 2-4 complete non-recursive subplans depending only on earlier ones. "
+    "Never emit commands, credentials, tool schemas, evidence, hidden "
+    "reasoning, or prose outside a."
 )
 
 
@@ -62,6 +88,89 @@ class SemanticPlannerPrompt:
     input_budget_class: str = InputContextBudgetClass.SIMPLE.value
 
 
+def _request_hints(raw_request: str) -> dict[str, object]:
+    """Return bounded deterministic semantics parsed from the same request."""
+
+    frame = Normalizer().normalize(raw_request)
+
+    hints: dict[str, object] = {
+        "domain": frame.request_domain.name.casefold(),
+        "intent": frame.execution_intent.name.casefold(),
+        "scope": frame.information_scope.name.casefold(),
+        "sources": [item.name.casefold() for item in frame.source_constraints],
+        "exclude": [item.name.casefold() for item in frame.excluded_sources],
+    }
+
+    if frame.target_raw is not None:
+        hints["target"] = frame.target_raw
+
+    # Do not expose the Normalizer's generic fallback "machine" as though
+    # the user explicitly supplied that concept.
+    concepts = list(frame.concepts)
+
+    # General/self-contained requests do not need infrastructure concept
+    # guesses. Fuzzy Normalizer matches here can poison planner semantics
+    # (for example arithmetic text being misclassified as "gpu").
+    if frame.request_domain.name == "GENERAL":
+        concepts = []
+
+    # A lexical item already extracted as the explicit environment target is
+    # not also a planner concept. Keep the actual requested measurement
+    # (for example cpu) while dropping target-derived "monitor"/"monitors".
+    if frame.target_raw is not None:
+        target = frame.target_raw.casefold()
+        target_forms = {target, f"{target}s"}
+        concepts = [
+            concept for concept in concepts if concept.casefold() not in target_forms
+        ]
+
+    if concepts and concepts != ["machine"]:
+        hints["concepts"] = concepts
+
+    if frame.explicit_url is not None:
+        hints["url"] = frame.explicit_url
+
+    if frame.freshness_phrase is not None:
+        hints["freshness"] = frame.freshness_phrase
+
+    if frame.ambiguity:
+        hints["ambiguity"] = list(frame.ambiguity)
+
+    # Deterministic percentage calculations are resolved by the calculator
+    # contract, not by free-form planner reasoning.
+    percent_match = re.search(
+        r"(?P<pct>\d+(?:[.,]\d+)?)\s*%\s*"
+        r"(?:của|cua|of)\s*"
+        r"(?P<base>\d[\d.,]*)\s*"
+        r"(?P<unit>triệu|trieu|million|nghìn|nghin|thousand|tỷ|ty|billion)?",
+        raw_request,
+        re.IGNORECASE,
+    )
+
+    if percent_match:
+        pct = percent_match.group("pct").replace(",", ".")
+        base = percent_match.group("base").replace(",", "")
+
+        unit = percent_match.group("unit")
+        if unit:
+            unit = unit.casefold()
+            if unit in {"triệu", "trieu", "million"}:
+                base = str(int(float(base) * 1_000_000))
+            elif unit in {"nghìn", "nghin", "thousand"}:
+                base = str(int(float(base) * 1_000))
+            elif unit in {"tỷ", "ty", "billion"}:
+                base = str(int(float(base) * 1_000_000_000))
+
+        hints["deterministic_compute"] = "required"
+        hints["calculation"] = {
+            "operation": "percent_of",
+            "percent": pct,
+            "base_value": base,
+        }
+
+    return hints
+
+
 def build_semantic_planner_prompt(
     raw_request: str,
     *,
@@ -84,8 +193,9 @@ def build_semantic_planner_prompt(
     if context is not None and not isinstance(context, PlannerPromptContext):
         raise TypeError("context must be PlannerPromptContext or None.")
 
+    request_hints = _request_hints(raw_request)
     request_payload = json.dumps(
-        {"request": raw_request},
+        {"request": raw_request, "hints": request_hints},
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -116,7 +226,11 @@ def build_semantic_planner_prompt(
     user_prompt = request_payload
     if context_payload is not None and "session_context" in enforced.optional_included:
         user_prompt = json.dumps(
-            {"request": raw_request, "context": context_payload},
+            {
+                "request": raw_request,
+                "hints": request_hints,
+                "context": context_payload,
+            },
             ensure_ascii=False,
             separators=(",", ":"),
         )

@@ -5,10 +5,14 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from src.model.llm_assessment_adapter import LLMAssessmentAdapter
+from src.model.llm_client import LLMClient
 from src.model.protocol.semantic_relevance_prompt import (
     MAX_RELEVANCE_DRAFT_BYTES,
+    SEMANTIC_RELEVANCE_JSON_SCHEMA,
 )
 from src.model.semantic_relevance_verifier import (
+    RELEVANCE_MAX_OUTPUT_TOKENS,
     SemanticRelevanceDecision,
     SemanticRelevanceReason,
     SemanticRelevanceVerifier,
@@ -126,6 +130,35 @@ def test_correct_concise_answers_pass(
 
     assert result.aligned
     assert result.reason is SemanticRelevanceReason.ALIGNED
+
+
+def test_llm_verifier_uses_tiny_native_schema_for_a_relevant_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate(
+        self: LLMClient,
+        prompt: str,
+        **kwargs: object,
+    ) -> str:
+        del self, prompt
+        captured.update(kwargs)
+        return '{"decision":"aligned","reason":"aligned"}'
+
+    monkeypatch.setattr(LLMClient, "generate", fake_generate)
+    model = LLMAssessmentAdapter(LLMClient(max_tokens=4096))
+
+    result = SemanticRelevanceVerifier(model).verify(
+        "Cảm ơn bạn nhé",
+        _plan("gratitude acknowledgement"),
+        "Không có gì!",
+    )
+
+    assert result.aligned
+    assert captured["purpose"] == "relevance"
+    assert captured["max_tokens"] == RELEVANCE_MAX_OUTPUT_TOKENS
+    assert captured["response_schema"] == SEMANTIC_RELEVANCE_JSON_SCHEMA
 
 
 def test_invalid_or_explanatory_verifier_output_fails_closed_without_storage() -> None:

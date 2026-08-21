@@ -49,6 +49,13 @@ class TestLLMClient:
         client = LLMClient(base_url="https://api.openai.com/v1/")
         assert client._base_url == "https://api.openai.com"
 
+    def test_ollama_defaults_to_no_openai_schema_support(self) -> None:
+        assert not LLMClient(base_url="http://ollama:11434").supports_structured_output
+        assert LLMClient(
+            base_url="http://ollama:11434",
+            supports_structured_output=True,
+        ).supports_structured_output
+
     @mock.patch("urllib.request.urlopen")
     def test_generate_success(self, mock_urlopen: mock.Mock) -> None:
         mock_urlopen.return_value = _mock_response(
@@ -67,6 +74,54 @@ class TestLLMClient:
         body = json.loads(call_args.data)
         assert body["model"] == "gpt-4"
         assert body["messages"][0]["content"] == "test prompt"
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_with_response_schema(self, mock_urlopen: mock.Mock) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "{\\"ok\\": true}"}}]}'
+        )
+        schema: dict[str, object] = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["ok"],
+            "properties": {"ok": {"type": "boolean"}},
+        }
+
+        result = LLMClient().generate("test prompt", response_schema=schema)
+
+        assert result == '{"ok": true}'
+
+        import json
+
+        request = mock_urlopen.call_args[0][0]
+        body = json.loads(request.data)
+        assert body["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "orion_structured_output",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_accepts_a_smaller_per_call_output_cap(
+        self, mock_urlopen: mock.Mock
+    ) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices": [{"message": {"content": "ok"}}]}'
+        )
+
+        LLMClient(max_tokens=512).generate("test prompt", max_tokens=32)
+
+        import json
+
+        request = mock_urlopen.call_args[0][0]
+        assert json.loads(request.data)["max_tokens"] == 32
+
+    def test_generate_rejects_an_output_cap_above_the_configured_limit(self) -> None:
+        with pytest.raises(ValueError, match="configured client limit"):
+            LLMClient(max_tokens=32).generate("test prompt", max_tokens=33)
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_removes_internal_reasoning(self, mock_urlopen: mock.Mock) -> None:

@@ -81,6 +81,9 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     assert api["environment"]["ORION_SERVERS_FILE"] == (
         "/home/orion/.orion/servers.json"
     )
+    assert api["environment"]["ORION_TARGETS_FILE"] == (
+        "/home/orion/.orion/targets.json"
+    )
     assert api["volumes"] == ["orion-data:/home/orion/.orion"]
     assert compose["secrets"]["orion-tool-credentials"]["file"] == (
         "${ORION_TOOL_SECRETS_FILE:-/etc/orion/tool-credentials.json}"
@@ -88,6 +91,20 @@ def test_api_image_bundles_safe_tool_registry_and_mounts_credentials() -> None:
     for entry in tool_config.values():
         assert "url" not in entry
         assert "token" not in entry
+
+
+def test_ga2_target_fixture_is_explicit_and_read_only() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.qa.yml").read_text())
+    fixture = json.loads(
+        (ROOT / "scripts/qa/fixtures/targets.qa.json").read_text()
+    )
+
+    assert compose["services"]["api"]["environment"]["ORION_TARGETS_FILE"] == (
+        "/app/qa-targets.json"
+    )
+    assert fixture["targets"]["monitor"]["backend"] == "local"
+    assert fixture["targets"]["monitor"]["execution_scope"] == "orion-runtime"
+    assert set(fixture["targets"]) == {"localhost", "monitor"}
 
 
 def test_ci_compose_uses_empty_tool_credentials_fixture() -> None:

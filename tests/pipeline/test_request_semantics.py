@@ -127,6 +127,12 @@ def test_equivalent_only_wording_is_a_hard_typed_source_constraint() -> None:
     assert frame.source_constraints == (SourceConstraint.GRAFANA,)
 
 
+def test_explicit_target_label_is_not_rewritten_by_a_preposition() -> None:
+    frame = Normalizer().normalize("Dùng Grafana để lấy CPU của target monitor.")
+
+    assert frame.target_raw == "monitor"
+
+
 def test_url_does_not_erase_no_internet_constraint() -> None:
     frame = Normalizer().normalize("Đọc https://example.com nhưng không dùng Internet.")
 

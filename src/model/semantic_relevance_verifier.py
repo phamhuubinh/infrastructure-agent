@@ -7,13 +7,17 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+from src.model.llm_client import LLMClient
 from src.model.protocol.semantic_relevance_prompt import (
+    SEMANTIC_RELEVANCE_JSON_SCHEMA,
     build_semantic_relevance_prompt,
 )
+from src.model.reasoning_effort import ModelRequestClass, ReasoningEffortPolicy
 from src.model.usage_metadata import ModelCallUsage
 from src.pipeline.semantic_plan import SemanticPlan
 
 MAX_RELEVANCE_OUTPUT_CHARS = 256
+RELEVANCE_MAX_OUTPUT_TOKENS = 32
 
 
 class SemanticRelevanceDecision(str, Enum):
@@ -70,13 +74,13 @@ class SemanticRelevanceVerifier:
         if not isinstance(model, RawRelevanceModel):
             raise TypeError("model must implement assess_raw().")
         self._model = model
+        self._last_usage: ModelCallUsage | None = None
 
     @property
     def last_usage(self) -> ModelCallUsage | None:
         """Normalized usage of the most recent verify call, when reported."""
 
-        usage = getattr(self._model, "last_usage", None)
-        return usage if isinstance(usage, ModelCallUsage) else None
+        return self._last_usage
 
     def verify(
         self,
@@ -85,8 +89,30 @@ class SemanticRelevanceVerifier:
         draft: str,
     ) -> SemanticRelevanceResult:
         prompt = build_semantic_relevance_prompt(original_request, plan, draft)
+        self._last_usage = None
         try:
-            raw = self._model.assess_raw(prompt.render())
+            client = getattr(self._model, "_client", None)
+            if isinstance(client, LLMClient):
+                raw = client.generate(
+                    prompt.user_prompt,
+                    system_prompt=prompt.system_prompt,
+                    purpose="relevance",
+                    reasoning_effort=ReasoningEffortPolicy.for_call(
+                        purpose="relevance",
+                        request_class=ModelRequestClass.TRIVIAL,
+                    ),
+                    response_schema=(
+                        SEMANTIC_RELEVANCE_JSON_SCHEMA
+                        if client.supports_structured_output
+                        else None
+                    ),
+                    max_tokens=min(RELEVANCE_MAX_OUTPUT_TOKENS, client.max_tokens),
+                )
+                usage = client.last_usage
+            else:
+                raw = self._model.assess_raw(prompt.render())
+                usage = getattr(self._model, "last_usage", None)
+            self._last_usage = usage if isinstance(usage, ModelCallUsage) else None
         except Exception:
             return _not_aligned(SemanticRelevanceReason.PROVIDER_UNAVAILABLE)
         return _parse_result(raw)
@@ -128,6 +154,7 @@ def _not_aligned(reason: SemanticRelevanceReason) -> SemanticRelevanceResult:
 
 __all__ = [
     "MAX_RELEVANCE_OUTPUT_CHARS",
+    "RELEVANCE_MAX_OUTPUT_TOKENS",
     "RawRelevanceModel",
     "SemanticRelevanceDecision",
     "SemanticRelevanceReason",

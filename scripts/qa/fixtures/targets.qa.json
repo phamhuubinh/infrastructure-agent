@@ -1,0 +1,17 @@
+{
+  "default": "localhost",
+  "targets": {
+    "localhost": {
+      "backend": "local",
+      "display_name": "orion-api",
+      "execution_scope": "orion-runtime",
+      "description": "The Orion API runtime."
+    },
+    "monitor": {
+      "backend": "local",
+      "display_name": "ga2-monitor-fixture",
+      "execution_scope": "orion-runtime",
+      "description": "Deterministic read-only GA2 fixture backed by the Orion API container."
+    }
+  }
+}

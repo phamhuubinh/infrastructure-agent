@@ -29,6 +29,7 @@ services:
       ORION_DATABASE_URL: postgresql://${POSTGRES_USER:-orion}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-orion}
       ORION_API_KEY: ${ORION_API_KEY:?ORION_API_KEY is required}
       ORION_SERVERS_FILE: /home/orion/.orion/servers.json
+      ORION_TARGETS_FILE: /home/orion/.orion/targets.json
       ORION_SECRETS_PATH: /run/secrets/orion-tool-credentials.json
       ORION_MODEL_HOST_ALIAS: host.docker.internal
       ORION_PACKAGED_WEB_URL: http://localhost

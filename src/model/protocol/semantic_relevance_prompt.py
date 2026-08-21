@@ -13,6 +13,27 @@ MAX_RELEVANCE_DRAFT_BYTES = 2_048
 MAX_RELEVANCE_PLAN_BYTES = 1_024
 MAX_RELEVANCE_FIELD_CHARS = 256
 
+SEMANTIC_RELEVANCE_JSON_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["decision", "reason"],
+    "properties": {
+        "decision": {
+            "type": "string",
+            "enum": ["aligned", "not_aligned"],
+        },
+        "reason": {
+            "type": "string",
+            "enum": [
+                "aligned",
+                "cross_task",
+                "request_not_answered",
+                "plan_mismatch",
+            ],
+        },
+    },
+}
+
 _SYSTEM_PROMPT = (
     "You are Orion's compact final-answer relevance verifier. Decide only whether "
     "the bounded draft answers the original request consistently with the semantic "
@@ -120,6 +141,7 @@ __all__ = [
     "MAX_RELEVANCE_DRAFT_BYTES",
     "MAX_RELEVANCE_PLAN_BYTES",
     "MAX_RELEVANCE_REQUEST_CHARS",
+    "SEMANTIC_RELEVANCE_JSON_SCHEMA",
     "SemanticRelevancePrompt",
     "build_semantic_relevance_prompt",
     "semantic_plan_relevance_summary",

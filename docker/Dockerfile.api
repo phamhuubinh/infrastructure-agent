@@ -25,6 +25,7 @@ RUN uv sync --frozen --no-dev --extra web
 ENV HOME="/home/orion" PATH="/app/.venv/bin:$PATH"
 
 COPY targets.json .
+COPY scripts/qa/fixtures/targets.qa.json /app/qa-targets.json
 
 # The persistent model registry is initialized empty. Users can configure it
 # during installation or later through CLI/Web Settings.

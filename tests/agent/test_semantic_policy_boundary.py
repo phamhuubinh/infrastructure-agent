@@ -133,14 +133,15 @@ def test_planner_free_text_never_changes_dispatch_fields() -> None:
 
     result = agent.run_with_steps("check cpu on localhost")
 
-    assert len(engine.frames) == 1
-    dispatched = engine.frames[0]
-    assert dispatched.execution_intent is ExecutionIntent.INSPECT_READ_ONLY
-    frame_wire = json.dumps(dispatched.to_dict())
-    assert '"operation": "inspect"' in frame_wire
-    assert '"operation": "mutate"' not in frame_wire
-    assert "stop all services" not in str(dispatched.parameters)
-    assert result["response"] == "Read-only assessment."
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    stages = result["execution_trace"]["stages"]
+    assert engine.frames == []
+    assert semantic["terminal_state"] == "FAIL"
+    assert semantic["failure"] == "validation_failed"
+    assert stages["semantic_validate"]["status"] == "FAILED"
+    assert stages["semantic_execute"]["status"] == "SKIPPED"
+    assert stages["semantic_assess_respond"]["status"] == "SKIPPED"
+    assert all("stop all services" not in str(frame.parameters) for frame in engine.frames)
 
 
 def test_planner_free_text_that_resolves_no_capability_fails_closed() -> None:
@@ -155,9 +156,12 @@ def test_planner_free_text_that_resolves_no_capability_fails_closed() -> None:
     result = agent.run_with_steps("check cpu on localhost")
 
     semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    stages = result["execution_trace"]["stages"]
     assert engine.frames == []
     assert semantic["terminal_state"] == "FAIL"
-    assert semantic["failure"] == "binding_failed"
+    assert semantic["failure"] == "validation_failed"
+    assert stages["semantic_validate"]["status"] == "FAILED"
+    assert stages["semantic_execute"]["status"] == "SKIPPED"
 
 
 def _fact(value: object) -> Fact:

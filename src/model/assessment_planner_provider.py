@@ -45,10 +45,159 @@ _WIRE_HINT = (
     "t={k,v}; q={s,f}; sp is an array of {r,p,d} and is empty unless r=multi_intent. "
     "Routes: direct_answer,capability_assisted,multi_intent,refuse,clarify,"
     "unspecified,unknown. Domains: general,environment,external_information,"
-    "content_generation,unspecified,unknown. Intent/source/freshness/target values "
+    "content_generation,action,unspecified,unknown. Intent/source/freshness/target values "
     "must use the schema vocabulary; use null for absent text. "
     "calc must be null unless exact deterministic computation is required."
 )
+
+PLANNER_MAX_OUTPUT_TOKENS = 512
+
+
+def _planner_generation_schema(
+    schema: dict[str, object],
+    user_prompt: str | None = None,
+) -> dict[str, object]:
+    """Return a decoder-compatible schema narrowed by hard request hints.
+
+    The canonical parser and harness remain authoritative.  This transport
+    schema only prevents the model from contradicting deterministic semantics
+    already extracted from the same user request.
+    """
+
+    def normalize(value: object) -> object:
+        if isinstance(value, dict):
+            return {
+                key: normalize(item)
+                for key, item in value.items()
+                if key != "uniqueItems"
+            }
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    result = {
+        key: normalize(value) for key, value in schema.items() if key != "uniqueItems"
+    }
+
+    if user_prompt is None:
+        return result
+
+    try:
+        payload = json.loads(user_prompt)
+    except json.JSONDecodeError:
+        return result
+
+    if not isinstance(payload, dict):
+        return result
+
+    hints = payload.get("hints")
+    if not isinstance(hints, dict):
+        return result
+
+    root = result.get("properties")
+    if not isinstance(root, dict):
+        return result
+
+    plan = root.get("p")
+    if not isinstance(plan, dict):
+        return result
+
+    props = plan.get("properties")
+    if not isinstance(props, dict):
+        return result
+
+    context = payload.get("context")
+    inherited_target = (
+        context.get("target")
+        if isinstance(context, dict) and isinstance(context.get("target"), str)
+        else None
+    )
+    explicit_target = hints.get("target")
+    target_value = (
+        explicit_target
+        if isinstance(explicit_target, str) and explicit_target
+        else inherited_target
+    )
+    target_kind = "explicit" if target_value == explicit_target else "inherited"
+    props["t"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["k", "v"],
+        "properties": {
+            "k": {
+                "type": "string",
+                "enum": [target_kind if target_value else "unspecified"],
+            },
+            "v": (
+                {"type": "string", "enum": [target_value]}
+                if target_value
+                else {"type": "null"}
+            ),
+        },
+    }
+
+    if (
+        hints.get("domain") != "environment"
+        or hints.get("intent") != "inspect_read_only"
+        or hints.get("scope") != "live_environment"
+    ):
+        return result
+
+    props["r"] = {
+        "type": "string",
+        "enum": ["capability_assisted"],
+    }
+    props["d"] = {
+        "type": "string",
+        "enum": ["environment"],
+    }
+    props["i"] = {
+        "type": "string",
+        "enum": ["inspect_read_only"],
+    }
+    props["f"] = {
+        "type": "string",
+        "enum": ["current"],
+    }
+    props["dc"] = {
+        "type": "string",
+        "enum": ["not_required"],
+    }
+    props["calc"] = {"type": "null"}
+    props["sp"] = {
+        "type": "array",
+        "maxItems": 0,
+    }
+
+    concepts = hints.get("concepts")
+    if (
+        isinstance(concepts, list)
+        and len(concepts) == 1
+        and isinstance(concepts[0], str)
+    ):
+        props["m"] = {
+            "type": "string",
+            "enum": [concepts[0]],
+        }
+        props["c"] = {"type": "null"}
+
+    props["q"] = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["f", "s"],
+        "properties": {
+            "s": {
+                "type": "string",
+                "enum": ["not_required"],
+            },
+            "f": {"type": "null"},
+        },
+    }
+
+    root["a"] = {"type": "null"}
+
+    return result
+
 
 _PROTECTED_SETUP_REFUSAL = (
     "I cannot disclose hidden instructions, secrets, credentials, or credential files."
@@ -72,13 +221,32 @@ class AssessmentPlannerProvider:
 
         client = getattr(self._model, "_client", None)
         if isinstance(client, LLMClient):
-            raw = client.generate(
-                request.user_prompt,
-                request_id=request.request_id,
-                system_prompt=f"{request.system_prompt} {_WIRE_HINT}",
-                purpose=request.purpose.value,
-                reasoning_effort=request.reasoning_effort,
-            )
+            max_tokens = min(PLANNER_MAX_OUTPUT_TOKENS, client.max_tokens)
+            if client.supports_structured_output:
+                raw = client.generate(
+                    request.user_prompt,
+                    request_id=request.request_id,
+                    purpose=request.purpose.value,
+                    reasoning_effort=request.reasoning_effort,
+                    system_prompt=request.system_prompt,
+                    response_schema=_planner_generation_schema(
+                        request.response_schema,
+                        request.user_prompt,
+                    ),
+                    max_tokens=max_tokens,
+                )
+            else:
+                # Some OpenAI-compatible endpoints do not implement
+                # response_format/json_schema. Keep their compact fallback
+                # bounded and let the same strict parser fail closed.
+                raw = client.generate(
+                    request.user_prompt,
+                    request_id=request.request_id,
+                    purpose=request.purpose.value,
+                    reasoning_effort=request.reasoning_effort,
+                    system_prompt=f"{request.system_prompt} {_WIRE_HINT}",
+                    max_tokens=max_tokens,
+                )
             usage = client.last_usage
             fallback_provider = getattr(client, "_provider", "configured")
             fallback_model = getattr(client, "_model", "configured")
@@ -170,4 +338,8 @@ def _raw_usage(usage: ModelCallUsage | None) -> Mapping[str, object] | None:
     return raw or None
 
 
-__all__ = ["AssessmentPlannerProvider", "UnconfiguredPlannerProvider"]
+__all__ = [
+    "AssessmentPlannerProvider",
+    "PLANNER_MAX_OUTPUT_TOKENS",
+    "UnconfiguredPlannerProvider",
+]

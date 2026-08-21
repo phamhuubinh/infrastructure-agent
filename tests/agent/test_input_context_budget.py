@@ -10,6 +10,11 @@ from src.model.semantic_planner_adapter import (
     PlannerProviderResponse,
     SemanticPlannerAdapter,
 )
+from src.model.semantic_relevance_verifier import (
+    SemanticRelevanceDecision,
+    SemanticRelevanceReason,
+    SemanticRelevanceResult,
+)
 from src.pipeline.assessment_request import AssessmentRequest
 from src.pipeline.input_context_budget import (
     InputContextBudget,
@@ -46,6 +51,21 @@ class NoModelCalls(AssessmentModelAdapter):
     def assess_raw(self, _prompt: str) -> str:
         self.calls += 1
         raise AssertionError("single-call path must not call the response model")
+
+
+class PassingRelevanceVerifier:
+    """Deterministic verifier for a test focused on planner input size."""
+
+    def verify(
+        self,
+        _original_request: str,
+        _plan: SemanticPlan,
+        _draft: str,
+    ) -> SemanticRelevanceResult:
+        return SemanticRelevanceResult(
+            SemanticRelevanceDecision.ALIGNED,
+            SemanticRelevanceReason.ALIGNED,
+        )
 
 
 class CapturingPlannerProvider:
@@ -140,6 +160,7 @@ def _agent(
         model,
         conversation_store=store,
         semantic_planner=SemanticPlannerAdapter([provider]),
+        semantic_relevance_verifier=PassingRelevanceVerifier(),
     )
 
 
@@ -155,17 +176,19 @@ def _model_usage(result: dict) -> dict:
 
 def test_simple_planner_call_is_bounded_under_oversized_unrelated_data() -> None:
     provider = CapturingPlannerProvider(_direct_plan(), "Hello there!")
-    agent = _agent(provider, NoModelCalls())
+    model = NoModelCalls()
+    agent = _agent(provider, model)
 
     result = agent.run_with_steps("hello")
 
     assert result["response"] == "Hello there!"
     assert len(provider.requests) == 1
+    assert model.calls == 0
     request = provider.requests[0]
     prompt_text = request.system_prompt + request.user_prompt
     assert len(prompt_text) <= InputContextBudgetPolicy.SIMPLE.max_chars
     assert InputContextBudget.estimated_tokens(prompt_text) < 1_000
-    for forbidden in ("zzzz", "yyyy", "capability"):
+    for forbidden in ("zzzz", "yyyy"):
         assert forbidden not in prompt_text
 
     usage = _model_usage(result)

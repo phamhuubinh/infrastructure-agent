@@ -37,6 +37,7 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int = 2048,
         supports_reasoning_effort: bool = False,
+        supports_structured_output: bool | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         if self._base_url.endswith("/v1"):
@@ -49,12 +50,33 @@ class LLMClient:
         if not isinstance(supports_reasoning_effort, bool):
             raise TypeError("supports_reasoning_effort must be bool.")
         self._supports_reasoning_effort = supports_reasoning_effort
+        if supports_structured_output is not None and not isinstance(
+            supports_structured_output, bool
+        ):
+            raise TypeError("supports_structured_output must be bool or None.")
         self._last_usage: ModelCallUsage | None = None
         self._provider = _extract_provider(base_url, model)
+        self._supports_structured_output = (
+            self._provider != "ollama"
+            if supports_structured_output is None
+            else supports_structured_output
+        )
 
     @property
     def last_usage(self) -> ModelCallUsage | None:
         return self._last_usage
+
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whether this endpoint accepts OpenAI-compatible JSON Schema output."""
+
+        return self._supports_structured_output
+
+    @property
+    def max_tokens(self) -> int:
+        """Configured upper bound for one provider response."""
+
+        return self._max_tokens
 
     def generate(
         self,
@@ -63,19 +85,43 @@ class LLMClient:
         system_prompt: str | None = None,
         purpose: str | None = None,
         reasoning_effort: ReasoningEffort | None = None,
+        response_schema: dict[str, object] | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        output_token_limit = self._max_tokens if max_tokens is None else max_tokens
+        if isinstance(output_token_limit, bool) or not isinstance(
+            output_token_limit, int
+        ):
+            raise TypeError("max_tokens must be an int or None.")
+        if output_token_limit < 1:
+            raise ValueError("max_tokens must be at least 1.")
+        if output_token_limit > self._max_tokens:
+            raise ValueError("max_tokens may not exceed the configured client limit.")
+
         payload: dict[str, object] = {
             "model": self._model,
             "messages": messages,
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_tokens": output_token_limit,
             "stream": False,
         }
+        if response_schema is not None:
+            if not isinstance(response_schema, dict):
+                raise TypeError("response_schema must be a dict or None.")
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "orion_structured_output",
+                    "strict": True,
+                    "schema": response_schema,
+                },
+            }
+
         configured_effort: str | None = None
         if reasoning_effort is not None:
             if not isinstance(reasoning_effort, ReasoningEffort):
