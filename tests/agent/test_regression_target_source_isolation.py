@@ -25,6 +25,7 @@ from tests.fixtures.fake_models import (
     ScriptedAssessmentModel,
     ScriptedPlannerProvider,
     capability_plan,
+    direct_answer_plan,
     plan_response,
 )
 
@@ -75,6 +76,49 @@ def test_explicit_unknown_target_clarifies_without_localhost_fallback() -> None:
 
     semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
     assert engine.execute_calls == 0
+    assert semantic["terminal_state"] == "FAIL"
+    assert semantic["failure"] == "validation_failed"
+    assert semantic["failure_detail"] == "target_unknown"
+
+
+def test_live_request_downgraded_to_direct_answer_never_calls_response_model() -> None:
+    env = fake_environment(localhost=True, monitor=True)
+    engine = RecordingEngine(env)
+    model = ScriptedAssessmentModel(draft="This must never be returned.")
+    agent = _agent(
+        engine,
+        model,
+        [direct_answer_plan()],
+    )
+
+    result = agent.run_with_steps("check CPU on monitor")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert engine.execute_calls == 0
+    assert model.calls == []
+    assert semantic["terminal_state"] == "FAIL"
+    assert semantic["failure"] == "validation_failed"
+    assert semantic["failure_detail"] == "request_conflict"
+
+
+def test_unknown_target_downgraded_to_direct_answer_never_falls_back_to_localhost() -> (
+    None
+):
+    env = fake_environment(localhost=True)
+    engine = RecordingEngine(env)
+    model = ScriptedAssessmentModel(draft="This must never be returned.")
+    agent = _agent(
+        engine,
+        model,
+        [direct_answer_plan()],
+    )
+
+    result = agent.run_with_steps("check RAM on ghost-host")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert engine.execute_calls == 0
+    assert engine.frames == []
+    assert model.calls == []
     assert semantic["terminal_state"] == "FAIL"
     assert semantic["failure"] == "validation_failed"
     assert semantic["failure_detail"] == "target_unknown"
@@ -152,9 +196,7 @@ def test_constrained_grafana_source_validates_only_when_available() -> None:
         ],
     )
 
-    available_result = available_agent.run_with_steps(
-        "list grafana dashboards"
-    )
+    available_result = available_agent.run_with_steps("list grafana dashboards")
     missing_result = missing_agent.run_with_steps("list grafana dashboards")
 
     available_semantic = available_result["execution_trace"]["runtime_metrics"][
@@ -220,14 +262,10 @@ def test_source_exclusion_is_enforced_before_dispatch() -> None:
     assert engine.execute_calls == 1
     values = semantic["validation"]["values"]
     allowed = next(
-        str(item["normalized"])
-        for item in values
-        if item["field"] == "source.allowed"
+        str(item["normalized"]) for item in values if item["field"] == "source.allowed"
     )
     excluded = next(
-        str(item["normalized"])
-        for item in values
-        if item["field"] == "source.excluded"
+        str(item["normalized"]) for item in values if item["field"] == "source.excluded"
     )
     assert excluded == "grafana"
     assert "grafana" not in allowed
@@ -258,9 +296,7 @@ def test_two_target_comparison_keeps_provenance_separate() -> None:
     agent.run_with_steps("RAM trên localhost")
 
     assert engine.execute_calls == 2
-    assessment_facts = [
-        call.prompt for call in model.calls if call.kind == "response"
-    ]
+    assessment_facts = [call.prompt for call in model.calls if call.kind == "response"]
     assert len(assessment_facts) == 2
     first_facts = assessment_facts[0]
     second_facts = assessment_facts[1]

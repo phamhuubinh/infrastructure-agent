@@ -42,7 +42,7 @@ def test_runtime_factory_wires_configured_test_adapter_into_semantic_primary(
     assert result["response"] == "runtime planner ok"
     assert agent._semantic_planner is not None
     assert execute.call_count == 0
-    assert len(model.calls) == 1
+    assert [call.kind for call in model.calls] == ["response", "verifier"]
 
 
 def test_runtime_factory_reuses_assessment_fallback_order_for_planner(
@@ -57,7 +57,7 @@ def test_runtime_factory_reuses_assessment_fallback_order_for_planner(
     )
 
     assert agent.run("hello") == "fallback planner ok"
-    assert len(first.calls) == 1
+    assert [call.kind for call in first.calls] == ["response", "verifier"]
     assert len(second.calls) == 1
 
 
@@ -97,7 +97,9 @@ def test_no_model_runtime_is_explicit_and_never_dispatches_guessed_intent(
     assert execute.call_count == 0
     assert agent.health_check() is False
     trace = result["execution_trace"]
-    assert trace["evidence_status"] == "UNAVAILABLE"
+    assert trace["evidence_status"] == (
+        "NOT_APPLICABLE" if user_request == "show me your API keys" else "UNAVAILABLE"
+    )
     if expected == "No model is configured":
         assert trace["answer_strategy"] == "DETERMINISTIC_TEMPLATE"
         assert trace["routing_status"] == "UNSUPPORTED"

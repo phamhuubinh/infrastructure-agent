@@ -39,7 +39,11 @@ from src.pipeline.semantic_plan_binding import (
     SemanticPlanBindingResult,
 )
 from src.pipeline.semantic_plan_harness import SemanticPlanHarnessResult
-from src.pipeline.semantic_plan_validation import SemanticPlanValidationResult
+from src.pipeline.semantic_plan_validation import (
+    SemanticPlanValidationReason,
+    SemanticPlanValidationResult,
+    SemanticPlanValidationStatus,
+)
 from src.pipeline.semantic_plan_wire import (
     SemanticPlanWireError,
     semantic_plan_from_wire,
@@ -204,6 +208,132 @@ def test_harness_validates_each_subplan_without_implicit_target_inheritance() ->
     assert result.subplans[0].resolved_target is None
     assert result.subplans[1].resolved_target == "localhost"
 
+
+def _harness_for_multi_intent() -> object:
+    from src.pipeline.semantic_plan_harness import SemanticPlanHarnessValidator
+    from src.pipeline.target_resolver import TargetResolver
+    from src.tool.knowledge_tool import KnowledgeTool
+    from src.tool.target_registry import TargetRegistry
+
+    registry = TargetRegistry()
+    registry.add("localhost")
+    registry.add("server01")
+    return SemanticPlanHarnessValidator(
+        TargetResolver(registry), KnowledgeTool(registry)
+    )
+
+
+def test_multi_intent_rejects_parent_mutation_rewritten_as_safe_direct_child() -> None:
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Explain nginx restart.", _direct("nginx restart")),
+            SemanticSubplan("Check CPU on server01.", _capability("cpu")),
+        ),
+        raw_request="Restart nginx and then check CPU on server01.",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.REJECT
+    assert result.validation.reason is SemanticPlanValidationReason.MUTATION_UNSAFE
+    assert not result.subplans
+
+
+def test_multi_intent_rejects_parent_source_omitted_by_evidence_child() -> None:
+    child = _capability("cpu")
+    child = SemanticPlan(
+        route=child.route,
+        domain=child.domain,
+        execution_intent=child.execution_intent,
+        target=TargetReference(TargetReferenceKind.EXPLICIT, "server01"),
+        source_constraints=(SourceConstraint.ANY,),
+        freshness=child.freshness,
+        concept=child.concept,
+        deterministic_compute=child.deterministic_compute,
+        clarification=child.clarification,
+    )
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Explain CPU.", _direct("cpu")),
+            SemanticSubplan("Check CPU on server01.", child),
+        ),
+        raw_request="Linux only: check CPU on server01 and explain CPU.",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.REJECT
+    assert result.validation.reason is SemanticPlanValidationReason.REQUEST_CONFLICT
+    assert result.validation.values[0].field == "request.source"
+
+
+def test_multi_intent_rejects_parent_target_omitted_by_children() -> None:
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Explain CPU.", _direct("cpu")),
+            SemanticSubplan("Explain monitoring.", _direct("monitoring")),
+        ),
+        raw_request="Check CPU on server01 and explain the result.",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.REJECT
+    assert result.validation.reason is SemanticPlanValidationReason.REQUEST_CONFLICT
+    assert result.validation.values[0].field == "request.target"
+
+
+def test_multi_intent_rejects_current_external_parent_rewritten_as_stable_children() -> (
+    None
+):
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Explain Python releases.", _direct("python release")),
+            SemanticSubplan("Explain support windows.", _direct("support window")),
+        ),
+        raw_request="What is the latest stable Python release and its support window?",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.REJECT
+    assert result.validation.reason is SemanticPlanValidationReason.REQUEST_CONFLICT
+    assert result.validation.values[0].field == "request.freshness"
+
+
+def test_multi_intent_rejects_explicit_url_parent_rewritten_as_direct_children() -> (
+    None
+):
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Explain the link.", _direct("link")),
+            SemanticSubplan("Summarize the topic.", _direct("topic")),
+        ),
+        raw_request="Read https://docs.example.com/page and explain it.",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.REJECT
+    assert result.validation.reason is SemanticPlanValidationReason.REQUEST_CONFLICT
+    assert result.validation.values[0].field == "request.url"
+
+
+def test_multi_intent_allows_faithful_parent_target_and_live_evidence_child() -> None:
+    child = _capability("cpu")
+    child = SemanticPlan(
+        route=child.route,
+        domain=child.domain,
+        execution_intent=child.execution_intent,
+        target=TargetReference(TargetReferenceKind.EXPLICIT, "server01"),
+        source_constraints=child.source_constraints,
+        freshness=child.freshness,
+        concept=child.concept,
+        deterministic_compute=child.deterministic_compute,
+        clarification=child.clarification,
+    )
+    result = _harness_for_multi_intent().validate(
+        _multi(
+            SemanticSubplan("Check CPU on server01.", child),
+            SemanticSubplan("Explain CPU.", _direct("cpu")),
+        ),
+        raw_request="Check CPU on server01 and explain CPU.",
+    )
+
+    assert result.validation.status is SemanticPlanValidationStatus.VALID
+    assert result.validation.can_execute
+
+
 @dataclass
 class StaticPlanner:
     plan: SemanticPlan
@@ -307,19 +437,22 @@ def test_coordinator_executes_mixed_subplans_without_recursive_planner_calls() -
     assert execute_calls == 1
     assert len(result.subplan_results) == 2
     assert result.response.text == (
-        "[1] direct:Explain RAM.\n\n"
-        "[2] assessed:Check CPU on localhost."
+        "[1] direct:Explain RAM.\n\n[2] assessed:Check CPU on localhost."
     )
     assert result.to_trace_dict()["final_response_count"] == 1
     assert len(result.to_trace_dict()["subplans"]) == 2
 
 
-def test_dependency_context_is_explicit_and_independent_children_do_not_inherit() -> None:
+def test_dependency_context_is_explicit_and_independent_children_do_not_inherit() -> (
+    None
+):
     seen: list[str] = []
     plan = _multi(
         SemanticSubplan("Resolve version.", _direct("version")),
         SemanticSubplan("Independent explanation.", _direct("independent")),
-        SemanticSubplan("Generate config using it.", _direct("config"), depends_on=(0,)),
+        SemanticSubplan(
+            "Generate config using it.", _direct("config"), depends_on=(0,)
+        ),
     )
 
     def direct(request: str, _context) -> SemanticLoopResponse:

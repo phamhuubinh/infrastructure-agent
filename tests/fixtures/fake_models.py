@@ -86,7 +86,9 @@ class ScriptedAssessmentModel(AssessmentModelAdapter):
                 self._record("repair", prompt)
                 raise self.repair_error
             self._record("repair", prompt)
-            return self.repair_response if self.repair_response is not None else self.draft
+            return (
+                self.repair_response if self.repair_response is not None else self.draft
+            )
         self._record("response", prompt)
         return self.draft
 
@@ -191,7 +193,7 @@ def capability_plan(
     domain: RequestDomain = RequestDomain.ENVIRONMENT,
     sources: tuple[SourceConstraint, ...] = (SourceConstraint.ANY,),
     excluded_sources: tuple[SourceConstraint, ...] = (),
-    freshness: FreshnessRequirement = FreshnessRequirement.STABLE,
+    freshness: FreshnessRequirement = FreshnessRequirement.CURRENT,
     explicit_url: str | None = None,
     execution_intent: ExecutionIntent = ExecutionIntent.INSPECT_READ_ONLY,
     target_kind: TargetReferenceKind | None = None,

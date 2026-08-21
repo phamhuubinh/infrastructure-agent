@@ -780,48 +780,97 @@ def _optional_enum(
 
 
 def _calculation_schema() -> dict[str, object]:
-    nullable_decimal = {
-        "anyOf": [
-            {"type": "string", "minLength": 1, "maxLength": 64},
-            {"type": "null"},
-        ]
+    decimal_text: dict[str, object] = {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
     }
-    nullable_duration_unit = {
-        "anyOf": [
-            {"type": "string", "enum": _enum_values(CalculatorDurationUnit)},
-            {"type": "null"},
-        ]
+    null_value: dict[str, object] = {"type": "null"}
+    empty_values: dict[str, object] = {
+        "type": "array",
+        "maxItems": 0,
     }
-    nullable_rate_unit = {
-        "anyOf": [
-            {"type": "string", "enum": _enum_values(CalculatorRateUnit)},
-            {"type": "null"},
-        ]
+    numeric_values: dict[str, object] = {
+        "type": "array",
+        "items": decimal_text,
+        "minItems": 1,
+        "maxItems": MAX_CALCULATOR_VALUES,
     }
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "required": sorted(_CALCULATION_KEYS),
-        "properties": {
-            "op": {"type": "string", "enum": _enum_values(CalculatorOperation)},
-            "values": {
-                "type": "array",
-                "items": {"type": "string", "minLength": 1, "maxLength": 64},
-                "maxItems": MAX_CALCULATOR_VALUES,
+    duration_unit: dict[str, object] = {
+        "type": "string",
+        "enum": _enum_values(CalculatorDurationUnit),
+    }
+    rate_unit: dict[str, object] = {
+        "type": "string",
+        "enum": _enum_values(CalculatorRateUnit),
+    }
+    nullable_unit = _nullable_text_schema(64)
+
+    def branch(
+        operations: tuple[str, ...],
+        **overrides: object,
+    ) -> dict[str, object]:
+        properties: dict[str, object] = {
+            "op": {
+                "type": "string",
+                "enum": list(operations),
             },
-            "l": nullable_decimal,
-            "r": nullable_decimal,
-            "base": nullable_decimal,
-            "pct": nullable_decimal,
-            "tasks": nullable_decimal,
-            "workers": nullable_decimal,
-            "duration": nullable_decimal,
-            "duration_unit": nullable_duration_unit,
-            "rate": nullable_decimal,
-            "rate_unit": nullable_rate_unit,
-            "target_rate_unit": nullable_rate_unit,
-            "unit": _nullable_text_schema(64),
-        },
+            "values": empty_values,
+            "l": null_value,
+            "r": null_value,
+            "base": null_value,
+            "pct": null_value,
+            "tasks": null_value,
+            "workers": null_value,
+            "duration": null_value,
+            "duration_unit": null_value,
+            "rate": null_value,
+            "rate_unit": null_value,
+            "target_rate_unit": null_value,
+            "unit": null_value,
+        }
+        properties.update(overrides)
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "required": sorted(_CALCULATION_KEYS),
+            "properties": properties,
+        }
+
+    return {
+        "anyOf": [
+            branch(
+                ("add", "subtract", "multiply", "divide"),
+                l=decimal_text,
+                r=decimal_text,
+                unit=nullable_unit,
+            ),
+            branch(
+                ("average",),
+                values=numeric_values,
+                unit=nullable_unit,
+            ),
+            branch(
+                ("percent_of",),
+                base=decimal_text,
+                pct=decimal_text,
+                unit=nullable_unit,
+            ),
+            branch(
+                ("worker_task_rate",),
+                tasks=decimal_text,
+                workers=decimal_text,
+                duration=decimal_text,
+                duration_unit=duration_unit,
+            ),
+            branch(
+                ("rate_convert",),
+                rate=decimal_text,
+                rate_unit=rate_unit,
+                target_rate_unit=rate_unit,
+                unit=nullable_unit,
+            ),
+        ]
     }
 
 

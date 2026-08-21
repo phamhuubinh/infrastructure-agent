@@ -60,6 +60,7 @@ from src.model.semantic_response_repairer import (
     SemanticResponseRepairer,
     SemanticResponseRepairerProtocol,
 )
+from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
 from src.model.usage_metadata import ModelCallUsage
 from src.model.usage_recorder import ModelUsageRecorder
 from src.pipeline.answer_type import AnswerType
@@ -256,6 +257,9 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
+        sensitive_refusal_response = self._sensitive_refusal_response(user_request)
+        if sensitive_refusal_response is not None:
+            return sensitive_refusal_response
         arithmetic = (
             self._arithmetic_response(user_request)
             if self._semantic_planner is None
@@ -385,6 +389,9 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
+        sensitive_refusal_response = self._sensitive_refusal_response(user_request)
+        if sensitive_refusal_response is not None:
+            return self._sensitive_refusal_payload(sensitive_refusal_response)
         arithmetic = (
             self._arithmetic_response(user_request)
             if self._semantic_planner is None
@@ -415,8 +422,10 @@ class DeterministicAgent:
             }
         logic = self._logic_response(user_request)
         if logic is not None:
-            frame = Normalizer().normalize(user_request).evolve(
-                routing_status=RoutingStatus.RESOLVED
+            frame = (
+                Normalizer()
+                .normalize(user_request)
+                .evolve(routing_status=RoutingStatus.RESOLVED)
             )
             trace = ExecutionTrace(
                 user_request=user_request,
@@ -428,7 +437,13 @@ class DeterministicAgent:
                 request_class=frame.answer_type,
                 actual_request_frame=frame.to_dict(),
             )
-            return {"response": logic, "steps": [], "investigation": None, "trace_id": trace.trace_id, "execution_trace": trace.to_dict()}
+            return {
+                "response": logic,
+                "steps": [],
+                "investigation": None,
+                "trace_id": trace.trace_id,
+                "execution_trace": trace.to_dict(),
+            }
         provenance = self._provenance_response(user_request)
         if provenance is not None:
             frame = (
@@ -939,7 +954,9 @@ class DeterministicAgent:
     @staticmethod
     def _general_response_strategy(user_request: str) -> ResponseStrategy:
         request = user_request.casefold()
-        if any(marker in request for marker in ("translate", "dịch", "rewrite", "viết lại")):
+        if any(
+            marker in request for marker in ("translate", "dịch", "rewrite", "viết lại")
+        ):
             return ResponseStrategy.TRANSLATION_REWRITE
         if any(
             marker in request
@@ -1303,7 +1320,11 @@ class DeterministicAgent:
         if not any(word in request for word in generation_words):
             return None
 
-        fence = re.search(r"```(?P<lang>[a-zA-Z0-9_+-]*)\s*\n(?P<body>.*?)(?:```|\Z)", response, re.DOTALL)
+        fence = re.search(
+            r"```(?P<lang>[a-zA-Z0-9_+-]*)\s*\n(?P<body>.*?)(?:```|\Z)",
+            response,
+            re.DOTALL,
+        )
         language = fence.group("lang").casefold() if fence else ""
         content = fence.group("body").rstrip() if fence else response
         github_request = any(
@@ -1365,7 +1386,9 @@ class DeterministicAgent:
             "issues": issues,
         }
         if final.valid:
-            delivered = repaired if repair_attempted and repaired is not None else response
+            delivered = (
+                repaired if repair_attempted and repaired is not None else response
+            )
             warnings = tuple(
                 issue.message[:180] for issue in final.issues if issue.kind == "warning"
             )
@@ -1405,9 +1428,7 @@ class DeterministicAgent:
                 f"_So sánh không thực hiện được: không thu thập được dữ liệu "
                 f"từ nguồn nào trong số đã yêu cầu ({missing_labels})._"
             )
-        return (
-            f"_So sánh chỉ một phần (PARTIAL): thiếu dữ liệu từ " f"{missing_labels}._"
-        )
+        return f"_So sánh chỉ một phần (PARTIAL): thiếu dữ liệu từ {missing_labels}._"
 
     @staticmethod
     def _render_raw_facts(investigation: InvestigationRequest) -> str | None:
@@ -1983,9 +2004,7 @@ class DeterministicAgent:
         )
         urls = {document.url for document in documents}
         facts = tuple(
-            fact
-            for fact in evidence.facts
-            if fact.provenance.source_reference in urls
+            fact for fact in evidence.facts if fact.provenance.source_reference in urls
         )
         raw = evidence.data if isinstance(evidence.data, dict) else {}
         data = {
@@ -2390,16 +2409,33 @@ class DeterministicAgent:
             return
         outcome = result.planner_outcome
         planner_result = outcome.result if outcome is not None else None
-        if planner_result is None:
+        if planner_result is not None:
+            self._usage_recorder.record_mapping(
+                planner_result.raw_usage,
+                purpose=planner_result.purpose.value,
+                provider=planner_result.provider,
+                model=planner_result.model,
+                latency_ms=planner_result.latency_ms,
+                estimated_input_tokens=planner_result.estimated_input_tokens,
+                configured_effort=planner_result.configured_effort,
+            )
             return
-        self._usage_recorder.record_mapping(
-            planner_result.raw_usage,
-            purpose=planner_result.purpose.value,
-            provider=planner_result.provider,
-            model=planner_result.model,
-            latency_ms=planner_result.latency_ms,
-            estimated_input_tokens=planner_result.estimated_input_tokens,
-        )
+        if outcome is None:
+            return
+        for failure in outcome.failures:
+            # An invalid provider response still proves one model call occurred.
+            # Preserve its safe metadata without admitting its payload to routing.
+            if failure.model is None:
+                continue
+            self._usage_recorder.record_mapping(
+                failure.raw_usage,
+                purpose="planner",
+                provider=failure.provider,
+                model=failure.model,
+                latency_ms=failure.latency_ms,
+                estimated_input_tokens=failure.estimated_input_tokens,
+                configured_effort=failure.configured_effort,
+            )
 
     def _semantic_loop_execute(self, frame: RequestFrame) -> InvestigationRequest:
         """Dispatch semantic execution through the existing deterministic path."""
@@ -2535,9 +2571,7 @@ class DeterministicAgent:
             FreshnessRequirement.REAL_TIME,
         }
         external = (
-            investigation.external_verification
-            if investigation is not None
-            else None
+            investigation.external_verification if investigation is not None else None
         )
         current_verified = bool(
             external.verified
@@ -2627,9 +2661,7 @@ class DeterministicAgent:
                 else None
             )
             facts = (
-                tuple(investigation.fact_set.facts)
-                if investigation is not None
-                else ()
+                tuple(investigation.fact_set.facts) if investigation is not None else ()
             )
             repair = self._semantic_response_repairer.repair(
                 user_request,
@@ -2721,6 +2753,18 @@ class DeterministicAgent:
         verifier still applies final-response postconditions afterwards.
         """
 
+        # The planner's prose is untrusted model output even though accepting
+        # it avoids a second response-generation call.  Keep the deterministic
+        # disclosure policy authoritative before that prose can reach the
+        # shared final-response verifier.
+        refusal = self._check_chat_safety(user_request)
+        if refusal is not None:
+            return SemanticLoopResponse(
+                text=refusal,
+                answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE.name,
+                model_used=False,
+            )
+
         finalized, validation = self._finalize_model_response(
             user_request,
             final_answer,
@@ -2729,7 +2773,15 @@ class DeterministicAgent:
         return SemanticLoopResponse(
             text=finalized,
             answer_strategy=AnswerStrategy.CHAT.name,
-            model_used=False,
+            # No response model is called here, but this text was still
+            # supplied by the planner model and must receive the same
+            # relevance and bounded-repair treatment as other model drafts.
+            # Setup-mode's planner is deterministic and does not represent a
+            # model draft.  It must remain a setup response rather than
+            # triggering relevance/repair calls on the unavailable adapter.
+            model_used=not isinstance(
+                self._assessment_model, UnconfiguredAssessmentAdapter
+            ),
             artifact_validation=validation,
         )
 
@@ -2990,6 +3042,52 @@ class DeterministicAgent:
             "execution_trace": trace,
         }
 
+    def _sensitive_refusal_payload(self, response: str) -> dict[str, object]:
+        """Build a no-model/no-tool response without retaining the request text.
+
+        Sensitive disclosure attempts are rejected before semantic planning.  In
+        contrast with ordinary traces, their raw request and normalized frame
+        are intentionally absent so a credential-bearing request cannot be
+        exposed through telemetry.
+        """
+
+        trace = ExecutionTrace(
+            user_request="",
+            failure_stage="safety_policy",
+            failure_reason="sensitive_request_refused",
+            answer_strategy=AnswerStrategy.REFUSAL,
+            llm_usage_reason=LLMUsageReason.NONE,
+            routing_status=RoutingStatus.UNSUPPORTED,
+            evidence_status=EvidenceStatus.NOT_APPLICABLE,
+            response_strategy=ResponseStrategy.CLARIFICATION_REFUSAL,
+            runtime_metrics={
+                "semantic_loop": {
+                    "terminal_state": "DONE",
+                    "succeeded": True,
+                    "state_history": [],
+                    "states": [],
+                    "execution_cycles": 0,
+                    "planned_tool_calls": 0,
+                    "actual_tool_calls": 0,
+                    "calculator_calls": 0,
+                    "final_response_count": 1,
+                    "failure": None,
+                    "failure_detail": None,
+                    "budget": None,
+                    "safety_policy": "sensitive_request_refused",
+                }
+            }
+            if self._semantic_planner is not None
+            else None,
+        ).to_dict()
+        return {
+            "response": response,
+            "steps": [],
+            "investigation": None,
+            "trace_id": trace["trace_id"],
+            "execution_trace": trace,
+        }
+
     @staticmethod
     def _semantic_loop_routing(result: SemanticLoopResult) -> RoutingStatus:
         if result.succeeded:
@@ -3089,6 +3187,23 @@ class DeterministicAgent:
         )
 
     @staticmethod
+    def _sensitive_refusal_response(user_request: str) -> str | None:
+        """Return the localized refusal for a protected-data disclosure."""
+
+        if sensitive_refusal(user_request) is None:
+            return None
+        language = _detect_language(user_request)
+        if language == "en":
+            return (
+                "I cannot disclose hidden instructions, secrets, credentials, "
+                "or credential files."
+            )
+        return (
+            "Tôi không thể tiết lộ hướng dẫn nội bộ, bí mật, thông tin "
+            "đăng nhập hoặc tệp chứa thông tin xác thực."
+        )
+
+    @staticmethod
     def _check_chat_safety(user_request: str) -> str | None:
         """Check chat input for dangerous patterns before sending to LLM.
 
@@ -3103,17 +3218,11 @@ class DeterministicAgent:
         """
         import re
 
-        if sensitive_refusal(user_request) is not None:
-            language = _detect_language(user_request)
-            if language == "en":
-                return (
-                    "I cannot disclose hidden instructions, secrets, credentials, "
-                    "or credential files."
-                )
-            return (
-                "Tôi không thể tiết lộ hướng dẫn nội bộ, bí mật, thông tin "
-                "đăng nhập hoặc tệp chứa thông tin xác thực."
-            )
+        sensitive_response = DeterministicAgent._sensitive_refusal_response(
+            user_request
+        )
+        if sensitive_response is not None:
+            return sensitive_response
 
         dangerous_patterns = [
             (r"\$\(.*\)", "command substitution detected"),

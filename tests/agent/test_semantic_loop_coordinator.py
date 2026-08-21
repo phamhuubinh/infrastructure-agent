@@ -123,10 +123,25 @@ def _external_plan(*, url: str | None = None) -> SemanticPlan:
         route=SemanticPlanRoute.CAPABILITY_ASSISTED,
         domain=RequestDomain.EXTERNAL_INFORMATION,
         execution_intent=ExecutionIntent.INSPECT_READ_ONLY,
-        source_constraints=((SourceConstraint.URL_ONLY,) if url else (SourceConstraint.INTERNET,)),
+        source_constraints=(
+            (SourceConstraint.URL_ONLY,) if url else (SourceConstraint.INTERNET,)
+        ),
         freshness=FreshnessRequirement.CURRENT,
         concept="current version",
         explicit_url=url,
+        deterministic_compute=DeterministicComputeIntent.NOT_REQUIRED,
+        clarification=ClarificationState.NOT_REQUIRED,
+    )
+
+
+def _content_literal_plan() -> SemanticPlan:
+    return SemanticPlan(
+        route=SemanticPlanRoute.DIRECT_ANSWER,
+        domain=RequestDomain.CONTENT_GENERATION,
+        execution_intent=ExecutionIntent.GENERATE_CONTENT,
+        source_constraints=(SourceConstraint.ANY,),
+        freshness=FreshnessRequirement.STABLE,
+        concept="configuration example",
         deterministic_compute=DeterministicComputeIntent.NOT_REQUIRED,
         clarification=ClarificationState.NOT_REQUIRED,
     )
@@ -522,9 +537,7 @@ def test_provider_execution_and_state_limit_failures_terminate_once() -> None:
     assert failure_responses == 4
     assert "SECRET_CHAIN_OF_THOUGHT" not in json.dumps(execution_result.to_trace_dict())
     assert execution_result.failure_detail == "RuntimeError"
-    assert "SECRET_PROVIDER_DETAIL" not in json.dumps(
-        response_result.to_trace_dict()
-    )
+    assert "SECRET_PROVIDER_DETAIL" not in json.dumps(response_result.to_trace_dict())
 
 
 class LoopAssessmentModel(AssessmentModelAdapter):
@@ -587,7 +600,9 @@ class FakeExternalVerifier:
     outcome: ExternalVerificationOutcome
     frames: list[RequestFrame]
 
-    def collect(self, frame: RequestFrame, _user_request: str) -> ExternalVerificationOutcome:
+    def collect(
+        self, frame: RequestFrame, _user_request: str
+    ) -> ExternalVerificationOutcome:
         self.frames.append(frame)
         return self.outcome
 
@@ -787,9 +802,7 @@ def test_semantic_current_info_uses_verified_external_executor_path() -> None:
     assert "https://example.com/openssh" in result["response"]
     assert "unrelated.example" not in result["response"]
     model_documents = model.requests[0].evidence[0].data["documents"]
-    assert [item["url"] for item in model_documents] == [
-        "https://example.com/openssh"
-    ]
+    assert [item["url"] for item in model_documents] == ["https://example.com/openssh"]
 
 
 @pytest.mark.parametrize(
@@ -826,9 +839,7 @@ def test_semantic_external_unavailable_never_uses_model_memory(
     assert model.assess_calls == 0
     assert engine.execute_calls == 0
     assert (
-        result["execution_trace"]["stages"]["final_response_postconditions"][
-            "status"
-        ]
+        result["execution_trace"]["stages"]["final_response_postconditions"]["status"]
         == "SUCCEEDED"
     )
 
@@ -839,9 +850,10 @@ def test_semantic_explicit_url_uses_external_fetch_path() -> None:
         [],
     )
     engine = ExternalLoopExecutionEngine()
+    model = LoopAssessmentModel()
     agent = DeterministicAgent(
         engine,  # type: ignore[arg-type]
-        LoopAssessmentModel(),
+        model,
         external_verifier=verifier,  # type: ignore[arg-type]
         semantic_planner=StaticPlanner(  # type: ignore[arg-type]
             _outcome(_external_plan(url="https://example.com/status"))
@@ -853,6 +865,88 @@ def test_semantic_explicit_url_uses_external_fetch_path() -> None:
     assert verifier.frames[0].explicit_url == "https://example.com/status"
     assert "cannot be read" in result["response"]
     assert engine.execute_calls == 0
+    assert model.assess_calls == 0
+    assert (
+        result["execution_trace"]["runtime_metrics"]["semantic_loop"][
+            "actual_tool_calls"
+        ]
+        == 0
+    )
+
+
+def test_semantic_url_literal_with_no_fetch_remains_content_only() -> None:
+    verifier = FakeExternalVerifier(
+        ExternalVerificationOutcome(failures=("must not fetch",)),
+        [],
+    )
+    engine = ExternalLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    planner = StaticPlanner(_outcome(_content_literal_plan()))
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        external_verifier=verifier,  # type: ignore[arg-type]
+        semantic_planner=planner,  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps(
+        "Write a config referencing https://example.com/app.tar.gz, but do not fetch it."
+    )
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert planner.calls == 1
+    assert verifier.frames == []
+    assert engine.execute_calls == 0
+    assert model.assess_calls == 0
+    assert semantic["terminal_state"] == "DONE"
+    assert semantic["actual_tool_calls"] == 0
+
+
+@pytest.mark.parametrize(
+    ("plan", "field"),
+    (
+        (
+            replace(
+                _direct_plan(),
+                source_constraints=(SourceConstraint.URL_ONLY,),
+                explicit_url="https://example.com/status",
+            ),
+            "request.route",
+        ),
+        (
+            replace(
+                _external_plan(url="https://example.com/status"),
+                domain=RequestDomain.GENERAL,
+            ),
+            "request.domain",
+        ),
+    ),
+)
+def test_semantic_explicit_url_bypass_plan_never_reaches_model_memory(
+    plan: SemanticPlan,
+    field: str,
+) -> None:
+    verifier = FakeExternalVerifier(
+        ExternalVerificationOutcome(failures=("fetch unavailable",)),
+        [],
+    )
+    engine = ExternalLoopExecutionEngine()
+    model = LoopAssessmentModel()
+    agent = DeterministicAgent(
+        engine,  # type: ignore[arg-type]
+        model,
+        external_verifier=verifier,  # type: ignore[arg-type]
+        semantic_planner=StaticPlanner(_outcome(plan)),  # type: ignore[arg-type]
+    )
+
+    result = agent.run_with_steps("Read https://example.com/status")
+
+    semantic = result["execution_trace"]["runtime_metrics"]["semantic_loop"]
+    assert verifier.frames == []
+    assert model.assess_calls == 0
+    assert engine.execute_calls == 0
+    assert semantic["failure_detail"] == "request_conflict"
+    assert semantic["validation"]["values"][0]["field"] == field
 
 
 def test_unrelated_semantic_chat_does_not_mutate_infrastructure_context(

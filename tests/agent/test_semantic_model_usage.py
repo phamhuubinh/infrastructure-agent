@@ -119,6 +119,23 @@ class UsagePlannerProvider:
         )
 
 
+class MalformedUsagePlannerProvider:
+    def generate_structured(
+        self,
+        request: PlannerProviderRequest,
+    ) -> PlannerProviderResponse:
+        del request
+        return PlannerProviderResponse(
+            payload={"v": 1, "p": {}, "a": None},
+            provider="configured",
+            model="planner-model",
+            raw_usage={
+                "prompt_tokens": 7,
+                "completion_tokens": 5,
+            },
+        )
+
+
 class UsageExecutionEngine:
     """Fake engine for capability-assisted loops; never touches tools."""
 
@@ -257,6 +274,36 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
     assert planner_entry["estimated_input_tokens"] == planner_estimate
     assert planner_entry["estimated_input_tokens"] != planner_entry["input_tokens"]
     json.dumps(usage)
+
+
+def test_malformed_planner_output_still_records_the_provider_call() -> None:
+    model = UsageScenarioModel("unused")
+    agent = DeterministicAgent(
+        UsageExecutionEngine(),  # type: ignore[arg-type]
+        model,
+        semantic_planner=SemanticPlannerAdapter([MalformedUsagePlannerProvider()]),
+    )
+
+    result = agent.run_with_steps("Xin chào")
+
+    usage = _model_usage(result)
+    assert usage["calls"] == 1
+    assert usage["by_purpose"]["planner"] == {
+        "calls": 1,
+        "latency_ms": usage["by_purpose"]["planner"]["latency_ms"],
+        "input_tokens": 7,
+        "reasoning_tokens": None,
+        "visible_output_tokens": 5,
+        "total_output_tokens": 5,
+        "estimated_input_tokens": (
+            usage["by_purpose"]["planner"]["estimated_input_tokens"]
+        ),
+    }
+    entry = usage["per_call"][0]
+    assert entry["provider"] == "configured"
+    assert entry["model"] == "planner-model"
+    assert entry["purpose"] == "planner"
+    assert entry["estimated_input_tokens"] is not None
 
 
 def test_tool_assisted_request_records_assessment_usage() -> None:

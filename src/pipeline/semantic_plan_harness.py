@@ -109,6 +109,7 @@ class SemanticPlanHarnessValidator:
         if plan.route is SemanticPlanRoute.MULTI_INTENT:
             return self._validate_multi_intent(
                 plan,
+                raw_request=raw_request,
                 verification_available=verification_available,
             )
 
@@ -201,11 +202,22 @@ class SemanticPlanHarnessValidator:
         self,
         plan: SemanticPlan,
         *,
+        raw_request: str,
         verification_available: bool,
     ) -> SemanticPlanHarnessResult:
         structural = _validate_multi_intent_structure(plan)
         if structural is not None:
             return SemanticPlanHarnessResult(validation=structural)
+
+        # The parent request is the authority for the read-only boundary. A
+        # child request is planner-authored decomposition text and must never
+        # be able to turn an action request into a harmless-looking child.
+        mutation = SemanticMutationValidator().validate(plan, raw_request)
+        if not _valid(mutation.validation):
+            return SemanticPlanHarnessResult(
+                validation=mutation.validation,
+                mutation=mutation,
+            )
 
         validated: list[SemanticPlanHarnessResult] = []
         for item in plan.subplans:
@@ -220,10 +232,27 @@ class SemanticPlanHarnessValidator:
                 return SemanticPlanHarnessResult(
                     validation=_parent_subplan_failure(plan, child.validation),
                     subplans=tuple(validated),
+                    mutation=mutation,
                 )
+
+        consistency = SemanticRequestConsistencyValidator(
+            self._target_resolver
+        ).validate_multi_intent(
+            plan,
+            raw_request=raw_request,
+            child_plans=tuple(item.plan for item in plan.subplans),
+            resolved_targets=tuple(child.resolved_target for child in validated),
+        )
+        if not _valid(consistency):
+            return SemanticPlanHarnessResult(
+                validation=consistency,
+                subplans=tuple(validated),
+                mutation=mutation,
+            )
         return SemanticPlanHarnessResult(
             validation=SemanticPlanValidationResult.valid(plan),
             subplans=tuple(validated),
+            mutation=mutation,
         )
 
 

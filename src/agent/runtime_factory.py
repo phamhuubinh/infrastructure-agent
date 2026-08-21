@@ -284,6 +284,7 @@ def _build_assessment_adapter(
         timeout=cfg.timeout,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
+        supports_structured_output=(False if cfg.provider == "ollama" else None),
     )
 
     return LLMAssessmentAdapter(client=client)
@@ -308,6 +309,7 @@ def _build_openai_adapter(
     timeout = int(value("timeout", 60))
     temperature = float(value("temperature", 0.0))
     max_tokens = int(value("max_tokens", 2048))
+    provider = str(value("provider", "openai")).strip().casefold()
 
     client = LLMClient(
         base_url=base_url,
@@ -316,6 +318,7 @@ def _build_openai_adapter(
         timeout=timeout,
         temperature=temperature,
         max_tokens=max_tokens,
+        supports_structured_output=False if provider == "ollama" else None,
     )
     return LLMAssessmentAdapter(client=client)
 
@@ -441,9 +444,7 @@ def _build_semantic_planner(
 
     nested = getattr(assessment_adapter, "adapters", None)
     models = (
-        tuple(nested)
-        if isinstance(nested, list) and nested
-        else (assessment_adapter,)
+        tuple(nested) if isinstance(nested, list) and nested else (assessment_adapter,)
     )
     return SemanticPlannerAdapter(
         tuple(AssessmentPlannerProvider(model) for model in models)
@@ -590,8 +591,7 @@ def create_deterministic_agent(
         external_verifier=ExternalVerificationExecutor(
             kt,
             enabled=(
-                feature_flags.external_verification_v1
-                and feature_flags.web_search_v1
+                feature_flags.external_verification_v1 and feature_flags.web_search_v1
             ),
         ),
         general_agent_routing_enabled=feature_flags.general_agent_routing_v1,

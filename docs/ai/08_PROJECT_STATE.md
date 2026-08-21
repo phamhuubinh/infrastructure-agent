@@ -46,8 +46,9 @@ protection.
   Deterministic compute uses the reviewed calculator. Capability-assisted
   plans must bind successfully before any collector can run.
 - Sensitive disclosure requests (hidden instructions, credentials,
-  credential files) have deterministic refusal paths. Definitional questions
-  about credential concepts remain answerable.
+  credential files) are refused before semantic planning or direct-response
+  generation; their traces omit the raw request and normalized frame.
+  Definitional questions about credential concepts remain answerable.
 - Current/online and explicit-URL plans use bounded deterministic Internet
   verification; unavailable verification remains unverified/unknown and never
   falls back to stale model memory.
@@ -102,6 +103,11 @@ protection.
   calculator output, represented language/shape constraints, and actually used
   provenance. A failed check first creates a safe deterministic replacement and
   bounded violation metadata.
+- A planner-provided `final_answer` remains untrusted model prose: it passes
+  deterministic sensitive-request refusal, the same final postconditions and
+  relevance verification as other model drafts, and at most one repair before
+  release. Eligible benign direct answers still avoid a second response-model
+  generation call.
 - If hard postconditions pass and the draft is model-generated, one compact
   `SemanticRelevanceVerifier` call checks request/answer alignment. It sees only
   the original request, an allowlisted plan summary, and a bounded draft; it
@@ -153,6 +159,10 @@ RAG is intentionally absent from chat tool registration.
   `SemanticPlan` wire shape, bounded prompt context, structured provider
   failures/clarifications, compact capability summaries, single-capability
   detail expansion, and typed pre-execution validation results.
+- OpenAI-compatible planner calls send the canonical JSON Schema through
+  native structured output when the configured endpoint supports it. Endpoints
+  without that capability use only the compact wire hint and the same strict,
+  fail-closed parser; neither path exposes execution authority.
 - The first-pass planner prompt is under the SIMPLE input-context budget and
   contains only the bounded request/context/schema contract. Session context
   can include relevant target/concept/service/path/time/source/exclusion and

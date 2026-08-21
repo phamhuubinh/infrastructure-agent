@@ -57,6 +57,7 @@ class ModelUsageRecorder:
         model: str | None = None,
         latency_ms: float | None = None,
         estimated_input_tokens: int | None = None,
+        configured_effort: str | None = None,
     ) -> None:
         """Normalize a provider-neutral raw-usage mapping and record it.
 
@@ -70,6 +71,7 @@ class ModelUsageRecorder:
             provider=provider,
             model=model,
             latency_ms=latency_ms,
+            configured_effort=configured_effort,
         )
         if estimated_input_tokens is not None:
             usage = replace(usage, estimated_input_tokens=estimated_input_tokens)

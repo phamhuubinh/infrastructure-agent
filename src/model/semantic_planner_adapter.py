@@ -133,6 +133,11 @@ class PlannerAttemptFailure:
     provider: str
     reason: PlannerFailureReason
     message: str
+    model: str | None = None
+    raw_usage: Mapping[str, object] | None = None
+    latency_ms: float | None = None
+    estimated_input_tokens: int | None = None
+    configured_effort: str | None = None
 
 
 class SemanticPlannerError(RuntimeError):
@@ -263,6 +268,10 @@ class SemanticPlannerAdapter:
         started = time.perf_counter()
         for index, provider in enumerate(self._providers, start=1):
             provider_label = f"provider-{index}"
+            model_label: str | None = None
+            raw_usage: dict[str, object] | None = None
+            configured_effort: ReasoningEffort | None = None
+            attempt_started = time.perf_counter()
             request = PlannerProviderRequest(
                 purpose=ModelCallPurpose.PLANNER,
                 system_prompt=prompt.system_prompt,
@@ -278,7 +287,6 @@ class SemanticPlannerAdapter:
                         "Provider returned an invalid response contract."
                     )
                 provider_label = _bounded_identity(response.provider, provider_label)
-                parsed = _parse_provider_payload(response.payload)
                 model_label = _bounded_identity(response.model, "unknown")
                 raw_usage = _copy_raw_usage(response.raw_usage)
                 configured_effort = response.configured_effort
@@ -288,6 +296,7 @@ class SemanticPlannerAdapter:
                     raise SemanticPlanWireError(
                         "Provider configured_effort must be ReasoningEffort or null."
                     )
+                parsed = _parse_provider_payload(response.payload)
             except TimeoutError as exc:
                 failures.append(
                     _failure(provider_label, PlannerFailureReason.TIMEOUT, exc)
@@ -308,6 +317,18 @@ class SemanticPlannerAdapter:
                         provider_label,
                         PlannerFailureReason.INVALID_OUTPUT,
                         exc,
+                        model=model_label,
+                        raw_usage=raw_usage,
+                        latency_ms=round(
+                            (time.perf_counter() - attempt_started) * 1000,
+                            1,
+                        ),
+                        estimated_input_tokens=prompt.estimated_input_tokens,
+                        configured_effort=(
+                            configured_effort.value
+                            if configured_effort is not None
+                            else None
+                        ),
                     )
                 )
                 continue
@@ -548,12 +569,23 @@ def _failure(
     provider: str,
     reason: PlannerFailureReason,
     exc: Exception,
+    *,
+    model: str | None = None,
+    raw_usage: Mapping[str, object] | None = None,
+    latency_ms: float | None = None,
+    estimated_input_tokens: int | None = None,
+    configured_effort: str | None = None,
 ) -> PlannerAttemptFailure:
     message = " ".join(redact_sensitive(str(exc)).split()) or type(exc).__name__
     return PlannerAttemptFailure(
         provider=provider,
         reason=reason,
         message=message[:MAX_PLANNER_ERROR_CHARS],
+        model=model,
+        raw_usage=raw_usage,
+        latency_ms=latency_ms,
+        estimated_input_tokens=estimated_input_tokens,
+        configured_effort=configured_effort,
     )
 
 

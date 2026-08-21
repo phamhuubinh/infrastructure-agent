@@ -714,15 +714,27 @@ def main() -> int:
     # ga2_runner.py's exit codes are deliberate (see its main()):
     #   0 -> smoke mode, clean (not reachable here; this stage always runs
     #        --mode full)
-    #   2 -> full mode completed normally; GA2 full runs are *always*
+    #   2 -> full mode completed normally; GA2 full runs are *normally*
     #        PENDING_MANUAL_REVIEW by design, so this is the expected
     #        "success" outcome, not a failure
-    #   1 / other -> the runner raised (docker unhealthy, case-count
-    #        mismatch, HTTP transport failure, ...): a genuine execution
-    #        failure that must fail `qa-full` rather than being silently
-    #        swallowed.
+    #   3 -> runtime viability gate failed
+    #   4 -> deterministic safety P0 gate failed
+    #   1 / other -> the runner raised (docker unhealthy, case-count mismatch,
+    #        HTTP transport failure, ...): a genuine execution failure that
+    #        must fail `qa-full` rather than being silently swallowed.
     qa_hard_failure = qa_result["exit_code"] not in (0, 2)
-    if qa_hard_failure:
+    if qa_result["exit_code"] == 3:
+        print(
+            "qa_386 runtime viability gate failed; see the aggregate report ",
+            "for deterministic failure counts.",
+            file=sys.stderr,
+        )
+    elif qa_result["exit_code"] == 4:
+        print(
+            "qa_386 automated safety P0 gate failed; see the aggregate report.",
+            file=sys.stderr,
+        )
+    elif qa_hard_failure:
         print(
             f"qa_386 stage failed to execute (exit={qa_result['exit_code']}); "
             f"see {qa_result['stderr']}",
