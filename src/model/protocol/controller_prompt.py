@@ -75,6 +75,7 @@ class ControllerContinuationInput:
     capability_summaries: tuple[Mapping[str, object], ...] = ()
     selected_capability_schema: Mapping[str, object] | None = None
     harness_feedback: Mapping[str, object] | None = None
+    session_context: ControllerPromptContext | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_state, AgentRunState):
@@ -82,9 +83,7 @@ class ControllerContinuationInput:
         if not isinstance(self.capability_summaries, tuple):
             raise TypeError("capability_summaries must be a tuple of mappings.")
         if len(self.capability_summaries) > MAX_CONTROLLER_CAPABILITY_SUMMARIES:
-            raise ValueError(
-                "capability_summaries exceeds the compact item limit."
-            )
+            raise ValueError("capability_summaries exceeds the compact item limit.")
         if self.capability_summaries and self.selected_capability_schema is not None:
             raise ValueError(
                 "continuation may disclose capability summaries or one selected schema, not both."
@@ -108,6 +107,12 @@ class ControllerContinuationInput:
                 "harness_feedback",
                 MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES,
             )
+        if self.session_context is not None and not isinstance(
+            self.session_context, ControllerPromptContext
+        ):
+            raise TypeError("session_context must be ControllerPromptContext or None.")
+        if self.session_context is not None:
+            controller_context_to_dict(self.session_context)
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,11 +229,15 @@ def agent_decision_json_schema(
             "r": {"type": "null"},
         }
         branch_properties["k"] = {"type": "string", "enum": [kind]}
-        branch_properties[body] = action_schema if body == "a" else {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": MAX_TEXT_CHARS,
-        }
+        branch_properties[body] = (
+            action_schema
+            if body == "a"
+            else {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_TEXT_CHARS,
+            }
+        )
         branches.append(
             {
                 "type": "object",
@@ -343,6 +352,10 @@ def _build_continuation_prompt(
             "harness_feedback",
             MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES,
         )
+    if continuation.session_context is not None:
+        context_payload = controller_context_to_dict(continuation.session_context)
+        if context_payload:
+            payload["session_context"] = context_payload
     budget = InputContextBudgetPolicy.for_class(InputContextBudgetClass.NORMAL)
     encoded = _compact_json(payload)
     enforced = budget.enforce(
@@ -366,7 +379,9 @@ def _validate_request(raw_request: object) -> None:
     if not isinstance(raw_request, str) or not raw_request.strip():
         raise ValueError("Controller request must be non-empty text.")
     if len(raw_request) > MAX_RAW_REQUEST_CHARS:
-        raise ValueError(f"Controller request exceeds {MAX_RAW_REQUEST_CHARS} characters.")
+        raise ValueError(
+            f"Controller request exceeds {MAX_RAW_REQUEST_CHARS} characters."
+        )
 
 
 def _optional_context_text(value: object, field: str) -> str | None:
@@ -424,7 +439,9 @@ def _selected_action_transport(
     return capability_id, _closed_transport_schema(arguments_schema, "arguments_schema")
 
 
-def _closed_transport_schema(value: Mapping[str, object], field: str) -> dict[str, object]:
+def _closed_transport_schema(
+    value: Mapping[str, object], field: str
+) -> dict[str, object]:
     """Copy a selected JSON Schema only when every object is strictly closed."""
 
     result = deepcopy(dict(value))
@@ -444,7 +461,9 @@ def _validate_closed_schema(value: object, field: str) -> None:
     has_properties = "properties" in value
     if schema_type == "object" or has_properties:
         if schema_type != "object" or value.get("additionalProperties") is not False:
-            raise ValueError(f"{field} object schemas must set additionalProperties to false.")
+            raise ValueError(
+                f"{field} object schemas must set additionalProperties to false."
+            )
         properties = value.get("properties")
         if not isinstance(properties, Mapping):
             raise ValueError(f"{field}.properties must be an object.")
@@ -466,7 +485,9 @@ def _validate_closed_schema(value: object, field: str) -> None:
 
 
 def _compact_json(value: object) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     if len(encoded.encode("utf-8")) > MAX_CONTROLLER_WIRE_BYTES:
         raise ValueError("Controller prompt section exceeds the byte limit.")
     return encoded

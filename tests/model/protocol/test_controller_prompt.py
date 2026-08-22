@@ -59,9 +59,7 @@ def test_first_turn_has_only_allowlisted_input_and_no_sensitive_detail() -> None
 
 
 def test_system_prompt_requests_no_hidden_reasoning() -> None:
-    prompt = build_controller_prompt(
-        "Hello", hard_constraints=HardRequestConstraints()
-    )
+    prompt = build_controller_prompt("Hello", hard_constraints=HardRequestConstraints())
 
     assert "hidden reasoning" in prompt.system_prompt.casefold()
     assert "chain-of-thought" not in prompt.system_prompt.casefold()
@@ -125,6 +123,7 @@ def test_context_and_continuation_data_are_bounded_before_provider_use() -> None
         },
     }
     assert "capability_summaries" not in payload
+    assert "session_context" not in payload
 
     with pytest.raises(ValueError, match="not both"):
         ControllerContinuationInput(
@@ -140,6 +139,43 @@ def test_context_and_continuation_data_are_bounded_before_provider_use() -> None
                 },
             },
         )
+
+
+def test_continuation_reuses_the_same_allowlisted_evidence_free_session_context() -> (
+    None
+):
+    continuation = ControllerContinuationInput(
+        run_state=AgentRunState(raw_request="Còn RAM thì sao?"),
+        session_context=ControllerPromptContext(
+            target="monitor",
+            sources=(SourceConstraint.GRAFANA,),
+            excluded_sources=(SourceConstraint.INTERNET,),
+        ),
+    )
+
+    prompt = build_controller_prompt(
+        "Còn RAM thì sao?",
+        hard_constraints=HardRequestConstraints(),
+        continuation=continuation,
+    )
+    context = json.loads(prompt.user_prompt)["session_context"]
+
+    assert context == {
+        "target": "monitor",
+        "sources": ["grafana"],
+        "exclude": ["internet"],
+    }
+    assert len(json.dumps(context, ensure_ascii=False).encode("utf-8")) <= 1024
+    assert not {
+        "previous_evidence_receipts",
+        "fact_ids",
+        "last_evidence_status",
+        "facts",
+        "observations",
+        "stdout",
+        "stderr",
+        "command",
+    }.intersection(context)
 
 
 def test_first_turn_action_arguments_are_closed_and_empty() -> None:

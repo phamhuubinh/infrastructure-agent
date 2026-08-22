@@ -178,6 +178,12 @@ class AgentActionValidator:
         self._read_only = ReadOnlyInspector()
         self._parameter_safety = ParameterSafetyInspector()
 
+    @property
+    def target_resolver(self) -> TargetResolver:
+        """Expose exact-target authority to the narrow session-context adapter."""
+
+        return self._target_resolver
+
     def validate(
         self,
         action: AgentAction,

@@ -20,6 +20,11 @@ from src.agent.controller_contracts import (
     AgentObservationStatus,
     AgentRunState,
 )
+from src.agent.controller_session_context import (
+    ContextManagementStatus,
+    ControllerSessionContext,
+)
+from src.agent.conversation_store import ConversationStoreProtocol
 from src.model.controller_adapter import ControllerAdapter, ControllerAdapterError
 from src.model.protocol.controller_prompt import (
     ControllerContinuationInput,
@@ -49,6 +54,7 @@ from src.pipeline.input_context_budget import InputContextBudgetError
 
 
 class AgentControllerLoopState(str, Enum):
+    MANAGE_CONTEXT = "manage_context"
     DECIDE = "decide"
     DISCOVER = "discover"
     DISCLOSE_ACTION = "disclose_action"
@@ -230,6 +236,7 @@ class AgentControllerLoopCoordinator:
         *,
         hard_constraints: HardRequestConstraints,
         context: ControllerPromptContext | None = None,
+        session_store: ConversationStoreProtocol | None = None,
         request_id: str | None = None,
     ) -> AgentControllerLoopResult:
         if not isinstance(raw_request, str) or not raw_request.strip():
@@ -242,6 +249,14 @@ class AgentControllerLoopCoordinator:
             not isinstance(request_id, str) or not request_id
         ):
             raise ValueError("request_id must be non-empty text or None.")
+
+        session_context: ControllerSessionContext | None = None
+        controller_context = context
+        if session_store is not None:
+            session_context = ControllerSessionContext(
+                session_store, target_resolver=self._validator.target_resolver
+            )
+            controller_context = session_context.select(raw_request, hard_constraints)
 
         state = AgentControllerLoopState.DECIDE
         records: list[AgentControllerLoopStateRecord] = []
@@ -263,6 +278,7 @@ class AgentControllerLoopCoordinator:
         decision: AgentDecision | None = None
         validation = None
         completion_feedback_count = 0
+        action_schema: Mapping[str, object] | None = None
 
         def record(
             record_state: AgentControllerLoopState,
@@ -336,6 +352,24 @@ class AgentControllerLoopCoordinator:
                 completion_feedback_count=completion_feedback_count,
             )
 
+        if session_context is not None:
+            management = session_context.manage(raw_request, hard_constraints)
+            if management is not None:
+                record(
+                    AgentControllerLoopState.MANAGE_CONTEXT,
+                    AgentControllerLoopRecordStatus.SUCCEEDED
+                    if management is not ContextManagementStatus.UNKNOWN_TARGET
+                    else AgentControllerLoopRecordStatus.FAILED,
+                    management.value,
+                )
+                if management is ContextManagementStatus.RESET:
+                    return done("Session context reset.", management.value)
+                if management is ContextManagementStatus.UPDATED:
+                    return done("Session context updated.", management.value)
+                return done(
+                    "Session context was not updated: unknown target.", management.value
+                )
+
         while True:
             if len(records) >= self._config.max_state_transitions:
                 return fail(
@@ -357,12 +391,13 @@ class AgentControllerLoopCoordinator:
                         run_state=run_state,
                         capability_summaries=pending_summaries,
                         selected_capability_schema=active_selected_schema,
+                        session_context=controller_context,
                     )
                 try:
                     preview = build_controller_prompt(
                         raw_request,
                         hard_constraints=hard_constraints,
-                        context=context if continuation is None else None,
+                        context=controller_context if continuation is None else None,
                         continuation=continuation,
                     )
                 except InputContextBudgetError:
@@ -394,7 +429,7 @@ class AgentControllerLoopCoordinator:
                     decision_result = self._controller.decide(
                         raw_request,
                         hard_constraints=hard_constraints,
-                        context=context if continuation is None else None,
+                        context=controller_context if continuation is None else None,
                         continuation=continuation,
                         request_id=request_id,
                     )
@@ -448,6 +483,7 @@ class AgentControllerLoopCoordinator:
                         )
                         state = AgentControllerLoopState.OBSERVE
                     else:
+                        action_schema = schema_for_decision
                         state = AgentControllerLoopState.VALIDATE_ACTION
                 else:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
@@ -461,7 +497,12 @@ class AgentControllerLoopCoordinator:
                 discovery_calls += 1
                 try:
                     discovery_result = self._discovery.discover(
-                        decision.category, hard_constraints
+                        decision.category,
+                        (
+                            session_context.discovery_constraints(hard_constraints)
+                            if session_context is not None
+                            else hard_constraints
+                        ),
                     )
                     observation_sequence += 1
                     next_observation(
@@ -494,7 +535,12 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 try:
                     detail = self._discovery.selected_detail(
-                        decision.action.capability_id, hard_constraints
+                        decision.action.capability_id,
+                        (
+                            session_context.discovery_constraints(hard_constraints)
+                            if session_context is not None
+                            else hard_constraints
+                        ),
                     )
                 except (TypeError, ValueError):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
@@ -550,12 +596,23 @@ class AgentControllerLoopCoordinator:
                         AgentControllerLoopFailure.ACTION_BUDGET_EXHAUSTED, state
                     )
                 try:
+                    effective_constraints = (
+                        session_context.action_constraints(
+                            hard_constraints, action_schema
+                        )
+                        if session_context is not None
+                        else hard_constraints
+                    )
                     validation = self._validator.validate(
-                        decision.action, hard_constraints, action_budget
+                        decision.action, effective_constraints, action_budget
                     )
                 except (TypeError, ValueError):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if validation.status is not AgentActionValidationStatus.VALID:
+                    if session_context is not None:
+                        session_context.record_validation(
+                            validation, hard_constraints, effective_constraints
+                        )
                     observation_sequence += 1
                     next_observation(
                         serialize_validation_failure(observation_sequence, validation),
@@ -570,6 +627,10 @@ class AgentControllerLoopCoordinator:
                     )
                     state = AgentControllerLoopState.OBSERVE
                 else:
+                    if session_context is not None:
+                        session_context.record_validation(
+                            validation, hard_constraints, effective_constraints
+                        )
                     record(
                         state,
                         AgentControllerLoopRecordStatus.SUCCEEDED,
@@ -634,7 +695,11 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 completion = self._completion_check.check(
                     raw_request=raw_request,
-                    hard_constraints=hard_constraints,
+                    hard_constraints=(
+                        session_context.completion_constraints(hard_constraints)
+                        if session_context is not None
+                        else hard_constraints
+                    ),
                     run_state=run_state,
                     final_candidate=decision.final_answer,
                 )

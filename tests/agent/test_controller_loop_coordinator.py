@@ -12,13 +12,21 @@ from src.agent.controller_loop_coordinator import (
     AgentControllerLoopFailure,
     AgentControllerLoopState,
 )
+from src.agent.controller_session_context import ControllerSessionContext
+from src.agent.conversation_store import ConversationStore
+from src.agent.session_investigation_context import SessionInvestigationContext
 from src.model.controller_adapter import (
     ControllerAdapter,
     ControllerProviderRequest,
     ControllerProviderResponse,
 )
 from src.pipeline.agent_action_executor import AgentActionExecutor
-from src.pipeline.agent_action_validator import AgentActionValidator
+from src.pipeline.agent_action_validator import (
+    AgentActionValidationReason,
+    AgentActionValidationResult,
+    AgentActionValidationStatus,
+    AgentActionValidator,
+)
 from src.pipeline.controller_capability_discovery import ControllerCapabilityDiscovery
 from src.pipeline.hard_request_constraints import (
     HardRequestConstraints,
@@ -74,8 +82,9 @@ def _coordinator(
     config: AgentControllerLoopConfig | None = None,
     host_summary_count: int | None = None,
     final_boundary: Callable[[str], str] | None = None,
+    environment_flags: dict[str, object] | None = None,
 ) -> AgentControllerLoopCoordinator:
-    environment = fake_environment()
+    environment = fake_environment(**(environment_flags or {}))
     discovery = ControllerCapabilityDiscovery.from_knowledge_tool(
         environment.knowledge_tool
     )
@@ -554,3 +563,360 @@ def test_provider_failure_has_one_safe_response_without_error_text() -> None:
     assert result.response_text == "Controller unavailable."
     assert "secret provider failure" not in json.dumps(result.to_trace_dict())
     assert result.final_response_count == 1
+
+
+def _session_store(
+    tmp_path: object, session_id: str = "v2-session"
+) -> ConversationStore:
+    return ConversationStore(session_id, store_dir=str(tmp_path))
+
+
+def _host_action_sequence(capability_id: str = "host.get_cpu") -> list[AgentDecision]:
+    return [
+        _decision(AgentDecisionKind.ACTION, action=AgentAction(capability_id, {})),
+        _decision(AgentDecisionKind.ACTION, action=AgentAction(capability_id, {})),
+        _decision(
+            AgentDecisionKind.FINAL,
+            answer="The current value could not be verified from available evidence.",
+        ),
+    ]
+
+
+def test_session_target_is_persisted_after_valid_action_and_inherited_on_follow_up(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    first = _coordinator(
+        ScriptedControllerProvider(_host_action_sequence()),
+        environment_flags={"monitor": True},
+    ).run(
+        "Inspect CPU on monitor.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("monitor", "monitor")
+        ),
+        session_store=store,
+    )
+
+    assert first.succeeded
+    assert store.investigation_context.active_target == "monitor"
+
+    provider = ScriptedControllerProvider(_host_action_sequence())
+    follow_up = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Còn RAM thì sao?",
+        hard_constraints=HardRequestConstraints(),
+        session_store=store,
+    )
+
+    assert follow_up.succeeded
+    assert any(
+        observation.target_id == "monitor"
+        for observation in follow_up.run_state.observations
+    )
+    assert all(
+        json.loads(request.user_prompt)["session_context"]["target"] == "monitor"
+        for request in provider.requests
+    )
+
+
+def test_network_follow_up_uses_the_validated_session_target(tmp_path: object) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    result = _coordinator(
+        ScriptedControllerProvider(_host_action_sequence("host.get_network")),
+        environment_flags={"monitor": True},
+    ).run(
+        "Còn network?",
+        hard_constraints=HardRequestConstraints(),
+        session_store=store,
+    )
+
+    assert result.succeeded
+    assert any(
+        observation.capability_id == "host.get_network"
+        and observation.target_id == "monitor"
+        for observation in result.run_state.observations
+    )
+
+
+def test_explicit_target_directive_updates_only_its_session_without_execution(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    provider = ScriptedControllerProvider([])
+
+    result = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Đừng dùng localhost nữa, chỉ dùng monitor cho các câu tiếp theo.",
+        hard_constraints=HardRequestConstraints(),
+        session_store=store,
+    )
+
+    assert result.succeeded
+    assert store.investigation_context.active_target == "monitor"
+    assert provider.requests == []
+    assert result.action_budget.actions_used == result.action_budget.tools_used == 0
+
+
+def test_unknown_explicit_target_never_reuses_or_replaces_stored_target(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    provider = ScriptedControllerProvider(
+        [
+            _decision(AgentDecisionKind.ACTION, action=AgentAction("host.get_cpu", {})),
+            _decision(AgentDecisionKind.ACTION, action=AgentAction("host.get_cpu", {})),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The current value could not be verified from available evidence.",
+            ),
+        ]
+    )
+
+    result = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Inspect CPU on foo123.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("foo123", None)
+        ),
+        session_store=store,
+    )
+
+    assert result.succeeded
+    assert result.action_budget.actions_used == 0
+    assert store.investigation_context.active_target == "monitor"
+    assert store.investigation_context.pending_clarification_field == "target"
+
+
+def test_explicit_localhost_replaces_inherited_monitor_after_validation(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+
+    result = _coordinator(
+        ScriptedControllerProvider(_host_action_sequence()),
+        environment_flags={"monitor": True},
+    ).run(
+        "Inspect CPU on localhost.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("localhost", "localhost")
+        ),
+        session_store=store,
+    )
+
+    assert result.succeeded
+    assert any(
+        observation.target_id == "localhost"
+        for observation in result.run_state.observations
+    )
+    assert store.investigation_context.active_target == "localhost"
+
+
+def test_explicit_source_policy_persists_and_is_reused_for_a_follow_up(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    first = _coordinator(
+        ScriptedControllerProvider(_host_action_sequence()),
+        environment_flags={"monitor": True},
+    ).run(
+        "Inspect CPU on monitor using Linux only.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("monitor", "monitor"),
+            source_constraints=(SourceConstraint.LINUX,),
+        ),
+        session_store=store,
+    )
+    provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Unavailable.")]
+    )
+    follow_up = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Còn network?", hard_constraints=HardRequestConstraints(), session_store=store
+    )
+
+    assert first.succeeded and follow_up.succeeded
+    assert store.investigation_context.active_sources == (SourceConstraint.LINUX,)
+    assert json.loads(provider.requests[0].user_prompt)["session_context"][
+        "sources"
+    ] == ["linux"]
+
+
+def test_reset_and_unrelated_request_do_not_execute_or_erase_context(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    reset_provider = ScriptedControllerProvider([])
+
+    reset = _coordinator(reset_provider).run(
+        "reset context",
+        hard_constraints=HardRequestConstraints(),
+        session_store=store,
+    )
+
+    assert reset.succeeded
+    assert store.investigation_context == SessionInvestigationContext()
+    assert reset_provider.requests == []
+
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    provider = ScriptedControllerProvider(
+        [
+            _decision(
+                AgentDecisionKind.FINAL, answer="Prometheus is a monitoring system."
+            )
+        ]
+    )
+    result = _coordinator(provider).run(
+        "What is Prometheus?",
+        hard_constraints=HardRequestConstraints(),
+        session_store=store,
+    )
+
+    assert result.succeeded
+    assert "session_context" not in json.loads(provider.requests[0].user_prompt)
+    assert store.investigation_context.active_target == "monitor"
+
+
+def test_session_stores_remain_isolated_for_identical_follow_up(
+    tmp_path: object,
+) -> None:
+    first_store = _session_store(tmp_path, "first")
+    second_store = _session_store(tmp_path, "second")
+    first_store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    first_provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Unavailable.")]
+    )
+    second_provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Unavailable.")]
+    )
+
+    _coordinator(first_provider, environment_flags={"monitor": True}).run(
+        "Còn network?",
+        hard_constraints=HardRequestConstraints(),
+        session_store=first_store,
+    )
+    _coordinator(second_provider, environment_flags={"monitor": True}).run(
+        "Còn network?",
+        hard_constraints=HardRequestConstraints(),
+        session_store=second_store,
+    )
+
+    assert (
+        json.loads(first_provider.requests[0].user_prompt)["session_context"]["target"]
+        == "monitor"
+    )
+    assert "session_context" not in json.loads(second_provider.requests[0].user_prompt)
+
+
+def test_explicit_follow_up_target_is_not_repeated_as_stale_session_context(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_target="monitor")
+    )
+    provider = ScriptedControllerProvider(_host_action_sequence())
+    constraints = HardRequestConstraints(
+        explicit_target=HardTargetReference("localhost", "localhost")
+    )
+
+    result = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Còn CPU trên localhost?", hard_constraints=constraints, session_store=store
+    )
+
+    assert result.succeeded
+    for request in provider.requests:
+        payload = json.loads(request.user_prompt)
+        constraints_payload = (
+            payload.get("hard_constraints") or payload["run_state"]["hv"]
+        )
+        assert constraints_payload["target"]["registered_target"] == "localhost"
+        assert payload.get("session_context", {}).get("target") != "monitor"
+    assert any(
+        observation.target_id == "localhost"
+        for observation in result.run_state.observations
+    )
+    assert store.investigation_context.active_target == "localhost"
+
+
+def test_explicit_follow_up_source_policy_hides_stale_session_sources(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(
+            active_target="monitor", active_sources=(SourceConstraint.GRAFANA,)
+        )
+    )
+    provider = ScriptedControllerProvider(_host_action_sequence())
+    constraints = HardRequestConstraints(
+        source_constraints=(SourceConstraint.LINUX,),
+    )
+
+    result = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Còn CPU thì sao?", hard_constraints=constraints, session_store=store
+    )
+
+    assert result.succeeded
+    for request in provider.requests:
+        payload = json.loads(request.user_prompt)
+        constraints_payload = (
+            payload.get("hard_constraints") or payload["run_state"]["hv"]
+        )
+        assert constraints_payload["sources"] == ["linux"]
+        assert "sources" not in payload.get("session_context", {})
+        assert "exclude" not in payload.get("session_context", {})
+
+
+def test_only_source_bearing_validations_mark_inherited_source_completion_authority(
+    tmp_path: object,
+) -> None:
+    store = _session_store(tmp_path)
+    store.set_investigation_context(
+        SessionInvestigationContext(active_sources=(SourceConstraint.GRAFANA,))
+    )
+    context = ControllerSessionContext(
+        store, target_resolver=fake_environment().target_resolver
+    )
+    current = HardRequestConstraints()
+    context.select("Còn CPU?", current)
+    effective = context.action_constraints(current, None)
+
+    context.record_validation(
+        AgentActionValidationResult(
+            AgentActionValidationStatus.VALID,
+            AgentActionValidationReason.VALIDATED,
+            "compute.deterministic",
+            source_family="compute",
+        ),
+        current,
+        effective,
+    )
+
+    assert context.completion_constraints(current).source_constraints == ()
+
+    context.record_validation(
+        AgentActionValidationResult(
+            AgentActionValidationStatus.VALID,
+            AgentActionValidationReason.VALIDATED,
+            "grafana.get_metrics",
+            source_family="grafana",
+        ),
+        current,
+        effective,
+    )
+
+    assert context.completion_constraints(current).source_constraints == (
+        SourceConstraint.GRAFANA,
+    )
