@@ -83,20 +83,7 @@ class FinalResponseGuard:
                 violations.append(FinalResponseViolation.TARGET_MISMATCH)
 
         if constraints.current_required and not constraints.current_verified:
-            unavailable_markers = (
-                "unverified",
-                "not verified",
-                "unavailable",
-                "cannot verify",
-                "cannot be verified",
-                "could not be verified",
-                "unable to verify",
-                "cannot be read",
-                "không thể kiểm chứng",
-                "chưa được kiểm chứng",
-                "không có bằng chứng",
-            )
-            if not any(marker in lower for marker in unavailable_markers):
+            if not response_reports_unavailable_or_unverified(response):
                 violations.append(FinalResponseViolation.CURRENT_UNVERIFIED)
 
         if constraints.read_only:
@@ -143,6 +130,65 @@ class FinalResponseGuard:
         )
 
 
+_UNAVAILABLE_OR_UNVERIFIED_MARKERS = (
+    "unverified",
+    "not verified",
+    "unavailable",
+    "cannot verify",
+    "cannot be verified",
+    "could not be verified",
+    "unable to verify",
+    "cannot be read",
+    "không thể kiểm chứng",
+    "chưa được kiểm chứng",
+    "không có bằng chứng",
+)
+
+
+def response_reports_unavailable_or_unverified(text: str) -> bool:
+    """Return whether a response uses the reviewed unavailable-evidence language."""
+
+    if not isinstance(text, str):
+        raise TypeError("text must be a string.")
+    lower = text.casefold()
+    return any(marker in lower for marker in _UNAVAILABLE_OR_UNVERIFIED_MARKERS)
+
+
+_UNAVAILABLE_CONTRAST = re.compile(
+    r"\b(?:but|however|nevertheless|nonetheless)\b", re.IGNORECASE
+)
+_POSITIVE_VERIFICATION = re.compile(
+    r"\b(?:definitely|certainly|confirmed|verified|proven)\b", re.IGNORECASE
+)
+_NUMERIC_FACT_ASSERTION = re.compile(
+    r"\b(?:value|result|answer|status|information|fact|data)\s*"
+    r"(?:is|are|was|were|equals?|=|:)\s*-?\d",
+    re.IGNORECASE,
+)
+
+
+def response_is_honestly_unavailable_or_unverified(text: str) -> bool:
+    """Return whether unavailable language contains no conflicting assertion.
+
+    This stricter completion-only helper preserves the legacy marker helper
+    while rejecting generic certainty, numeric fact assertions, and explicit
+    contrast after unavailable wording.
+    """
+
+    if not isinstance(text, str):
+        raise TypeError("text must be a string.")
+    if not response_reports_unavailable_or_unverified(text):
+        return False
+    remaining = text.casefold()
+    for marker in _UNAVAILABLE_OR_UNVERIFIED_MARKERS:
+        remaining = remaining.replace(marker, " ")
+    return not (
+        _UNAVAILABLE_CONTRAST.search(remaining)
+        or _POSITIVE_VERIFICATION.search(remaining)
+        or _NUMERIC_FACT_ASSERTION.search(remaining)
+    )
+
+
 # ASCII "." only ends a sentence when followed by whitespace or end-of-text
 # (so decimals like "3.14" are not split); the Unicode equivalents 。！？ are
 # unambiguous sentence ends and need no following whitespace.
@@ -176,7 +222,7 @@ def _result_claim(response: str) -> Decimal | None:
 
 
 def _contains_decimal(response: str, expected: Decimal) -> bool:
-    for raw in re.findall(r"(?<![\w.])-?\d+(?:[.,]\d+)?(?![\w.])", response):
+    for raw in re.findall(r"(?<![\w.])-?\d+(?:[.,]\d+)?(?!\w)", response):
         try:
             if Decimal(raw.replace(",", ".")) == expected:
                 return True
@@ -193,7 +239,11 @@ def _language(response: str) -> str | None:
         re.IGNORECASE,
     ):
         return "vi"
-    if re.search(r"\b(?:the|this|is|are|result|cannot|verified|current)\b", response, re.IGNORECASE):
+    if re.search(
+        r"\b(?:the|this|is|are|result|cannot|verified|current)\b",
+        response,
+        re.IGNORECASE,
+    ):
         return "en"
     return None
 
@@ -208,7 +258,11 @@ def _fallback(
         assert result is not None and result.value is not None
         value = format_value(result.value)
         unit = f" {result.unit}" if result.unit else ""
-        return f"Kết quả: {value}{unit}." if language == "vi" else f"Result: {value}{unit}."
+        return (
+            f"Kết quả: {value}{unit}."
+            if language == "vi"
+            else f"Result: {value}{unit}."
+        )
     if FinalResponseViolation.CURRENT_UNVERIFIED in violations:
         return (
             "Không thể kiểm chứng thông tin hiện tại từ bằng chứng đã xác minh."
@@ -240,4 +294,6 @@ __all__ = [
     "FinalResponseGuard",
     "FinalResponseGuardResult",
     "FinalResponseViolation",
+    "response_is_honestly_unavailable_or_unverified",
+    "response_reports_unavailable_or_unverified",
 ]

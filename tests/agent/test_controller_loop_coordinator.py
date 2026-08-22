@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 import pytest
 
@@ -72,6 +73,7 @@ def _coordinator(
     *,
     config: AgentControllerLoopConfig | None = None,
     host_summary_count: int | None = None,
+    final_boundary: Callable[[str], str] | None = None,
 ) -> AgentControllerLoopCoordinator:
     environment = fake_environment()
     discovery = ControllerCapabilityDiscovery.from_knowledge_tool(
@@ -86,6 +88,7 @@ def _coordinator(
         discovery=discovery,
         validator=AgentActionValidator(discovery, environment.target_resolver),
         executor=AgentActionExecutor(environment.knowledge_tool),
+        final_boundary=final_boundary,
         config=config,
     )
 
@@ -114,6 +117,57 @@ def test_direct_final_preserves_original_request_and_has_safe_trace() -> None:
     assert "reasoning" not in trace
 
 
+def test_rejected_final_returns_control_feedback_to_same_controller() -> None:
+    provider = ScriptedControllerProvider(
+        [
+            _decision(AgentDecisionKind.FINAL, answer="CPU is healthy."),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The current value could not be verified from available evidence.",
+            ),
+        ]
+    )
+    final_boundary_calls: list[str] = []
+
+    def final_boundary(answer: str) -> str:
+        final_boundary_calls.append(answer)
+        return answer
+
+    result = _coordinator(provider, final_boundary=final_boundary).run(
+        "Check current CPU.",
+        hard_constraints=HardRequestConstraints(requires_fresh_evidence=True),
+    )
+
+    assert result.succeeded
+    assert len(provider.requests) == 2
+    assert final_boundary_calls == [result.response_text]
+    assert result.completion_feedback_count == 1
+    assert result.run_state.observations[-1].reason_code == (
+        "goal_unresolved.current_evidence_missing"
+    )
+
+
+def test_completion_feedback_limit_stops_without_an_extra_provider_call() -> None:
+    provider = ScriptedControllerProvider(
+        [
+            _decision(AgentDecisionKind.FINAL, answer="Current value is 1."),
+            _decision(AgentDecisionKind.FINAL, answer="Current value is 1."),
+        ]
+    )
+
+    result = _coordinator(
+        provider,
+        config=AgentControllerLoopConfig(max_completion_feedback=1),
+    ).run(
+        "Check current CPU.",
+        hard_constraints=HardRequestConstraints(requires_fresh_evidence=True),
+    )
+
+    assert result.failure is AgentControllerLoopFailure.COMPLETION_FEEDBACK_LIMIT
+    assert len(provider.requests) == 2
+    assert result.completion_feedback_count == 1
+
+
 def test_discover_select_selected_schema_execute_observe_and_final(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -128,7 +182,10 @@ def test_discover_select_selected_schema_execute_observe_and_final(
                 AgentDecisionKind.ACTION,
                 action=AgentAction("host.get_listening_ports", {"port": 443}),
             ),
-            _decision(AgentDecisionKind.FINAL, answer="Port 443 is listening."),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="Port 443 could not be verified from available evidence.",
+            ),
         ]
     )
     calls: list[dict[str, object]] = []
@@ -150,7 +207,10 @@ def test_discover_select_selected_schema_execute_observe_and_final(
     )
 
     assert result.succeeded
-    assert result.response_text == "Port 443 is listening."
+    assert (
+        result.response_text
+        == "Port 443 could not be verified from available evidence."
+    )
     assert calls == [{"action": "get_listening_ports", "port": 443}]
     assert result.discovery_call_count == 1
     assert result.action_budget.actions_used == result.action_budget.tools_used == 1
@@ -202,7 +262,10 @@ def test_mismatched_selected_schema_cannot_execute() -> None:
                 AgentDecisionKind.ACTION,
                 action=AgentAction("host.get_memory", {}),
             ),
-            _decision(AgentDecisionKind.FINAL, answer="No action was run."),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The result could not be verified from available evidence.",
+            ),
         ]
     )
 
@@ -275,7 +338,10 @@ def test_validation_failure_never_executes_and_the_next_action_can_be_corrected(
                 AgentDecisionKind.ACTION,
                 action=AgentAction("host.get_listening_ports", {"port": 443}),
             ),
-            _decision(AgentDecisionKind.FINAL, answer="Completed."),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The result could not be verified from available evidence.",
+            ),
         ]
     )
     calls: list[dict[str, object]] = []

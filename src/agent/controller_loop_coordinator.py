@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from src.agent.completion_check import CompletionCheck
 from src.agent.controller_contracts import (
     AgentDecision,
     AgentDecisionKind,
@@ -74,6 +75,7 @@ class AgentControllerLoopFailure(str, Enum):
     CONTROLLER_INPUT_BUDGET_EXHAUSTED = "controller_input_budget_exhausted"
     STATE_LIMIT = "state_limit"
     FINALIZATION_FAILED = "finalization_failed"
+    COMPLETION_FEEDBACK_LIMIT = "completion_feedback_limit"
     CONTRACT_FAILURE = "contract_failure"
 
 
@@ -102,6 +104,7 @@ class AgentControllerLoopConfig:
     max_tools: int = 4
     max_total_controller_input_tokens: int = 12_000
     max_state_transitions: int = 48
+    max_completion_feedback: int = 3
 
     def __post_init__(self) -> None:
         _bounded_int("max_controller_rounds", self.max_controller_rounds, 1, 32)
@@ -116,6 +119,7 @@ class AgentControllerLoopConfig:
             100_000,
         )
         _bounded_int("max_state_transitions", self.max_state_transitions, 2, 128)
+        _bounded_int("max_completion_feedback", self.max_completion_feedback, 0, 8)
 
 
 FinalBoundary = Callable[[str], str]
@@ -131,6 +135,7 @@ class AgentControllerLoopResult:
     discovery_call_count: int
     accumulated_controller_input_tokens: int
     action_budget: AgentActionToolBudget
+    completion_feedback_count: int
 
     def __post_init__(self) -> None:
         if self.terminal_state not in {
@@ -175,6 +180,7 @@ class AgentControllerLoopResult:
                 "max_tools": self.action_budget.max_tools,
                 "tools_used": self.action_budget.tools_used,
             },
+            "completion_feedback_count": self.completion_feedback_count,
             "run_state": self.run_state.to_trace_dict(),
             "final_response_count": 1,
         }
@@ -191,6 +197,7 @@ class AgentControllerLoopCoordinator:
         validator: AgentActionValidator,
         executor: AgentActionExecutor,
         final_boundary: FinalBoundary | None = None,
+        completion_check: CompletionCheck | None = None,
         config: AgentControllerLoopConfig | None = None,
     ) -> None:
         if not isinstance(controller, ControllerAdapter):
@@ -205,11 +212,16 @@ class AgentControllerLoopCoordinator:
             raise TypeError("final_boundary must be callable or None.")
         if config is not None and not isinstance(config, AgentControllerLoopConfig):
             raise TypeError("config must be AgentControllerLoopConfig or None.")
+        if completion_check is not None and not isinstance(
+            completion_check, CompletionCheck
+        ):
+            raise TypeError("completion_check must be CompletionCheck or None.")
         self._controller = controller
         self._discovery = discovery
         self._validator = validator
         self._executor = executor
         self._final_boundary = final_boundary or _pass_final_answer
+        self._completion_check = completion_check or CompletionCheck()
         self._config = config or AgentControllerLoopConfig()
 
     def run(
@@ -250,6 +262,7 @@ class AgentControllerLoopCoordinator:
         pending_identity: tuple[str | None, str | None, str | None] = (None, None, None)
         decision: AgentDecision | None = None
         validation = None
+        completion_feedback_count = 0
 
         def record(
             record_state: AgentControllerLoopState,
@@ -296,6 +309,7 @@ class AgentControllerLoopCoordinator:
                 discovery_call_count=discovery_calls,
                 accumulated_controller_input_tokens=input_tokens,
                 action_budget=action_budget,
+                completion_feedback_count=completion_feedback_count,
             )
 
         def done(response_text: str, reason_code: str) -> AgentControllerLoopResult:
@@ -319,6 +333,7 @@ class AgentControllerLoopCoordinator:
                 discovery_call_count=discovery_calls,
                 accumulated_controller_input_tokens=input_tokens,
                 action_budget=action_budget,
+                completion_feedback_count=completion_feedback_count,
             )
 
         while True:
@@ -617,6 +632,40 @@ class AgentControllerLoopCoordinator:
             if state is AgentControllerLoopState.CHECK_FINAL:
                 if decision is None or decision.final_answer is None:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
+                completion = self._completion_check.check(
+                    raw_request=raw_request,
+                    hard_constraints=hard_constraints,
+                    run_state=run_state,
+                    final_candidate=decision.final_answer,
+                )
+                if not completion.passed:
+                    assert completion.reason is not None
+                    record(
+                        state,
+                        AgentControllerLoopRecordStatus.FAILED,
+                        completion.reason.value,
+                    )
+                    if (
+                        completion_feedback_count
+                        >= self._config.max_completion_feedback
+                    ):
+                        return fail(
+                            AgentControllerLoopFailure.COMPLETION_FEEDBACK_LIMIT,
+                            state,
+                        )
+                    completion_feedback_count += 1
+                    observation_sequence += 1
+                    next_observation(
+                        serialize_control_feedback(
+                            observation_sequence,
+                            status=AgentObservationStatus.INVALID_ACTION,
+                            capability_id="harness.control",
+                            reason_code=completion.reason.value,
+                            recoverable=True,
+                        )
+                    )
+                    state = AgentControllerLoopState.OBSERVE
+                    continue
                 try:
                     response_text = self._final_boundary(decision.final_answer)
                     if not isinstance(response_text, str) or not response_text.strip():
@@ -647,6 +696,7 @@ def _failure_text(reason: AgentControllerLoopFailure) -> str:
         AgentControllerLoopFailure.ACTION_BUDGET_EXHAUSTED,
         AgentControllerLoopFailure.CONTROLLER_INPUT_BUDGET_EXHAUSTED,
         AgentControllerLoopFailure.STATE_LIMIT,
+        AgentControllerLoopFailure.COMPLETION_FEEDBACK_LIMIT,
     }:
         return "Unable to complete within the available budget."
     return "Unable to safely complete the request."

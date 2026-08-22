@@ -6,6 +6,8 @@ from src.agent.final_response_guard import (
     FinalResponseConstraints,
     FinalResponseGuard,
     FinalResponseViolation,
+    response_is_honestly_unavailable_or_unverified,
+    response_reports_unavailable_or_unverified,
 )
 from src.pipeline.basic_calculator import (
     CalculatorContractResult,
@@ -49,6 +51,13 @@ def test_unverified_current_fact_cannot_be_presented_as_current_value() -> None:
 
     assert FinalResponseViolation.CURRENT_UNVERIFIED in result.violations
     assert "could not be verified" in result.text
+
+
+def test_completion_unavailable_helper_rejects_mixed_confident_response() -> None:
+    response = "Evidence is unavailable, but the result is definitely 42."
+
+    assert response_reports_unavailable_or_unverified(response)
+    assert not response_is_honestly_unavailable_or_unverified(response)
 
 
 def test_only_used_provenance_may_be_cited() -> None:
