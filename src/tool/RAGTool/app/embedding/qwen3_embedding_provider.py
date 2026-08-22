@@ -14,6 +14,7 @@ from __future__ import annotations
 
 class Qwen3EmbeddingProvider:
     name = "qwen3-embedding"
+    is_semantic = True
 
     _QUERY_INSTRUCTION = (
         "Instruct: Given a web search query, retrieve relevant passages that "

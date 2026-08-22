@@ -18,6 +18,7 @@ import numpy as np
 
 class HashEmbeddingProvider:
     name = "hash-fallback (NOT for production — no semantic meaning)"
+    is_semantic = False
 
     def __init__(self, dimension: int = 384, ngram: int = 3) -> None:
         self.dimension = dimension

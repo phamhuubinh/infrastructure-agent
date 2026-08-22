@@ -10,6 +10,7 @@ from typing import Protocol
 class EmbeddingProvider(Protocol):
     name: str
     dimension: int
+    is_semantic: bool
 
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 

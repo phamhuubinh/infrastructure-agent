@@ -179,7 +179,9 @@ def delete_project(project_id: str):
             _vector_store.delete(_collection(project_id), chunk_ids)
         if hasattr(_vector_store, "delete_collection"):
             _vector_store.delete_collection(_collection(project_id))
-        _bm25(project_id).clear()
+        index = _bm25(project_id)
+        index.clear()
+        index.remove_persistence()
         with _index_lock:
             _bm25_indexes.pop(project_id, None)
         _projects.delete(project_id)

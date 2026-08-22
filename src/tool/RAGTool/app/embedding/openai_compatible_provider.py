@@ -18,6 +18,7 @@ import requests
 
 
 class OpenAICompatibleEmbeddingProvider:
+    is_semantic = True
     def __init__(
         self,
         base_url: str,

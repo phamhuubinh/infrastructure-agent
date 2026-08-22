@@ -33,6 +33,8 @@ def reciprocal_rank_fusion(
 
     for ranking_name, ids in rankings.items():
         for rank, doc_id in enumerate(ids, start=1):
+            if ranking_name in sources.get(doc_id, {}):
+                continue
             scores[doc_id] = scores.get(doc_id, 0.0) + 1.0 / (k + rank)
             sources.setdefault(doc_id, {})[ranking_name] = rank
 
@@ -40,5 +42,5 @@ def reciprocal_rank_fusion(
         FusedResult(id=doc_id, score=score, sources=sources[doc_id])
         for doc_id, score in scores.items()
     ]
-    fused.sort(key=lambda r: r.score, reverse=True)
+    fused.sort(key=lambda r: (-r.score, r.id))
     return fused[:top_k] if top_k else fused

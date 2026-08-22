@@ -34,6 +34,10 @@ class RrfTest(unittest.TestCase):
         self.assertEqual(by_id["a"], {"dense": 1, "sparse": 2})
         self.assertEqual(by_id["b"], {"dense": 2, "sparse": 1})
 
+    def test_equal_scores_use_id_as_a_deterministic_tie_breaker(self):
+        fused = reciprocal_rank_fusion({"first": ["b"], "second": ["a"]})
+        self.assertEqual([item.id for item in fused], ["a", "b"])
+
 
 if __name__ == "__main__":
     unittest.main()

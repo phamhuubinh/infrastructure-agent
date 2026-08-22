@@ -126,14 +126,14 @@ class PipelineEndToEndTest(unittest.TestCase):
             source_path="alpha.txt",
             parser_name="fake",
             blocks=[
-                ParsedBlock(text="alpha-only deployment plan", block_type="paragraph")
+                ParsedBlock(text="alphaonly deployment plan", block_type="paragraph")
             ],
         )
         beta_doc = ParsedDocument(
             source_path="beta.txt",
             parser_name="fake",
             blocks=[
-                ParsedBlock(text="beta-only incident report", block_type="paragraph")
+                ParsedBlock(text="betaonly incident report", block_type="paragraph")
             ],
         )
 
@@ -161,13 +161,12 @@ class PipelineEndToEndTest(unittest.TestCase):
         alpha_ingest.ingest("alpha.txt", doc_id="doc-alpha")
         beta_ingest.ingest("beta.txt", doc_id="doc-beta")
 
-        alpha_hits = alpha_query.retrieve("alpha-only")
-        beta_hits = beta_query.retrieve("alpha-only")
+        alpha_hits = alpha_query.retrieve("alphaonly")
+        beta_hits = beta_query.retrieve("alphaonly")
 
         self.assertTrue(alpha_hits)
-        self.assertTrue(beta_hits)
+        self.assertEqual(beta_hits, [])
         self.assertTrue(all(hit.payload["doc_id"] == "doc-alpha" for hit in alpha_hits))
-        self.assertTrue(all(hit.payload["doc_id"] == "doc-beta" for hit in beta_hits))
 
     def test_sparse_failure_rolls_back_dense_chunks(self):
         failing_sparse = MagicMock(spec=BM25Index)

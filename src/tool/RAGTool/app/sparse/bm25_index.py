@@ -10,15 +10,25 @@ import logging
 import math
 import re
 import threading
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_TOKEN_RE = re.compile(r"[\wÀ-ỹ]+", re.UNICODE)
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+_PERSISTENCE_FORMAT_VERSION = 2
+_NORMALIZATION_VERSION = "unicode-casefold-vietnamese-fold-v1"
 
 
 def tokenize(text: str) -> list[str]:
-    return _TOKEN_RE.findall(text.lower())
+    """Return canonical retrieval tokens without modifying stored text."""
+    normalized = unicodedata.normalize("NFC", text).casefold()
+    folded = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", normalized)
+        if not unicodedata.combining(character)
+    ).replace("đ", "d")
+    return _TOKEN_RE.findall(folded)
 
 
 @dataclass
@@ -49,6 +59,7 @@ class BM25Index:
         self._doc_texts: list[str] = []
         self._doc_payloads: list[dict] = []
         self._persist_path = Path(persist_path) if persist_path else None
+        self._needs_rebuild = False
         self._lock = threading.RLock()
         self.logger = logging.getLogger(__name__)
         if self._persist_path and self._persist_path.exists():
@@ -148,8 +159,7 @@ class BM25Index:
                 for i, s in enumerate(scores)
                 if s > 0
             ),
-            key=lambda h: h.score,
-            reverse=True,
+            key=lambda h: (-h.score, h.id),
         )
         return ranked[:top_k]
 
@@ -190,7 +200,7 @@ class BM25Index:
         if self._persist_path is None:
             return
         self._persist_path.parent.mkdir(parents=True, exist_ok=True)
-        data = [
+        documents = [
             {
                 "id": doc_id,
                 "text": self._doc_texts[idx],
@@ -198,6 +208,11 @@ class BM25Index:
             }
             for idx, doc_id in enumerate(self._doc_ids)
         ]
+        data = {
+            "format_version": _PERSISTENCE_FORMAT_VERSION,
+            "normalization_version": _NORMALIZATION_VERSION,
+            "documents": documents,
+        }
         temp_path = self._persist_path.with_suffix(self._persist_path.suffix + ".tmp")
         temp_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         temp_path.replace(self._persist_path)
@@ -210,9 +225,39 @@ class BM25Index:
         except (OSError, json.JSONDecodeError):
             self.logger.warning("Could not load BM25 index from %s", self._persist_path)
             return
-        if not isinstance(data, list):
+        if isinstance(data, list):
+            # The legacy format contains original source text, so we explicitly
+            # rebuild token statistics with the current normalization.
+            self.logger.info(
+                "Rebuilding legacy BM25 index at %s with normalization %s",
+                self._persist_path,
+                _NORMALIZATION_VERSION,
+            )
+            documents = data
+            rewrite_after_load = True
+        elif (
+            isinstance(data, dict)
+            and data.get("format_version") == _PERSISTENCE_FORMAT_VERSION
+            and isinstance(data.get("documents"), list)
+        ):
+            documents = data["documents"]
+            rewrite_after_load = data.get("normalization_version") != _NORMALIZATION_VERSION
+            if rewrite_after_load:
+                self.logger.info(
+                    "Rebuilding BM25 index at %s from normalization %r to %s",
+                    self._persist_path,
+                    data.get("normalization_version"),
+                    _NORMALIZATION_VERSION,
+                )
+        else:
+            self._needs_rebuild = True
+            self.logger.warning(
+                "BM25 index at %s has an unsupported format or normalization; "
+                "it will not be used until documents are re-indexed",
+                self._persist_path,
+            )
             return
-        for item in data:
+        for item in documents:
             if not isinstance(item, dict):
                 continue
             doc_id = item.get("id")
@@ -224,3 +269,19 @@ class BM25Index:
                     text,
                     payload if isinstance(payload, dict) else {},
                 )
+        if rewrite_after_load:
+            self._save()
+
+    @property
+    def normalization_version(self) -> str:
+        return _NORMALIZATION_VERSION
+
+    @property
+    def needs_rebuild(self) -> bool:
+        return self._needs_rebuild
+
+    def remove_persistence(self) -> None:
+        """Remove this index file when its owning project is deleted."""
+        with self._lock:
+            if self._persist_path is not None:
+                self._persist_path.unlink(missing_ok=True)

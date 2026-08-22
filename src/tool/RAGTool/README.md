@@ -8,7 +8,7 @@ Each project owns:
 
 - document files under `RAG_DATA_DIR/documents/{project_id}`;
 - a dense collection named `documents_{project_id}`;
-- a persistent BM25 index;
+- a persistent, Vietnamese-accent-folded BM25 index;
 - project metadata and the latest 100 analysis records.
 
 The offline `memory` vector provider persists all collections to `RAG_DATA_DIR/vectors.json`. The root Compose stack mounts `/data` to a named volume. Project operations are serialized per project so upload, query, and delete cannot observe a partially updated index.
@@ -19,11 +19,19 @@ The offline `memory` vector provider persists all collections to `RAG_DATA_DIR/v
 File → parser → hierarchical/semantic chunks
      → embedding → project dense collection + project BM25 index
 
-Analysis request → dense + BM25 retrieval → RRF → reranker
-                 → required project RAG LLM synthesis
+Analysis request → original-query BM25 + bounded same-model lexical variants
+                 → rank-based RRF → deterministic/no-op reranker
+                 → document-balanced context → required RAG LLM synthesis
 ```
 
-The root Compose configuration uses pypdf/text parsing, hash embeddings, the persistent memory vector store, BM25, RRF, a no-op reranker, and a no-op OCR provider.
+The root Compose configuration uses pypdf/text parsing, hash embeddings, the
+persistent memory vector store, BM25, RRF, a no-op reranker, and a no-op OCR
+provider. Hash embeddings are deterministic development plumbing, not semantic
+retrieval, so hash dense rankings are excluded from fusion. A configured real
+semantic embedding provider may contribute its bounded dense ranking alongside
+BM25. The same request-scoped analysis model makes at most one lexical-expansion
+call before its one final synthesis call; expansion failures use original-query
+BM25 only.
 
 ## Running locally
 

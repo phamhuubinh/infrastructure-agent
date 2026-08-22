@@ -13,6 +13,7 @@ from __future__ import annotations
 
 class BgeM3EmbeddingProvider:
     name = "bge-m3"
+    is_semantic = True
 
     def __init__(
         self,
