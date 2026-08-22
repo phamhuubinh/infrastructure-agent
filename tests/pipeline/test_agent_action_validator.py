@@ -190,6 +190,57 @@ def test_grafana_only_and_source_exclusions_reject_host_capability() -> None:
     assert excluded.reason is AgentActionValidationReason.SOURCE_FORBIDDEN
 
 
+@pytest.mark.parametrize(
+    ("family", "constraint", "capability_id"),
+    (
+        ("grafana", SourceConstraint.GRAFANA, "grafana.dashboard_search"),
+        ("zabbix", SourceConstraint.ZABBIX, "zabbix.get_host"),
+    ),
+)
+def test_excluded_monitoring_source_is_rejected_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    family: str,
+    constraint: SourceConstraint,
+    capability_id: str,
+) -> None:
+    environment = fake_environment(**{family: True})
+    monkeypatch.setattr(
+        environment.knowledge_tool,
+        "execute",
+        lambda *_args: pytest.fail("excluded action must not dispatch"),
+    )
+    result = AgentActionValidator(
+        ControllerCapabilityDiscovery.from_knowledge_tool(environment.knowledge_tool),
+        environment.target_resolver,
+    ).validate(
+        AgentAction(capability_id),
+        HardRequestConstraints(excluded_sources=(constraint,)),
+        AgentActionToolBudget(),
+    )
+
+    assert result.status is AgentActionValidationStatus.REJECT
+    assert result.reason is AgentActionValidationReason.SOURCE_FORBIDDEN
+
+
+def test_zabbix_get_host_validates_the_handler_argument_name() -> None:
+    validator = _validator(zabbix=True)
+    valid = validator.validate(
+        AgentAction("zabbix.get_host", {"host": "monitor"}),
+        HardRequestConstraints(),
+        AgentActionToolBudget(),
+    )
+    invalid_alias = validator.validate(
+        AgentAction("zabbix.get_host", {"host_id": "monitor"}),
+        HardRequestConstraints(),
+        AgentActionToolBudget(),
+    )
+
+    assert valid.status is AgentActionValidationStatus.VALID
+    assert valid.normalized_arguments == {"host": "monitor"}
+    assert invalid_alias.status is AgentActionValidationStatus.REJECT
+    assert invalid_alias.reason is AgentActionValidationReason.ARGUMENT_UNDECLARED
+
+
 def test_url_only_and_literal_url_authority_are_enforced() -> None:
     literal_url = "https://example.com/release"
     url_only = HardRequestConstraints(

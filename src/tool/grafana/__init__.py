@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from urllib import parse as urllib_parse
 
-from src.shared.capability import Capability
+from src.shared.capability import Capability, ParameterSpec
 from src.shared.execution.tool_result import ToolResult
 from src.tool.errors import source_api_error
 from src.tool.tool import Tool
@@ -68,6 +68,7 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "visualization", "inventory"),
         related=("dashboards",),
         covers=("dashboards",),
+        parameters=("source", "resource", "query"),
     ),
     "dashboard_summary": Capability(
         name="dashboard_summary",
@@ -84,6 +85,7 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "visualization", "investigation"),
         related=("dashboards",),
         covers=("dashboards", "panels", "queries"),
+        parameters=("source", "resource", "uid"),
     ),
     "folders": Capability(
         name="folders",
@@ -116,6 +118,10 @@ _CAPABILITIES: dict[str, Capability] = {
         intents=("monitor", "events", "timeline"),
         related=("dashboards",),
         covers=("monitoring-annotations",),
+        parameters=("source", "resource", "limit"),
+        parameter_specs=(
+            ParameterSpec("limit", value_type="int", default=50, has_default=True),
+        ),
     ),
 }
 

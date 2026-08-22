@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import inspect
 import json
 from urllib import request
 
 import pytest
 
-from src.tool.grafana_tool import GrafanaTool
+from src.tool.grafana_tool import _CAPABILITIES, GrafanaTool
 
 
 class _MockGrafana:
@@ -307,3 +308,19 @@ def test_passes_extra_arguments_to_handler(mock_grafana) -> None:
     result = tool.execute({"action": "annotations", "limit": 100})
     assert result.success is True
     assert mock_grafana.calls[0]["url"].endswith("limit=100")
+
+
+def test_capability_metadata_matches_every_grafana_handler_signature() -> None:
+    for capability in _CAPABILITIES.values():
+        handler_arguments = tuple(
+            name
+            for name in inspect.signature(capability.handler).parameters
+            if name != "api"
+        )
+        declared_arguments = tuple(
+            name
+            for name in capability.parameters
+            if name not in {"source", "resource"}
+        )
+
+        assert declared_arguments == handler_arguments

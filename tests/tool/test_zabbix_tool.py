@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import json
 
 import pytest
 
-from src.tool.zabbix_tool import ZabbixTool
+from src.tool.zabbix_tool import _CAPABILITIES, ZabbixTool
 
 
 class _MockZabbix:
@@ -435,3 +436,19 @@ def test_passes_extra_arguments_to_handler(mock_zabbix) -> None:
     result = tool.execute({"action": "get_host", "host": "db01"})
     assert result.success is True
     assert result.data["hosts"][0]["host"] == "db01"
+
+
+def test_capability_metadata_matches_every_zabbix_handler_signature() -> None:
+    for capability in _CAPABILITIES.values():
+        handler_arguments = tuple(
+            name
+            for name in inspect.signature(capability.handler).parameters
+            if name != "zapi"
+        )
+        declared_arguments = tuple(
+            name
+            for name in capability.parameters
+            if name not in {"source", "resource"}
+        )
+
+        assert declared_arguments == handler_arguments

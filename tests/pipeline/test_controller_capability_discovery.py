@@ -166,6 +166,125 @@ def test_grafana_hard_constraint_excludes_host_alternatives() -> None:
     assert all(item["source_family"] == "grafana" for item in grafana.summaries)
 
 
+def test_grafana_discovery_and_details_expose_only_typed_handler_arguments() -> None:
+    discovery = _discovery(grafana=True)
+
+    result = discovery.discover("grafana", HardRequestConstraints())
+
+    assert result.status is CapabilityDiscoveryStatus.DISCOVERED
+    assert result.category == "grafana"
+    assert 0 < len(result.summaries) <= MAX_DISCOVERY_SUMMARIES_PER_CATEGORY
+    assert all(item["source_family"] == "grafana" for item in result.summaries)
+    schemas = {
+        capability_id: discovery.selected_detail(
+            capability_id, HardRequestConstraints()
+        ).selected_capability_schema
+        for capability_id in (
+            "grafana.dashboard_search",
+            "grafana.dashboard_details",
+            "grafana.annotations",
+        )
+    }
+
+    assert schemas["grafana.dashboard_search"] is not None
+    assert schemas["grafana.dashboard_search"]["arguments_schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"query": {"type": ["string", "null"]}},
+        "required": ["query"],
+    }
+    assert schemas["grafana.dashboard_details"] is not None
+    assert schemas["grafana.dashboard_details"]["arguments_schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"uid": {"type": ["string", "null"]}},
+        "required": ["uid"],
+    }
+    assert schemas["grafana.annotations"] is not None
+    assert schemas["grafana.annotations"]["arguments_schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"limit": {"type": ["integer", "null"]}},
+        "required": ["limit"],
+    }
+    forbidden = {
+        "api",
+        "authorization",
+        "credential",
+        "credentials",
+        "endpoint",
+        "header",
+        "http",
+        "method",
+        "provider",
+        "token",
+        "url",
+    }
+    assert not (_keys(result.to_payload()) & forbidden)
+    assert not (
+        set().union(*(_keys(schema) for schema in schemas.values() if schema))
+        & forbidden
+    )
+
+
+def test_zabbix_discovery_and_details_use_existing_handler_argument_names() -> None:
+    discovery = _discovery(zabbix=True)
+
+    result = discovery.discover("zabbix", HardRequestConstraints())
+
+    assert result.status is CapabilityDiscoveryStatus.DISCOVERED
+    assert result.category == "zabbix"
+    assert len(result.summaries) == MAX_DISCOVERY_SUMMARIES_PER_CATEGORY
+    assert all(item["source_family"] == "zabbix" for item in result.summaries)
+    schemas = {
+        capability_id: discovery.selected_detail(
+            capability_id, HardRequestConstraints()
+        ).selected_capability_schema
+        for capability_id in (
+            "zabbix.get_host",
+            "zabbix.search_hosts",
+            "zabbix.get_items",
+            "zabbix.get_triggers",
+        )
+    }
+
+    for capability_id, argument_name in (
+        ("zabbix.get_host", "host"),
+        ("zabbix.search_hosts", "query"),
+        ("zabbix.get_items", "hostid"),
+        ("zabbix.get_triggers", "hostid"),
+    ):
+        schema = schemas[capability_id]
+        assert schema is not None
+        assert schema["arguments_schema"] == {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {argument_name: {"type": ["string", "null"]}},
+            "required": [argument_name],
+        }
+    assert "host_id" not in schemas["zabbix.get_host"]["arguments_schema"][
+        "properties"
+    ]
+    forbidden = {
+        "api",
+        "authorization",
+        "credential",
+        "credentials",
+        "endpoint",
+        "header",
+        "http",
+        "method",
+        "provider",
+        "token",
+        "url",
+    }
+    assert not (_keys(result.to_payload()) & forbidden)
+    assert not (
+        set().union(*(_keys(schema) for schema in schemas.values() if schema))
+        & forbidden
+    )
+
+
 def test_selected_detail_exposes_one_closed_schema_compatible_with_controller_prompt() -> (
     None
 ):

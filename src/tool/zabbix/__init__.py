@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.shared.capability import Capability
+from src.shared.capability import Capability, ParameterSpec
 from src.shared.execution.tool_result import ToolResult
 from src.tool.errors import source_api_error
 from src.tool.tool import Tool
@@ -61,7 +61,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("zabbix-hosts",),
         description="Retrieve details for a specific Zabbix host",
         supported_targets=("zabbix",),
-        parameters=("source", "resource", "host_id"),
+        parameters=("source", "resource", "host"),
         estimated_cost=0.1,
     ),
     "search_hosts": Capability(
@@ -71,6 +71,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory", "discovery"),
         ("get_host",),
         ("zabbix-hosts",),
+        parameters=("source", "resource", "query"),
     ),
     "get_host_groups": Capability(
         "get_host_groups",
@@ -95,6 +96,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory", "investigation"),
         ("get_triggers",),
         ("zabbix-items",),
+        parameters=("source", "resource", "hostid"),
     ),
     "get_triggers": Capability(
         "get_triggers",
@@ -103,6 +105,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "alerts"),
         ("get_problems", "get_events"),
         ("zabbix-triggers", "alert_severity"),
+        parameters=("source", "resource", "hostid"),
     ),
     "get_events": Capability(
         "get_events",
@@ -111,6 +114,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "events", "timeline"),
         ("get_problems",),
         ("zabbix-events",),
+        parameters=("source", "resource", "hostid"),
     ),
     "get_problems": Capability(
         "get_problems",
@@ -119,6 +123,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "alerts", "incidents"),
         ("get_triggers", "get_events"),
         ("zabbix-problems",),
+        parameters=("source", "resource", "hostid"),
     ),
     "get_problem_timeline": Capability(
         "get_problem_timeline",
@@ -127,6 +132,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "events", "timeline"),
         ("get_problems",),
         ("zabbix-events",),
+        parameters=("source", "resource", "limit"),
+        parameter_specs=(
+            ParameterSpec("limit", value_type="int", default=50, has_default=True),
+        ),
     ),
     "get_host_inventory": Capability(
         "get_host_inventory",
@@ -143,6 +152,7 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "inventory"),
         ("get_hosts",),
         ("zabbix-interfaces",),
+        parameters=("source", "resource", "hostid"),
     ),
     "get_maintenance_status": Capability(
         "get_maintenance_status",
@@ -159,6 +169,10 @@ _CAPABILITIES: dict[str, Capability] = {
         ("monitor", "events", "timeline"),
         ("get_problems",),
         ("zabbix-events",),
+        parameters=("source", "resource", "limit"),
+        parameter_specs=(
+            ParameterSpec("limit", value_type="int", default=100, has_default=True),
+        ),
     ),
     "get_users": Capability(
         "get_users",
