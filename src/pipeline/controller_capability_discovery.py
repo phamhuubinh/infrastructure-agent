@@ -47,6 +47,25 @@ MAX_DISCOVERY_PAYLOAD_BYTES = 4_096
 MAX_SELECTED_CAPABILITY_DETAIL_BYTES = 2_048
 MAX_DISCOVERY_ARGUMENTS = 16
 
+# Keep the bounded host disclosure useful for controller-selected Linux
+# investigations.  This is ordering only: every ID still originates from the
+# current KnowledgeTool metadata and all non-prioritized host metadata follows
+# in stable capability-ID order.
+_HOST_DISCOVERY_PRIORITY = (
+    "host.get_cpu",
+    "host.get_memory",
+    "host.get_filesystem",
+    "host.get_process",
+    "host.get_service",
+    "host.get_network",
+    "host.get_system",
+    "host.get_uptime",
+)
+_HOST_DISCOVERY_PRIORITY_RANK = {
+    capability_id: rank
+    for rank, capability_id in enumerate(_HOST_DISCOVERY_PRIORITY)
+}
+
 
 class CapabilityDiscoveryStatus(str, Enum):
     DISCOVERED = "discovered"
@@ -132,7 +151,7 @@ class ControllerCapabilityDiscovery:
                         and detail.summary.availability
                         is CapabilityAvailability.AVAILABLE
                     ),
-                    key=lambda detail: detail.summary.capability_id,
+                    key=lambda detail: _discovery_order_key(category, detail),
                 )
             )
             for category in CONTROLLER_CAPABILITY_CATEGORIES
@@ -464,6 +483,17 @@ def _metadata_sequence(value: object) -> Sequence[object]:
 def _metadata_name(entry: Mapping[str, object]) -> str:
     name = entry.get("name")
     return name if isinstance(name, str) else ""
+
+
+def _discovery_order_key(category: str, detail: _Detail) -> tuple[int, int | str]:
+    """Return the category-local, metadata-independent disclosure order."""
+
+    capability_id = detail.summary.capability_id
+    if category == "host":
+        priority = _HOST_DISCOVERY_PRIORITY_RANK.get(capability_id)
+        if priority is not None:
+            return (0, priority)
+    return (1, capability_id)
 
 
 def _category_for_source_kind(source_kind: str) -> str | None:

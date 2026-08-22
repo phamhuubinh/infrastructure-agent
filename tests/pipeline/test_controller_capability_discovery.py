@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 
-from src.agent.controller_contracts import AgentAction, AgentRunState
+import pytest
+
+from src.agent.controller_contracts import (
+    AgentAction,
+    AgentRunState,
+    ControllerCallStage,
+)
 from src.model.protocol.controller_prompt import (
     ControllerContinuationInput,
     build_controller_prompt,
@@ -19,6 +25,17 @@ from src.pipeline.hard_request_constraints import HardRequestConstraints
 from src.pipeline.request_semantics import SourceConstraint
 from src.tool.knowledge_tool import KnowledgeTool
 from tests.fixtures.fake_environment import build_fake_registry
+
+_REQUIRED_HOST_CAPABILITY_IDS = (
+    "host.get_cpu",
+    "host.get_memory",
+    "host.get_filesystem",
+    "host.get_process",
+    "host.get_service",
+    "host.get_network",
+    "host.get_system",
+    "host.get_uptime",
+)
 
 
 def _discovery(**flags: object) -> ControllerCapabilityDiscovery:
@@ -46,21 +63,95 @@ def test_direct_first_turn_has_no_capability_disclosure_payload() -> None:
     assert "selected_capability_schema" not in payload
 
 
-def test_host_discovery_returns_only_bounded_host_summaries_in_order() -> None:
-    result = _discovery(grafana=True, zabbix=True, internet=True).discover(
-        "host", HardRequestConstraints()
+def test_host_discovery_prioritizes_representative_actions_without_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = KnowledgeTool(build_fake_registry(grafana=True, zabbix=True, internet=True))
+    monkeypatch.setattr(
+        tool,
+        "execute",
+        lambda _arguments: pytest.fail("capability discovery must not execute"),
     )
+    discovery = ControllerCapabilityDiscovery.from_knowledge_tool(tool)
+
+    result = discovery.discover("host", HardRequestConstraints())
 
     assert result.status is CapabilityDiscoveryStatus.DISCOVERED
     assert result.category == "host"
     assert result.summaries
     assert len(result.summaries) == MAX_DISCOVERY_SUMMARIES_PER_CATEGORY
-    assert [item["capability_id"] for item in result.summaries] == sorted(
-        item["capability_id"] for item in result.summaries
+    capability_ids = [item["capability_id"] for item in result.summaries]
+    assert capability_ids[: len(_REQUIRED_HOST_CAPABILITY_IDS)] == list(
+        _REQUIRED_HOST_CAPABILITY_IDS
+    )
+    assert capability_ids[len(_REQUIRED_HOST_CAPABILITY_IDS) :] == sorted(
+        capability_ids[len(_REQUIRED_HOST_CAPABILITY_IDS) :]
     )
     assert all(item["source_family"] == "linux" for item in result.summaries)
     assert all(item["target_kind"] == "machine" for item in result.summaries)
     assert len(json.dumps(result.to_payload()).encode()) <= MAX_DISCOVERY_PAYLOAD_BYTES
+
+
+def test_unrelated_linux_metadata_cannot_evict_required_host_discovery_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool = KnowledgeTool(build_fake_registry())
+    metadata = tool.get_capability_metadata()
+    linux_source = next(
+        source for source in metadata if tool.source_kind(source) == "linux"
+    )
+    metadata[linux_source] = [
+        *metadata[linux_source],
+        *[
+            {
+                "name": f"aaa_unrelated_{index}",
+                "description": "Read unrelated fixture information",
+                "parameters": [],
+                "parameter_specs": [],
+                "mutation_risk": "none",
+            }
+            for index in range(64)
+        ],
+    ]
+    monkeypatch.setattr(tool, "get_capability_metadata", lambda: metadata)
+
+    result = ControllerCapabilityDiscovery.from_knowledge_tool(tool).discover(
+        "host", HardRequestConstraints()
+    )
+
+    assert result.status is CapabilityDiscoveryStatus.DISCOVERED
+    capability_ids = {item["capability_id"] for item in result.summaries}
+    assert capability_ids.issuperset(_REQUIRED_HOST_CAPABILITY_IDS)
+    assert len(result.summaries) <= MAX_DISCOVERY_SUMMARIES_PER_CATEGORY
+
+
+def test_required_host_detail_schemas_remain_metadata_derived() -> None:
+    discovery = _discovery()
+
+    service = discovery.selected_detail("host.get_service", HardRequestConstraints())
+    cpu = discovery.selected_detail("host.get_cpu", HardRequestConstraints())
+
+    assert service.status is CapabilityDetailStatus.DISCLOSED
+    assert service.selected_capability_schema is not None
+    assert service.selected_capability_schema["arguments_schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$",
+            }
+        },
+        "required": ["name"],
+    }
+    assert cpu.status is CapabilityDetailStatus.DISCLOSED
+    assert cpu.selected_capability_schema is not None
+    assert cpu.selected_capability_schema["arguments_schema"] == {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {},
+        "required": [],
+    }
 
 
 def test_grafana_hard_constraint_excludes_host_alternatives() -> None:
@@ -119,6 +210,7 @@ def test_selected_detail_exposes_one_closed_schema_compatible_with_controller_pr
         "List port 443.",
         hard_constraints=HardRequestConstraints(),
         continuation=continuation,
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
     )
     assert json.loads(prompt.user_prompt)["selected_capability_schema"] == selected
 

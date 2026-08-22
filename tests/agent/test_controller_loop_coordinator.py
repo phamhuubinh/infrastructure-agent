@@ -944,6 +944,105 @@ def test_tool_failure_returns_to_controller_without_a_harness_retry(
     assert any(item.status.value == "failed" for item in result.run_state.observations)
 
 
+def test_controller_explicitly_selects_cpu_then_process_on_monitor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ScriptedControllerProvider(
+        [
+            _decision(AgentDecisionKind.DISCOVER, category="host"),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_cpu", {}),
+            ),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_cpu", {}),
+            ),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_process", {}),
+            ),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_process", {}),
+            ),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="CPU and process observations are available for monitor.",
+            ),
+        ]
+    )
+    calls: list[str] = []
+
+    def execute(_self: object, arguments: dict[str, object]) -> ToolResult:
+        action = str(arguments["action"])
+        calls.append(action)
+        data = (
+            {
+                "usage": {
+                    "collection_strategy": "fixture",
+                    "usage_percent": 91,
+                    "idle_percent": 9,
+                }
+            }
+            if action == "get_cpu"
+            else {"total": 3}
+        )
+        return ToolResult(
+            success=True,
+            data=data,
+            capability_status=CapabilityStatus.VALID,
+        )
+
+    monkeypatch.setattr("src.tool.linux_tool.LinuxTool.execute", execute)
+    result = _coordinator(provider, environment_flags={"monitor": True}).run(
+        "Kiểm tra CPU trên monitor.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("monitor", "monitor")
+        ),
+    )
+
+    assert result.succeeded
+    assert calls == ["get_cpu", "get_process"]
+    assert result.action_budget.actions_used == result.action_budget.tools_used == 2
+    host_observations = [
+        observation
+        for observation in result.run_state.observations
+        if observation.capability_id in {"host.get_cpu", "host.get_process"}
+    ]
+    assert [observation.capability_id for observation in host_observations] == [
+        "host.get_cpu",
+        "host.get_process",
+    ]
+    assert [observation.target_id for observation in host_observations] == [
+        "monitor",
+        "monitor",
+    ]
+    assert [request.call_stage for request in provider.requests] == [
+        ControllerCallStage.FIRST_DECISION,
+        ControllerCallStage.DISCOVERY_CONTINUATION,
+        ControllerCallStage.ACTION_CONTINUATION,
+        ControllerCallStage.OBSERVATION_CONTINUATION,
+        ControllerCallStage.ACTION_CONTINUATION,
+        ControllerCallStage.OBSERVATION_CONTINUATION,
+    ]
+    cpu_feedback = json.loads(provider.requests[3].user_prompt)
+    assert cpu_feedback["observation"]["i"] == "host.get_cpu"
+    assert cpu_feedback["observation"]["s"] == "success"
+    assert cpu_feedback["observation"]["t"] == "monitor"
+    assert cpu_feedback["observation"]["o"] == "monitor"
+    process_feedback = json.loads(provider.requests[5].user_prompt)
+    retained = [
+        *process_feedback.get("older_observations", []),
+        process_feedback["observation"],
+    ]
+    assert [
+        observation["i"]
+        for observation in retained
+        if observation["i"] in {"host.get_cpu", "host.get_process"}
+    ] == ["host.get_cpu", "host.get_process"]
+
+
 def test_observation_retention_and_raw_request_authority_are_bounded() -> None:
     original = "Inspect only this original request."
     provider = ScriptedControllerProvider(
