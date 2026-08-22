@@ -166,6 +166,12 @@ The Web UI calls `/api/rag/*`; the API proxies to the internal service in
 BM25 data, and bounded analysis history under `RAG_DATA_DIR`. RAG is not
 registered as a chat capability.
 
+Generic Chat attachments remain outside that service. `/api/query` injects
+only bounded, untrusted evidence built from the active server-owned session's
+attachments: small extracted text is direct context, while larger text uses
+request-local deterministic retrieval. Attachment IDs, storage paths, and
+project IDs are not controller authority or prompt context.
+
 ## Network and authentication boundary
 
 Source Web mode binds FastAPI to `127.0.0.1:61888` and Vite to the configured

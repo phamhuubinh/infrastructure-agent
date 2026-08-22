@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +46,7 @@ from src.model.output_sanitizer import (
     sanitize_api_response,
     sanitize_model_output,
 )
+from src.model.protocol.controller_prompt import ControllerPromptContext
 from src.model.protocol.orion_system_prompt import ORION_SYSTEM_PROMPT
 from src.model.protocol.prompt_builder_v2 import (
     _detect_language,
@@ -265,13 +267,26 @@ class DeterministicAgent:
         if store:
             store.set_summarize_fn(self._assessment_model.assess_raw)
 
-    def run(self, user_request: str) -> str:
+    def run(
+        self,
+        user_request: str,
+        *,
+        attachment_evidence: tuple[Mapping[str, object], ...] = (),
+    ) -> str:
         """Run an investigation and apply the universal delivery boundary."""
         return self._finalize_user_visible(
-            self._run_unfinalized(user_request), user_request
+            self._run_unfinalized(
+                user_request, attachment_evidence=attachment_evidence
+            ),
+            user_request,
         )
 
-    def _run_unfinalized(self, user_request: str) -> str:
+    def _run_unfinalized(
+        self,
+        user_request: str,
+        *,
+        attachment_evidence: tuple[Mapping[str, object], ...] = (),
+    ) -> str:
         """Run a full deterministic investigation and return assessment.
 
         Args:
@@ -287,13 +302,17 @@ class DeterministicAgent:
                 or constraints.mutation_requested
             ):
                 return self._run_controller_primary(
-                    user_request, hard_constraints=constraints
+                    user_request,
+                    hard_constraints=constraints,
+                    attachment_evidence=attachment_evidence,
                 ).response_text
             reset_response = self._reset_context_response(user_request)
             if reset_response is not None:
                 return reset_response
             return self._run_controller_primary(
-                user_request, hard_constraints=constraints
+                user_request,
+                hard_constraints=constraints,
+                attachment_evidence=attachment_evidence,
             ).response_text
         sensitive_refusal_response = self._sensitive_refusal_response(user_request)
         if sensitive_refusal_response is not None:
@@ -390,9 +409,16 @@ class DeterministicAgent:
                 "Không có model hoặc lệnh bổ sung nào được chạy."
             )
 
-    def run_with_steps(self, user_request: str) -> dict:
+    def run_with_steps(
+        self,
+        user_request: str,
+        *,
+        attachment_evidence: tuple[Mapping[str, object], ...] = (),
+    ) -> dict:
         """Run with trace metadata and finalize the one visible response field."""
-        result = self._run_with_steps_unfinalized(user_request)
+        result = self._run_with_steps_unfinalized(
+            user_request, attachment_evidence=attachment_evidence
+        )
         result["response"] = self._finalize_user_visible(
             result["response"], user_request
         )
@@ -417,7 +443,12 @@ class DeterministicAgent:
             }
         return result
 
-    def _run_with_steps_unfinalized(self, user_request: str) -> dict:
+    def _run_with_steps_unfinalized(
+        self,
+        user_request: str,
+        *,
+        attachment_evidence: tuple[Mapping[str, object], ...] = (),
+    ) -> dict:
         """Run pipeline + assessment, return structured result with steps.
 
         Single entry point for CLI and web. Returns a dict with:
@@ -436,7 +467,9 @@ class DeterministicAgent:
                 return self._controller_loop_payload(
                     user_request,
                     self._run_controller_primary(
-                        user_request, hard_constraints=constraints
+                        user_request,
+                        hard_constraints=constraints,
+                        attachment_evidence=attachment_evidence,
                     ),
                 )
             reset_response = self._reset_context_response(user_request)
@@ -445,7 +478,9 @@ class DeterministicAgent:
             return self._controller_loop_payload(
                 user_request,
                 self._run_controller_primary(
-                    user_request, hard_constraints=constraints
+                    user_request,
+                    hard_constraints=constraints,
+                    attachment_evidence=attachment_evidence,
                 ),
             )
         sensitive_refusal_response = self._sensitive_refusal_response(user_request)
@@ -2423,6 +2458,7 @@ class DeterministicAgent:
         user_request: str,
         *,
         hard_constraints: HardRequestConstraints | None = None,
+        attachment_evidence: tuple[Mapping[str, object], ...] = (),
     ) -> AgentControllerLoopResult:
         """Run the configured Agent v2 controller without legacy routing.
 
@@ -2444,6 +2480,11 @@ class DeterministicAgent:
         return self._controller_loop.run(
             user_request,
             hard_constraints=constraints,
+            context=(
+                ControllerPromptContext(attachment_evidence=attachment_evidence)
+                if attachment_evidence
+                else None
+            ),
             session_store=self._conversation_store,
         )
 

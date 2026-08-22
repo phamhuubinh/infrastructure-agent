@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import binascii
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
@@ -12,6 +15,7 @@ from src.backend.document_service import (
 from src.backend.document_service import (
     list_files as doc_list_files,
 )
+from src.backend.document_service import public_file_metadata as doc_public_metadata
 from src.backend.document_service import (
     read_file_content as doc_read_file_content,
 )
@@ -25,7 +29,18 @@ router = APIRouter(tags=["documents"])
 @router.post("/api/documents/upload")
 def document_upload(body: dict, request: Request):
     deps = request.app.state.deps
-    content = (body.get("content") or "").encode("utf-8")
+    encoded_content = body.get("content_base64")
+    if encoded_content is not None:
+        if not isinstance(encoded_content, str):
+            raise HTTPException(400, "content_base64 must be a base64 string")
+        try:
+            content = base64.b64decode(encoded_content, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(400, "content_base64 is invalid") from exc
+    else:
+        content = (body.get("content") or "").encode("utf-8")
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(413, "Document exceeds the 50 MiB upload limit")
     filename = (body.get("filename") or "untitled.txt").strip()
     content_type = body.get("content_type")
     session_id = body.get("session_id")
@@ -39,14 +54,17 @@ def document_upload(body: dict, request: Request):
         session_id=session_id,
         metadata=metadata,
     )
-    return result
+    return doc_public_metadata(result)
 
 
 @router.get("/api/documents")
 def document_list(request: Request, session_id: str | None = None, limit: int = 50):
     deps = request.app.state.deps
     return {
-        "documents": doc_list_files(dsn=deps.dsn, session_id=session_id, limit=limit)
+        "documents": [
+            doc_public_metadata(item)
+            for item in doc_list_files(dsn=deps.dsn, session_id=session_id, limit=limit)
+        ]
     }
 
 
@@ -56,7 +74,7 @@ def document_get(doc_id: str, request: Request):
     doc = doc_get_file(dsn=deps.dsn, doc_id=doc_id)
     if doc is None:
         raise HTTPException(404, f"Document '{doc_id}' not found")
-    return doc
+    return doc_public_metadata(doc)
 
 
 @router.get("/api/documents/{doc_id}/download")

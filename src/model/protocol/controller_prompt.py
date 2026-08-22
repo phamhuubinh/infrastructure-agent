@@ -33,6 +33,7 @@ from src.pipeline.input_context_budget import (
     InputContextSection,
 )
 from src.pipeline.request_semantics import SourceConstraint
+from src.shared.attachment_evidence import ATTACHMENT_EVIDENCE_MAX_BYTES
 
 MAX_CONTROLLER_CONTEXT_CHARS = 256
 MAX_CONTROLLER_CONTEXT_BYTES = 1_024
@@ -68,6 +69,7 @@ class ControllerPromptContext:
     sources: tuple[SourceConstraint, ...] = ()
     excluded_sources: tuple[SourceConstraint, ...] = ()
     pending_clarification_field: str | None = None
+    attachment_evidence: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,7 @@ class ControllerContinuationInput:
     selected_capability_schema: Mapping[str, object] | None = None
     harness_feedback: Mapping[str, object] | None = None
     session_context: ControllerPromptContext | None = None
+    attachment_evidence: tuple[Mapping[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_state, AgentRunState):
@@ -110,6 +113,7 @@ class ControllerContinuationInput:
                 "harness_feedback",
                 MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES,
             )
+        _attachment_evidence(self.attachment_evidence)
         if self.session_context is not None and not isinstance(
             self.session_context, ControllerPromptContext
         ):
@@ -305,6 +309,23 @@ def controller_context_to_dict(context: ControllerPromptContext) -> dict[str, ob
     return compact
 
 
+def _attachment_evidence(
+    evidence: tuple[Mapping[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    """Validate bounded, server-injected untrusted attachment evidence."""
+
+    if not isinstance(evidence, tuple):
+        raise TypeError("attachment_evidence must be a tuple of mappings.")
+    if len(evidence) > 1:
+        raise ValueError("At most one attachment evidence payload is allowed.")
+    return tuple(
+        _bounded_json_mapping(
+            item, "attachment_evidence", ATTACHMENT_EVIDENCE_MAX_BYTES
+        )
+        for item in evidence
+    )
+
+
 def _build_first_turn_prompt(
     raw_request: str,
     hard_constraints: HardRequestConstraints,
@@ -315,8 +336,15 @@ def _build_first_turn_prompt(
     context_payload: dict[str, object] | None = None
     if context is not None:
         context_payload = controller_context_to_dict(context)
+        attachment_evidence = _attachment_evidence(context.attachment_evidence)
+        fields: list[tuple[str, object]] = []
+        if attachment_evidence:
+            # Highest-priority optional section: it is the bounded, untrusted
+            # evidence needed to answer the current request.
+            fields.append(("attachment_evidence", attachment_evidence))
         if context_payload:
-            optional_fields = (("session_context", context_payload),)
+            fields.append(("session_context", context_payload))
+        optional_fields = tuple(fields)
     return _render_budgeted_prompt(
         mandatory_fields=(
             ("request", raw_request),
@@ -342,6 +370,9 @@ def _build_continuation_prompt(
         ("hard_constraints", hard_constraints.to_dict()),
     ]
     optional_fields: list[tuple[str, object]] = []
+    attachment_evidence = _attachment_evidence(continuation.attachment_evidence)
+    if attachment_evidence:
+        optional_fields.append(("attachment_evidence", attachment_evidence))
     if state:
         optional_fields.append(("loop_state", state))
     if call_stage is ControllerCallStage.DISCOVERY_CONTINUATION:

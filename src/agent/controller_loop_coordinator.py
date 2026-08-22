@@ -479,6 +479,15 @@ class AgentControllerLoopCoordinator:
                 session_store, target_resolver=self._validator.target_resolver
             )
             controller_context = session_context.select(raw_request, hard_constraints)
+            if context is not None and context.attachment_evidence:
+                controller_context = replace(
+                    controller_context or ControllerPromptContext(),
+                    attachment_evidence=context.attachment_evidence,
+                )
+
+        request_attachment_evidence = (
+            context.attachment_evidence if context is not None else ()
+        )
 
         if session_context is not None:
             management = session_context.manage(raw_request, hard_constraints)
@@ -520,6 +529,7 @@ class AgentControllerLoopCoordinator:
                         capability_summaries=pending_summaries,
                         selected_capability_schema=active_selected_schema,
                         session_context=controller_context,
+                        attachment_evidence=request_attachment_evidence,
                     )
                 try:
                     preview = build_controller_prompt(

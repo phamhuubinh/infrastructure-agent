@@ -27,7 +27,9 @@ protection.
 - Web document analysis: isolated RAG projects, upload/delete, retrieval, model
   synthesis, and bounded analysis history.
 - Generic document API: upload/list/get/download/delete outside the project RAG
-  lifecycle.
+  lifecycle. Session-bound Chat attachments are extracted lazily for the active
+  session only: small text is bounded direct evidence; larger text uses bounded
+  deterministic retrieval. Project RAG data never enters this path.
 - Electron desktop: packaged UI/proxy for a running local Docker installation.
 
 ## Routing and execution

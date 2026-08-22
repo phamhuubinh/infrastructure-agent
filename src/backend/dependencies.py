@@ -15,6 +15,7 @@ from src.backend.db import (
     init_db,
     init_documents_db,
 )
+from src.backend.session_document_evidence import SessionDocumentEvidenceService
 from src.backend.sqlite_store import SQLiteConversationStore
 from src.model.config_store import ModelConfigStore
 from src.shared.logger import info as _info
@@ -64,6 +65,7 @@ class AppState:
         self.rag_service_url = os.environ.get(
             "RAG_SERVICE_URL", "http://127.0.0.1:8080"
         )
+        self.session_document_evidence = SessionDocumentEvidenceService(self.dsn)
 
     def switch_server(self, server_name: str, model: str | None = None) -> None:
         """Switch the default health-check agent without mutating session agents."""

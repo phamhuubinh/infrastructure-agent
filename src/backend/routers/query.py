@@ -181,7 +181,15 @@ def query(body: dict, request: Request):
                     raise HTTPException(409, "Conversation turn was not found")
             try:
                 started_at = time.perf_counter()
-                result = agent.run_with_steps(question)
+                evidence_service = getattr(deps, "session_document_evidence", None)
+                attachment_evidence = (
+                    evidence_service.build(session_id=session_id, question=question)
+                    if evidence_service is not None
+                    else ()
+                )
+                result = agent.run_with_steps(
+                    question, attachment_evidence=attachment_evidence
+                )
                 # Final defense-in-depth output boundary (GA2-B05).  Every
                 # user-visible response — normal answer, deterministic
                 # refusal, external-verification answer, fallback — converges
