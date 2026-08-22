@@ -101,6 +101,7 @@ class TestNormalizeOpenAIUsage:
             "purpose": None,
             "latency_ms": None,
             "configured_effort": None,
+            "call_stage": None,
         }
 
     def test_configured_effort_stays_separate_from_reasoning_tokens(self) -> None:

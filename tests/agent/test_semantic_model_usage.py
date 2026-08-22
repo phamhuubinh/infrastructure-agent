@@ -268,6 +268,7 @@ def test_direct_answer_records_planner_response_and_relevance_usage() -> None:
             "latency_ms",
             "estimated_input_tokens",
             "configured_effort",
+            "call_stage",
         }
     planner_entry = next(entry for entry in per_call if entry["purpose"] == "planner")
     assert planner_entry["input_tokens"] == 11

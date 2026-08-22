@@ -32,7 +32,6 @@ def test_no_database_alias_in_target_resolver() -> None:
     tmp.close()
     store = TargetStore(path=tmp.name)
     registry = TargetRegistry(store=store)
-    registry.add("localhost")
     resolver = TargetResolver(target_registry=registry)
     Path(tmp.name).unlink(missing_ok=True)
 
@@ -52,7 +51,6 @@ def test_orion_is_skip_word() -> None:
     tmp.close()
     store = TargetStore(path=tmp.name)
     registry = TargetRegistry(store=store)
-    registry.add("localhost")
     resolver = TargetResolver(target_registry=registry)
     Path(tmp.name).unlink(missing_ok=True)
 
@@ -68,7 +66,6 @@ def test_database_is_skip_word() -> None:
     tmp.close()
     store = TargetStore(path=tmp.name)
     registry = TargetRegistry(store=store)
-    registry.add("localhost")
     resolver = TargetResolver(target_registry=registry)
     Path(tmp.name).unlink(missing_ok=True)
 

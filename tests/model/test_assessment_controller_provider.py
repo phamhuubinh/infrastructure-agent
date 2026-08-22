@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.agent.controller_contracts import AgentRunState
+from src.agent.controller_contracts import AgentRunState, ControllerCallStage
 from src.model.assessment_planner_provider import (
     CONTROLLER_MAX_OUTPUT_TOKENS,
     AssessmentControllerProvider,
@@ -115,6 +115,7 @@ def test_native_controller_schema_projects_one_selected_capability(
             run_state=AgentRunState(raw_request="Check CPU."),
             selected_capability_schema=selected,
         ),
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
     )
     monkeypatch.setattr(LLMClient, "generate", fake_generate)
     provider = AssessmentControllerProvider(

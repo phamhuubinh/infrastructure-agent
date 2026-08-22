@@ -262,9 +262,7 @@ def test_zabbix_discovery_and_details_use_existing_handler_argument_names() -> N
             "properties": {argument_name: {"type": ["string", "null"]}},
             "required": [argument_name],
         }
-    assert "host_id" not in schemas["zabbix.get_host"]["arguments_schema"][
-        "properties"
-    ]
+    assert "host_id" not in schemas["zabbix.get_host"]["arguments_schema"]["properties"]
     forbidden = {
         "api",
         "authorization",
@@ -554,7 +552,7 @@ def test_internet_discovery_exposes_only_reviewed_high_level_actions() -> None:
     assert fetch.selected_capability_schema is not None
     assert set(
         current.selected_capability_schema["arguments_schema"]["properties"]
-    ) == {"query"}
+    ) == {"queries"}
     assert set(fetch.selected_capability_schema["arguments_schema"]["properties"]) == {
         "url"
     }
