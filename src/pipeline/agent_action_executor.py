@@ -65,6 +65,14 @@ class AgentActionExecutionResult:
     evidence: EvidencePackage | None = None
     calculator_result: CalculatorContractResult | None = None
     dispatched: bool = False
+    actual_tool_calls: int = 0
+    calculator_calls: int = 0
+
+    def __post_init__(self) -> None:
+        if type(self.actual_tool_calls) is not int or self.actual_tool_calls < 0:
+            raise ValueError("actual_tool_calls must be a non-negative integer.")
+        if type(self.calculator_calls) is not int or self.calculator_calls < 0:
+            raise ValueError("calculator_calls must be a non-negative integer.")
 
     @property
     def capability_id(self) -> str:
@@ -173,6 +181,7 @@ class AgentActionExecutor:
             tool_result=result,
             evidence=evidence,
             dispatched=True,
+            actual_tool_calls=1,
         )
 
     @staticmethod
@@ -203,6 +212,7 @@ class AgentActionExecutor:
             budget=next_budget,
             calculator_result=result,
             dispatched=True,
+            calculator_calls=1,
         )
 
     def _execute_internet(
@@ -258,6 +268,7 @@ class AgentActionExecutor:
             source_id=source_id,
             evidence=evidence,
             dispatched=True,
+            actual_tool_calls=outcome.search_calls + outcome.fetch_calls,
         )
 
     def _bind_exact_route(

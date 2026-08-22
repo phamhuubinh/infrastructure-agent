@@ -62,7 +62,7 @@ from tests.fixtures.fake_environment import fake_environment
 
 
 class ScriptedControllerProvider:
-    def __init__(self, responses: list[AgentDecision | Exception]) -> None:
+    def __init__(self, responses: list[AgentDecision | str | Exception]) -> None:
         self._responses = list(responses)
         self.requests: list[ControllerProviderRequest] = []
 
@@ -74,7 +74,9 @@ class ScriptedControllerProvider:
         if isinstance(response, Exception):
             raise response
         return ControllerProviderResponse(
-            payload=response.to_wire(), provider="scripted", model="fixture"
+            payload=(response.to_wire() if isinstance(response, AgentDecision) else response),
+            provider="scripted",
+            model="fixture",
         )
 
 
@@ -122,6 +124,21 @@ def _coordinator(
         executor=AgentActionExecutor(environment.knowledge_tool),
         final_boundary=final_boundary,
         config=config,
+    )
+
+
+def _coordinator_with_providers(
+    providers: list[ScriptedControllerProvider],
+) -> AgentControllerLoopCoordinator:
+    environment = fake_environment()
+    discovery = ControllerCapabilityDiscovery.from_knowledge_tool(
+        environment.knowledge_tool
+    )
+    return AgentControllerLoopCoordinator(
+        controller=ControllerAdapter(providers),
+        discovery=discovery,
+        validator=AgentActionValidator(discovery, environment.target_resolver),
+        executor=AgentActionExecutor(environment.knowledge_tool),
     )
 
 
@@ -230,6 +247,7 @@ def test_controller_stages_incrementally_disclose_one_payload_kind(
     assert "capability_summaries" not in observation
     assert "selected_capability_schema" not in observation
     assert "observation" in observation
+    assert len(result.controller_prompt_metadata) == len(provider.requests) == 4
 
 
 def test_direct_final_never_touches_capability_discovery(
@@ -1181,6 +1199,43 @@ def test_provider_failure_has_one_safe_response_without_error_text() -> None:
     assert result.response_text == "Controller unavailable."
     assert "secret provider failure" not in json.dumps(result.to_trace_dict())
     assert result.final_response_count == 1
+
+
+def test_malformed_first_call_keeps_safe_prompt_size_metadata() -> None:
+    provider = ScriptedControllerProvider(["malformed controller output"])
+    request = "RAW_REQUEST_SENTINEL"
+
+    result = _coordinator(provider).run(
+        request, hard_constraints=HardRequestConstraints()
+    )
+
+    trace = result.to_trace_dict()
+    metadata = trace["controller_prompt_metadata"]
+    assert result.failure is AgentControllerLoopFailure.PROVIDER_FAILURE
+    assert len(provider.requests) == len(metadata) == 1
+    assert trace["controller_metrics"]["first_turn_actual_input_chars"] > 0
+    assert trace["controller_metrics"]["first_turn_estimated_input_tokens"] > 0
+    rendered = json.dumps(trace)
+    assert "system_prompt" not in rendered
+    assert "user_prompt" not in rendered
+    assert request not in rendered
+
+
+def test_failed_provider_failover_has_two_attempts_but_one_prompt_record() -> None:
+    first = ScriptedControllerProvider([RuntimeError("first failure")])
+    second = ScriptedControllerProvider([RuntimeError("second failure")])
+
+    result = _coordinator_with_providers([first, second]).run(
+        "Check host.", hard_constraints=HardRequestConstraints()
+    )
+
+    trace = result.to_trace_dict()
+    assert result.failure is AgentControllerLoopFailure.PROVIDER_FAILURE
+    assert len(first.requests) == len(second.requests) == 1
+    assert trace["controller_metrics"]["model_call_count"] == 2
+    assert len(trace["controller_prompt_metadata"]) == 1
+    assert trace["controller_metrics"]["first_turn_actual_input_chars"] > 0
+    assert trace["controller_metrics"]["first_turn_estimated_input_tokens"] > 0
 
 
 def _session_store(

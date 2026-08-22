@@ -22,6 +22,7 @@ from src.agent.controller_contracts import (
 )
 from src.model.protocol.controller_prompt import (
     ControllerContinuationInput,
+    ControllerPrompt,
     ControllerPromptContext,
     build_controller_prompt,
 )
@@ -152,6 +153,7 @@ class ControllerDecisionResult:
     optional_included: tuple[str, ...]
     optional_dropped: tuple[str, ...]
     configured_effort: str | None = None
+    provider_attempt_count: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,37 +252,51 @@ class ControllerAdapter:
                 provider_label = _bounded_identity(response.provider, provider_label)
                 model_label = _bounded_identity(response.model, "unknown")
                 raw_usage = _copy_raw_usage(response.raw_usage)
-                configured_effort = response.configured_effort
-                if configured_effort is not None and not isinstance(
-                    configured_effort, ReasoningEffort
+                response_effort = response.configured_effort
+                if response_effort is not None and not isinstance(
+                    response_effort, ReasoningEffort
                 ):
                     raise ControllerContractError(
                         "Provider configured_effort must be ReasoningEffort or null."
                     )
-                self._record_usage(
-                    raw_usage,
-                    provider=provider_label,
-                    model=model_label,
-                    estimated_input_tokens=prompt.estimated_input_tokens,
-                    configured_effort=configured_effort,
-                    call_stage=call_stage,
-                )
+                configured_effort = response_effort
                 decision = _parse_provider_payload(response.payload)
             except TimeoutError as exc:
+                self._record_attempt_usage(
+                    raw_usage, provider_label, model_label, attempt_started, prompt,
+                    configured_effort, call_stage,
+                )
                 failures.append(
-                    _failure(provider_label, ControllerFailureReason.TIMEOUT, exc)
+                    _failure(
+                        provider_label, ControllerFailureReason.TIMEOUT, exc,
+                        model=model_label, raw_usage=raw_usage,
+                        latency_ms=_attempt_latency_ms(attempt_started),
+                        estimated_input_tokens=prompt.estimated_input_tokens,
+                    )
                 )
                 continue
             except (ConnectionError, OSError) as exc:
+                self._record_attempt_usage(
+                    raw_usage, provider_label, model_label, attempt_started, prompt,
+                    configured_effort, call_stage,
+                )
                 failures.append(
                     _failure(
                         provider_label,
                         ControllerFailureReason.PROVIDER_UNAVAILABLE,
                         exc,
+                        model=model_label,
+                        raw_usage=raw_usage,
+                        latency_ms=_attempt_latency_ms(attempt_started),
+                        estimated_input_tokens=prompt.estimated_input_tokens,
                     )
                 )
                 continue
             except (ControllerContractError, TypeError, ValueError) as exc:
+                self._record_attempt_usage(
+                    raw_usage, provider_label, model_label, attempt_started, prompt,
+                    configured_effort, call_stage,
+                )
                 failures.append(
                     _failure(
                         provider_label,
@@ -288,9 +304,7 @@ class ControllerAdapter:
                         exc,
                         model=model_label,
                         raw_usage=raw_usage,
-                        latency_ms=round(
-                            (time.perf_counter() - attempt_started) * 1000, 1
-                        ),
+                        latency_ms=_attempt_latency_ms(attempt_started),
                         estimated_input_tokens=prompt.estimated_input_tokens,
                         configured_effort=(
                             configured_effort.value
@@ -301,13 +315,25 @@ class ControllerAdapter:
                 )
                 continue
             except Exception as exc:
+                self._record_attempt_usage(
+                    raw_usage, provider_label, model_label, attempt_started, prompt,
+                    configured_effort, call_stage,
+                )
                 failures.append(
                     _failure(
-                        provider_label, ControllerFailureReason.PROVIDER_ERROR, exc
+                        provider_label, ControllerFailureReason.PROVIDER_ERROR, exc,
+                        model=model_label, raw_usage=raw_usage,
+                        latency_ms=_attempt_latency_ms(attempt_started),
+                        estimated_input_tokens=prompt.estimated_input_tokens,
                     )
                 )
                 continue
 
+            latency_ms = _attempt_latency_ms(attempt_started)
+            self._record_attempt_usage(
+                raw_usage, provider_label, model_label, attempt_started, prompt,
+                configured_effort, call_stage, latency_ms=latency_ms,
+            )
             return ControllerDecisionResult(
                 decision=decision,
                 provider=provider_label,
@@ -325,6 +351,7 @@ class ControllerAdapter:
                 configured_effort=(
                     configured_effort.value if configured_effort is not None else None
                 ),
+                provider_attempt_count=index,
             )
         raise ControllerAdapterError(tuple(failures))
 
@@ -346,6 +373,7 @@ class ControllerAdapter:
         *,
         provider: str,
         model: str,
+        latency_ms: float | None,
         estimated_input_tokens: int,
         configured_effort: ReasoningEffort | None,
         call_stage: ControllerCallStage,
@@ -357,11 +385,36 @@ class ControllerAdapter:
             purpose=ControllerCallPurpose.CONTROLLER.value,
             provider=provider,
             model=model,
+            latency_ms=latency_ms,
             estimated_input_tokens=estimated_input_tokens,
             configured_effort=(
                 configured_effort.value if configured_effort is not None else None
             ),
             call_stage=call_stage.value,
+        )
+
+    def _record_attempt_usage(
+        self,
+        raw_usage: Mapping[str, object] | None,
+        provider: str,
+        model: str | None,
+        started: float,
+        prompt: ControllerPrompt,
+        configured_effort: ReasoningEffort | None,
+        call_stage: ControllerCallStage,
+        *,
+        latency_ms: float | None = None,
+    ) -> None:
+        self._record_usage(
+            raw_usage,
+            provider=provider,
+            model=model or "unknown",
+            latency_ms=(
+                _attempt_latency_ms(started) if latency_ms is None else latency_ms
+            ),
+            estimated_input_tokens=prompt.estimated_input_tokens,
+            configured_effort=configured_effort,
+            call_stage=call_stage,
         )
 
 
@@ -373,6 +426,10 @@ def _parse_provider_payload(payload: object) -> AgentDecision:
     raise ControllerContractError(
         "Provider payload must be an AgentDecision object or JSON text."
     )
+
+
+def _attempt_latency_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 1)
 
 
 def _failure(

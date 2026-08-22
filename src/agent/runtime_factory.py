@@ -17,6 +17,7 @@ from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
 from src.model.semantic_planner_adapter import SemanticPlannerAdapter
 from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
+from src.model.usage_recorder import ModelUsageRecorder
 from src.pipeline.agent_action_executor import AgentActionExecutor
 from src.pipeline.agent_action_validator import AgentActionValidator
 from src.pipeline.controller_capability_discovery import ControllerCapabilityDiscovery
@@ -615,6 +616,7 @@ def create_deterministic_agent(
     semantic_planner: SemanticPlannerAdapter | None = None
     controller_loop: AgentControllerLoopCoordinator | None = None
     hard_constraints_builder: HardRequestConstraintsBuilder | None = None
+    usage_recorder: ModelUsageRecorder | None = None
     if isinstance(assessment_adapter, UnconfiguredAssessmentAdapter):
         # Setup mode remains model-free and never gains controller/tool
         # authority.  Its existing planner supplies the explicit setup answer.
@@ -628,9 +630,11 @@ def create_deterministic_agent(
         # assessment adapters (including their configured fallback order); do
         # not create a second model configuration or semantic-planner route.
         discovery = ControllerCapabilityDiscovery.from_knowledge_tool(kt)
+        usage_recorder = ModelUsageRecorder()
         controller_loop = AgentControllerLoopCoordinator(
             controller=ControllerAdapter(
-                _build_controller_providers(assessment_adapter)
+                _build_controller_providers(assessment_adapter),
+                usage_recorder=usage_recorder,
             ),
             discovery=discovery,
             validator=AgentActionValidator(discovery, target_resolver),
@@ -652,6 +656,7 @@ def create_deterministic_agent(
         semantic_planner=semantic_planner,
         controller_loop=controller_loop,
         hard_request_constraints_builder=hard_constraints_builder,
+        usage_recorder=usage_recorder,
     )
     _info("orion", message="orion started")
     return agent

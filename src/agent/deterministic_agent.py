@@ -184,6 +184,7 @@ class DeterministicAgent:
         hard_request_constraints_builder: HardRequestConstraintsBuilder | None = None,
         semantic_relevance_verifier: SemanticRelevanceVerifierProtocol | None = None,
         semantic_response_repairer: SemanticResponseRepairerProtocol | None = None,
+        usage_recorder: ModelUsageRecorder | None = None,
     ) -> None:
         self._execution_engine = execution_engine
         self._assessment_model = assessment_model
@@ -217,7 +218,9 @@ class DeterministicAgent:
             if semantic_planner is not None
             else None
         )
-        self._usage_recorder = (
+        if usage_recorder is not None and not isinstance(usage_recorder, ModelUsageRecorder):
+            raise TypeError("usage_recorder must be ModelUsageRecorder or None.")
+        self._usage_recorder = usage_recorder or (
             ModelUsageRecorder() if semantic_planner is not None else None
         )
         self._external_verifier = external_verifier or ExternalVerificationExecutor(
@@ -2433,6 +2436,8 @@ class DeterministicAgent:
         constraints = hard_constraints or self._build_controller_hard_constraints(
             user_request
         )
+        if self._usage_recorder is not None:
+            self._usage_recorder.reset()
         return self._controller_loop.run(
             user_request,
             hard_constraints=constraints,
@@ -3133,8 +3138,8 @@ class DeterministicAgent:
             "execution_trace": trace,
         }
 
-    @staticmethod
     def _controller_loop_payload(
+        self,
         user_request: str,
         result: AgentControllerLoopResult,
     ) -> dict[str, object]:
@@ -3192,7 +3197,14 @@ class DeterministicAgent:
                 if sensitive_request
                 else ResponseStrategy.GENERAL_EXPLANATION
             ),
-            runtime_metrics={"controller_loop": result.to_trace_dict()},
+            runtime_metrics={
+                "controller_loop": result.to_trace_dict(),
+                **(
+                    {"model_usage": self._usage_recorder.to_trace_dict()}
+                    if self._usage_recorder is not None
+                    else {}
+                ),
+            },
         ).to_dict()
         return {
             "response": result.response_text,

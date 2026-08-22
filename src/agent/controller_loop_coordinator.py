@@ -8,8 +8,9 @@ execution authority.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from src.agent.completion_check import CompletionCheck
@@ -170,6 +171,7 @@ class AgentControllerLoopResult:
     action_budget: AgentActionToolBudget
     completion_feedback_count: int
     controller_prompt_metadata: tuple[AgentControllerPromptRecord, ...] = ()
+    controller_metrics: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.terminal_state not in {
@@ -215,6 +217,7 @@ class AgentControllerLoopResult:
                 "tools_used": self.action_budget.tools_used,
             },
             "completion_feedback_count": self.completion_feedback_count,
+            "controller_metrics": dict(self.controller_metrics),
             "controller_prompt_metadata": [
                 item.to_trace_dict() for item in self.controller_prompt_metadata
             ],
@@ -307,6 +310,21 @@ class AgentControllerLoopCoordinator:
         action_schema: Mapping[str, object] | None = None
         call_stage = ControllerCallStage.FIRST_DECISION
         controller_prompt_metadata: list[AgentControllerPromptRecord] = []
+        decision_counts = {kind.value: 0 for kind in AgentDecisionKind}
+        observation_counts = {status.value: 0 for status in AgentObservationStatus}
+        action_attempts = {"proposed": 0, "validated": 0, "rejected": 0, "executed": 0}
+        observation_total = 0
+        observation_payload_chars = 0
+        observations_dropped = 0
+        completion_failure_reasons: dict[str, int] = {}
+        actual_tool_calls = 0
+        calculator_calls = 0
+        capability_ids: list[str] = []
+        target_ids: list[str] = []
+        source_ids: list[str] = []
+        discovery_payload_chars = 0
+        selected_detail_payload_chars = 0
+        model_provider_attempt_count = 0
 
         def record(
             record_state: AgentControllerLoopState,
@@ -327,6 +345,53 @@ class AgentControllerLoopCoordinator:
             nonlocal pending_observation, pending_identity
             pending_observation = observation
             pending_identity = (capability_id, target_id, source_id)
+
+        def remember(values: list[str], value: str | None) -> None:
+            if value is not None and value not in values and len(values) < 16:
+                values.append(value)
+
+        def controller_metrics(
+            failure: AgentControllerLoopFailure | None,
+        ) -> dict[str, object]:
+            first = controller_prompt_metadata[0] if controller_prompt_metadata else None
+            stop_failures = {
+                AgentControllerLoopFailure.CONTROLLER_ROUND_LIMIT,
+                AgentControllerLoopFailure.MODEL_CALL_LIMIT,
+                AgentControllerLoopFailure.DISCOVERY_LIMIT,
+                AgentControllerLoopFailure.ACTION_BUDGET_EXHAUSTED,
+                AgentControllerLoopFailure.CONTROLLER_INPUT_BUDGET_EXHAUSTED,
+                AgentControllerLoopFailure.STATE_LIMIT,
+                AgentControllerLoopFailure.COMPLETION_FEEDBACK_LIMIT,
+            }
+            return {
+                "decision_counts": dict(decision_counts),
+                "action_attempts": dict(action_attempts),
+                "actual_tool_calls": actual_tool_calls,
+                "calculator_calls": calculator_calls,
+                "observation_total": observation_total,
+                "observation_counts_by_status": dict(observation_counts),
+                "observations_retained": len(run_state.observations),
+                "observations_dropped": observations_dropped,
+                "completion_failure_count": sum(completion_failure_reasons.values()),
+                "completion_failure_reason_counts": dict(completion_failure_reasons),
+                "controller_rounds": run_state.round_count,
+                "model_call_count": model_provider_attempt_count,
+                "stop_reason": (
+                    failure.value if failure in stop_failures else None
+                ),
+                "first_turn_actual_input_chars": (
+                    first.actual_input_chars if first is not None else 0
+                ),
+                "first_turn_estimated_input_tokens": (
+                    first.estimated_input_tokens if first is not None else 0
+                ),
+                "discovery_payload_chars": discovery_payload_chars,
+                "selected_capability_detail_payload_chars": selected_detail_payload_chars,
+                "observation_payload_chars": observation_payload_chars,
+                "capability_ids": list(capability_ids),
+                "target_ids": list(target_ids),
+                "source_ids": list(source_ids),
+            }
 
         def fail(
             reason: AgentControllerLoopFailure,
@@ -355,6 +420,7 @@ class AgentControllerLoopCoordinator:
                 action_budget=action_budget,
                 completion_feedback_count=completion_feedback_count,
                 controller_prompt_metadata=tuple(controller_prompt_metadata),
+                controller_metrics=controller_metrics(reason),
             )
 
         def done(response_text: str, reason_code: str) -> AgentControllerLoopResult:
@@ -380,6 +446,7 @@ class AgentControllerLoopCoordinator:
                 action_budget=action_budget,
                 completion_feedback_count=completion_feedback_count,
                 controller_prompt_metadata=tuple(controller_prompt_metadata),
+                controller_metrics=controller_metrics(None),
             )
 
         # Hard constraints are built before this loop. They are the only
@@ -478,6 +545,17 @@ class AgentControllerLoopCoordinator:
                         state,
                     )
                 input_tokens += preview.estimated_input_tokens
+                controller_prompt_metadata.append(
+                    AgentControllerPromptRecord(
+                        call_stage=preview.call_stage,
+                        input_budget_class=preview.input_budget_class,
+                        input_budget_max_chars=preview.input_budget_max_chars,
+                        actual_input_chars=preview.actual_input_chars,
+                        estimated_input_tokens=preview.estimated_input_tokens,
+                        optional_included=preview.optional_included,
+                        optional_dropped=preview.optional_dropped,
+                    )
+                )
                 run_state = replace(
                     run_state,
                     round_count=run_state.round_count + 1,
@@ -497,7 +575,9 @@ class AgentControllerLoopCoordinator:
                         request_id=request_id,
                     )
                     decision = decision_result.decision
-                except ControllerAdapterError:
+                    model_provider_attempt_count += decision_result.provider_attempt_count
+                except ControllerAdapterError as exc:
+                    model_provider_attempt_count += len(exc.failures)
                     return fail(AgentControllerLoopFailure.PROVIDER_FAILURE, state)
                 except (TypeError, ValueError):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
@@ -505,17 +585,7 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if not isinstance(decision, AgentDecision):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
-                controller_prompt_metadata.append(
-                    AgentControllerPromptRecord(
-                        call_stage=decision_result.call_stage,
-                        input_budget_class=decision_result.input_budget_class,
-                        input_budget_max_chars=decision_result.input_budget_max_chars,
-                        actual_input_chars=decision_result.actual_input_chars,
-                        estimated_input_tokens=decision_result.estimated_input_tokens,
-                        optional_included=decision_result.optional_included,
-                        optional_dropped=decision_result.optional_dropped,
-                    )
-                )
+                decision_counts[decision.kind.value] += 1
                 # A disclosure stage is consumed by this call.  Any later
                 # feedback-only turn is an observation continuation unless a
                 # new discovery/schema disclosure below explicitly replaces it.
@@ -594,6 +664,7 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if discovery_result.status is CapabilityDiscoveryStatus.DISCOVERED:
                     pending_summaries = tuple(discovery_result.summaries)
+                    discovery_payload_chars += _serialized_chars(pending_summaries)
                     categories = _append_unique(
                         run_state.disclosed_capability_categories, decision.category
                     )
@@ -627,6 +698,9 @@ class AgentControllerLoopCoordinator:
                     if detail.selected_capability_schema is None:
                         return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                     active_selected_schema = detail.selected_capability_schema
+                    selected_detail_payload_chars += _serialized_chars(
+                        active_selected_schema
+                    )
                     call_stage = ControllerCallStage.ACTION_CONTINUATION
                     run_state = replace(
                         run_state,
@@ -676,6 +750,7 @@ class AgentControllerLoopCoordinator:
                         AgentControllerLoopFailure.ACTION_BUDGET_EXHAUSTED, state
                     )
                 try:
+                    action_attempts["proposed"] += 1
                     effective_constraints = (
                         session_context.action_constraints(
                             hard_constraints, action_schema
@@ -689,6 +764,10 @@ class AgentControllerLoopCoordinator:
                 except (TypeError, ValueError):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if validation.status is not AgentActionValidationStatus.VALID:
+                    action_attempts["rejected"] += 1
+                    remember(capability_ids, validation.capability_id)
+                    remember(target_ids, validation.target_id)
+                    remember(source_ids, validation.source_id)
                     if session_context is not None:
                         session_context.record_validation(
                             validation, hard_constraints, effective_constraints
@@ -707,6 +786,10 @@ class AgentControllerLoopCoordinator:
                     )
                     state = AgentControllerLoopState.OBSERVE
                 else:
+                    action_attempts["validated"] += 1
+                    remember(capability_ids, validation.capability_id)
+                    remember(target_ids, validation.target_id)
+                    remember(source_ids, validation.source_id)
                     if session_context is not None:
                         session_context.record_validation(
                             validation, hard_constraints, effective_constraints
@@ -730,6 +813,13 @@ class AgentControllerLoopCoordinator:
                         hard_constraints=effective_constraints,
                     )
                     action_budget = execution.budget
+                    if execution.dispatched:
+                        action_attempts["executed"] += 1
+                        actual_tool_calls += execution.actual_tool_calls
+                        calculator_calls += execution.calculator_calls
+                        remember(capability_ids, execution.capability_id)
+                        remember(target_ids, execution.target_id)
+                        remember(source_ids, execution.source_id)
                     run_state = replace(
                         run_state, action_count=action_budget.actions_used
                     )
@@ -756,6 +846,10 @@ class AgentControllerLoopCoordinator:
                 if pending_observation is None:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 capability_id, target_id, source_id = pending_identity
+                observation_total += 1
+                observation_counts[pending_observation.status.value] += 1
+                observation_payload_chars += _serialized_chars(pending_observation.to_wire())
+                previous_observations = len(run_state.observations)
                 run_state = replace(
                     run_state,
                     observations=retain_agent_observations(
@@ -764,6 +858,9 @@ class AgentControllerLoopCoordinator:
                         target_id=target_id,
                         source_id=source_id,
                     ),
+                )
+                observations_dropped += max(
+                    previous_observations + 1 - len(run_state.observations), 0
                 )
                 record(
                     state,
@@ -790,6 +887,9 @@ class AgentControllerLoopCoordinator:
                 )
                 if not completion.passed:
                     assert completion.reason is not None
+                    completion_failure_reasons[completion.reason.value] = (
+                        completion_failure_reasons.get(completion.reason.value, 0) + 1
+                    )
                     record(
                         state,
                         AgentControllerLoopRecordStatus.FAILED,
@@ -830,6 +930,10 @@ class AgentControllerLoopCoordinator:
 
 def _append_unique(values: tuple[str, ...], value: str) -> tuple[str, ...]:
     return values if value in values else (*values, value)
+
+
+def _serialized_chars(value: object) -> int:
+    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=True))
 
 
 def _pass_final_answer(answer: str) -> str:

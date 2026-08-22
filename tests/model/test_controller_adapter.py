@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from src.agent.controller_contracts import (
@@ -128,6 +130,34 @@ def test_provider_failover_is_one_bounded_attempt_per_provider() -> None:
     assert first.requests[0].timeout_seconds == 12
 
 
+def test_failover_preserves_total_result_latency_and_attempt_usage_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    final = AgentDecision(
+        kind=AgentDecisionKind.FINAL,
+        goal="Answer the greeting.",
+        final_answer="Hello.",
+        clarification_question=None,
+    )
+    clock = iter((10.0, 11.0, 12.0, 13.0, 14.0, 16.0, 20.0))
+    monkeypatch.setattr(
+        "src.model.controller_adapter.time.perf_counter", lambda: next(clock)
+    )
+    recorder = ModelUsageRecorder()
+    result = ControllerAdapter(
+        [
+            FakeControllerProvider([TimeoutError("slow")]),
+            FakeControllerProvider([_response(final, provider="fallback")]),
+        ],
+        usage_recorder=recorder,
+    ).decide("Hello", hard_constraints=HardRequestConstraints())
+
+    assert result.provider_attempt_count == 2
+    assert result.latency_ms == 10_000.0
+    assert [call.latency_ms for call in recorder.calls] == [1_000.0, 2_000.0]
+    assert result.latency_ms != recorder.calls[1].latency_ms
+
+
 def test_usage_is_recorded_for_success_and_malformed_provider_output() -> None:
     final = AgentDecision(
         kind=AgentDecisionKind.FINAL,
@@ -150,6 +180,63 @@ def test_usage_is_recorded_for_success_and_malformed_provider_output() -> None:
         "first_decision",
         "first_decision",
     ]
+
+
+def test_invalid_configured_effort_fails_closed_and_records_safe_usage() -> None:
+    final = AgentDecision(
+        kind=AgentDecisionKind.FINAL,
+        goal="Answer the greeting.",
+        final_answer="Hello.",
+        clarification_question=None,
+    )
+    recorder = ModelUsageRecorder()
+    response = ControllerProviderResponse(
+        payload=agent_decision_to_json(final),
+        provider="mock",
+        model="mock-model",
+        raw_usage={"prompt_tokens": 21, "completion_tokens": 8},
+        configured_effort=cast(ReasoningEffort, "invalid"),
+    )
+
+    with pytest.raises(ControllerAdapterError) as captured:
+        ControllerAdapter(
+            [FakeControllerProvider([response])], usage_recorder=recorder
+        ).decide("Hello", hard_constraints=HardRequestConstraints())
+
+    assert captured.value.failures[0].reason is ControllerFailureReason.INVALID_OUTPUT
+    assert len(recorder.calls) == 1
+    usage = recorder.calls[0]
+    assert usage.input_tokens == 21
+    assert usage.total_output_tokens == 8
+    assert usage.configured_effort is None
+
+
+def test_invalid_configured_effort_records_one_attempt_then_fails_over() -> None:
+    final = AgentDecision(
+        kind=AgentDecisionKind.FINAL,
+        goal="Answer the greeting.",
+        final_answer="Hello.",
+        clarification_question=None,
+    )
+    recorder = ModelUsageRecorder()
+    invalid = ControllerProviderResponse(
+        payload=agent_decision_to_json(final),
+        provider="invalid-provider",
+        model="mock-model",
+        raw_usage={"prompt_tokens": 21, "completion_tokens": 8},
+        configured_effort=cast(ReasoningEffort, "invalid"),
+    )
+    valid = _response(final, provider="valid-provider")
+
+    result = ControllerAdapter(
+        [FakeControllerProvider([invalid]), FakeControllerProvider([valid])],
+        usage_recorder=recorder,
+    ).decide("Hello", hard_constraints=HardRequestConstraints())
+
+    assert result.decision == final
+    assert len(recorder.calls) == 2
+    assert recorder.calls[0].configured_effort is None
+    assert recorder.calls[1].configured_effort is None
 
 
 def test_stage_metadata_and_effort_are_based_on_loop_stage() -> None:
