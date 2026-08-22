@@ -3241,7 +3241,11 @@ class DeterministicAgent:
             evidence_status=EvidenceStatus.NOT_APPLICABLE,
             response_strategy=(
                 ResponseStrategy.CLARIFICATION_REFUSAL
-                if sensitive_request or terminal_reason in {"clarify", "refuse"}
+                if (
+                    sensitive_request
+                    or result.failure is not None
+                    or terminal_reason in {"clarify", "refuse"}
+                )
                 else self._general_response_strategy(user_request)
             ),
             runtime_metrics={

@@ -290,3 +290,23 @@ def test_trace_matrix_is_bounded_and_excludes_prompt_and_raw_evidence(
     for _ in range(MAX_RECORDED_CALLS + 1):
         recorder.record_mapping(None, purpose="controller")
     assert recorder.to_trace_dict()["dropped_calls"] == 1
+
+
+
+def test_runtime_controller_failure_uses_clarification_refusal_strategy(
+    tmp_path: Path,
+) -> None:
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=ScriptedAssessmentModel(draft="not-json"),
+    )
+
+    payload = agent.run_with_steps("Generate a GitHub Actions workflow YAML")
+    trace = payload["execution_trace"]
+
+    assert trace["answer_strategy"] == "REFUSAL"
+    assert trace["routing_status"] == "UNSUPPORTED"
+    assert trace["response_strategy"] == "CLARIFICATION_REFUSAL"
+    assert trace["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert trace["failure_stage"] == "controller_loop"
+    assert "artifact_validation" not in trace["runtime_metrics"]
