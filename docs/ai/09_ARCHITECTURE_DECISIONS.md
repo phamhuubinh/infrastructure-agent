@@ -3,22 +3,26 @@
 This file summarizes decisions enforced by the current implementation. Detailed
 records live under `docs/adr/`.
 
-## AD-001 — Model plans semantics; deterministic code authorizes execution
+## AD-001 — Model reasons; harness authorizes and completes
 
-**Decision:** The bounded semantic planner is the primary natural-language
-interpreter. Deterministic harness code owns validation, target/source
-authority, capability binding, evidence requirements, execution, recovery,
-thresholds, budgets, and safety.
+**Decision:** The configured Agent v2 primary path uses a bounded controller.
+**Model owns reasoning and next-action selection. Harness owns authority,
+execution, evidence and completion.** The controller returns one structured
+`FINAL`, `DISCOVER`, `ACTION`, `CLARIFY`, or `REFUSE` decision; deterministic
+harness code owns hard constraints, target/source authority, disclosure,
+validation, execution, evidence, budgets, and final delivery.
 
-**Consequence:** Model output may propose semantic intent and typed
-target/source/freshness fields, but cannot directly authorize a tool, command,
-target, retry, recovery path, or budget expansion.
+**Consequence:** The controller may select its next registered capability and
+typed arguments after bounded disclosure/observation, but cannot directly
+authorize a tool, command, target, arbitrary retry/recovery path, or budget
+expansion.
 
 ## AD-002 — Model operations are bounded and tool-less
 
-**Decision:** The model can produce typed semantic plans, direct/assessment
-responses, semantic relevance checks, and one bounded repair candidate. These
-operations receive bounded contracts rather than a general tool API.
+**Decision:** The model can produce structured controller decisions,
+direct/assessment responses, semantic relevance checks, and one bounded repair
+candidate. These operations receive bounded contracts rather than a general
+tool API.
 
 **Consequence:** Semantic flexibility does not grant infrastructure authority;
 hard validation/execution boundaries remain code-owned.
@@ -96,11 +100,23 @@ interaction.
 
 ## AD-011 — Dependencies remain one-directional
 
-**Decision:** The infrastructure execution path follows
-`Agent -> ExecutionEngine -> KnowledgeTool -> Child Tool -> Environment`.
+**Decision:** The configured Agent v2 action boundary follows the validated
+path appropriate to the action:
 
-**Consequence:** The semantic planner can advise the Agent, but reverse
-dependencies and direct pipeline-to-domain imports remain prohibited.
+- host/Grafana/Zabbix: `AgentControllerLoopCoordinator ->
+  AgentActionValidator -> AgentActionExecutor -> KnowledgeTool -> Child Tool`;
+- Internet: `AgentActionExecutor -> ExternalVerificationExecutor /
+  InternetTool`;
+- calculator: `AgentActionExecutor -> compute.deterministic`, with no
+  `KnowledgeTool` or Child Tool dispatch.
+
+`ExecutionEngine -> KnowledgeTool -> Child Tool -> Environment` remains the
+existing deterministic-pipeline path for compatibility, legacy, and direct
+surfaces; it is not the configured Agent v2 primary ACTION bridge.
+
+**Consequence:** The controller can advise the Agent through bounded decisions,
+but reverse dependencies, direct pipeline-to-domain imports, and unvalidated
+execution remain prohibited.
 
 ## AD-012 — Architecture changes require human approval
 
@@ -146,14 +162,16 @@ SSR UI, and RAG services internal.
 
 ## AD-017 — DeterministicAgent coordinates planner and harness authority
 
-**Decision:** `DeterministicAgent` orchestrates bounded semantic planning,
+**Decision:** `DeterministicAgent` orchestrates the bounded Agent v2 controller,
 session context, deterministic harness validation/execution, response
-selection, verification, and tracing. `ExecutionEngine` owns infrastructure
-investigation after a plan is validated/bound.
+selection, verification, and tracing. `AgentControllerLoopCoordinator` owns
+the configured reason/action loop; `ExecutionEngine` retains its reviewed
+infrastructure-investigation role for compatibility, legacy, and direct
+deterministic-pipeline surfaces.
 
-**Consequence:** Semantic interpretation can be model-driven while deterministic
-reasoning, evidence, read-only policy, and execution authority remain code
-paths.
+**Consequence:** The model can select the next bounded action while
+deterministic evidence, read-only policy, execution authority, and completion
+remain code paths.
 
 > Detailed records: `docs/adr/ADR-0001-agent-responsibility-boundary.md` and
 > `docs/adr/ADR-0007-deterministic-pipeline.md`.
@@ -189,24 +207,27 @@ source links and failures cannot become healthy default values.
 
 ## AD-021 — Deterministic reasoning is bounded and reviewed
 
-**Decision:** After semantic plan validation, Orion uses reviewed
-atomic/composite rules, declared recovery alternatives, bounded
-missing-evidence expansion, and a shared execution budget.
+**Decision:** Reviewed atomic/composite rules, declared recovery alternatives,
+bounded missing-evidence expansion, and shared execution budgets remain
+deterministic. Agent v2 supersedes v1 only for primary reason/action selection:
+the controller can choose the next validated approved action after an
+observation.
 
-**Consequence:** Model planning cannot revise thresholds or authorize arbitrary
-recovery/expansion; unavailable evidence remains insufficient rather than
-false.
+**Consequence:** The model cannot revise thresholds, authorize arbitrary
+recovery/expansion, or bypass execution authority; unavailable evidence remains
+insufficient rather than false.
 
 > Detailed record: `docs/adr/ADR-0009-deterministic-reasoning-v1.md`
 
 ## AD-022 — Current external facts require deterministic verification
 
-**Decision:** The semantic planner can mark external/current intent, but
+**Decision:** The controller can select a validated Internet action, but
 validated current public information and explicit URLs use the fixed Internet
 search/fetch evidence path.
 
 **Consequence:** External answers carry provider/URL/retrieval provenance.
 Unavailable verification is reported as unknown rather than replaced by model
-memory, and planner failure does not fall back to lexical currentness routing.
+memory, and controller failure does not fall back to lexical currentness
+routing.
 
 > Detailed record: `docs/adr/ADR-0010-deterministic-external-verification.md`

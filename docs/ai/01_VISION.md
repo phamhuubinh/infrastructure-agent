@@ -7,11 +7,13 @@ Its governing principle is:
 
 > **Code investigates. AI explains.**
 
-Deterministic code classifies requests, resolves targets and source
-constraints, validates parameters, selects declared capabilities, collects and
-normalizes evidence, evaluates reviewed rules, and enforces safety boundaries.
-The assessment model receives bounded evidence and explains it; it does not
-choose tools, commands, targets, retries, or recovery paths.
+The configured Agent v2 boundary is: **Model owns reasoning and next-action
+selection. Harness owns authority, execution, evidence and completion.** The
+model interprets the supplied bounded request context and selects one
+structured next decision. The harness sets hard constraints, controls the
+available capabilities and target/source authority, validates every typed
+action, executes reviewed implementations, and releases one checked response.
+The model has no arbitrary command, shell, or HTTP authority.
 
 ## Current product surfaces
 

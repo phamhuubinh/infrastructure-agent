@@ -50,45 +50,61 @@ explicit registered SSH target.
 
 ## Chat request flow
 
-Normal CLI/Web agents are built by `RuntimeFactory` with a session-local
-`SemanticPlannerAdapter`. The planner interprets natural-language semantics;
-its output is advisory until deterministic validation succeeds.
+Configured CLI/Web agents are built by `RuntimeFactory` with
+`AgentControllerLoopCoordinator` and `ControllerAdapter` as their primary
+natural-language path. The responsibility boundary is:
+
+> **Model owns reasoning and next-action selection. Harness owns authority,
+> execution, evidence and completion.**
+
+| Owner | Implemented responsibility |
+|---|---|
+| Model/controller | Interpret the bounded current request/context; return one `FINAL`, `DISCOVER`, `ACTION`, `CLARIFY`, or `REFUSE` decision; select a registered capability ID and typed arguments only after applicable disclosure; produce a final candidate. |
+| Harness | Build hard constraints; enforce safety, target/source, availability, read-only and budgets; disclose capabilities; validate and execute actions; serialize evidence; update accepted session context; perform completion/final checks; sanitize, budget, trace, and deliver one response. |
 
 ```text
 User request
-  -> narrow deterministic safety/session controls
-  -> bounded planner prompt
-       request + relevant session context only
-       no tool schema, command, credential, or evidence payload
-  -> SemanticPlannerAdapter -> typed SemanticPlan
-  -> SemanticPlanHarnessValidator
-       -> invalid/unsafe/unconfigured: bounded clarification/refusal/setup result
-       -> direct stable answer: no collectors
-       -> deterministic compute: reviewed calculator
-       -> capability-assisted: SemanticPlanBinder
-            -> environment: ExecutionEngine
-            -> current/external: ExternalVerificationExecutor
-       -> multi-intent: 2-4 validated non-recursive child subplans
-  -> deterministic final postconditions
-       -> model relevance check when applicable
-       -> at most one bounded model repair, then re-verify once
-  -> response budget + universal output sanitizer
-  -> response + steps + credential-safe ExecutionTrace
+  -> HardRequestConstraintsBuilder
+       sensitive-disclosure and mutation stops can finish before a model/action/tool call
+  -> bounded validated session context + fixed small capability categories
+  -> ControllerAdapter -> exactly one decision
+       FINAL | DISCOVER | ACTION | CLARIFY | REFUSE
+  -> DISCOVER: one approved category -> bounded summaries -> controller
+  -> ACTION: selected capability detail/typed schema -> controller typed arguments
+             (disclosure is not execution)
+  -> AgentActionValidator -> compact control feedback, or approved action
+  -> AgentActionExecutor -> one validated action -> compact observation
+       host/Grafana/Zabbix: KnowledgeTool / Child Tool boundary
+       Internet: ExternalVerificationExecutor / InternetTool boundary
+       calculator: first-class compute.deterministic action
+  -> controller selects the next bounded decision
+  -> deterministic completion/final boundary -> sanitizer/budget -> one response
 ```
 
-The harness owns read-only safety, target/source/freshness validation,
-capability binding, execution budgets, evidence/provenance requirements, and
-final hard postconditions. `KnowledgeTool` remains the only infrastructure
-runtime entry point to Child Tools. Planner or model failure never grants tool
-authority and never falls back to regex-first primary routing.
+`AgentActionValidator` is the deterministic authority for registered action
+IDs, typed parameters, exact target/source constraints, availability,
+read-only policy, and budgets. `AgentActionExecutor` dispatches only a
+validated approved capability. An action is structured intent, never a shell
+command: the model cannot make arbitrary shell or HTTP work execute. Generated
+shell, YAML, or GitHub Actions content remains output text or an artifact and
+does not grant authority.
 
-The first planner call receives no capability registry. Compact
-`CapabilitySummaryIndex` records and `LazyCapabilityDetailExpander` implement a
-post-selection disclosure contract: summaries contain no commands or parameter
-schemas, and detail expansion can resolve only one already-selected capability
-after a valid plan. The current `SemanticPlanBinder` then maps the validated
-plan onto the existing evidence/capability/parameter pipeline; it does not send
-expanded capability details back to the model.
+The first controller turn receives fixed small capability categories, not the
+full registry or schemas. A `DISCOVER` decision reveals only one requested
+approved category as bounded summaries. When an `ACTION` needs it, the harness
+discloses exactly the selected capability detail and typed schema before the
+controller supplies arguments. It does not execute during this handshake, and
+unknown, blocked, or invalid actions do not trigger an automatic harness
+repair/retry.
+
+The loop and controller/model/action/tool/discovery/input/completion budgets
+are finite. A controller round is not a tool call. Compact observations contain
+only safe status, bounded facts/provenance and control codes; they do not replay
+raw commands, raw evidence, credentials, prompts, or hidden reasoning.
+
+The older `SemanticPlannerAdapter`, `SemanticPlan`, and `SemanticPlanBinder`
+remain in explicit setup-mode, compatibility, and historical code paths where
+needed; they are not the configured RuntimeFactory primary path.
 
 ## Tool boundary
 
@@ -113,8 +129,10 @@ the packaged installation. SSH host-key checking is enabled by default.
 
 ## Model boundary
 
-- `SemanticPlannerAdapter` is the provider-neutral, schema-constrained semantic
-  planning boundary. It exposes no execution or tool interface.
+- `ControllerAdapter` is the provider-neutral, schema-constrained Agent v2
+  decision boundary. It has no execution interface and can select only
+  registered capability IDs and typed arguments presented through the bounded
+  disclosure protocol.
 - `AssessmentModelAdapter`/`LLMAssessmentAdapter` provide direct-response and
   evidence-assessment model calls after routing/collection decisions are
   bounded by the harness.
@@ -131,9 +149,10 @@ the packaged installation. SSH host-key checking is enabled by default.
   not install model runtimes or weights.
 
 `RuntimeFactory` reuses the selected assessment provider/fallback chain to
-construct the session-local planner. Web sessions keep separate Agent/context/
-cache/lock state; provider client infrastructure can be reused without sharing
-mutable conversation state. Chat supports configured provider adapters.
+construct the session-local controller. Web sessions keep separate
+Agent/context/cache/usage/lock state; provider client infrastructure can be
+reused without sharing mutable conversation state. Chat supports configured
+provider adapters.
 Project RAG synthesis separately accepts the active OpenAI-compatible
 connection passed by the API for that request.
 

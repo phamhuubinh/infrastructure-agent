@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted; amended after the semantic-primary cutover.
+Accepted; amended after the Agent v2 controller cutover.
 
-The investigation pipeline remains deterministic after a semantic plan is
-validated. The superseded part of the original record is the requirement that
-lexical code classify every request before any model call.
+The investigation pipeline remains deterministic after a validated Agent v2
+action reaches execution. The superseded part of the original record is the
+requirement that lexical code classify every request before any model call.
 
 ## Context
 
@@ -17,51 +17,62 @@ classification was the primary semantic interpreter.
 
 ## Decision
 
-For RuntimeFactory-built agents, Orion uses a bounded model-planner/harness
-boundary:
+For configured RuntimeFactory-built agents, Orion uses the bounded Agent v2
+controller/harness boundary:
 
 1. Narrow deterministic controls such as hard-safety/session operations may
-   terminate locally; otherwise `SemanticPlannerAdapter` produces a typed
-   semantic plan from the user request plus bounded semantic context.
-2. `SemanticPlanHarnessValidator` validates the plan contract, read-only
-   execution intent, target/source/freshness constraints, and other hard
-   invariants. Invalid, malformed, or unavailable planning fails closed rather
-   than falling through to lexical routing.
-3. `SemanticPlanBinder` maps a validated semantic plan to the canonical
-   `RequestFrame` and registered capability references. Capability details are
-   disclosed/bound only as required rather than sending a complete registry on
-   ordinary first turns.
-4. Stable/general generation can be answered without collectors. Deterministic
-   compute requests use the calculator contract. Current/external information
-   is forced through the fixed Internet verification path.
-5. Infrastructure inspection enters `ExecutionEngine`; `ExecutionPlanner` and
-   `ExecutionGraphBuilder` produce the bounded DAG.
-6. `ExecutionRuntime` dispatches nodes through `KnowledgeTool` and applies
-   inspectors, preflight, retry, declared recovery, and shared budget policy.
-7. `EvidenceMerge` preserves typed outcomes and Facts; completeness,
-   reconciliation, and reviewed deterministic reasoning produce
-   Findings/health state.
-8. The model may explain bounded evidence. Final postconditions, semantic
-   relevance verification, and at most one bounded response repair run before
-   the single user-visible response.
-9. Multi-intent requests use bounded typed semantic subplans with explicit
-   dependencies; child execution remains isolated and subject to the same
-   deterministic validation/execution boundaries.
+   terminate locally; otherwise `ControllerAdapter` returns one bounded
+   decision from the user request plus bounded validated context.
+2. `DISCOVER` reveals one requested approved category. For an `ACTION`, the
+   selected capability detail/schema is disclosed only as required, and
+   `AgentActionValidator` enforces read-only intent, target/source authority,
+   availability, typed parameters, budgets, and other hard invariants.
+3. Invalid, malformed, or unavailable controller decisions/actions fail closed
+   and return bounded control feedback or a terminal response rather than
+   falling through to lexical routing. `AgentActionExecutor` dispatches only a
+   validated action.
+4. Deterministic compute uses the first-class calculator action. Current/
+   external information is forced through the fixed Internet verification path.
+5. Linux/Grafana/Zabbix inspection reaches `KnowledgeTool` and the existing
+   reviewed execution implementation.
+6. The approved action enters reviewed runtime implementation: host actions
+   dispatch through `KnowledgeTool`, Internet through the external verifier,
+   and calculator through its deterministic first-class boundary.
+7. For an ordinary v2 tool action, `AgentActionExecutor` packages its
+   `ToolResult` into an `EvidencePackage`; Internet returns verified action
+   evidence and calculator returns a `CalculatorContractResult`.
+   `AgentObservationSerializer` converts that typed result into a compact,
+   bounded controller observation. This bridge does not automatically run the
+   full legacy completeness, Findings, or health-reasoning pipeline.
+8. The controller may produce a final candidate. `CompletionCheck` evaluates
+   hard v2 invariants over constraints and observations; rejection becomes
+   compact control feedback for another bounded round. Acceptance reaches the
+   existing artifact/config, sanitizer, response-budget, and public-trace
+   boundaries before the single user-visible response.
+9. The bounded controller loop continues through compact observations until a
+   deterministic completion/final boundary accepts one response or a limit
+   stops the request.
 
 Unsafe parameters, unsupported actions, unknown targets, invalid source
-constraints, planner failure, and unavailable required evidence return bounded
+constraints, controller failure, and unavailable required evidence return bounded
 clarification/refusal/failure outcomes. No failure grants the model a direct
 tool API or revives regex-first primary routing.
 
+The existing deterministic investigation pipeline still uses its reviewed
+Facts, completeness, reconciliation, Findings, health, recovery, and expansion
+components where that pipeline is explicitly selected. This ADR preserves that
+historical/current deterministic infrastructure context; it does not make those
+stages implicit in every configured Agent v2 action.
+
 ## Consequences
 
-- Natural-language interpretation is model-driven, while tool/command
-  authorization remains deterministic.
+- Natural-language reasoning and next approved action selection are model-driven,
+  while tool/command authorization remains deterministic.
 - The model sees bounded semantic/evidence contracts rather than an unrestricted
   tool registry or execution API.
-- Capability binding, recovery, evidence expansion, and stop conditions remain
-  reproducible code paths.
-- Planner/model failure can prevent a semantic request from running, but cannot
+- Action validation, deterministic recovery, evidence expansion, and stop
+  conditions remain reproducible code paths.
+- Controller/model failure can prevent a request from running, but cannot
   widen execution authority.
 - Insufficient evidence stays explicit and cannot trigger an unbounded
   model-controlled tool loop.

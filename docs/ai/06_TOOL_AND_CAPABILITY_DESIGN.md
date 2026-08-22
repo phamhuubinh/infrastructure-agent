@@ -22,39 +22,42 @@ produced Facts, target/precondition requirements, required/optional binaries,
 cost, reliability, alternatives, recoverable errors, and mutation risk.
 `KnowledgeTool` aggregates that metadata; pipeline modules do not duplicate it.
 
-## Planner disclosure boundary
+## Controller disclosure boundary
 
-The semantic planner is deliberately not a general tool-calling interface.
-The first-pass planner prompt contains the user request, bounded relevant
-session context, and the semantic output schema; it does not include commands,
-credentials, evidence payloads, tool schemas, or the full capability registry.
+The Agent v2 controller is deliberately not a general tool-calling interface.
+Its first turn receives only the user request, bounded validated session
+context, hard constraints, and fixed small capability categories; it receives
+no command, credential, evidence payload, full registry, or full schema set.
 
-The repository implements compact/lazy capability disclosure contracts for
-post-selection use:
+A `DISCOVER` decision asks the harness for one approved category. The harness
+returns bounded capability summaries (registered ID, purpose, source family,
+target/data kind, and availability), without commands or parameter schemas;
+no capability runs. If the controller chooses an `ACTION`, it can select only a
+registered Orion capability ID. The harness discloses exactly that selected
+capability's detail and typed schema when required, then receives typed
+arguments. Detail disclosure is intentionally sent back to the controller, but
+it is a schema handshake rather than execution.
 
-- `CapabilitySummaryIndex` stores at most 128 compact provider-neutral
-  summaries. Each summary contains only capability ID, purpose, source family,
-  target kind, data kind, and availability. It never contains commands or
-  parameter schemas, and `payload_for_plan()` filters summaries to the source
-  families relevant to a capability-assisted semantic plan.
-- `LazyCapabilityDetailExpander` accepts one already-selected capability ID and
-  a `VALID` semantic-plan validation result. It expands that ID only, enforces
-  source constraints, and returns structured `NOT_FOUND`, `UNAVAILABLE`,
-  `SOURCE_BLOCKED`, or `PLAN_NOT_VALID` outcomes. It never searches for a
-  different capability as fallback.
-
-The current primary `SemanticPlanBinder` performs post-validation binding by
-reusing `EvidencePlanner`, `CapabilityResolver`, and `ParameterBinder`. It
-binds registered `CapabilityReference` values and typed parameters for
-execution, but does not send expanded capability details back to the planner.
-This preserves the core rule: semantic model output can propose intent, while
-code remains authoritative for capability availability and dispatch.
+`AgentActionValidator` deterministically validates the ID, typed arguments,
+exact target/source constraints, availability, read-only/safety policy, and
+budgets. `AgentActionExecutor` dispatches only approved actions. It never
+searches for a semantic alternative or treats generated command-like text as
+authority.
 ## Dispatch and safety
 
 `ExecutionRuntime` dispatches only through `KnowledgeTool`. The inspector chain
 applies the read-only, parameter-safety, tool, and target policies before
 external access. The selected Child Tool owns its reviewed collection/fallback
 sequence. Neither callers nor the model can provide an arbitrary command.
+Model-selected actions are structured intent only; generated shell/YAML/GitHub
+Actions content remains text or artifact output. Content containing a mutating
+command never grants action authority. Target and source constraints are exact,
+with no silent source fallback or default localhost target.
+
+The calculator is a synthetic first-class Agent capability,
+`compute.deterministic`, not a Child Tool. Internet actions use the verified
+`ExternalVerificationExecutor` / `InternetTool` boundary and keep deterministic
+source authority and SSRF, DNS, and redirect protections.
 
 Target preflight checks reachability, operating system/init support,
 privilege, procfs/sysfs availability, and binaries. A target-wide transport

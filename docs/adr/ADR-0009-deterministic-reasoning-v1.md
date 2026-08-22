@@ -2,7 +2,9 @@
 
 # Status
 
-Accepted; semantic-planner boundary clarified after the primary-routing cutover.
+Accepted as historical v1 context; primary reason/action/recovery selection is
+superseded by Agent v2. Deterministic Facts/findings/rules, evidence validity,
+reviewed Child Tool logic, deterministic budgets, and safety remain current.
 
 ---
 
@@ -12,9 +14,10 @@ After evidence is collected, Orion needs repeatable health signals and a
 bounded way to pursue missing evidence. Delegating execution recovery,
 threshold decisions, or evidence expansion to free-form model output would
 make command paths, stop conditions, and safety posture non-reproducible.
-Model-driven semantic interpretation is compatible with this record because
-the validated plan is an input to the deterministic reasoning/execution
-boundary, not a replacement for it.
+Agent v2 is compatible with the still-current deterministic boundaries: its
+controller may select the next validated approved action after an observation,
+but it does not replace deterministic evidence, execution, safety, or
+completion controls.
 
 ---
 
@@ -37,13 +40,12 @@ Deterministic reasoning v1 is a limited code path over canonical Facts:
    investigation budget, stops on transport failure, and records attempts.
 5. A weighted missing-evidence selector can make at most the bounded expansion
    allowed by `ExecutionBudget`; it cannot call arbitrary new capabilities.
-6. The semantic planner may classify the user's high-level route/domain,
-   intent, target/source/freshness semantics, concept, and bounded subplans.
-   After harness validation/binding, the model may explain resulting
-   facts/findings and uncertainty. It does not generate commands, authorize an
-   unvalidated capability/target, select a recovery alternative, revise
-   thresholds, expand the execution budget, or self-train rules from a
-   conversation.
+6. **Superseded for primary reason/action/recovery selection:** v1 confined the
+   model to high-level semantic classification and explanation. The current
+   Agent v2 controller may select the next validated approved action after a
+   compact observation. It still does not generate commands, authorize an
+   unvalidated capability/target, select arbitrary recovery, revise thresholds,
+   expand the execution budget, or self-train rules from a conversation.
 7. Rule configuration is schema-validated, versioned, owned, sourced to test
    cases, and approved before production loading. A production engine fails
    loudly rather than silently falling back to unreviewed rules.
@@ -64,8 +66,8 @@ Deterministic reasoning v1 is a limited code path over canonical Facts:
 
 - New operational conditions require explicit Facts and a reviewed rule, not a
   prompt edit.
-- The model can express semantic intent but cannot chase an ad-hoc operational
-  hypothesis by opening arbitrary tool/recovery branches.
+- The v2 controller can pursue a bounded hypothesis only through validated
+  approved actions; it cannot open arbitrary tool/recovery branches.
 - Some requests end with `INSUFFICIENT_EVIDENCE`, which is safer than a false
   deterministic conclusion.
 
