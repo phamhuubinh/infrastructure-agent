@@ -3,17 +3,23 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
+from src.agent.controller_loop_coordinator import AgentControllerLoopCoordinator
 from src.agent.conversation_store import ConversationStoreProtocol
 from src.agent.deterministic_agent import DeterministicAgent
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.assessment_planner_provider import (
+    AssessmentControllerProvider,
     AssessmentPlannerProvider,
     UnconfiguredPlannerProvider,
 )
+from src.model.controller_adapter import ControllerAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
 from src.model.semantic_planner_adapter import SemanticPlannerAdapter
 from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
+from src.pipeline.agent_action_executor import AgentActionExecutor
+from src.pipeline.agent_action_validator import AgentActionValidator
+from src.pipeline.controller_capability_discovery import ControllerCapabilityDiscovery
 from src.pipeline.hard_request_constraints import HardRequestConstraintsBuilder
 
 if TYPE_CHECKING:
@@ -458,6 +464,18 @@ def _build_semantic_planner(
     )
 
 
+def _build_controller_providers(
+    assessment_adapter: AssessmentModelAdapter,
+) -> tuple[AssessmentControllerProvider, ...]:
+    """Adapt the selected assessment chain for configured Agent v2 calls."""
+
+    nested = getattr(assessment_adapter, "adapters", None)
+    models = (
+        tuple(nested) if isinstance(nested, list) and nested else (assessment_adapter,)
+    )
+    return tuple(AssessmentControllerProvider(model) for model in models)
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -588,10 +606,40 @@ def create_deterministic_agent(
                 assessment_adapter = primary_adapter
 
     assert assessment_adapter is not None
-    semantic_planner = _build_semantic_planner(
-        assessment_adapter,
-        target_resolver=target_resolver,
+    external_verifier = ExternalVerificationExecutor(
+        kt,
+        enabled=(
+            feature_flags.external_verification_v1 and feature_flags.web_search_v1
+        ),
     )
+    semantic_planner: SemanticPlannerAdapter | None = None
+    controller_loop: AgentControllerLoopCoordinator | None = None
+    hard_constraints_builder: HardRequestConstraintsBuilder | None = None
+    if isinstance(assessment_adapter, UnconfiguredAssessmentAdapter):
+        # Setup mode remains model-free and never gains controller/tool
+        # authority.  Its existing planner supplies the explicit setup answer.
+        semantic_planner = _build_semantic_planner(
+            assessment_adapter,
+            target_resolver=target_resolver,
+        )
+    else:
+        # The configured runtime's primary natural-language path is the v2
+        # reason -> action -> observation coordinator.  Reuse the selected
+        # assessment adapters (including their configured fallback order); do
+        # not create a second model configuration or semantic-planner route.
+        discovery = ControllerCapabilityDiscovery.from_knowledge_tool(kt)
+        controller_loop = AgentControllerLoopCoordinator(
+            controller=ControllerAdapter(
+                _build_controller_providers(assessment_adapter)
+            ),
+            discovery=discovery,
+            validator=AgentActionValidator(discovery, target_resolver),
+            executor=AgentActionExecutor(
+                kt,
+                external_verification_executor=external_verifier,
+            ),
+        )
+        hard_constraints_builder = HardRequestConstraintsBuilder(target_resolver)
 
     agent = DeterministicAgent(
         execution_engine=engine,
@@ -599,14 +647,11 @@ def create_deterministic_agent(
         conversation_store=conversation_store,
         evidence_cache=evidence_cache,
         claim_guard_enabled=feature_flags.claim_guard,
-        external_verifier=ExternalVerificationExecutor(
-            kt,
-            enabled=(
-                feature_flags.external_verification_v1 and feature_flags.web_search_v1
-            ),
-        ),
+        external_verifier=external_verifier,
         general_agent_routing_enabled=feature_flags.general_agent_routing_v1,
         semantic_planner=semantic_planner,
+        controller_loop=controller_loop,
+        hard_request_constraints_builder=hard_constraints_builder,
     )
     _info("orion", message="orion started")
     return agent

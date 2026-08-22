@@ -10,6 +10,11 @@ if TYPE_CHECKING:
     from src.agent.conversation_store import ConversationStoreProtocol
     from src.pipeline.request_frame import RequestFrame
 
+from src.agent.controller_loop_coordinator import (
+    AgentControllerLoopCoordinator,
+    AgentControllerLoopRecordStatus,
+    AgentControllerLoopResult,
+)
 from src.agent.final_response_guard import (
     FinalResponseConstraints,
     FinalResponseGuard,
@@ -96,6 +101,10 @@ from src.pipeline.external_verification import (
 )
 from src.pipeline.external_verification_policy import ExternalVerificationPolicy
 from src.pipeline.fact_set import FactSet
+from src.pipeline.hard_request_constraints import (
+    HardRequestConstraints,
+    HardRequestConstraintsBuilder,
+)
 from src.pipeline.input_context_budget import (
     InputContextBudgetClass,
     InputContextBudgetError,
@@ -171,6 +180,8 @@ class DeterministicAgent:
         external_verifier: ExternalVerificationExecutor | None = None,
         general_agent_routing_enabled: bool = True,
         semantic_planner: SemanticPlannerAdapter | None = None,
+        controller_loop: AgentControllerLoopCoordinator | None = None,
+        hard_request_constraints_builder: HardRequestConstraintsBuilder | None = None,
         semantic_relevance_verifier: SemanticRelevanceVerifierProtocol | None = None,
         semantic_response_repairer: SemanticResponseRepairerProtocol | None = None,
     ) -> None:
@@ -190,6 +201,12 @@ class DeterministicAgent:
         self._claim_guard_enabled = claim_guard_enabled
         self._general_agent_routing_enabled = general_agent_routing_enabled
         self._semantic_planner = semantic_planner
+        if controller_loop is not None and hard_request_constraints_builder is None:
+            raise ValueError(
+                "controller_loop requires hard_request_constraints_builder."
+            )
+        self._controller_loop = controller_loop
+        self._hard_request_constraints_builder = hard_request_constraints_builder
         self._semantic_relevance_verifier = semantic_relevance_verifier or (
             SemanticRelevanceVerifier(assessment_model)
             if semantic_planner is not None
@@ -257,6 +274,21 @@ class DeterministicAgent:
         Returns:
             Assessment string from the model.
         """
+        if self._controller_loop is not None:
+            constraints = self._build_controller_hard_constraints(user_request)
+            if (
+                constraints.sensitive_refusal_reason is not None
+                or constraints.mutation_requested
+            ):
+                return self._run_controller_primary(
+                    user_request, hard_constraints=constraints
+                ).response_text
+            reset_response = self._reset_context_response(user_request)
+            if reset_response is not None:
+                return reset_response
+            return self._run_controller_primary(
+                user_request, hard_constraints=constraints
+            ).response_text
         sensitive_refusal_response = self._sensitive_refusal_response(user_request)
         if sensitive_refusal_response is not None:
             return sensitive_refusal_response
@@ -389,6 +421,27 @@ class DeterministicAgent:
           - trace_id: unique id of this request's ExecutionTrace
           - execution_trace: serialized ExecutionTrace (stage-level observability)
         """
+        if self._controller_loop is not None:
+            constraints = self._build_controller_hard_constraints(user_request)
+            if (
+                constraints.sensitive_refusal_reason is not None
+                or constraints.mutation_requested
+            ):
+                return self._controller_loop_payload(
+                    user_request,
+                    self._run_controller_primary(
+                        user_request, hard_constraints=constraints
+                    ),
+                )
+            reset_response = self._reset_context_response(user_request)
+            if reset_response is not None:
+                return self._precontroller_control_payload(user_request, reset_response)
+            return self._controller_loop_payload(
+                user_request,
+                self._run_controller_primary(
+                    user_request, hard_constraints=constraints
+                ),
+            )
         sensitive_refusal_response = self._sensitive_refusal_response(user_request)
         if sensitive_refusal_response is not None:
             return self._sensitive_refusal_payload(sensitive_refusal_response)
@@ -2348,6 +2401,44 @@ class DeterministicAgent:
             )
         return result
 
+    def _build_controller_hard_constraints(
+        self, user_request: str
+    ) -> HardRequestConstraints:
+        """Build the sole narrow pre-controller authority snapshot."""
+
+        if self._hard_request_constraints_builder is None:  # pragma: no cover
+            raise RuntimeError(
+                "Agent v2 controller loop has no hard constraints builder."
+            )
+        return self._hard_request_constraints_builder.build(user_request)
+
+    def _run_controller_primary(
+        self,
+        user_request: str,
+        *,
+        hard_constraints: HardRequestConstraints | None = None,
+    ) -> AgentControllerLoopResult:
+        """Run the configured Agent v2 controller without legacy routing.
+
+        Hard request constraints are the sole narrow pre-controller authority.
+        The coordinator owns all natural-language decisions, capability
+        disclosure, action authorization, session inheritance, and bounded
+        completion.  A terminal controller failure is therefore returned
+        directly instead of falling through to semantic planning or regex
+        routing.
+        """
+
+        if self._controller_loop is None:  # pragma: no cover - call invariant
+            raise RuntimeError("No Agent v2 controller loop is configured.")
+        constraints = hard_constraints or self._build_controller_hard_constraints(
+            user_request
+        )
+        return self._controller_loop.run(
+            user_request,
+            hard_constraints=constraints,
+            session_store=self._conversation_store,
+        )
+
     def _run_semantic_loop(
         self,
         user_request: str,
@@ -3038,6 +3129,98 @@ class DeterministicAgent:
             "response": result.response.text,
             "steps": steps,
             "investigation": investigation,
+            "trace_id": trace["trace_id"],
+            "execution_trace": trace,
+        }
+
+    @staticmethod
+    def _controller_loop_payload(
+        user_request: str,
+        result: AgentControllerLoopResult,
+    ) -> dict[str, object]:
+        """Project one terminal Agent v2 result through the public contract.
+
+        Agent v2 does not construct a legacy ``RequestFrame`` or semantic
+        investigation.  Keep the existing payload shape while exposing only
+        its bounded, credential-safe coordinator trace.
+        """
+
+        stages = {
+            f"controller_{record.state.value}": StageTrace(
+                name=record.state.value,
+                status={
+                    AgentControllerLoopRecordStatus.SUCCEEDED: StageStatus.SUCCEEDED,
+                    AgentControllerLoopRecordStatus.FAILED: StageStatus.FAILED,
+                    AgentControllerLoopRecordStatus.SKIPPED: StageStatus.SKIPPED,
+                }[record.status],
+                message=record.reason_code,
+            )
+            for record in result.records
+        }
+        sensitive_request = sensitive_refusal(user_request) is not None
+        trace = ExecutionTrace(
+            user_request="" if sensitive_request else user_request,
+            stages=stages,
+            failure_stage=(
+                "safety_policy"
+                if sensitive_request
+                else ("controller_loop" if result.failure is not None else None)
+            ),
+            failure_reason=(
+                "sensitive_request_refused"
+                if sensitive_request
+                else (result.failure.value if result.failure is not None else None)
+            ),
+            answer_strategy=(
+                AnswerStrategy.LLM_ASSESSMENT
+                if result.succeeded and not sensitive_request
+                else AnswerStrategy.REFUSAL
+            ),
+            llm_usage_reason=(
+                LLMUsageReason.EXPECTED_ASSESSMENT
+                if result.succeeded and not sensitive_request
+                else LLMUsageReason.NONE
+            ),
+            routing_status=(
+                RoutingStatus.RESOLVED
+                if result.succeeded and not sensitive_request
+                else RoutingStatus.UNSUPPORTED
+            ),
+            evidence_status=EvidenceStatus.NOT_APPLICABLE,
+            response_strategy=(
+                ResponseStrategy.CLARIFICATION_REFUSAL
+                if sensitive_request
+                else ResponseStrategy.GENERAL_EXPLANATION
+            ),
+            runtime_metrics={"controller_loop": result.to_trace_dict()},
+        ).to_dict()
+        return {
+            "response": result.response_text,
+            "steps": [],
+            "investigation": None,
+            "trace_id": trace["trace_id"],
+            "execution_trace": trace,
+        }
+
+    @staticmethod
+    def _precontroller_control_payload(
+        user_request: str,
+        response: str,
+    ) -> dict[str, object]:
+        """Return a deterministic reset/model-control result without routing."""
+
+        trace = ExecutionTrace(
+            user_request=user_request,
+            answer_strategy=AnswerStrategy.DETERMINISTIC_TEMPLATE,
+            llm_usage_reason=LLMUsageReason.NONE,
+            routing_status=RoutingStatus.RESOLVED,
+            evidence_status=EvidenceStatus.NOT_APPLICABLE,
+            response_strategy=ResponseStrategy.GENERAL_EXPLANATION,
+        ).to_dict()
+        return {
+            "response": response,
+            "steps": [],
+            "investigation": None,
             "trace_id": trace["trace_id"],
             "execution_trace": trace,
         }
