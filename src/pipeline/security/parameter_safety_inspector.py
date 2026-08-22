@@ -89,6 +89,21 @@ class ParameterSafetyInspector(ToolInspector):
     def inspect(self, context: InspectionContext) -> InspectionResult:
         # Check all string argument values.
         for key, value in context.arguments.items():
+            if context.resource == "current" and key == "queries":
+                if not isinstance(value, (list, tuple)) or any(
+                    not isinstance(item, str)
+                    or len(item) > _MAX_PARAMETER_LENGTH
+                    or "\x00" in item
+                    or "\n" in item
+                    or "\r" in item
+                    for item in value
+                ):
+                    return InspectionResult(
+                        verdict=InspectionVerdict.DENY,
+                        reason="invalid bounded search query list",
+                        inspector_name=self.name,
+                    )
+                continue
             if not isinstance(value, str):
                 continue
 
@@ -101,11 +116,9 @@ class ParameterSafetyInspector(ToolInspector):
             # query encoding is performed by the provider adapter.  Applying
             # the shell-metacharacter rule to natural language caused normal
             # queries containing punctuation to be denied before search.
-            if context.resource == "web_search" and key == "query":
+            if context.resource in {"web_search", "current"} and key == "query":
                 if len(value) > _MAX_PARAMETER_LENGTH:
-                    danger = (
-                        f"parameter value exceeds maximum length ({_MAX_PARAMETER_LENGTH})"
-                    )
+                    danger = f"parameter value exceeds maximum length ({_MAX_PARAMETER_LENGTH})"
                 elif "\x00" in value or "\n" in value or "\r" in value:
                     danger = "invalid control character in search query"
                 else:

@@ -133,8 +133,11 @@ protection.
   links through the configured API.
 - `ZabbixTool`: hosts, item/history data, triggers, events, templates, and
   maintenance information through the configured API.
-- `InternetTool`: provider-neutral search and public-URL fetch with SSRF,
-  redirect, DNS, timeout, and response-size controls.
+- `InternetTool`: provider-neutral public search and fetch with request-scoped
+  Internet budgets (soft/hard search queries and hard fetch attempts), batched
+  controller search (up to three queries), model-selected page fetch evidence,
+  readable HTML extraction, and SSRF, redirect, DNS, timeout, and response-size
+  controls.
 
 RAG is intentionally absent from chat tool registration.
 

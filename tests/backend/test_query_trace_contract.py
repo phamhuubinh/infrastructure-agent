@@ -123,6 +123,11 @@ def test_query_runs_configured_v2_final_through_existing_public_contract(
         "actions_used": 0,
         "max_tools": 4,
         "tools_used": 0,
+        "soft_search_queries": 3,
+        "max_search_queries": 6,
+        "search_queries_used": 0,
+        "max_fetches": 6,
+        "fetches_used": 0,
     }
     assert (
         trace["runtime_metrics"]["model_usage"]["per_call"][0]["purpose"]

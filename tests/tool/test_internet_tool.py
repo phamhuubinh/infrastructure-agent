@@ -137,6 +137,84 @@ def test_web_fetch_success_html(
 
 @patch("src.tool.internet_tool._open_pinned_request")
 @patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_extracts_main_content_and_preserves_structure(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(
+            body=b"""<html><head><title>Useful title</title><style>.x{}</style></head>
+            <body><nav>Navigation links</nav><main><h1>Release notes</h1>
+            <p>Version 2.0 is available.</p><ul><li>Security fix</li></ul>
+            <table><tr><th>Version</th><th>Date</th></tr><tr><td>2.0</td><td>Today</td></tr></table>
+            </main><footer>Copyright boilerplate</footer><script>ignored()</script></body></html>""",
+            content_type="text/html",
+        ),
+    )
+
+    result = _web_fetch(url="http://example.com")
+
+    text = str(result["data"])
+    assert result["title"] == "Useful title"
+    assert "Release notes" in text
+    assert "Version 2.0 is available." in text
+    assert "Security fix" in text
+    assert "2.0 | Today" in text
+    assert "Navigation links" not in text
+    assert "Copyright boilerplate" not in text
+    assert "ignored()" not in text
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_keeps_nested_skipped_subtree_excluded(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(
+            body=(
+                b'<html><body><div class="nav"><div>Nested navigation</div>'
+                b"<p>Still navigation boilerplate</p></div>"
+                b"<main><p>Real article evidence.</p></main></body></html>"
+            ),
+            content_type="text/html",
+        ),
+    )
+
+    result = _web_fetch(url="http://example.com")
+
+    text = str(result["data"])
+    assert "Nested navigation" not in text
+    assert "Still navigation boilerplate" not in text
+    assert "Real article evidence." in text
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
+def test_web_fetch_explicitly_marks_normalized_content_truncation(
+    mock_validate: MagicMock,
+    mock_open: MagicMock,
+) -> None:
+    mock_validate.return_value = _validated()
+    mock_open.return_value = (
+        _FakeConnection(),
+        _FakeResponse(body=(b"<main><p>" + b"x" * 20_000 + b"</p></main>")),
+    )
+
+    result = _web_fetch(url="http://example.com")
+
+    assert result["truncated"] is True
+    assert result["content_status"] == "CONTENT_TRUNCATED"
+    assert len(str(result["data"])) == 12_000
+
+
+@patch("src.tool.internet_tool._open_pinned_request")
+@patch("src.tool.internet_tool._validate_external_url")
 def test_web_fetch_success_json(
     mock_validate: MagicMock,
     mock_open: MagicMock,
@@ -304,6 +382,21 @@ def test_web_search_without_provider_fails_closed() -> None:
     assert result.success is False
     assert result.capability_status is not None
     assert "not configured" in (result.error or "").lower()
+
+
+def test_web_search_malformed_provider_response_fails_closed() -> None:
+    class _MalformedProvider:
+        name = "malformed"
+
+        def search(self, _query: str, **_kwargs: object) -> object:
+            return {"results": []}
+
+    result = InternetTool(provider=_MalformedProvider()).execute(  # type: ignore[arg-type]
+        {"action": "web_search", "query": "current release"}
+    )
+
+    assert result.success is False
+    assert "malformed" in (result.error or "").lower()
 
 
 def test_web_fetch_timeout_setting() -> None:

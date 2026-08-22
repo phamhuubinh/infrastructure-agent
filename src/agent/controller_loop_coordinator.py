@@ -215,6 +215,11 @@ class AgentControllerLoopResult:
                 "actions_used": self.action_budget.actions_used,
                 "max_tools": self.action_budget.max_tools,
                 "tools_used": self.action_budget.tools_used,
+                "soft_search_queries": self.action_budget.soft_search_queries,
+                "max_search_queries": self.action_budget.max_search_queries,
+                "search_queries_used": self.action_budget.search_queries_used,
+                "max_fetches": self.action_budget.max_fetches,
+                "fetches_used": self.action_budget.fetches_used,
             },
             "completion_feedback_count": self.completion_feedback_count,
             "controller_metrics": dict(self.controller_metrics),
@@ -325,6 +330,9 @@ class AgentControllerLoopCoordinator:
         discovery_payload_chars = 0
         selected_detail_payload_chars = 0
         model_provider_attempt_count = 0
+        internet_budget_rejections = 0
+        internet_fetched_bytes = 0
+        internet_search_actions = 0
 
         def record(
             record_state: AgentControllerLoopState,
@@ -353,7 +361,9 @@ class AgentControllerLoopCoordinator:
         def controller_metrics(
             failure: AgentControllerLoopFailure | None,
         ) -> dict[str, object]:
-            first = controller_prompt_metadata[0] if controller_prompt_metadata else None
+            first = (
+                controller_prompt_metadata[0] if controller_prompt_metadata else None
+            )
             stop_failures = {
                 AgentControllerLoopFailure.CONTROLLER_ROUND_LIMIT,
                 AgentControllerLoopFailure.MODEL_CALL_LIMIT,
@@ -376,9 +386,7 @@ class AgentControllerLoopCoordinator:
                 "completion_failure_reason_counts": dict(completion_failure_reasons),
                 "controller_rounds": run_state.round_count,
                 "model_call_count": model_provider_attempt_count,
-                "stop_reason": (
-                    failure.value if failure in stop_failures else None
-                ),
+                "stop_reason": (failure.value if failure in stop_failures else None),
                 "first_turn_actual_input_chars": (
                     first.actual_input_chars if first is not None else 0
                 ),
@@ -391,6 +399,16 @@ class AgentControllerLoopCoordinator:
                 "capability_ids": list(capability_ids),
                 "target_ids": list(target_ids),
                 "source_ids": list(source_ids),
+                "internet": {
+                    "search_actions": internet_search_actions,
+                    "search_queries": action_budget.search_queries_used,
+                    "soft_search_queries": action_budget.soft_search_queries,
+                    "max_search_queries": action_budget.max_search_queries,
+                    "fetch_attempts": action_budget.fetches_used,
+                    "max_fetches": action_budget.max_fetches,
+                    "budget_rejections": internet_budget_rejections,
+                    "fetched_bytes": internet_fetched_bytes,
+                },
             }
 
         def fail(
@@ -585,7 +603,9 @@ class AgentControllerLoopCoordinator:
                         request_id=request_id,
                     )
                     decision = decision_result.decision
-                    model_provider_attempt_count += decision_result.provider_attempt_count
+                    model_provider_attempt_count += (
+                        decision_result.provider_attempt_count
+                    )
                 except ControllerAdapterError as exc:
                     model_provider_attempt_count += len(exc.failures)
                     return fail(AgentControllerLoopFailure.PROVIDER_FAILURE, state)
@@ -775,6 +795,11 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if validation.status is not AgentActionValidationStatus.VALID:
                     action_attempts["rejected"] += 1
+                    if (
+                        validation.source_family == "internet"
+                        and validation.reason.value == "budget_exhausted"
+                    ):
+                        internet_budget_rejections += 1
                     remember(capability_ids, validation.capability_id)
                     remember(target_ids, validation.target_id)
                     remember(source_ids, validation.source_id)
@@ -827,6 +852,9 @@ class AgentControllerLoopCoordinator:
                         action_attempts["executed"] += 1
                         actual_tool_calls += execution.actual_tool_calls
                         calculator_calls += execution.calculator_calls
+                        internet_fetched_bytes += execution.internet_fetched_bytes
+                        if execution.capability_id == "internet.current":
+                            internet_search_actions += 1
                         remember(capability_ids, execution.capability_id)
                         remember(target_ids, execution.target_id)
                         remember(source_ids, execution.source_id)
@@ -858,7 +886,9 @@ class AgentControllerLoopCoordinator:
                 capability_id, target_id, source_id = pending_identity
                 observation_total += 1
                 observation_counts[pending_observation.status.value] += 1
-                observation_payload_chars += _serialized_chars(pending_observation.to_wire())
+                observation_payload_chars += _serialized_chars(
+                    pending_observation.to_wire()
+                )
                 previous_observations = len(run_state.observations)
                 run_state = replace(
                     run_state,

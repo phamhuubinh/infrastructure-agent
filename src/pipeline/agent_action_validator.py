@@ -76,6 +76,11 @@ class AgentActionToolBudget:
     actions_used: int = 0
     max_tools: int = 6
     tools_used: int = 0
+    soft_search_queries: int = 3
+    max_search_queries: int = 6
+    search_queries_used: int = 0
+    max_fetches: int = 6
+    fetches_used: int = 0
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -83,6 +88,11 @@ class AgentActionToolBudget:
             ("actions_used", self.actions_used),
             ("max_tools", self.max_tools),
             ("tools_used", self.tools_used),
+            ("soft_search_queries", self.soft_search_queries),
+            ("max_search_queries", self.max_search_queries),
+            ("search_queries_used", self.search_queries_used),
+            ("max_fetches", self.max_fetches),
+            ("fetches_used", self.fetches_used),
         ):
             if type(value) is not int or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer.")
@@ -102,6 +112,51 @@ class AgentActionToolBudget:
             actions_used=self.actions_used + 1,
             max_tools=self.max_tools,
             tools_used=self.tools_used + 1,
+            soft_search_queries=self.soft_search_queries,
+            max_search_queries=self.max_search_queries,
+            search_queries_used=self.search_queries_used,
+            max_fetches=self.max_fetches,
+            fetches_used=self.fetches_used,
+        )
+
+    def permits_search_queries(self, count: int) -> bool:
+        return (
+            type(count) is int
+            and count > 0
+            and (self.search_queries_used + count <= self.max_search_queries)
+        )
+
+    def permits_fetch(self) -> bool:
+        return self.fetches_used < self.max_fetches
+
+    def after_search_execution(self, count: int) -> AgentActionToolBudget:
+        if not self.permits_one_execution() or not self.permits_search_queries(count):
+            raise ValueError("Cannot consume an exhausted Internet search budget.")
+        return AgentActionToolBudget(
+            max_actions=self.max_actions,
+            actions_used=self.actions_used + 1,
+            max_tools=self.max_tools,
+            tools_used=self.tools_used + 1,
+            soft_search_queries=self.soft_search_queries,
+            max_search_queries=self.max_search_queries,
+            search_queries_used=self.search_queries_used + count,
+            max_fetches=self.max_fetches,
+            fetches_used=self.fetches_used,
+        )
+
+    def after_fetch_execution(self) -> AgentActionToolBudget:
+        if not self.permits_one_execution() or not self.permits_fetch():
+            raise ValueError("Cannot consume an exhausted Internet fetch budget.")
+        return AgentActionToolBudget(
+            max_actions=self.max_actions,
+            actions_used=self.actions_used + 1,
+            max_tools=self.max_tools,
+            tools_used=self.tools_used + 1,
+            soft_search_queries=self.soft_search_queries,
+            max_search_queries=self.max_search_queries,
+            search_queries_used=self.search_queries_used,
+            max_fetches=self.max_fetches,
+            fetches_used=self.fetches_used + 1,
         )
 
 
@@ -267,8 +322,17 @@ class AgentActionValidator:
         )
 
         # 5. Closed schema validation before any safety inspection.
+        action_arguments: Mapping[str, object] = action.arguments
+        if (
+            action.capability_id == INTERNET_CURRENT_CAPABILITY_ID
+            and set(action.arguments) == {"query"}
+            and isinstance(action.arguments.get("query"), str)
+        ):
+            # Preserve the public single-query form without maintaining a
+            # second execution path or weakening the disclosed batch schema.
+            action_arguments = {"queries": [action.arguments["query"]]}
         normalized, failure = _validate_arguments(
-            action.arguments, schema.get("arguments_schema")
+            action_arguments, schema.get("arguments_schema")
         )
         if failure is not None:
             status, reason = failure
@@ -367,6 +431,21 @@ class AgentActionValidator:
                 target_id,
                 source_family,
             )
+
+        if internet_request is not None:
+            allowed = (
+                budget.permits_search_queries(len(internet_request.queries))
+                if internet_request.kind.value == "current"
+                else budget.permits_fetch()
+            )
+            if not allowed:
+                return _result(
+                    AgentActionValidationStatus.UNAVAILABLE,
+                    AgentActionValidationReason.BUDGET_EXHAUSTED,
+                    action,
+                    target_id,
+                    source_family,
+                )
 
         # 8. This is a non-consuming authorization check.
         if not budget.permits_one_execution():

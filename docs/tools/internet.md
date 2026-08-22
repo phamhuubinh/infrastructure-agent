@@ -8,10 +8,9 @@ external verification. It has two read-only capabilities:
 | `web_search` | Query a configured provider and return typed discovery results. |
 | `web_fetch` | Fetch one public HTTP/HTTPS page and extract bounded text/JSON. |
 
-Stable questions do not use the tool. Orion invokes it only when deterministic
-request semantics require current external evidence, the user explicitly asks
-to verify online, or the user supplies a public URL. The model does not choose
-tools, rewrite arbitrary queries, or run a fetch loop.
+Stable questions do not use the tool. In the Agent v2 controller, the model
+can select a reviewed Internet action but never receives arbitrary HTTP
+authority: the harness validates its typed query/URL input and executes it.
 
 ## Search provider configuration
 
@@ -53,20 +52,31 @@ current information; it never presents model memory as a verified result.
 
 ## Deterministic plan, cache, and limits
 
-For a query-based request the reviewed plan is:
+For the Agent v2 controller, the reviewed bounded flow is:
 
-1. One provider search (up to five discovery results).
-2. Deterministic URL canonicalization/deduplication with domain diversity.
-3. At most three page fetches.
-4. Normalize fetched pages into external evidence, Facts, retrieval timestamps,
-   provider identity, and source URLs.
-5. Give the evidence—not tool access—to the assessment model.
+1. `internet.current` accepts one to three queries (the legacy single
+   `query` field remains accepted), returning up to five result cards per
+   query by default; the per-query hard maximum is ten.
+2. Search snippets are discovery metadata only. The model explicitly selects
+   a useful public URL in a later `internet.fetch_url` action.
+3. One fetch normalizes readable public-page content into bounded evidence
+   with final URL, title when available, content type, and truncation state.
 
-The default per-request envelope is one search, three fetches, 1 MiB total
-page bytes, 25 seconds of network time, 15-second request timeout, 512 KiB
-per page, and five redirects. Successful search/page observations are cached
-briefly by provider/query-or-URL/freshness class. Failed, blocked, and missing
-results are never cached as valid evidence.
+Search usage is request-scoped: three queries are the visible soft budget and
+six are the hard budget. Fetches have a hard budget of six attempted actions.
+Crossing the soft search budget remains allowed; a query batch that would
+cross the hard remaining budget is rejected before provider execution. These
+Internet budgets are additional to—not replacements for—the controller's
+global action/tool/model/token limits.
+
+The transport envelope retains a 1 MiB aggregate legacy-verification byte
+budget, 25 seconds of network time, 15-second request timeout, 512 KiB per
+page, and five redirects. HTML extraction removes scripts, styles, navigation,
+footers, and similar chrome; it preserves headings, paragraphs, lists, and
+simple table rows, then bounds normalized text with explicit truncation.
+Successful legacy search/page observations are cached briefly by
+provider/query-or-URL/freshness class. Failed, blocked, and missing results
+are never cached as valid evidence.
 
 ## Security boundary
 

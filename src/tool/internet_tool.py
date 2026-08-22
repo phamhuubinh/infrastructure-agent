@@ -19,7 +19,26 @@ from src.tool.errors import source_api_error
 from src.tool.tool import Tool
 
 _MAX_RESPONSE_BYTES = 512 * 1024  # 512 KB
+_MAX_EXTRACTED_TEXT_CHARS = 12_000
 _DEFAULT_TIMEOUT = 15
+_VOID_HTML_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
 _MAX_REDIRECTS = 5
 _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 
@@ -147,11 +166,16 @@ class HttpJsonSearchProvider:
 
         parsed = urllib_parse.urlsplit(self._endpoint)
         existing = urllib_parse.parse_qsl(parsed.query, keep_blank_values=True)
-        query_args = [(key, value) for key, value in existing if key not in {
-            self._query_parameter,
-            self._locale_parameter,
-            "limit",
-        }]
+        query_args = [
+            (key, value)
+            for key, value in existing
+            if key
+            not in {
+                self._query_parameter,
+                self._locale_parameter,
+                "limit",
+            }
+        ]
         query_args.append((self._query_parameter, query))
         query_args.append(("limit", str(max(1, min(int(max_results), 10)))))
         if locale:
@@ -417,29 +441,92 @@ def _open_pinned_request(
 
 
 class _HTMLStripper(HTMLParser):
+    """Deterministic readable-content extractor; it never summarizes text."""
+
     def __init__(self) -> None:
         super().__init__()
-        self._text: list[str] = []
-        self._skip = False
+        self._preferred: list[str] = []
+        self._fallback: list[str] = []
+        self._skip_tags: list[str] = []
+        self._preferred_depth = 0
+        self._in_title = False
+        self.title = ""
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # noqa: ARG002
-        if tag in ("script", "style", "noscript"):
-            self._skip = True
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        if self._skip_tags:
+            if tag not in _VOID_HTML_TAGS:
+                self._skip_tags.append(tag)
+            return
+        attributes = {
+            name.casefold(): (value or "").casefold() for name, value in attrs
+        }
+        chrome = " ".join(attributes.get(name, "") for name in ("id", "class", "role"))
+        if tag in {
+            "script",
+            "style",
+            "noscript",
+            "header",
+            "nav",
+            "footer",
+            "aside",
+            "form",
+        } or any(
+            marker in chrome
+            for marker in (
+                "header",
+                "nav",
+                "menu",
+                "sidebar",
+                "footer",
+                "cookie",
+                "banner",
+            )
+        ):
+            if tag not in _VOID_HTML_TAGS:
+                self._skip_tags.append(tag)
+            return
+        if tag in {"main", "article"}:
+            self._preferred_depth += 1
+        if tag == "title":
+            self._in_title = True
+        if tag in {"p", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}:
+            self._append("\n")
+        elif tag in {"td", "th"}:
+            self._append(" | ")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in ("script", "style", "noscript"):
-            self._skip = False
-        if tag in ("p", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
-            self._text.append("\n")
+        tag = tag.casefold()
+        if self._skip_tags:
+            if tag == self._skip_tags[-1]:
+                self._skip_tags.pop()
+            return
+        if tag in {"main", "article"}:
+            self._preferred_depth = max(0, self._preferred_depth - 1)
+        if tag == "title":
+            self._in_title = False
+        if tag in {"p", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}:
+            self._append("\n")
 
     def handle_data(self, data: str) -> None:
-        if not self._skip:
-            stripped = data.strip()
-            if stripped:
-                self._text.append(stripped + " ")
+        if self._skip_tags:
+            return
+        stripped = data.strip()
+        if not stripped:
+            return
+        if self._in_title:
+            self.title = (self.title + " " + stripped).strip()[:500]
+        self._append(stripped + " ")
+
+    def _append(self, value: str) -> None:
+        self._fallback.append(value)
+        if self._preferred_depth:
+            self._preferred.append(value)
 
     def get_text(self) -> str:
-        raw = "".join(self._text)
+        raw = "".join(self._preferred or self._fallback)
+        raw = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", raw)
+        raw = re.sub(r"[ \t]+", " ", raw)
         return re.sub(r"\n{3,}", "\n\n", raw).strip()
 
 
@@ -549,10 +636,20 @@ def _fetch_url(
                         text = stripped.get_text()
                     except (ValueError, TypeError):
                         text = body[:10000]
-                    result["data"] = text[:10000]
+                    extraction_truncated = len(text) > _MAX_EXTRACTED_TEXT_CHARS
+                    result["data"] = text[:_MAX_EXTRACTED_TEXT_CHARS]
+                    if stripped.title:
+                        result["title"] = stripped.title
+                    truncated = truncated or extraction_truncated
+                    result["truncated"] = truncated
 
                 extracted = result.get("data")
-                if extracted is None or extracted == "" or extracted == {} or extracted == []:
+                if (
+                    extracted is None
+                    or extracted == ""
+                    or extracted == {}
+                    or extracted == []
+                ):
                     result["content_status"] = "CONTENT_EMPTY"
                 elif truncated:
                     result["content_status"] = "CONTENT_TRUNCATED"
@@ -626,6 +723,11 @@ def _web_search(
         return CapabilityResult(
             status=CapabilityStatus.COLLECTION_FAILED,
             error=f"Search provider '{provider.name}' failed: {exc}",
+        )
+    if not isinstance(response, SearchResponse):
+        return CapabilityResult(
+            status=CapabilityStatus.COLLECTION_FAILED,
+            error=f"Search provider '{provider.name}' returned a malformed response.",
         )
     if response.failure:
         return CapabilityResult(

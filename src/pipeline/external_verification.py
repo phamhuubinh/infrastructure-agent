@@ -518,7 +518,62 @@ class ExternalVerificationExecutor:
             calls=calls,
         )
 
-    def collect_url_action(
+    def collect_search_action(
+        self,
+        *,
+        source_id: str,
+        queries: tuple[str, ...],
+        max_results: int,
+        freshness_required: bool,
+    ) -> ExternalVerificationOutcome:
+        """Return discovery metadata only for a controller-selected batch.
+
+        Unlike the legacy current-information route, this v2 method never
+        selects or fetches result URLs.  A later, separate ``fetch_url``
+        action is the model's explicit selection of public-page evidence.
+        """
+        started = self._clock()
+        if not self._enabled or not self._exact_internet_source(source_id):
+            return self._failure("Internet verification is unavailable.", started)
+        calls = {"search": 0, "fetch": 0, "cache": 0, "bytes": 0}
+        responses: list[dict[str, object]] = []
+        provider = "unknown-provider"
+        for query in queries:
+            calls["search"] += 1
+            result = self._execute(
+                source_id,
+                "web_search",
+                query=query,
+                max_results=max(1, min(max_results, 10)),
+                timeout=self._budget.timeout_seconds,
+            )
+            if not result.success or not isinstance(result.data, dict):
+                return self._failure(
+                    "Internet search is unavailable.", started, calls=calls
+                )
+            payload = result.data
+            if payload.get("status") != "ok":
+                return self._failure(
+                    "Internet search is unavailable.", started, calls=calls
+                )
+            provider = str(payload.get("provider") or provider)
+            responses.append(payload)
+        evidence = self._build_search_evidence(
+            queries=queries,
+            provider=provider,
+            responses=responses,
+            freshness_required=freshness_required,
+        )
+        return ExternalVerificationOutcome(
+            evidence=evidence,
+            search_calls=calls["search"],
+            fetch_calls=0,
+            cache_hits=0,
+            total_bytes=0,
+            elapsed_ms=(self._clock() - started) * 1000,
+        )
+
+    def collect_fetch_action(
         self,
         *,
         source_id: str,
@@ -526,7 +581,62 @@ class ExternalVerificationExecutor:
         user_request: str,
         freshness_required: bool,
     ) -> ExternalVerificationOutcome:
+        """Fetch one model-selected URL and retain its normalized evidence."""
+        started = self._clock()
+        if not self._enabled or not self._exact_internet_source(source_id):
+            return self._failure("Internet verification is unavailable.", started)
+        calls = {"search": 0, "fetch": 0, "cache": 0, "bytes": 0}
+        document, error = self._fetch_document(
+            source=source_id,
+            title="Selected public page",
+            url=url,
+            provider="direct-url",
+            freshness_key="short_lived" if freshness_required else "explicit",
+            started=started,
+            calls=calls,
+            user_request=user_request,
+            preserve_exact_url=True,
+        )
+        if document is None:
+            return self._failure(
+                error or "Internet fetch is unavailable.", started, calls=calls
+            )
+        evidence = self._build_evidence(
+            query=None,
+            provider="direct-url",
+            documents=[document],
+            failures=[],
+            evidence_name="internet_fetch",
+            authorized_url=url,
+        )
+        return ExternalVerificationOutcome(
+            evidence=evidence,
+            documents=(document,),
+            search_calls=0,
+            fetch_calls=calls["fetch"],
+            cache_hits=calls["cache"],
+            total_bytes=calls["bytes"],
+            elapsed_ms=(self._clock() - started) * 1000,
+        )
+
+    def collect_url_action(
+        self,
+        *,
+        source_id: str,
+        url: str,
+        user_request: str,
+        freshness_required: bool,
+        model_selected: bool = False,
+    ) -> ExternalVerificationOutcome:
         """Fetch exactly the authorized URL through the existing InternetTool."""
+
+        if model_selected:
+            return self.collect_fetch_action(
+                source_id=source_id,
+                url=url,
+                user_request=user_request,
+                freshness_required=freshness_required,
+            )
 
         started = self._clock()
         if not self._enabled or not self._exact_internet_source(source_id):
@@ -761,9 +871,12 @@ class ExternalVerificationExecutor:
         fetched_url = payload.get("url")
         if not isinstance(fetched_url, str):
             fetched_url = canonical
+        fetched_title = payload.get("title")
+        if not isinstance(fetched_title, str) or not fetched_title.strip():
+            fetched_title = title
         relevance = self._detect_relevance(
             ExternalDocument(
-                title=title[:500],
+                title=fetched_title[:500],
                 url=fetched_url,
                 content=payload["data"],
                 provider=provider,
@@ -779,7 +892,7 @@ class ExternalVerificationExecutor:
             user_request,
         )
         document = ExternalDocument(
-            title=title[:500],
+            title=fetched_title[:500],
             url=fetched_url,
             content=payload["data"],
             provider=provider,
@@ -794,7 +907,7 @@ class ExternalVerificationExecutor:
             relevance=relevance,
             selected_passages=self._select_passages(
                 ExternalDocument(
-                    title=title[:500],
+                    title=fetched_title[:500],
                     url=fetched_url,
                     content=payload["data"],
                     provider=provider,
@@ -921,6 +1034,26 @@ class ExternalVerificationExecutor:
                         dimensions={"provider": document.provider},
                     )
                 )
+            if not document.selected_passages and isinstance(document.content, str):
+                excerpt = " ".join(document.content.split())[:240]
+                if excerpt:
+                    facts.append(
+                        Fact(
+                            subject="external_document",
+                            metric="external.document.content_excerpt",
+                            value=excerpt,
+                            unit="text",
+                            observed_at=document.retrieved_at,
+                            collected_at=document.retrieved_at,
+                            source="internet",
+                            target=target,
+                            validity=FactValidity.VALID,
+                            freshness=FactFreshness.FRESH,
+                            confidence=1.0,
+                            provenance=provenance,
+                            dimensions={"provider": document.provider},
+                        )
+                    )
         has_truncation = any(document.truncated for document in documents)
         warnings = list(failures)
         if has_truncation:
@@ -946,11 +1079,101 @@ class ExternalVerificationExecutor:
             facts=tuple(facts),
         )
 
+    def _build_search_evidence(
+        self,
+        *,
+        queries: tuple[str, ...],
+        provider: str,
+        responses: list[dict[str, object]],
+        freshness_required: bool,
+    ) -> EvidencePackage:
+        """Serialize result cards as discovery facts, never page evidence."""
+        observed_at = self._now()
+        facts: list[Fact] = []
+        compact_responses: list[dict[str, object]] = []
+        for response in responses:
+            query = str(response.get("query") or "")[:1_000]
+            results = response.get("results")
+            compact_results: list[dict[str, str]] = []
+            if isinstance(results, list):
+                for item in results[:10]:
+                    if not isinstance(item, dict):
+                        continue
+                    url = item.get("url")
+                    if not isinstance(url, str) or not url:
+                        continue
+                    title = str(item.get("title") or url)[:200]
+                    snippet = str(item.get("snippet") or "")[:240]
+                    card = {"title": title, "url": url[:2_048], "snippet": snippet}
+                    observation_card = {"title": title[:80], "url": url[:140]}
+                    compact_results.append(card)
+                    target = urlsplit(url).hostname or "internet"
+                    provenance = Provenance(
+                        source="internet",
+                        capability="web_search",
+                        target=target,
+                        observed_at=observed_at,
+                        source_reference=url[:2_048],
+                        parameters=(("provider", provider[:80]),),
+                    )
+                    facts.append(
+                        Fact(
+                            subject="external_search",
+                            metric="external.search.discovery_result",
+                            value=observation_card,
+                            unit="metadata",
+                            observed_at=observed_at,
+                            collected_at=observed_at,
+                            source="internet",
+                            target=target,
+                            validity=FactValidity.VALID,
+                            freshness=FactFreshness.FRESH,
+                            confidence=1.0,
+                            provenance=provenance,
+                            dimensions={
+                                "provider": provider[:80],
+                                "query_index": len(compact_responses) + 1,
+                            },
+                        )
+                    )
+            compact_responses.append({"query": query, "results": compact_results})
+        return EvidencePackage(
+            capability_name="external_verification",
+            evidence_name="internet_search",
+            data={
+                "queries": list(queries),
+                "provider": provider[:80],
+                "responses": compact_responses,
+            },
+            source_tool="internet",
+            source="internet",
+            resource="web_search",
+            parameters=(("provider", provider[:80]),),
+            warnings=(
+                "Search snippets are discovery metadata; fetch a selected public URL for page evidence.",
+                *(("Fresh search requested.",) if freshness_required else ()),
+            ),
+            facts=tuple(facts),
+        )
+
     @staticmethod
     def action_evidence(outcome: ExternalVerificationOutcome) -> EvidencePackage:
         """Map an outcome to v2 evidence without promoting partial/failure data."""
 
-        if outcome.evidence is None or not outcome.has_relevant_evidence:
+        if outcome.evidence is None:
+            return EvidencePackage(
+                capability_name="external_verification",
+                evidence_name="external_verification",
+                success=False,
+                error="External verification unavailable.",
+                source_tool="internet",
+                source="internet",
+                resource="web_fetch",
+                status=CapabilityStatus.COLLECTION_FAILED,
+            )
+        if outcome.evidence.evidence_name in {"internet_search", "internet_fetch"}:
+            return outcome.evidence
+        if not outcome.has_relevant_evidence:
             return EvidencePackage(
                 capability_name="external_verification",
                 evidence_name="external_verification",

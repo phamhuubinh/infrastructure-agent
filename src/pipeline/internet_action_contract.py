@@ -24,15 +24,24 @@ class InternetActionRequest:
     """One immutable model-controlled Internet input and nothing else."""
 
     kind: InternetActionKind
-    query: str | None = None
+    queries: tuple[str, ...] = ()
     url: str | None = None
+
+    @property
+    def query(self) -> str | None:
+        """Compatibility view for callers that only support one query."""
+        return self.queries[0] if len(self.queries) == 1 else None
 
     def __post_init__(self) -> None:
         if self.kind is InternetActionKind.CURRENT:
-            if self.url is not None or not _bounded_text(self.query, 1_000):
-                raise ValueError("current action requires only a bounded query.")
+            if self.url is not None or not 1 <= len(self.queries) <= 3:
+                raise ValueError(
+                    "current action requires one to three bounded queries."
+                )
+            if any(not _bounded_text(query, 1_000) for query in self.queries):
+                raise ValueError("current action requires bounded queries.")
         elif self.kind is InternetActionKind.FETCH_URL:
-            if self.query is not None or not _http_url(self.url):
+            if self.queries or not _http_url(self.url):
                 raise ValueError(
                     "fetch_url action requires only a public HTTP URL shape."
                 )
@@ -41,7 +50,22 @@ class InternetActionRequest:
 
 
 def internet_current_arguments_schema() -> dict[str, object]:
-    return _schema("query", 1_000)
+    # The controller disclosure protocol deliberately uses a closed, fully
+    # required schema.  Legacy ``query`` callers are normalized before this
+    # schema is applied by AgentActionValidator.
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "queries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {"type": "string", "minLength": 1, "maxLength": 1_000},
+            },
+        },
+        "required": ["queries"],
+    }
 
 
 def internet_fetch_url_arguments_schema() -> dict[str, object]:
@@ -59,9 +83,17 @@ def bind_internet_action(
         raise InternetActionBindingError("invalid_arguments")
     if capability_id == INTERNET_CURRENT_CAPABILITY_ID:
         try:
-            return InternetActionRequest(
-                InternetActionKind.CURRENT, query=arguments.get("query")
-            )
+            query = arguments.get("query")
+            raw_queries = arguments.get("queries")
+            if query is not None and raw_queries is not None:
+                raise ValueError("query and queries are mutually exclusive")
+            if raw_queries is None:
+                queries = (query,) if isinstance(query, str) else ()
+            elif isinstance(raw_queries, (list, tuple)):
+                queries = tuple(raw_queries)
+            else:
+                queries = ()
+            return InternetActionRequest(InternetActionKind.CURRENT, queries=queries)
         except (TypeError, ValueError) as exc:
             raise InternetActionBindingError("invalid_query") from exc
     if capability_id == INTERNET_FETCH_URL_CAPABILITY_ID:

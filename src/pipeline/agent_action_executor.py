@@ -67,12 +67,18 @@ class AgentActionExecutionResult:
     dispatched: bool = False
     actual_tool_calls: int = 0
     calculator_calls: int = 0
+    internet_fetched_bytes: int = 0
 
     def __post_init__(self) -> None:
         if type(self.actual_tool_calls) is not int or self.actual_tool_calls < 0:
             raise ValueError("actual_tool_calls must be a non-negative integer.")
         if type(self.calculator_calls) is not int or self.calculator_calls < 0:
             raise ValueError("calculator_calls must be a non-negative integer.")
+        if (
+            type(self.internet_fetched_bytes) is not int
+            or self.internet_fetched_bytes < 0
+        ):
+            raise ValueError("internet_fetched_bytes must be a non-negative integer.")
 
     @property
     def capability_id(self) -> str:
@@ -237,24 +243,38 @@ class AgentActionExecutor:
                 budget,
                 AgentActionExecutionReason.CAPABILITY_BINDING_UNAVAILABLE,
             )
-        # The action budget is consumed once for the reviewed high-level
-        # action, before its bounded internal search/fetch workflow begins.
-        next_budget = budget.after_execution()
         if request.kind is InternetActionKind.CURRENT:
-            outcome = self._external_verification.collect_current_action(
+            next_budget = budget.after_search_execution(len(request.queries))
+            outcome = self._external_verification.collect_search_action(
                 source_id=source_id,
-                query=request.query or "",
-                user_request=raw_request,
+                queries=request.queries,
+                max_results=5,
                 freshness_required=hard_constraints.requires_fresh_evidence,
             )
         else:
+            next_budget = budget.after_fetch_execution()
             outcome = self._external_verification.collect_url_action(
                 source_id=source_id,
                 url=request.url or "",
                 user_request=raw_request,
                 freshness_required=hard_constraints.requires_fresh_evidence,
+                model_selected=True,
             )
         evidence = self._external_verification.action_evidence(outcome)
+        if request.kind is InternetActionKind.CURRENT:
+            usage = (
+                f"Internet search budget: {next_budget.search_queries_used}/"
+                f"{next_budget.max_search_queries} queries used "
+                f"(soft {next_budget.soft_search_queries}); "
+                f"{next_budget.max_search_queries - next_budget.search_queries_used} remaining."
+            )
+        else:
+            usage = (
+                f"Internet fetch budget: {next_budget.fetches_used}/"
+                f"{next_budget.max_fetches} attempted; "
+                f"{next_budget.max_fetches - next_budget.fetches_used} remaining."
+            )
+        evidence = replace(evidence, warnings=tuple((*evidence.warnings, usage)))
         status = {
             CapabilityStatus.VALID: AgentActionExecutionStatus.SUCCESS,
             CapabilityStatus.VALID_EMPTY: AgentActionExecutionStatus.SUCCESS,
@@ -269,6 +289,7 @@ class AgentActionExecutor:
             evidence=evidence,
             dispatched=True,
             actual_tool_calls=outcome.search_calls + outcome.fetch_calls,
+            internet_fetched_bytes=outcome.total_bytes,
         )
 
     def _bind_exact_route(
