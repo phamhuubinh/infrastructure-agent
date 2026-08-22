@@ -43,10 +43,13 @@ does not stop it when the viewer exits.
 - Each Web chat session owns its conversation store, Agent, evidence cache,
   investigation context, and execution lock.
 
-Targets are stored in the JSON target registry. `localhost` always means the
-environment running Orion: the local process in source mode and the
-`orion-api` container in Compose. A physical host is investigated through an
-explicit registered SSH target.
+Explicit targets are stored in the JSON target registry. At runtime
+construction, Orion also discovers concrete aliases declared by the local SSH
+configuration (including unconditional `Include` files) and registers them
+only for that runtime; wildcard aliases are ignored and explicit JSON targets
+take precedence. `localhost` always means the environment running Orion: the local
+process in source mode and the `orion-api` container in Compose. A physical
+host is investigated through an explicit or discovered SSH target.
 
 ## Chat request flow
 

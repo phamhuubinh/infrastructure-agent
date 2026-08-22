@@ -9,6 +9,7 @@ from src.tool.execution_backend import (
     LocalExecutionBackend,
     SSHExecutionBackend,
 )
+from src.tool.ssh_target_discovery import discover_ssh_targets
 
 DEFAULT_TARGETS: dict[str, ExecutionBackend] = {
     "localhost": LocalExecutionBackend(),
@@ -27,8 +28,18 @@ DEFAULT_TARGET_METADATA: dict[str, dict[str, str]] = {
 
 
 class TargetStore:
-    def __init__(self, path: str = "targets.json") -> None:
+    def __init__(
+        self,
+        path: str = "targets.json",
+        *,
+        discover_ssh_targets_enabled: bool = False,
+        ssh_config_path: str | Path | None = None,
+    ) -> None:
         self._path = Path(path)
+        self._discover_ssh_targets_enabled = discover_ssh_targets_enabled
+        self._ssh_config_path = (
+            Path(ssh_config_path) if ssh_config_path is not None else None
+        )
 
     def load(self) -> dict[str, ExecutionBackend]:
         if not self._path.exists():
@@ -73,7 +84,24 @@ class TargetStore:
                 )
             else:
                 targets[name] = LocalExecutionBackend()
+        targets.setdefault("localhost", LocalExecutionBackend())
         return targets
+
+    def load_discovered_ssh_targets(self) -> dict[str, SSHExecutionBackend]:
+        """Load runtime SSH aliases without persisting them to targets.json."""
+
+        if not self._discover_ssh_targets_enabled:
+            return {}
+        return {
+            target.alias: SSHExecutionBackend(
+                host=target.host,
+                user=target.user,
+                port=target.port,
+                identity_file=target.identity_file,
+                strict_host_key_checking=target.strict_host_key_checking,
+            )
+            for target in discover_ssh_targets(self._ssh_config_path)
+        }
 
     def load_metadata(self) -> dict[str, dict[str, str]]:
         """Load non-secret target identity fields independently of backends."""

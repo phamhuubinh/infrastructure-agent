@@ -17,7 +17,9 @@ protection.
   validation/execution boundaries and SQLite conversation persistence.
 - `python3 -m src.cli web`: source FastAPI + Vite Web runtime.
 - Installed `orion web` / `orion log`: Docker service control and log viewing.
-- CLI target commands: add, list, and remove JSON-backed local/SSH targets.
+- CLI target commands: add, list, and remove JSON-backed local/SSH targets;
+  concrete aliases from the runtime SSH configuration are also listed as
+  non-persistent SSH targets.
 - CLI/Web model settings: save, test, select, list, and delete user-managed
   model connections.
 - Web Chat: isolated sessions, regeneration, response timing, evidence steps,

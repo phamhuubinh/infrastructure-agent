@@ -516,7 +516,7 @@ def create_deterministic_agent(
         server=server_name or "mock",
         model_override=model or "none",
     )
-    store = TargetStore(path=target_store_path)
+    store = TargetStore(path=target_store_path, discover_ssh_targets_enabled=True)
 
     try:
         registry = TargetRegistry(store=store)

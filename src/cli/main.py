@@ -158,7 +158,7 @@ def _manage_model(args: argparse.Namespace) -> None:
 
 
 def _add_target(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.target_file)
+    store = TargetStore(path=args.target_file, discover_ssh_targets_enabled=True)
     registry = TargetRegistry(store=store)
 
     parts = args.spec.split("@", 1)
@@ -197,7 +197,7 @@ def _remove_target(args: argparse.Namespace) -> None:
 
 
 def _list_targets(args: argparse.Namespace) -> None:
-    store = TargetStore(path=args.target_file)
+    store = TargetStore(path=args.target_file, discover_ssh_targets_enabled=True)
     registry = TargetRegistry(store=store)
     names = registry.target_names()
     if not names:

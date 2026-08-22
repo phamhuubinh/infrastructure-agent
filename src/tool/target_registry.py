@@ -53,11 +53,16 @@ class TargetRegistry:
         self._domain_tools: dict[str, Tool] = {}
         self._linux_tools: dict[str, LinuxTool] = {}
         self._metadata: dict[str, dict[str, str]] = {}
+        self._discovered_target_names: set[str] = set()
         self._preflight = DEFAULT_TARGET_PREFLIGHT
 
         if store is not None:
             self._backends = store.load()
             self._metadata = store.load_metadata()
+            for name, backend in store.load_discovered_ssh_targets().items():
+                if name != "localhost" and name not in self._backends:
+                    self._backends[name] = backend
+                    self._discovered_target_names.add(name)
 
     def add(
         self,
@@ -80,6 +85,7 @@ class TargetRegistry:
                 raise ValueError(msg)
             backend._strict_host_key_checking = strict_host_key_checking
         self._backends[name] = backend
+        self._discovered_target_names.discard(name)
         self._metadata.setdefault(
             name,
             {
@@ -94,7 +100,7 @@ class TargetRegistry:
         )
 
         if self._store is not None:
-            self._store.save(self._backends)
+            self._store.save(self._persistent_backends())
 
     def remove(
         self,
@@ -110,7 +116,16 @@ class TargetRegistry:
         self._preflight.invalidate(name)
 
         if self._store is not None:
-            self._store.save(self._backends)
+            self._store.save(self._persistent_backends())
+
+    def _persistent_backends(self) -> dict[str, ExecutionBackend]:
+        """Exclude runtime SSH discovery from explicit target configuration."""
+
+        return {
+            name: backend
+            for name, backend in self._backends.items()
+            if name not in self._discovered_target_names
+        }
 
     def register_domain_tool(
         self,
