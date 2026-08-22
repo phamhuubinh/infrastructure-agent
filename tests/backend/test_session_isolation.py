@@ -1,17 +1,70 @@
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from src.agent.conversation_store import ConversationStore
+from src.agent.runtime_factory import create_deterministic_agent
 from src.backend.dependencies import AppState
 from src.backend.routers.query import query
+from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
+from src.tool.target_preflight import EnvironmentFingerprint
 
 
 class _Store:
     def __init__(self, session_id: str, **_kwargs: object) -> None:
         self.session_id = session_id
+
+
+class _QueuedAssessmentModel(AssessmentModelAdapter):
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = responses
+
+    def assess(self, _request: object) -> str:
+        raise AssertionError("configured Agent v2 must use controller calls")
+
+    def assess_raw(self, _prompt: str) -> str:
+        return self.responses.pop(0)
+
+
+def _wire(
+    kind: str,
+    *,
+    capability_id: str | None = None,
+    answer: str | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "v": 1,
+            "k": kind,
+            "g": "Follow the request.",
+            "c": None,
+            "a": None if capability_id is None else {"i": capability_id, "a": {}},
+            "f": answer,
+            "q": None,
+            "r": None,
+        }
+    )
+
+
+def _reachable_monitor(*_args: object, **_kwargs: object) -> EnvironmentFingerprint:
+    return EnvironmentFingerprint(
+        target="monitor",
+        config_hash="test",
+        reachable=True,
+        backend_type="local",
+        os_family="linux",
+        init_system="systemd",
+        privilege_level="test",
+        available_binaries=frozenset({"lscpu", "free"}),
+        has_procfs=True,
+        has_sysfs=True,
+    )
 
 
 def _state() -> AppState:
@@ -60,6 +113,97 @@ def test_prepare_query_reuses_only_the_same_session_agent() -> None:
     assert alpha_agent.conversation_store is state.web_sessions["alpha"]
     assert beta_agent.conversation_store is state.web_sessions["beta"]
     assert len(created_agents) == 2
+
+
+def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    target_store = tmp_path / "targets.json"
+    target_store.write_text(json.dumps({"targets": {"monitor": {"backend": "local"}}}))
+    alpha = create_deterministic_agent(
+        target_store_path=str(target_store),
+        assessment_adapter=_QueuedAssessmentModel(
+            [
+                _wire("action", capability_id="host.get_cpu"),
+                _wire("action", capability_id="host.get_cpu"),
+                _wire("final", answer="CPU observed for monitor."),
+                _wire("action", capability_id="host.get_memory"),
+                _wire("action", capability_id="host.get_memory"),
+                _wire("final", answer="Memory observed for monitor."),
+            ]
+        ),
+    )
+    beta = create_deterministic_agent(
+        target_store_path=str(target_store),
+        assessment_adapter=_QueuedAssessmentModel(
+            [_wire("final", answer="Beta has no inherited target.")]
+        ),
+    )
+    state = _state()
+    state.target_store_path = str(target_store)
+    agents = [alpha, beta]
+
+    def build_agent(**kwargs: object):
+        agent = agents.pop(0)
+        agent.conversation_store = kwargs["conversation_store"]
+        return agent
+
+    def execute_linux(_tool: object, arguments: dict[str, object]) -> ToolResult:
+        data = (
+            {"logical_cores": 4}
+            if arguments["action"] == "get_cpu"
+            else {"total_bytes": 100, "used_bytes": 40, "available_bytes": 60}
+        )
+        return ToolResult(
+            success=True,
+            data=data,
+            capability_status=CapabilityStatus.VALID,
+        )
+
+    monkeypatch.setattr(
+        "src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor
+    )
+    monkeypatch.setattr("src.tool.linux_tool.LinuxTool.execute", execute_linux)
+    with (
+        mock.patch(
+            "src.backend.dependencies.SQLiteConversationStore",
+            side_effect=lambda session_id, **_kwargs: ConversationStore(
+                session_id, store_dir=str(tmp_path)
+            ),
+        ),
+        mock.patch(
+            "src.backend.dependencies.create_deterministic_agent",
+            side_effect=build_agent,
+        ),
+    ):
+        _, alpha_agent, alpha_lock = state.prepare_query("alpha")
+        _, beta_agent, beta_lock = state.prepare_query("beta")
+
+    assert (
+        alpha_agent.run_with_steps("Inspect monitor.")["response"]
+        == "CPU observed for monitor."
+    )
+    alpha_follow_up = alpha_agent.run_with_steps("What about memory?")
+    beta_result = beta_agent.run_with_steps("What about memory?")
+
+    assert alpha_follow_up["response"] == "Memory observed for monitor."
+    assert beta_result["response"] == "Beta has no inherited target."
+    assert state.web_sessions["alpha"].investigation_context.active_target == "monitor"
+    assert state.web_sessions["beta"].investigation_context.active_target is None
+    assert alpha_follow_up["execution_trace"]["runtime_metrics"]["controller_loop"][
+        "controller_metrics"
+    ]["target_ids"] == ["monitor"]
+    assert (
+        beta_result["execution_trace"]["runtime_metrics"]["controller_loop"][
+            "controller_metrics"
+        ]["target_ids"]
+        == []
+    )
+    assert alpha_agent is not beta_agent
+    assert alpha_lock is not beta_lock
+    assert alpha_agent._evidence_cache is not beta_agent._evidence_cache
+    assert alpha_agent._usage_recorder is not beta_agent._usage_recorder
 
 
 def test_query_returns_generated_session_id_from_isolated_agent() -> None:

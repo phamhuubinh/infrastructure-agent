@@ -59,6 +59,8 @@ def _controller_wire(
     capability_id: str | None = None,
     arguments: dict[str, object] | None = None,
     answer: str | None = None,
+    clarification_question: str | None = None,
+    refusal_reason: str | None = None,
 ) -> str:
     return json.dumps(
         {
@@ -71,9 +73,9 @@ def _controller_wire(
                 if capability_id is None
                 else {"i": capability_id, "a": arguments or {}}
             ),
-            "f": answer,
-            "q": None,
-            "r": None,
+            "f": answer if kind == "final" else None,
+            "q": clarification_question if kind == "clarify" else None,
+            "r": refusal_reason if kind == "refuse" else None,
         }
     )
 
@@ -99,9 +101,7 @@ def _calculator_arguments() -> dict[str, object]:
 
 def _write_monitor_target(tmp_path: Path) -> Path:
     target_store = tmp_path / "targets.json"
-    target_store.write_text(
-        json.dumps({"targets": {"monitor": {"backend": "local"}}})
-    )
+    target_store.write_text(json.dumps({"targets": {"monitor": {"backend": "local"}}}))
     return target_store
 
 
@@ -138,6 +138,157 @@ def test_runtime_factory_wires_configured_test_adapter_into_controller_primary(
     assert agent._semantic_planner is None
     assert execute.call_count == 0
     assert [call.kind for call in model.calls] == ["response"]
+
+
+def test_v2_direct_final_preserves_public_shape_and_final_sanitizer(
+    tmp_path: Path,
+) -> None:
+    raw_request = "Explain controller output REQUEST_SECRET_SENTINEL"
+    raw_secret = "RAW_FINAL_SECRET_SENTINEL"
+    model = ScriptedAssessmentModel(
+        draft=_controller_json(f"Visible final answer. token={raw_secret}")
+    )
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=model,
+    )
+
+    result = agent.run_with_steps(raw_request)
+
+    assert set(result) == {
+        "response",
+        "steps",
+        "investigation",
+        "trace_id",
+        "execution_trace",
+    }
+    assert result["response"] == "Visible final answer. token=<redacted>"
+    assert result["response"].count("Visible final answer.") == 1
+    assert result["steps"] == []
+    assert isinstance(result["trace_id"], str)
+    assert result["execution_trace"]["trace_id"] == result["trace_id"]
+    assert result["execution_trace"]["user_request"] == ""
+    assert result["execution_trace"]["routing_status"] == "RESOLVED"
+    assert result["execution_trace"]["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert result["execution_trace"]["response_metrics"] == {
+        "character_count": len(result["response"]),
+        "byte_count": len(result["response"].encode("utf-8")),
+        "estimated_output_tokens": 10,
+        "input_tokens": None,
+        "budget_class": "concise",
+        "max_output_tokens": 500,
+    }
+    rendered = json.dumps(result)
+    assert raw_request not in rendered
+    assert raw_secret not in rendered
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected_status", "expected_text"),
+    (
+        (
+            '{"name":"CI","on":["push"],"jobs":{"deploy":{"runs-on":"ubuntu-latest","steps":[{"run":"systemctl restart nginx"}]}}}',
+            "SUCCEEDED",
+            "systemctl restart nginx",
+        ),
+        ("name: [unclosed", "FAILED", "Validation warning"),
+    ),
+)
+def test_v2_final_uses_existing_artifact_validation_without_action_authority(
+    tmp_path: Path,
+    answer: str,
+    expected_status: str,
+    expected_text: str,
+) -> None:
+    model = ScriptedAssessmentModel(draft=_controller_json(answer))
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=model,
+    )
+    assert agent._controller_loop is not None
+    dispatch = mock.Mock(side_effect=AssertionError("generated text must not execute"))
+    agent._controller_loop._executor._knowledge_tool.execute = dispatch
+
+    result = agent.run_with_steps("Generate a GitHub Actions workflow YAML.")
+
+    assert expected_text in result["response"]
+    assert (
+        result["execution_trace"]["stages"]["artifact_validation"]["status"]
+        == expected_status
+    )
+    assert result["execution_trace"]["response_strategy"] == "ARTIFACT_GENERATION"
+    assert result["execution_trace"]["response_metrics"]["budget_class"] == "artifact"
+    assert result["execution_trace"]["response_metrics"]["max_output_tokens"] == 3000
+    assert (
+        result["execution_trace"]["runtime_metrics"]["controller_loop"][
+            "action_budget"
+        ]["actions_used"]
+        == 0
+    )
+    dispatch.assert_not_called()
+
+
+def test_v2_clarify_keeps_artifact_looking_request_out_of_finalization(
+    tmp_path: Path,
+) -> None:
+    clarification = "Please provide the deployment environment."
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=_QueuedAssessmentModel(
+            [_controller_wire("clarify", clarification_question=clarification)]
+        ),
+    )
+
+    result = agent.run_with_steps(
+        "Generate a GitHub Actions workflow YAML for my deployment."
+    )
+
+    trace = result["execution_trace"]
+    assert result["response"] == clarification
+    assert result["steps"] == []
+    assert trace["answer_strategy"] == "CLARIFICATION"
+    assert trace["response_strategy"] == "CLARIFICATION_REFUSAL"
+    assert trace["routing_status"] == "CLARIFICATION_REQUIRED"
+    assert trace["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert trace["response_metrics"]["budget_class"] == "concise"
+    assert "artifact_validation" not in trace["stages"]
+
+
+def test_v2_refuse_keeps_artifact_looking_request_out_of_finalization(
+    tmp_path: Path,
+) -> None:
+    refusal = "I cannot provide that deployment artifact."
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=_QueuedAssessmentModel(
+            [_controller_wire("refuse", refusal_reason=refusal)]
+        ),
+    )
+    assert agent._controller_loop is not None
+    dispatch = mock.Mock(side_effect=AssertionError("refusal must not dispatch"))
+    agent._controller_loop._executor._knowledge_tool.execute = dispatch
+
+    result = agent.run_with_steps(
+        "Generate a GitHub Actions workflow YAML for my deployment."
+    )
+
+    trace = result["execution_trace"]
+    assert result["response"] == refusal
+    assert result["response"].count(refusal) == 1
+    assert result["steps"] == []
+    assert trace["answer_strategy"] == "REFUSAL"
+    assert trace["response_strategy"] == "CLARIFICATION_REFUSAL"
+    assert trace["routing_status"] == "UNSUPPORTED"
+    assert trace["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert "artifact_validation" not in trace["stages"]
+    assert (
+        trace["runtime_metrics"]["controller_loop"]["action_budget"]["actions_used"]
+        == 0
+    )
+    assert (
+        trace["runtime_metrics"]["controller_loop"]["action_budget"]["tools_used"] == 0
+    )
+    dispatch.assert_not_called()
 
 
 def test_runtime_factory_reuses_assessment_fallback_order_for_controller(
@@ -209,6 +360,10 @@ def test_configured_hard_safety_preempts_reset_and_controller_provider(
     assert controller["action_budget"]["tools_used"] == 0
     if "API keys" in user_request:
         assert user_request not in json.dumps(result["execution_trace"])
+    trace = result["execution_trace"]
+    assert controller["run_state"]["mc"] == 0
+    assert trace["llm_usage_reason"] == "NONE"
+    assert trace["routing_status"] == "UNSUPPORTED"
 
 
 def test_runtime_factory_shares_disabled_internet_verifier_with_v2_executor(
@@ -258,7 +413,9 @@ def test_configured_runtime_host_action_uses_controller_v2_only(
             capability_status=CapabilityStatus.VALID,
         )
 
-    monkeypatch.setattr("src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor)
+    monkeypatch.setattr(
+        "src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor
+    )
     monkeypatch.setattr("src.tool.linux_tool.LinuxTool.execute", execute_linux)
     agent._execution_engine.execute = mock.Mock(
         side_effect=AssertionError("legacy ExecutionEngine must not run")
@@ -275,6 +432,18 @@ def test_configured_runtime_host_action_uses_controller_v2_only(
     controller = result["execution_trace"]["runtime_metrics"]["controller_loop"]
     assert controller["action_budget"]["actions_used"] == 1
     assert controller["action_budget"]["tools_used"] == 1
+    assert len(result["steps"]) == 1
+    step = result["steps"][0]
+    assert step["type"] == "evidence"
+    assert step["capability_id"] == "host.get_cpu"
+    assert step["status"] == "success"
+    assert step["target_id"] == "monitor"
+    assert step["source_id"] == "monitor"
+    assert step["provenance_references"]
+    assert "logical_cores" not in json.dumps(step)
+    assert "raw" not in json.dumps(step)
+    assert controller["controller_metrics"]["capability_ids"] == ["host.get_cpu"]
+    assert controller["controller_metrics"]["target_ids"] == ["monitor"]
 
 
 def test_configured_runtime_calculator_uses_reviewed_v2_observation_only(
@@ -426,7 +595,9 @@ def test_configured_runtime_follow_up_inherits_controller_target(
             capability_status=CapabilityStatus.VALID,
         )
 
-    monkeypatch.setattr("src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor)
+    monkeypatch.setattr(
+        "src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor
+    )
     monkeypatch.setattr("src.tool.linux_tool.LinuxTool.execute", execute_linux)
     monkeypatch.setattr(
         Normalizer,
@@ -437,7 +608,10 @@ def test_configured_runtime_follow_up_inherits_controller_target(
         side_effect=AssertionError("semantic planner must not run")
     )
 
-    assert agent.run_with_steps("Inspect monitor.")["response"] == "CPU observed for monitor."
+    assert (
+        agent.run_with_steps("Inspect monitor.")["response"]
+        == "CPU observed for monitor."
+    )
     result = agent.run_with_steps("What about memory?")
 
     assert result["response"] == "Memory observed for monitor."
@@ -474,6 +648,10 @@ def test_configured_runtime_malformed_controller_fails_closed_without_legacy_fal
     assert controller["run_state"]["mc"] == 1
     assert controller["action_budget"]["actions_used"] == 0
     assert controller["action_budget"]["tools_used"] == 0
+    assert result["execution_trace"]["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert result["execution_trace"]["routing_status"] == "UNSUPPORTED"
+    assert result["execution_trace"]["llm_usage_reason"] == "EXPECTED_ASSESSMENT"
+    assert result["execution_trace"]["routing_status"] == "UNSUPPORTED"
 
 
 def test_configured_runtime_never_reconnects_semantic_request_hints(
@@ -500,18 +678,23 @@ def test_configured_runtime_never_reconnects_semantic_request_hints(
         "src.model.protocol.semantic_planner_prompt._request_hints",
         mock.Mock(side_effect=AssertionError("semantic request hints must not run")),
     )
-    monkeypatch.setattr("src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor)
+    monkeypatch.setattr(
+        "src.tool.target_registry.TargetRegistry.preflight", _reachable_monitor
+    )
     monkeypatch.setattr(
         "src.tool.linux_tool.LinuxTool.execute",
         lambda _tool, _arguments: ToolResult(
             success=True,
-                data={"logical_cores": 4},
+            data={"logical_cores": 4},
             capability_status=CapabilityStatus.VALID,
         ),
     )
 
     assert direct.run_with_steps("Explain this.")["response"] == "Direct v2 response."
-    assert host.run_with_steps("Inspect monitor.")["response"] == "Host v2 response for monitor."
+    assert (
+        host.run_with_steps("Inspect monitor.")["response"]
+        == "Host v2 response for monitor."
+    )
 
 
 @pytest.mark.parametrize(

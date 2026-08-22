@@ -14,6 +14,7 @@ from src.agent.controller_loop_coordinator import (
     AgentControllerLoopCoordinator,
     AgentControllerLoopRecordStatus,
     AgentControllerLoopResult,
+    AgentControllerLoopState,
 )
 from src.agent.final_response_guard import (
     FinalResponseConstraints,
@@ -218,7 +219,9 @@ class DeterministicAgent:
             if semantic_planner is not None
             else None
         )
-        if usage_recorder is not None and not isinstance(usage_recorder, ModelUsageRecorder):
+        if usage_recorder is not None and not isinstance(
+            usage_recorder, ModelUsageRecorder
+        ):
             raise TypeError("usage_recorder must be ModelUsageRecorder or None.")
         self._usage_recorder = usage_recorder or (
             ModelUsageRecorder() if semantic_planner is not None else None
@@ -3150,6 +3153,32 @@ class DeterministicAgent:
         its bounded, credential-safe coordinator trace.
         """
 
+        terminal_reason = next(
+            (
+                record.reason_code
+                for record in reversed(result.records)
+                if record.state is AgentControllerLoopState.DONE
+            ),
+            None,
+        )
+        sensitive_request = sensitive_refusal(user_request) is not None
+        model_was_called = result.run_state.model_call_count > 0
+        accepted_final = (
+            result.succeeded and not sensitive_request and terminal_reason == "final"
+        )
+        artifact_validation: dict[str, object] | None = None
+        response_text = result.response_text
+        if accepted_final:
+            # A controller FINAL is still untrusted model-authored content.
+            # It must use the same parse-only artifact/config validation
+            # boundary as every other public generation path; this does not
+            # grant the controller execution authority.
+            response_text, artifact_validation = self._finalize_model_response(
+                user_request,
+                response_text,
+                apply_short=self._answer_shape_is_short(user_request),
+            )
+
         stages = {
             f"controller_{record.state.value}": StageTrace(
                 name=record.state.value,
@@ -3162,9 +3191,11 @@ class DeterministicAgent:
             )
             for record in result.records
         }
-        sensitive_request = sensitive_refusal(user_request) is not None
+        stages.update(self._artifact_validation_stage(artifact_validation))
         trace = ExecutionTrace(
-            user_request="" if sensitive_request else user_request,
+            # Keep the established field while withholding the raw request
+            # from Agent v2's public trace projection.
+            user_request="",
             stages=stages,
             failure_stage=(
                 "safety_policy"
@@ -3177,25 +3208,41 @@ class DeterministicAgent:
                 else (result.failure.value if result.failure is not None else None)
             ),
             answer_strategy=(
-                AnswerStrategy.LLM_ASSESSMENT
-                if result.succeeded and not sensitive_request
-                else AnswerStrategy.REFUSAL
+                AnswerStrategy.CLARIFICATION
+                if terminal_reason == "clarify" and not sensitive_request
+                else (
+                    AnswerStrategy.REFUSAL
+                    if sensitive_request or terminal_reason == "refuse"
+                    else (
+                        AnswerStrategy.LLM_ASSESSMENT
+                        if result.succeeded
+                        else AnswerStrategy.REFUSAL
+                    )
+                )
             ),
             llm_usage_reason=(
                 LLMUsageReason.EXPECTED_ASSESSMENT
-                if result.succeeded and not sensitive_request
+                if model_was_called
                 else LLMUsageReason.NONE
             ),
             routing_status=(
-                RoutingStatus.RESOLVED
-                if result.succeeded and not sensitive_request
-                else RoutingStatus.UNSUPPORTED
+                RoutingStatus.UNSUPPORTED
+                if sensitive_request
+                else (
+                    RoutingStatus.RESOLVED
+                    if terminal_reason == "final"
+                    else (
+                        RoutingStatus.CLARIFICATION_REQUIRED
+                        if terminal_reason == "clarify"
+                        else RoutingStatus.UNSUPPORTED
+                    )
+                )
             ),
             evidence_status=EvidenceStatus.NOT_APPLICABLE,
             response_strategy=(
                 ResponseStrategy.CLARIFICATION_REFUSAL
-                if sensitive_request
-                else ResponseStrategy.GENERAL_EXPLANATION
+                if sensitive_request or terminal_reason in {"clarify", "refuse"}
+                else self._general_response_strategy(user_request)
             ),
             runtime_metrics={
                 "controller_loop": result.to_trace_dict(),
@@ -3207,12 +3254,39 @@ class DeterministicAgent:
             },
         ).to_dict()
         return {
-            "response": result.response_text,
-            "steps": [],
+            "response": response_text,
+            "steps": self._controller_public_steps(result),
             "investigation": None,
             "trace_id": trace["trace_id"],
             "execution_trace": trace,
         }
+
+    @staticmethod
+    def _controller_public_steps(
+        result: AgentControllerLoopResult,
+    ) -> list[dict[str, object]]:
+        """Project retained v2 action observations without evidence payloads.
+
+        The controller retains a bounded canonical observation sequence.  This
+        compatibility projection exposes only action/evidence metadata from
+        that sequence; discovery and harness-control observations are internal
+        coordination details, not public evidence steps.
+        """
+
+        return [
+            {
+                "type": "evidence",
+                "capability_id": observation.capability_id,
+                "status": observation.status.value,
+                "target_id": observation.target_id,
+                "source_id": observation.source_id,
+                "provenance_references": list(observation.provenance_references),
+                "reason_code": observation.reason_code,
+            }
+            for observation in result.run_state.observations
+            if not observation.capability_id.startswith("discovery.")
+            and observation.capability_id != "harness.control"
+        ]
 
     @staticmethod
     def _precontroller_control_payload(

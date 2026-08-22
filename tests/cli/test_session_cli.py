@@ -1,11 +1,31 @@
 from __future__ import annotations
 
+import argparse
 import importlib
+import io
+import json
 from unittest import mock
 
+from src.agent.runtime_factory import create_deterministic_agent
 from src.cli.main import _list_saved_sessions, _print_saved_sessions
+from tests.fixtures.fake_models import ScriptedAssessmentModel
 
 cli_main = importlib.import_module("src.cli.main")
+
+
+def _controller_final(answer: str) -> str:
+    return json.dumps(
+        {
+            "v": 1,
+            "k": "final",
+            "g": "Answer the request.",
+            "c": None,
+            "a": None,
+            "f": answer,
+            "q": None,
+            "r": None,
+        }
+    )
 
 
 def _session(
@@ -97,9 +117,7 @@ def test_postgres_copy_wins_when_session_exists_in_both_stores() -> None:
             return_value=[sqlite_session],
         ),
         mock.patch("src.backend.db._get_dsn", return_value="postgresql://orion"),
-        mock.patch(
-            "src.backend.db.list_sessions_db", return_value=[postgres_session]
-        ),
+        mock.patch("src.backend.db.list_sessions_db", return_value=[postgres_session]),
     ):
         result = _list_saved_sessions()
 
@@ -123,3 +141,32 @@ def test_print_saved_sessions_prefers_title(capsys) -> None:
     assert "Title / Preview" in output
     assert "Saved title" in output
     assert "first question" not in output
+
+
+def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    agent = create_deterministic_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        assessment_adapter=ScriptedAssessmentModel(
+            draft=_controller_final("CLI final answer.")
+        ),
+    )
+    args = argparse.Namespace(
+        resume="cli-v2",
+        target_file=str(tmp_path / "targets.json"),
+        server=None,
+        model=None,
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO("hello from CLI\n"))
+
+    with (
+        mock.patch.object(cli_main, "SQLiteConversationStore"),
+        mock.patch.object(cli_main, "create_deterministic_agent", return_value=agent),
+    ):
+        cli_main._run_agent(args)
+
+    output = capsys.readouterr().out
+    assert output.count("CLI final answer.") == 1
+    assert '"k":"final"' not in output
+    assert "controller_prompt_metadata" not in output
