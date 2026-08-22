@@ -144,7 +144,9 @@ def test_large_evidence_is_bounded_and_excludes_raw_execution_payloads() -> None
     assert observation.status is AgentObservationStatus.PARTIAL
     assert "partial evidence" in (observation.summary or "")
     assert len(observation.facts) <= MAX_FACTS_PER_AGENT_OBSERVATION
-    assert all(fact["value"] == {"value_omitted": "oversize"} for fact in observation.facts)
+    assert all(
+        fact["value"] == {"value_omitted": "oversize"} for fact in observation.facts
+    )
     for forbidden in (
         "fixture-secret",
         "cat /etc/shadow",
@@ -180,6 +182,39 @@ def test_evidence_preserves_identity_and_compact_canonical_provenance() -> None:
     assert observation.provenance_references == (fact.provenance.id,)
     assert "command_ids" not in compact
     assert "parameters" not in compact
+
+
+def test_compact_external_fact_retains_safe_provider_only() -> None:
+    original = _fact(1)
+    fact = Fact(
+        subject=original.subject,
+        metric=original.metric,
+        value=original.value,
+        unit=original.unit,
+        observed_at=original.observed_at,
+        collected_at=original.collected_at,
+        source="internet",
+        target="example.com",
+        validity=original.validity,
+        freshness=original.freshness,
+        confidence=original.confidence,
+        provenance=Provenance(
+            source="internet",
+            capability="web_fetch",
+            target="example.com",
+            observed_at=NOW,
+            source_reference="https://example.com/release",
+        ),
+        dimensions={"provider": "fixture-search", "endpoint": "https://secret.example"},
+    )
+    observation = serialize_execution_observation(
+        12,
+        _execution(EvidencePackage("internet.current", "current", facts=(fact,))),
+    )
+
+    compact = observation.facts[0]
+    assert compact["provider"] == "fixture-search"
+    assert "endpoint" not in compact
 
 
 def test_priority_preserves_contradiction_before_ordinary_facts() -> None:

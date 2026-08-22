@@ -121,16 +121,18 @@ def test_explicit_unknown_target_never_defaults_to_localhost() -> None:
 
 def test_target_mismatch_is_not_silently_corrected() -> None:
     result = _validate(
-        AgentAction("internet.web_search", {"query": "Orion"}),
+        AgentAction("internet.current", {"query": "Orion"}),
         HardRequestConstraints(
-            explicit_target=HardTargetReference("localhost", registered_target="localhost")
+            explicit_target=HardTargetReference(
+                "localhost", registered_target="localhost"
+            )
         ),
         internet=True,
     )
 
     assert result.status is AgentActionValidationStatus.REJECT
     assert result.reason is AgentActionValidationReason.TARGET_MISMATCH
-    assert result.capability_id == "internet.web_search"
+    assert result.capability_id == "internet.current"
 
 
 @pytest.mark.parametrize("source", ("grafana", "zabbix"))
@@ -147,7 +149,9 @@ def test_source_backed_monitoring_capability_rejects_linux_machine_target(
     assert result.target_id is None
 
 
-def test_source_backed_grafana_capability_uses_source_authority_not_machine_target() -> None:
+def test_source_backed_grafana_capability_uses_source_authority_not_machine_target() -> (
+    None
+):
     result = _validate(
         AgentAction("grafana.dashboards"),
         HardRequestConstraints(source_constraints=(SourceConstraint.GRAFANA,)),
@@ -165,7 +169,9 @@ def test_grafana_only_and_source_exclusions_reject_host_capability() -> None:
     grafana_only = _validate(
         action,
         HardRequestConstraints(
-            explicit_target=HardTargetReference("localhost", registered_target="localhost"),
+            explicit_target=HardTargetReference(
+                "localhost", registered_target="localhost"
+            ),
             source_constraints=(SourceConstraint.GRAFANA,),
         ),
         grafana=True,
@@ -173,7 +179,9 @@ def test_grafana_only_and_source_exclusions_reject_host_capability() -> None:
     excluded = _validate(
         action,
         HardRequestConstraints(
-            explicit_target=HardTargetReference("localhost", registered_target="localhost"),
+            explicit_target=HardTargetReference(
+                "localhost", registered_target="localhost"
+            ),
             excluded_sources=(SourceConstraint.LINUX,),
         ),
     )
@@ -190,22 +198,22 @@ def test_url_only_and_literal_url_authority_are_enforced() -> None:
     )
 
     search = _validate(
-        AgentAction("internet.web_search", {"query": "Orion release"}),
+        AgentAction("internet.current", {"query": "Orion release"}),
         url_only,
         internet=True,
     )
     matching_fetch = _validate(
-        AgentAction("internet.web_fetch", {"url": literal_url}),
+        AgentAction("internet.fetch_url", {"url": literal_url}),
         url_only,
         internet=True,
     )
     different_fetch = _validate(
-        AgentAction("internet.web_fetch", {"url": "https://example.com/other"}),
+        AgentAction("internet.fetch_url", {"url": "https://example.com/other"}),
         url_only,
         internet=True,
     )
     ordinary_search = _validate(
-        AgentAction("internet.web_search", {"query": "Orion release"}),
+        AgentAction("internet.current", {"query": "Orion release"}),
         HardRequestConstraints(),
         internet=True,
     )
@@ -215,6 +223,29 @@ def test_url_only_and_literal_url_authority_are_enforced() -> None:
     assert different_fetch.status is AgentActionValidationStatus.REJECT
     assert different_fetch.reason is AgentActionValidationReason.URL_INVALID
     assert ordinary_search.status is AgentActionValidationStatus.VALID
+
+
+def test_explicit_url_requires_exact_fetch_url_action() -> None:
+    url = "https://example.com/release"
+    constraints = HardRequestConstraints(explicit_url=url)
+
+    current = _validate(
+        AgentAction("internet.current", {"query": "release"}),
+        constraints,
+        internet=True,
+    )
+    wrong = _validate(
+        AgentAction("internet.fetch_url", {"url": "https://example.com/other"}),
+        constraints,
+        internet=True,
+    )
+    exact = _validate(
+        AgentAction("internet.fetch_url", {"url": url}), constraints, internet=True
+    )
+
+    assert current.reason is AgentActionValidationReason.URL_INVALID
+    assert wrong.reason is AgentActionValidationReason.URL_INVALID
+    assert exact.status is AgentActionValidationStatus.VALID
 
 
 def test_argument_schema_enforces_required_type_enum_bounds_and_declared_fields(
@@ -275,12 +306,30 @@ def test_argument_schema_enforces_required_type_enum_bounds_and_declared_fields(
             AgentActionToolBudget(),
         )
 
-    assert validate({"mode": "safe"}).reason is AgentActionValidationReason.ARGUMENT_REQUIRED
-    assert validate({"count": "1", "mode": "safe"}).reason is AgentActionValidationReason.ARGUMENT_INVALID
-    assert validate({"count": 4, "mode": "safe"}).reason is AgentActionValidationReason.ARGUMENT_INVALID
-    assert validate({"count": 1, "mode": "unsafe"}).reason is AgentActionValidationReason.ARGUMENT_INVALID
-    assert validate({"count": 1, "mode": "safe", "extra": 1}).reason is AgentActionValidationReason.ARGUMENT_UNDECLARED
-    assert validate({"count": 1, "mode": "safe"}).status is AgentActionValidationStatus.VALID
+    assert (
+        validate({"mode": "safe"}).reason
+        is AgentActionValidationReason.ARGUMENT_REQUIRED
+    )
+    assert (
+        validate({"count": "1", "mode": "safe"}).reason
+        is AgentActionValidationReason.ARGUMENT_INVALID
+    )
+    assert (
+        validate({"count": 4, "mode": "safe"}).reason
+        is AgentActionValidationReason.ARGUMENT_INVALID
+    )
+    assert (
+        validate({"count": 1, "mode": "unsafe"}).reason
+        is AgentActionValidationReason.ARGUMENT_INVALID
+    )
+    assert (
+        validate({"count": 1, "mode": "safe", "extra": 1}).reason
+        is AgentActionValidationReason.ARGUMENT_UNDECLARED
+    )
+    assert (
+        validate({"count": 1, "mode": "safe"}).status
+        is AgentActionValidationStatus.VALID
+    )
 
 
 def test_mutating_capability_and_mutating_argument_are_rejected(
@@ -328,8 +377,14 @@ def test_mutating_capability_and_mutating_argument_are_rejected(
     def validate(action: AgentAction):
         return validator.validate(action, _host_constraints(), AgentActionToolBudget())
 
-    assert validate(AgentAction("host.mutating_fixture")).reason is AgentActionValidationReason.CAPABILITY_MUTATING
-    assert validate(AgentAction("host.read_name", {"name": "rm -rf /tmp/x"})).reason is AgentActionValidationReason.ARGUMENT_UNSAFE
+    assert (
+        validate(AgentAction("host.mutating_fixture")).reason
+        is AgentActionValidationReason.CAPABILITY_MUTATING
+    )
+    assert (
+        validate(AgentAction("host.read_name", {"name": "rm -rf /tmp/x"})).reason
+        is AgentActionValidationReason.ARGUMENT_UNSAFE
+    )
 
 
 def test_budget_exhaustion_and_validator_dependency_boundary(
@@ -338,7 +393,9 @@ def test_budget_exhaustion_and_validator_dependency_boundary(
     import src.pipeline.normalizer as normalizer
     import src.pipeline.request_semantics as request_semantics
 
-    monkeypatch.setattr(normalizer, "Normalizer", lambda: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(
+        normalizer, "Normalizer", lambda: (_ for _ in ()).throw(AssertionError)
+    )
     monkeypatch.setattr(
         request_semantics,
         "RequestSemanticsClassifier",
@@ -352,7 +409,9 @@ def test_budget_exhaustion_and_validator_dependency_boundary(
         _host_constraints(),
         AgentActionToolBudget(max_actions=1, actions_used=1),
     )
-    valid_result = validator.validate(action, _host_constraints(), AgentActionToolBudget())
+    valid_result = validator.validate(
+        action, _host_constraints(), AgentActionToolBudget()
+    )
 
     assert budget_result.status is AgentActionValidationStatus.UNAVAILABLE
     assert budget_result.reason is AgentActionValidationReason.BUDGET_EXHAUSTED

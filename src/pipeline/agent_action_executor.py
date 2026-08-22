@@ -24,6 +24,9 @@ from src.pipeline.basic_calculator import (
 from src.pipeline.calculator_action_contract import CALCULATOR_CAPABILITY_ID
 from src.pipeline.evidence_merge import EvidenceMerge
 from src.pipeline.evidence_package import EvidencePackage
+from src.pipeline.external_verification import ExternalVerificationExecutor
+from src.pipeline.hard_request_constraints import HardRequestConstraints
+from src.pipeline.internet_action_contract import InternetActionKind
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 from src.tool.errors import internal_error
@@ -86,16 +89,27 @@ class _BoundRoute:
 class AgentActionExecutor:
     """Dispatch exactly one valid v2 action through the reviewed tool boundary."""
 
-    def __init__(self, knowledge_tool: KnowledgeTool) -> None:
+    def __init__(
+        self,
+        knowledge_tool: KnowledgeTool,
+        external_verification_executor: ExternalVerificationExecutor | None = None,
+    ) -> None:
         if not isinstance(knowledge_tool, KnowledgeTool):
             raise TypeError("knowledge_tool must be a KnowledgeTool.")
         self._knowledge_tool = knowledge_tool
         self._evidence_merge = EvidenceMerge()
+        self._external_verification = (
+            external_verification_executor
+            or ExternalVerificationExecutor(knowledge_tool)
+        )
 
     def execute(
         self,
         validation: AgentActionValidationResult,
         budget: AgentActionToolBudget,
+        *,
+        raw_request: str | None = None,
+        hard_constraints: HardRequestConstraints | None = None,
     ) -> AgentActionExecutionResult:
         """Execute one valid action, consuming the v2 budget only on dispatch."""
 
@@ -118,6 +132,14 @@ class AgentActionExecutor:
 
         if validation.capability_id == CALCULATOR_CAPABILITY_ID:
             return self._calculate(validation, budget)
+
+        if validation.internet_request is not None:
+            return self._execute_internet(
+                validation,
+                budget,
+                raw_request=raw_request,
+                hard_constraints=hard_constraints,
+            )
 
         route = self._bind_exact_route(validation)
         if route is None:
@@ -180,6 +202,61 @@ class AgentActionExecutor:
             reason=AgentActionExecutionReason.CALCULATED,
             budget=next_budget,
             calculator_result=result,
+            dispatched=True,
+        )
+
+    def _execute_internet(
+        self,
+        validation: AgentActionValidationResult,
+        budget: AgentActionToolBudget,
+        *,
+        raw_request: str | None,
+        hard_constraints: HardRequestConstraints | None,
+    ) -> AgentActionExecutionResult:
+        request = validation.internet_request
+        source_id = validation.source_id
+        if (
+            request is None
+            or source_id is None
+            or not isinstance(raw_request, str)
+            or not raw_request.strip()
+            or not isinstance(hard_constraints, HardRequestConstraints)
+        ):
+            return self._not_executed(
+                validation,
+                budget,
+                AgentActionExecutionReason.CAPABILITY_BINDING_UNAVAILABLE,
+            )
+        # The action budget is consumed once for the reviewed high-level
+        # action, before its bounded internal search/fetch workflow begins.
+        next_budget = budget.after_execution()
+        if request.kind is InternetActionKind.CURRENT:
+            outcome = self._external_verification.collect_current_action(
+                source_id=source_id,
+                query=request.query or "",
+                user_request=raw_request,
+                freshness_required=hard_constraints.requires_fresh_evidence,
+            )
+        else:
+            outcome = self._external_verification.collect_url_action(
+                source_id=source_id,
+                url=request.url or "",
+                user_request=raw_request,
+                freshness_required=hard_constraints.requires_fresh_evidence,
+            )
+        evidence = self._external_verification.action_evidence(outcome)
+        status = {
+            CapabilityStatus.VALID: AgentActionExecutionStatus.SUCCESS,
+            CapabilityStatus.VALID_EMPTY: AgentActionExecutionStatus.SUCCESS,
+            CapabilityStatus.PARTIAL: AgentActionExecutionStatus.PARTIAL,
+        }.get(evidence.capability_status, AgentActionExecutionStatus.FAILURE)
+        return AgentActionExecutionResult(
+            validation=validation,
+            status=status,
+            reason=AgentActionExecutionReason.DISPATCHED,
+            budget=next_budget,
+            source_id=source_id,
+            evidence=evidence,
             dispatched=True,
         )
 

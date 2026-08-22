@@ -26,6 +26,12 @@ from src.pipeline.capability_summary_index import (
     CapabilityTargetKind,
 )
 from src.pipeline.hard_request_constraints import HardRequestConstraints
+from src.pipeline.internet_action_contract import (
+    INTERNET_CURRENT_CAPABILITY_ID,
+    INTERNET_FETCH_URL_CAPABILITY_ID,
+    internet_current_arguments_schema,
+    internet_fetch_url_arguments_schema,
+)
 from src.pipeline.request_semantics import SourceConstraint
 from src.tool.knowledge_tool import KnowledgeTool
 
@@ -141,10 +147,18 @@ class ControllerCapabilityDiscovery:
         if not isinstance(knowledge_tool, KnowledgeTool):
             raise TypeError("knowledge_tool must be a KnowledgeTool.")
         details_by_id: dict[str, _Detail] = {}
+        internet_resources: dict[str, set[str]] = {}
         metadata = knowledge_tool.get_capability_metadata()
         for source in sorted(metadata):
             category = _category_for_source_kind(knowledge_tool.source_kind(source))
             if category is None:
+                continue
+            if category == "internet":
+                internet_resources[source] = {
+                    name
+                    for entry in metadata[source]
+                    if isinstance((name := entry.get("name")), str)
+                }
                 continue
             for entry in sorted(metadata[source], key=_metadata_name):
                 detail = _detail_from_metadata(category, entry)
@@ -159,6 +173,7 @@ class ControllerCapabilityDiscovery:
                         existing, source_ids=existing.source_ids + (source,)
                     )
         details = list(details_by_id.values())
+        details.extend(_internet_action_details(internet_resources))
         details.append(_calculator_detail())
         configured_categories = {detail.category for detail in details}
         details.extend(_unavailable_category_details(configured_categories))
@@ -276,6 +291,60 @@ def _calculator_detail() -> _Detail:
         "calculator",
         replace(summary, typed_arguments_required=True),
         calculator_arguments_schema(),
+    )
+
+
+def _internet_action_details(resources: Mapping[str, set[str]]) -> tuple[_Detail, ...]:
+    """Project reviewed actions, never the InternetTool primitives themselves."""
+
+    default = CapabilitySummaryIndex.default()
+    current = next(
+        summary
+        for summary in default.summaries
+        if summary.capability_id == INTERNET_CURRENT_CAPABILITY_ID
+    )
+    fetch = next(
+        summary
+        for summary in default.summaries
+        if summary.capability_id == INTERNET_FETCH_URL_CAPABILITY_ID
+    )
+    fetch_sources = tuple(
+        source for source, names in sorted(resources.items()) if "web_fetch" in names
+    )
+    current_sources = tuple(
+        source
+        for source, names in sorted(resources.items())
+        if {"web_search", "web_fetch"}.issubset(names)
+    )
+    return (
+        _Detail(
+            "internet",
+            replace(
+                current,
+                availability=(
+                    CapabilityAvailability.AVAILABLE
+                    if current_sources
+                    else CapabilityAvailability.UNAVAILABLE
+                ),
+                typed_arguments_required=True,
+            ),
+            internet_current_arguments_schema(),
+            current_sources,
+        ),
+        _Detail(
+            "internet",
+            replace(
+                fetch,
+                availability=(
+                    CapabilityAvailability.AVAILABLE
+                    if fetch_sources
+                    else CapabilityAvailability.UNAVAILABLE
+                ),
+                typed_arguments_required=True,
+            ),
+            internet_fetch_url_arguments_schema(),
+            fetch_sources,
+        ),
     )
 
 

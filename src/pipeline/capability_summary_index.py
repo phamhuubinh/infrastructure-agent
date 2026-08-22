@@ -174,6 +174,14 @@ class CapabilitySummaryIndex:
                     state(CapabilitySourceFamily.INTERNET),
                 ),
                 CapabilitySummary(
+                    "internet.fetch_url",
+                    "Verify one public URL",
+                    CapabilitySourceFamily.INTERNET,
+                    CapabilityTargetKind.EXTERNAL,
+                    CapabilityDataKind.CURRENT_EXTERNAL,
+                    state(CapabilitySourceFamily.INTERNET),
+                ),
+                CapabilitySummary(
                     "compute.deterministic",
                     "Perform exact deterministic computation",
                     CapabilitySourceFamily.COMPUTE,

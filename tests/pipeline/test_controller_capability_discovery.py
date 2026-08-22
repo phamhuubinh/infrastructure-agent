@@ -307,7 +307,7 @@ def test_disclosure_payloads_expose_no_command_credential_or_endpoint_fields() -
         "internet", HardRequestConstraints()
     ).to_payload()
     detail = discovery.selected_detail(
-        "internet.web_fetch", HardRequestConstraints()
+        "internet.fetch_url", HardRequestConstraints()
     ).to_payload()
 
     forbidden = {"command", "commands", "credential", "credentials", "endpoint", "url"}
@@ -316,3 +316,34 @@ def test_disclosure_payloads_expose_no_command_credential_or_endpoint_fields() -
     assert (
         "url" in detail["selected_capability_schema"]["arguments_schema"]["properties"]
     )
+
+
+def test_internet_discovery_exposes_only_reviewed_high_level_actions() -> None:
+    discovery = _discovery(internet=True)
+    result = discovery.discover("internet", HardRequestConstraints())
+
+    assert result.status is CapabilityDiscoveryStatus.DISCOVERED
+    assert [item["capability_id"] for item in result.summaries] == [
+        "internet.current",
+        "internet.fetch_url",
+    ]
+    assert (
+        discovery.selected_detail(
+            "internet.web_search", HardRequestConstraints()
+        ).status
+        is CapabilityDetailStatus.UNKNOWN_CAPABILITY
+    )
+    assert (
+        discovery.selected_detail("internet.web_fetch", HardRequestConstraints()).status
+        is CapabilityDetailStatus.UNKNOWN_CAPABILITY
+    )
+    current = discovery.selected_detail("internet.current", HardRequestConstraints())
+    fetch = discovery.selected_detail("internet.fetch_url", HardRequestConstraints())
+    assert current.selected_capability_schema is not None
+    assert fetch.selected_capability_schema is not None
+    assert set(
+        current.selected_capability_schema["arguments_schema"]["properties"]
+    ) == {"query"}
+    assert set(fetch.selected_capability_schema["arguments_schema"]["properties"]) == {
+        "url"
+    }

@@ -204,7 +204,9 @@ class AgentObservationSerializer:
         """Serialize already-sanitized future harness feedback without policy."""
 
         if status not in _UNHEALTHY_STATUSES:
-            raise ValueError("control feedback must use a non-success observation status.")
+            raise ValueError(
+                "control feedback must use a non-success observation status."
+            )
         return self._fit(
             action_id=action_id,
             capability_id=capability_id,
@@ -372,7 +374,9 @@ class AgentObservationSerializer:
                 recoverable,
             )
         if _observation_bytes(candidate) > MAX_AGENT_OBSERVATION_BYTES:
-            raise ValueError("Agent observation cannot fit without truncating identity.")
+            raise ValueError(
+                "Agent observation cannot fit without truncating identity."
+            )
         return candidate
 
 
@@ -460,7 +464,9 @@ def retain_agent_observations(
             -observation.action_id,
         )
 
-    selected = sorted(range(len(values)), key=priority)[:MAX_RETAINED_AGENT_OBSERVATIONS]
+    selected = sorted(range(len(values)), key=priority)[
+        :MAX_RETAINED_AGENT_OBSERVATIONS
+    ]
     return tuple(
         sorted((values[index] for index in selected), key=lambda item: item.action_id)
     )
@@ -517,10 +523,10 @@ def _capability_error_detail(
 ) -> tuple[str, bool, str | None]:
     if error is not None:
         return error.code.value, error.recoverable, _bounded_detail(error.message)
-    if (
-        observation_status is AgentObservationStatus.PARTIAL
-        and fallback_status in {CapabilityStatus.VALID, CapabilityStatus.VALID_EMPTY}
-    ):
+    if observation_status is AgentObservationStatus.PARTIAL and fallback_status in {
+        CapabilityStatus.VALID,
+        CapabilityStatus.VALID_EMPTY,
+    }:
         return "partial_evidence", False, None
     return fallback_status.value, False, None
 
@@ -534,8 +540,7 @@ def _evidence_summary(
     for item in (detail, *_bounded_warnings(warnings)):
         if (
             item is not None
-            and len("; ".join((*pieces, item)))
-            <= MAX_AGENT_OBSERVATION_DETAIL_CHARS
+            and len("; ".join((*pieces, item))) <= MAX_AGENT_OBSERVATION_DETAIL_CHARS
         ):
             pieces.append(item)
     return "; ".join(pieces) or None
@@ -557,7 +562,9 @@ def _compact_facts(facts: tuple[Fact, ...]) -> tuple[dict[str, object], ...]:
         enumerate(facts),
         key=lambda item: (_fact_priority(item[1]), item[0]),
     )
-    return tuple(_compact_fact(fact) for _, fact in ordered[:MAX_FACTS_PER_AGENT_OBSERVATION])
+    return tuple(
+        _compact_fact(fact) for _, fact in ordered[:MAX_FACTS_PER_AGENT_OBSERVATION]
+    )
 
 
 def _compact_fact(fact: Fact) -> dict[str, object]:
@@ -584,7 +591,25 @@ def _compact_fact(fact: Fact) -> dict[str, object]:
     reference = fact.provenance.source_reference
     if reference is not None and len(reference) <= MAX_AGENT_OBSERVATION_DETAIL_CHARS:
         compact["source_reference"] = reference
+    provider = _safe_provider(fact.dimensions.get("provider"))
+    if provider is not None:
+        compact["provider"] = provider
     return compact
+
+
+def _safe_provider(value: object) -> str | None:
+    """Expose one credential-free external-provider label, never an endpoint."""
+
+    if not isinstance(value, str):
+        return None
+    provider = redact_sensitive(value.strip())
+    if (
+        not provider
+        or len(provider) > 80
+        or any(token in provider.casefold() for token in ("://", "@", "?", "="))
+    ):
+        return None
+    return provider
 
 
 def _provenance_references(facts: tuple[dict[str, object], ...]) -> tuple[str, ...]:
@@ -602,18 +627,13 @@ def _references_for_compact_facts(
     facts: list[dict[str, object]], references: list[str]
 ) -> list[str]:
     required = {
-        value
-        for fact in facts
-        if isinstance((value := fact.get("provenance_id")), str)
+        value for fact in facts if isinstance((value := fact.get("provenance_id")), str)
     }
     return [reference for reference in references if reference in required]
 
 
 def _drop_lowest_priority_fact(facts: list[dict[str, object]]) -> None:
-    priorities = [
-        _compact_fact_priority(fact)
-        for fact in facts
-    ]
+    priorities = [_compact_fact_priority(fact) for fact in facts]
     lowest = max(priorities)
     index = max(
         index for index, priority in enumerate(priorities) if priority == lowest

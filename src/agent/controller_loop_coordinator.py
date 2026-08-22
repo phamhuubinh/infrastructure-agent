@@ -277,6 +277,7 @@ class AgentControllerLoopCoordinator:
         pending_identity: tuple[str | None, str | None, str | None] = (None, None, None)
         decision: AgentDecision | None = None
         validation = None
+        effective_constraints = hard_constraints
         completion_feedback_count = 0
         action_schema: Mapping[str, object] | None = None
 
@@ -643,7 +644,12 @@ class AgentControllerLoopCoordinator:
                 if validation is None:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 try:
-                    execution = self._executor.execute(validation, action_budget)
+                    execution = self._executor.execute(
+                        validation,
+                        action_budget,
+                        raw_request=raw_request,
+                        hard_constraints=effective_constraints,
+                    )
                     action_budget = execution.budget
                     run_state = replace(
                         run_state, action_count=action_budget.actions_used

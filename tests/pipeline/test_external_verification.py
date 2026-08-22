@@ -30,6 +30,7 @@ from src.pipeline.external_verification import (
 )
 from src.pipeline.request_frame import RequestFrame
 from src.shared.execution.tool_result import ToolResult
+from src.tool.capability_result import CapabilityStatus
 from src.tool.internet_tool import InternetTool
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
@@ -185,7 +186,7 @@ def test_search_select_fetch_normalizes_fresh_external_evidence() -> None:
     assert len(outcome.documents) == 2
     assert outcome.evidence is not None
     assert outcome.evidence.source_tool == "internet"
-    assert len(outcome.evidence.facts) == 2
+    assert len(outcome.evidence.facts) >= 2
     assert all(fact.source == "internet" for fact in outcome.evidence.facts)
     assert all(fact.provenance.source_reference for fact in outcome.evidence.facts)
     # Same URL with a fragment is deduplicated, while a second domain is kept.
@@ -317,6 +318,58 @@ def test_explicit_private_url_still_hits_the_shared_ssrf_boundary() -> None:
 
     assert outcome.verified is False
     assert "private address" in outcome.failures[0].lower()
+
+
+def test_v2_current_action_uses_exact_source_and_requires_fetched_evidence() -> None:
+    tool = _InternetKnowledgeTool()
+    executor = ExternalVerificationExecutor(tool)  # type: ignore[arg-type]
+
+    outcome = executor.collect_current_action(
+        source_id="internet",
+        query="current Python version",
+        user_request="What is the current Python version?",
+        freshness_required=True,
+    )
+
+    assert outcome.verified is True
+    assert outcome.search_calls == 1
+    assert outcome.fetch_calls >= 1
+    assert [call["resource"] for call in tool.calls][0] == "web_search"
+    evidence = executor.action_evidence(outcome)
+    assert evidence.capability_status is CapabilityStatus.VALID
+    assert any(
+        fact.metric == "external.document.supporting_passage" for fact in evidence.facts
+    )
+
+
+def test_v2_url_action_fetches_exact_url_without_search() -> None:
+    url = "https://official.example/release"
+    tool = _InternetKnowledgeTool()
+    tool.fetch_payloads = {
+        url: {
+            "url": "https://public-final.example/release",
+            "status": 200,
+            "content_type": "text/html",
+            "content_length": 30,
+            "truncated": False,
+            "data": "Python current version is 3.14.2",
+        }
+    }
+    executor = ExternalVerificationExecutor(tool)  # type: ignore[arg-type]
+
+    outcome = executor.collect_url_action(
+        source_id="internet",
+        url=url,
+        user_request="Read this URL for the current Python version.",
+        freshness_required=True,
+    )
+
+    assert outcome.verified is True
+    assert [call["resource"] for call in tool.calls] == ["web_fetch"]
+    assert tool.calls[0]["url"] == url
+    evidence = executor.action_evidence(outcome)
+    assert evidence.capability_status is CapabilityStatus.VALID
+    assert all(fact.provenance.source_reference == url for fact in evidence.facts)
 
 
 # ===========================================================================

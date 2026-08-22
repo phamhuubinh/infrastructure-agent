@@ -12,7 +12,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from urllib.parse import urlsplit
 
 from src.agent.controller_contracts import AgentAction
 from src.pipeline.basic_calculator import CalculatorRequest
@@ -29,6 +28,13 @@ from src.pipeline.controller_capability_discovery import (
 from src.pipeline.hard_request_constraints import (
     HardRequestConstraints,
     HardTargetReference,
+)
+from src.pipeline.internet_action_contract import (
+    INTERNET_CURRENT_CAPABILITY_ID,
+    INTERNET_FETCH_URL_CAPABILITY_ID,
+    InternetActionBindingError,
+    InternetActionRequest,
+    bind_internet_action,
 )
 from src.pipeline.request_semantics import SourceConstraint
 from src.pipeline.security.parameter_safety_inspector import ParameterSafetyInspector
@@ -113,6 +119,7 @@ class AgentActionValidationResult:
     )
     source_id: str | None = None
     calculator_request: CalculatorRequest | None = None
+    internet_request: InternetActionRequest | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, AgentActionValidationStatus):
@@ -139,6 +146,12 @@ class AgentActionValidationResult:
             self.calculator_request, CalculatorRequest
         ):
             raise TypeError("calculator_request must be a CalculatorRequest or None.")
+        if self.internet_request is not None and not isinstance(
+            self.internet_request, InternetActionRequest
+        ):
+            raise TypeError(
+                "internet_request must be an InternetActionRequest or None."
+            )
         object.__setattr__(
             self,
             "normalized_arguments",
@@ -262,6 +275,7 @@ class AgentActionValidator:
             return _result(status, reason, action, target_id, source_family)
 
         calculator_request: CalculatorRequest | None = None
+        internet_request: InternetActionRequest | None = None
         if action.capability_id == CALCULATOR_CAPABILITY_ID:
             try:
                 calculator_request = bind_calculator_action(normalized)
@@ -325,11 +339,26 @@ class AgentActionValidator:
                 source_family,
             )
 
-        # 7. Internet arguments are checked only for typed transport shape and
-        # literal hard-URL authority. Public-address, DNS, redirect, and SSRF
-        # checks remain at execution.
-        if source_family == "internet" and not _internet_arguments_valid(
-            normalized, hard_constraints.explicit_url
+        # 7. Internet action semantics are closed and typed.  DNS, redirects,
+        # and public-address checks deliberately remain in InternetTool.
+        if action.capability_id in {
+            INTERNET_CURRENT_CAPABILITY_ID,
+            INTERNET_FETCH_URL_CAPABILITY_ID,
+        }:
+            try:
+                internet_request = bind_internet_action(
+                    action.capability_id, dict(normalized)
+                )
+            except InternetActionBindingError:
+                return _result(
+                    AgentActionValidationStatus.REJECT,
+                    AgentActionValidationReason.URL_INVALID,
+                    action,
+                    target_id,
+                    source_family,
+                )
+        if not _internet_action_allowed(
+            action.capability_id, internet_request, hard_constraints
         ):
             return _result(
                 AgentActionValidationStatus.REJECT,
@@ -357,6 +386,7 @@ class AgentActionValidator:
             normalized_arguments=normalized,
             source_id=source_id,
             calculator_request=calculator_request,
+            internet_request=internet_request,
         )
 
     def _validate_target(
@@ -608,18 +638,25 @@ def _matches_json_type(value: object, value_type: object) -> bool:
     }.get(value_type, False)
 
 
-def _internet_arguments_valid(
-    arguments: Mapping[str, object], hard_url: str | None
+def _internet_action_allowed(
+    capability_id: str,
+    request: InternetActionRequest | None,
+    constraints: HardRequestConstraints,
 ) -> bool:
-    url = arguments.get("url")
-    if url is None:
-        return True
-    if not isinstance(url, str) or any(character.isspace() for character in url):
-        return False
-    parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return False
-    return hard_url is None or url == hard_url
+    """Enforce literal URL authority without reproducing SSRF policy."""
+
+    if constraints.explicit_url is not None:
+        return (
+            capability_id == INTERNET_FETCH_URL_CAPABILITY_ID
+            and request is not None
+            and request.url == constraints.explicit_url
+        )
+    if capability_id in {
+        INTERNET_CURRENT_CAPABILITY_ID,
+        INTERNET_FETCH_URL_CAPABILITY_ID,
+    }:
+        return request is not None
+    return True
 
 
 __all__ = [

@@ -237,7 +237,6 @@ def test_dispatch_preserves_tool_result_schema_version_for_evidence(
     (
         ("grafana", "grafana.dashboards", "dashboards"),
         ("zabbix", "zabbix.get_hosts", "get_hosts"),
-        ("internet", "internet.web_search", "web_search"),
     ),
 )
 def test_source_backed_actions_keep_the_canonical_source_identity(
@@ -251,7 +250,7 @@ def test_source_backed_actions_keep_the_canonical_source_identity(
         ControllerCapabilityDiscovery.from_knowledge_tool(environment.knowledge_tool),
         environment.target_resolver,
     )
-    arguments = {"query": "Orion"} if family == "internet" else {}
+    arguments = {}
     validation = validator.validate(
         AgentAction(capability_id, arguments),
         HardRequestConstraints(),
@@ -268,7 +267,6 @@ def test_source_backed_actions_keep_the_canonical_source_identity(
     tool_path = {
         "grafana": "src.tool.grafana_tool.GrafanaTool.execute",
         "zabbix": "src.tool.zabbix_tool.ZabbixTool.execute",
-        "internet": "src.tool.internet_tool.InternetTool.execute",
     }[family]
     monkeypatch.setattr(tool_path, execute)
 
