@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -74,7 +75,9 @@ class ScriptedControllerProvider:
         if isinstance(response, Exception):
             raise response
         return ControllerProviderResponse(
-            payload=(response.to_wire() if isinstance(response, AgentDecision) else response),
+            payload=(
+                response.to_wire() if isinstance(response, AgentDecision) else response
+            ),
             provider="scripted",
             model="fixture",
         )
@@ -825,6 +828,52 @@ def test_mismatched_selected_schema_cannot_execute() -> None:
         result.run_state.observations[-1].reason_code == "selected_capability_mismatch"
     )
     assert result.run_state.observations[-1].capability_id == "host.get_memory"
+
+
+def test_missing_action_after_disclosure_returns_control_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ScriptedControllerProvider(
+        [
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_listening_ports", {}),
+            ),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The result could not be verified from available evidence.",
+            ),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="The result could not be verified from available evidence.",
+            ),
+        ]
+    )
+    coordinator = _coordinator(provider)
+    original_decide = coordinator._controller.decide
+    decision_count = 0
+
+    def malformed_second_decision(*args: object, **kwargs: object) -> object:
+        nonlocal decision_count
+        decision_count += 1
+        result = original_decide(*args, **kwargs)
+        if decision_count != 2:
+            return result
+        malformed = object.__new__(AgentDecision)
+        object.__setattr__(malformed, "kind", AgentDecisionKind.ACTION)
+        object.__setattr__(malformed, "action", None)
+        return replace(result, decision=malformed)
+
+    monkeypatch.setattr(coordinator._controller, "decide", malformed_second_decision)
+
+    result = coordinator.run("Check host.", hard_constraints=HardRequestConstraints())
+
+    assert result.succeeded
+    assert result.action_budget.actions_used == 0
+    assert (
+        result.run_state.observations[-1].reason_code == "selected_capability_mismatch"
+    )
+    assert result.run_state.observations[-1].capability_id == "harness.control"
 
 
 @pytest.mark.parametrize(
@@ -1609,7 +1658,9 @@ def test_grafana_only_controller_action_uses_one_exact_source_dispatch(
                 AgentDecisionKind.ACTION,
                 action=AgentAction("grafana.dashboard_search", {"query": "CPU"}),
             ),
-            _decision(AgentDecisionKind.FINAL, answer="Grafana returned one dashboard."),
+            _decision(
+                AgentDecisionKind.FINAL, answer="Grafana returned one dashboard."
+            ),
         ]
     )
     calls: list[dict[str, object]] = []
@@ -1747,7 +1798,9 @@ def test_unavailable_monitoring_source_returns_control_feedback_without_fallback
 
     assert result.succeeded
     assert result.action_budget.actions_used == result.action_budget.tools_used == 0
-    assert result.run_state.observations[-1].status is AgentObservationStatus.UNAVAILABLE
+    assert (
+        result.run_state.observations[-1].status is AgentObservationStatus.UNAVAILABLE
+    )
     assert result.run_state.observations[-1].reason_code == "unavailable_category"
 
 

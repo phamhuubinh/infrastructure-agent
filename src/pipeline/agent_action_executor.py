@@ -310,6 +310,7 @@ class AgentActionExecutor:
         ):
             return None
 
+        source: str | None
         if category == "host":
             if validation.target_id is None:
                 return None

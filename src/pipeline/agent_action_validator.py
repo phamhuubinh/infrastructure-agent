@@ -685,7 +685,7 @@ def _value_matches_schema(value: object, schema: Mapping[str, object]) -> bool:
             and value > maximum
         ):
             return False
-    if _matches_json_type(value, "array"):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         minimum_items = schema.get("minItems")
         maximum_items = schema.get("maxItems")
         if isinstance(minimum_items, int) and len(value) < minimum_items:
@@ -707,6 +707,8 @@ def _value_matches_schema(value: object, schema: Mapping[str, object]) -> bool:
 
 
 def _matches_json_type(value: object, value_type: object) -> bool:
+    if not isinstance(value_type, str):
+        return False
     return {
         "null": value is None,
         "string": isinstance(value, str),

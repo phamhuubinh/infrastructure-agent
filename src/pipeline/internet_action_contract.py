@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urlsplit
@@ -77,29 +78,29 @@ def bind_internet_action(
 ) -> InternetActionRequest:
     """Bind an already schema-validated action without accepting extra authority."""
 
-    if not isinstance(arguments, dict):
-        arguments = dict(arguments) if hasattr(arguments, "items") else None
-    if not isinstance(arguments, dict):
+    bound_arguments = _mapping_arguments(arguments)
+    if bound_arguments is None:
         raise InternetActionBindingError("invalid_arguments")
     if capability_id == INTERNET_CURRENT_CAPABILITY_ID:
         try:
-            query = arguments.get("query")
-            raw_queries = arguments.get("queries")
+            query = bound_arguments.get("query")
+            raw_queries = bound_arguments.get("queries")
             if query is not None and raw_queries is not None:
                 raise ValueError("query and queries are mutually exclusive")
+            queries: tuple[str, ...]
             if raw_queries is None:
                 queries = (query,) if isinstance(query, str) else ()
-            elif isinstance(raw_queries, (list, tuple)):
-                queries = tuple(raw_queries)
             else:
-                queries = ()
+                queries = _string_tuple(raw_queries)
             return InternetActionRequest(InternetActionKind.CURRENT, queries=queries)
         except (TypeError, ValueError) as exc:
             raise InternetActionBindingError("invalid_query") from exc
     if capability_id == INTERNET_FETCH_URL_CAPABILITY_ID:
         try:
+            url = bound_arguments.get("url")
             return InternetActionRequest(
-                InternetActionKind.FETCH_URL, url=arguments.get("url")
+                InternetActionKind.FETCH_URL,
+                url=url if isinstance(url, str) else None,
             )
         except (TypeError, ValueError) as exc:
             raise InternetActionBindingError("invalid_url") from exc
@@ -120,7 +121,11 @@ def _bounded_text(value: object, maximum: int) -> bool:
 
 
 def _http_url(value: object) -> bool:
-    if not _bounded_text(value, 2_048) or any(char.isspace() for char in value):
+    if (
+        not isinstance(value, str)
+        or not _bounded_text(value, 2_048)
+        or any(char.isspace() for char in value)
+    ):
         return False
     try:
         parsed = urlsplit(value)
@@ -132,6 +137,23 @@ def _http_url(value: object) -> bool:
         and parsed.username is None
         and parsed.password is None
     )
+
+
+def _mapping_arguments(value: object) -> Mapping[object, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    return value
+
+
+def _string_tuple(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    strings: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return ()
+        strings.append(item)
+    return tuple(strings)
 
 
 __all__ = [

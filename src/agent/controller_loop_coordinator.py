@@ -655,7 +655,11 @@ class AgentControllerLoopCoordinator:
                                 observation_sequence,
                                 status=AgentObservationStatus.INVALID_ACTION,
                                 reason_code="selected_capability_mismatch",
-                                capability_id=decision.action.capability_id,
+                                capability_id=(
+                                    decision.action.capability_id
+                                    if decision.action is not None
+                                    else "harness.control"
+                                ),
                                 recoverable=True,
                             )
                         )

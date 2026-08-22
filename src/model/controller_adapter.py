@@ -263,13 +263,21 @@ class ControllerAdapter:
                 decision = _parse_provider_payload(response.payload)
             except TimeoutError as exc:
                 self._record_attempt_usage(
-                    raw_usage, provider_label, model_label, attempt_started, prompt,
-                    configured_effort, call_stage,
+                    raw_usage,
+                    provider_label,
+                    model_label,
+                    attempt_started,
+                    prompt,
+                    configured_effort,
+                    call_stage,
                 )
                 failures.append(
                     _failure(
-                        provider_label, ControllerFailureReason.TIMEOUT, exc,
-                        model=model_label, raw_usage=raw_usage,
+                        provider_label,
+                        ControllerFailureReason.TIMEOUT,
+                        exc,
+                        model=model_label,
+                        raw_usage=raw_usage,
                         latency_ms=_attempt_latency_ms(attempt_started),
                         estimated_input_tokens=prompt.estimated_input_tokens,
                     )
@@ -277,8 +285,13 @@ class ControllerAdapter:
                 continue
             except (ConnectionError, OSError) as exc:
                 self._record_attempt_usage(
-                    raw_usage, provider_label, model_label, attempt_started, prompt,
-                    configured_effort, call_stage,
+                    raw_usage,
+                    provider_label,
+                    model_label,
+                    attempt_started,
+                    prompt,
+                    configured_effort,
+                    call_stage,
                 )
                 failures.append(
                     _failure(
@@ -294,8 +307,13 @@ class ControllerAdapter:
                 continue
             except (ControllerContractError, TypeError, ValueError) as exc:
                 self._record_attempt_usage(
-                    raw_usage, provider_label, model_label, attempt_started, prompt,
-                    configured_effort, call_stage,
+                    raw_usage,
+                    provider_label,
+                    model_label,
+                    attempt_started,
+                    prompt,
+                    configured_effort,
+                    call_stage,
                 )
                 failures.append(
                     _failure(
@@ -316,13 +334,21 @@ class ControllerAdapter:
                 continue
             except Exception as exc:
                 self._record_attempt_usage(
-                    raw_usage, provider_label, model_label, attempt_started, prompt,
-                    configured_effort, call_stage,
+                    raw_usage,
+                    provider_label,
+                    model_label,
+                    attempt_started,
+                    prompt,
+                    configured_effort,
+                    call_stage,
                 )
                 failures.append(
                     _failure(
-                        provider_label, ControllerFailureReason.PROVIDER_ERROR, exc,
-                        model=model_label, raw_usage=raw_usage,
+                        provider_label,
+                        ControllerFailureReason.PROVIDER_ERROR,
+                        exc,
+                        model=model_label,
+                        raw_usage=raw_usage,
                         latency_ms=_attempt_latency_ms(attempt_started),
                         estimated_input_tokens=prompt.estimated_input_tokens,
                     )
@@ -331,8 +357,14 @@ class ControllerAdapter:
 
             latency_ms = _attempt_latency_ms(attempt_started)
             self._record_attempt_usage(
-                raw_usage, provider_label, model_label, attempt_started, prompt,
-                configured_effort, call_stage, latency_ms=latency_ms,
+                raw_usage,
+                provider_label,
+                model_label,
+                attempt_started,
+                prompt,
+                configured_effort,
+                call_stage,
+                latency_ms=latency_ms,
             )
             return ControllerDecisionResult(
                 decision=decision,
@@ -355,11 +387,27 @@ class ControllerAdapter:
             )
         raise ControllerAdapterError(tuple(failures))
 
-    def decide_safely(self, *args: object, **kwargs: object) -> ControllerOutcome:
+    def decide_safely(
+        self,
+        raw_request: str,
+        *,
+        hard_constraints: HardRequestConstraints,
+        context: ControllerPromptContext | None = None,
+        continuation: ControllerContinuationInput | None = None,
+        call_stage: ControllerCallStage = ControllerCallStage.FIRST_DECISION,
+        request_id: str | None = None,
+    ) -> ControllerOutcome:
         """Return a bounded failure outcome without repair or semantic fallback."""
 
         try:
-            result = self.decide(*args, **kwargs)
+            result = self.decide(
+                raw_request,
+                hard_constraints=hard_constraints,
+                context=context,
+                continuation=continuation,
+                call_stage=call_stage,
+                request_id=request_id,
+            )
         except ControllerAdapterError as exc:
             return ControllerOutcome(
                 status=ControllerOutcomeStatus.FAILED,

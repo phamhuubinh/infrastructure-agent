@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
+from typing import TypeVar
 
 from src.pipeline.basic_calculator import (
     CalculatorDurationUnit,
@@ -163,9 +164,12 @@ def _required_decimal(value: object) -> Decimal:
     return decimal
 
 
+_CalculatorEnum = TypeVar("_CalculatorEnum", CalculatorDurationUnit, CalculatorRateUnit)
+
+
 def _optional_enum(
-    enum_type: type[CalculatorDurationUnit] | type[CalculatorRateUnit], value: object
-) -> CalculatorDurationUnit | CalculatorRateUnit | None:
+    enum_type: type[_CalculatorEnum], value: object
+) -> _CalculatorEnum | None:
     if value is None:
         return None
     if not isinstance(value, str):

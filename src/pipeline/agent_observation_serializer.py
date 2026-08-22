@@ -536,7 +536,8 @@ def _evidence_summary(
     warnings: tuple[str, ...],
     detail: str | None,
 ) -> str | None:
-    pieces = [_core_summary(status)] if _core_summary(status) else []
+    core_summary = _core_summary(status)
+    pieces: list[str] = [core_summary] if core_summary is not None else []
     for item in (detail, *_bounded_warnings(warnings)):
         if (
             item is not None

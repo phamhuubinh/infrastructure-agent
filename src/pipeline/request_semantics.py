@@ -714,10 +714,8 @@ class RequestSemanticsClassifier:
     ) -> tuple[tuple[SourceConstraint, ...], tuple[SourceConstraint, ...]]:
         """Parse legacy source constraints, including reviewed comparisons."""
         explicit_allowed, excluded = self._explicit_source_constraints(lower)
-        allowed = [
-            source
-            for source in explicit_allowed
-            if source is not SourceConstraint.ANY
+        allowed: list[SourceConstraint] = [
+            source for source in explicit_allowed if source is not SourceConstraint.ANY
         ]
 
         # A named Grafana/Zabbix comparison is a reviewed multi-source allow-set,

@@ -62,8 +62,7 @@ _HOST_DISCOVERY_PRIORITY = (
     "host.get_uptime",
 )
 _HOST_DISCOVERY_PRIORITY_RANK = {
-    capability_id: rank
-    for rank, capability_id in enumerate(_HOST_DISCOVERY_PRIORITY)
+    capability_id: rank for rank, capability_id in enumerate(_HOST_DISCOVERY_PRIORITY)
 }
 
 
@@ -439,6 +438,8 @@ def _arguments_schema(entry: Mapping[str, object]) -> dict[str, object]:
 
 def _property_schema(spec: Mapping[str, object] | None) -> dict[str, object]:
     value_type = spec.get("value_type") if spec is not None else "str"
+    if not isinstance(value_type, str):
+        value_type = "str"
     json_type = {
         "str": "string",
         "string": "string",

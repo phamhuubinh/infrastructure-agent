@@ -205,13 +205,15 @@ def _has_matching_identity(
             and observation_value.casefold() == expected_value
         ):
             return True
-        if any(
-            _usable_fact(fact)
-            and isinstance(fact.get(identity), str)
-            and fact[identity].casefold() == expected_value
-            for fact in observation.facts
-        ):
-            return True
+        for fact in observation.facts:
+            if not _usable_fact(fact):
+                continue
+            fact_identity = fact.get(identity)
+            if (
+                isinstance(fact_identity, str)
+                and fact_identity.casefold() == expected_value
+            ):
+                return True
     return False
 
 
@@ -223,9 +225,11 @@ def _has_matching_source(
     for observation in observations:
         if not _successful(observation):
             continue
-        identities = [observation.source_id]
+        identities: list[str | None] = [observation.source_id]
         identities.extend(
-            fact.get("source") for fact in observation.facts if _usable_fact(fact)
+            source
+            for fact in observation.facts
+            if _usable_fact(fact) and isinstance((source := fact.get("source")), str)
         )
         if any(
             isinstance(identity, str)
@@ -287,7 +291,14 @@ def _latest_calculator_result(
             None if operation_value is None else CalculatorOperation(operation_value)
         )
         value_value = fact["value"]
-        value = None if value_value is None else Decimal(value_value)
+        if value_value is None:
+            value = None
+        elif type(value_value) is int:
+            value = Decimal(str(value_value))
+        elif isinstance(value_value, (Decimal, float, str, tuple)):
+            value = Decimal(value_value)
+        else:
+            raise TypeError
         if value is not None and not value.is_finite():
             raise InvalidOperation
         unit = fact["unit"]
