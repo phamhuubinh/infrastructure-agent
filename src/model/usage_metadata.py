@@ -39,6 +39,7 @@ class ModelCallUsage:
     latency_ms: float | None = None
     estimated_input_tokens: int | None = None
     configured_effort: str | None = None
+    call_stage: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         """Serialize with explicit ``None`` so unknown stays unknown."""
@@ -54,6 +55,7 @@ class ModelCallUsage:
             "latency_ms": self.latency_ms,
             "estimated_input_tokens": self.estimated_input_tokens,
             "configured_effort": self.configured_effort,
+            "call_stage": self.call_stage,
         }
 
 

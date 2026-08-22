@@ -8,6 +8,7 @@ from src.agent.controller_contracts import (
     AgentObservation,
     AgentObservationStatus,
     AgentRunState,
+    ControllerCallStage,
 )
 from src.model.protocol.controller_prompt import (
     CONTROLLER_CAPABILITY_CATEGORIES,
@@ -17,7 +18,12 @@ from src.model.protocol.controller_prompt import (
     build_controller_prompt,
 )
 from src.pipeline.hard_request_constraints import HardRequestConstraints
-from src.pipeline.input_context_budget import InputContextBudgetClass
+from src.pipeline.input_context_budget import (
+    InputContextBudget,
+    InputContextBudgetClass,
+    InputContextBudgetError,
+    InputContextBudgetPolicy,
+)
 from src.pipeline.request_semantics import SourceConstraint
 
 
@@ -46,7 +52,7 @@ def test_first_turn_has_only_allowlisted_input_and_no_sensitive_detail() -> None
         "concept": "cpu",
         "sources": ["grafana"],
     }
-    assert prompt.input_budget_class == InputContextBudgetClass.SIMPLE.value
+    assert prompt.input_budget_class == InputContextBudgetClass.CONTROLLER_FIRST.value
     for forbidden in (
         "linux_tool",
         "capability_id",
@@ -112,14 +118,34 @@ def test_context_and_continuation_data_are_bounded_before_provider_use() -> None
         harness_feedback={"status": "approved"},
     )
 
+    constraints = HardRequestConstraints(requires_fresh_evidence=True)
     prompt = build_controller_prompt(
         "Check CPU.",
-        hard_constraints=HardRequestConstraints(),
+        hard_constraints=constraints,
         continuation=continuation,
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
     )
     payload = json.loads(prompt.user_prompt)
-    assert prompt.input_budget_class == InputContextBudgetClass.NORMAL.value
-    assert payload["run_state"]["o"][0]["i"] == "host.cpu"
+    assert prompt.input_budget_class == InputContextBudgetClass.CONTROLLER_ACTION.value
+    assert payload["request"] == "Check CPU."
+    assert payload["hard_constraints"] == constraints.to_dict()
+    assert "hard_constraint_snapshot" not in prompt.user_prompt
+    assert "hv" not in payload
+    assert payload["loop_state"] == {
+        "goal": "Inspect CPU.",
+        "disclosed_capability_categories": [],
+        "disclosed_capability_detail_ids": [],
+        "round_count": 0,
+        "action_count": 0,
+        "model_call_count": 0,
+    }
+    assert prompt.mandatory_section_names == (
+        "system_prompt",
+        "request",
+        "hard_constraints",
+        "selected_capability_schema",
+        "json_framing",
+    )
     assert payload["selected_capability_schema"] == {
         "capability_id": "host.cpu",
         "arguments_schema": {
@@ -164,6 +190,7 @@ def test_continuation_reuses_the_same_allowlisted_evidence_free_session_context(
         "Còn RAM thì sao?",
         hard_constraints=HardRequestConstraints(),
         continuation=continuation,
+        call_stage=ControllerCallStage.OBSERVATION_CONTINUATION,
     )
     context = json.loads(prompt.user_prompt)["session_context"]
 
@@ -183,6 +210,272 @@ def test_continuation_reuses_the_same_allowlisted_evidence_free_session_context(
         "stderr",
         "command",
     }.intersection(context)
+
+
+def test_observation_stage_keeps_newest_feedback_and_drops_older_whole_section() -> (
+    None
+):
+    state = AgentRunState(
+        raw_request="Check the current host state.",
+        observations=tuple(
+            AgentObservation(
+                action_id=index,
+                capability_id="host.cpu",
+                status=AgentObservationStatus.SUCCESS,
+                summary="x" * 512,
+            )
+            for index in range(1, 17)
+        ),
+    )
+    prompt = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(),
+        continuation=ControllerContinuationInput(
+            run_state=state,
+            session_context=ControllerPromptContext(target="monitor"),
+        ),
+        call_stage=ControllerCallStage.OBSERVATION_CONTINUATION,
+    )
+    payload = json.loads(prompt.user_prompt)
+
+    assert (
+        prompt.input_budget_class
+        == InputContextBudgetClass.CONTROLLER_OBSERVATION.value
+    )
+    assert payload["observation"]["n"] == 16
+    assert payload["hard_constraints"] == HardRequestConstraints().to_dict()
+    assert "hard_constraint_snapshot" not in prompt.user_prompt
+    assert prompt.optional_included == (
+        "loop_state",
+        "session_context",
+        "older_observations",
+    )
+    assert prompt.optional_dropped == ()
+    assert prompt.actual_input_chars == len(prompt.system_prompt) + len(
+        prompt.user_prompt
+    )
+    assert prompt.estimated_input_tokens == InputContextBudget.estimated_tokens(
+        prompt.system_prompt + prompt.user_prompt
+    )
+
+
+def test_stage_disclosure_contracts_are_mutually_exclusive() -> None:
+    state = AgentRunState(raw_request="Inspect CPU.")
+    summaries = ({"capability_id": "host.cpu"},)
+    discovery = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(),
+        continuation=ControllerContinuationInput(
+            run_state=state, capability_summaries=summaries
+        ),
+        call_stage=ControllerCallStage.DISCOVERY_CONTINUATION,
+    )
+    payload = json.loads(discovery.user_prompt)
+    assert "capability_summaries" in payload
+    assert "selected_capability_schema" not in payload
+    assert payload["request"] == state.raw_request
+    assert payload["hard_constraints"] == HardRequestConstraints().to_dict()
+
+    with pytest.raises(ValueError, match="requires one selected"):
+        build_controller_prompt(
+            state.raw_request,
+            hard_constraints=HardRequestConstraints(),
+            continuation=ControllerContinuationInput(run_state=state),
+            call_stage=ControllerCallStage.ACTION_CONTINUATION,
+        )
+
+
+def test_continuation_rejects_first_decision_stage_instead_of_inferring() -> None:
+    continuation = ControllerContinuationInput(
+        run_state=AgentRunState(raw_request="Inspect CPU."),
+        capability_summaries=({"capability_id": "host.cpu"},),
+    )
+
+    with pytest.raises(ValueError, match="first-decision stage"):
+        build_controller_prompt(
+            "Inspect CPU.",
+            hard_constraints=HardRequestConstraints(),
+            continuation=continuation,
+            call_stage=ControllerCallStage.FIRST_DECISION,
+        )
+
+
+def test_raw_request_is_rendered_without_substring_truncation() -> None:
+    request = "x" * 4_096
+    prompt = build_controller_prompt(request, hard_constraints=HardRequestConstraints())
+
+    assert json.loads(prompt.user_prompt)["request"] == request
+
+
+def test_loop_state_is_optional_and_drops_before_mandatory_action_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = AgentRunState(raw_request="Check CPU.", goal="Inspect CPU.")
+    selected = {
+        "capability_id": "host.cpu",
+        "arguments_schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [],
+            "properties": {},
+        },
+    }
+    constraints = HardRequestConstraints(requires_fresh_evidence=True)
+    initial = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=constraints,
+        continuation=ControllerContinuationInput(
+            run_state=state, selected_capability_schema=selected
+        ),
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
+    )
+    initial_payload = json.loads(initial.user_prompt)
+    mandatory_payload = dict(initial_payload)
+    mandatory_payload.pop("loop_state")
+    mandatory_chars = len(initial.system_prompt) + len(
+        json.dumps(
+            mandatory_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+    )
+    monkeypatch.setattr(
+        InputContextBudgetPolicy,
+        "CONTROLLER_ACTION",
+        InputContextBudget(InputContextBudgetClass.CONTROLLER_ACTION, mandatory_chars),
+    )
+
+    prompt = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=constraints,
+        continuation=ControllerContinuationInput(
+            run_state=state, selected_capability_schema=selected
+        ),
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
+    )
+    payload = json.loads(prompt.user_prompt)
+
+    assert "loop_state" not in payload
+    assert prompt.optional_included == ()
+    assert prompt.optional_dropped == ("loop_state",)
+    assert payload["request"] == state.raw_request
+    assert payload["hard_constraints"] == constraints.to_dict()
+    assert payload["selected_capability_schema"] == selected
+
+
+def test_action_mandatory_authority_and_schema_overflow_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = AgentRunState(raw_request="Check CPU.")
+    selected = {
+        "capability_id": "host.cpu",
+        "arguments_schema": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [],
+            "properties": {},
+        },
+    }
+    initial = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(requires_fresh_evidence=True),
+        continuation=ControllerContinuationInput(
+            run_state=state, selected_capability_schema=selected
+        ),
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
+    )
+    mandatory_payload = json.loads(initial.user_prompt)
+    mandatory_payload.pop("loop_state")
+    mandatory_chars = len(initial.system_prompt) + len(
+        json.dumps(
+            mandatory_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+    )
+    monkeypatch.setattr(
+        InputContextBudgetPolicy,
+        "CONTROLLER_ACTION",
+        InputContextBudget(
+            InputContextBudgetClass.CONTROLLER_ACTION, mandatory_chars - 1
+        ),
+    )
+
+    with pytest.raises(InputContextBudgetError):
+        build_controller_prompt(
+            state.raw_request,
+            hard_constraints=HardRequestConstraints(requires_fresh_evidence=True),
+            continuation=ControllerContinuationInput(
+                run_state=state, selected_capability_schema=selected
+            ),
+            call_stage=ControllerCallStage.ACTION_CONTINUATION,
+        )
+
+
+def test_optional_sections_drop_in_loop_state_session_observation_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = AgentRunState(
+        raw_request="Check current CPU.",
+        goal="Inspect CPU.",
+        observations=tuple(
+            AgentObservation(
+                action_id=index,
+                capability_id="host.cpu",
+                status=AgentObservationStatus.SUCCESS,
+                summary="x" * 512,
+            )
+            for index in range(1, 17)
+        ),
+    )
+    continuation = ControllerContinuationInput(
+        run_state=state,
+        session_context=ControllerPromptContext(target="monitor"),
+    )
+    initial = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(),
+        continuation=continuation,
+        call_stage=ControllerCallStage.OBSERVATION_CONTINUATION,
+    )
+    initial_payload = json.loads(initial.user_prompt)
+    mandatory_payload = dict(initial_payload)
+    loop_state = mandatory_payload.pop("loop_state")
+    session_context = mandatory_payload.pop("session_context")
+    mandatory_payload.pop("older_observations")
+
+    def compact(value: object) -> str:
+        return json.dumps(
+            value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+
+    max_chars = (
+        len(initial.system_prompt)
+        + len(compact(mandatory_payload))
+        + len(',"loop_state":' + compact(loop_state))
+        + len(',"session_context":' + compact(session_context))
+    )
+    monkeypatch.setattr(
+        InputContextBudgetPolicy,
+        "CONTROLLER_OBSERVATION",
+        InputContextBudget(InputContextBudgetClass.CONTROLLER_OBSERVATION, max_chars),
+    )
+
+    prompt = build_controller_prompt(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(),
+        continuation=continuation,
+        call_stage=ControllerCallStage.OBSERVATION_CONTINUATION,
+    )
+    payload = json.loads(prompt.user_prompt)
+
+    assert prompt.optional_included == ("loop_state", "session_context")
+    assert prompt.optional_dropped == ("older_observations",)
+    assert "older_observations" not in payload
+    assert payload["observation"]["n"] == 16
+
+
+def test_controller_stage_budget_values_are_locked() -> None:
+    assert InputContextBudgetPolicy.CONTROLLER_FIRST.max_chars == 6_500
+    assert InputContextBudgetPolicy.CONTROLLER_DISCOVERY.max_chars == 11_000
+    assert InputContextBudgetPolicy.CONTROLLER_ACTION.max_chars == 9_000
+    assert InputContextBudgetPolicy.CONTROLLER_OBSERVATION.max_chars == 14_000
 
 
 def test_first_turn_action_arguments_are_closed_and_empty() -> None:

@@ -6,6 +6,8 @@ from src.agent.controller_contracts import (
     AgentAction,
     AgentDecision,
     AgentDecisionKind,
+    AgentRunState,
+    ControllerCallStage,
     agent_decision_to_json,
 )
 from src.model.controller_adapter import (
@@ -16,6 +18,8 @@ from src.model.controller_adapter import (
     ControllerProviderRequest,
     ControllerProviderResponse,
 )
+from src.model.protocol.controller_prompt import ControllerContinuationInput
+from src.model.reasoning_effort import ReasoningEffort
 from src.model.usage_recorder import ModelUsageRecorder
 from src.pipeline.hard_request_constraints import HardRequestConstraints
 
@@ -41,7 +45,11 @@ def _response(
     provider: str = "mock",
     model: str = "mock-model",
 ) -> ControllerProviderResponse:
-    payload = agent_decision_to_json(decision) if isinstance(decision, AgentDecision) else decision
+    payload = (
+        agent_decision_to_json(decision)
+        if isinstance(decision, AgentDecision)
+        else decision
+    )
     return ControllerProviderResponse(
         payload=payload,
         provider=provider,
@@ -70,9 +78,7 @@ def test_valid_final_and_action_decisions_are_strictly_returned() -> None:
         adapter.decide("Hello", hard_constraints=HardRequestConstraints()).decision
         == final
     )
-    result = adapter.decide(
-        "Check CPU", hard_constraints=HardRequestConstraints()
-    )
+    result = adapter.decide("Check CPU", hard_constraints=HardRequestConstraints())
     assert result.decision == action
     assert result.purpose is ControllerCallPurpose.CONTROLLER
     assert len(provider.requests) == 2
@@ -140,3 +146,67 @@ def test_usage_is_recorded_for_success_and_malformed_provider_output() -> None:
     assert [call.purpose for call in recorder.calls] == ["controller", "controller"]
     assert [call.input_tokens for call in recorder.calls] == [21, 21]
     assert recorder.to_trace_dict()["by_purpose"]["controller"]["calls"] == 2
+    assert [call.call_stage for call in recorder.calls] == [
+        "first_decision",
+        "first_decision",
+    ]
+
+
+def test_stage_metadata_and_effort_are_based_on_loop_stage() -> None:
+    action = AgentDecision(
+        kind=AgentDecisionKind.ACTION,
+        goal="Inspect CPU.",
+        action=AgentAction("host.cpu", {}),
+        clarification_question=None,
+    )
+    provider = FakeControllerProvider([_response(action)])
+    adapter = ControllerAdapter([provider])
+    state = AgentRunState(raw_request="Check CPU.")
+
+    result = adapter.decide(
+        state.raw_request,
+        hard_constraints=HardRequestConstraints(),
+        continuation=ControllerContinuationInput(
+            run_state=state,
+            selected_capability_schema={
+                "capability_id": "host.cpu",
+                "arguments_schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [],
+                    "properties": {},
+                },
+            },
+        ),
+        call_stage=ControllerCallStage.ACTION_CONTINUATION,
+    )
+
+    request = provider.requests[0]
+    assert result.call_stage is ControllerCallStage.ACTION_CONTINUATION
+    assert request.reasoning_effort is ReasoningEffort.LOW
+    assert request.input_budget_class == "controller_action"
+    assert request.actual_input_chars <= request.input_budget_max_chars
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected"),
+    (
+        (ControllerCallStage.FIRST_DECISION, ReasoningEffort.MINIMAL),
+        (ControllerCallStage.DISCOVERY_CONTINUATION, ReasoningEffort.LOW),
+        (ControllerCallStage.ACTION_CONTINUATION, ReasoningEffort.LOW),
+        (ControllerCallStage.OBSERVATION_CONTINUATION, ReasoningEffort.LOW),
+    ),
+)
+def test_controller_effort_is_determined_only_by_call_stage(
+    stage: ControllerCallStage, expected: ReasoningEffort
+) -> None:
+    request = ControllerProviderRequest(
+        purpose=ControllerCallPurpose.CONTROLLER,
+        call_stage=stage,
+        system_prompt="system",
+        user_prompt='{"request":"debug the current issue"}',
+        response_schema={},
+        timeout_seconds=30,
+    )
+
+    assert request.reasoning_effort is expected

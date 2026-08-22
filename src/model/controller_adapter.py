@@ -16,6 +16,7 @@ from typing import Protocol, runtime_checkable
 
 from src.agent.controller_contracts import (
     AgentDecision,
+    ControllerCallStage,
     ControllerContractError,
     agent_decision_from_json,
 )
@@ -52,12 +53,19 @@ class ControllerProviderRequest:
     user_prompt: str
     response_schema: dict[str, object]
     timeout_seconds: float
+    call_stage: ControllerCallStage = ControllerCallStage.FIRST_DECISION
+    input_budget_class: str = "controller_first"
+    input_budget_max_chars: int = 6_500
+    actual_input_chars: int = 0
+    estimated_input_tokens: int = 0
+    optional_included: tuple[str, ...] = ()
+    optional_dropped: tuple[str, ...] = ()
     request_id: str | None = None
 
     @property
     def reasoning_effort(self) -> ReasoningEffort:
         return ReasoningEffortPolicy.for_call(
-            purpose=self.purpose.value,
+            purpose=f"{self.purpose.value}.{self.call_stage.value}",
             request_class=ModelRequestClass.TRIVIAL,
         )
 
@@ -135,9 +143,14 @@ class ControllerDecisionResult:
     model: str
     raw_usage: Mapping[str, object] | None
     purpose: ControllerCallPurpose
+    call_stage: ControllerCallStage
     latency_ms: float
     estimated_input_tokens: int
     input_budget_class: str
+    input_budget_max_chars: int
+    actual_input_chars: int
+    optional_included: tuple[str, ...]
+    optional_dropped: tuple[str, ...]
     configured_effort: str | None = None
 
 
@@ -167,11 +180,17 @@ class ControllerAdapter:
                 f"At most {MAX_CONTROLLER_PROVIDERS} controller providers are allowed."
             )
         if timeout_seconds <= 0 or timeout_seconds > 60:
-            raise ValueError("Controller timeout must be greater than 0 and at most 60s.")
+            raise ValueError(
+                "Controller timeout must be greater than 0 and at most 60s."
+            )
         for provider in providers:
             if not isinstance(provider, StructuredControllerProvider):
-                raise TypeError("Each controller provider must implement generate_controller().")
-        if usage_recorder is not None and not isinstance(usage_recorder, ModelUsageRecorder):
+                raise TypeError(
+                    "Each controller provider must implement generate_controller()."
+                )
+        if usage_recorder is not None and not isinstance(
+            usage_recorder, ModelUsageRecorder
+        ):
             raise TypeError("usage_recorder must be ModelUsageRecorder or None.")
         self._providers = tuple(providers)
         self._timeout_seconds = float(timeout_seconds)
@@ -184,6 +203,7 @@ class ControllerAdapter:
         hard_constraints: HardRequestConstraints,
         context: ControllerPromptContext | None = None,
         continuation: ControllerContinuationInput | None = None,
+        call_stage: ControllerCallStage = ControllerCallStage.FIRST_DECISION,
         request_id: str | None = None,
     ) -> ControllerDecisionResult:
         """Build, invoke, record, and strictly parse one controller decision."""
@@ -193,6 +213,7 @@ class ControllerAdapter:
             hard_constraints=hard_constraints,
             context=context,
             continuation=continuation,
+            call_stage=call_stage,
         )
         if not self._providers:
             raise ControllerAdapterError(())
@@ -207,10 +228,17 @@ class ControllerAdapter:
             attempt_started = time.perf_counter()
             request = ControllerProviderRequest(
                 purpose=ControllerCallPurpose.CONTROLLER,
+                call_stage=call_stage,
                 system_prompt=prompt.system_prompt,
                 user_prompt=prompt.user_prompt,
                 response_schema=deepcopy(prompt.response_schema),
                 timeout_seconds=self._timeout_seconds,
+                input_budget_class=prompt.input_budget_class,
+                input_budget_max_chars=prompt.input_budget_max_chars,
+                actual_input_chars=prompt.actual_input_chars,
+                estimated_input_tokens=prompt.estimated_input_tokens,
+                optional_included=prompt.optional_included,
+                optional_dropped=prompt.optional_dropped,
                 request_id=request_id,
             )
             try:
@@ -235,14 +263,21 @@ class ControllerAdapter:
                     model=model_label,
                     estimated_input_tokens=prompt.estimated_input_tokens,
                     configured_effort=configured_effort,
+                    call_stage=call_stage,
                 )
                 decision = _parse_provider_payload(response.payload)
             except TimeoutError as exc:
-                failures.append(_failure(provider_label, ControllerFailureReason.TIMEOUT, exc))
+                failures.append(
+                    _failure(provider_label, ControllerFailureReason.TIMEOUT, exc)
+                )
                 continue
             except (ConnectionError, OSError) as exc:
                 failures.append(
-                    _failure(provider_label, ControllerFailureReason.PROVIDER_UNAVAILABLE, exc)
+                    _failure(
+                        provider_label,
+                        ControllerFailureReason.PROVIDER_UNAVAILABLE,
+                        exc,
+                    )
                 )
                 continue
             except (ControllerContractError, TypeError, ValueError) as exc:
@@ -253,7 +288,9 @@ class ControllerAdapter:
                         exc,
                         model=model_label,
                         raw_usage=raw_usage,
-                        latency_ms=round((time.perf_counter() - attempt_started) * 1000, 1),
+                        latency_ms=round(
+                            (time.perf_counter() - attempt_started) * 1000, 1
+                        ),
                         estimated_input_tokens=prompt.estimated_input_tokens,
                         configured_effort=(
                             configured_effort.value
@@ -265,7 +302,9 @@ class ControllerAdapter:
                 continue
             except Exception as exc:
                 failures.append(
-                    _failure(provider_label, ControllerFailureReason.PROVIDER_ERROR, exc)
+                    _failure(
+                        provider_label, ControllerFailureReason.PROVIDER_ERROR, exc
+                    )
                 )
                 continue
 
@@ -275,9 +314,14 @@ class ControllerAdapter:
                 model=model_label,
                 raw_usage=raw_usage,
                 purpose=ControllerCallPurpose.CONTROLLER,
+                call_stage=call_stage,
                 latency_ms=round((time.perf_counter() - started) * 1000, 1),
                 estimated_input_tokens=prompt.estimated_input_tokens,
                 input_budget_class=prompt.input_budget_class,
+                input_budget_max_chars=prompt.input_budget_max_chars,
+                actual_input_chars=prompt.actual_input_chars,
+                optional_included=prompt.optional_included,
+                optional_dropped=prompt.optional_dropped,
                 configured_effort=(
                     configured_effort.value if configured_effort is not None else None
                 ),
@@ -304,6 +348,7 @@ class ControllerAdapter:
         model: str,
         estimated_input_tokens: int,
         configured_effort: ReasoningEffort | None,
+        call_stage: ControllerCallStage,
     ) -> None:
         if self._usage_recorder is None:
             return
@@ -316,6 +361,7 @@ class ControllerAdapter:
             configured_effort=(
                 configured_effort.value if configured_effort is not None else None
             ),
+            call_stage=call_stage.value,
         )
 
 

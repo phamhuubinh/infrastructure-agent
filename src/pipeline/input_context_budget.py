@@ -35,6 +35,10 @@ class InputContextBudgetClass(str, Enum):
     SIMPLE = "simple"
     NORMAL = "normal"
     EVIDENCE_ASSISTED = "evidence_assisted"
+    CONTROLLER_FIRST = "controller_first"
+    CONTROLLER_DISCOVERY = "controller_discovery"
+    CONTROLLER_ACTION = "controller_action"
+    CONTROLLER_OBSERVATION = "controller_observation"
 
 
 class InputContextBudgetError(ValueError):
@@ -168,6 +172,21 @@ class InputContextBudgetPolicy:
         InputContextBudgetClass.EVIDENCE_ASSISTED,
         max_chars=16_000,
     )
+    # Controller calls disclose one bounded incremental payload at most.  The
+    # first decision stays smallest; later stages have separately inspectable
+    # ceilings large enough for their already-bounded mandatory payload.
+    CONTROLLER_FIRST = InputContextBudget(
+        InputContextBudgetClass.CONTROLLER_FIRST, max_chars=6_500
+    )
+    CONTROLLER_DISCOVERY = InputContextBudget(
+        InputContextBudgetClass.CONTROLLER_DISCOVERY, max_chars=11_000
+    )
+    CONTROLLER_ACTION = InputContextBudget(
+        InputContextBudgetClass.CONTROLLER_ACTION, max_chars=9_000
+    )
+    CONTROLLER_OBSERVATION = InputContextBudget(
+        InputContextBudgetClass.CONTROLLER_OBSERVATION, max_chars=14_000
+    )
 
     @classmethod
     def for_class(cls, budget_class: InputContextBudgetClass) -> InputContextBudget:
@@ -175,6 +194,10 @@ class InputContextBudgetPolicy:
             InputContextBudgetClass.SIMPLE: cls.SIMPLE,
             InputContextBudgetClass.NORMAL: cls.NORMAL,
             InputContextBudgetClass.EVIDENCE_ASSISTED: cls.EVIDENCE_ASSISTED,
+            InputContextBudgetClass.CONTROLLER_FIRST: cls.CONTROLLER_FIRST,
+            InputContextBudgetClass.CONTROLLER_DISCOVERY: cls.CONTROLLER_DISCOVERY,
+            InputContextBudgetClass.CONTROLLER_ACTION: cls.CONTROLLER_ACTION,
+            InputContextBudgetClass.CONTROLLER_OBSERVATION: cls.CONTROLLER_OBSERVATION,
         }[budget_class]
 
 

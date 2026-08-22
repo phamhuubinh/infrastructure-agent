@@ -16,12 +16,12 @@ from dataclasses import dataclass
 from src.agent.controller_contracts import (
     CONTROLLER_WIRE_VERSION,
     MAX_ARGUMENTS,
-    MAX_CONTROLLER_WIRE_BYTES,
     MAX_DISCLOSED_CAPABILITIES,
     MAX_GOAL_CHARS,
     MAX_RAW_REQUEST_CHARS,
     MAX_TEXT_CHARS,
     AgentRunState,
+    ControllerCallStage,
 )
 from src.pipeline.controller_capability_discovery import (
     CONTROLLER_CAPABILITY_CATEGORIES,
@@ -127,6 +127,12 @@ class ControllerPrompt:
     response_schema: dict[str, object]
     estimated_input_tokens: int
     input_budget_class: str
+    input_budget_max_chars: int
+    actual_input_chars: int
+    mandatory_section_names: tuple[str, ...]
+    optional_included: tuple[str, ...]
+    optional_dropped: tuple[str, ...]
+    call_stage: ControllerCallStage
 
 
 def build_controller_prompt(
@@ -135,6 +141,7 @@ def build_controller_prompt(
     hard_constraints: HardRequestConstraints,
     context: ControllerPromptContext | None = None,
     continuation: ControllerContinuationInput | None = None,
+    call_stage: ControllerCallStage = ControllerCallStage.FIRST_DECISION,
 ) -> ControllerPrompt:
     """Build one bounded controller prompt before a provider is invoked."""
 
@@ -147,12 +154,23 @@ def build_controller_prompt(
         continuation, ControllerContinuationInput
     ):
         raise TypeError("continuation must be ControllerContinuationInput or None.")
+    if not isinstance(call_stage, ControllerCallStage):
+        raise TypeError("call_stage must be ControllerCallStage.")
 
     if continuation is not None:
         if continuation.run_state.raw_request != raw_request:
             raise ValueError("continuation run_state must retain the original request.")
-        return _build_continuation_prompt(raw_request, continuation)
-    return _build_first_turn_prompt(raw_request, hard_constraints, context)
+        if call_stage is ControllerCallStage.FIRST_DECISION:
+            raise ValueError("continuation cannot use the first-decision stage.")
+        return _build_continuation_prompt(
+            raw_request,
+            hard_constraints,
+            continuation,
+            call_stage,
+        )
+    if call_stage is not ControllerCallStage.FIRST_DECISION:
+        raise ValueError("first controller prompt must use the first-decision stage.")
+    return _build_first_turn_prompt(raw_request, hard_constraints, context, call_stage)
 
 
 def agent_decision_json_schema(
@@ -291,91 +309,209 @@ def _build_first_turn_prompt(
     raw_request: str,
     hard_constraints: HardRequestConstraints,
     context: ControllerPromptContext | None,
+    call_stage: ControllerCallStage,
 ) -> ControllerPrompt:
-    payload = {
-        "request": raw_request,
-        "hard_constraints": hard_constraints.to_dict(),
-        "capability_categories": list(CONTROLLER_CAPABILITY_CATEGORIES),
-    }
-    mandatory = _compact_json(payload)
-    optional: tuple[InputContextSection, ...] = ()
+    optional_fields: tuple[tuple[str, object], ...] = ()
     context_payload: dict[str, object] | None = None
     if context is not None:
         context_payload = controller_context_to_dict(context)
         if context_payload:
-            optional = (
-                InputContextSection(
-                    "session_context",
-                    ',"session_context":' + _compact_json(context_payload),
-                ),
-            )
-    budget = InputContextBudgetPolicy.for_class(InputContextBudgetClass.SIMPLE)
-    enforced = budget.enforce(
-        mandatory=(
-            InputContextSection("system_prompt", _CONTROLLER_SYSTEM_PROMPT),
-            InputContextSection("first_turn", mandatory),
+            optional_fields = (("session_context", context_payload),)
+    return _render_budgeted_prompt(
+        mandatory_fields=(
+            ("request", raw_request),
+            ("hard_constraints", hard_constraints.to_dict()),
+            ("capability_categories", list(CONTROLLER_CAPABILITY_CATEGORIES)),
         ),
-        optional=optional,
-    )
-    if context_payload and "session_context" in enforced.optional_included:
-        payload["session_context"] = context_payload
-    return ControllerPrompt(
-        system_prompt=_CONTROLLER_SYSTEM_PROMPT,
-        user_prompt=_compact_json(payload),
+        optional_fields=optional_fields,
+        budget_class=InputContextBudgetClass.CONTROLLER_FIRST,
         response_schema=agent_decision_json_schema(),
-        estimated_input_tokens=enforced.estimated_input_tokens,
-        input_budget_class=budget.budget_class.value,
+        call_stage=call_stage,
     )
 
 
 def _build_continuation_prompt(
     raw_request: str,
+    hard_constraints: HardRequestConstraints,
     continuation: ControllerContinuationInput,
+    call_stage: ControllerCallStage,
 ) -> ControllerPrompt:
-    state = continuation.run_state.to_trace_dict()
-    payload: dict[str, object] = {"request": raw_request, "run_state": state}
-    if continuation.capability_summaries:
-        payload["capability_summaries"] = [
-            _bounded_json_mapping(
-                item,
-                f"capability_summaries[{index}]",
-                MAX_CONTROLLER_CAPABILITY_SUMMARY_BYTES,
+    state = _controller_state(continuation.run_state)
+    mandatory_fields: list[tuple[str, object]] = [
+        ("request", raw_request),
+        ("hard_constraints", hard_constraints.to_dict()),
+    ]
+    optional_fields: list[tuple[str, object]] = []
+    if state:
+        optional_fields.append(("loop_state", state))
+    if call_stage is ControllerCallStage.DISCOVERY_CONTINUATION:
+        if continuation.selected_capability_schema is not None:
+            raise ValueError(
+                "discovery continuation cannot disclose a selected schema."
             )
-            for index, item in enumerate(continuation.capability_summaries)
-        ]
-    if continuation.selected_capability_schema is not None:
-        payload["selected_capability_schema"] = _bounded_json_mapping(
-            continuation.selected_capability_schema,
-            "selected_capability_schema",
-            MAX_CONTROLLER_SELECTED_SCHEMA_BYTES,
+        if not continuation.capability_summaries:
+            raise ValueError("discovery continuation requires capability summaries.")
+        mandatory_fields.append(
+            (
+                "capability_summaries",
+                [
+                    _bounded_json_mapping(
+                        item,
+                        f"capability_summaries[{index}]",
+                        MAX_CONTROLLER_CAPABILITY_SUMMARY_BYTES,
+                    )
+                    for index, item in enumerate(continuation.capability_summaries)
+                ],
+            )
         )
-    if continuation.harness_feedback is not None:
-        payload["harness_feedback"] = _bounded_json_mapping(
-            continuation.harness_feedback,
-            "harness_feedback",
-            MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES,
+        budget_class = InputContextBudgetClass.CONTROLLER_DISCOVERY
+    elif call_stage is ControllerCallStage.ACTION_CONTINUATION:
+        if continuation.capability_summaries:
+            raise ValueError(
+                "action continuation cannot disclose capability summaries."
+            )
+        if continuation.selected_capability_schema is None:
+            raise ValueError(
+                "action continuation requires one selected capability schema."
+            )
+        mandatory_fields.append(
+            (
+                "selected_capability_schema",
+                _bounded_json_mapping(
+                    continuation.selected_capability_schema,
+                    "selected_capability_schema",
+                    MAX_CONTROLLER_SELECTED_SCHEMA_BYTES,
+                ),
+            )
         )
+        budget_class = InputContextBudgetClass.CONTROLLER_ACTION
+    else:
+        if continuation.capability_summaries or continuation.selected_capability_schema:
+            raise ValueError("observation continuation cannot disclose capabilities.")
+        latest, older = _observation_payloads(continuation.run_state)
+        if continuation.harness_feedback is not None:
+            mandatory_fields.append(
+                (
+                    "harness_feedback",
+                    _bounded_json_mapping(
+                        continuation.harness_feedback,
+                        "harness_feedback",
+                        MAX_CONTROLLER_HARNESS_FEEDBACK_BYTES,
+                    ),
+                )
+            )
+        if latest is not None:
+            mandatory_fields.append(("observation", latest))
+        budget_class = InputContextBudgetClass.CONTROLLER_OBSERVATION
     if continuation.session_context is not None:
         context_payload = controller_context_to_dict(continuation.session_context)
         if context_payload:
-            payload["session_context"] = context_payload
-    budget = InputContextBudgetPolicy.for_class(InputContextBudgetClass.NORMAL)
-    encoded = _compact_json(payload)
+            optional_fields.append(("session_context", context_payload))
+    if call_stage is ControllerCallStage.OBSERVATION_CONTINUATION and older:
+        optional_fields.append(("older_observations", older))
+    return _render_budgeted_prompt(
+        mandatory_fields=tuple(mandatory_fields),
+        optional_fields=tuple(optional_fields),
+        budget_class=budget_class,
+        response_schema=agent_decision_json_schema(
+            continuation.selected_capability_schema
+            if call_stage is ControllerCallStage.ACTION_CONTINUATION
+            else None
+        ),
+        call_stage=call_stage,
+    )
+
+
+def _render_budgeted_prompt(
+    *,
+    mandatory_fields: tuple[tuple[str, object], ...],
+    optional_fields: tuple[tuple[str, object], ...],
+    budget_class: InputContextBudgetClass,
+    response_schema: dict[str, object],
+    call_stage: ControllerCallStage,
+) -> ControllerPrompt:
+    """Budget independent JSON fields, then render a valid prompt once."""
+
+    optional = tuple(
+        InputContextSection(name, _json_field(name, value, prefix=","))
+        for name, value in optional_fields
+    )
+    budget = InputContextBudgetPolicy.for_class(budget_class)
     enforced = budget.enforce(
         mandatory=(
             InputContextSection("system_prompt", _CONTROLLER_SYSTEM_PROMPT),
-            InputContextSection("continuation", encoded),
-        )
+            *_mandatory_json_sections(mandatory_fields),
+        ),
+        optional=optional,
     )
+    included = dict(optional_fields[: len(enforced.optional_included)])
+    rendered_payload = {**dict(mandatory_fields), **included}
+    user_prompt = _compact_json(rendered_payload)
+    actual_input_chars = len(_CONTROLLER_SYSTEM_PROMPT) + len(user_prompt)
+    if actual_input_chars != enforced.total_chars:
+        raise AssertionError("Controller budget must account for the rendered prompt.")
     return ControllerPrompt(
         system_prompt=_CONTROLLER_SYSTEM_PROMPT,
-        user_prompt=encoded,
-        response_schema=agent_decision_json_schema(
-            continuation.selected_capability_schema
-        ),
+        user_prompt=user_prompt,
+        response_schema=response_schema,
         estimated_input_tokens=enforced.estimated_input_tokens,
         input_budget_class=budget.budget_class.value,
+        input_budget_max_chars=budget.max_chars,
+        actual_input_chars=actual_input_chars,
+        mandatory_section_names=enforced.mandatory_names,
+        optional_included=enforced.optional_included,
+        optional_dropped=enforced.optional_dropped,
+        call_stage=call_stage,
     )
+
+
+def _mandatory_json_sections(
+    fields: tuple[tuple[str, object], ...],
+) -> tuple[InputContextSection, ...]:
+    if not fields:
+        raise ValueError("Controller prompt requires mandatory JSON fields.")
+    sections: list[InputContextSection] = []
+    for index, (name, value) in enumerate(fields):
+        sections.append(
+            InputContextSection(
+                name,
+                _json_field(name, value, prefix="{" if index == 0 else ","),
+            )
+        )
+    sections.append(InputContextSection("json_framing", "}"))
+    return tuple(sections)
+
+
+def _json_field(name: str, value: object, *, prefix: str) -> str:
+    return prefix + _compact_json(name) + ":" + _compact_json(value)
+
+
+def _controller_state(run_state: AgentRunState) -> dict[str, object]:
+    """Return only optional, non-authoritative loop-control metadata."""
+
+    state: dict[str, object] = {
+        "disclosed_capability_categories": list(
+            run_state.disclosed_capability_categories
+        ),
+        "disclosed_capability_detail_ids": list(
+            run_state.disclosed_capability_detail_ids
+        ),
+        "round_count": run_state.round_count,
+        "action_count": run_state.action_count,
+        "model_call_count": run_state.model_call_count,
+    }
+    if run_state.goal is not None:
+        state["goal"] = run_state.goal
+    return state
+
+
+def _observation_payloads(
+    run_state: AgentRunState,
+) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
+    observations = [item.to_wire() for item in run_state.observations]
+    if not observations:
+        return None, []
+    return observations[-1], observations[:-1]
 
 
 def _validate_request(raw_request: object) -> None:
@@ -488,12 +624,7 @@ def _validate_closed_schema(value: object, field: str) -> None:
 
 
 def _compact_json(value: object) -> str:
-    encoded = json.dumps(
-        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    )
-    if len(encoded.encode("utf-8")) > MAX_CONTROLLER_WIRE_BYTES:
-        raise ValueError("Controller prompt section exceeds the byte limit.")
-    return encoded
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 __all__ = [

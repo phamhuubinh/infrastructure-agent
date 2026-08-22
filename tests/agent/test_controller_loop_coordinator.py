@@ -12,6 +12,7 @@ from src.agent.controller_contracts import (
     AgentDecisionKind,
     AgentObservation,
     AgentObservationStatus,
+    ControllerCallStage,
 )
 from src.agent.controller_loop_coordinator import (
     AgentControllerLoopConfig,
@@ -34,13 +35,21 @@ from src.pipeline.agent_action_validator import (
     AgentActionValidationStatus,
     AgentActionValidator,
 )
-from src.pipeline.agent_observation_serializer import serialize_validation_failure
+from src.pipeline.agent_observation_serializer import (
+    MAX_RETAINED_AGENT_OBSERVATIONS,
+    serialize_validation_failure,
+)
 from src.pipeline.controller_capability_discovery import ControllerCapabilityDiscovery
 from src.pipeline.fact import Fact, FactFreshness, FactValidity
 from src.pipeline.hard_request_constraints import (
     HardRequestConstraints,
     HardRequestConstraintsBuilder,
     HardTargetReference,
+)
+from src.pipeline.input_context_budget import (
+    InputContextBudget,
+    InputContextBudgetClass,
+    InputContextBudgetPolicy,
 )
 from src.pipeline.provenance import Provenance
 from src.pipeline.request_semantics import SourceConstraint
@@ -113,13 +122,18 @@ def _coordinator(
     )
 
 
-def test_direct_final_preserves_original_request_and_has_safe_trace() -> None:
+@pytest.mark.parametrize(
+    "user_request", ("hello", "thanks", "Explain what Prometheus is.")
+)
+def test_direct_final_preserves_original_request_and_has_safe_trace(
+    user_request: str,
+) -> None:
     provider = ScriptedControllerProvider(
         [_decision(AgentDecisionKind.FINAL, answer="Hello.")]
     )
 
     result = _coordinator(provider).run(
-        "Say hello.", hard_constraints=HardRequestConstraints()
+        user_request, hard_constraints=HardRequestConstraints()
     )
 
     assert result.terminal_state is AgentControllerLoopState.DONE
@@ -127,14 +141,210 @@ def test_direct_final_preserves_original_request_and_has_safe_trace() -> None:
     assert result.final_response_count == 1
     assert result.discovery_call_count == 0
     assert result.action_budget.actions_used == result.action_budget.tools_used == 0
-    assert result.run_state.raw_request == "Say hello."
+    assert result.run_state.raw_request == user_request
     assert len(provider.requests) == 1
     trace = result.to_trace_dict()
     rendered = json.dumps(trace)
-    assert "Say hello." not in rendered
+    assert user_request not in rendered
     assert "Hello." not in rendered
-    assert "prompt" not in trace
+    assert "system_prompt" not in rendered
+    assert "user_prompt" not in rendered
     assert "reasoning" not in trace
+    assert provider.requests[0].call_stage is ControllerCallStage.FIRST_DECISION
+    assert trace["controller_prompt_metadata"] == [
+        {
+            "call_stage": "first_decision",
+            "input_budget_class": "controller_first",
+            "input_budget_max_chars": 6500,
+            "actual_input_chars": provider.requests[0].actual_input_chars,
+            "estimated_input_tokens": provider.requests[0].estimated_input_tokens,
+            "optional_included": [],
+            "optional_dropped": [],
+        }
+    ]
+
+
+def test_controller_stages_incrementally_disclose_one_payload_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ScriptedControllerProvider(
+        [
+            _decision(AgentDecisionKind.DISCOVER, category="host"),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_listening_ports", {}),
+            ),
+            _decision(
+                AgentDecisionKind.ACTION,
+                action=AgentAction("host.get_listening_ports", {"port": 443}),
+            ),
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="Port 443 could not be verified from available evidence.",
+            ),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        lambda _self, _arguments: ToolResult(
+            success=True,
+            data={"ports": [443]},
+            capability_status=CapabilityStatus.VALID,
+        ),
+    )
+    result = _coordinator(provider, host_summary_count=1).run(
+        "Is port 443 listening?",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("localhost", "localhost")
+        ),
+    )
+
+    assert result.succeeded
+    assert [request.call_stage for request in provider.requests] == [
+        ControllerCallStage.FIRST_DECISION,
+        ControllerCallStage.DISCOVERY_CONTINUATION,
+        ControllerCallStage.ACTION_CONTINUATION,
+        ControllerCallStage.OBSERVATION_CONTINUATION,
+    ]
+    discovery, action, observation = (
+        json.loads(request.user_prompt) for request in provider.requests[1:]
+    )
+    for payload in (discovery, action, observation):
+        assert payload["request"] == "Is port 443 listening?"
+        assert (
+            payload["hard_constraints"]
+            == HardRequestConstraints(
+                explicit_target=HardTargetReference("localhost", "localhost")
+            ).to_dict()
+        )
+        assert "hv" not in payload
+        assert "hard_constraint_snapshot" not in json.dumps(payload)
+    assert "capability_summaries" in discovery
+    assert "selected_capability_schema" not in discovery
+    assert set(action).isdisjoint({"capability_summaries", "observation"})
+    assert "selected_capability_schema" in action
+    assert "capability_summaries" not in observation
+    assert "selected_capability_schema" not in observation
+    assert "observation" in observation
+
+
+def test_direct_final_never_touches_capability_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Hello.")]
+    )
+    coordinator = _coordinator(provider)
+    monkeypatch.setattr(
+        coordinator._discovery,
+        "discover",
+        lambda *_args, **_kwargs: pytest.fail("direct FINAL must not discover"),
+    )
+
+    result = coordinator.run("hello", hard_constraints=HardRequestConstraints())
+
+    assert result.succeeded
+    assert len(provider.requests) == 1
+
+
+def test_first_decision_prompt_is_independent_of_registry_size() -> None:
+    normal_provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Hello.")]
+    )
+    expanded_provider = ScriptedControllerProvider(
+        [_decision(AgentDecisionKind.FINAL, answer="Hello.")]
+    )
+    expanded = _coordinator(expanded_provider)
+    expanded._discovery._details.update(
+        {f"host.unrelated_{index}": object() for index in range(500)}
+    )
+
+    normal = _coordinator(normal_provider).run(
+        "hello", hard_constraints=HardRequestConstraints()
+    )
+    expanded_result = expanded.run("hello", hard_constraints=HardRequestConstraints())
+
+    assert normal.succeeded and expanded_result.succeeded
+    first, enlarged = normal_provider.requests[0], expanded_provider.requests[0]
+    assert first.user_prompt == enlarged.user_prompt
+    assert first.estimated_input_tokens == enlarged.estimated_input_tokens
+    assert "host.unrelated_0" not in enlarged.user_prompt
+
+
+def test_controller_mandatory_overflow_fails_before_provider_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = ScriptedControllerProvider([])
+    monkeypatch.setattr(
+        InputContextBudgetPolicy,
+        "CONTROLLER_FIRST",
+        InputContextBudget(InputContextBudgetClass.CONTROLLER_FIRST, max_chars=1),
+    )
+
+    result = _coordinator(provider).run(
+        "hello", hard_constraints=HardRequestConstraints()
+    )
+
+    assert (
+        result.failure is AgentControllerLoopFailure.CONTROLLER_INPUT_BUDGET_EXHAUSTED
+    )
+    assert provider.requests == []
+
+
+def test_observation_continuation_uses_only_retained_sequential_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actions = [
+        decision
+        for _ in range(MAX_RETAINED_AGENT_OBSERVATIONS + 1)
+        for decision in (
+            _decision(AgentDecisionKind.ACTION, action=AgentAction("host.get_cpu", {})),
+            _decision(AgentDecisionKind.ACTION, action=AgentAction("host.get_cpu", {})),
+        )
+    ]
+    provider = ScriptedControllerProvider(
+        [
+            *actions,
+            _decision(
+                AgentDecisionKind.FINAL,
+                answer="CPU could not be verified from available evidence.",
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        "src.tool.linux_tool.LinuxTool.execute",
+        lambda _self, _arguments: ToolResult(
+            success=True, data={"cpu": 1}, capability_status=CapabilityStatus.VALID
+        ),
+    )
+    result = _coordinator(
+        provider,
+        config=AgentControllerLoopConfig(
+            max_controller_rounds=20,
+            max_model_calls=20,
+            max_actions=10,
+            max_tools=10,
+            max_total_controller_input_tokens=50_000,
+        ),
+    ).run(
+        "Check CPU repeatedly.",
+        hard_constraints=HardRequestConstraints(
+            explicit_target=HardTargetReference("localhost", "localhost")
+        ),
+    )
+
+    assert result.succeeded
+    assert len(result.run_state.observations) == MAX_RETAINED_AGENT_OBSERVATIONS
+    payload = json.loads(provider.requests[-1].user_prompt)
+    prompt_observations = [
+        *payload.get("older_observations", []),
+        payload["observation"],
+    ]
+    assert len(prompt_observations) == MAX_RETAINED_AGENT_OBSERVATIONS
+    assert [item["n"] for item in prompt_observations] == list(
+        range(2, MAX_RETAINED_AGENT_OBSERVATIONS + 2)
+    )
 
 
 @pytest.mark.parametrize(
@@ -537,17 +747,15 @@ def test_discover_select_selected_schema_execute_observe_and_final(
     selection_prompt = json.loads(provider.requests[2].user_prompt)
     assert "capability_summaries" in discovery_prompt
     assert "selected_capability_schema" not in discovery_prompt
-    assert set(selection_prompt) >= {"selected_capability_schema", "run_state"}
+    assert set(selection_prompt) >= {"selected_capability_schema", "loop_state"}
     assert "capability_summaries" not in selection_prompt
 
 
-def test_full_discovery_payload_that_cannot_fit_stops_before_next_provider_call() -> (
-    None
-):
+def test_full_discovery_payload_uses_its_dedicated_stage_budget() -> None:
     provider = ScriptedControllerProvider(
         [
             _decision(AgentDecisionKind.DISCOVER, category="host"),
-            _decision(AgentDecisionKind.FINAL, answer="This must not be called."),
+            _decision(AgentDecisionKind.FINAL, answer="No action is needed."),
         ]
     )
 
@@ -555,11 +763,14 @@ def test_full_discovery_payload_that_cannot_fit_stops_before_next_provider_call(
         "Inspect host capabilities.", hard_constraints=HardRequestConstraints()
     )
 
-    assert (
-        result.failure is AgentControllerLoopFailure.CONTROLLER_INPUT_BUDGET_EXHAUSTED
-    )
-    assert len(provider.requests) == 1
+    assert result.succeeded
+    assert len(provider.requests) == 2
     assert "capability_summaries" not in json.loads(provider.requests[0].user_prompt)
+    assert provider.requests[1].input_budget_class == "controller_discovery"
+    assert (
+        provider.requests[1].actual_input_chars
+        <= provider.requests[1].input_budget_max_chars
+    )
     assert (
         result.run_state.observations[0].summary == "discovered category=host count=16"
     )

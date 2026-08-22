@@ -19,6 +19,7 @@ from src.agent.controller_contracts import (
     AgentObservation,
     AgentObservationStatus,
     AgentRunState,
+    ControllerCallStage,
 )
 from src.agent.controller_session_context import (
     ContextManagementStatus,
@@ -104,6 +105,30 @@ class AgentControllerLoopStateRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentControllerPromptRecord:
+    """Safe context-budget metadata for one completed controller call."""
+
+    call_stage: ControllerCallStage
+    input_budget_class: str
+    input_budget_max_chars: int
+    actual_input_chars: int
+    estimated_input_tokens: int
+    optional_included: tuple[str, ...]
+    optional_dropped: tuple[str, ...]
+
+    def to_trace_dict(self) -> dict[str, object]:
+        return {
+            "call_stage": self.call_stage.value,
+            "input_budget_class": self.input_budget_class,
+            "input_budget_max_chars": self.input_budget_max_chars,
+            "actual_input_chars": self.actual_input_chars,
+            "estimated_input_tokens": self.estimated_input_tokens,
+            "optional_included": list(self.optional_included),
+            "optional_dropped": list(self.optional_dropped),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class AgentControllerLoopConfig:
     max_controller_rounds: int = 8
     max_model_calls: int = 8
@@ -144,6 +169,7 @@ class AgentControllerLoopResult:
     accumulated_controller_input_tokens: int
     action_budget: AgentActionToolBudget
     completion_feedback_count: int
+    controller_prompt_metadata: tuple[AgentControllerPromptRecord, ...] = ()
 
     def __post_init__(self) -> None:
         if self.terminal_state not in {
@@ -189,6 +215,9 @@ class AgentControllerLoopResult:
                 "tools_used": self.action_budget.tools_used,
             },
             "completion_feedback_count": self.completion_feedback_count,
+            "controller_prompt_metadata": [
+                item.to_trace_dict() for item in self.controller_prompt_metadata
+            ],
             "run_state": self.run_state.to_trace_dict(),
             "final_response_count": 1,
         }
@@ -276,6 +305,8 @@ class AgentControllerLoopCoordinator:
         effective_constraints = hard_constraints
         completion_feedback_count = 0
         action_schema: Mapping[str, object] | None = None
+        call_stage = ControllerCallStage.FIRST_DECISION
+        controller_prompt_metadata: list[AgentControllerPromptRecord] = []
 
         def record(
             record_state: AgentControllerLoopState,
@@ -323,6 +354,7 @@ class AgentControllerLoopCoordinator:
                 accumulated_controller_input_tokens=input_tokens,
                 action_budget=action_budget,
                 completion_feedback_count=completion_feedback_count,
+                controller_prompt_metadata=tuple(controller_prompt_metadata),
             )
 
         def done(response_text: str, reason_code: str) -> AgentControllerLoopResult:
@@ -347,6 +379,7 @@ class AgentControllerLoopCoordinator:
                 accumulated_controller_input_tokens=input_tokens,
                 action_budget=action_budget,
                 completion_feedback_count=completion_feedback_count,
+                controller_prompt_metadata=tuple(controller_prompt_metadata),
             )
 
         # Hard constraints are built before this loop. They are the only
@@ -427,6 +460,7 @@ class AgentControllerLoopCoordinator:
                         hard_constraints=hard_constraints,
                         context=controller_context if continuation is None else None,
                         continuation=continuation,
+                        call_stage=call_stage,
                     )
                 except InputContextBudgetError:
                     return fail(
@@ -459,6 +493,7 @@ class AgentControllerLoopCoordinator:
                         hard_constraints=hard_constraints,
                         context=controller_context if continuation is None else None,
                         continuation=continuation,
+                        call_stage=call_stage,
                         request_id=request_id,
                     )
                     decision = decision_result.decision
@@ -470,6 +505,21 @@ class AgentControllerLoopCoordinator:
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                 if not isinstance(decision, AgentDecision):
                     return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
+                controller_prompt_metadata.append(
+                    AgentControllerPromptRecord(
+                        call_stage=decision_result.call_stage,
+                        input_budget_class=decision_result.input_budget_class,
+                        input_budget_max_chars=decision_result.input_budget_max_chars,
+                        actual_input_chars=decision_result.actual_input_chars,
+                        estimated_input_tokens=decision_result.estimated_input_tokens,
+                        optional_included=decision_result.optional_included,
+                        optional_dropped=decision_result.optional_dropped,
+                    )
+                )
+                # A disclosure stage is consumed by this call.  Any later
+                # feedback-only turn is an observation continuation unless a
+                # new discovery/schema disclosure below explicitly replaces it.
+                call_stage = ControllerCallStage.OBSERVATION_CONTINUATION
                 record(
                     state,
                     AgentControllerLoopRecordStatus.SUCCEEDED,
@@ -550,6 +600,7 @@ class AgentControllerLoopCoordinator:
                     run_state = replace(
                         run_state, disclosed_capability_categories=categories
                     )
+                    call_stage = ControllerCallStage.DISCOVERY_CONTINUATION
                 record(
                     state,
                     AgentControllerLoopRecordStatus.SUCCEEDED,
@@ -576,6 +627,7 @@ class AgentControllerLoopCoordinator:
                     if detail.selected_capability_schema is None:
                         return fail(AgentControllerLoopFailure.CONTRACT_FAILURE, state)
                     active_selected_schema = detail.selected_capability_schema
+                    call_stage = ControllerCallStage.ACTION_CONTINUATION
                     run_state = replace(
                         run_state,
                         disclosed_capability_detail_ids=_append_unique(
@@ -809,6 +861,7 @@ __all__ = [
     "AgentControllerLoopConfig",
     "AgentControllerLoopCoordinator",
     "AgentControllerLoopFailure",
+    "AgentControllerPromptRecord",
     "AgentControllerLoopRecordStatus",
     "AgentControllerLoopResult",
     "AgentControllerLoopState",

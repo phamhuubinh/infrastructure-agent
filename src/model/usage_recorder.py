@@ -58,6 +58,7 @@ class ModelUsageRecorder:
         latency_ms: float | None = None,
         estimated_input_tokens: int | None = None,
         configured_effort: str | None = None,
+        call_stage: str | None = None,
     ) -> None:
         """Normalize a provider-neutral raw-usage mapping and record it.
 
@@ -75,6 +76,8 @@ class ModelUsageRecorder:
         )
         if estimated_input_tokens is not None:
             usage = replace(usage, estimated_input_tokens=estimated_input_tokens)
+        if call_stage is not None:
+            usage = replace(usage, call_stage=call_stage)
         self.record(usage)
 
     def to_trace_dict(self) -> dict[str, Any]:

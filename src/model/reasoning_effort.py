@@ -46,6 +46,10 @@ class ReasoningEffortPolicy:
             raise TypeError("request_class must be ModelRequestClass.")
 
         normalized_purpose = purpose.strip().casefold()
+        if normalized_purpose == "controller.first_decision":
+            return ReasoningEffort.MINIMAL
+        if normalized_purpose.startswith("controller."):
+            return ReasoningEffort.LOW
         if normalized_purpose == "planner":
             return ReasoningEffort.MINIMAL
         if normalized_purpose in cls._LOW_EFFORT_PURPOSES:

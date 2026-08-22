@@ -58,9 +58,7 @@ _FORBIDDEN_ACTION_KEYS = frozenset(
 )
 _DECISION_KEYS = frozenset({"v", "k", "g", "c", "a", "f", "q", "r"})
 _ACTION_KEYS = frozenset({"i", "a"})
-_OBSERVATION_KEYS = frozenset(
-    {"n", "i", "s", "f", "m", "t", "o", "p", "r", "c"}
-)
+_OBSERVATION_KEYS = frozenset({"n", "i", "s", "f", "m", "t", "o", "p", "r", "c"})
 _STATE_KEYS = frozenset(
     {"v", "q", "g", "hr", "hv", "cc", "cd", "o", "rd", "ac", "mc", "t", "ts"}
 )
@@ -80,6 +78,19 @@ class AgentDecisionKind(str, Enum):
     ACTION = "action"
     CLARIFY = "clarify"
     REFUSE = "refuse"
+
+
+class ControllerCallStage(str, Enum):
+    """Deterministic reason a controller model call is being made.
+
+    These are loop stages, not request-semantic classifications.  They keep
+    prompt disclosure and provider effort selection independent of model text.
+    """
+
+    FIRST_DECISION = "first_decision"
+    DISCOVERY_CONTINUATION = "discovery_continuation"
+    ACTION_CONTINUATION = "action_continuation"
+    OBSERVATION_CONTINUATION = "observation_continuation"
 
 
 class AgentObservationStatus(str, Enum):
@@ -213,11 +224,15 @@ class AgentDecision:
                 if action_value is not None
                 else None
             ),
-            final_answer=_optional_text(data["f"], "decision.f", max_length=MAX_TEXT_CHARS),
+            final_answer=_optional_text(
+                data["f"], "decision.f", max_length=MAX_TEXT_CHARS
+            ),
             clarification_question=_optional_text(
                 data["q"], "decision.q", max_length=MAX_TEXT_CHARS
             ),
-            refusal_reason=_optional_text(data["r"], "decision.r", max_length=MAX_TEXT_CHARS),
+            refusal_reason=_optional_text(
+                data["r"], "decision.r", max_length=MAX_TEXT_CHARS
+            ),
         )
 
 
@@ -247,7 +262,10 @@ class AgentObservation:
         if not isinstance(self.status, AgentObservationStatus):
             raise TypeError("status must be an AgentObservationStatus value.")
         _optional_text(self.summary, "summary", max_length=MAX_TEXT_CHARS)
-        for name, value in (("target_id", self.target_id), ("source_id", self.source_id)):
+        for name, value in (
+            ("target_id", self.target_id),
+            ("source_id", self.source_id),
+        ):
             _optional_text(value, name, max_length=MAX_TEXT_CHARS)
         _optional_identifier(self.reason_code, "reason_code")
         if type(self.recoverable) is not bool:
@@ -312,9 +330,15 @@ class AgentObservation:
                 )
                 for index, item in enumerate(facts)
             ),
-            summary=_optional_text(data["m"], "observation.m", max_length=MAX_TEXT_CHARS),
-            target_id=_optional_text(data["t"], "observation.t", max_length=MAX_TEXT_CHARS),
-            source_id=_optional_text(data["o"], "observation.o", max_length=MAX_TEXT_CHARS),
+            summary=_optional_text(
+                data["m"], "observation.m", max_length=MAX_TEXT_CHARS
+            ),
+            target_id=_optional_text(
+                data["t"], "observation.t", max_length=MAX_TEXT_CHARS
+            ),
+            source_id=_optional_text(
+                data["o"], "observation.o", max_length=MAX_TEXT_CHARS
+            ),
             provenance_references=_text_tuple(
                 data["p"],
                 "observation.p",
@@ -351,10 +375,14 @@ class AgentRunState:
     terminal_status: str | None = None
 
     def __post_init__(self) -> None:
-        _required_text(self.raw_request, "raw_request", max_length=MAX_RAW_REQUEST_CHARS)
+        _required_text(
+            self.raw_request, "raw_request", max_length=MAX_RAW_REQUEST_CHARS
+        )
         if self.goal is not None:
             _goal(self.goal)
-        _optional_identifier(self.hard_constraint_reference, "hard_constraint_reference")
+        _optional_identifier(
+            self.hard_constraint_reference, "hard_constraint_reference"
+        )
         object.__setattr__(
             self,
             "hard_constraint_snapshot",
@@ -385,7 +413,9 @@ class AgentRunState:
         ):
             raise TypeError("observations must be a tuple of AgentObservation values.")
         if len(self.observations) > MAX_OBSERVATIONS:
-            raise ValueError(f"observations may contain at most {MAX_OBSERVATIONS} items.")
+            raise ValueError(
+                f"observations may contain at most {MAX_OBSERVATIONS} items."
+            )
         for name, value in (
             ("round_count", self.round_count),
             ("action_count", self.action_count),
@@ -431,15 +461,23 @@ class AgentRunState:
         if not isinstance(observations, list):
             raise ControllerContractError("run_state.o must be an array.")
         return cls(
-            raw_request=_required_text(data["q"], "run_state.q", max_length=MAX_RAW_REQUEST_CHARS),
+            raw_request=_required_text(
+                data["q"], "run_state.q", max_length=MAX_RAW_REQUEST_CHARS
+            ),
             goal=(None if data["g"] is None else _goal(data["g"])),
             hard_constraint_reference=_optional_identifier(data["hr"], "run_state.hr"),
-            hard_constraint_snapshot=_json_mapping(data["hv"], "run_state.hv", max_items=32),
+            hard_constraint_snapshot=_json_mapping(
+                data["hv"], "run_state.hv", max_items=32
+            ),
             disclosed_capability_categories=_identifier_tuple(
                 data["cc"], "run_state.cc"
             ),
-            disclosed_capability_detail_ids=_identifier_tuple(data["cd"], "run_state.cd"),
-            observations=tuple(AgentObservation.from_wire(item) for item in observations),
+            disclosed_capability_detail_ids=_identifier_tuple(
+                data["cd"], "run_state.cd"
+            ),
+            observations=tuple(
+                AgentObservation.from_wire(item) for item in observations
+            ),
             round_count=_non_negative_int(data["rd"], "run_state.rd"),
             action_count=_non_negative_int(data["ac"], "run_state.ac"),
             model_call_count=_non_negative_int(data["mc"], "run_state.mc"),
@@ -741,7 +779,9 @@ def _thaw_json(value: object) -> object:
 
 
 def _compact_json(value: dict[str, object]) -> str:
-    encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    encoded = json.dumps(
+        value, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    )
     if len(encoded.encode("utf-8")) > MAX_CONTROLLER_WIRE_BYTES:
         raise ControllerContractError("Controller payload exceeds the byte limit.")
     return encoded
@@ -782,6 +822,7 @@ __all__ = [
     "AgentAction",
     "AgentDecision",
     "AgentDecisionKind",
+    "ControllerCallStage",
     "AgentObservation",
     "AgentObservationStatus",
     "AgentRunState",
