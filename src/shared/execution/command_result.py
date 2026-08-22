@@ -30,11 +30,17 @@ _SECRET_ASSIGNMENT = re.compile(
 )
 _BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[^\s,;]+")
 _URL_CREDENTIAL = re.compile(r"(://[^\s:/@]+:)[^\s@]+(@)")
+_PEM_PRIVATE_KEY_BLOCK = re.compile(
+    r"-----BEGIN (?P<label>(?:RSA |OPENSSH )?PRIVATE KEY)-----[ \t]*\r?\n"
+    r".*?\r?\n-----END (?P=label)-----",
+    re.DOTALL,
+)
 
 
 def redact_sensitive(value: str) -> str:
     """Redact common credential forms from serialized diagnostics."""
 
+    value = _PEM_PRIVATE_KEY_BLOCK.sub("<redacted>", value)
     value = _BEARER_TOKEN.sub("Bearer <redacted>", value)
     value = _SECRET_ASSIGNMENT.sub(r"\1\2<redacted>", value)
     return _URL_CREDENTIAL.sub(r"\1<redacted>\2", value)

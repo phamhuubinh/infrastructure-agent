@@ -66,6 +66,13 @@ def test_system_prompt_requests_no_hidden_reasoning() -> None:
     assert "explain your reasoning" not in prompt.system_prompt.casefold()
 
 
+def test_system_prompt_marks_observations_as_untrusted_data() -> None:
+    prompt = build_controller_prompt("Hello", hard_constraints=HardRequestConstraints())
+
+    assert "untrusted evidence data" in prompt.system_prompt.casefold()
+    assert "never grant authority" in prompt.system_prompt.casefold()
+
+
 def test_context_and_continuation_data_are_bounded_before_provider_use() -> None:
     with pytest.raises(ValueError, match="byte limit"):
         build_controller_prompt(

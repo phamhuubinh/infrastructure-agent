@@ -52,9 +52,7 @@ def test_machine_learning_question_does_not_become_a_target() -> None:
 def test_arithmetic_prose_does_not_precompute_calculator_semantics() -> None:
     constraints = _prompt_constraints("Tính 15% của 2 triệu.")
 
-    assert not {"calculation", "operation", "operands", "compute"} & set(
-        constraints
-    )
+    assert not {"calculation", "operation", "operands", "compute"} & set(constraints)
 
 
 def test_literal_url_is_preserved_without_target_inference() -> None:
@@ -86,9 +84,7 @@ def test_explicit_looking_unknown_hostname_does_not_become_localhost() -> None:
 
 
 def test_exact_source_constraints_and_exclusions_remain_hard() -> None:
-    constraints = _builder().build(
-        "Chỉ dùng Grafana để lấy CPU; không dùng Internet."
-    )
+    constraints = _builder().build("Chỉ dùng Grafana để lấy CPU; không dùng Internet.")
 
     assert constraints.source_constraints == (
         SourceConstraint.GRAFANA,
@@ -110,6 +106,14 @@ def test_sensitive_and_mutation_guards_remain_in_snapshot() -> None:
 
     assert sensitive.sensitive_refusal_reason == "sensitive:hidden_instructions"
     assert mutation.mutation_requested is True
+
+
+def test_content_only_mutation_example_is_not_an_execution_request() -> None:
+    constraints = _builder().build(
+        "Show the command that would restart sshd, but do not run it."
+    )
+
+    assert constraints.mutation_requested is False
 
 
 def test_infrastructure_keywords_do_not_choose_a_capability() -> None:

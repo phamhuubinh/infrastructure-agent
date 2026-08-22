@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 from src.model.protocol.prompt_builder_v2 import _detect_language
+from src.shared.execution.command_result import redact_sensitive
 
 _REASONING_BLOCK = re.compile(
     # A missing closing tag must fail closed too. Treating it as ordinary
@@ -72,10 +73,10 @@ def sanitize_api_response(text: str, question: str) -> str:
     and any fallback/error path all converge on the same final boundary
     (GA2-B05).
     """
-    visible = sanitize_model_output(text)
+    visible = redact_sensitive(sanitize_model_output(text))
     visible = enforce_language_quality(visible, _detect_language(question))
     return visible or (
-        "Không thể trả về nội dung đó an toàn. " "Hãy gửi lại yêu cầu theo cách khác."
+        "Không thể trả về nội dung đó an toàn. Hãy gửi lại yêu cầu theo cách khác."
     )
 
 

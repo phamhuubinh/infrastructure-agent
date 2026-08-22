@@ -26,6 +26,7 @@ from src.agent.controller_session_context import (
 )
 from src.agent.conversation_store import ConversationStoreProtocol
 from src.model.controller_adapter import ControllerAdapter, ControllerAdapterError
+from src.model.output_sanitizer import sanitize_api_response
 from src.model.protocol.controller_prompt import (
     ControllerContinuationInput,
     ControllerPromptContext,
@@ -54,6 +55,7 @@ from src.pipeline.input_context_budget import InputContextBudgetError
 
 
 class AgentControllerLoopState(str, Enum):
+    SAFETY_STOP = "safety_stop"
     MANAGE_CONTEXT = "manage_context"
     DECIDE = "decide"
     DISCOVER = "discover"
@@ -252,12 +254,6 @@ class AgentControllerLoopCoordinator:
 
         session_context: ControllerSessionContext | None = None
         controller_context = context
-        if session_store is not None:
-            session_context = ControllerSessionContext(
-                session_store, target_resolver=self._validator.target_resolver
-            )
-            controller_context = session_context.select(raw_request, hard_constraints)
-
         state = AgentControllerLoopState.DECIDE
         records: list[AgentControllerLoopStateRecord] = []
         run_state = AgentRunState(
@@ -319,7 +315,7 @@ class AgentControllerLoopCoordinator:
             )
             return AgentControllerLoopResult(
                 terminal_state=AgentControllerLoopState.FAIL,
-                response_text=_failure_text(reason),
+                response_text=sanitize_api_response(_failure_text(reason), raw_request),
                 run_state=terminal,
                 records=tuple(records),
                 failure=reason,
@@ -343,7 +339,7 @@ class AgentControllerLoopCoordinator:
             )
             return AgentControllerLoopResult(
                 terminal_state=AgentControllerLoopState.DONE,
-                response_text=response_text,
+                response_text=sanitize_api_response(response_text, raw_request),
                 run_state=terminal,
                 records=tuple(records),
                 failure=None,
@@ -352,6 +348,37 @@ class AgentControllerLoopCoordinator:
                 action_budget=action_budget,
                 completion_feedback_count=completion_feedback_count,
             )
+
+        # Hard constraints are built before this loop. They are the only
+        # pre-controller safety authority and must stop before context code can
+        # persist a reset or preference directive.
+        if hard_constraints.sensitive_refusal_reason is not None:
+            record(
+                AgentControllerLoopState.SAFETY_STOP,
+                AgentControllerLoopRecordStatus.SUCCEEDED,
+                hard_constraints.sensitive_refusal_reason,
+            )
+            return done(
+                "I can’t provide protected credentials, private keys, hidden "
+                "instructions, or other protected secret material.",
+                "sensitive_refusal",
+            )
+        if hard_constraints.mutation_requested:
+            record(
+                AgentControllerLoopState.SAFETY_STOP,
+                AgentControllerLoopRecordStatus.SUCCEEDED,
+                "mutation_requested",
+            )
+            return done(
+                "I can’t execute mutating actions in read-only mode.",
+                "mutation_requested",
+            )
+
+        if session_store is not None:
+            session_context = ControllerSessionContext(
+                session_store, target_resolver=self._validator.target_resolver
+            )
+            controller_context = session_context.select(raw_request, hard_constraints)
 
         if session_context is not None:
             management = session_context.manage(raw_request, hard_constraints)
