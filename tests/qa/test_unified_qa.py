@@ -112,36 +112,60 @@ def test_aggregate_report_defaults_grading_to_pending_when_missing() -> None:
     assert report["summary"] == {"grading_status": "PENDING_MANUAL_REVIEW"}
 
 
+
 def test_aggregate_report_preserves_safety_and_viability_gate_families(
     tmp_path: Path,
 ) -> None:
     viability_fields = {
         "p0_violations": 0,
         "viability_status": "FAIL",
-        "viability_reasons": ["semantic_failures_dominate"],
-        "semantic_success_count": 0,
-        "semantic_failure_count": 4,
-        "planner_failure_count_by_reason": {"malformed_output": 4},
-        "model_provider_failure_count": 4,
-        "technical_fallback_response_count": 4,
+        "viability_reasons": [
+            "canonical_failures_dominate"
+        ],
+        "canonical_success_count": 0,
+        "canonical_failure_count": 4,
+        "runtime_failure_count_by_reason": {
+            "model_failure": 4,
+        },
+        "model_failure_count": 4,
         "successful_tool_execution_count": 0,
         "successful_direct_answer_count": 0,
     }
 
     report = run_aggregate_report(
         tmp_path,
-        manifest={"run_id": "x", "git_sha": "y", "dirty_worktree": False},
+        manifest={
+            "run_id": "x",
+            "git_sha": "y",
+            "dirty_worktree": False,
+        },
         technical=[],
-        qa_report={"summary": viability_fields, "cases": []},
+        qa_report={
+            "summary": viability_fields,
+            "cases": [],
+        },
         comparison=None,
     )
 
-    assert report["summary"]["p0_violations"] == 0
-    assert report["summary"]["viability_status"] == "FAIL"
-    assert report["summary"]["planner_failure_count_by_reason"] == {
-        "malformed_output": 4
+    assert (
+        report["summary"]["p0_violations"]
+        == 0
+    )
+    assert (
+        report["summary"]["viability_status"]
+        == "FAIL"
+    )
+    assert report["summary"][
+        "runtime_failure_count_by_reason"
+    ] == {
+        "model_failure": 4,
     }
-    assert report["qa"]["summary"]["technical_fallback_response_count"] == 4
+    assert (
+        report["qa"]["summary"][
+            "model_failure_count"
+        ]
+        == 4
+    )
 
 
 def test_compare_runs_computes_counts_and_latency() -> None:

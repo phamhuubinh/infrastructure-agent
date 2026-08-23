@@ -44,17 +44,19 @@ It reports two independent automated gate families:
 `summary.json`, `summary.md`, and the unified aggregate report retain both families beside manual
 behavioral grading. `PENDING_MANUAL_REVIEW` never overrides a failed P0 or viability gate.
 
-## Important compatibility note
 
-At baseline `259f85b`, `ga2_runner.py` still contains compatibility-named viability fields and
-counters such as `semantic_loop` and `planner_failure_*`. Those names are **not architecture
-authority** and must not be used as a reason to restore the removed deterministic/semantic planner
-stack.
+## Canonical trace contract
 
-If a fresh canonical run fails `Runtime viability`, inspect the generated report and the runner ↔
-public trace contract first. Fix the first real failure. Do not treat later cascade failures as
-independent architecture problems and do not resurrect legacy routing merely to satisfy an old
-metric name.
+`ga2_runner.py` evaluates the public canonical runtime trace emitted under
+`execution_trace.runtime_metrics.canonical_runtime`. Runtime viability uses
+canonical terminal state, model/discovery/action counters, execution budget,
+and the public evidence steps returned by `/api/query`.
+
+The runner must not depend on removed semantic-planner fields, recreate a
+keyword router, or require the production runtime to emit legacy compatibility
+metrics. If a fresh run fails `Runtime viability`, inspect the first failing
+canonical trace and its public observations before changing runtime behavior.
+
 
 ## Before a live run
 
