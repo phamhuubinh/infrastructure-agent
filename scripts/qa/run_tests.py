@@ -17,7 +17,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.agent.runtime_factory import create_deterministic_agent
+from src.agent.canonical_factory import create_canonical_session_agent
 from src.shared.logger import set_enabled
 
 set_enabled(True)
@@ -200,7 +200,7 @@ for q in [
 # ───── Run Tests ─────
 
 def main():
-    agent = create_deterministic_agent(
+    agent = create_canonical_session_agent(
         target_store_path=str(PROJECT_ROOT / "targets.json"),
         server_name="sv1",
     )

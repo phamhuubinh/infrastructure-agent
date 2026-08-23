@@ -13,8 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.agent.runtime_factory import create_deterministic_agent
-from src.pipeline.intent_resolver import IntentResolver
+from src.agent.canonical_factory import create_canonical_session_agent
 from src.shared.logger import set_enabled
 
 set_enabled(True)
@@ -162,13 +161,55 @@ for g, d, qs in [
         TEST_CASES.append((g, d, q))
 
 
-def _resolve_intent_text(text: str) -> str:
-    try:
-        r = IntentResolver()
-        req = r.resolve(text)
-        return req.intent.name if req.intent else "NONE"
-    except Exception:
-        return "ERROR"
+def _canonical_runtime_summary(result: dict) -> dict:
+    """Project only public canonical runtime metadata for QA."""
+
+    trace = result.get("execution_trace")
+    canonical = {}
+
+    if isinstance(trace, dict):
+        metrics = trace.get("runtime_metrics")
+        if isinstance(metrics, dict):
+            candidate = metrics.get("canonical_runtime")
+            if isinstance(candidate, dict):
+                canonical = candidate
+
+    capabilities: list[str] = []
+    references: list[str] = []
+
+    steps = result.get("steps", [])
+    if isinstance(steps, list):
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+
+            capability = step.get("capability_id")
+            if (
+                isinstance(capability, str)
+                and capability
+                and capability not in capabilities
+            ):
+                capabilities.append(capability)
+
+            for key in ("target_id", "source_id"):
+                reference = step.get(key)
+                if (
+                    isinstance(reference, str)
+                    and reference
+                    and reference not in references
+                ):
+                    references.append(reference)
+
+    return {
+        "terminal": canonical.get("terminal"),
+        "model_calls": canonical.get("model_calls"),
+        "discovery_calls": canonical.get("discovery_calls"),
+        "action_attempts": canonical.get("action_attempts"),
+        "observation_count": canonical.get("observation_count"),
+        "failure": canonical.get("failure"),
+        "capabilities": capabilities,
+        "references": references,
+    }
 
 
 def _check_hallucination(response: str) -> list[str]:
@@ -180,35 +221,52 @@ def _check_hallucination(response: str) -> list[str]:
     return issues
 
 
-def evaluate_test(group: str, domain: str, question: str, response: str, elapsed: float,
-                  investigation, exception: Exception | None, intent_text: str):
-    """Evaluate a single test and return PASS/FAIL with reasons."""
+def evaluate_test(
+    group: str,
+    domain: str,
+    question: str,
+    response: str,
+    elapsed: float,
+    runtime_summary: dict,
+    exception: Exception | None,
+):
+    """Evaluate observable canonical behavior without a shadow parser."""
+
     fail_reasons = []
 
-    # 1. Crash check
     if exception is not None:
-        return "FAIL", [f"Exception: {exception}"], intent_text
+        return "FAIL", [f"Exception: {exception}"]
 
-    # 2. Intent check
+    terminal = runtime_summary.get("terminal")
 
-    # 3. Unknown target check
-    if "unknown target" in response.lower() or "not found" in response.lower():
-        if group in ("L", "K"):
-            pass  # Expected for Invalid/Ambiguous (mild)
-        else:
-            fail_reasons.append("Unexpected unknown target error for this group")
+    if terminal in {"failed", "setup_required"}:
+        fail_reasons.append(
+            f"Canonical runtime terminal: {terminal}"
+        )
 
-    # 4. Hallucination check
-    hal = _check_hallucination(response)
-    fail_reasons.extend(hal)
+    if (
+        "unknown target" in response.lower()
+        or "not found" in response.lower()
+    ):
+        if group not in ("L", "K"):
+            fail_reasons.append(
+                "Unexpected unavailable-reference response "
+                "for this group"
+            )
 
-    # 5. Empty response
+    fail_reasons.extend(
+        _check_hallucination(response)
+    )
+
     if not response or len(response.strip()) < 10:
-        fail_reasons.append("Empty or too short response")
+        fail_reasons.append(
+            "Empty or too short response"
+        )
 
     if fail_reasons:
-        return "FAIL", fail_reasons, intent_text
-    return "PASS", [], intent_text
+        return "FAIL", fail_reasons
+
+    return "PASS", []
 
 
 def main():
@@ -218,7 +276,7 @@ def main():
     except FileNotFoundError:
         pass
 
-    agent = create_deterministic_agent(
+    agent = create_canonical_session_agent(
         target_store_path=str(PROJECT_ROOT / "targets.json"),
         server_name="sv1",
     )
@@ -231,23 +289,31 @@ def main():
     token_start = read_token_log()
 
     for idx, (group, domain, question) in enumerate(TEST_CASES, 1):
-        intent_text = _resolve_intent_text(question)
         t0 = time.time()
         response = ""
-        investigation = None
+        runtime_summary = {}
         exc_info = None
 
         try:
             result = agent.run_with_steps(question)
             response = result["response"]
-            investigation = result.get("investigation")
+            runtime_summary = (
+                _canonical_runtime_summary(result)
+            )
         except Exception as e:
             exc_info = e
             response = f"ERROR: {e}"
 
         elapsed = time.time() - t0
-        evaluation, reasons, _ = evaluate_test(group, domain, question, response, elapsed,
-                                                investigation, exc_info, intent_text)
+        evaluation, reasons = evaluate_test(
+            group,
+            domain,
+            question,
+            response,
+            elapsed,
+            runtime_summary,
+            exc_info,
+        )
 
         if evaluation == "PASS":
             passed += 1
@@ -259,7 +325,7 @@ def main():
             "group": group,
             "domain": domain,
             "question": question,
-            "intent_resolved": intent_text,
+            "canonical_runtime": runtime_summary,
             "status": evaluation,
             "fail_reasons": reasons,
             "elapsed": round(elapsed, 3),
@@ -317,7 +383,10 @@ def main():
     if failed_tests:
         for r in failed_tests:
             print(f"  [{r['group']}] Q: {r['question']}")
-            print(f"       Intent: {r['intent_resolved']}")
+            print(
+                f"       Runtime: "
+                f"{r['canonical_runtime']}"
+            )
             print(f"       Error: {r['error']}")
             print(f"       Reasons: {', '.join(r['fail_reasons'])}")
             print()
@@ -374,18 +443,30 @@ def self_heal_expected(group: str, domain: str, question: str) -> str:
         if "monitor" in question:
             return "SSH connection attempt to monitor"
     if group == "K":
-        return "Handle ambiguity gracefully, fallback to localhost"
+        return (
+            "Clarify ambiguity or decline unavailable "
+            "references; never default to localhost"
+        )
     if group == "B" and "Server có ổn" in question:
-        return "Resolve intent MACHINE_ASSESSMENT on localhost"
+        return (
+            "Model-owned interpretation with any action "
+            "validated by canonical authority"
+        )
     if group == "I" and "server" in question:
         return "Full health assessment with evidence"
-    return "Successful execution with correct intent"
+    return (
+        "Successful canonical decision/execution without "
+        "unauthorized action"
+    )
 
 
 def analyze_root_cause(r: dict) -> str:
     err = (r.get("error") or "").lower()
     if "unknown target" in err or "not found" in err:
-        return "TargetResolver raised exception for unrecognized target name"
+        return (
+            "Exact-reference validation rejected an "
+            "unavailable target/source"
+        )
     if "ssh" in err:
         return "SSH connection failed - host unreachable or credentials missing"
     if "timeout" in err or "time out" in err:
@@ -400,7 +481,7 @@ def analyze_root_cause(r: dict) -> str:
 def analyze_suspected_module(r: dict) -> str:
     err = (r.get("error") or "").lower()
     if "target" in err:
-        return "src/pipeline/target_resolver.py"
+        return "src/agent/authority.py / src/agent/discovery.py"
     if "ssh" in err:
         return "src/tool/execution_backend.py (SSHExecutionBackend)"
     if "grafana" in err:
@@ -413,12 +494,15 @@ def analyze_suspected_module(r: dict) -> str:
 def suggest_fix(r: dict) -> str:
     err = (r.get("error") or "").lower()
     if "unknown target" in err:
-        return "Catch TargetResolver exception in pipeline and return graceful fallback assessment on localhost"
+        return (
+            "Improve model discovery/clarification behavior; "
+            "do not add fuzzy aliases or default targets"
+        )
     if "ssh" in err:
         return "Add retry mechanism or clear error message for SSH failures"
     if r.get("fail_reasons"):
         return "Address fail reasons: " + " | ".join(r["fail_reasons"])
-    return "Review exception handling in pipeline execution"
+    return "Review canonical runtime/executor failure boundary"
 
 
 if __name__ == "__main__":
