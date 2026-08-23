@@ -20,13 +20,13 @@ from src.agent.runtime import (
 from src.agent.session_agent import (
     CanonicalSessionAgent,
 )
-from src.model.assessment_model_adapter import (
-    AssessmentModelAdapter,
+from src.model.agent_backend import (
+    AgentModelBackend,
 )
 
 
 class FakeAssessmentModel(
-    AssessmentModelAdapter
+    AgentModelBackend
 ):
     def __init__(self) -> None:
         self.summarize_calls = 0
@@ -34,7 +34,7 @@ class FakeAssessmentModel(
     def assess(self, request) -> str:
         return "unused"
 
-    def assess_raw(
+    def complete(
         self,
         prompt: str,
     ) -> str:
@@ -161,7 +161,7 @@ def test_session_agent_passes_bounded_history_as_context() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
         conversation_store=store,
@@ -211,7 +211,7 @@ def test_attachment_context_never_grants_authority_or_leaks_secrets() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
     )
@@ -289,7 +289,7 @@ def test_steps_expose_metadata_not_raw_fact_values() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
     )
@@ -322,7 +322,7 @@ def test_public_trace_never_echoes_runtime_request() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
     )
@@ -368,7 +368,7 @@ def test_failed_runtime_has_safe_trace() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
     )
@@ -399,7 +399,7 @@ def test_store_receives_model_summarizer() -> None:
         runtime=FakeRuntime(
             _result()
         ),
-        assessment_model=model,
+        model_backend=model,
         conversation_store=store,
     )
 
@@ -417,7 +417,7 @@ def test_health_check_delegates_to_model() -> None:
         runtime=FakeRuntime(
             _result()
         ),
-        assessment_model=(
+        model_backend=(
             FakeAssessmentModel()
         ),
     )
@@ -426,8 +426,8 @@ def test_health_check_delegates_to_model() -> None:
 
 
 def test_setup_mode_never_calls_runtime() -> None:
-    from src.model.unconfigured_adapter import (
-        UnconfiguredAssessmentAdapter,
+    from src.model.agent_backend import (
+        UnconfiguredAgentBackend,
     )
 
     runtime = FakeRuntime(
@@ -438,8 +438,8 @@ def test_setup_mode_never_calls_runtime() -> None:
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        assessment_model=(
-            UnconfiguredAssessmentAdapter()
+        model_backend=(
+            UnconfiguredAgentBackend()
         ),
         conversation_store=store,
     )

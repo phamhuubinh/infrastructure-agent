@@ -13,7 +13,7 @@ from src.backend.document_service import delete_file, list_files, store_file
 from src.backend.routers.documents import document_get, document_list
 from src.backend.routers.query import query
 from src.backend.session_document_evidence import SessionDocumentEvidenceService
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import AgentModelBackend
 from src.shared.attachment_evidence import ATTACHMENT_EVIDENCE_MAX_BYTES
 from src.shared.config import OrionConfig
 
@@ -38,7 +38,7 @@ def _discover_wire(category: str) -> str:
     )
 
 
-class _RecordedCanonicalModel(AssessmentModelAdapter):
+class _RecordedCanonicalModel(AgentModelBackend):
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
@@ -47,7 +47,7 @@ class _RecordedCanonicalModel(AssessmentModelAdapter):
             "attachment evidence must use canonical agent decisions"
         )
 
-    def assess_raw(self, prompt: str) -> str:
+    def complete(self, prompt: str) -> str:
         self.prompts.append(prompt)
         return _final_wire(
             "The attachment says Tuesday."
@@ -55,13 +55,13 @@ class _RecordedCanonicalModel(AssessmentModelAdapter):
 
 
 def _canonical_agent(
-    model: AssessmentModelAdapter,
+    model: AgentModelBackend,
     *,
     target_store_path: str,
 ):
     return create_canonical_session_agent(
         target_store_path=target_store_path,
-        assessment_adapter=model,
+        model_backend=model,
         config=OrionConfig(
             servers={},
             active_server_name="",
@@ -364,7 +364,7 @@ def test_attachment_evidence_survives_a_canonical_continuation(
     )
 
     model = _RecordedCanonicalModel()
-    model.assess_raw = mock.Mock(
+    model.complete = mock.Mock(
         side_effect=[
             _discover_wire("host"),
             _final_wire("Attachment retained."),
@@ -394,11 +394,11 @@ def test_attachment_evidence_survives_a_canonical_continuation(
     )
 
     assert result["response"] == "Attachment retained."
-    assert len(model.assess_raw.call_args_list) == 2
+    assert len(model.complete.call_args_list) == 2
 
     assert all(
         "secret marker" in call.args[0]
-        for call in model.assess_raw.call_args_list
+        for call in model.complete.call_args_list
     )
 
     assert (

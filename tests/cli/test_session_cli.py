@@ -144,7 +144,7 @@ def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
 ) -> None:
     agent = create_canonical_session_agent(
         target_store_path=str(tmp_path / "targets.json"),
-        assessment_adapter=ScriptedAssessmentModel(
+        model_backend=ScriptedAssessmentModel(
             draft=_controller_final("CLI final answer.")
         ),
     )

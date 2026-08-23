@@ -21,33 +21,33 @@ from src.agent.runtime import (
     RuntimeTerminal,
 )
 from src.model.agent_provider_bridge import (
-    AssessmentAgentProvider,
+    AgentBackendProvider,
 )
 from src.model.agent_llm_adapter import (
     AgentLLMAdapter,
 )
-from src.model.assessment_model_adapter import (
-    AssessmentModelAdapter,
+from src.model.agent_backend import (
+    AgentModelBackend,
 )
-from src.model.providers.fallback_adapter import (
-    FallbackAssessmentAdapter,
+from src.model.agent_backend import (
+    FallbackAgentBackend,
 )
 from src.shared.config import OrionConfig
-from src.model.unconfigured_adapter import (
-    UnconfiguredAssessmentAdapter,
+from src.model.agent_backend import (
+    UnconfiguredAgentBackend,
 )
 
 
-class FinalAssessmentAdapter(
-    AssessmentModelAdapter
+class FinalModelBackend(
+    AgentModelBackend
 ):
     def assess(
         self,
         assessment_request,
     ) -> str:
-        return self.assess_raw("")
+        return self.complete("")
 
-    def assess_raw(
+    def complete(
         self,
         prompt: str,
     ) -> str:
@@ -77,8 +77,8 @@ def test_factory_builds_canonical_runtime_with_injected_model(
             target_store_path=str(
                 tmp_path / "targets.json"
             ),
-            assessment_adapter=(
-                FinalAssessmentAdapter()
+            model_backend=(
+                FinalModelBackend()
             ),
             config=_empty_config(),
         )
@@ -114,8 +114,8 @@ def test_factory_provider_is_canonical_bridge(
             target_store_path=str(
                 tmp_path / "targets.json"
             ),
-            assessment_adapter=(
-                FinalAssessmentAdapter()
+            model_backend=(
+                FinalModelBackend()
             ),
             config=_empty_config(),
         )
@@ -124,7 +124,7 @@ def test_factory_provider_is_canonical_bridge(
     assert len(bundle.providers) == 1
     assert isinstance(
         bundle.providers[0],
-        AssessmentAgentProvider,
+        AgentBackendProvider,
     )
 
 
@@ -161,7 +161,7 @@ def test_factory_preserves_configured_fallback_order(
     )
 
     assert (
-        len(bundle.assessment_adapters)
+        len(bundle.model_backends)
         == 2
     )
     assert all(
@@ -170,12 +170,12 @@ def test_factory_preserves_configured_fallback_order(
             AgentLLMAdapter,
         )
         for adapter
-        in bundle.assessment_adapters
+        in bundle.model_backends
     )
     assert len(bundle.providers) == 2
     assert isinstance(
-        bundle.assessment_model,
-        FallbackAssessmentAdapter,
+        bundle.model_backend,
+        FallbackAgentBackend,
     )
 
 
@@ -192,8 +192,8 @@ def test_factory_supports_setup_mode_without_model_configuration(
     )
 
     assert isinstance(
-        bundle.assessment_model,
-        UnconfiguredAssessmentAdapter,
+        bundle.model_backend,
+        UnconfiguredAgentBackend,
     )
     assert bundle.providers == ()
 
@@ -206,8 +206,8 @@ def test_factory_registry_and_knowledge_tool_share_registrations(
             target_store_path=str(
                 tmp_path / "targets.json"
             ),
-            assessment_adapter=(
-                FinalAssessmentAdapter()
+            model_backend=(
+                FinalModelBackend()
             ),
             config=_empty_config(),
         )
@@ -252,8 +252,8 @@ def test_factory_builds_session_agent_over_exact_runtime(
         target_store_path=str(
             tmp_path / "targets.json"
         ),
-        assessment_adapter=(
-            FinalAssessmentAdapter()
+        model_backend=(
+            FinalModelBackend()
         ),
         conversation_store=store,
         config=_empty_config(),

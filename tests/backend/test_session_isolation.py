@@ -11,7 +11,7 @@ from src.agent.contracts import AgentAction, AgentDecision, DecisionKind
 from src.agent.canonical_factory import create_canonical_session_agent
 from src.backend.dependencies import AppState
 from src.backend.routers.query import query
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import AgentModelBackend
 from src.shared.config import OrionConfig
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
@@ -23,14 +23,14 @@ class _Store:
         self.session_id = session_id
 
 
-class _QueuedAssessmentModel(AssessmentModelAdapter):
+class _QueuedAssessmentModel(AgentModelBackend):
     def __init__(self, responses: list[str]) -> None:
         self.responses = responses
 
     def assess(self, _request: object) -> str:
         raise AssertionError("configured Agent v2 must use controller calls")
 
-    def assess_raw(self, _prompt: str) -> str:
+    def complete(self, _prompt: str) -> str:
         return self.responses.pop(0)
 
 
@@ -99,7 +99,7 @@ def _state() -> AppState:
     state._server_name = "sv1"
     state._model = None
     state.agent = mock.MagicMock()
-    state.agent.assessment_model.assess_raw = mock.MagicMock()
+    state.agent.model_backend.complete = mock.MagicMock()
     state.web_sessions = {}
     state.web_agents = {}
     state._session_locks = {}
@@ -151,7 +151,7 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
             active_server_name="",
             tools={},
         ),
-        assessment_adapter=_QueuedAssessmentModel(
+        model_backend=_QueuedAssessmentModel(
             [
                 _wire(
                     "action",
@@ -189,7 +189,7 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
             active_server_name="",
             tools={},
         ),
-        assessment_adapter=_QueuedAssessmentModel(
+        model_backend=_QueuedAssessmentModel(
             [_wire("final", answer="Beta has no inherited target.")]
         ),
     )

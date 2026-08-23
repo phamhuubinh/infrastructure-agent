@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import AgentModelBackend
 from src.model.llm_client import LLMClient
 from src.model.protocol.orion_system_prompt import ORION_SYSTEM_PROMPT
 from src.model.reasoning_effort import (
@@ -21,7 +21,7 @@ from src.pipeline.input_context_budget import InputContextBudget
 from src.shared.logger import info as _info
 
 
-class AgentLLMAdapter(AssessmentModelAdapter):
+class AgentLLMAdapter(AgentModelBackend):
     """Provider connectivity used by the canonical agent runtime."""
 
     def __init__(
@@ -55,16 +55,7 @@ class AgentLLMAdapter(AssessmentModelAdapter):
             ),
         )
 
-    def assess(
-        self,
-        _assessment_request,
-    ) -> str:
-        raise RuntimeError(
-            "AgentLLMAdapter does not support "
-            "the legacy evidence-assessment API."
-        )
-
-    def assess_raw(
+    def complete(
         self,
         prompt: str,
     ) -> str:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import replace
 
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import AgentModelBackend
 from src.model.output_sanitizer import sanitize_model_output
 from src.model.usage_metadata import (
     ModelCallUsage,
@@ -17,7 +17,7 @@ from src.shared.logger import warning as _warning
 
 
 class AnthropicAgentAdapter(
-    AssessmentModelAdapter
+    AgentModelBackend
 ):
     """Anthropic provider connectivity without legacy semantic planning."""
 
@@ -44,16 +44,6 @@ class AnthropicAgentAdapter(
         self,
     ) -> ModelCallUsage | None:
         return self._last_usage
-
-    def assess(
-        self,
-        _assessment_request,
-    ) -> str:
-        raise RuntimeError(
-            "AnthropicAgentAdapter does not "
-            "support the legacy "
-            "evidence-assessment API."
-        )
 
     def _get_client(self):
         try:
@@ -121,7 +111,7 @@ class AnthropicAgentAdapter(
             latency_ms=latency_ms,
         )
 
-    def assess_raw(
+    def complete(
         self,
         prompt: str,
     ) -> str:

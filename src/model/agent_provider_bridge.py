@@ -8,7 +8,7 @@ from src.model.agent_adapter import (
     AgentProviderRequest,
     AgentProviderResponse,
 )
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import AgentModelBackend
 from src.model.llm_client import LLMClient
 from src.model.usage_metadata import ModelCallUsage
 
@@ -22,19 +22,19 @@ _JSON_ONLY_HINT = (
 )
 
 
-class AssessmentAgentProvider:
+class AgentBackendProvider:
     """Expose one configured model as a canonical decision provider.
 
     This bridge performs model I/O only. It does not parse user intent,
     discover capabilities, grant authority, resolve references, or execute.
     """
 
-    def __init__(self, model: AssessmentModelAdapter) -> None:
-        if not isinstance(model, AssessmentModelAdapter):
+    def __init__(self, backend: AgentModelBackend) -> None:
+        if not isinstance(backend, AgentModelBackend):
             raise TypeError(
-                "model must be an AssessmentModelAdapter."
+                "backend must implement AgentModelBackend."
             )
-        self._model = model
+        self._backend = backend
 
     def generate_agent_decision(
         self,
@@ -45,7 +45,7 @@ class AssessmentAgentProvider:
                 "request must be AgentProviderRequest."
             )
 
-        client = getattr(self._model, "_client", None)
+        client = getattr(self._backend, "_client", None)
 
         if isinstance(client, LLMClient):
             payload = self._generate_llm_client(
@@ -66,15 +66,15 @@ class AssessmentAgentProvider:
         else:
             payload = self._generate_generic(request)
             usage = getattr(
-                self._model,
+                self._backend,
                 "last_usage",
                 None,
             )
             fallback_provider = (
-                type(self._model).__name__
+                type(self._backend).__name__
             )
             fallback_model = getattr(
-                self._model,
+                self._backend,
                 "_model",
                 "configured",
             )
@@ -169,10 +169,10 @@ class AssessmentAgentProvider:
             + request.user_prompt
         )
 
-        return self._model.assess_raw(prompt)
+        return self._backend.complete(prompt)
 
 
 __all__ = [
-    "AssessmentAgentProvider",
+    "AgentBackendProvider",
     "MAX_AGENT_OUTPUT_TOKENS",
 ]

@@ -17,8 +17,8 @@ from src.backend.routers.query import (
     _sanitize_execution_trace,
     query,
 )
-from src.model.assessment_model_adapter import (
-    AssessmentModelAdapter,
+from src.model.agent_backend import (
+    AgentModelBackend,
 )
 from src.shared.config import OrionConfig
 from src.shared.execution.tool_result import ToolResult
@@ -73,7 +73,7 @@ def _wire(
 
 
 class _QueuedAssessmentModel(
-    AssessmentModelAdapter
+    AgentModelBackend
 ):
     def __init__(
         self,
@@ -90,7 +90,7 @@ class _QueuedAssessmentModel(
             "structured agent-provider calls"
         )
 
-    def assess_raw(
+    def complete(
         self,
         _prompt: str,
     ) -> str:
@@ -119,7 +119,7 @@ def test_query_runs_canonical_final_through_public_contract(
         target_store_path=str(
             tmp_path / "targets.json"
         ),
-        assessment_adapter=(
+        model_backend=(
             _QueuedAssessmentModel(
                 [
                     _wire(
@@ -267,7 +267,7 @@ def test_query_projects_canonical_action_steps_without_raw_evidence(
         target_store_path=str(
             target_store
         ),
-        assessment_adapter=(
+        model_backend=(
             _QueuedAssessmentModel(
                 [
                     # Preliminary capability

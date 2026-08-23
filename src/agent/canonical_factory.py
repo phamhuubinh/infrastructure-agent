@@ -19,12 +19,14 @@ from src.agent.composition import (
 from src.agent.permissions import PermissionMode
 from src.agent.runtime import AgentRuntime, AgentRuntimeConfig
 from src.agent.session_agent import CanonicalSessionAgent
-from src.model.agent_provider_bridge import AssessmentAgentProvider
-from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.model.agent_backend import (
+    AgentModelBackend,
+    FallbackAgentBackend,
+    UnconfiguredAgentBackend,
+)
+from src.model.agent_provider_bridge import AgentBackendProvider
 from src.model.agent_llm_adapter import AgentLLMAdapter
 from src.model.llm_client import LLMClient
-from src.model.providers.fallback_adapter import FallbackAssessmentAdapter
-from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
 from src.model.config_store import FeatureFlagStore
 from src.pipeline.external_verification import ExternalVerificationExecutor
 from src.pipeline.security.inspector_chain import InspectorChain
@@ -49,9 +51,9 @@ class CanonicalProductionRuntime:
     components: CanonicalAgentComponents
     target_registry: TargetRegistry
     knowledge_tool: KnowledgeTool
-    assessment_model: AssessmentModelAdapter
-    assessment_adapters: tuple[AssessmentModelAdapter, ...]
-    providers: tuple[AssessmentAgentProvider, ...]
+    model_backend: AgentModelBackend
+    model_backends: tuple[AgentModelBackend, ...]
+    providers: tuple[AgentBackendProvider, ...]
     external_verification: ExternalVerificationExecutor
 
     @property
@@ -255,11 +257,11 @@ def _normalize_api_key(
     return normalized
 
 
-def _build_openai_compatible_adapter(
+def _build_openai_compatible_backend(
     cfg: ServerConfig,
     *,
     model_override: str | None,
-) -> AssessmentModelAdapter:
+) -> AgentModelBackend:
     provider = (
         cfg.provider or "openai"
     ).strip().casefold()
@@ -285,11 +287,11 @@ def _build_openai_compatible_adapter(
     )
 
 
-def _build_server_adapter(
+def _build_server_backend(
     raw: Mapping[str, object],
     *,
     model_override: str | None,
-) -> AssessmentModelAdapter:
+) -> AgentModelBackend:
     cfg = ServerConfig.model_validate(
         dict(raw)
     )
@@ -299,7 +301,7 @@ def _build_server_adapter(
     ).strip().casefold()
 
     if provider != "anthropic":
-        return _build_openai_compatible_adapter(
+        return _build_openai_compatible_backend(
             cfg,
             model_override=model_override,
         )
@@ -333,15 +335,15 @@ def _build_server_adapter(
     )
 
 
-def _configured_assessment_adapters(
+def _configured_model_backends(
     config: OrionConfig,
     *,
     server_name: str | None,
     model: str | None,
-) -> tuple[AssessmentModelAdapter, ...]:
+) -> tuple[AgentModelBackend, ...]:
     if not config.servers:
         return (
-            UnconfiguredAssessmentAdapter(),
+            UnconfiguredAgentBackend(),
         )
 
     primary_name = (
@@ -379,7 +381,7 @@ def _configured_assessment_adapters(
             ordered_names.append(name)
 
     return tuple(
-        _build_server_adapter(
+        _build_server_backend(
             config.servers[name],
             model_override=model,
         )
@@ -387,21 +389,21 @@ def _configured_assessment_adapters(
     )
 
 
-def _flatten_assessment_adapter(
-    adapter: AssessmentModelAdapter,
-) -> tuple[AssessmentModelAdapter, ...]:
+def _flatten_model_backend(
+    backend: AgentModelBackend,
+) -> tuple[AgentModelBackend, ...]:
     if not isinstance(
-        adapter,
-        AssessmentModelAdapter,
+        backend,
+        AgentModelBackend,
     ):
         raise TypeError(
-            "assessment_adapter must be "
-            "AssessmentModelAdapter."
+            "model_backend must be "
+            "AgentModelBackend."
         )
 
     nested = getattr(
-        adapter,
-        "adapters",
+        backend,
+        "backends",
         None,
     )
 
@@ -418,37 +420,37 @@ def _flatten_assessment_adapter(
         if not all(
             isinstance(
                 item,
-                AssessmentModelAdapter,
+                AgentModelBackend,
             )
             for item in result
         ):
             raise TypeError(
-                "assessment adapter chain contains "
-                "an invalid adapter."
+                "assessment backend chain contains "
+                "an invalid backend."
             )
 
         return result
 
-    return (adapter,)
+    return (backend,)
 
 
-def _assessment_chain(
-    adapters: tuple[
-        AssessmentModelAdapter,
+def _model_backend_chain(
+    backends: tuple[
+        AgentModelBackend,
         ...,
     ],
-) -> AssessmentModelAdapter:
-    if not adapters:
+) -> AgentModelBackend:
+    if not backends:
         raise ValueError(
-            "At least one assessment adapter "
+            "At least one assessment backend "
             "is required."
         )
 
-    if len(adapters) == 1:
-        return adapters[0]
+    if len(backends) == 1:
+        return backends[0]
 
-    return FallbackAssessmentAdapter(
-        list(adapters)
+    return FallbackAgentBackend(
+        backends
     )
 
 
@@ -502,8 +504,8 @@ def create_canonical_production_runtime(
     target_store_path: str = "targets.json",
     server_name: str | None = None,
     model: str | None = None,
-    assessment_adapter: (
-        AssessmentModelAdapter | None
+    model_backend: (
+        AgentModelBackend | None
     ) = None,
     config: OrionConfig | None = None,
     model_timeout_seconds: float = 30.0,
@@ -548,23 +550,23 @@ def create_canonical_production_runtime(
         )
     )
 
-    if assessment_adapter is None:
-        adapters = (
-            _configured_assessment_adapters(
+    if model_backend is None:
+        backends = (
+            _configured_model_backends(
                 resolved_config,
                 server_name=server_name,
                 model=model,
             )
         )
     else:
-        adapters = (
-            _flatten_assessment_adapter(
-                assessment_adapter
+        backends = (
+            _flatten_model_backend(
+                model_backend
             )
         )
 
-    assessment_model = (
-        _assessment_chain(adapters)
+    model_backend = (
+        _model_backend_chain(backends)
     )
 
     flags = FeatureFlagStore().load()
@@ -580,11 +582,11 @@ def create_canonical_production_runtime(
     )
 
     providers = tuple(
-        AssessmentAgentProvider(adapter)
-        for adapter in adapters
+        AgentBackendProvider(backend)
+        for backend in backends
         if not isinstance(
-            adapter,
-            UnconfiguredAssessmentAdapter,
+            backend,
+            UnconfiguredAgentBackend,
         )
     )
 
@@ -607,10 +609,10 @@ def create_canonical_production_runtime(
         components=components,
         target_registry=target_registry,
         knowledge_tool=knowledge_tool,
-        assessment_model=(
-            assessment_model
+        model_backend=(
+            model_backend
         ),
-        assessment_adapters=adapters,
+        model_backends=backends,
         providers=providers,
         external_verification=(
             external_verification
@@ -623,8 +625,8 @@ def create_canonical_session_agent(
     target_store_path: str = "targets.json",
     server_name: str | None = None,
     model: str | None = None,
-    assessment_adapter: (
-        AssessmentModelAdapter | None
+    model_backend: (
+        AgentModelBackend | None
     ) = None,
     conversation_store: object | None = None,
     config: OrionConfig | None = None,
@@ -643,8 +645,8 @@ def create_canonical_session_agent(
             target_store_path=target_store_path,
             server_name=server_name,
             model=model,
-            assessment_adapter=(
-                assessment_adapter
+            model_backend=(
+                model_backend
             ),
             config=config,
             model_timeout_seconds=(
@@ -656,8 +658,8 @@ def create_canonical_session_agent(
 
     return CanonicalSessionAgent(
         runtime=bundle.runtime,
-        assessment_model=(
-            bundle.assessment_model
+        model_backend=(
+            bundle.model_backend
         ),
         conversation_store=(
             conversation_store

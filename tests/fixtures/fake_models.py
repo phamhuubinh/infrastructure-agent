@@ -93,6 +93,13 @@ class ScriptedAssessmentModel(AssessmentModelAdapter):
         return self.draft
 
 
+    def complete(
+        self,
+        prompt: str,
+    ) -> str:
+        return self.assess_raw(prompt)
+
+
 @dataclass
 class ScriptedPlannerProvider:
     """Queued planner responses; raises scripted errors or runs dry."""

@@ -21,15 +21,13 @@ from src.agent.runtime import (
     AgentRuntimeResult,
     RuntimeTerminal,
 )
-from src.model.assessment_model_adapter import (
-    AssessmentModelAdapter,
+from src.model.agent_backend import (
+    AgentModelBackend,
+    UnconfiguredAgentBackend,
+    model_unconfigured_message,
 )
 from src.model.output_sanitizer import (
     sanitize_api_response,
-)
-from src.model.unconfigured_adapter import (
-    UnconfiguredAssessmentAdapter,
-    model_unconfigured_message,
 )
 from src.shared.redaction import redact_sensitive
 
@@ -86,7 +84,7 @@ class CanonicalSessionAgent:
         self,
         *,
         runtime: CanonicalSessionRuntime,
-        assessment_model: AssessmentModelAdapter,
+        model_backend: AgentModelBackend,
         conversation_store: object | None = None,
         permission_mode: PermissionMode = PermissionMode.READ,
     ) -> None:
@@ -99,12 +97,12 @@ class CanonicalSessionAgent:
             )
 
         if not isinstance(
-            assessment_model,
-            AssessmentModelAdapter,
+            model_backend,
+            AgentModelBackend,
         ):
             raise TypeError(
-                "assessment_model must be "
-                "AssessmentModelAdapter."
+                "model_backend must be "
+                "AgentModelBackend."
             )
 
         if not isinstance(
@@ -116,16 +114,16 @@ class CanonicalSessionAgent:
             )
 
         self._runtime = runtime
-        self._assessment_model = assessment_model
+        self._model_backend = model_backend
         self._permission_mode = permission_mode
         self._conversation_store: object | None = None
         self.conversation_store = conversation_store
 
     @property
-    def assessment_model(
+    def model_backend(
         self,
-    ) -> AssessmentModelAdapter:
-        return self._assessment_model
+    ) -> AgentModelBackend:
+        return self._model_backend
 
     @property
     def conversation_store(
@@ -151,7 +149,7 @@ class CanonicalSessionAgent:
 
         if callable(set_summarize_fn):
             set_summarize_fn(
-                self._assessment_model.assess_raw
+                self._model_backend.complete
             )
 
     def health_check(
@@ -160,7 +158,7 @@ class CanonicalSessionAgent:
     ) -> bool:
         try:
             return bool(
-                self._assessment_model.health_check(
+                self._model_backend.health_check(
                     timeout=timeout
                 )
             )
@@ -213,8 +211,8 @@ class CanonicalSessionAgent:
         trace_id = uuid.uuid4().hex
 
         if isinstance(
-            self._assessment_model,
-            UnconfiguredAssessmentAdapter,
+            self._model_backend,
+            UnconfiguredAgentBackend,
         ):
             response = sanitize_api_response(
                 model_unconfigured_message(

@@ -7,11 +7,11 @@ from src.model.agent_adapter import (
     StructuredAgentProvider,
 )
 from src.model.agent_provider_bridge import (
-    AssessmentAgentProvider,
+    AgentBackendProvider,
     MAX_AGENT_OUTPUT_TOKENS,
 )
-from src.model.llm_assessment_adapter import (
-    LLMAssessmentAdapter,
+from src.model.agent_llm_adapter import (
+    AgentLLMAdapter,
 )
 from src.model.llm_client import LLMClient
 from src.model.usage_metadata import ModelCallUsage
@@ -36,8 +36,8 @@ def _request() -> AgentProviderRequest:
 
 def test_bridge_implements_canonical_provider_protocol() -> None:
     client = LLMClient()
-    provider = AssessmentAgentProvider(
-        LLMAssessmentAdapter(client)
+    provider = AgentBackendProvider(
+        AgentLLMAdapter(client)
     )
 
     assert isinstance(
@@ -53,8 +53,8 @@ def test_native_structured_client_receives_exact_schema(
         model="test-model",
         supports_structured_output=True,
     )
-    adapter = LLMAssessmentAdapter(client)
-    provider = AssessmentAgentProvider(adapter)
+    adapter = AgentLLMAdapter(client)
+    provider = AgentBackendProvider(adapter)
 
     calls: list[dict[str, object]] = []
 
@@ -99,8 +99,8 @@ def test_json_object_fallback_does_not_change_authority_schema(
         supports_structured_output=False,
         supports_json_object_output=True,
     )
-    provider = AssessmentAgentProvider(
-        LLMAssessmentAdapter(client)
+    provider = AgentBackendProvider(
+        AgentLLMAdapter(client)
     )
 
     calls: list[dict[str, object]] = []
@@ -137,8 +137,8 @@ def test_usage_is_provider_neutral(
         model="model-x",
         supports_structured_output=True,
     )
-    provider = AssessmentAgentProvider(
-        LLMAssessmentAdapter(client)
+    provider = AgentBackendProvider(
+        AgentLLMAdapter(client)
     )
 
     def generate(prompt: str, **kwargs):
@@ -169,23 +169,23 @@ def test_usage_is_provider_neutral(
 
 
 def test_generic_adapter_gets_transport_schema() -> None:
-    from src.model.assessment_model_adapter import (
-        AssessmentModelAdapter,
+    from src.model.agent_backend import (
+        AgentModelBackend,
     )
 
-    class GenericAdapter(AssessmentModelAdapter):
+    class GenericAdapter(AgentModelBackend):
         def __init__(self) -> None:
             self.prompt = ""
 
         def assess(self, assessment_request):
             raise AssertionError("not used")
 
-        def assess_raw(self, prompt: str) -> str:
+        def complete(self, prompt: str) -> str:
             self.prompt = prompt
             return '{"kind":"final"}'
 
     adapter = GenericAdapter()
-    provider = AssessmentAgentProvider(adapter)
+    provider = AgentBackendProvider(adapter)
 
     response = provider.generate_agent_decision(
         _request()

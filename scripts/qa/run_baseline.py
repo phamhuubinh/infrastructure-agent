@@ -719,8 +719,8 @@ def run_baseline(
     )
 
     if smoke:
-        from src.model.unconfigured_adapter import (
-            UnconfiguredAssessmentAdapter,
+        from src.model.agent_backend import (
+            UnconfiguredAgentBackend,
         )
 
         agent = agent_factory(
@@ -728,8 +728,8 @@ def run_baseline(
                 target_store_path
             ),
             server_name=None,
-            assessment_adapter=(
-                UnconfiguredAssessmentAdapter()
+            model_backend=(
+                UnconfiguredAgentBackend()
             ),
         )
 

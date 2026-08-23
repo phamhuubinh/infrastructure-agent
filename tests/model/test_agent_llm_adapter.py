@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from unittest import mock
 
-import pytest
-
+from src.model.agent_backend import (
+    AgentModelBackend,
+)
 from src.model.agent_llm_adapter import (
     AgentLLMAdapter,
 )
@@ -18,18 +19,15 @@ def _client() -> LLMClient:
     )
 
 
-def test_agent_adapter_rejects_legacy_assessment_api() -> None:
+def test_agent_adapter_implements_canonical_backend() -> None:
     adapter = AgentLLMAdapter(
         _client()
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="legacy",
-    ):
-        adapter.assess(
-            object()
-        )
+    assert isinstance(
+        adapter,
+        AgentModelBackend,
+    )
 
 
 def test_agent_adapter_raw_call_uses_model_client() -> None:
@@ -43,7 +41,7 @@ def test_agent_adapter_raw_call_uses_model_client() -> None:
         client
     )
 
-    result = adapter.assess_raw(
+    result = adapter.complete(
         "summarize"
     )
 
