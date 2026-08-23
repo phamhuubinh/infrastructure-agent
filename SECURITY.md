@@ -2,41 +2,64 @@
 
 ## Scope
 
-This project is currently **local, single-user** infrastructure investigation tool.
-Has optional API key auth for `--web` mode (see `ORION_API_KEY` env var).
-Intended for trusted internal networks — not hardened for public internet exposure.
+Orion is currently a **local, single-user AI agent** for project knowledge and infrastructure work.
+It has optional API-key authentication for Web/API use (`ORION_API_KEY`) and is intended for trusted
+local/internal deployment. It is not a hardened public multi-tenant Internet service.
 
-## Known Security Considerations
+The architecture separates model reasoning from execution authority. The model may propose a
+registered action, but only the deterministic harness can validate and execute it.
 
-### SSH Host Key Verification
-SSH host key verification is enabled by default (`StrictHostKeyChecking=yes`). Add each
-target's host key to the Orion runtime user's `~/.ssh/known_hosts` before registering it.
-An operator can explicitly set `strict_host_key_checking: false` for a temporary trusted
-network exception; this weakens SSH transport authentication and is not appropriate for
-production or untrusted networks.
+## Core security boundary
 
-### Credential Management
-- Grafana and Zabbix tokens are stored outside the project in `/etc/orion/tool-credentials.json`
-- Never hardcode credentials in source files
+- Natural-language text is never execution authority.
+- The model does not receive API keys, passwords, SSH private keys, bearer tokens, or equivalent
+  credentials.
+- The model selects only registered capabilities; it does not receive arbitrary shell, HTTP,
+  filesystem, database, credential-lookup, or registry-mutation authority.
+- Target/source references must resolve exactly. Unknown identities are rejected rather than
+  fuzzy-mapped or silently defaulted.
+- READ/WRITE permission is enforced from the reviewed capability effect before execution.
+- Secrets and private chain-of-thought must not appear in normal logs or public traces.
 
-### Infrastructure Exposure
-The application makes outbound connections to:
-- SSH targets (as configured in `targets.json`)
-- Grafana API
-- Zabbix API
-- LLM API endpoints (as configured in `servers.json`)
-- External URLs via deterministic `InternetTool` search/fetch selection. Every redirect
-  hop is revalidated, all DNS answers must be globally routable, and the validated numeric
-  address is pinned for the socket connection to prevent DNS rebinding.
-- RAG service (`RAGTool` microservice)
+See `docs/architecture/SECURITY.md` and the accepted ADRs under `docs/decisions/`.
 
-In `--web` mode, the backend listens on `localhost:61888` only. In Docker Compose deployment,
-the HTTP reverse proxy binds only to `127.0.0.1:80` and supplies the internal API credential to
-that local browser flow. Optional API key auth (`ORION_API_KEY`) protects API endpoints. Put a
-separately authenticated TLS ingress in front of Orion before exposing it to a LAN or Internet.
+## SSH host-key verification
 
-## Reporting a Vulnerability
+SSH host-key verification is enabled by default (`StrictHostKeyChecking=yes`). Add each target's
+host key to the Orion runtime user's `~/.ssh/known_hosts` before registering it.
 
-If you discover a security issue, please report it by creating a GitHub issue
-or contacting the maintainers directly. Do not disclose vulnerabilities publicly
-until they have been addressed.
+An operator can explicitly set `strict_host_key_checking: false` for a temporary trusted-network
+exception. This weakens SSH transport authentication and is not appropriate for production or
+untrusted networks.
+
+## Credential management
+
+Grafana and Zabbix deployment credentials are stored outside the source checkout in
+`/etc/orion/tool-credentials.json`.
+
+Never hardcode credentials in source files, tracked configuration, prompts, traces, or tests.
+
+## Infrastructure and network exposure
+
+The application can make outbound connections to reviewed/configured resources including:
+
+- SSH targets from the target registry;
+- Grafana;
+- Zabbix;
+- configured model-provider endpoints;
+- public Internet search/fetch through registered Internet behavior;
+- the internal Project RAG service.
+
+The model may decide that an Internet capability is useful, but network safety remains deterministic
+runtime policy. Public URL fetch retains SSRF controls such as address policy, DNS/redirect
+validation, timeouts, response-size bounds, and rebinding protections implemented by the tool.
+
+In source-development Web mode, the backend listens on `localhost:61888`. In the packaged Docker
+deployment, the local reverse proxy is intended for loopback access. Put separately authenticated
+TLS ingress in front of Orion before exposing it beyond the trusted host/network, and review the
+deployment configuration for that environment.
+
+## Reporting a vulnerability
+
+Report security issues privately to the maintainers when possible. Do not publish exploitable
+details before the issue has been addressed.

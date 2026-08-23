@@ -1,18 +1,24 @@
 # API Documentation
 
-API documentation is generated from the implemented backend schema.
+`openapi.json` is a generated snapshot of the **implemented backend API contract**. It is not a
+target-architecture document and must not be hand-edited to make documentation appear consistent.
 
-During the architecture refactor, the narrative target design lives in the
-other documents under `docs/`. The generated OpenAPI snapshot may temporarily
-reflect the pre-refactor implementation until the corresponding backend changes
-land.
+The accepted target architecture lives in `docs/architecture/` and `docs/decisions/`. If the
+implemented API does not yet expose a target feature, record that as an implementation gap rather
+than changing the generated schema by hand.
 
-After each API-affecting migration step:
+After an API-affecting code change:
 
-1. update the backend contract;
-2. update tests;
-3. regenerate `openapi.json` using the repository's canonical generation path;
-4. verify the generated schema matches runtime behavior.
+1. update the backend contract and tests;
+2. regenerate the schema through the repository target:
 
-Do not hand-edit generated API schemas to make them appear consistent with the
-target architecture.
+   ```bash
+   make openapi
+   ```
+
+3. review the generated `docs/api/openapi.json`;
+4. run relevant backend/API tests;
+5. verify the schema matches actual runtime behavior.
+
+Generated OpenAPI is implementation evidence. Architecture authority comes from the accepted ADRs;
+neither source should be rewritten merely to hide a real mismatch.

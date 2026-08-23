@@ -1,17 +1,15 @@
 # Orion Documentation
 
-This documentation defines the **target architecture** for the Orion refactor.
-It replaces the previous narrative architecture documentation.
+This documentation defines the **accepted target architecture** for Orion.
 
 Orion is a personal AI agent focused on two practical jobs:
 
-1. work with project knowledge and documents so the model can help create,
-   review, explain, and reason about project material;
-2. investigate infrastructure, assess what is happening, and propose the best
-   practical course of action.
+1. work with project knowledge and documents so the model can help create, review, explain, and
+   reason about project material;
+2. investigate infrastructure, assess what is happening, and propose the best practical course of
+   action.
 
-The agent may also answer ordinary questions directly when no tool or project
-knowledge is needed.
+The agent may also answer ordinary questions directly when no tool or project knowledge is needed.
 
 ## Core principles
 
@@ -21,16 +19,16 @@ Two rules govern the architecture:
 
 > **The harness owns authority, validation, execution, evidence, limits, and completion.**
 
-Natural-language text is never execution authority. A model can propose an
-action, but only a validated structured action can run.
+Natural-language text is never execution authority. A model can propose an action, but only a
+validated structured action can run.
 
 ## Product model
 
-Orion exposes one agent experience rather than separate chat, infrastructure,
-Internet, and RAG modes. The model can use whichever registered capability is
+Orion exposes one agent experience rather than separate semantic modes for infrastructure, Internet,
+RAG, or calculation. The accepted design lets the model choose whichever registered capability is
 useful for the current request.
 
-Current capability families include:
+Current/target capability families include:
 
 - Linux / SSH
 - Grafana
@@ -39,40 +37,38 @@ Current capability families include:
 - Internet search and fetch
 - Calculator
 
-Future capability families should be addable without changing the agent core.
+Future capability families should be addable without changing the agent's semantic core.
 
 ## Permission model
 
-Orion has only two effect classes:
+Orion has two effect classes:
 
 - **READ** — observe or retrieve data without changing external state.
 - **WRITE** — create, modify, delete, restart, deploy, or otherwise change state.
 
-READ actions run without approval. WRITE actions use one of two autonomy modes:
-
-- **ASK** — Orion asks before executing the declared write scope.
-- **FULL** — Orion executes validated writes without asking.
-
-The default safe mode should be READ.
+READ actions can run automatically. WRITE authority depends on the configured autonomy mode
+(`READ`, `RW + ASK`, or `RW + FULL`).
 
 ## Projects
 
-A Project behaves like a project workspace in a modern AI chat product:
+In the accepted target architecture, a Project is a workspace containing files/project knowledge and
+multiple chats. Project knowledge is a normal READ capability available to chats in that Project;
+it is not a separate reasoning architecture.
 
-- one Project has files / project knowledge;
-- one Project can contain many chats;
-- each chat has its own bounded conversation context;
-- chats in the Project can retrieve from that Project's knowledge;
-- Project knowledge is not a separate agent mode.
+## Current implementation baseline
 
-## Documentation status
+At commit `259f85b`, the configured Web/CLI Chat path uses the canonical model-driven agent runtime
+and the superseded deterministic/semantic routing stack has been removed from that configured hot
+path.
 
-These files describe the accepted target architecture. During the refactor the
-codebase may temporarily lag this documentation. That is expected. The
-migration is complete only when code, tests, generated API documentation, and
-runtime behavior converge on this design.
+Not every accepted target item should be assumed to be implemented merely because it appears in
+these documents. In particular, the current `src/tool/RAGTool/` service remains a standalone Web
+Project/document-analysis workspace and is not registered as a Chat agent capability. That is an
+implementation gap relative to ADR-0003, not a change to the accepted architecture.
 
-Do not preserve legacy architecture merely because it already exists.
+Current implementation facts are established by source code, tests, generated API documentation,
+and runtime evidence. If current code and an accepted ADR differ, document the gap and migrate the
+implementation; do not silently redefine the ADR or resurrect legacy routing.
 
 ## Reading order
 
@@ -104,6 +100,8 @@ For target architecture decisions:
 3. engineering rules in `docs/development/`;
 4. product documents.
 
-For current implementation facts during migration, source code and tests remain
-factual evidence of what is implemented, but they do not override an accepted
-architecture decision.
+A superseding architecture change requires an explicit new decision. Historical changelog entries
+and migration notes do not override accepted ADRs.
+
+For implementation truth, inspect the relevant code/tests/generated artifacts/runtime trace. An
+implementation gap does not grant permission to reintroduce an architecture that an ADR rejected.

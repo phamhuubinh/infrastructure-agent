@@ -1,147 +1,139 @@
-# AGENTS.md — Codex Instructions for Orion
+# AGENTS.md — Repository instructions for Orion
 
-This file defines repository-level instructions for OpenAI Codex when working on Orion.
+This file defines repository-level instructions for AI coding agents working on Orion.
 
 ## 1. Read project context first
 
-Before changing code, understand the existing project and follow the repository's documented architecture.
+Before changing code, understand the accepted architecture and the current implementation.
 
 Read in this order when relevant:
 
-1. `docs/ai/00_BOOTSTRAP.md`
-2. `docs/ai/07_DEVELOPMENT_RULES.md`
-3. `docs/ai/08_PROJECT_STATE.md`
-4. `README.md`
-5. Relevant files under `docs/`
-6. Relevant implementation and tests
+1. `docs/README.md` — documentation scope, reading order, and conflict priority.
+2. Relevant accepted ADRs under `docs/decisions/`.
+3. Relevant architecture documents under `docs/architecture/`.
+4. `docs/development/ENGINEERING_RULES.md`.
+5. Relevant development/migration/testing documents under `docs/development/`.
+6. `README.md` for current operator/product behavior.
+7. Relevant implementation and tests.
 
-Do not scan unrelated directories unnecessarily. Ignore generated/cache/vendor directories such as `.git/`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, and `node_modules/` unless the task specifically requires them.
+Do not infer current implementation state from an old roadmap or historical changelog entry. Source
+code, tests, generated API documentation, and runtime evidence establish implementation facts.
+Accepted ADRs remain authoritative for target architecture.
 
-## 2. Core engineering rules
+Ignore generated/cache/vendor directories such as `.git/`, `.venv/`, `__pycache__/`,
+`.pytest_cache/`, `.ruff_cache/`, and `node_modules/` unless the task requires them.
 
-- Do not change architecture unless the user explicitly asks for or approves an architectural change.
-- Do not create duplicate implementations when an existing abstraction can be reused.
-- Prefer deterministic logic over AI/LLM behavior when deterministic logic is sufficient.
-- Preserve existing interfaces and behavior unless the task requires changing them.
-- Keep changes narrowly scoped to the user's request.
-- Do not make unrelated cleanup or refactors while completing another task.
-- Do not modify generated files unless the task explicitly requires it.
-- Explain important assumptions or tradeoffs in the final response.
+## 2. Core architecture rules
+
+- **Model semantics, deterministic authority.** For normal configured requests, the model owns
+  natural-language interpretation, reasoning, and next-action proposals. The harness owns
+  authority, exact validation, execution, evidence, limits, and completion.
+- Do not add a semantic pre-router that decides intent, target, source, freshness/currentness,
+  mutation meaning, tool family, or follow-up meaning from prose before the model.
+- Natural-language text is not execution authority. Execute only structured actions that passed the
+  canonical validator.
+- Capability/target/source identities resolve exactly. Never add fuzzy authorization, silent source
+  fallback, or default-localhost behavior.
+- READ/WRITE is an effect classification of reviewed capabilities, not a keyword classifier.
+- Tool integrations own commands/API behavior. The model does not receive raw shell, HTTP,
+  credential, or database authority.
+- Preserve evidence status, time, target/source, and provenance. Never turn failure or stale data
+  into a healthy-looking result.
+- Do not expose secrets or private chain-of-thought to model context, public traces, logs, or UI.
+- Keep provider-specific behavior behind model adapters.
+- Do not recreate legacy deterministic/semantic routing or compatibility shells merely to make a
+  test pass.
+- Compatibility code may exist only while real callers require it; remove it after caller/import
+  analysis proves it is dead.
+- Keep changes narrowly scoped. Do not make unrelated refactors during another task.
 
 ## 3. Testing policy — IMPORTANT
 
-### Never run smoke tests automatically
+### Never run smoke/full runtime QA automatically
 
-Codex MUST NOT run smoke tests, full QA suites, E2E tests, integration environments, or other expensive/system-level validation unless the user explicitly asks for that exact class of testing in the current request.
+Do not run smoke tests, full QA, E2E, Docker-based runtime validation, benchmarks, browser/Electron
+flows, or external-service tests unless the user's current request explicitly asks for that class
+of validation.
 
-In particular, DO NOT automatically run:
+In particular, do not automatically run:
 
 - `make qa-smoke`
 - `make qa-full`
 - `python3 scripts/qa/ga2_runner.py --mode smoke ...`
 - `python3 scripts/qa/unified_qa.py`
 - E2E/browser tests
-- Docker-based test environments
-- `docker compose up`, `docker-compose up`, or equivalent service startup for validation
-- Electron/UI application startup for validation
-- benchmarks unless explicitly requested
-- security scans that install packages or contact external services unless explicitly requested
+- Docker Compose startup for validation
+- Electron/UI startup for validation
+- live benchmarks
+- network-dependent security scans
 
-Do not run one of the above merely because a task is complete, because a test failed, or because additional confidence would be useful.
-
-### Do not ask to run prohibited validation
-
-Codex MUST NOT ask for permission to run smoke tests, full QA, E2E,
-Docker-based validation, integration environments, benchmarks, or other
-prohibited validation merely because they are the next project/release step.
-
-If such validation is required to complete a later release gate:
-
-- stop at the code-complete boundary;
-- state that the release gate remains pending;
-- state which validation was not run;
-- provide the exact command(s) a maintainer may run manually, if useful;
-- do not ask "should I run it?", "do you want me to run it?", or equivalent;
-- do not treat the pending release gate as permission to continue into it.
-
-Only run prohibited validation when the user's current message explicitly
-requests that validation class.
-
-**Smoke testing requires an explicit user request. Absence of a prohibition is not permission.**
+Do not ask for permission to cross a release/runtime QA gate merely because it is the next step.
+Stop at the code-complete boundary, state the pending gate, and provide the exact manual command when
+useful.
 
 ### Allowed default validation
 
-After a code change, Codex may run the smallest relevant local checks needed to catch obvious regressions, for example:
+After a code change, run the smallest relevant local checks needed to catch regressions:
 
-- targeted pytest tests for the files/components changed
-- the repository's normal affected unit tests
-- `ruff check` on changed/relevant Python files
-- `ruff format --check` on changed/relevant Python files
-- targeted TypeScript type checking when TypeScript code was changed
-- syntax/import/compile checks that do not start external services
+- targeted pytest tests for changed components;
+- relevant unit/contract tests;
+- targeted `ruff check` / `ruff format --check`;
+- targeted TypeScript type checking;
+- syntax/import/collection checks that do not start external services.
 
-Prefer targeted checks over the entire test suite.
+For destructive refactors or legacy cleanup, also check the caller/import graph and repository-wide
+static references, then run `git diff --check`. Full suite/runtime QA remains a separate gate unless
+explicitly requested.
 
-The repository rule to run affected tests does NOT imply permission to run smoke, E2E, full QA, Docker, browser, Electron, benchmark, or external-service tests.
+When a full QA run is explicitly requested and fails, isolate the first real failure before treating
+later cascaded failures as separate architecture problems.
 
-If the only meaningful validation would require a prohibited test class, do not run it. State in the final response that it was not run and why.
+Never claim a test passed unless it was actually executed successfully.
 
 ## 4. Commands and side effects
 
 Do not automatically:
 
-- start long-running servers or development processes
-- start Docker containers
-- open browsers or GUI applications
-- install system packages
-- install or upgrade project dependencies unless required by the requested task
-- modify credentials, secrets, `.env` files, or machine-level configuration
-- perform network-dependent validation unless it is necessary and explicitly requested
-- delete user data or reset persistent state
+- start long-running servers;
+- start Docker containers;
+- open browsers or GUI applications;
+- install system packages;
+- install/upgrade dependencies unless required by the task;
+- modify credentials, secrets, `.env`, or machine-level configuration;
+- delete user data or reset persistent state.
 
-For ordinary code inspection, editing, and lightweight local validation, proceed without asking unnecessary confirmation.
+For ordinary inspection, editing, and lightweight local validation, proceed without unnecessary
+confirmation.
 
 ## 5. Git policy
 
 - Review the relevant diff after making changes.
-- Do not commit, push, force-push, rebase, reset, create branches, or modify remote state unless the user explicitly asks.
-- Do not revert unrelated changes already present in the working tree.
+- Do not commit, push, force-push, rebase, reset, create branches, or modify remote state unless the
+  user explicitly requests it.
+- Do not revert unrelated working-tree changes.
 - Keep edits atomic and limited to the task.
 
-If the user explicitly requests a commit, create one logical commit for the requested task unless instructed otherwise.
+## 6. Documentation policy
 
-## 6. Project-state documentation
+When behavior or architecture changes:
 
-Update `docs/ai/08_PROJECT_STATE.md` only when the completed change actually changes the documented project state.
-
-Do not update project status merely to describe planned or incomplete work.
+- update the relevant current documentation;
+- update an ADR only through an explicit superseding decision when architecture changes;
+- regenerate generated artifacts such as OpenAPI through their canonical generator rather than
+  hand-editing them;
+- distinguish accepted target architecture from current implementation gaps;
+- do not resurrect references to the removed legacy AI-documentation hierarchy.
 
 ## 7. Completion criteria
 
-A task is complete when:
+A coding task is complete when the requested change is implemented, the diff is reviewed, appropriate
+lightweight validation has run where practical, and the response states exactly what was and was not
+validated.
 
-1. The requested change is implemented.
-2. The diff has been reviewed for accidental/unrelated edits.
-3. Appropriate lightweight validation has been run where practical.
-4. Prohibited smoke/E2E/full-QA validation has NOT been run unless explicitly requested.
-5. The final response clearly states what changed and which validation commands, if any, were actually run.
-
-Never claim a test passed unless it was actually executed successfully.
-
-A coding task may be considered code-complete even when a separate release
-gate remains pending.
-
-Do not attempt or request permission to cross a release gate unless the
-user explicitly asks for release validation.
+A separate runtime/release gate may remain pending. Do not cross it unless the user's current request
+explicitly includes that validation.
 
 ## 8. User instruction priority
 
-The user's current explicit request takes priority over defaults in this file, provided it is safe and feasible.
-
-Examples:
-
-- "Run the smoke test" → running `make qa-smoke` is permitted for that request.
-- "Fix this bug" → smoke testing is NOT implicitly permitted.
-- "Run all tests" → clarify through the command scope only if necessary; do not silently interpret it as permission to start Docker/E2E/system environments unless those are clearly part of the requested suite.
-
-When uncertain whether a command qualifies as smoke/E2E/full QA or starts external services, treat it as prohibited by default and use a smaller local check instead.
+The user's current explicit request takes priority over repository defaults when safe and feasible.
+For example, an explicit request to run GA2 permits GA2; an ordinary bug fix does not.

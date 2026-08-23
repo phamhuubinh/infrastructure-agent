@@ -1,11 +1,20 @@
 # Migration Plan
 
-This documentation is intentionally written before the code refactor. The goal
-is a controlled replacement of the primary architecture, followed by cleanup.
+> **Status at `259f85b`:** the configured Web/CLI Chat path has been cut over to the canonical
+> model-driven runtime and the superseded deterministic/semantic routing stack has been removed from
+> that configured hot path. This document remains the convergence plan for accepted target
+> architecture that is not yet implemented everywhere. Do not use it as evidence that every phase
+> is complete.
+>
+> One known remaining gap is Project knowledge/RAG: ADR-0003 defines it as a normal READ capability
+> in the agent loop, while the current `src/tool/RAGTool/` service is still a separate Web workspace.
+
+The goal is controlled replacement of the superseded architecture, followed by cleanup and
+verification. Do not patch new language-specific cases into any compatibility path.
 
 ## Phase 1 — Contract first
 
-Define and test the new readable model/harness contracts:
+Define and test readable canonical model/harness contracts:
 
 - decision types;
 - ACTION with capability, target, source, and typed arguments;
@@ -14,11 +23,12 @@ Define and test the new readable model/harness contracts:
 - permission mode;
 - event contract.
 
-Do not patch more language-specific cases in the old semantic path.
+For the canonical Chat runtime, this foundation is implemented. Future changes must preserve the
+same boundary rather than reintroducing prose routing.
 
 ## Phase 2 — Authority boundary
 
-Refactor validation so it authorizes the model's structured proposal directly:
+Authorization validates the model's structured proposal directly:
 
 - exact capability lookup;
 - exact target/source lookup;
@@ -27,79 +37,81 @@ Refactor validation so it authorizes the model's structured proposal directly:
 - approval scope;
 - budgets and safety.
 
-Remove natural-language hard constraints from configured-agent authorization.
+Natural-language hard constraints are not execution authority.
 
 ## Phase 3 — Dedicated agent runtime
 
-Create the new configured runtime around:
+The configured runtime follows:
 
 ```text
-context -> model -> action -> validate -> execute -> evidence -> model
+context -> model -> structured decision -> validate -> execute -> evidence -> model
 ```
 
-The configured composition root should no longer need the legacy semantic
-planner/router stack merely to construct the agent.
+The configured Web/CLI Chat composition no longer requires the superseded semantic planner/router
+stack to decide what the user means.
 
 ## Phase 4 — Project/RAG integration
 
-Expose active Project knowledge as a normal READ capability in the same agent
-loop while preserving project/document isolation and efficient retrieval.
+Expose active Project knowledge as a normal READ capability in the same agent loop while preserving
+project/document isolation and efficient retrieval.
 
-Keep the existing useful retrieval implementation where it satisfies the new
-contract; change the boundary before rewriting proven retrieval internals.
+Keep useful retrieval implementation where it satisfies the new contract; change the boundary
+before rewriting proven internals.
+
+**Current gap at `259f85b`:** the Project RAG service is still a standalone Web
+document-analysis workspace and is not registered as a Chat capability.
 
 ## Phase 5 — Session and dynamic evidence
 
-Replace lexical follow-up interpretation with bounded model context. Persist
-validated structured references and timestamps, not language-specific semantic
-state machines.
+Use bounded model context rather than lexical follow-up interpretation. Persist validated structured
+references and timestamps, not language-specific semantic state machines.
 
-Implement recent-turn + compact-summary context and static/dynamic observation
-handling.
+Dynamic observations retain observation time and must not be silently represented as fresh.
 
 ## Phase 6 — Events and UI activity
 
-Make structured request events the common source for:
+Use structured request events as the common source for:
 
 - UI activity timeline;
 - request trace;
 - `orion log` filtering;
 - latency/failure diagnostics.
 
+Do not expose private chain-of-thought.
+
 ## Phase 7 — WRITE path
 
-Once READ runtime is stable, implement WRITE capability enforcement and scoped
-ASK approvals. Keep WRITE disabled for capabilities that have not been reviewed
-and classified.
+Once READ behavior is stable, enforce WRITE capability classification and scoped ASK approvals.
+Keep WRITE disabled for capabilities that have not been reviewed.
 
 ## Phase 8 — Remove legacy code
 
-Only after the new path is proven:
+For each cleanup wave:
 
 1. build a caller/import graph;
 2. identify legacy modules with no required callers;
-3. remove dead modules, tests, flags, adapters, and docs;
-4. move still-useful components into their correct responsibility area;
-5. remove duplicate concepts and compatibility shims;
-6. run full static, unit, integration, runtime, and UI QA.
+3. migrate still-valid responsibilities;
+4. remove dead modules, tests, flags, adapters, and duplicate contracts;
+5. search the repository for stale references;
+6. run static/unit/integration validation appropriate to the change;
+7. run live runtime QA as a separate explicit gate when requested.
 
-Likely legacy categories to reevaluate include semantic request classifiers,
-lexical target/source/freshness/mutation parsing, old session semantic selectors,
-legacy planners, and monolithic orchestration code. Do not delete tool/evidence
-implementations merely because they were previously called by the old pipeline.
+The deterministic/semantic routing stack cleanup for the configured Chat hot path is complete at
+`259f85b`. Do not recreate it for compatibility unless a concrete remaining caller proves a narrow
+adapter is required.
 
 ## Phase 9 — Documentation and generated artifacts
 
-After code convergence:
+After each convergence step:
 
-- update root README and install/operator instructions;
-- regenerate OpenAPI;
-- document actual CLI commands and configuration;
-- remove migration-only notes that are no longer useful;
-- confirm every architecture claim is true in the runtime.
+- update root/operator/contributor documentation;
+- regenerate OpenAPI when the API contract changes;
+- update actual CLI/QA commands and configuration documentation;
+- remove or clearly label migration-only statements;
+- confirm each implementation claim against code/tests/runtime evidence.
 
 ## Rule during migration
 
-Do not maintain two equal primary architectures. The old path is compatibility
-only; the new path becomes the configured primary path as soon as its required
-contracts are complete.
+Do not maintain two equal primary architectures. The canonical model-driven path is the configured
+Chat architecture. Remaining gaps should converge toward accepted ADRs rather than restoring the
+superseded semantic stack.

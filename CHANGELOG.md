@@ -7,15 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
-- Unused Dify API/Web services, their dedicated Redis service, reverse-proxy route, and environment wiring. Orion continues to use its first-party chat routing and RAG service.
-- Autonomous development supervisor, orchestrator state/transcripts, generated task logs, and related repository instructions. GitHub Actions CI remains unchanged.
-- Committed Python build metadata, stale machine-specific QA reports, benchmark history, and a duplicate BM25 edge-case script.
+### Added
+- Accepted target-architecture documentation under `docs/architecture/`, architecture decisions
+  under `docs/decisions/`, and engineering/migration/testing guidance under `docs/development/`.
+- Canonical model/harness contracts for model-driven decisions with deterministic authority,
+  exact capability/target/source validation, bounded execution, and explicit observations.
 
 ### Changed
-- Reduced active documentation to implemented behavior and current operating contracts; removed roadmap, backlog, target-architecture, phase-plan, and migration-plan documents. OpenAPI remains under `docs/api/`, and QA output goes to ignored `artifacts/qa/`.
-- Restored foreground `orion web` lifecycle semantics for Docker installs: it follows only current API/UI logs without replaying historical proxy noise and stops Web services on `Ctrl+C`, while `orion log` follows the complete stack without stopping it.
-- Made uninstall clean model/session/RAG volumes and private runtime state by default, with a separate interactive choice for removing shared Grafana/Zabbix credentials.
+- Cut configured Web and CLI Chat construction over to the canonical model-driven agent runtime.
+  Natural-language semantics are owned by the model; authority, validation, execution, evidence,
+  limits, and completion remain harness responsibilities.
+- Migrated benchmark/public-agent integration to `create_canonical_session_agent` and canonical
+  runtime trace/step contracts.
+- Reorganized active architecture documentation away from the removed `docs/ai/` hierarchy. Target
+  design precedence is now `docs/decisions/` → `docs/architecture/` → `docs/development/` → product
+  documentation.
+- Restored foreground `orion web` lifecycle semantics for Docker installs: it follows only current
+  API/UI logs without replaying historical proxy noise and stops Web services on `Ctrl+C`, while
+  `orion log` follows the complete stack without stopping it.
+- Made uninstall clean model/session/RAG volumes and private runtime state by default, with a
+  separate interactive choice for removing shared Grafana/Zabbix credentials.
+
+### Removed
+- Legacy deterministic/semantic routing stack from the configured primary agent path, including
+  compatibility contracts that no longer had required callers.
+- Unused Dify API/Web services, their dedicated Redis service, reverse-proxy route, and environment
+  wiring.
+- Autonomous development supervisor/orchestrator artifacts, generated task logs, committed Python
+  build metadata, stale machine-specific QA reports, benchmark history, and duplicate stale
+  fixtures.
+
+### Documentation
+- Root/operator/contributor/AI-agent instructions now point at the current documentation hierarchy
+  and explicitly distinguish accepted target architecture from current implementation gaps.
+- Project RAG documentation records that the service is currently a separate Web workspace while
+  ADR-0003 defines integration as a normal READ capability in the accepted target architecture.
+- QA documentation describes the canonical HTTP runtime gate and calls out remaining
+  compatibility-named viability fields in `ga2_runner.py` so they are not mistaken for architecture
+  authority.
 
 ## [0.1.0] — 2026-07-22
 
@@ -77,7 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plaintext secrets from repository (moved to gitignored config file)
 
 ### Documentation
-- All docs synchronized with current codebase
+- All docs synchronized with the then-current codebase
 - ADR-0002 (LLM assessment only) created
 - ADR-0003 (KnowledgeTool single entry point) created
 - ADR-0004 (stateless state management) created

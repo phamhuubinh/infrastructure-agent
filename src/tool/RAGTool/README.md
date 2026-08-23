@@ -1,6 +1,15 @@
 # Orion Project RAG Service
 
-Standalone FastAPI service for the Web UI's document-analysis workspace. It is not imported into the Chat Agent and does not participate in chat tool selection.
+This directory contains the **current standalone Project/document-analysis service** used by the Web
+UI.
+
+At implementation baseline `259f85b`, this service is not imported into the canonical Chat agent
+and does not participate in Chat capability selection.
+
+That current separation is **not** the accepted target architecture. ADR-0003 and
+`docs/architecture/PROJECTS_RAG_MEMORY.md` define Project knowledge as a normal READ capability in
+the same agent loop. The retrieval implementation here may remain useful as the backend for that
+future capability; do not create a second semantic agent architecture around it.
 
 ## Isolation and persistence
 
@@ -11,7 +20,9 @@ Each project owns:
 - a persistent, Vietnamese-accent-folded BM25 index;
 - project metadata and the latest 100 analysis records.
 
-The offline `memory` vector provider persists all collections to `RAG_DATA_DIR/vectors.json`. The root Compose stack mounts `/data` to a named volume. Project operations are serialized per project so upload, query, and delete cannot observe a partially updated index.
+The offline `memory` vector provider persists collections to `RAG_DATA_DIR/vectors.json`. The root
+Compose stack mounts `/data` to a named volume. Project operations are serialized per project so
+upload/query/delete cannot observe a partially updated index.
 
 ## Pipeline
 
@@ -24,14 +35,15 @@ Analysis request → original-query BM25 + bounded same-model lexical variants
                  → document-balanced context → required RAG LLM synthesis
 ```
 
-The root Compose configuration uses pypdf/text parsing, hash embeddings, the
-persistent memory vector store, BM25, RRF, a no-op reranker, and a no-op OCR
-provider. Hash embeddings are deterministic development plumbing, not semantic
-retrieval, so hash dense rankings are excluded from fusion. A configured real
-semantic embedding provider may contribute its bounded dense ranking alongside
-BM25. The same request-scoped analysis model makes at most one lexical-expansion
-call before its one final synthesis call; expansion failures use original-query
-BM25 only.
+The root Compose configuration uses pypdf/text parsing, hash embeddings, the persistent memory vector
+store, BM25, RRF, a no-op reranker, and a no-op OCR provider.
+
+Hash embeddings are deterministic development plumbing, not semantic retrieval, so hash dense
+rankings are excluded from fusion. A configured semantic embedding provider may contribute a bounded
+dense ranking alongside BM25.
+
+The request-scoped analysis model makes at most one lexical-expansion call before final synthesis;
+expansion failure falls back to original-query BM25 only.
 
 ## Running locally
 
@@ -51,7 +63,10 @@ RAG_VECTOR_STORE=memory
 RAG_RERANKER=noop
 ```
 
-Analysis itself always requires a model. In the root Orion stack, the backend passes the active Orion model as request-scoped internal configuration, so concurrent projects never mutate shared model state. For standalone development, environment variables may be used:
+Analysis itself requires a model. In the root Orion stack, the backend passes the active Orion model
+as request-scoped internal configuration so concurrent projects do not mutate shared model state.
+
+For standalone development:
 
 ```bash
 export RAG_LLM_BASE_URL=http://your-llm:8000/v1
@@ -72,10 +87,27 @@ DELETE /projects/{project_id}/documents/{doc_id}
 POST   /projects/{project_id}/analyses
 ```
 
-Upload uses multipart field `file` and rejects files over 50 MiB. Analysis accepts:
+Upload uses multipart field `file` and rejects files over 50 MiB.
+
+Analysis accepts:
 
 ```json
 {"query": "Compare the proposals and list risks", "top_k": 5}
 ```
 
-The response includes `answer` and `retrieved`. When no model is configured, analysis returns HTTP 503 rather than a retrieval-only answer. Legacy `/ingest` and `/query` endpoints remain isolated in the built-in `default` project for older clients; Chat does not use them.
+The response includes `answer` and `retrieved`. Without a configured model, analysis returns HTTP
+503 rather than a retrieval-only answer.
+
+Legacy `/ingest` and `/query` endpoints remain isolated in the built-in `default` project for older
+clients. Canonical Chat does not use them.
+
+## Migration boundary
+
+When Project knowledge is integrated into the canonical agent, preserve these rules:
+
+- Project/document isolation remains deterministic authority.
+- Retrieval results are bounded evidence, not execution authority.
+- The model decides when Project retrieval is useful.
+- The Chat agent should call a registered READ capability rather than bypassing the capability/
+  validation boundary.
+- Do not keep a separate RAG semantic mode once the canonical capability is wired.

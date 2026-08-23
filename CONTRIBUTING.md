@@ -1,40 +1,59 @@
 # Contributing
 
-## Development Setup
+## Development setup
 
 ```bash
-# Install the package in editable mode with test dependencies
 pip install -e ".[test]"
 
-# Run tests
 python -m pytest tests/ -q --tb=short
 
-# Lint
 ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501
 ```
 
 ## Architecture
 
-Read `docs/ai/00_BOOTSTRAP.md` first for reading order and conflict priority.
+Start with `docs/README.md`, then read the relevant accepted ADRs and architecture documents.
 
-Key principles:
-- **Code investigates. AI explains.** Investigation is deterministic. AI is only used for assessment.
-- **Ephemeral execution.** Raw observations and runtime state do not persist as conversation memory; typed session context and valid fresh cache entries are explicit.
-- **Evidence first.** Better tools → Better evidence → Better assessment.
+The central boundary is:
 
-## Before Committing
+> **The model owns language understanding, reasoning, and next-action proposals.**
 
-1. Run the smallest affected unit tests.
-2. Run relevant lint and type checks for changed Python/TypeScript files.
-3. Review `git diff --check` and `git status --short`.
-4. Update current-state documentation when behavior changes.
-5. Update `CHANGELOG.md` for user-facing changes.
+> **The harness owns authority, validation, execution, evidence, limits, and completion.**
 
-Smoke, E2E, Docker, full-QA, benchmark, and external-service validation run
-only when the task explicitly requires that class of test.
+For normal configured requests, do not put a language-specific intent/target/source/freshness/
+mutation/follow-up router in front of the model. The model proposes structured decisions; the
+harness validates exact capability/target/source identities, arguments, permissions, budgets, and
+safety before execution.
 
-## Commit Guidelines
+Natural-language text never authorizes shell, HTTP, database, file, or infrastructure operations.
+READ/WRITE is determined by the reviewed capability effect, not by English/Vietnamese keyword
+matching. Unknown identities fail closed; do not default to localhost or another source.
 
-- One logical change per commit
-- Clear, descriptive commit messages
-- Reference related issues or documents when appropriate
+The accepted target architecture is under `docs/`. Current implementation facts come from code,
+tests, generated API documentation, and runtime evidence. If they differ, document the gap instead
+of adding compatibility behavior that violates an ADR.
+
+## Before committing
+
+1. Run the smallest affected unit/contract tests.
+2. Run relevant lint/type/static checks for changed Python/TypeScript.
+3. For destructive cleanup, inspect imports/callers/repository-wide references.
+4. Run `git diff --check` and review `git status --short`.
+5. Update current documentation when behavior changes.
+6. Regenerate generated artifacts through their canonical generator when their source contract
+   changes.
+7. Update `CHANGELOG.md` for user-facing changes.
+
+Smoke, E2E, Docker, full-QA, benchmark, and external-service validation are separate gates. Run them
+only when the task explicitly requires that class of validation.
+
+When a full QA run fails, fix the first real failure before treating later cascaded failures as
+separate problems.
+
+## Commit guidelines
+
+- One logical change per commit.
+- Use clear, descriptive commit messages.
+- Do not preserve or reintroduce legacy architecture only for compatibility unless a real caller
+  still requires it.
+- Reference related issues, ADRs, or documents when useful.

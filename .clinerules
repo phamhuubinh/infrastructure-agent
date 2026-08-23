@@ -1,38 +1,53 @@
-# Read first
+# Orion repository rules
 
-Always understand the project before making changes.
+Read before changing code:
 
-Read in this order:
+1. `docs/README.md`
+2. relevant `docs/decisions/*.md`
+3. relevant `docs/architecture/*.md`
+4. `docs/development/ENGINEERING_RULES.md`
+5. relevant `docs/development/*.md`
+6. `README.md`
+7. relevant source and tests
 
-1. docs/ai/00_BOOTSTRAP.md — defines the reading order for all docs/ai/ files
-2. docs/ai/07_DEVELOPMENT_RULES.md — mandatory engineering rules
-3. docs/ai/08_PROJECT_STATE.md — what actually exists right now
-4. README.md
-5. docs/**
-6. src/**
+Ignore generated/cache/vendor directories unless the task requires them:
+`.git/`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `node_modules/`.
 
-Ignore:
+Core rules:
 
-- .git/
-- .venv/
-- __pycache__/
-- .pytest_cache/
-- .ruff_cache/
-- node_modules/
+- Respond in the same language as the user when practical.
+- Model owns natural-language understanding, reasoning, and next-action proposals.
+- Harness owns authority, exact validation, execution, evidence, limits, and completion.
+- Do not add intent/target/source/freshness/mutation/follow-up semantic routers before the model.
+- Natural-language text is never execution authority.
+- Validate exact capability, target, source, schema, permission, budget, and safety before execution.
+- Never fuzzy-authorize an unknown identity or silently fall back to localhost/another source.
+- READ/WRITE is the reviewed capability effect, not a language-keyword decision.
+- Keep credentials and private reasoning out of model context, logs, traces, and UI.
+- Preserve explicit evidence status, time, target/source, and provenance.
+- Do not resurrect legacy deterministic/semantic routing or compatibility shims to make tests pass.
+- Reuse proven tool/evidence implementations behind the canonical boundary.
+- Keep changes narrow and avoid unrelated cleanup.
 
-Rules:
+Validation:
 
-- Respond in the same language as the user's query (e.g., Vietnamese query → Vietnamese response, English query → English response).
-- Never modify architecture without approval.
-- Never create duplicate implementations.
-- Reuse existing abstractions.
-- Deterministic before AI — prefer deterministic logic wherever possible.
-- Evidence first — better tool → better evidence → better assessment.
-- Explain why before changing code.
-- After every change, run the affected tests (`python3 -m pytest tests/ -q --tb=short -x -k "not slow"`).
-- Before committing, run: `ruff check .`
-- Review the complete git diff before every commit.
-- Create exactly ONE atomic commit per logical task.
-- Never mix unrelated changes into the same commit.
-- Never report planned work as completed — completed work must be verifiable through git diff, test results, or benchmark results.
-- When a task changes project status, update docs/ai/08_PROJECT_STATE.md to reflect the new reality.
+- Run the smallest affected unit/contract/static checks by default.
+- After destructive cleanup, inspect callers/imports/static references and run `git diff --check`.
+- Do not automatically run smoke, E2E, Docker, full QA, benchmark, or external-service validation.
+- Run those classes only when the user's current request explicitly asks for them.
+- When full QA fails, isolate the first real failure before chasing cascades.
+- Never report planned work or an unexecuted test as completed/passing.
+
+Git:
+
+- Review the complete relevant diff.
+- Do not commit/push/rebase/reset/create branches unless explicitly requested.
+- Do not mix unrelated changes.
+
+Documentation:
+
+- `docs/decisions/` > `docs/architecture/` > `docs/development/` > product docs for target design.
+- Source/tests/generated schema/runtime evidence establish current implementation facts.
+- Never restore references to the removed legacy AI-documentation hierarchy.
+- Regenerate generated artifacts through their canonical generator; do not hand-edit them for
+  appearance.

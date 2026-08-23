@@ -1,12 +1,18 @@
 # Cleanup and Repository Hygiene
 
-Cleanup is a required phase of the refactor, not optional polish.
+> **Baseline:** at `259f85b`, the superseded deterministic/semantic routing stack is removed from the
+> configured Web/CLI Chat hot path. These rules remain mandatory for future cleanup and for proving
+> that compatibility code is truly dead.
+
+Cleanup is a required phase of architecture work, not optional polish.
 
 ## Goal
 
-After the new architecture is the only configured primary path, remove code,
-files, flags, tests, imports, and folder structure that exist only for the
-superseded architecture.
+After a new architecture becomes the configured primary path, remove code, files, flags, tests,
+imports, documentation, and folder structure that exist only for the superseded responsibility.
+
+Do not delete proven tool/evidence/runtime behavior simply because it was previously called by an
+old orchestration layer.
 
 ## Evidence before deletion
 
@@ -19,9 +25,9 @@ Do not delete by filename guess. For each candidate:
 5. migrate any still-valid responsibility;
 6. delete only when the remaining graph proves it is unnecessary.
 
-## Likely cleanup categories
+## Legacy categories to reject on the canonical hot path
 
-Reevaluate and remove when no longer required:
+Remove or refuse to recreate, when no real compatibility caller requires them:
 
 - lexical natural-language intent routers;
 - semantic target/source parsers used before the model;
@@ -32,15 +38,17 @@ Reevaluate and remove when no longer required:
 - duplicate action/execution contracts;
 - compatibility adapters with no callers;
 - superseded feature flags;
-- tests that lock old architecture rather than current behavior;
+- tests that lock old architecture instead of current contracts;
 - stale generated fixtures;
 - duplicate response/finalization paths;
-- old documentation and architecture terminology.
+- stale documentation and architecture terminology.
 
-## Move useful code instead of deleting it
+Historical changelog/migration references may retain old terminology when they are clearly marked as
+history.
 
-Some old components may contain useful deterministic implementation. Preserve
-that behavior in the correct subsystem when appropriate, for example:
+## Preserve useful deterministic implementation
+
+Move proven behavior behind the correct canonical subsystem where appropriate:
 
 - reviewed Linux collectors;
 - Grafana/Zabbix clients and parsers;
@@ -48,36 +56,46 @@ that behavior in the correct subsystem when appropriate, for example:
 - evidence normalization/provenance;
 - redaction;
 - storage;
-- existing Project retrieval logic;
-- typed errors and result contracts.
+- Project retrieval logic;
+- typed errors/results.
 
-The goal is to delete the obsolete responsibility, not throw away proven tool
-implementation.
+The goal is to remove obsolete semantic responsibility, not deterministic safety or proven
+integration code.
 
 ## File placement
 
-A file is misplaced when its primary responsibility belongs to another
-subsystem. During cleanup:
+A file is misplaced when its primary responsibility belongs to another subsystem:
 
-- model-provider code lives with model adapters;
-- capability-specific behavior lives with that capability/tool;
-- permission/approval logic lives in execution policy;
-- evidence contracts live in evidence;
-- Project/RAG lifecycle lives in projects/retrieval;
-- event filtering/storage lives in events;
-- API/CLI should be thin application boundaries.
+- model-provider code belongs with provider adapters;
+- capability-specific behavior belongs with that capability/tool;
+- permission/approval logic belongs at the execution authority boundary;
+- evidence contracts belong with evidence;
+- Project/RAG lifecycle belongs with projects/retrieval;
+- event filtering/storage belongs with events;
+- API/CLI remain thin application boundaries.
 
-Avoid generic `utils.py` dumping grounds and giant coordinator modules.
+Avoid generic dumping grounds and giant coordinator modules.
 
-## Completion criteria
+## Completion checks for destructive cleanup
 
-Cleanup is complete when:
+At minimum:
 
-- configured runtime does not import the legacy semantic stack;
+```bash
+git grep -n "<legacy symbol or module>"
+python3 -m pytest --collect-only -q
+git diff --check
+```
+
+Then run targeted tests and the full local suite appropriate to the refactor. Live Docker/model/GA2
+validation is a separate runtime gate and should be run only when explicitly intended.
+
+Cleanup is complete for a scope when:
+
+- the configured runtime does not import the superseded semantic path;
 - dead modules have no callers and are removed;
 - duplicate architecture concepts are gone;
-- source layout matches responsibility boundaries;
 - stale tests/flags/config are removed;
-- static checks and full QA pass;
-- repository-wide search finds no misleading legacy architecture terminology
-  except intentional migration/history references.
+- repository-wide search finds no misleading active terminology except intentional history;
+- static checks and required tests pass;
+- runtime QA, when part of the release gate, validates the canonical path without restoring legacy
+  behavior.
