@@ -16,12 +16,15 @@ from src.agent.composition import (
     CanonicalAgentComponents,
     build_canonical_agent_components,
 )
+from src.agent.permissions import PermissionMode
 from src.agent.runtime import AgentRuntime, AgentRuntimeConfig
+from src.agent.session_agent import CanonicalSessionAgent
 from src.model.agent_provider_bridge import AssessmentAgentProvider
 from src.model.assessment_model_adapter import AssessmentModelAdapter
 from src.model.llm_assessment_adapter import LLMAssessmentAdapter
 from src.model.llm_client import LLMClient
 from src.model.providers.fallback_adapter import FallbackAssessmentAdapter
+from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
 from src.model.config_store import FeatureFlagStore
 from src.pipeline.external_verification import ExternalVerificationExecutor
 from src.pipeline.security.inspector_chain import InspectorChain
@@ -337,11 +340,8 @@ def _configured_assessment_adapters(
     model: str | None,
 ) -> tuple[AssessmentModelAdapter, ...]:
     if not config.servers:
-        raise InvalidConfigValueError(
-            file="servers.json",
-            key="(all)",
-            expected="at least one LLM provider",
-            received="no LLM providers configured",
+        return (
+            UnconfiguredAssessmentAdapter(),
         )
 
     primary_name = (
@@ -582,6 +582,10 @@ def create_canonical_production_runtime(
     providers = tuple(
         AssessmentAgentProvider(adapter)
         for adapter in adapters
+        if not isinstance(
+            adapter,
+            UnconfiguredAssessmentAdapter,
+        )
     )
 
     components = (
@@ -614,7 +618,56 @@ def create_canonical_production_runtime(
     )
 
 
+def create_canonical_session_agent(
+    *,
+    target_store_path: str = "targets.json",
+    server_name: str | None = None,
+    model: str | None = None,
+    assessment_adapter: (
+        AssessmentModelAdapter | None
+    ) = None,
+    conversation_store: object | None = None,
+    config: OrionConfig | None = None,
+    model_timeout_seconds: float = 30.0,
+    runtime_config: (
+        AgentRuntimeConfig | None
+    ) = None,
+    permission_mode: (
+        PermissionMode
+    ) = PermissionMode.READ,
+) -> CanonicalSessionAgent:
+    """Build one session-local canonical public agent."""
+
+    bundle = (
+        create_canonical_production_runtime(
+            target_store_path=target_store_path,
+            server_name=server_name,
+            model=model,
+            assessment_adapter=(
+                assessment_adapter
+            ),
+            config=config,
+            model_timeout_seconds=(
+                model_timeout_seconds
+            ),
+            runtime_config=runtime_config,
+        )
+    )
+
+    return CanonicalSessionAgent(
+        runtime=bundle.runtime,
+        assessment_model=(
+            bundle.assessment_model
+        ),
+        conversation_store=(
+            conversation_store
+        ),
+        permission_mode=permission_mode,
+    )
+
+
 __all__ = [
     "CanonicalProductionRuntime",
     "create_canonical_production_runtime",
+    "create_canonical_session_agent",
 ]

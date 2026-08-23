@@ -8,6 +8,7 @@ import pytest
 from src.agent.canonical_factory import (
     CanonicalProductionRuntime,
     create_canonical_production_runtime,
+    create_canonical_session_agent,
 )
 from src.agent.contracts import (
     AgentDecision,
@@ -29,8 +30,8 @@ from src.model.providers.fallback_adapter import (
     FallbackAssessmentAdapter,
 )
 from src.shared.config import OrionConfig
-from src.shared.config_errors import (
-    InvalidConfigValueError,
+from src.model.unconfigured_adapter import (
+    UnconfiguredAssessmentAdapter,
 )
 
 
@@ -167,18 +168,23 @@ def test_factory_preserves_configured_fallback_order(
     )
 
 
-def test_factory_rejects_missing_model_configuration(
+def test_factory_supports_setup_mode_without_model_configuration(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(
-        InvalidConfigValueError
-    ):
+    bundle = (
         create_canonical_production_runtime(
             target_store_path=str(
                 tmp_path / "targets.json"
             ),
             config=_empty_config(),
         )
+    )
+
+    assert isinstance(
+        bundle.assessment_model,
+        UnconfiguredAssessmentAdapter,
+    )
+    assert bundle.providers == ()
 
 
 def test_factory_registry_and_knowledge_tool_share_registrations(
@@ -207,3 +213,86 @@ def test_factory_registry_and_knowledge_tool_share_registrations(
             .source_names()
         )
     )
+
+
+
+class _SessionStore:
+    def __init__(self) -> None:
+        self.turns = []
+        self.summarize_fn = None
+
+    @property
+    def history(self):
+        return []
+
+    def add_turn(self, user, assistant):
+        self.turns.append((user, assistant))
+
+    def set_summarize_fn(self, fn):
+        self.summarize_fn = fn
+
+
+def test_factory_builds_session_agent_over_exact_runtime(
+    tmp_path: Path,
+) -> None:
+    store = _SessionStore()
+
+    agent = create_canonical_session_agent(
+        target_store_path=str(
+            tmp_path / "targets.json"
+        ),
+        assessment_adapter=(
+            FinalAssessmentAdapter()
+        ),
+        conversation_store=store,
+        config=_empty_config(),
+    )
+
+    payload = agent.run_with_steps(
+        "hello"
+    )
+
+    assert payload["response"] == (
+        "factory-ok"
+    )
+    assert store.turns == [
+        ("hello", "factory-ok")
+    ]
+    assert callable(store.summarize_fn)
+
+
+def test_session_factory_preserves_setup_mode_without_execution(
+    tmp_path: Path,
+) -> None:
+    store = _SessionStore()
+
+    agent = create_canonical_session_agent(
+        target_store_path=str(
+            tmp_path / "targets.json"
+        ),
+        conversation_store=store,
+        config=_empty_config(),
+    )
+
+    payload = agent.run_with_steps(
+        "hello"
+    )
+
+    assert agent.health_check() is False
+    assert "No model is configured" in (
+        payload["response"]
+    )
+
+    canonical = (
+        payload["execution_trace"]
+        ["runtime_metrics"]
+        ["canonical_runtime"]
+    )
+
+    assert canonical["terminal"] == (
+        "setup_required"
+    )
+    assert canonical["model_calls"] == 0
+    assert canonical[
+        "action_attempts"
+    ] == 0

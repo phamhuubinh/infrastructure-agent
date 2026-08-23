@@ -7,10 +7,12 @@ from types import SimpleNamespace
 from unittest import mock
 
 from src.agent.conversation_store import ConversationStore
-from src.agent.runtime_factory import create_deterministic_agent
+from src.agent.contracts import AgentAction, AgentDecision, DecisionKind
+from src.agent.canonical_factory import create_canonical_session_agent
 from src.backend.dependencies import AppState
 from src.backend.routers.query import query
 from src.model.assessment_model_adapter import AssessmentModelAdapter
+from src.shared.config import OrionConfig
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 from src.tool.target_preflight import EnvironmentFingerprint
@@ -36,21 +38,42 @@ def _wire(
     kind: str,
     *,
     capability_id: str | None = None,
+    target_ref: str | None = None,
     answer: str | None = None,
 ) -> str:
-    return json.dumps(
-        {
-            "v": 1,
-            "k": kind,
-            "g": "Follow the request.",
-            "c": None,
-            "a": None if capability_id is None else {"i": capability_id, "a": {}},
-            "f": answer,
-            "q": None,
-            "r": None,
-        }
-    )
+    if kind == "action":
+        if capability_id is None:
+            raise ValueError(
+                "action requires capability_id"
+            )
 
+        decision = AgentDecision(
+            kind=DecisionKind.ACTION,
+            goal="Follow the request.",
+            action=AgentAction(
+                capability_id=capability_id,
+                target_ref=target_ref,
+            ),
+        )
+    elif kind == "final":
+        if answer is None:
+            raise ValueError(
+                "final requires answer"
+            )
+
+        decision = AgentDecision(
+            kind=DecisionKind.FINAL,
+            goal="Follow the request.",
+            answer=answer,
+        )
+    else:
+        raise ValueError(
+            f"unsupported test decision: {kind}"
+        )
+
+    return json.dumps(
+        decision.to_wire()
+    )
 
 def _reachable_monitor(*_args: object, **_kwargs: object) -> EnvironmentFingerprint:
     return EnvironmentFingerprint(
@@ -98,7 +121,7 @@ def test_prepare_query_reuses_only_the_same_session_agent() -> None:
     with (
         mock.patch("src.backend.dependencies.SQLiteConversationStore", _Store),
         mock.patch(
-            "src.backend.dependencies.create_deterministic_agent",
+            "src.backend.dependencies.create_canonical_session_agent",
             side_effect=build_agent,
         ),
     ):
@@ -121,21 +144,51 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
 ) -> None:
     target_store = tmp_path / "targets.json"
     target_store.write_text(json.dumps({"targets": {"monitor": {"backend": "local"}}}))
-    alpha = create_deterministic_agent(
+    alpha = create_canonical_session_agent(
         target_store_path=str(target_store),
+        config=OrionConfig(
+            servers={},
+            active_server_name="",
+            tools={},
+        ),
         assessment_adapter=_QueuedAssessmentModel(
             [
-                _wire("action", capability_id="host.get_cpu"),
-                _wire("action", capability_id="host.get_cpu"),
-                _wire("final", answer="CPU observed for monitor."),
-                _wire("action", capability_id="host.get_memory"),
-                _wire("action", capability_id="host.get_memory"),
-                _wire("final", answer="Memory observed for monitor."),
+                _wire(
+                    "action",
+                    capability_id="host.get_cpu",
+                ),
+                _wire(
+                    "action",
+                    capability_id="host.get_cpu",
+                    target_ref="monitor",
+                ),
+                _wire(
+                    "final",
+                    answer="CPU observed for monitor.",
+                ),
+                _wire(
+                    "action",
+                    capability_id="host.get_memory",
+                ),
+                _wire(
+                    "action",
+                    capability_id="host.get_memory",
+                    target_ref="monitor",
+                ),
+                _wire(
+                    "final",
+                    answer="Memory observed for monitor.",
+                ),
             ]
         ),
     )
-    beta = create_deterministic_agent(
+    beta = create_canonical_session_agent(
         target_store_path=str(target_store),
+        config=OrionConfig(
+            servers={},
+            active_server_name="",
+            tools={},
+        ),
         assessment_adapter=_QueuedAssessmentModel(
             [_wire("final", answer="Beta has no inherited target.")]
         ),
@@ -173,7 +226,7 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
             ),
         ),
         mock.patch(
-            "src.backend.dependencies.create_deterministic_agent",
+            "src.backend.dependencies.create_canonical_session_agent",
             side_effect=build_agent,
         ),
     ):
@@ -189,21 +242,53 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
 
     assert alpha_follow_up["response"] == "Memory observed for monitor."
     assert beta_result["response"] == "Beta has no inherited target."
-    assert state.web_sessions["alpha"].investigation_context.active_target == "monitor"
-    assert state.web_sessions["beta"].investigation_context.active_target is None
-    assert alpha_follow_up["execution_trace"]["runtime_metrics"]["controller_loop"][
-        "controller_metrics"
-    ]["target_ids"] == ["monitor"]
+    alpha_history = state.web_sessions[
+        "alpha"
+    ].history
+    beta_history = state.web_sessions[
+        "beta"
+    ].history
+
+    assert [
+        item["content"]
+        for item in alpha_history
+        if item.get("role") == "user"
+    ] == [
+        "Inspect monitor.",
+        "What about memory?",
+    ]
+
+    assert [
+        item["content"]
+        for item in beta_history
+        if item.get("role") == "user"
+    ] == [
+        "What about memory?",
+    ]
+
     assert (
-        beta_result["execution_trace"]["runtime_metrics"]["controller_loop"][
-            "controller_metrics"
-        ]["target_ids"]
-        == []
+        alpha_follow_up["steps"][0]["target_id"]
+        == "monitor"
     )
+    assert beta_result["steps"] == []
+
+    alpha_runtime = (
+        alpha_follow_up["execution_trace"]
+        ["runtime_metrics"]
+        ["canonical_runtime"]
+    )
+    beta_runtime = (
+        beta_result["execution_trace"]
+        ["runtime_metrics"]
+        ["canonical_runtime"]
+    )
+
+    assert alpha_runtime["action_attempts"] == 1
+    assert beta_runtime["action_attempts"] == 0
+
     assert alpha_agent is not beta_agent
     assert alpha_lock is not beta_lock
-    assert alpha_agent._evidence_cache is not beta_agent._evidence_cache
-    assert alpha_agent._usage_recorder is not beta_agent._usage_recorder
+    assert alpha_agent._runtime is not beta_agent._runtime
 
 
 def test_query_returns_generated_session_id_from_isolated_agent() -> None:

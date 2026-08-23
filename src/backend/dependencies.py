@@ -5,9 +5,9 @@ import threading
 import uuid
 from pathlib import Path
 
+from src.agent.canonical_factory import create_canonical_session_agent
 from src.agent.conversation_store import ConversationStoreProtocol
-from src.agent.deterministic_agent import DeterministicAgent
-from src.agent.runtime_factory import create_deterministic_agent
+from src.agent.session_agent import CanonicalSessionAgent
 from src.backend.db import (
     PostgresConversationStore,
     _get_dsn,
@@ -36,7 +36,7 @@ class AppState:
         self._model_config_stamp = self._current_model_config_stamp()
         self.dsn = database_url or _get_dsn()
         self.use_postgresql = bool(self.dsn)
-        self.agent = create_deterministic_agent(
+        self.agent = create_canonical_session_agent(
             target_store_path=target_store_path,
             server_name=server_name,
             model=model,
@@ -60,7 +60,7 @@ class AppState:
 
         self.sessions_dir = str(Path.home() / ".orion" / "sessions")
         self.web_sessions: dict[str, ConversationStoreProtocol] = {}
-        self.web_agents: dict[tuple[str, str, str | None], DeterministicAgent] = {}
+        self.web_agents: dict[tuple[str, str, str | None], CanonicalSessionAgent] = {}
         self._session_locks: dict[str, threading.RLock] = {}
         self.rag_service_url = os.environ.get(
             "RAG_SERVICE_URL", "http://127.0.0.1:8080"
@@ -72,7 +72,7 @@ class AppState:
         with self._state_lock:
             self._server_name = server_name
             self._model = model
-            self.agent = create_deterministic_agent(
+            self.agent = create_canonical_session_agent(
                 target_store_path=self.target_store_path,
                 server_name=server_name,
                 model=model,
@@ -87,7 +87,7 @@ class AppState:
             active = self.model_store.active()
             self._server_name = active[0] if active is not None else ""
             self._model = None
-            self.agent = create_deterministic_agent(
+            self.agent = create_canonical_session_agent(
                 target_store_path=self.target_store_path,
                 server_name=self._server_name or None,
             )
@@ -134,7 +134,7 @@ class AppState:
         session_id: str | None,
         server_name: str | None = None,
         model: str | None = None,
-    ) -> tuple[str, DeterministicAgent, threading.RLock]:
+    ) -> tuple[str, CanonicalSessionAgent, threading.RLock]:
         """Return an agent and lock owned exclusively by one chat session."""
         self.reload_models_if_changed()
         sid = session_id or uuid.uuid4().hex[:12]
@@ -145,7 +145,7 @@ class AppState:
         with self._state_lock:
             agent = self.web_agents.get(key)
             if agent is None:
-                agent = create_deterministic_agent(
+                agent = create_canonical_session_agent(
                     target_store_path=self.target_store_path,
                     server_name=selected_server,
                     model=selected_model,
