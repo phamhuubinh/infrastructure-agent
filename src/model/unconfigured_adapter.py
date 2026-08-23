@@ -16,11 +16,11 @@ MODEL_UNCONFIGURED_MESSAGE_EN = (
 def model_unconfigured_message(raw_request: str) -> str:
     """Return the setup-mode message in the request language."""
 
-    from src.model.protocol.prompt_builder_v2 import _detect_language
+    from src.shared.language import detect_language
 
     return (
         MODEL_UNCONFIGURED_MESSAGE_EN
-        if _detect_language(raw_request) == "en"
+        if detect_language(raw_request) == "en"
         else MODEL_UNCONFIGURED_MESSAGE
     )
 

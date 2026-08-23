@@ -15,35 +15,10 @@ from src.pipeline.input_context_budget import (
 )
 from src.pipeline.intent_resolver import Intent
 
-# Vietnamese characters with diacritics (Unicode range)
-_VIETNAMESE_PATTERN = re.compile(
-    r"[àáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợ" r"ùúủũụưừứửữựỳýỷỹỵđ]",
-    re.IGNORECASE,
-)
-_EXPLICIT_ENGLISH_RESPONSE = re.compile(
-    r"(?:answer|reply|respond)\s+in\s+english|"
-    r"(?:trả\s+lời|dịch)\s+(?:bằng|sang)\s+tiếng\s+anh|"
-    r"(?:translate|translation)\s+(?:to|into)\s+english",
-    re.IGNORECASE,
-)
-_EXPLICIT_VIETNAMESE_RESPONSE = re.compile(
-    r"(?:answer|reply|respond)\s+in\s+vietnamese|"
-    r"(?:trả\s+lời|dịch)\s+(?:bằng|sang)\s+tiếng\s+việt|"
-    r"(?:translate|translation)\s+(?:to|into)\s+vietnamese",
-    re.IGNORECASE,
-)
-
-
-def _detect_language(text: str) -> str:
-    """Infer the requested response language, honouring explicit directives."""
-
-    if _EXPLICIT_ENGLISH_RESPONSE.search(text):
-        return "en"
-    if _EXPLICIT_VIETNAMESE_RESPONSE.search(text):
-        return "vi"
-    if _VIETNAMESE_PATTERN.search(text):
-        return "vi"
-    return "en"
+# Compatibility alias for the legacy assessment-prompt island.
+# Canonical/user-visible code imports the presentation primitive directly
+# from src.shared.language.
+from src.shared.language import detect_language as _detect_language
 
 
 def _normalize_evidence(data: Any) -> Any:

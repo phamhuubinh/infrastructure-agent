@@ -23,6 +23,9 @@ from src.agent.runtime import (
 from src.model.agent_provider_bridge import (
     AssessmentAgentProvider,
 )
+from src.model.agent_llm_adapter import (
+    AgentLLMAdapter,
+)
 from src.model.assessment_model_adapter import (
     AssessmentModelAdapter,
 )
@@ -160,6 +163,14 @@ def test_factory_preserves_configured_fallback_order(
     assert (
         len(bundle.assessment_adapters)
         == 2
+    )
+    assert all(
+        isinstance(
+            adapter,
+            AgentLLMAdapter,
+        )
+        for adapter
+        in bundle.assessment_adapters
     )
     assert len(bundle.providers) == 2
     assert isinstance(

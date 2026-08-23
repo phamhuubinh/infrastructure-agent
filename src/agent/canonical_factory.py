@@ -21,7 +21,7 @@ from src.agent.runtime import AgentRuntime, AgentRuntimeConfig
 from src.agent.session_agent import CanonicalSessionAgent
 from src.model.agent_provider_bridge import AssessmentAgentProvider
 from src.model.assessment_model_adapter import AssessmentModelAdapter
-from src.model.llm_assessment_adapter import LLMAssessmentAdapter
+from src.model.agent_llm_adapter import AgentLLMAdapter
 from src.model.llm_client import LLMClient
 from src.model.providers.fallback_adapter import FallbackAssessmentAdapter
 from src.model.unconfigured_adapter import UnconfiguredAssessmentAdapter
@@ -280,7 +280,7 @@ def _build_openai_compatible_adapter(
         ),
     )
 
-    return LLMAssessmentAdapter(
+    return AgentLLMAdapter(
         client=client
     )
 
@@ -305,8 +305,8 @@ def _build_server_adapter(
         )
 
     try:
-        from src.model.providers.anthropic_adapter import (
-            AnthropicAssessmentAdapter,
+        from src.model.providers.anthropic_agent_adapter import (
+            AnthropicAgentAdapter,
         )
     except ImportError as exc:
         raise RuntimeError(
@@ -324,7 +324,7 @@ def _build_server_adapter(
             "provider calls will fail."
         )
 
-    return AnthropicAssessmentAdapter(
+    return AnthropicAgentAdapter(
         api_key=api_key or "",
         model=model_override or cfg.model,
         timeout=cfg.timeout,
