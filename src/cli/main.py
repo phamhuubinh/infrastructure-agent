@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from src.agent.runtime_factory import create_deterministic_agent
+from src.agent.canonical_factory import create_canonical_session_agent
 from src.backend.app import run_web
 from src.backend.sqlite_store import (
     SQLiteConversationStore,
@@ -18,7 +18,7 @@ from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
-_last_request = None
+_last_result = None
 
 
 def _list_saved_sessions() -> list[dict]:
@@ -247,7 +247,7 @@ def _run_log() -> None:
 
 
 def _run_agent(args: argparse.Namespace) -> None:
-    global _last_request
+    global _last_result
 
     _info("orion", message="orion started")
 
@@ -265,7 +265,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         source="terminal",
     )
 
-    agent = create_deterministic_agent(
+    agent = create_canonical_session_agent(
         target_store_path=args.target_file,
         server_name=args.server,
         model=args.model,
@@ -321,30 +321,117 @@ def _run_agent(args: argparse.Namespace) -> None:
             continue
 
         if raw_input.lower() == "/evidence":
-            if _last_request is None:
+            if _last_result is None:
                 print("  No previous request.")
                 continue
-            print(f"  Evidence collected: {len(_last_request.evidence)} items")
-            print(f"  Complete: {_last_request.evidence_complete}")
-            for pkg in _last_request.evidence:
-                status = "✓" if pkg.success else "✗"
-                print(f"    {status} {pkg.evidence_name}")
+
+            steps = _last_result.get("steps", [])
+            evidence_steps = [
+                step
+                for step in steps
+                if (
+                    isinstance(step, dict)
+                    and step.get("type") == "evidence"
+                )
+            ]
+
+            print(
+                f"  Evidence actions: {len(evidence_steps)}"
+            )
+
+            for step in evidence_steps:
+                status = (
+                    "✓"
+                    if step.get("status") == "success"
+                    else "✗"
+                )
+                capability = step.get(
+                    "capability_id",
+                    "unknown",
+                )
+                target = (
+                    step.get("target_id")
+                    or step.get("source_id")
+                    or "-"
+                )
+                print(
+                    f"    {status} {capability} @ {target}"
+                )
             continue
 
         if raw_input.lower() == "/intent":
-            if _last_request is None:
+            if _last_result is None:
                 print("  No previous request.")
                 continue
-            print(
-                f"  Intent: {_last_request.intent.name if _last_request.intent else 'N/A'}"
+
+            trace = _last_result.get(
+                "execution_trace"
             )
+            terminal = None
+
+            if isinstance(trace, dict):
+                metrics = trace.get(
+                    "runtime_metrics"
+                )
+                if isinstance(metrics, dict):
+                    canonical = metrics.get(
+                        "canonical_runtime"
+                    )
+                    if isinstance(
+                        canonical,
+                        dict,
+                    ):
+                        terminal = canonical.get(
+                            "terminal"
+                        )
+
+            print(
+                "  Intent: model-owned "
+                "(no deterministic intent state)"
+            )
+            if terminal:
+                print(
+                    f"  Terminal: {terminal}"
+                )
             continue
 
         if raw_input.lower() == "/target":
-            if _last_request is None:
+            if _last_result is None:
                 print("  No previous request.")
                 continue
-            print(f"  Target: {_last_request.target or 'N/A'}")
+
+            targets: list[str] = []
+
+            for step in _last_result.get(
+                "steps",
+                [],
+            ):
+                if not isinstance(
+                    step,
+                    dict,
+                ):
+                    continue
+
+                target = (
+                    step.get("target_id")
+                    or step.get("source_id")
+                )
+
+                if (
+                    isinstance(target, str)
+                    and target
+                    and target not in targets
+                ):
+                    targets.append(target)
+
+            print(
+                "  Target: "
+                + (
+                    ", ".join(targets)
+                    if targets
+                    else "N/A"
+                )
+            )
             continue
 
         if raw_input.startswith("/"):
@@ -363,7 +450,7 @@ def _run_agent(args: argparse.Namespace) -> None:
         )
         try:
             result = agent.run_with_steps(raw_input)
-            _last_request = result.get("investigation")
+            _last_result = result
             answer = result["response"]
             print()
             print(answer)

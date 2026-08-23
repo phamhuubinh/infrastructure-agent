@@ -6,7 +6,8 @@ import io
 import json
 from unittest import mock
 
-from src.agent.runtime_factory import create_deterministic_agent
+from src.agent.canonical_factory import create_canonical_session_agent
+from src.agent.contracts import AgentDecision, DecisionKind
 from src.cli.main import _list_saved_sessions, _print_saved_sessions
 from tests.fixtures.fake_models import ScriptedAssessmentModel
 
@@ -15,16 +16,11 @@ cli_main = importlib.import_module("src.cli.main")
 
 def _controller_final(answer: str) -> str:
     return json.dumps(
-        {
-            "v": 1,
-            "k": "final",
-            "g": "Answer the request.",
-            "c": None,
-            "a": None,
-            "f": answer,
-            "q": None,
-            "r": None,
-        }
+        AgentDecision(
+            kind=DecisionKind.FINAL,
+            goal="Answer the request.",
+            answer=answer,
+        ).to_wire()
     )
 
 
@@ -146,7 +142,7 @@ def test_print_saved_sessions_prefers_title(capsys) -> None:
 def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    agent = create_deterministic_agent(
+    agent = create_canonical_session_agent(
         target_store_path=str(tmp_path / "targets.json"),
         assessment_adapter=ScriptedAssessmentModel(
             draft=_controller_final("CLI final answer.")
@@ -162,7 +158,7 @@ def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
 
     with (
         mock.patch.object(cli_main, "SQLiteConversationStore"),
-        mock.patch.object(cli_main, "create_deterministic_agent", return_value=agent),
+        mock.patch.object(cli_main, "create_canonical_session_agent", return_value=agent),
     ):
         cli_main._run_agent(args)
 
