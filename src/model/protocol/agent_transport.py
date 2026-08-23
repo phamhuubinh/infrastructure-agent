@@ -9,7 +9,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from src.agent.contracts import (
+    MAX_CAPABILITY_ID_CHARS,
     MAX_GOAL_CHARS,
+    MAX_REFERENCE_CHARS,
     MAX_TEXT_CHARS,
     PROTOCOL_VERSION,
     AgentDecision,
@@ -26,7 +28,11 @@ def agent_decision_json_schema(
     nullable_text = _nullable_text(MAX_TEXT_CHARS)
     nullable_reference = {
         "anyOf": [
-            {"type": "string", "minLength": 1, "maxLength": 128},
+            {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_REFERENCE_CHARS,
+            },
             {"type": "null"},
         ]
     }
@@ -34,7 +40,7 @@ def agent_decision_json_schema(
     capability_id_schema: dict[str, object] = {
         "type": "string",
         "minLength": 1,
-        "maxLength": 80,
+        "maxLength": MAX_CAPABILITY_ID_CHARS,
     }
     arguments_schema: dict[str, object] = {
         "type": "object",

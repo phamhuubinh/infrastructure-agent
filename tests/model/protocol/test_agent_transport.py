@@ -206,3 +206,28 @@ def test_provider_payload_type_fails_closed() -> None:
         match="decision object or JSON text",
     ):
         parse_agent_decision_payload(["not", "a", "decision"])
+
+
+
+def test_schema_limits_match_canonical_contract() -> None:
+    from src.agent.contracts import (
+        MAX_CAPABILITY_ID_CHARS,
+        MAX_REFERENCE_CHARS,
+    )
+
+    schema = agent_decision_json_schema()
+    action = schema["properties"]["action"]["anyOf"][0]
+    properties = action["properties"]
+
+    assert (
+        properties["capability_id"]["maxLength"]
+        == MAX_CAPABILITY_ID_CHARS
+    )
+    assert (
+        properties["target_ref"]["anyOf"][0]["maxLength"]
+        == MAX_REFERENCE_CHARS
+    )
+    assert (
+        properties["source_ref"]["anyOf"][0]["maxLength"]
+        == MAX_REFERENCE_CHARS
+    )
