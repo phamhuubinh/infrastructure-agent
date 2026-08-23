@@ -53,6 +53,10 @@ class AgentDecisionController:
         self._model = model
         self._discovery = discovery
 
+    @property
+    def discovery(self) -> CapabilityDiscovery:
+        return self._discovery
+
     def decide_first(
         self,
         request: str,

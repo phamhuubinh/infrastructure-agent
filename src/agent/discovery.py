@@ -89,6 +89,18 @@ class CapabilityDiscovery:
         self._targets = targets
         self._sources = sources
 
+    @property
+    def capabilities(self) -> CapabilityRegistry:
+        return self._capabilities
+
+    @property
+    def targets(self) -> ExactReferenceRegistry:
+        return self._targets
+
+    @property
+    def sources(self) -> ExactReferenceRegistry:
+        return self._sources
+
     def groups(self) -> tuple[str, ...]:
         groups = sorted(
             {

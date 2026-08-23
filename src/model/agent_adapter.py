@@ -17,6 +17,7 @@ from src.model.protocol.agent_transport import (
     agent_decision_json_schema,
     parse_agent_decision_payload,
 )
+from src.shared.redaction import redact_sensitive
 
 MAX_AGENT_PROVIDERS = 8
 MAX_PROVIDER_IDENTITY_CHARS = 128
@@ -276,7 +277,12 @@ def _failure(
     *,
     model: str | None = None,
 ) -> AgentModelAttemptFailure:
-    message = str(exc).replace("\n", " ").strip()
+    message = (
+        redact_sensitive(str(exc))
+        .replace("\n", " ")
+        .replace("\r", " ")
+        .strip()
+    )
     if not message:
         message = exc.__class__.__name__
 
