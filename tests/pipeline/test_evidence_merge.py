@@ -1,264 +1,92 @@
 from __future__ import annotations
 
-from src.pipeline.capability_reference import CapabilityReference
-from src.pipeline.evidence_merge import EvidenceMerge
-from src.pipeline.evidence_package import EvidencePackage
-from src.pipeline.investigation_request import InvestigationRequest
-from src.shared.execution.command_result import CommandResult, CommandStatus
-from src.shared.execution.tool_result import ToolResult
-from src.tool.capability_result import CapabilityStatus
-from src.tool.errors import CapabilityErrorCode
+from src.pipeline.evidence_merge import (
+    EvidenceMerge,
+)
+from src.shared.execution.tool_result import (
+    ToolResult,
+)
+from src.tool.capability_result import (
+    CapabilityStatus,
+)
 
 
-class TestEvidenceMerge:
-    def test_empty_results(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        EvidenceMerge().merge(req, results={})
-        assert req.evidence == []
+def test_package_from_successful_result() -> None:
+    result = ToolResult(
+        success=True,
+        data={"cores": 4},
+        capability_status=(
+            CapabilityStatus.VALID
+        ),
+        source="server-1",
+        source_kind="linux",
+        resource="get_cpu_info",
+    )
 
-    def test_empty_results_no_references(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        EvidenceMerge().merge(req, results={})
-        assert req.evidence == []
+    package = (
+        EvidenceMerge()
+        .package_from_result(
+            capability_name="system.cpu.info",
+            evidence_name="CPU",
+            result=result,
+            target="server-1",
+        )
+    )
 
-    def test_successful_result_creates_package(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-        }
-        EvidenceMerge().merge(req, results)
+    assert package.success is True
+    assert package.data == {"cores": 4}
+    assert package.source == "server-1"
 
-        assert len(req.evidence) == 1
-        pkg = req.evidence[0]
-        assert pkg.capability_name == "CPU Information"
-        assert pkg.evidence_name == "CPU"
-        assert pkg.data == {"cores": 4}
-        assert pkg.success is True
-        assert pkg.error is None
 
-    def test_failed_result_includes_error(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=False, error="Timeout"),
-        }
-        EvidenceMerge().merge(req, results)
+def test_package_from_failed_result_is_fail_closed() -> None:
+    result = ToolResult(
+        success=False,
+        error="timeout",
+        capability_status=(
+            CapabilityStatus
+            .COLLECTION_FAILED
+        ),
+        source="server-1",
+    )
 
-        assert len(req.evidence) == 1
-        pkg = req.evidence[0]
-        assert pkg.data is None
-        assert pkg.success is False
-        assert pkg.error == "Timeout"
+    package = (
+        EvidenceMerge()
+        .package_from_result(
+            capability_name="system.cpu",
+            evidence_name="CPU",
+            result=result,
+            target="server-1",
+        )
+    )
 
-    def test_structured_error_propagates_to_evidence(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "CPU Information": ToolResult(
-                success=False,
-                error="timed out",
-                capability_status=CapabilityStatus.COLLECTION_FAILED,
-                command_results=(CommandResult(status=CommandStatus.TIMEOUT),),
-            ),
-        }
+    assert package.success is False
+    assert package.data is None
+    assert package.error == "timeout"
 
-        EvidenceMerge().merge(req, results)
 
-        pkg = req.evidence[0]
-        assert pkg.capability_error is not None
-        assert pkg.capability_error.code is CapabilityErrorCode.TIMEOUT
-        assert pkg.capability_error.recoverable is True
+def test_partial_result_preserves_partial_payload() -> None:
+    result = ToolResult(
+        success=False,
+        data={"available_kb": 1024},
+        error="optional probe failed",
+        capability_status=(
+            CapabilityStatus.PARTIAL
+        ),
+    )
 
-    def test_multiple_capabilities(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-            CapabilityReference(name="Memory Information", evidence_name="Memory"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-            "Memory Information": ToolResult(success=True, data={"total_kb": 8192}),
-        }
-        EvidenceMerge().merge(req, results)
+    package = (
+        EvidenceMerge()
+        .package_from_result(
+            capability_name="system.memory",
+            evidence_name="Memory",
+            result=result,
+            target="server-1",
+        )
+    )
 
-        assert len(req.evidence) == 2
-        names = {p.capability_name for p in req.evidence}
-        assert names == {"CPU Information", "Memory Information"}
-
-    def test_duplicate_capability_skipped(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-            "Memory Information": ToolResult(success=True, data={"cores": 8}),
-        }
-        EvidenceMerge().merge(req, results)
-
-        # Memory Information has no reference, so it should be skipped
-
-    def test_evidence_name_falls_back_to_capability_name(self) -> None:
-        """When no CapabilityReference exists for a result, use cap name."""
-        req = InvestigationRequest(raw_request="test")
-        # no capability_references set
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-        }
-        EvidenceMerge().merge(req, results)
-
-        assert len(req.evidence) == 1
-        pkg = req.evidence[0]
-        assert pkg.capability_name == "CPU Information"
-        assert pkg.evidence_name == "CPU Information"
-
-    def test_evidence_name_from_reference(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="cap_cpu", evidence_name="CPU"),
-            CapabilityReference(name="cap_mem", evidence_name="Memory"),
-        ]
-        results = {
-            "cap_cpu": ToolResult(success=True, data={"cores": 4}),
-            "cap_mem": ToolResult(success=True, data={"total_kb": 8192}),
-        }
-        EvidenceMerge().merge(req, results)
-
-        ev_names = {p.evidence_name for p in req.evidence}
-        assert ev_names == {"CPU", "Memory"}
-
-    def test_mixed_success_and_failure(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-            CapabilityReference(name="Disk Information", evidence_name="Disk"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-            "Disk Information": ToolResult(success=False, error="No such device"),
-        }
-        EvidenceMerge().merge(req, results)
-
-        assert len(req.evidence) == 2
-        good = [p for p in req.evidence if p.success]
-        bad = [p for p in req.evidence if not p.success]
-        assert len(good) == 1
-        assert len(bad) == 1
-        assert good[0].data == {"cores": 4}
-        assert bad[0].error == "No such device"
-        assert bad[0].data is None
-
-    def test_partial_failure_keeps_other_valid_evidence_and_partial_payload(
-        self,
-    ) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-            CapabilityReference(name="Memory Information", evidence_name="Memory"),
-        ]
-        results = {
-            "CPU Information": ToolResult(
-                success=True,
-                data={"usage": 20},
-                capability_status=CapabilityStatus.VALID,
-            ),
-            "Memory Information": ToolResult(
-                success=False,
-                data={"available_kb": 1024},
-                error="swap subcommand failed",
-                capability_status=CapabilityStatus.PARTIAL,
-            ),
-        }
-
-        EvidenceMerge().merge(req, results)
-
-        packages = {pkg.evidence_name: pkg for pkg in req.evidence}
-        assert packages["CPU"].valid_for_requirements is True
-        assert packages["CPU"].data == {"usage": 20}
-        assert packages["Memory"].status is CapabilityStatus.PARTIAL
-        assert packages["Memory"].data == {"available_kb": 1024}
-        assert packages["Memory"].collection_failures == ("swap subcommand failed",)
-
-    def test_stores_evidence_on_request(self) -> None:
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-        }
-        EvidenceMerge().merge(req, results)
-
-        assert req.evidence is not None
-        assert isinstance(req.evidence, list)
-        assert all(isinstance(p, EvidencePackage) for p in req.evidence)
-
-    def test_capability_name_not_in_references_uses_fallback(self) -> None:
-        """Regression: when a result's capability name does not appear in
-        capability_references, evidence_name falls back to the capability name."""
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        results = {
-            "ExtraCapability": ToolResult(success=True, data={"extra": True}),
-        }
-        EvidenceMerge().merge(req, results)
-        assert len(req.evidence) == 1
-        assert req.evidence[0].capability_name == "ExtraCapability"
-        assert req.evidence[0].evidence_name == "ExtraCapability"
-
-    def test_seen_capability_name_not_duplicated(self) -> None:
-        """Regression: EvidenceMerge uses a seen set to prevent duplicate
-        packages for the same capability name."""
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="CPU Information", evidence_name="CPU"),
-        ]
-        # Only one entry per cap name — dict naturally deduplicates
-        results = {
-            "CPU Information": ToolResult(success=True, data={"cores": 4}),
-        }
-        EvidenceMerge().merge(req, results)
-        assert len(req.evidence) == 1
-        assert req.evidence[0].capability_name == "CPU Information"
-
-    def test_results_without_references_still_merged(self) -> None:
-        """Regression: results that don't correspond to any capability reference
-        should still be merged (fallback to capability name as evidence name)."""
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = []
-        results = {
-            "SomeCapability": ToolResult(success=True, data={"val": 1}),
-        }
-        EvidenceMerge().merge(req, results)
-        assert len(req.evidence) == 1
-        assert req.evidence[0].capability_name == "SomeCapability"
-        assert req.evidence[0].evidence_name == "SomeCapability"
-
-    def test_success_result_data_preserved_none_on_failure(self) -> None:
-        """Regression: ensure successful results carry data and
-        failed results carry None data."""
-        req = InvestigationRequest(raw_request="test")
-        req.capability_references = [
-            CapabilityReference(name="A", evidence_name="EvA"),
-            CapabilityReference(name="B", evidence_name="EvB"),
-        ]
-        results = {
-            "A": ToolResult(success=True, data={"key": "val"}),
-            "B": ToolResult(success=False, error="broken"),
-        }
-        EvidenceMerge().merge(req, results)
-        pkgs = {p.capability_name: p for p in req.evidence}
-        assert pkgs["A"].data == {"key": "val"}
-        assert pkgs["B"].data is None
+    assert package.status is (
+        CapabilityStatus.PARTIAL
+    )
+    assert package.data == {
+        "available_kb": 1024
+    }

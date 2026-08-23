@@ -1,9 +1,3 @@
-"""Deterministic tests for AnthropicAssessmentAdapter usage-state safety.
-
-No network and no real SDK: a fake ``anthropic`` module is injected so
-``last_usage`` reset semantics are verified without the package installed.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -11,103 +5,135 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from src.model.providers.anthropic_adapter import AnthropicAssessmentAdapter
-from src.pipeline.assessment_request import AssessmentRequest
+from src.model.providers.anthropic_agent_adapter import (
+    AnthropicAgentAdapter,
+)
 
 
-class FakeAnthropicMessages:
-    """Scripted Messages API double; responses may be payloads or errors."""
+class FakeMessages:
+    def __init__(
+        self,
+        responses: list[object],
+    ) -> None:
+        self.responses = responses
+        self.calls: list[dict[str, object]] = []
 
-    def __init__(self, responses: list[object]) -> None:
-        self._responses = list(responses)
-        self.calls = 0
+    def create(
+        self,
+        **kwargs: object,
+    ) -> SimpleNamespace:
+        self.calls.append(dict(kwargs))
+        response = self.responses.pop(0)
 
-    def create(self, **_kwargs: object) -> SimpleNamespace:
-        self.calls += 1
-        response = self._responses.pop(0)
         if isinstance(response, Exception):
             raise response
-        return response
+
+        return response  # type: ignore[return-value]
 
 
-class FakeAnthropicClient:
-    def __init__(self, responses: list[object]) -> None:
-        self.messages = FakeAnthropicMessages(responses)
+class FakeClient:
+    def __init__(
+        self,
+        responses: list[object],
+    ) -> None:
+        self.messages = FakeMessages(
+            responses
+        )
 
 
-@pytest.fixture
-def fake_client(monkeypatch) -> FakeAnthropicClient:
-    client = FakeAnthropicClient([])
-    module = ModuleType("anthropic")
-    module.Anthropic = lambda **_kwargs: client  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "anthropic", module)
-    return client
-
-
-def _response(text: str = "ok", *, input_tokens: int = 30, output_tokens: int = 90):
+def response(
+    text: str = "ok",
+) -> SimpleNamespace:
     return SimpleNamespace(
-        content=[SimpleNamespace(type="text", text=text)],
-        usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
+        content=[
+            SimpleNamespace(
+                type="text",
+                text=text,
+            )
+        ],
+        usage=SimpleNamespace(
+            input_tokens=30,
+            output_tokens=9,
+        ),
         model="claude-fake",
     )
 
 
-def test_assess_raw_success_then_failure_leaves_no_stale_usage(fake_client) -> None:
-    fake_client.messages._responses.extend([_response(), RuntimeError("down")])
-    adapter = AnthropicAssessmentAdapter(api_key="fake-key")
+@pytest.fixture
+def fake_client(
+    monkeypatch,
+) -> FakeClient:
+    client = FakeClient([])
 
-    assert adapter.assess_raw("hello") == "ok"
-    assert adapter.last_usage is not None
-    assert adapter.last_usage.input_tokens == 30
-    # No thinking block was present, so the adapter may declare visible == total.
-    assert adapter.last_usage.visible_output_tokens == 90
+    module = ModuleType("anthropic")
+    module.Anthropic = (  # type: ignore[attr-defined]
+        lambda **_kwargs: client
+    )
 
-    with pytest.raises(RuntimeError):
-        adapter.assess_raw("hello again")
-    # The failed call must never expose the previous call's usage.
-    assert adapter.last_usage is None
+    monkeypatch.setitem(
+        sys.modules,
+        "anthropic",
+        module,
+    )
 
-
-def test_usage_recovers_after_a_failed_raw_call(fake_client) -> None:
-    fake_client.messages._responses.extend([RuntimeError("down"), _response()])
-    adapter = AnthropicAssessmentAdapter(api_key="fake-key")
-
-    with pytest.raises(RuntimeError):
-        adapter.assess_raw("hello")
-    assert adapter.last_usage is None
-
-    assert adapter.assess_raw("hello again") == "ok"
-    assert adapter.last_usage is not None
-    assert adapter.last_usage.input_tokens == 30
+    return client
 
 
-def test_structured_assessment_failure_does_not_keep_previous_usage(
-    fake_client,
+def adapter() -> AnthropicAgentAdapter:
+    return AnthropicAgentAdapter(
+        api_key="fake-key",
+        model="claude-fake",
+    )
+
+
+def test_complete_records_usage(
+    fake_client: FakeClient,
 ) -> None:
-    fake_client.messages._responses.extend(
-        [_response(text="all fine"), RuntimeError("down")]
+    fake_client.messages.responses.append(
+        response("answer")
     )
-    adapter = AnthropicAssessmentAdapter(api_key="fake-key")
 
-    assert adapter.assess(AssessmentRequest(raw_request="check cpu")) == "all fine"
-    assert adapter.last_usage is not None
-    assert adapter.last_usage.purpose == "assessment"
+    backend = adapter()
 
-    failed = adapter.assess(AssessmentRequest(raw_request="check cpu again"))
-    assert failed == ""
-    assert adapter.last_usage is None
-
-
-def test_structured_usage_recovers_after_a_failed_call(fake_client) -> None:
-    fake_client.messages._responses.extend(
-        [RuntimeError("down"), _response(text="recovered")]
+    assert backend.complete("hello") == "answer"
+    assert backend.last_usage is not None
+    assert backend.last_usage.input_tokens == 30
+    assert (
+        backend.last_usage
+        .estimated_input_tokens
+        is not None
     )
-    adapter = AnthropicAssessmentAdapter(api_key="fake-key")
 
-    failed = adapter.assess(AssessmentRequest(raw_request="check cpu"))
-    assert failed == ""
-    assert adapter.last_usage is None
 
-    assert adapter.assess(AssessmentRequest(raw_request="check cpu")) == "recovered"
-    assert adapter.last_usage is not None
-    assert adapter.last_usage.purpose == "assessment"
+def test_failed_complete_clears_previous_usage(
+    fake_client: FakeClient,
+) -> None:
+    fake_client.messages.responses.extend(
+        [
+            response(),
+            RuntimeError("down"),
+        ]
+    )
+
+    backend = adapter()
+
+    assert backend.complete("one") == "ok"
+    assert backend.last_usage is not None
+
+    with pytest.raises(
+        RuntimeError,
+        match="down",
+    ):
+        backend.complete("two")
+
+    assert backend.last_usage is None
+
+
+def test_health_check_fails_closed(
+    fake_client: FakeClient,
+) -> None:
+    fake_client.messages.responses.append(
+        RuntimeError("down")
+    )
+
+    assert adapter().health_check() is False

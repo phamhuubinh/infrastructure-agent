@@ -1,41 +1,71 @@
 from __future__ import annotations
 
-from src.pipeline.answer_type import AnswerType
-from src.pipeline.intent_resolver import IntentResolver
-from src.pipeline.normalizer import Normalizer
-from src.pipeline.request_frame import RequestFrame
+from src.pipeline.request_frame import (
+    RequestFrame,
+)
+from src.pipeline.request_semantics import (
+    ExecutionIntent,
+    ExternalNeed,
+    InformationScope,
+    RequestDomain,
+    SourceConstraint,
+)
 
 
-def test_normalizer_builds_one_canonical_request_frame() -> None:
-    frame = Normalizer().normalize("Kiem tra CPU on server01 trong 1 giờ")
+def test_frame_defaults_are_safe_and_non_executable() -> None:
+    frame = RequestFrame(
+        raw_request="hello"
+    )
 
-    assert isinstance(frame, RequestFrame)
-    assert frame.raw_request == "Kiem tra CPU on server01 trong 1 giờ"
-    assert frame.concepts == ("cpu",)
-    assert frame.operation == "inspect"
-    assert frame.target_raw == "server01"
-    assert frame.parameters is not None
-    assert frame.timeframe == "1h"
-    assert frame.answer_type is AnswerType.FACT
-
-
-def test_intent_resolver_enriches_instead_of_rebuilding_frame() -> None:
-    original = Normalizer().normalize("check RAM")
-    request = IntentResolver().resolve(original)
-
-    assert request.request_frame is request.semantic_request
-    assert request.request_frame is not None
-    assert request.request_frame.raw_request == original.raw_request
-    assert request.request_frame.concepts == original.concepts
-    assert request.request_frame.parameters is original.parameters
-    assert request.request_frame.intent_candidates
+    assert frame.target_resolved is None
+    assert frame.concepts == ()
+    assert frame.source_constraints == (
+        SourceConstraint.ANY,
+    )
 
 
-def test_request_frame_trace_serialization_is_canonical() -> None:
-    frame = Normalizer().normalize("chek network status")
-    serialized = frame.to_dict()
+def test_frame_evolve_preserves_original() -> None:
+    original = RequestFrame(
+        raw_request="inspect cpu"
+    )
 
-    assert serialized["concepts"] == ["network"]
-    assert serialized["operation"] == "inspect"
-    assert serialized["answer_type"] == "FACT"
-    assert serialized["concept_candidates"]
+    resolved = original.evolve(
+        target_resolved="server-1",
+        concepts=("cpu",),
+    )
+
+    assert original.target_resolved is None
+    assert resolved.target_resolved == (
+        "server-1"
+    )
+    assert resolved.concepts == ("cpu",)
+
+
+def test_frame_serialization_uses_typed_semantics() -> None:
+    frame = RequestFrame(
+        raw_request="read current page",
+        request_domain=(
+            RequestDomain
+            .EXTERNAL_INFORMATION
+        ),
+        information_scope=(
+            InformationScope.EXPLICIT_URL
+        ),
+        external_need=ExternalNeed.URL,
+        source_constraints=(
+            SourceConstraint.URL_ONLY,
+        ),
+        execution_intent=(
+            ExecutionIntent.EXPLAIN
+        ),
+        explicit_url=(
+            "https://example.com"
+        ),
+    )
+
+    payload = frame.to_dict()
+
+    assert payload["request_domain"] == (
+        "EXTERNAL_INFORMATION"
+    )
+    assert payload["external_need"] == "URL"

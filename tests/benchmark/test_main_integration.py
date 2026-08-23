@@ -1,87 +1,139 @@
-"""Integration test: invoke benchmark.__main__.main() directly.
+"""Integration coverage for the canonical benchmark CLI."""
 
-This test calls main() with sys.argv set to --domain assessment --json,
-captures real stdout, and asserts the JSON output contains a "benchmark"
-metadata key.
-
-Unlike test_report_wiring.py (which calls generate_json_report() directly
-with a hand-built metadata dict), this test exercises the actual CLI call path
-that a user executes with "python -m benchmark --domain assessment --json".
-
-If main() regresses to calling generate_json_report(results) without passing
-metadata, this test will FAIL — proving it catches the Phase 5-style wiring gap.
-"""
+from __future__ import annotations
 
 import json
-import sys
+from contextlib import redirect_stdout
 from io import StringIO
+from pathlib import Path
 from unittest import mock
 
 from benchmark.__main__ import main
 
 
-def test_main_json_output_contains_benchmark_metadata() -> None:
-    """main() with --json must emit a "benchmark" key in the JSON output."""
-    old_stdout = sys.stdout
-    sys.stdout = StringIO()
+class FakeCanonicalAgent:
+    def run_with_steps(
+        self,
+        request: str,
+    ) -> dict[str, object]:
+        del request
 
-    with mock.patch(
-        "src.model.llm_client.LLMClient.generate",
-        return_value="Mocked assessment result for benchmark test.",
+        return {
+            "response": (
+                "Summary Assessment Risks "
+                "Recommendations CPU Memory "
+                "Disk Services."
+            ),
+            "steps": [],
+            "execution_trace": {
+                "runtime_metrics": {
+                    "canonical_runtime": {
+                        "model_calls": 1,
+                        "action_attempts": 0,
+                    }
+                }
+            },
+        }
+
+
+def _run_json(
+    tmp_path: Path,
+) -> dict[str, object]:
+    output = StringIO()
+
+    metadata = {
+        "model": "fixture-model",
+        "server": "fixture-server",
+        "provider": "fixture",
+        "captured_at": 1,
+    }
+
+    with (
+        mock.patch(
+            "benchmark.__main__."
+            "create_canonical_session_agent",
+            return_value=(
+                FakeCanonicalAgent()
+            ),
+        ),
+        mock.patch(
+            "benchmark.__main__."
+            "collect_benchmark_metadata",
+            return_value=metadata,
+        ),
+        mock.patch(
+            "benchmark.__main__."
+            "_timestamped_log_path",
+            return_value=(
+                tmp_path
+                / "benchmark.log"
+            ),
+        ),
+        redirect_stdout(output),
     ):
-        try:
-            main(["--domain", "assessment", "--json"])
-        except SystemExit:
-            pass
+        main(
+            [
+                "--domain",
+                "assessment",
+                "--json",
+            ]
+        )
 
-    output = sys.stdout.getvalue()
-    sys.stdout = old_stdout
+    rendered = output.getvalue()
 
-    # Find the JSON object at the end of the output.
-    start = output.find("{")
-    end = output.rfind("}") + 1
-    json_str = output[start:end]
+    start = rendered.find("{")
+    end = rendered.rfind("}") + 1
 
-    data = json.loads(json_str)
+    assert start >= 0
+    assert end > start
 
-    assert "benchmark" in data, (
-        f"CLI output missing 'benchmark' key. "
-        f"This proves main() is NOT passing metadata to generate_json_report(). "
-        f"Available keys: {list(data.keys())}. "
-        f"This test must fail when the wiring is broken. "
-        f"Phase 5 had the same symptom — metadata collected but never passed to report."
+    value = json.loads(
+        rendered[start:end]
     )
 
-    bm = data["benchmark"]
-    assert "model" in bm, f"Missing 'model' in metadata: {list(bm.keys())}"
-    assert "server" in bm
-    assert "captured_at" in bm
+    assert isinstance(
+        value,
+        dict,
+    )
+
+    return value
 
 
-def test_main_json_structure() -> None:
-    """Verify overall JSON structure from main()."""
-    old_stdout = sys.stdout
-    sys.stdout = StringIO()
+def test_main_json_output_contains_benchmark_metadata(
+    tmp_path: Path,
+) -> None:
+    data = _run_json(
+        tmp_path
+    )
 
-    with mock.patch(
-        "src.model.llm_client.LLMClient.generate",
-        return_value="Mocked assessment result for benchmark test.",
-    ):
-        try:
-            main(["--domain", "assessment", "--json"])
-        except SystemExit:
-            pass
+    assert "benchmark" in data
 
-    output = sys.stdout.getvalue()
-    sys.stdout = old_stdout
+    metadata = data["benchmark"]
 
-    start = output.find("{")
-    end = output.rfind("}") + 1
-    data = json.loads(output[start:end])
+    assert isinstance(
+        metadata,
+        dict,
+    )
+
+    assert metadata["model"] == (
+        "fixture-model"
+    )
+    assert metadata["server"] == (
+        "fixture-server"
+    )
+    assert metadata["captured_at"] == 1
+
+
+def test_main_json_structure(
+    tmp_path: Path,
+) -> None:
+    data = _run_json(
+        tmp_path
+    )
 
     assert "overall" in data
     assert "domain_scores" in data
     assert "scenarios" in data
     assert "results" in data
-    assert len(data["results"]) == 4  # 4 assessment benchmarks
-    assert "benchmark" in data  # metadata section
+    assert len(data["results"]) == 4
+    assert "benchmark" in data

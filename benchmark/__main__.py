@@ -13,7 +13,9 @@ from benchmark.metadata import collect_benchmark_metadata
 from benchmark.registry import detect_regressions, save_results
 from benchmark.report import generate_human_report, generate_json_report
 from benchmark.scoring import score
-from src.model.protocol.prompt_builder_v2 import PROMPT_VERSIONS
+from src.agent.canonical_factory import (
+    create_canonical_session_agent,
+)
 
 
 def _timestamped_log_path() -> Path:
@@ -114,100 +116,283 @@ def _run_benchmarks(
     server_name: str | None = None,
     model: str | None = None,
 ) -> list[dict[str, Any]]:
-    from src.agent.runtime_factory import create_deterministic_agent
+    """Run benchmark cases through the canonical public agent."""
 
-    benchmarks = [b for b in BENCHMARKS if domain is None or b.domain == domain]
+    del export_json
 
-    results: list[dict[str, Any]] = []
+    benchmarks = [
+        benchmark
+        for benchmark in BENCHMARKS
+        if (
+            domain is None
+            or benchmark.domain == domain
+        )
+    ]
 
-    for bm in benchmarks:
-        agent = create_deterministic_agent(
+    results: list[
+        dict[str, Any]
+    ] = []
+
+    for benchmark in benchmarks:
+        agent = create_canonical_session_agent(
             server_name=server_name,
             model=model,
         )
-        print(f"  [{bm.domain}] {bm.name}... ", end="", flush=True)
-        try:
-            import time
 
-            t0 = time.perf_counter()
-            result_with_steps = agent.run_with_steps(bm.request)
-            response = result_with_steps["response"]
-            investigation = result_with_steps.get("investigation")
-            elapsed = time.perf_counter() - t0
+        print(
+            f"  [{benchmark.domain}] "
+            f"{benchmark.name}... ",
+            end="",
+            flush=True,
+        )
+
+        try:
+            started = time.perf_counter()
+
+            run = agent.run_with_steps(
+                benchmark.request
+            )
+
+            elapsed = (
+                time.perf_counter()
+                - started
+            )
+
+            raw_response = run.get(
+                "response",
+                "",
+            )
+            response = (
+                raw_response
+                if isinstance(
+                    raw_response,
+                    str,
+                )
+                else str(raw_response)
+            )
+
+            capability_sequence: list[
+                str
+            ] = []
+
+            raw_steps = run.get(
+                "steps",
+                [],
+            )
+
+            if isinstance(
+                raw_steps,
+                list,
+            ):
+                for step in raw_steps:
+                    if not isinstance(
+                        step,
+                        dict,
+                    ):
+                        continue
+
+                    capability_id = (
+                        step.get(
+                            "capability_id"
+                        )
+                    )
+
+                    if isinstance(
+                        capability_id,
+                        str,
+                    ) and capability_id:
+                        capability_sequence.append(
+                            capability_id
+                        )
+
+            canonical_metrics: dict[
+                str,
+                object,
+            ] = {}
+
+            trace = run.get(
+                "execution_trace"
+            )
+
+            if isinstance(trace, dict):
+                runtime_metrics = (
+                    trace.get(
+                        "runtime_metrics"
+                    )
+                )
+
+                if isinstance(
+                    runtime_metrics,
+                    dict,
+                ):
+                    candidate = (
+                        runtime_metrics.get(
+                            "canonical_runtime"
+                        )
+                    )
+
+                    if isinstance(
+                        candidate,
+                        dict,
+                    ):
+                        canonical_metrics = (
+                            candidate
+                        )
+
+            raw_model_calls = (
+                canonical_metrics.get(
+                    "model_calls"
+                )
+            )
+
+            iterations = (
+                raw_model_calls
+                if isinstance(
+                    raw_model_calls,
+                    int,
+                )
+                and not isinstance(
+                    raw_model_calls,
+                    bool,
+                )
+                and raw_model_calls >= 0
+                else 0
+            )
+
             errors: list[str] = []
 
-            scores_dict = score(bm, [], 1, response, errors)
+            scores_dict = score(
+                benchmark,
+                capability_sequence,
+                iterations,
+                response,
+                errors,
+            )
 
-            result: dict[str, Any] = {
-                "benchmark": bm.name,
-                "domain": bm.domain,
-                "request": bm.request,
+            result: dict[
+                str,
+                Any,
+            ] = {
+                "benchmark": (
+                    benchmark.name
+                ),
+                "domain": (
+                    benchmark.domain
+                ),
+                "request": (
+                    benchmark.request
+                ),
                 "response": response,
-                "iterations": 1,
-                "elapsed": round(elapsed, 3),
-                "capability_sequence": [],
+                "iterations": iterations,
+                "elapsed": round(
+                    elapsed,
+                    3,
+                ),
+                "capability_sequence": (
+                    capability_sequence
+                ),
                 "errors": errors,
                 "scores": scores_dict,
                 "exception": None,
             }
 
-            if bm.expected_evidence:
-                expected = AssessmentExpected(
-                    evidence=tuple(bm.expected_evidence),
-                    recommendations=tuple(bm.expected_recommendations),
-                    sections=tuple(bm.expected_sections),
+            if benchmark.expected_evidence:
+                expected = (
+                    AssessmentExpected(
+                        evidence=tuple(
+                            benchmark
+                            .expected_evidence
+                        ),
+                        recommendations=tuple(
+                            benchmark
+                            .expected_recommendations
+                        ),
+                        sections=tuple(
+                            benchmark
+                            .expected_sections
+                        ),
+                    )
                 )
-                prompt = _get_prompt(bm.request, investigation)
-                metrics = evaluate_assessment(
-                    response=response,
-                    expected=expected,
-                    prompt_size=len(prompt) if prompt else 0,
-                    completion_size=len(response),
+
+                metrics = (
+                    evaluate_assessment(
+                        response=response,
+                        expected=expected,
+                        prompt_size=len(
+                            benchmark.request
+                        ),
+                        completion_size=len(
+                            response
+                        ),
+                    )
                 )
-                result["assessment_metrics"] = metrics_to_dict(metrics)
+
+                result[
+                    "assessment_metrics"
+                ] = metrics_to_dict(
+                    metrics
+                )
             else:
-                result["assessment_metrics"] = {}
+                result[
+                    "assessment_metrics"
+                ] = {}
 
             results.append(result)
 
-            total = scores_dict.get("total", 0)
-            status = "PASS" if total >= 0.7 else "FAIL" if total < 0.4 else "WARN"
-            print(f"{status} ({total:.2f})")
+            total = scores_dict.get(
+                "total",
+                0,
+            )
+
+            status = (
+                "PASS"
+                if total >= 0.7
+                else "FAIL"
+                if total < 0.4
+                else "WARN"
+            )
+
+            print(
+                f"{status} "
+                f"({total:.2f})"
+            )
+
         except Exception as exc:
-            print(f"ERROR: {exc}")
-            results.append({
-                "benchmark": bm.name,
-                "domain": bm.domain,
-                "request": bm.request,
-                "response": "",
-                "iterations": 0,
-                "elapsed": 0,
-                "capability_sequence": [],
-                "errors": [str(exc)],
-                "scores": {"total": 0, "reasoning": 0, "efficiency": 0, "evidence": 0, "safety": 0},
-                "assessment_metrics": {},
-                "exception": str(exc),
-            })
+            print(
+                f"ERROR: {exc}"
+            )
+
+            results.append(
+                {
+                    "benchmark": (
+                        benchmark.name
+                    ),
+                    "domain": (
+                        benchmark.domain
+                    ),
+                    "request": (
+                        benchmark.request
+                    ),
+                    "response": "",
+                    "iterations": 0,
+                    "elapsed": 0,
+                    "capability_sequence": [],
+                    "errors": [
+                        str(exc)
+                    ],
+                    "scores": {
+                        "total": 0,
+                        "reasoning": 0,
+                        "efficiency": 0,
+                        "evidence": 0,
+                        "safety": 0,
+                    },
+                    "assessment_metrics": {},
+                    "exception": str(exc),
+                }
+            )
 
     return results
-
-
-def _get_prompt(request: str, investigation: object = None) -> str:
-    from src.model.protocol.prompt_builder_v2 import build_assessment_prompt
-    from src.pipeline.assessment_adapter import AssessmentAdapter
-
-    if investigation is not None:
-        try:
-            adapter = AssessmentAdapter()
-            req = adapter.build(investigation)
-            return build_assessment_prompt(req)
-        except Exception:
-            pass
-
-    from src.pipeline.assessment_request import AssessmentRequest
-    req = AssessmentRequest(raw_request=request)
-    return build_assessment_prompt(req)
-
 
 def _aggregate_repeated(
     all_runs: list[list[dict[str, Any]]],
@@ -275,11 +460,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run benchmarks N times and aggregate variance"
     )
     parser.add_argument(
-        "--prompt", type=str, default="compact",
-        choices=list(PROMPT_VERSIONS.keys()),
-        help="Prompt version to use for assessment"
-    )
-    parser.add_argument(
         "--csv", action="store_true", default=True,
         help=argparse.SUPPRESS,
     )
@@ -301,10 +481,6 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
-
-    # Set prompt version before any assessment calls.
-    from src.model.protocol.prompt_builder_v2 import set_prompt_version
-    set_prompt_version(args.prompt)
 
     metadata = collect_benchmark_metadata(
         server_name=args.server,

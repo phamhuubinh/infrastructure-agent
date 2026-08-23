@@ -9,7 +9,7 @@ from unittest import mock
 from src.agent.canonical_factory import create_canonical_session_agent
 from src.agent.contracts import AgentDecision, DecisionKind
 from src.cli.main import _list_saved_sessions, _print_saved_sessions
-from tests.fixtures.fake_models import ScriptedAssessmentModel
+from tests.fixtures.fake_agent_backend import ScriptedAgentBackend
 
 cli_main = importlib.import_module("src.cli.main")
 
@@ -144,8 +144,8 @@ def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
 ) -> None:
     agent = create_canonical_session_agent(
         target_store_path=str(tmp_path / "targets.json"),
-        model_backend=ScriptedAssessmentModel(
-            draft=_controller_final("CLI final answer.")
+        model_backend=ScriptedAgentBackend(
+            _controller_final("CLI final answer.")
         ),
     )
     args = argparse.Namespace(

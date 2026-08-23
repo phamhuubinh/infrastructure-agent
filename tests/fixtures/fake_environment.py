@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.pipeline.target_resolver import TargetResolver
 from src.shared.execution.tool_result import ToolResult
 from src.tool.errors import source_api_error
 from src.tool.execution_backend import LocalExecutionBackend, SSHExecutionBackend
@@ -248,21 +247,19 @@ def build_fake_registry(
 
 @dataclass(frozen=True, slots=True)
 class FakeEnvironment:
-    """Registry plus the resolver/knowledge-tool pair agents are built from."""
+    """Deterministic registry plus its knowledge-tool facade."""
 
     registry: TargetRegistry
     knowledge_tool: KnowledgeTool
-    target_resolver: TargetResolver
 
 
 def fake_environment(**flags: object) -> FakeEnvironment:
-    """Build a fake environment with per-test availability flags."""
+    """Build a deterministic fake tool environment."""
 
     registry = build_fake_registry(**flags)  # type: ignore[arg-type]
     return FakeEnvironment(
         registry=registry,
         knowledge_tool=KnowledgeTool(registry),
-        target_resolver=TargetResolver(registry),
     )
 
 
