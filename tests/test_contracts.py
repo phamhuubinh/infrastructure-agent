@@ -34,6 +34,25 @@ def test_contracts_serialize_and_hide_handler_binding_from_provider() -> None:
 
 
 def test_contract_validation_rejects_invalid_runtime_data() -> None:
+    with pytest.raises(ValidationError, match="ModelTurn requires"):
+        ModelTurn()
+    assert ModelTurn(assistant=AssistantMessage(content="Answer.")).tool_calls == ()
+    assert (
+        ModelTurn(
+            tool_calls=(
+                ModelToolCall(call_id="call-1", tool_name="calculator.evaluate", arguments={}),
+            )
+        ).assistant
+        is None
+    )
+    combined = ModelTurn(
+        assistant=AssistantMessage(content="Calculating."),
+        tool_calls=(
+            ModelToolCall(call_id="call-2", tool_name="calculator.evaluate", arguments={}),
+        ),
+    )
+    assert combined.assistant is not None
+    assert len(combined.tool_calls) == 1
     with pytest.raises(ValidationError):
         ToolDefinition(
             name="Calculator!",

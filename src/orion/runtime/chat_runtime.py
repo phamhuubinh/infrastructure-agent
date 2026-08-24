@@ -40,6 +40,8 @@ class ChatRuntime:
         self._runner = ToolRunner(registry)
         self._context_builder = ContextBuilder(store)
         self._cancellations: dict[str, asyncio.Event] = {}
+        self._pending_content: dict[str, str] = {}
+        self._session_locks: dict[str, asyncio.Lock] = {}
 
     async def submit(
         self, session_id: str, content: str, cancellation: asyncio.Event | None = None
@@ -54,8 +56,7 @@ class ChatRuntime:
             raise KeyError(session_id)
         request_id = self._store.create_request(session_id)
         self._cancellations[request_id] = cancellation or asyncio.Event()
-        self._store.append_timeline(session_id, request_id, "user_message", {"content": content})
-        self._emit(request_id, "request.started", {"session_id": session_id})
+        self._pending_content[request_id] = content
         return request_id
 
     def cancel(self, request_id: str) -> bool:
@@ -66,53 +67,71 @@ class ChatRuntime:
         return True
 
     async def run(self, session_id: str, request_id: str) -> RequestOutcome:
-        cancellation = self._cancellations[request_id]
+        cancellation = self._cancellations.get(request_id)
+        content = self._pending_content.get(request_id)
+        if cancellation is None or content is None:
+            request = self._store.request(request_id)
+            if request is not None and request["status"] in {"queued", "running"}:
+                self._fail_unexpected(request_id)
+            raise RequestFailed("Request is unavailable.")
         try:
-            settings = self._settings()
-            while True:
-                self._ensure_not_cancelled(cancellation)
-                self._emit(request_id, "model.started", {})
-                turn = await self._backend.complete(
-                    self._context_builder.build(session_id),
-                    self._registry.definitions(),
-                    settings,
-                    cancellation,
-                )
-                self._ensure_not_cancelled(cancellation)
-                self._emit(request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)})
+            async with self._session_locks.setdefault(session_id, asyncio.Lock()):
+                self._store.start_request(request_id)
                 self._store.append_timeline(
-                    session_id,
-                    request_id,
-                    "assistant_message",
-                    {
-                        "content": turn.assistant.content,
-                        "tool_calls": [call.model_dump(mode="json") for call in turn.tool_calls],
-                    },
+                    session_id, request_id, "user_message", {"content": content}
                 )
-                if not turn.tool_calls:
-                    self._store.complete_request(request_id, "completed")
-                    self._emit(request_id, "request.completed", {})
-                    return RequestOutcome(
-                        request_id=request_id, assistant_content=turn.assistant.content
-                    )
-                scope = RuntimeScope(session_id=session_id, project_id=None, attachment_ids=())
-                for model_call in turn.tool_calls:
+                self._emit(request_id, "request.started", {"session_id": session_id})
+                settings = self._settings()
+                while True:
                     self._ensure_not_cancelled(cancellation)
+                    self._emit(request_id, "model.started", {})
+                    turn = await self._backend.complete(
+                        self._context_builder.build(session_id),
+                        self._registry.definitions(),
+                        settings,
+                        cancellation,
+                    )
+                    self._ensure_not_cancelled(cancellation)
+                    self._emit(
+                        request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
+                    )
                     self._store.append_timeline(
                         session_id,
                         request_id,
-                        "tool_call",
-                        {"arguments": model_call.arguments},
-                        call_id=model_call.call_id,
-                        tool_name=model_call.tool_name,
+                        "assistant_message",
+                        {
+                            "content": turn.assistant.content if turn.assistant is not None else "",
+                            "tool_calls": [
+                                call.model_dump(mode="json") for call in turn.tool_calls
+                            ],
+                        },
                     )
-                    self._emit(
-                        request_id,
-                        "tool.started",
-                        {"call_id": model_call.call_id, "tool_name": model_call.tool_name},
-                    )
-                    result = self._runner.run(model_call, scope)
-                    self._persist_tool_result(session_id, request_id, result)
+                    if not turn.tool_calls:
+                        if turn.assistant is None:
+                            raise RuntimeError("Model returned an invalid terminal turn.")
+                        self._store.complete_request(request_id, "completed")
+                        self._emit(request_id, "request.completed", {})
+                        return RequestOutcome(
+                            request_id=request_id, assistant_content=turn.assistant.content
+                        )
+                    scope = RuntimeScope(session_id=session_id, project_id=None, attachment_ids=())
+                    for model_call in turn.tool_calls:
+                        self._ensure_not_cancelled(cancellation)
+                        self._store.append_timeline(
+                            session_id,
+                            request_id,
+                            "tool_call",
+                            {"arguments": model_call.arguments},
+                            call_id=model_call.call_id,
+                            tool_name=model_call.tool_name,
+                        )
+                        self._emit(
+                            request_id,
+                            "tool.started",
+                            {"call_id": model_call.call_id, "tool_name": model_call.tool_name},
+                        )
+                        result = self._runner.run(model_call, scope)
+                        self._persist_tool_result(session_id, request_id, result)
         except asyncio.CancelledError as error:
             self._store.complete_request(request_id, "cancelled")
             self._emit(request_id, "request.cancelled", {})
@@ -125,8 +144,15 @@ class ChatRuntime:
             self._store.complete_request(request_id, "failed", str(error))
             self._emit(request_id, "request.failed", {"message": str(error)})
             raise
+        except Exception as error:
+            self._fail_unexpected(request_id)
+            raise RequestFailed("Request failed unexpectedly.") from error
         finally:
+            request = self._store.request(request_id)
+            if request is not None and request["status"] in {"queued", "running"}:
+                self._fail_unexpected(request_id)
             self._cancellations.pop(request_id, None)
+            self._pending_content.pop(request_id, None)
 
     def _settings(self) -> ModelSettings:
         stored = self._store.active_model_config()
@@ -159,6 +185,10 @@ class ChatRuntime:
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
         self._store.emit_event(request_id, event_type, payload)
+
+    def _fail_unexpected(self, request_id: str) -> None:
+        self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")
+        self._emit(request_id, "request.failed", {"message": "Request failed unexpectedly."})
 
     @staticmethod
     def _ensure_not_cancelled(cancellation: asyncio.Event) -> None:

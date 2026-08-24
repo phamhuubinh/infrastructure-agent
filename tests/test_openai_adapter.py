@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from orion.contracts import ContextMessage, ModelToolCall
-from orion.models.backend import ModelSettings
+from orion.models.backend import ModelBackendError, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.tools.calculator.tool import calculator_definition
 
@@ -77,3 +77,69 @@ async def test_adapter_serializes_tool_result_continuation(monkeypatch) -> None:
     assert messages[-2]["tool_calls"][0]["function"]["name"] == "calculator.evaluate"
     assert "handler_key" not in str(payload["tools"])
     assert turn.assistant.content == "Done."
+
+
+def test_adapter_rejects_an_empty_provider_turn() -> None:
+    with pytest.raises(ModelBackendError, match="invalid tool-call response"):
+        OpenAICompatibleBackend()._normalize({"choices": [{"message": {}}]})
+
+
+def test_adapter_normalizes_assistant_only_turn() -> None:
+    turn = OpenAICompatibleBackend()._normalize({"choices": [{"message": {"content": "Answer."}}]})
+
+    assert turn.assistant is not None
+    assert turn.assistant.content == "Answer."
+    assert not turn.tool_calls
+
+
+def test_adapter_normalizes_tool_only_turn() -> None:
+    turn = OpenAICompatibleBackend()._normalize(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "function": {
+                                    "name": "calculator.evaluate",
+                                    "arguments": '{"expression":"2+2"}',
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    )
+
+    assert turn.assistant is None
+    assert turn.tool_calls[0].call_id == "call-1"
+
+
+def test_adapter_normalizes_assistant_and_tool_call_turn() -> None:
+    turn = OpenAICompatibleBackend()._normalize(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "content": "I will calculate.",
+                        "tool_calls": [
+                            {
+                                "id": "call-2",
+                                "function": {
+                                    "name": "calculator.evaluate",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    )
+
+    assert turn.assistant is not None
+    assert turn.assistant.content == "I will calculate."
+    assert len(turn.tool_calls) == 1

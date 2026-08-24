@@ -96,15 +96,22 @@ class SQLiteStore:
                 is not None
             )
 
-    def create_request(self, session_id: str) -> str:
+    def create_request(self, session_id: str, status: str = "queued") -> str:
         request_id = str(uuid.uuid4())
         with self._lock, self._connection:
             self._connection.execute(
                 "INSERT INTO requests(request_id, session_id, status, created_at) "
                 "VALUES (?, ?, ?, ?)",
-                (request_id, session_id, "running", _utc_now()),
+                (request_id, session_id, status, _utc_now()),
             )
         return request_id
+
+    def start_request(self, request_id: str) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE requests SET status = ? WHERE request_id = ? AND status = ?",
+                ("running", request_id, "queued"),
+            )
 
     def complete_request(
         self, request_id: str, status: str, error_message: str | None = None

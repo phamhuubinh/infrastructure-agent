@@ -80,7 +80,9 @@ class OpenAICompatibleBackend(ModelBackend):
     def _normalize(self, response: dict[str, Any]) -> ModelTurn:
         try:
             message = response["choices"][0]["message"]
-            content = message.get("content") or ""
+            raw_content = message.get("content")
+            if raw_content is not None and not isinstance(raw_content, str):
+                raise ValueError("assistant content is not a string")
             calls: list[ModelToolCall] = []
             for call in message.get("tool_calls") or []:
                 function = call["function"]
@@ -95,6 +97,7 @@ class OpenAICompatibleBackend(ModelBackend):
                         call_id=call["id"], tool_name=function["name"], arguments=arguments
                     )
                 )
-            return ModelTurn(assistant=AssistantMessage(content=content), tool_calls=tuple(calls))
+            assistant = AssistantMessage(content=raw_content) if raw_content is not None else None
+            return ModelTurn(assistant=assistant, tool_calls=tuple(calls))
         except (IndexError, KeyError, TypeError, ValueError) as error:
             raise ModelBackendError("Model returned an invalid tool-call response.") from error

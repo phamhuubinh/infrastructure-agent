@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class CanonicalModel(BaseModel):
@@ -27,8 +27,14 @@ class ModelToolCall(CanonicalModel):
 class ModelTurn(CanonicalModel):
     """A normalized provider response; content and tool calls may coexist."""
 
-    assistant: AssistantMessage = Field(default_factory=AssistantMessage)
+    assistant: AssistantMessage | None = None
     tool_calls: tuple[ModelToolCall, ...] = ()
+
+    @model_validator(mode="after")
+    def require_assistant_or_tool_call(self) -> ModelTurn:
+        if self.assistant is None and not self.tool_calls:
+            raise ValueError("ModelTurn requires assistant content or at least one tool call")
+        return self
 
 
 class RuntimeScope(CanonicalModel):

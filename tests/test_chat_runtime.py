@@ -183,6 +183,28 @@ class FailingBackend(ModelBackend):
         raise ModelBackendError("Model unavailable.")
 
 
+class ExplodingBackend(ModelBackend):
+    async def complete(self, messages, tools, settings: ModelSettings, cancellation) -> ModelTurn:  # type: ignore[no-untyped-def]
+        raise RuntimeError("internal credential=do-not-expose")
+
+
+class SerializedBackend(ModelBackend):
+    def __init__(self) -> None:
+        self.first_started = asyncio.Event()
+        self.release_first = asyncio.Event()
+        self.contexts = []
+        self.calls = 0
+
+    async def complete(self, messages, tools, settings: ModelSettings, cancellation) -> ModelTurn:  # type: ignore[no-untyped-def]
+        self.calls += 1
+        self.contexts.append(messages)
+        if self.calls == 1:
+            self.first_started.set()
+            await self.release_first.wait()
+            return ModelTurn(assistant=AssistantMessage(content="First answer."))
+        return ModelTurn(assistant=AssistantMessage(content="Second answer."))
+
+
 @pytest.mark.anyio
 async def test_runtime_cancellation_is_persisted(store) -> None:  # type: ignore[no-untyped-def]
     session_id = store.create_session()
@@ -203,3 +225,56 @@ async def test_runtime_model_failure_is_persisted(store) -> None:  # type: ignor
     with pytest.raises(RequestFailed, match="Model unavailable"):
         await runtime(store, FailingBackend()).submit(session_id, "Hello")
     assert [item.kind for item in store.timeline(session_id)] == ["user_message"]
+
+
+@pytest.mark.anyio
+async def test_unexpected_runtime_failure_is_terminal_and_redacted(store) -> None:  # type: ignore[no-untyped-def]
+    session_id = store.create_session()
+    chat = runtime(store, ExplodingBackend())
+    request_id = chat.begin(session_id, "Hello")
+
+    with pytest.raises(RequestFailed, match="Request failed unexpectedly"):
+        await chat.run(session_id, request_id)
+
+    request = store.request(request_id)
+    assert request is not None
+    assert request["status"] == "failed"
+    assert request["error_message"] == "Request failed unexpectedly."
+    events = store.events(request_id)
+    assert events[-1] == {
+        "type": "request.failed",
+        "created_at": events[-1]["created_at"],
+        "payload": {"message": "Request failed unexpectedly."},
+    }
+    assert "credential" not in str(events)
+
+
+@pytest.mark.anyio
+async def test_requests_in_one_session_are_serialized_before_context_assembly(store) -> None:  # type: ignore[no-untyped-def]
+    session_id = store.create_session()
+    backend = SerializedBackend()
+    chat = runtime(store, backend)
+
+    first = asyncio.create_task(chat.submit(session_id, "First question"))
+    await backend.first_started.wait()
+    second = asyncio.create_task(chat.submit(session_id, "Second question"))
+    await asyncio.sleep(0)
+    backend.release_first.set()
+
+    first_outcome, second_outcome = await asyncio.gather(first, second)
+
+    assert first_outcome.assistant_content == "First answer."
+    assert second_outcome.assistant_content == "Second answer."
+    assert [message.content for message in backend.contexts[0] if message.role == "user"] == [
+        "First question"
+    ]
+    assert [message.content for message in backend.contexts[1] if message.role == "user"] == [
+        "First question",
+        "Second question",
+    ]
+    assert [item.kind for item in store.timeline(session_id)] == [
+        "user_message",
+        "assistant_message",
+        "user_message",
+        "assistant_message",
+    ]
