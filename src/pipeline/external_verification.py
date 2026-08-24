@@ -1,13 +1,8 @@
-"""Deterministic, bounded execution for external verification.
+"""Deterministic, bounded execution for authorized Internet actions.
 
-This module is intentionally a small execution boundary rather than a
-general browser agent.  It receives a typed ``RequestFrame`` already routed
-by ``ExternalVerificationPolicy`` and can only perform the reviewed flow:
-
-``web_search -> deterministic URL selection -> web_fetch -> evidence``.
-
-The LLM only receives the collected evidence after this module has finished;
-it never chooses queries, URLs, or a tool loop.
+This is an execution boundary, not a semantic router.  It receives only
+already-authorized, exact-source search and fetch actions and normalizes their
+evidence without selecting additional capabilities or sources.
 """
 
 from __future__ import annotations
@@ -24,7 +19,6 @@ from urllib.parse import urlsplit, urlunsplit
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.fact import Fact, FactFreshness, FactValidity
 from src.pipeline.provenance import Provenance
-from src.pipeline.request_frame import RequestFrame
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 
@@ -285,239 +279,6 @@ class ExternalVerificationExecutor:
         self._clock = clock or time.monotonic
         self._enabled = enabled
 
-    def collect(
-        self,
-        frame: RequestFrame,
-        user_request: str,
-    ) -> ExternalVerificationOutcome:
-        """Collect external evidence, never falling back to model knowledge."""
-
-        started = self._clock()
-        if not self._enabled:
-            return self._failure(
-                "External verification is disabled by rollout configuration.",
-                started,
-            )
-        if frame.url_error:
-            return self._failure(frame.url_error, started)
-        if not self._internet_allowed(frame):
-            return self._failure(
-                "External verification conflicts with the no-Internet source constraint.",
-                started,
-            )
-        source = self._internet_source()
-        if source is None:
-            return self._failure(
-                "Internet source is not configured; no external evidence was collected.",
-                started,
-            )
-
-        calls = {"search": 0, "fetch": 0, "cache": 0, "bytes": 0}
-        failures: list[str] = []
-        documents: list[ExternalDocument] = []
-
-        if frame.explicit_url:
-            document, error = self._fetch_document(
-                source=source,
-                title="User-provided URL",
-                url=frame.explicit_url,
-                provider="direct-url",
-                freshness_key=self._freshness_key(frame),
-                started=started,
-                calls=calls,
-                user_request=user_request,
-            )
-            if document is not None:
-                documents.append(document)
-            elif error:
-                failures.append(error)
-            return self._outcome(
-                frame=frame,
-                query=None,
-                provider="direct-url",
-                documents=documents,
-                failures=failures,
-                started=started,
-                calls=calls,
-            )
-
-        if self._expired(started):
-            return self._failure(
-                "External verification time budget was exhausted.", started
-            )
-        if self._budget.max_search_calls < 1:
-            return self._failure("External search-call budget is zero.", started)
-
-        query = self._query_for(frame, user_request)
-        locale = self._locale_for(user_request)
-        search_key = (
-            "search",
-            source,
-            self._provider_identity(source),
-            query,
-            locale or "",
-            self._freshness_key(frame),
-        )
-        search_payload = self._cache.get(search_key)
-        if isinstance(search_payload, dict):
-            calls["cache"] += 1
-        else:
-            calls["search"] += 1
-            result = self._execute(
-                source,
-                "web_search",
-                query=query,
-                locale=locale,
-                max_results=self._budget.max_search_results,
-                timeout=self._budget.timeout_seconds,
-            )
-            if not result.success or not isinstance(result.data, dict):
-                return self._failure(
-                    result.error or "External search failed.",
-                    started,
-                    calls=calls,
-                )
-            search_payload = result.data
-            # Only complete provider responses are cacheable.  Error/partial
-            # results must not be revived as valid current evidence.
-            if search_payload.get("status") == "ok":
-                self._cache.put(
-                    search_key,
-                    search_payload,
-                    ttl_seconds=self._cache_ttl(frame),
-                )
-
-        provider = str(search_payload.get("provider") or "unknown-provider")
-        selected = self._select_results(search_payload)
-        if not selected:
-            return self._failure(
-                "External search returned no public result URLs to fetch.",
-                started,
-                calls=calls,
-            )
-        for item in selected:
-            if calls["fetch"] >= self._budget.max_page_fetches:
-                failures.append(
-                    "Page-fetch budget was exhausted before all selected results."
-                )
-                break
-            if self._expired(started):
-                failures.append("External verification time budget was exhausted.")
-                break
-            document, error = self._fetch_document(
-                source=source,
-                title=str(item["title"]),
-                url=str(item["url"]),
-                provider=provider,
-                freshness_key=self._freshness_key(frame),
-                started=started,
-                calls=calls,
-                user_request=user_request,
-            )
-            if document is not None:
-                documents.append(document)
-            elif error:
-                failures.append(error)
-
-        return self._outcome(
-            frame=frame,
-            query=query,
-            provider=provider,
-            documents=documents,
-            failures=failures,
-            started=started,
-            calls=calls,
-        )
-
-    def collect_current_action(
-        self,
-        *,
-        source_id: str,
-        query: str,
-        user_request: str,
-        freshness_required: bool,
-    ) -> ExternalVerificationOutcome:
-        """Run one exact-source reviewed current-information action."""
-
-        started = self._clock()
-        if not self._enabled or not self._exact_internet_source(source_id):
-            return self._failure("Internet verification is unavailable.", started)
-        if self._budget.max_search_calls < 1 or self._expired(started):
-            return self._failure("Internet verification is unavailable.", started)
-        calls = {"search": 0, "fetch": 0, "cache": 0, "bytes": 0}
-        freshness_key = "short_lived" if freshness_required else "explicit"
-        locale = self._locale_for(user_request)
-        search_key = (
-            "search",
-            source_id,
-            self._provider_identity(source_id),
-            query,
-            locale or "",
-            freshness_key,
-        )
-        search_payload = self._cache.get(search_key)
-        if isinstance(search_payload, dict):
-            calls["cache"] += 1
-        else:
-            calls["search"] += 1
-            result = self._execute(
-                source_id,
-                "web_search",
-                query=query,
-                locale=locale,
-                max_results=self._budget.max_search_results,
-                timeout=self._budget.timeout_seconds,
-            )
-            if not result.success or not isinstance(result.data, dict):
-                return self._failure(
-                    "Internet verification is unavailable.", started, calls=calls
-                )
-            search_payload = result.data
-            if search_payload.get("status") == "ok":
-                self._cache.put(
-                    search_key,
-                    search_payload,
-                    ttl_seconds=self._cache_ttl_from_key(freshness_key),
-                )
-        provider = str(search_payload.get("provider") or "unknown-provider")
-        selected = self._select_results(search_payload)
-        if not selected:
-            return self._failure(
-                "Internet verification is unavailable.", started, calls=calls
-            )
-        documents: list[ExternalDocument] = []
-        failures: list[str] = []
-        for item in selected:
-            if calls["fetch"] >= self._budget.max_page_fetches or self._expired(
-                started
-            ):
-                failures.append("External verification was incomplete.")
-                break
-            document, error = self._fetch_document(
-                source=source_id,
-                title=str(item["title"]),
-                url=str(item["url"]),
-                provider=provider,
-                freshness_key=freshness_key,
-                started=started,
-                calls=calls,
-                user_request=user_request,
-            )
-            if document is not None:
-                documents.append(document)
-            elif error:
-                failures.append(error)
-        return self._outcome(
-            frame=None,
-            evidence_name="external_current",
-            query=query,
-            provider=provider,
-            documents=documents,
-            failures=failures,
-            started=started,
-            calls=calls,
-        )
-
     def collect_search_action(
         self,
         *,
@@ -619,101 +380,6 @@ class ExternalVerificationExecutor:
             elapsed_ms=(self._clock() - started) * 1000,
         )
 
-    def collect_url_action(
-        self,
-        *,
-        source_id: str,
-        url: str,
-        user_request: str,
-        freshness_required: bool,
-        model_selected: bool = False,
-    ) -> ExternalVerificationOutcome:
-        """Fetch exactly the authorized URL through the existing InternetTool."""
-
-        if model_selected:
-            return self.collect_fetch_action(
-                source_id=source_id,
-                url=url,
-                user_request=user_request,
-                freshness_required=freshness_required,
-            )
-
-        started = self._clock()
-        if not self._enabled or not self._exact_internet_source(source_id):
-            return self._failure("Internet verification is unavailable.", started)
-        calls = {"search": 0, "fetch": 0, "cache": 0, "bytes": 0}
-        document, error = self._fetch_document(
-            source=source_id,
-            title="User-provided URL",
-            url=url,
-            provider="direct-url",
-            freshness_key="short_lived" if freshness_required else "explicit",
-            started=started,
-            calls=calls,
-            user_request=user_request,
-            preserve_exact_url=True,
-        )
-        return self._outcome(
-            frame=None,
-            evidence_name="explicit_url",
-            authorized_url=url,
-            query=None,
-            provider="direct-url",
-            documents=[] if document is None else [document],
-            failures=[] if error is None else [error],
-            started=started,
-            calls=calls,
-        )
-
-    def _outcome(
-        self,
-        *,
-        frame: RequestFrame | None,
-        evidence_name: str | None = None,
-        authorized_url: str | None = None,
-        query: str | None,
-        provider: str,
-        documents: list[ExternalDocument],
-        failures: list[str],
-        started: float,
-        calls: dict[str, int],
-    ) -> ExternalVerificationOutcome:
-        if not documents:
-            return self._failure(
-                (
-                    failures[0]
-                    if failures
-                    else "No external page content could be verified."
-                ),
-                started,
-                calls=calls,
-            )
-        evidence = self._build_evidence(
-            query=query,
-            provider=provider,
-            documents=documents,
-            failures=failures,
-            evidence_name=(
-                evidence_name
-                or (
-                    "external_current"
-                    if frame is None or frame.explicit_url is None
-                    else "explicit_url"
-                )
-            ),
-            authorized_url=authorized_url or (frame.explicit_url if frame else None),
-        )
-        return ExternalVerificationOutcome(
-            evidence=evidence,
-            documents=tuple(documents),
-            failures=tuple(failures),
-            search_calls=calls["search"],
-            fetch_calls=calls["fetch"],
-            cache_hits=calls["cache"],
-            total_bytes=calls["bytes"],
-            elapsed_ms=(self._clock() - started) * 1000,
-        )
-
     def _failure(
         self,
         reason: str,
@@ -730,27 +396,6 @@ class ExternalVerificationExecutor:
             total_bytes=values["bytes"],
             elapsed_ms=(self._clock() - started) * 1000,
         )
-
-    def _internet_allowed(self, frame: RequestFrame) -> bool:
-        names = {constraint.name for constraint in frame.source_constraints}
-        excluded = {constraint.name for constraint in frame.excluded_sources}
-        return "NO_INTERNET" not in names and "INTERNET" not in excluded
-
-    def _internet_source(self) -> str | None:
-        if self._knowledge_tool is None:
-            return None
-        try:
-            names = self._knowledge_tool.source_names()
-            return next(
-                (
-                    name
-                    for name in names
-                    if self._knowledge_tool.source_kind(name) == "internet"
-                ),
-                None,
-            )
-        except (AttributeError, KeyError):
-            return None
 
     def _exact_internet_source(self, source: str) -> bool:
         """Validate only the caller-authorized source; never enumerate a fallback."""
@@ -942,35 +587,6 @@ class ExternalVerificationExecutor:
         netloc = host if port is None else f"{host}:{port}"
         path = parsed.path or "/"
         return urlunsplit((parsed.scheme, netloc, path, parsed.query, ""))
-
-    def _select_results(self, payload: dict[str, object]) -> tuple[dict[str, str], ...]:
-        raw_results = payload.get("results")
-        if not isinstance(raw_results, list):
-            return ()
-        unique_urls: set[str] = set()
-        seen_domains: set[str] = set()
-        diverse: list[dict[str, str]] = []
-        remaining: list[dict[str, str]] = []
-        for raw in raw_results[: self._budget.max_search_results]:
-            if not isinstance(raw, dict):
-                continue
-            raw_url = raw.get("url")
-            if not isinstance(raw_url, str):
-                continue
-            canonical = self._canonical_public_url(raw_url)
-            if canonical is None or canonical in unique_urls:
-                continue
-            unique_urls.add(canonical)
-            title = str(raw.get("title") or canonical)
-            candidate = {"title": title, "url": canonical}
-            domain = urlsplit(canonical).hostname or ""
-            if domain not in seen_domains:
-                seen_domains.add(domain)
-                diverse.append(candidate)
-            else:
-                remaining.append(candidate)
-        selected = diverse + remaining
-        return tuple(selected[: self._budget.max_page_fetches])
 
     def _build_evidence(
         self,
@@ -1190,37 +806,6 @@ class ExternalVerificationExecutor:
             else CapabilityStatus.PARTIAL
         )
         return replace(outcome.evidence, status=status)
-
-    @staticmethod
-    def _query_for(frame: RequestFrame, user_request: str) -> str:
-        # The original request is the auditable search query; do not ask a
-        # model to rewrite it.  Keep a strict bound before it reaches a
-        # provider and remove explicit source directives that add no facts.
-        compact = " ".join(user_request.split())
-        for phrase in (
-            "search online",
-            "search the web",
-            "tìm trên web",
-            "tìm trên internet",
-        ):
-            compact = compact.replace(phrase, "")
-        return compact.strip()[:1000] or "current information"
-
-    @staticmethod
-    def _locale_for(user_request: str) -> str | None:
-        vi_chars = "àáảãạâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ"
-        return (
-            "vi-VN"
-            if any(char in user_request.casefold() for char in vi_chars)
-            else None
-        )
-
-    @staticmethod
-    def _freshness_key(frame: RequestFrame) -> str:
-        return frame.freshness_window or "explicit"
-
-    def _cache_ttl(self, frame: RequestFrame) -> float:
-        return self._cache_ttl_from_key(self._freshness_key(frame))
 
     @staticmethod
     def _cache_ttl_from_key(key: str) -> float:

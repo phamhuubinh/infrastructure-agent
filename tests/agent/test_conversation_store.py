@@ -175,9 +175,7 @@ def test_response_time_persists_with_assistant_message(tmp_path: Path) -> None:
 
 def test_regeneration_truncates_selected_turn_and_can_restore(tmp_path: Path) -> None:
     store = ConversationStore("regenerate", store_dir=str(tmp_path))
-    store.add_classifier_turn("q1", "first")
     store.add_turn("q1", "a1")
-    store.add_classifier_turn("q2", "second")
     store.add_turn("q2", "a2")
 
     snapshot = store.truncate_for_regeneration(0)
@@ -208,22 +206,6 @@ def test_add_turn_updates_timestamp(tmp_path: Path) -> None:
     data = json.loads((tmp_path / "ts-test.json").read_text())
     assert "updated_at" in data
     assert data["updated_at"] != ""
-
-
-# ---------------------------------------------------------------------------
-# ConversationStore - add_classifier_turn
-# ---------------------------------------------------------------------------
-
-
-def test_add_classifier_turn(tmp_path: Path) -> None:
-    store = ConversationStore("cls-test", store_dir=str(tmp_path))
-    store.add_classifier_turn("check health", "health_check")
-    assert len(store.history) == 2
-    assert store.history[0] == {"role": "user", "content": "check health"}
-    assert store.history[1] == {
-        "role": "assistant",
-        "content": "[classified as health_check]",
-    }
 
 
 # ---------------------------------------------------------------------------

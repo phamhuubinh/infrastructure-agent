@@ -1,4 +1,4 @@
-"""Persistent model configuration and deterministic rollout-flag loading."""
+"""Persistent model configuration."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from src.model.llm_client import LLMClient
-from src.shared.config_schema import FeatureFlagsConfig, ServerConfig, ServersConfig
+from src.shared.config_schema import ServerConfig, ServersConfig
 
 _lock = threading.RLock()
 
@@ -24,85 +22,6 @@ def model_config_path() -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parent.parent.parent / "servers.json"
-
-
-def feature_flags_path() -> Path:
-    """Return the rollout flag file, allowing a deployment-specific override."""
-
-    configured = os.environ.get("ORION_FEATURE_FLAGS_FILE", "").strip()
-    if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parent.parent.parent / "config" / "feature_flags.yaml"
-
-
-_FEATURE_FLAG_ENVIRONMENT = {
-    "structured_command_result": "ORION_FEATURE_STRUCTURED_COMMAND_RESULT",
-    "canonical_facts": "ORION_FEATURE_CANONICAL_FACTS",
-    "composite_rules": "ORION_FEATURE_COMPOSITE_RULES",
-    "claim_guard": "ORION_FEATURE_CLAIM_GUARD",
-    "general_agent_routing_v1": "ORION_GENERAL_AGENT_ROUTING_V1",
-    "external_verification_v1": "ORION_EXTERNAL_VERIFICATION_V1",
-    "web_search_v1": "ORION_WEB_SEARCH_V1",
-    "source_constraints_v1": "ORION_SOURCE_CONSTRAINTS_V1",
-}
-
-
-def _parse_feature_flag(value: str, *, name: str) -> bool:
-    normalized = value.strip().casefold()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(
-        f"{name} must be one of true/false, 1/0, yes/no, or on/off; got {value!r}"
-    )
-
-
-class FeatureFlagStore:
-    """Load temporary deterministic-reasoning rollout flags.
-
-    The file is intentionally optional: an absent file yields the migration
-    defaults from :class:`FeatureFlagsConfig` (all flags off).  Per-flag
-    ``ORION_FEATURE_*`` variables take precedence so an operator can roll
-    back one layer without editing a mounted configuration file.
-    """
-
-    def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path) if path is not None else feature_flags_path()
-
-    def load(self) -> FeatureFlagsConfig:
-        payload: dict[str, Any] = {}
-        if self.path.exists():
-            try:
-                raw = yaml.safe_load(self.path.read_text(encoding="utf-8"))
-            except (OSError, yaml.YAMLError) as exc:
-                raise ValueError(
-                    f"Invalid feature flag configuration {self.path}: {exc}"
-                ) from exc
-            if not isinstance(raw, dict):
-                raise ValueError(
-                    f"Invalid feature flag configuration {self.path}: "
-                    "expected a YAML object"
-                )
-            payload = dict(raw)
-
-        for flag, environment_name in _FEATURE_FLAG_ENVIRONMENT.items():
-            raw_value = os.environ.get(environment_name)
-            if raw_value is not None and raw_value.strip():
-                payload[flag] = _parse_feature_flag(raw_value, name=environment_name)
-
-        try:
-            return FeatureFlagsConfig.model_validate(payload)
-        except ValueError as exc:
-            raise ValueError(
-                f"Invalid feature flag configuration {self.path}: {exc}"
-            ) from exc
-
-    def is_enabled(self, name: str) -> bool:
-        if name not in _FEATURE_FLAG_ENVIRONMENT:
-            allowed = ", ".join(sorted(_FEATURE_FLAG_ENVIRONMENT))
-            raise KeyError(f"Unknown feature flag {name!r}. Available: {allowed}")
-        return bool(getattr(self.load(), name))
 
 
 class ModelConfigStore:
@@ -120,6 +39,13 @@ class ModelConfigStore:
         data = self._load()
         models = []
         for name, raw in data["servers"].items():
+            health_state = raw.get("health_state", "configured_unknown")
+            if health_state not in {
+                "configured_unknown",
+                "healthy",
+                "unhealthy",
+            }:
+                health_state = "configured_unknown"
             models.append(
                 {
                     "name": name,
@@ -128,12 +54,12 @@ class ModelConfigStore:
                     "model": raw.get("model", "gpt-4"),
                     "timeout": raw.get("timeout", 60),
                     "temperature": raw.get("temperature", 0.0),
-                    "max_tokens": raw.get("max_tokens", 2048),
                     "api_key_configured": bool(
                         str(raw.get("api_key") or "").strip()
                         and str(raw.get("api_key")).upper() != "EMPTY"
                     ),
-                    "available": True,
+                    "health_state": health_state,
+                    "available": health_state == "healthy",
                     "active": name == data["active_server"],
                 }
             )
@@ -157,7 +83,7 @@ class ModelConfigStore:
         name: str,
         config: dict[str, Any],
         *,
-        activate: bool = True,
+        activate: bool = False,
     ) -> dict[str, Any]:
         normalized_name = name.strip()
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", normalized_name):
@@ -189,13 +115,26 @@ class ModelConfigStore:
             base_url = urllib.parse.urlunsplit(parsed_url)
         if provider not in {"openai", "ollama", "vllm", "anthropic"}:
             raise ValueError("provider must be openai, ollama, vllm, or anthropic")
-        config = {**config, "base_url": base_url, "model": model, "provider": provider}
+        config = {
+            **config,
+            "base_url": base_url,
+            "model": model,
+            "provider": provider,
+        }
 
         validated = ServerConfig.model_validate(config).model_dump(exclude_none=True)
         with _lock:
             data = self._load_unlocked()
+            prior = data["servers"].get(normalized_name, {})
+            if not isinstance(prior, dict):
+                prior = {}
+            validated["health_state"] = prior.get("health_state", "configured_unknown")
             data["servers"][normalized_name] = validated
-            if activate or not data["active_server"]:
+            if activate:
+                if validated["health_state"] != "healthy":
+                    raise ValueError(
+                        "Model connection must pass a health check before activation"
+                    )
                 data["active_server"] = normalized_name
             fallback = [
                 item
@@ -209,8 +148,13 @@ class ModelConfigStore:
     def set_active(self, name: str) -> dict[str, Any]:
         with _lock:
             data = self._load_unlocked()
-            if name not in data["servers"]:
+            entry = data["servers"].get(name)
+            if not isinstance(entry, dict):
                 raise KeyError(name)
+            if entry.get("health_state") != "healthy":
+                raise ValueError(
+                    "Model connection must pass a health check before activation"
+                )
             data["active_server"] = name
             fallback = [item for item in data.get("fallback_chain", []) if item != name]
             data["fallback_chain"] = [name, *fallback]
@@ -226,7 +170,15 @@ class ModelConfigStore:
                 item for item in data.get("fallback_chain", []) if item != name
             ]
             if data["active_server"] == name:
-                data["active_server"] = next(iter(data["servers"]), "")
+                data["active_server"] = next(
+                    (
+                        candidate_name
+                        for candidate_name, candidate in data["servers"].items()
+                        if isinstance(candidate, dict)
+                        and candidate.get("health_state") == "healthy"
+                    ),
+                    "",
+                )
             self._save(data)
         return True
 
@@ -240,16 +192,34 @@ class ModelConfigStore:
             api_key=_normalized_key(config.get("api_key")),
             timeout=min(max(timeout, 1), 300),
             temperature=float(config.get("temperature", 0.0)),
-            max_tokens=int(config.get("max_tokens", 2048)),
         )
         try:
             available = client.health_check(timeout=min(max(timeout, 1), 300))
-            result = {"status": "ok" if available else "error", "name": name}
+            result = {
+                "status": "ok" if available else "error",
+                "name": name,
+                "health_state": "healthy" if available else "unhealthy",
+            }
             if not available:
                 result["error"] = "Model health check returned false"
+            self._set_health_state(name, result["health_state"])
             return result
         except Exception as exc:
-            return {"status": "error", "name": name, "error": str(exc)[:500]}
+            self._set_health_state(name, "unhealthy")
+            return {
+                "status": "error",
+                "name": name,
+                "health_state": "unhealthy",
+                "error": str(exc)[:500],
+            }
+
+    def _set_health_state(self, name: str, state: str) -> None:
+        with _lock:
+            data = self._load_unlocked()
+            entry = data["servers"].get(name)
+            if isinstance(entry, dict):
+                entry["health_state"] = state
+                self._save(data)
 
     def _load(self) -> dict[str, Any]:
         with _lock:
@@ -264,10 +234,10 @@ class ModelConfigStore:
             raise ValueError(f"Invalid model configuration: {exc}") from exc
         data = raw if isinstance(raw, dict) else {}
         data["active_server"] = validated.active_server
-        data["servers"] = {
-            key: value.model_dump(exclude_none=True)
-            for key, value in validated.servers.items()
-        }
+        data["servers"] = {}
+        for key, value in validated.servers.items():
+            server = value.model_dump(exclude_none=True)
+            data["servers"][key] = server
         data.setdefault("fallback_chain", [])
         data.setdefault("credential_pool", {})
         return data

@@ -8,6 +8,7 @@ never touches this file.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,7 @@ class IngestPipeline:
         path: str | Path,
         doc_id: str,
         metadata: dict[str, Any] | None = None,
+        on_prepared_chunks: Callable[[list[str]], None] | None = None,
     ) -> IngestResult:
         def validate_path_input(raw_path: str) -> None:
             """Validate user-controlled path input to prevent path traversal attacks."""
@@ -137,6 +139,10 @@ class IngestPipeline:
                 for chunk, vector in zip(chunks, vectors, strict=True)
             ]
             chunk_ids = [chunk.chunk_id for chunk in chunks]
+            if on_prepared_chunks is not None:
+                # Persist ownership before index mutation so a crash/failure can
+                # deterministically remove any partial dense/sparse records.
+                on_prepared_chunks(chunk_ids)
             sparse_ids: list[str] = []
             try:
                 self._vector_store.upsert(self._collection, records)

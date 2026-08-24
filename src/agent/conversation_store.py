@@ -37,20 +37,14 @@ class ConversationStoreProtocol(Protocol):
         self, response_time_ms: int, asked_at: str | None = None
     ) -> None: ...
 
-    def add_classifier_turn(self, user: str, label: str) -> None: ...
-
     def set_summarize_fn(self, fn: Callable[[str], str]) -> None: ...
 
     def set_summary(self, summary: str) -> None: ...
-
-    def set_investigation_context(self, context: object) -> None: ...
 
     def summarize(self) -> None: ...
 
     @property
     def summary(self) -> str | None: ...
-    @property
-    def investigation_context(self) -> object: ...
     @property
     def title(self) -> str: ...
     @property
@@ -174,9 +168,6 @@ class ConversationStore:
         self._lock = threading.RLock()
         self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
-        from src.agent.session_investigation_context import SessionInvestigationContext
-
-        self._investigation_context = SessionInvestigationContext()
         self._title: str = ""
         self._dirty = False
         self._summarize_fn = summarize_fn
@@ -255,22 +246,6 @@ class ConversationStore:
                     message=f"failed to save turn timing for {self._session_id}",
                 )
 
-    def add_classifier_turn(self, user: str, label: str) -> None:
-        with self._lock:
-            self._mem.append({"role": "user", "content": user})
-            self._mem.append(
-                {"role": "assistant", "content": f"[classified as {label}]"}
-            )
-            self._dirty = True
-            try:
-                self._save()
-            except OSError:
-                info(
-                    "conversation",
-                    message=f"failed to save classifier session {self._session_id}",
-                )
-            self._check_compress()
-
     def summarize(self) -> None:
         with self._lock:
             all_turns = list(self._mem)
@@ -331,21 +306,6 @@ class ConversationStore:
             self._summary = summary
 
     @property
-    def investigation_context(self) -> object:
-        with self._lock:
-            return self._investigation_context
-
-    def set_investigation_context(self, context: object) -> None:
-        from src.agent.session_investigation_context import SessionInvestigationContext
-
-        if not isinstance(context, SessionInvestigationContext):
-            raise TypeError("context must be a SessionInvestigationContext")
-        with self._lock:
-            self._investigation_context = context
-            self._dirty = True
-            self._save()
-
-    @property
     def title(self) -> str:
         with self._lock:
             return self._title
@@ -360,7 +320,8 @@ class ConversationStore:
             return self._summary
 
     def _check_compress(self) -> None:
-        # Count real turns — skip classifier messages
+        # Legacy classifier pairs can still be present in old persisted
+        # sessions; do not count them as user-visible turns.
         turn_count = 0
         for i, m in enumerate(self._mem):
             if m["role"] == "user":
@@ -388,13 +349,6 @@ class ConversationStore:
                 data = json.loads(path.read_text())
                 self._mem = data.get("messages", [])
                 self._summary = data.get("summary")
-                from src.agent.session_investigation_context import (
-                    SessionInvestigationContext,
-                )
-
-                self._investigation_context = SessionInvestigationContext.from_dict(
-                    data.get("investigation_context")
-                )
                 self._title = data.get("title", "")
                 loaded_source = data.get("source")
                 if loaded_source:
@@ -429,7 +383,6 @@ class ConversationStore:
                 }
                 if self._summary:
                     data["summary"] = self._summary
-                data["investigation_context"] = self._investigation_context.to_dict()
                 self.store_path.write_text(json.dumps(data, indent=2))
                 self._dirty = False
             except OSError as exc:

@@ -159,37 +159,6 @@ class TestConversationStoreThreadSafety:
             f"got {len(store2.history)}"
         )
 
-    def test_concurrent_add_classifier_turn(self, tmp_path: Path) -> None:
-        store = ConversationStore("concurrent-cls", store_dir=str(tmp_path))
-
-        n_threads = 8
-        turns_per_thread = 15
-        barrier = threading.Barrier(n_threads)
-        errors: list[Exception] = []
-
-        def _writer(tid: int) -> None:
-            barrier.wait()
-            for i in range(turns_per_thread):
-                try:
-                    store.add_classifier_turn(f"input_{tid}_{i}", f"label_{tid}_{i}")
-                except Exception as e:
-                    errors.append(e)
-
-        threads = [
-            threading.Thread(target=_writer, args=(tid,)) for tid in range(n_threads)
-        ]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-
-        assert not errors, f"Errors during concurrent add_classifier_turn: {errors}"
-        history = store.history
-        expected = n_threads * turns_per_thread * 2
-        assert len(history) == expected, (
-            f"Expected {expected} messages, got {len(history)}"
-        )
-
     def test_concurrent_set_summary_and_history(self, tmp_path: Path) -> None:
         store = ConversationStore("concurrent-summary", store_dir=str(tmp_path))
         store.add_turn("initial", "ok")

@@ -16,12 +16,11 @@ describe("model settings", () => {
     vi.restoreAllMocks();
   });
 
-  it("saves and immediately tests a manual model connection", async () => {
+  it("saves, tests, and activates a manual model connection", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ active_server: "", models: [] }))
       .mockResolvedValueOnce(jsonResponse({ active_server: "primary", models: [] }))
-      .mockResolvedValueOnce(jsonResponse({ status: "ok", name: "primary" }))
       .mockResolvedValueOnce(jsonResponse({ active_server: "primary", models: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -38,15 +37,13 @@ describe("model settings", () => {
 
     await screen.findByText(/kiểm tra kết nối model thành công/);
     expect(fetchMock.mock.calls[1][0]).toBe("/api/models");
-    expect(fetchMock.mock.calls[2][0]).toBe("/api/models/primary/test");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
   it("keeps a failed connection saved and shows the test error", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ active_server: "", models: [] }))
-      .mockResolvedValueOnce(jsonResponse({ active_server: "primary", models: [] }))
       .mockResolvedValueOnce(jsonResponse({ detail: "connection refused" }, 503))
       .mockResolvedValueOnce(jsonResponse({ active_server: "primary", models: [] }));
     vi.stubGlobal("fetch", fetchMock);
@@ -62,6 +59,6 @@ describe("model settings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Lưu & kiểm tra/ }));
 
     expect(await screen.findByText(/connection refused/)).toBeTruthy();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 });

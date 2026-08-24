@@ -1,117 +1,47 @@
 # Migration Plan
 
-> **Status at `259f85b`:** the configured Web/CLI Chat path has been cut over to the canonical
-> model-driven runtime and the superseded deterministic/semantic routing stack has been removed from
-> that configured hot path. This document remains the convergence plan for accepted target
-> architecture that is not yet implemented everywhere. Do not use it as evidence that every phase
-> is complete.
->
-> One known remaining gap is Project knowledge/RAG: ADR-0003 defines it as a normal READ capability
-> in the agent loop, while the current `src/tool/RAGTool/` service is still a separate Web workspace.
+> GitHub `main` at `3e88075` uses canonical model-driven Web/CLI Chat construction. This is not complete target convergence. The current defect/convergence ledger is `IMPLEMENTATION_GAPS.md`.
 
-The goal is controlled replacement of the superseded architecture, followed by cleanup and
-verification. Do not patch new language-specific cases into any compatibility path.
+## Phase 1 — Canonical contracts
 
-## Phase 1 — Contract first
+Readable decisions/actions/observations/effects/permissions/events/provider-neutral model boundary. Current follow-up: enforce active stage/schema and actual disclosure state after parsing.
 
-Define and test readable canonical model/harness contracts:
+## Phase 2 — Authority
 
-- decision types;
-- ACTION with capability, target, source, and typed arguments;
-- observation contract;
-- effect class;
-- permission mode;
-- event contract.
+Validate legal stage, exact disclosed capability, target/source, arguments, effect/permission/approval, budget/safety, and fail-closed configuration.
 
-For the canonical Chat runtime, this foundation is implemented. Future changes must preserve the
-same boundary rather than reintroducing prose routing.
-
-## Phase 2 — Authority boundary
-
-Authorization validates the model's structured proposal directly:
-
-- exact capability lookup;
-- exact target/source lookup;
-- schema validation;
-- READ/WRITE permission;
-- approval scope;
-- budgets and safety.
-
-Natural-language hard constraints are not execution authority.
-
-## Phase 3 — Dedicated agent runtime
-
-The configured runtime follows:
+## Phase 3 — Runtime/completion
 
 ```text
-context -> model -> structured decision -> validate -> execute -> evidence -> model
+bounded context -> model -> stage-validated decision -> authority -> execution -> evidence -> model -> evidence-aware completion
 ```
 
-The configured Web/CLI Chat composition no longer requires the superseded semantic planner/router
-stack to decide what the user means.
+Add no-progress detection for invalid-decision cycles and objective final-claim validation.
 
-## Phase 4 — Project/RAG integration
+## Phase 4 — Project/RAG
 
-Expose active Project knowledge as a normal READ capability in the same agent loop while preserving
-project/document isolation and efficient retrieval.
+Expose Project knowledge as a normal READ capability. Keep current standalone Web workspace until integrated, but harden its standalone network/SSRF/auth boundary independently.
 
-Keep useful retrieval implementation where it satisfies the new contract; change the boundary
-before rewriting proven internals.
+## Phase 5 — Sessions/context/persistence
 
-**Current gap at `259f85b`:** the Project RAG service is still a standalone Web
-document-analysis workspace and is not registered as a Chat capability.
+Aggregate context budget + summary retention + dynamic evidence timestamps + consistent SQLite/PostgreSQL management + lifecycle-safe delete/query + corrupt-store fail-closed + transactional/recoverable document/project mutation.
 
-## Phase 5 — Session and dynamic evidence
+## Phase 6 — Events/metrics/UI
 
-Use bounded model context rather than lexical follow-up interpretation. Persist validated structured
-references and timestamps, not language-specific semantic state machines.
+Wire one structured event stream for UI timeline, traces, CLI diagnostics, and metrics.
 
-Dynamic observations retain observation time and must not be silently represented as fresh.
+## Phase 7 — WRITE
 
-## Phase 6 — Events and UI activity
+Reviewed WRITE capabilities + scoped ASK approvals.
 
-Use structured request events as the common source for:
+## Phase 8 — Remove dead legacy code
 
-- UI activity timeline;
-- request trace;
-- `orion log` filtering;
-- latency/failure diagnostics.
+Caller/import/config/persistence proof → migrate still-valid deterministic safety/evidence responsibilities → delete unreachable semantic modules/flags/tests/state. Never reconnect legacy semantic routing to pass tests.
 
-Do not expose private chain-of-thought.
+## Phase 9 — Product/runtime correctness
 
-## Phase 7 — WRITE path
+Resolve model-health/identity, generation/session isolation, attachments, destructive confirmations, safe headers, CI, and all remaining `IMPLEMENTATION_GAPS.md` items.
 
-Once READ behavior is stable, enforce WRITE capability classification and scoped ASK approvals.
-Keep WRITE disabled for capabilities that have not been reviewed.
+## Phase 10 — Docs/generated artifacts
 
-## Phase 8 — Remove legacy code
-
-For each cleanup wave:
-
-1. build a caller/import graph;
-2. identify legacy modules with no required callers;
-3. migrate still-valid responsibilities;
-4. remove dead modules, tests, flags, adapters, and duplicate contracts;
-5. search the repository for stale references;
-6. run static/unit/integration validation appropriate to the change;
-7. run live runtime QA as a separate explicit gate when requested.
-
-The deterministic/semantic routing stack cleanup for the configured Chat hot path is complete at
-`259f85b`. Do not recreate it for compatibility unless a concrete remaining caller proves a narrow
-adapter is required.
-
-## Phase 9 — Documentation and generated artifacts
-
-After each convergence step:
-
-- update root/operator/contributor documentation;
-- regenerate OpenAPI when the API contract changes;
-- update actual CLI/QA commands and configuration documentation;
-- remove or clearly label migration-only statements;
-- confirm each implementation claim against code/tests/runtime evidence.
-
-## Rule during migration
-
-Do not maintain two equal primary architectures. The canonical model-driven path is the configured
-Chat architecture. Remaining gaps should converge toward accepted ADRs rather than restoring the
-superseded semantic stack.
+Mark/remove resolved gap entries, regenerate OpenAPI when contracts change, update actual CLI/QA/config docs, confirm current claims against code/tests/runtime evidence.

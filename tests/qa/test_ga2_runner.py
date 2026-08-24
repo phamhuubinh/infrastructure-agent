@@ -492,6 +492,14 @@ def _viability_record(
             },
         },
     }
+    if actions_used:
+        record["steps"] = [
+            {
+                "type": "evidence",
+                "status": "success",
+                "capability_id": "fixture.read",
+            }
+        ]
 
     if requires_tool_execution is not None:
         record["requires_tool_execution"] = (

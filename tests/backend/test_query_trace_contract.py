@@ -13,6 +13,7 @@ from src.agent.contracts import (
     AgentDecision,
     DecisionKind,
 )
+from src.backend.routers.health import get_metrics
 from src.backend.routers.query import (
     _sanitize_execution_trace,
     query,
@@ -20,19 +21,14 @@ from src.backend.routers.query import (
 from src.model.agent_backend import (
     AgentModelBackend,
 )
+from src.observability.events import get_event_store
 from src.shared.config import OrionConfig
 from src.shared.execution.tool_result import ToolResult
 from src.tool.capability_result import CapabilityStatus
 
 
 def _request(deps: object) -> SimpleNamespace:
-    return SimpleNamespace(
-        app=SimpleNamespace(
-            state=SimpleNamespace(
-                deps=deps
-            )
-        )
-    )
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=deps)))
 
 
 def _wire(
@@ -50,9 +46,7 @@ def _wire(
         )
     elif kind is DecisionKind.ACTION:
         if capability_id is None:
-            raise ValueError(
-                "action requires capability_id"
-            )
+            raise ValueError("action requires capability_id")
 
         decision = AgentDecision(
             kind=DecisionKind.ACTION,
@@ -62,19 +56,19 @@ def _wire(
                 target_ref=target_ref,
             ),
         )
-    else:
-        raise ValueError(
-            f"unsupported test decision {kind}"
+    elif kind is DecisionKind.DISCOVER:
+        decision = AgentDecision(
+            kind=DecisionKind.DISCOVER,
+            goal="Follow the request.",
+            category="host",
         )
+    else:
+        raise ValueError(f"unsupported test decision {kind}")
 
-    return json.dumps(
-        decision.to_wire()
-    )
+    return json.dumps(decision.to_wire())
 
 
-class _QueuedAssessmentModel(
-    AgentModelBackend
-):
+class _QueuedAssessmentModel(AgentModelBackend):
     def __init__(
         self,
         responses: list[str],
@@ -85,10 +79,7 @@ class _QueuedAssessmentModel(
         self,
         _request: object,
     ) -> str:
-        raise AssertionError(
-            "canonical agent must use "
-            "structured agent-provider calls"
-        )
+        raise AssertionError("canonical agent must use structured agent-provider calls")
 
     def complete(
         self,
@@ -108,26 +99,17 @@ def _config() -> OrionConfig:
 def test_query_runs_canonical_final_through_public_contract(
     tmp_path,
 ) -> None:
-    request_secret = (
-        "REQUEST_SECRET_SENTINEL"
-    )
-    final_secret = (
-        "FINAL_SECRET_SENTINEL"
-    )
+    request_secret = "REQUEST_SECRET_SENTINEL"
+    final_secret = "FINAL_SECRET_SENTINEL"
 
     agent = create_canonical_session_agent(
-        target_store_path=str(
-            tmp_path / "targets.json"
-        ),
+        target_store_path=str(tmp_path / "targets.json"),
         model_backend=(
             _QueuedAssessmentModel(
                 [
                     _wire(
                         DecisionKind.FINAL,
-                        answer=(
-                            "API final. "
-                            f"token={final_secret}"
-                        ),
+                        answer=(f"API final. token={final_secret}"),
                     )
                 ]
             )
@@ -147,13 +129,8 @@ def test_query_runs_canonical_final_through_public_contract(
 
     response = query(
         {
-            "question": (
-                "Explain status "
-                f"{request_secret}"
-            ),
-            "session_id": (
-                "session-canonical"
-            ),
+            "question": (f"Explain status {request_secret}"),
+            "session_id": ("session-canonical"),
         },
         _request(deps),
     )
@@ -168,50 +145,29 @@ def test_query_runs_canonical_final_through_public_contract(
         "execution_trace",
     }
 
-    assert (
-        response["session_id"]
-        == "session-canonical"
-    )
-    assert (
-        response["assessment"]
-        == "API final. token=<redacted>"
-    )
+    assert response["session_id"] == "session-canonical"
+    assert response["assessment"] == "API final. token=<redacted>"
     assert response["steps"] == []
     assert isinstance(
         response["trace_id"],
         str,
     )
 
-    trace = response[
-        "execution_trace"
-    ]
+    trace = response["execution_trace"]
 
     assert trace is not None
-    assert (
-        trace["trace_id"]
-        == response["trace_id"]
-    )
+    assert trace["trace_id"] == response["trace_id"]
     assert trace["user_request"] == ""
 
-    runtime = trace[
-        "runtime_metrics"
-    ]["canonical_runtime"]
+    runtime = trace["runtime_metrics"]["canonical_runtime"]
 
     assert runtime["terminal"] == "final"
     assert runtime["model_calls"] == 1
-    assert runtime[
-        "discovery_calls"
-    ] == 0
-    assert runtime[
-        "action_attempts"
-    ] == 0
-    assert runtime[
-        "observation_count"
-    ] == 0
+    assert runtime["discovery_calls"] == 0
+    assert runtime["action_attempts"] == 0
+    assert runtime["observation_count"] == 0
     assert runtime["failure"] is None
-    assert runtime[
-        "approval_required"
-    ] is False
+    assert runtime["approval_required"] is False
 
     assert runtime["budget"] == {
         "max_actions": 6,
@@ -220,79 +176,105 @@ def test_query_runs_canonical_final_through_public_contract(
         "cost_used": 0,
     }
 
-    rendered = json.dumps(
-        response
+    rendered = json.dumps(response)
+
+    assert request_secret not in rendered
+    assert final_secret not in rendered
+    assert "system_prompt" not in rendered
+    assert "user_prompt" not in rendered
+
+
+def test_query_direct_final_emits_one_correlated_request_lifecycle(tmp_path) -> None:
+    store = get_event_store()
+    store.clear()
+    agent = create_canonical_session_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        model_backend=_QueuedAssessmentModel([_wire(DecisionKind.FINAL, answer="Done.")]),
+        config=_config(),
+    )
+    deps = SimpleNamespace(
+        prepare_query=mock.MagicMock(
+            return_value=("session-canonical", agent, threading.RLock())
+        )
     )
 
-    assert (
-        request_secret
-        not in rendered
+    response = query({"question": "Hello token=event-secret"}, _request(deps))
+
+    events = store.events(request_id=response["trace_id"])
+    assert [event.event_type for event in events] == [
+        "request.started",
+        "model.started",
+        "model.decision",
+        "model.final",
+        "request.completed",
+    ]
+    assert all(event.chat_id == "session-canonical" for event in events)
+    assert "event-secret" not in json.dumps([event.to_dict() for event in events])
+    snapshot = get_metrics()["metrics"]
+    assert snapshot["requests_completed"] == 1
+    assert snapshot["model_calls"] == 1
+    assert snapshot["execution_dispatches"] == 0
+
+
+def test_query_model_failure_emits_correlated_request_and_model_failures(tmp_path) -> None:
+    store = get_event_store()
+    store.clear()
+    agent = create_canonical_session_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        model_backend=_QueuedAssessmentModel([]),
+        config=_config(),
     )
-    assert (
-        final_secret
-        not in rendered
+    deps = SimpleNamespace(
+        prepare_query=mock.MagicMock(
+            return_value=("session-canonical", agent, threading.RLock())
+        )
     )
-    assert (
-        "system_prompt"
-        not in rendered
-    )
-    assert (
-        "user_prompt"
-        not in rendered
-    )
+
+    response = query({"question": "Hello."}, _request(deps))
+
+    events = store.events(request_id=response["trace_id"])
+    assert [event.event_type for event in events] == [
+        "request.started",
+        "model.started",
+        "model.failed",
+        "request.failed",
+    ]
+    snapshot = get_metrics()["metrics"]
+    assert snapshot["requests_failed"] == 1
+    assert snapshot["model_calls"] == 1
 
 
 def test_query_projects_canonical_action_steps_without_raw_evidence(
     tmp_path,
     monkeypatch,
 ) -> None:
-    target_store = (
-        tmp_path / "targets.json"
-    )
+    target_store = tmp_path / "targets.json"
 
     target_store.write_text(
-        json.dumps(
-            {
-                "targets": {
-                    "monitor": {
-                        "backend": "local"
-                    }
-                }
-            }
-        ),
+        json.dumps({"targets": {"monitor": {"backend": "local"}}}),
         encoding="utf-8",
     )
 
     agent = create_canonical_session_agent(
-        target_store_path=str(
-            target_store
-        ),
+        target_store_path=str(target_store),
         model_backend=(
             _QueuedAssessmentModel(
                 [
-                    # Preliminary capability
-                    # selection: not authority.
+                    _wire(DecisionKind.DISCOVER),
                     _wire(
                         DecisionKind.ACTION,
-                        capability_id=(
-                            "host.get_cpu"
-                        ),
+                        capability_id=("host.get_cpu"),
                     ),
                     # Detailed structured
                     # proposal: exact target.
                     _wire(
                         DecisionKind.ACTION,
-                        capability_id=(
-                            "host.get_cpu"
-                        ),
+                        capability_id=("host.get_cpu"),
                         target_ref="monitor",
                     ),
                     _wire(
                         DecisionKind.FINAL,
-                        answer=(
-                            "CPU observation for "
-                            "monitor received."
-                        ),
+                        answer=("CPU observation for monitor received."),
                     ),
                 ]
             )
@@ -310,92 +292,50 @@ def test_query_projects_canonical_action_steps_without_raw_evidence(
         )
     )
 
-    raw_evidence = (
-        "RAW_EVIDENCE_SENTINEL"
-    )
+    raw_evidence = "RAW_EVIDENCE_SENTINEL"
 
     monkeypatch.setattr(
         "src.tool.linux_tool.LinuxTool.execute",
         (
-            lambda _tool, _arguments:
-            ToolResult(
+            lambda _tool, _arguments: ToolResult(
                 success=True,
                 data={
                     "logical_cores": 4,
-                    "raw_payload": (
-                        raw_evidence
-                    ),
+                    "raw_payload": (raw_evidence),
                 },
-                capability_status=(
-                    CapabilityStatus.VALID
-                ),
+                capability_status=(CapabilityStatus.VALID),
             )
         ),
     )
 
     response = query(
         {
-            "question": (
-                "Inspect monitor."
-            ),
-            "session_id": (
-                "session-action"
-            ),
+            "question": ("Inspect monitor."),
+            "session_id": ("session-action"),
         },
         _request(deps),
     )
 
-    assert len(
-        response["steps"]
-    ) == 1
+    assert len(response["steps"]) == 1
 
-    step = response[
-        "steps"
-    ][0]
+    step = response["steps"][0]
 
     assert step["type"] == "evidence"
-    assert (
-        step["capability_id"]
-        == "host.get_cpu"
-    )
+    assert step["capability_id"] == "host.get_cpu"
     assert step["status"] == "success"
-    assert (
-        step["target_id"]
-        == "monitor"
-    )
-    assert (
-        step["source_id"]
-        == "monitor"
-    )
+    assert step["target_id"] == "monitor"
+    assert step["source_id"] == "monitor"
 
-    rendered = json.dumps(
-        response
-    )
+    rendered = json.dumps(response)
 
-    assert (
-        raw_evidence
-        not in rendered
-    )
-    assert (
-        "logical_cores"
-        not in json.dumps(step)
-    )
+    assert raw_evidence not in rendered
+    assert "logical_cores" not in json.dumps(step)
 
-    runtime = response[
-        "execution_trace"
-    ]["runtime_metrics"][
-        "canonical_runtime"
-    ]
+    runtime = response["execution_trace"]["runtime_metrics"]["canonical_runtime"]
 
-    assert runtime[
-        "action_attempts"
-    ] == 1
-    assert runtime[
-        "observation_count"
-    ] == 1
-    assert runtime["budget"][
-        "actions_used"
-    ] == 1
+    assert runtime["action_attempts"] == 1
+    assert runtime["observation_count"] == 1
+    assert runtime["budget"]["actions_used"] == 1
 
 
 def test_query_preserves_contract_and_sanitizes_canonical_trace() -> None:
@@ -405,27 +345,16 @@ def test_query_preserves_contract_and_sanitizes_canonical_trace() -> None:
         "steps": [
             {
                 "type": "evidence",
-                "capability_id": (
-                    "host.get_cpu"
-                ),
+                "capability_id": ("host.get_cpu"),
             }
         ],
-        "response": (
-            "Server is healthy."
-        ),
+        "response": ("Server is healthy."),
         "trace_id": "trace-61",
         "execution_trace": {
             "trace_id": "trace-61",
-            "user_request": (
-                "check cpu "
-                "token=super-secret"
-            ),
-            "answer_strategy": (
-                "CANONICAL_AGENT"
-            ),
-            "system_prompt": (
-                "private prompt"
-            ),
+            "user_request": ("check cpu token=super-secret"),
+            "answer_strategy": ("CANONICAL_AGENT"),
+            "system_prompt": ("private prompt"),
             "runtime_metrics": {
                 "canonical_runtime": {
                     "terminal": "final",
@@ -441,12 +370,8 @@ def test_query_preserves_contract_and_sanitizes_canonical_trace() -> None:
                         "max_cost": 12,
                         "cost_used": 1,
                     },
-                    "api_key": (
-                        "super-secret"
-                    ),
-                    "hidden_reasoning": (
-                        "private thoughts"
-                    ),
+                    "api_key": ("super-secret"),
+                    "hidden_reasoning": ("private thoughts"),
                 }
             },
         },
@@ -466,10 +391,7 @@ def test_query_preserves_contract_and_sanitizes_canonical_trace() -> None:
         {
             "question": "check cpu",
             "session_id": "session-61",
-            "asked_at": (
-                "2026-08-18T08:00:00"
-                "+00:00"
-            ),
+            "asked_at": ("2026-08-18T08:00:00+00:00"),
         },
         _request(deps),
     )
@@ -484,96 +406,44 @@ def test_query_preserves_contract_and_sanitizes_canonical_trace() -> None:
         "execution_trace",
     }
 
-    assert (
-        response["assessment"]
-        == "Server is healthy."
-    )
-    assert (
-        response["trace_id"]
-        == "trace-61"
-    )
+    assert response["assessment"] == "Server is healthy."
+    assert response["trace_id"] == "trace-61"
 
-    trace = response[
-        "execution_trace"
-    ]
+    trace = response["execution_trace"]
 
     assert isinstance(
         trace,
         dict,
     )
-    assert (
-        trace["trace_id"]
-        == "trace-61"
-    )
-    assert (
-        trace["user_request"]
-        == "check cpu token=<redacted>"
-    )
+    assert trace["trace_id"] == "trace-61"
+    assert trace["user_request"] == "check cpu token=<redacted>"
 
-    runtime = trace[
-        "runtime_metrics"
-    ]["canonical_runtime"]
+    runtime = trace["runtime_metrics"]["canonical_runtime"]
 
-    assert (
-        runtime["terminal"]
-        == "final"
-    )
-    assert runtime[
-        "model_calls"
-    ] == 3
-    assert runtime[
-        "action_attempts"
-    ] == 1
+    assert runtime["terminal"] == "final"
+    assert runtime["model_calls"] == 3
+    assert runtime["action_attempts"] == 1
 
-    serialized = json.dumps(
-        trace
-    )
+    serialized = json.dumps(trace)
 
-    assert (
-        "super-secret"
-        not in serialized
-    )
-    assert (
-        "private prompt"
-        not in serialized
-    )
-    assert (
-        "private thoughts"
-        not in serialized
-    )
-    assert (
-        "system_prompt"
-        not in serialized
-    )
-    assert (
-        "hidden_reasoning"
-        not in serialized
-    )
-    assert (
-        "api_key"
-        not in serialized
-    )
+    assert "super-secret" not in serialized
+    assert "private prompt" not in serialized
+    assert "private thoughts" not in serialized
+    assert "system_prompt" not in serialized
+    assert "hidden_reasoning" not in serialized
+    assert "api_key" not in serialized
 
 
 def test_execution_trace_boundary_is_bounded_and_fails_closed() -> None:
     oversized = {
         "trace_id": "large-trace",
-        "answer_strategy": (
-            "CANONICAL_AGENT"
-        ),
+        "answer_strategy": ("CANONICAL_AGENT"),
         "runtime_metrics": {
-            "custom": [
-                "x" * 10_000
-                for _ in range(100)
-            ],
+            "custom": ["x" * 10_000 for _ in range(100)],
         },
     }
 
-    trace = (
-        _sanitize_execution_trace(
-            oversized
-        )
-    )
+    trace = _sanitize_execution_trace(oversized)
 
     assert trace is not None
 
@@ -582,13 +452,8 @@ def test_execution_trace_boundary_is_bounded_and_fails_closed() -> None:
         ensure_ascii=False,
     ).encode("utf-8")
 
-    assert len(encoded) <= (
-        128 * 1024
-    )
-    assert (
-        trace["trace_id"]
-        == "large-trace"
-    )
+    assert len(encoded) <= (128 * 1024)
+    assert trace["trace_id"] == "large-trace"
 
 
 def test_query_keeps_regeneration_transaction_and_trace_contract() -> None:
@@ -601,17 +466,13 @@ def test_query_keeps_regeneration_transaction_and_trace_contract() -> None:
         }
     ]
 
-    agent.conversation_store.truncate_for_regeneration.return_value = (
-        snapshot
-    )
+    agent.conversation_store.truncate_for_regeneration.return_value = snapshot
 
     agent.run_with_steps.return_value = {
         "steps": [],
         "response": "regenerated",
         "trace_id": "regen-trace",
-        "execution_trace": {
-            "trace_id": "regen-trace"
-        },
+        "execution_trace": {"trace_id": "regen-trace"},
     }
 
     deps = SimpleNamespace(
@@ -627,38 +488,18 @@ def test_query_keeps_regeneration_transaction_and_trace_contract() -> None:
     response = query(
         {
             "question": "regenerate",
-            "session_id": (
-                "regen-session"
-            ),
+            "session_id": ("regen-session"),
             "regenerate_turn_index": 1,
         },
         _request(deps),
     )
 
-    assert (
-        response["session_id"]
-        == "regen-session"
-    )
-    assert (
-        response["assessment"]
-        == "regenerated"
-    )
+    assert response["session_id"] == "regen-session"
+    assert response["assessment"] == "regenerated"
     assert response["steps"] == []
-    assert (
-        response["trace_id"]
-        == "regen-trace"
-    )
-    assert (
-        response["execution_trace"]
-        == {
-            "trace_id": (
-                "regen-trace"
-            )
-        }
-    )
+    assert response["trace_id"] == "regen-trace"
+    assert response["execution_trace"] == {"trace_id": ("regen-trace")}
 
-    agent.conversation_store.truncate_for_regeneration.assert_called_once_with(
-        1
-    )
+    agent.conversation_store.truncate_for_regeneration.assert_called_once_with(1)
 
     agent.conversation_store.restore_messages.assert_not_called()

@@ -55,3 +55,34 @@ def test_event_metadata_allows_safe_filterable_values() -> None:
             "remaining_actions": 3,
         },
     }
+
+
+def test_event_accepts_complete_safe_provider_generation_diagnostics() -> None:
+    event = _event(
+        event_type="model.failed",
+        status=EventStatus.FAILED,
+        metadata={
+            "parse_diagnostics": {
+                "response_type": "str",
+                "provider_generation": {
+                    "finish_reason": "length",
+                    "completion_count": 1024,
+                    "prompt_count": 312,
+                    "stop_sequence_configured": False,
+                    "content_bytes_before_sanitization": 1309,
+                    "content_bytes_after_sanitization": 1309,
+                    "provider_http_status": 200,
+                },
+            }
+        },
+    )
+
+    assert event.to_dict()["metadata"]["parse_diagnostics"]["provider_generation"] == {
+        "finish_reason": "length",
+        "completion_count": 1024,
+        "prompt_count": 312,
+        "stop_sequence_configured": False,
+        "content_bytes_before_sanitization": 1309,
+        "content_bytes_after_sanitization": 1309,
+        "provider_http_status": 200,
+    }

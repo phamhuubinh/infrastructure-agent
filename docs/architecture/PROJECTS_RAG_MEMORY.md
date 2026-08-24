@@ -1,108 +1,36 @@
 # Projects, RAG, Context, and Memory
 
-## Project model
+## Target Project model
 
-A Project is a workspace containing project files/knowledge and multiple chats.
-It is intentionally similar to the project concept in modern AI chat products.
+A Project contains files/knowledge and multiple chats. Project retrieval is a normal READ capability in the same agent loop.
 
-```text
-Project
-├── Files / knowledge
-├── Chat A
-│   └── chat context
-├── Chat B
-│   └── chat context
-└── Chat C
-    └── chat context
-```
+Current implementation gap: standalone RAG exists, but Chat integration does not yet.
 
-A Project is primarily a container for knowledge and conversations. It does not
-need to own infrastructure connections or credentials unless a future product
-requirement makes that useful.
+## Isolation and mutation consistency
 
-## RAG is part of the agent
+Project/document identity/provenance must be preserved. Deleting one document/Project must not affect another.
 
-Project retrieval is exposed to the agent as a normal READ capability. The
-model decides when to retrieve project material.
+Filesystem + metadata + BM25 + vector mutations use a persistent recovery
+journal: uploads stage then atomically promote files and commit metadata last;
+document/project deletes tombstone visibility before idempotent cleanup. A
+per-project mutex prevents concurrent interleaving but is not crash
+transactionality.
 
-This enables mixed investigations such as:
+Corrupt persistence metadata must be preserved/quarantined and fail closed for mutation, not treated as empty and overwritten.
 
-```text
-live Linux evidence
-+ Grafana/Zabbix
-+ project runbook retrieval
-+ Internet research
--> one model assessment
-```
+## Retrieval
 
-The UI may provide a dedicated Project/files experience, but the reasoning
-runtime remains one agent.
+Prefer deterministic parsing/chunking, Vietnamese-aware lexical retrieval, optional semantic retrieval/model expansion, deterministic fusion/balancing, bounded evidence, then final active-model reasoning.
 
-## Document isolation
+## Chat memory/context budget
 
-Each document should have its own durable identity and retrieval index/state.
-Project retrieval can search across the Project while preserving document
-provenance.
+Use one aggregate serialized/token budget. Priority:
 
-Deleting a document must remove its retrievable content. Deleting one Project
-must not affect another Project.
+1. complete current request within documented limit;
+2. compact summary/important structured refs;
+3. recent turns;
+4. bounded attachment/project evidence.
 
-## Retrieval design
+Do not silently truncate the current request into a different request. Do not drop the compact summary simply because enough recent messages exist.
 
-The retrieval engine should be efficient on a personal/local deployment and
-should not require a dedicated GPU embedding/reranking model by default.
-
-A suitable default is:
-
-1. deterministic parsing and chunking;
-2. Unicode/Vietnamese-aware normalization;
-3. lexical/BM25 retrieval;
-4. optional bounded use of the active model for query expansion when useful;
-5. deterministic fusion and document balancing;
-6. bounded evidence returned to the agent;
-7. final reasoning performed by the active model.
-
-The retrieval backend is replaceable. The agent contract should depend on
-retrieval results, not a specific index technology.
-
-## Chat memory
-
-Orion does not need a permanent global personal memory for this product.
-Memory is primarily scoped to the current chat/session.
-
-To reduce token use, chat context should be layered:
-
-- recent turns retained verbatim within a budget;
-- older turns compacted into a bounded summary;
-- important structured references retained separately;
-- retrieved document contents not copied permanently into the prompt;
-- prior evidence stored with identity/time and reintroduced only when useful.
-
-The model should retrieve project content again when it needs exact detail
-instead of depending on an old conversational paraphrase.
-
-## Static vs dynamic information
-
-Orion tracks whether an observation is comparatively static or dynamic.
-
-Static examples:
-
-- project documents;
-- architecture descriptions;
-- stable identifiers;
-- historical incident records.
-
-Dynamic examples:
-
-- CPU/RAM/disk state;
-- processes and services;
-- monitoring metrics;
-- deployment/runtime state;
-- current software releases;
-- current Internet information.
-
-Dynamic observations always keep their observation time. They may be useful as
-history, but they must not be silently represented as freshly observed state.
-
-The model decides when fresh evidence is required; the harness preserves enough
-metadata for that decision to be possible.
+Dynamic observations keep time/provenance and are not silently relabeled fresh.

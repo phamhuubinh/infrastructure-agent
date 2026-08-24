@@ -90,11 +90,6 @@ export function SettingsPage() {
             activate: true,
           }),
         });
-        await apiJson(`/api/models/${encodeURIComponent(name)}/test`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ timeout: provider === "ollama" ? 300 : 30 }),
-        });
       },
       "Đã lưu, chọn và kiểm tra kết nối model thành công.",
     );
@@ -202,7 +197,8 @@ export function SettingsPage() {
                         variant="ghost"
                         aria-label={`Xóa ${item.name}`}
                         disabled={Boolean(busy)}
-                        onClick={() =>
+                        onClick={() => {
+                          if (!window.confirm(`Xóa cấu hình model "${item.name}"?`)) return;
                           void perform(
                             `delete-${item.name}`,
                             () =>
@@ -210,8 +206,8 @@ export function SettingsPage() {
                                 method: "DELETE",
                               }),
                             `Đã xóa ${item.name}.`,
-                          )
-                        }
+                          );
+                        }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

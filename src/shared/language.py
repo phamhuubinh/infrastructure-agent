@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 
-
 _VIETNAMESE_PATTERN = re.compile(
     r"[àáảãạâầấẩẫậăằắẳẵặ"
     r"èéẻẽẹêềếểễệ"

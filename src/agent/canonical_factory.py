@@ -24,10 +24,9 @@ from src.model.agent_backend import (
     FallbackAgentBackend,
     UnconfiguredAgentBackend,
 )
-from src.model.agent_provider_bridge import AgentBackendProvider
 from src.model.agent_llm_adapter import AgentLLMAdapter
+from src.model.agent_provider_bridge import AgentBackendProvider
 from src.model.llm_client import LLMClient
-from src.model.config_store import FeatureFlagStore
 from src.pipeline.external_verification import ExternalVerificationExecutor
 from src.pipeline.security.inspector_chain import InspectorChain
 from src.pipeline.security.parameter_safety_inspector import (
@@ -274,7 +273,6 @@ def _build_openai_compatible_backend(
         ),
         timeout=cfg.timeout,
         temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
         supports_structured_output=(
             False
             if provider == "ollama"
@@ -295,7 +293,6 @@ def _build_server_backend(
     cfg = ServerConfig.model_validate(
         dict(raw)
     )
-
     provider = (
         cfg.provider or "openai"
     ).strip().casefold()
@@ -326,12 +323,18 @@ def _build_server_backend(
             "provider calls will fail."
         )
 
+    if cfg.provider_max_tokens is None:
+        raise RuntimeError(
+            "Anthropic requires provider_max_tokens; OpenAI-compatible "
+            "providers must not configure an Orion generation limit."
+        )
+
     return AnthropicAgentAdapter(
         api_key=api_key or "",
         model=model_override or cfg.model,
         timeout=cfg.timeout,
         temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
+        provider_required_max_tokens=cfg.provider_max_tokens,
     )
 
 
@@ -569,15 +572,9 @@ def create_canonical_production_runtime(
         _model_backend_chain(backends)
     )
 
-    flags = FeatureFlagStore().load()
-
     external_verification = (
         ExternalVerificationExecutor(
             knowledge_tool,
-            enabled=(
-                flags.external_verification_v1
-                and flags.web_search_v1
-            ),
         )
     )
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 
-
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b("
     r"password|passwd|token|api[_-]?key|authorization|"

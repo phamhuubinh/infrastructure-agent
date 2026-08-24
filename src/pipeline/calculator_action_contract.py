@@ -1,4 +1,4 @@
-"""Canonical Agent v2 transport binding for deterministic calculation.
+"""Strict canonical capability contract for deterministic calculation.
 
 This adapter owns the JSON-safe calculator action shape and the one-way
 conversion to the reviewed :mod:`basic_calculator` request contract.  It does
@@ -11,6 +11,8 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from typing import TypeVar
 
+from src.agent.capabilities import CapabilityDefinition
+from src.agent.permissions import EffectClass
 from src.pipeline.basic_calculator import (
     CalculatorDurationUnit,
     CalculatorOperation,
@@ -21,23 +23,6 @@ from src.pipeline.basic_calculator import (
 CALCULATOR_CAPABILITY_ID = "compute.deterministic"
 MAX_CALCULATOR_VALUES = 16
 
-_PROPERTY_NAMES = (
-    "operation",
-    "values",
-    "left",
-    "right",
-    "base_value",
-    "percent",
-    "total_tasks",
-    "workers",
-    "duration",
-    "duration_unit",
-    "rate_value",
-    "rate_unit",
-    "target_rate_unit",
-    "unit",
-)
-
 
 class CalculatorActionBindingError(ValueError):
     """Raised when validated JSON transport cannot form a calculator request."""
@@ -46,44 +31,106 @@ class CalculatorActionBindingError(ValueError):
 def calculator_arguments_schema() -> dict[str, object]:
     """Return the sole strict JSON transport schema for calculator actions."""
 
-    nullable_number: dict[str, object] = {"type": ["number", "null"]}
-    nullable_duration = {
-        "type": ["string", "null"],
-        "enum": [item.value for item in CalculatorDurationUnit] + [None],
+    number: dict[str, object] = {"type": "number"}
+    unit = {"type": "string", "minLength": 1, "maxLength": 64}
+    duration_unit = {
+        "type": "string",
+        "enum": [item.value for item in CalculatorDurationUnit],
     }
-    nullable_rate = {
-        "type": ["string", "null"],
-        "enum": [item.value for item in CalculatorRateUnit] + [None],
+    rate_unit = {
+        "type": "string",
+        "enum": [item.value for item in CalculatorRateUnit],
     }
+
+    def branch(
+        operations: tuple[CalculatorOperation, ...],
+        properties: dict[str, object],
+        required: tuple[str, ...],
+    ) -> dict[str, object]:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": [item.value for item in operations],
+                },
+                **properties,
+            },
+            "required": ["operation", *required],
+        }
+
     return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "operation": {
-                "type": "string",
-                "enum": [item.value for item in CalculatorOperation],
-            },
-            "values": {
-                "type": ["array", "null"],
-                "items": {"type": "number"},
-                "minItems": 1,
-                "maxItems": MAX_CALCULATOR_VALUES,
-            },
-            "left": dict(nullable_number),
-            "right": dict(nullable_number),
-            "base_value": dict(nullable_number),
-            "percent": dict(nullable_number),
-            "total_tasks": dict(nullable_number),
-            "workers": dict(nullable_number),
-            "duration": dict(nullable_number),
-            "duration_unit": nullable_duration,
-            "rate_value": dict(nullable_number),
-            "rate_unit": dict(nullable_rate),
-            "target_rate_unit": dict(nullable_rate),
-            "unit": {"type": ["string", "null"], "maxLength": 64},
-        },
-        "required": list(_PROPERTY_NAMES),
+        "oneOf": [
+            branch(
+                (
+                    CalculatorOperation.ADD,
+                    CalculatorOperation.SUBTRACT,
+                    CalculatorOperation.MULTIPLY,
+                    CalculatorOperation.DIVIDE,
+                ),
+                {"left": number, "right": number, "unit": unit},
+                ("left", "right"),
+            ),
+            branch(
+                (CalculatorOperation.AVERAGE,),
+                {
+                    "values": {
+                        "type": "array",
+                        "items": number,
+                        "minItems": 1,
+                        "maxItems": MAX_CALCULATOR_VALUES,
+                    },
+                    "unit": unit,
+                },
+                ("values",),
+            ),
+            branch(
+                (CalculatorOperation.PERCENT_OF,),
+                {"base_value": number, "percent": number, "unit": unit},
+                ("base_value", "percent"),
+            ),
+            branch(
+                (CalculatorOperation.WORKER_TASK_RATE,),
+                {
+                    "total_tasks": number,
+                    "workers": number,
+                    "duration": number,
+                    "duration_unit": duration_unit,
+                },
+                ("total_tasks", "workers", "duration", "duration_unit"),
+            ),
+            branch(
+                (CalculatorOperation.RATE_CONVERT,),
+                {
+                    "rate_value": number,
+                    "rate_unit": rate_unit,
+                    "target_rate_unit": rate_unit,
+                    "unit": unit,
+                },
+                ("rate_value", "rate_unit", "target_rate_unit"),
+            ),
+        ],
     }
+
+
+def calculator_capability() -> CapabilityDefinition:
+    """Return Calculator's reviewed local capability registration."""
+
+    return CapabilityDefinition(
+        capability_id=CALCULATOR_CAPABILITY_ID,
+        purpose="Perform exact arithmetic with deterministic computation",
+        tool_id="calculator",
+        effect=EffectClass.READ,
+        arguments_schema=calculator_arguments_schema(),
+        runtime_binding="calculator.execute",
+        discovery_group="calculator",
+        available=True,
+        safety_reviewed=True,
+        budget_cost=1,
+        result_kind="deterministic_result",
+        activity_label="Calculating",
+    )
 
 
 def bind_calculator_action(arguments: Mapping[str, object]) -> CalculatorRequest:
@@ -96,37 +143,10 @@ def bind_calculator_action(arguments: Mapping[str, object]) -> CalculatorRequest
 
     if not isinstance(arguments, Mapping):
         raise CalculatorActionBindingError("arguments must be an object")
-    names = set(arguments)
-    expected = set(_PROPERTY_NAMES)
-    if names != expected:
-        missing = expected - names
-        if missing:
-            raise CalculatorActionBindingError("missing_transport_fields")
-        raise CalculatorActionBindingError("undeclared_transport_fields")
     try:
         operation = CalculatorOperation(_required_string(arguments["operation"]))
-        values = _decimal_values(arguments["values"])
-        return CalculatorRequest(
-            operation=operation,
-            values=values,
-            left=_optional_decimal(arguments["left"]),
-            right=_optional_decimal(arguments["right"]),
-            base_value=_optional_decimal(arguments["base_value"]),
-            percent=_optional_decimal(arguments["percent"]),
-            total_tasks=_optional_decimal(arguments["total_tasks"]),
-            workers=_optional_decimal(arguments["workers"]),
-            duration=_optional_decimal(arguments["duration"]),
-            duration_unit=_optional_enum(
-                CalculatorDurationUnit, arguments["duration_unit"]
-            ),
-            rate_value=_optional_decimal(arguments["rate_value"]),
-            rate_unit=_optional_enum(CalculatorRateUnit, arguments["rate_unit"]),
-            target_rate_unit=_optional_enum(
-                CalculatorRateUnit, arguments["target_rate_unit"]
-            ),
-            unit=_optional_unit(arguments["unit"]),
-        )
-    except (TypeError, ValueError, InvalidOperation) as exc:
+        return _request_for_operation(operation, arguments)
+    except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         raise CalculatorActionBindingError("invalid_calculator_transport") from exc
 
 
@@ -136,9 +156,7 @@ def _required_string(value: object) -> str:
     return value
 
 
-def _optional_decimal(value: object) -> Decimal | None:
-    if value is None:
-        return None
+def _decimal(value: object) -> Decimal:
     if type(value) not in {int, float}:
         raise TypeError("expected JSON number")
     decimal = Decimal(str(value))
@@ -148,36 +166,23 @@ def _optional_decimal(value: object) -> Decimal | None:
 
 
 def _decimal_values(value: object) -> tuple[Decimal, ...]:
-    if value is None:
-        return ()
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise TypeError("values must be an array or null")
+        raise TypeError("values must be an array")
     if not 1 <= len(value) <= MAX_CALCULATOR_VALUES:
         raise ValueError("values array length is invalid")
-    return tuple(_required_decimal(item) for item in value)
-
-
-def _required_decimal(value: object) -> Decimal:
-    decimal = _optional_decimal(value)
-    if decimal is None:
-        raise TypeError("values must contain JSON numbers")
-    return decimal
+    return tuple(_decimal(item) for item in value)
 
 
 _CalculatorEnum = TypeVar("_CalculatorEnum", CalculatorDurationUnit, CalculatorRateUnit)
 
 
-def _optional_enum(
-    enum_type: type[_CalculatorEnum], value: object
-) -> _CalculatorEnum | None:
-    if value is None:
-        return None
+def _enum(enum_type: type[_CalculatorEnum], value: object) -> _CalculatorEnum:
     if not isinstance(value, str):
         raise TypeError("expected enum string")
     return enum_type(value)
 
 
-def _optional_unit(value: object) -> str | None:
+def _optional_unit(value: object | None) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str) or not value.strip() or len(value) > 64:
@@ -185,10 +190,92 @@ def _optional_unit(value: object) -> str | None:
     return value
 
 
+def _request_for_operation(
+    operation: CalculatorOperation,
+    arguments: Mapping[str, object],
+) -> CalculatorRequest:
+    binary = {
+        CalculatorOperation.ADD,
+        CalculatorOperation.SUBTRACT,
+        CalculatorOperation.MULTIPLY,
+        CalculatorOperation.DIVIDE,
+    }
+    if operation in binary:
+        _exact_keys(
+            arguments,
+            {"operation", "left", "right", "unit"},
+            {"operation", "left", "right"},
+        )
+        return CalculatorRequest(
+            operation,
+            left=_decimal(arguments["left"]),
+            right=_decimal(arguments["right"]),
+            unit=_optional_unit(arguments.get("unit")),
+        )
+    if operation is CalculatorOperation.AVERAGE:
+        _exact_keys(
+            arguments,
+            {"operation", "values", "unit"},
+            {"operation", "values"},
+        )
+        return CalculatorRequest(
+            operation,
+            values=_decimal_values(arguments["values"]),
+            unit=_optional_unit(arguments.get("unit")),
+        )
+    if operation is CalculatorOperation.PERCENT_OF:
+        _exact_keys(
+            arguments,
+            {"operation", "base_value", "percent", "unit"},
+            {"operation", "base_value", "percent"},
+        )
+        return CalculatorRequest(
+            operation,
+            base_value=_decimal(arguments["base_value"]),
+            percent=_decimal(arguments["percent"]),
+            unit=_optional_unit(arguments.get("unit")),
+        )
+    if operation is CalculatorOperation.WORKER_TASK_RATE:
+        _exact_keys(
+            arguments,
+            {"operation", "total_tasks", "workers", "duration", "duration_unit"},
+            {"operation", "total_tasks", "workers", "duration", "duration_unit"},
+        )
+        return CalculatorRequest(
+            operation,
+            total_tasks=_decimal(arguments["total_tasks"]),
+            workers=_decimal(arguments["workers"]),
+            duration=_decimal(arguments["duration"]),
+            duration_unit=_enum(CalculatorDurationUnit, arguments["duration_unit"]),
+        )
+    _exact_keys(
+        arguments,
+        {"operation", "rate_value", "rate_unit", "target_rate_unit", "unit"},
+        {"operation", "rate_value", "rate_unit", "target_rate_unit"},
+    )
+    return CalculatorRequest(
+        operation,
+        rate_value=_decimal(arguments["rate_value"]),
+        rate_unit=_enum(CalculatorRateUnit, arguments["rate_unit"]),
+        target_rate_unit=_enum(CalculatorRateUnit, arguments["target_rate_unit"]),
+        unit=_optional_unit(arguments.get("unit")),
+    )
+
+
+def _exact_keys(
+    arguments: Mapping[str, object], allowed: set[str], required: set[str]
+) -> None:
+    if set(arguments) - allowed:
+        raise ValueError("undeclared_transport_fields")
+    if required - set(arguments):
+        raise ValueError("missing_transport_fields")
+
+
 __all__ = [
     "CALCULATOR_CAPABILITY_ID",
     "MAX_CALCULATOR_VALUES",
     "CalculatorActionBindingError",
     "bind_calculator_action",
+    "calculator_capability",
     "calculator_arguments_schema",
 ]

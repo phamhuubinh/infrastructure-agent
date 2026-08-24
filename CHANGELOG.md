@@ -1,121 +1,28 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
 
 ### Added
-- Accepted target-architecture documentation under `docs/architecture/`, architecture decisions
-  under `docs/decisions/`, and engineering/migration/testing guidance under `docs/development/`.
-- Canonical model/harness contracts for model-driven decisions with deterministic authority,
-  exact capability/target/source validation, bounded execution, and explicit observations.
+
+- Canonical target architecture/ADR documentation.
+- `docs/development/IMPLEMENTATION_GAPS.md`, the current defect/convergence ledger.
+- ADR-0009: protected system/developer/internal instructions are not user-retrievable and use canonical `REFUSE`.
 
 ### Changed
-- Cut configured Web and CLI Chat construction over to the canonical model-driven agent runtime.
-  Natural-language semantics are owned by the model; authority, validation, execution, evidence,
-  limits, and completion remain harness responsibilities.
-- Migrated benchmark/public-agent integration to `create_canonical_session_agent` and canonical
-  runtime trace/step contracts.
-- Reorganized active architecture documentation away from the removed `docs/ai/` hierarchy. Target
-  design precedence is now `docs/decisions/` → `docs/architecture/` → `docs/development/` → product
-  documentation.
-- Restored foreground `orion web` lifecycle semantics for Docker installs: it follows only current
-  API/UI logs without replaying historical proxy noise and stops Web services on `Ctrl+C`, while
-  `orion log` follows the complete stack without stopping it.
-- Made uninstall clean model/session/RAG volumes and private runtime state by default, with a
-  separate interactive choice for removing shared Grafana/Zabbix credentials.
+
+- Configured Web/CLI Chat construction uses the canonical model-driven runtime.
+- Documentation now distinguishes target architecture, implementation truth, and known defects.
+- Agent-runtime docs define stage-specific legality and post-generation harness validation.
+- Evidence docs distinguish dispatched attempts from successful observations and require objective final-claim checks.
+- Model docs define configured identity grounding and explicit health states.
+- Security docs distinguish root internal RAG from the currently unhardened standalone development stack.
+- Testing docs distinguish full local unit/static validation from explicit live Docker/model/GA2 gates.
+- QA docs no longer describe `budget.actions_used` as proof of successful tool execution.
 
 ### Removed
-- Legacy deterministic/semantic routing stack from the configured primary agent path, including
-  compatibility contracts that no longer had required callers.
-- Unused Dify API/Web services, their dedicated Redis service, reverse-proxy route, and environment
-  wiring.
-- Autonomous development supervisor/orchestrator artifacts, generated task logs, committed Python
-  build metadata, stale machine-specific QA reports, benchmark history, and duplicate stale
-  fixtures.
 
-### Documentation
-- Root/operator/contributor/AI-agent instructions now point at the current documentation hierarchy
-  and explicitly distinguish accepted target architecture from current implementation gaps.
-- Project RAG documentation records that the service is currently a separate Web workspace while
-  ADR-0003 defines integration as a normal READ capability in the accepted target architecture.
-- QA documentation describes the canonical HTTP runtime gate and calls out remaining
-  compatibility-named viability fields in `ga2_runner.py` so they are not mistaken for architecture
-  authority.
+- Superseded deterministic/semantic routing from configured primary Chat construction and no-caller compatibility contracts from that refactor scope.
 
 ## [0.1.0] — 2026-07-22
 
-### Added
-- Initial infrastructure investigation platform
-- Deterministic pipeline: Intent Resolution → Target Resolution → Evidence Planning → Capability Resolution → Execution Planning → Execution Graph → Execution Runtime
-- KnowledgeTool as single dispatch entry point for Child Tools
-- Child Tools: LinuxTool (SSH), GrafanaTool, ZabbixTool, InternetTool (SSRF-protected HTTP fetch), KnowledgeBaseTool (RAG service proxy)
-- Local target registry backed by JSON file
-- Assessment layer: LLMAssessmentAdapter and MockAssessmentAdapter
-- CLI entry point with local and web modes
-- Web UI (TanStack Start / React) with step-by-step pipeline visualization
-- Benchmark framework with scoring, reporting, regression detection
-- Session management with conversation persistence (JSON + optional PostgreSQL)
-- DeterministicResponder for simple responses without LLM
-- Fuzzy target name matching
-- Ctrl+C cancel support
-- RAG microservice with embedding, vector store, OCR, chunking, GraphRAG
-- Docker Compose deployment: nginx, FastAPI, React UI, PostgreSQL, Dify, Redis, RAG service
-- Desktop App (Electron wrapper)
-- API authentication (optional `ORION_API_KEY` middleware)
-- Document upload/list/delete API endpoints
-- CI with multi-Python-version testing, Docker build, smoke tests, security scanning
-- Comprehensive test suite: 855 tests across pipeline, tools, model, backend, agent, benchmark
-
-### Security
-- Secrets moved from source code to an external credentials file (now standardized at `/etc/orion/tool-credentials.json`)
-- InternetTool SSRF protection (private IP block + DNS resolution guard)
-- API auth via optional API key middleware
-- Security scanning in CI: Bandit (static analysis), Safety (dependency check), pip-audit (package CVEs)
-- `make security-scan` target, integrated into `make ci`
-- New `[security]` optional dependency group in pyproject.toml
-- Security documentation updated in SECURITY.md
-- SSH Host Key Checking now configurable per target in targets.json
-
-### Fixed
-- Logger crash on read-only filesystem — fallback to stderr
-- Platform-specific issues in Linux tool execution
-- Various lint fixes (ruff E, F, I, UP, B rules) across full codebase
-- Packaging: `src` module discovery, benchmark output path, misplaced files
-
-### Changed
-- Split large tool files into packages:
-  - Linux (1701 lines): divided into `linux/` subpackage
-  - Zabbix (991 lines): divided into `zabbix/` subpackage
-  - Grafana (824 lines): divided into `grafana/` subpackage
-- DRY refactoring: `ExecutionBackend` factored into shared module
-- Evidence serialization optimized for frontend — never sends full raw data
-- Safe data serialization improved — handles nested dicts/lists, circular refs
-- Error messages sanitized — no internal paths or source info leaked
-- Sensitive info masked in logs — passwords, tokens, API keys
-- Conversation summary threshold now configurable via `ORION_CONVERSATION_THRESHOLD` env var
-- Frontend dev port now configurable via `ORION_FRONTEND_PORT` env var
-- Backlog format standardized with auto-generation script
-
-### Removed
-- Dead code and unused imports across entire project
-- Committed `tools.json` artifact — now generated from capability library
-- Plaintext secrets from repository (moved to gitignored config file)
-
-### Documentation
-- All docs synchronized with the then-current codebase
-- ADR-0002 (LLM assessment only) created
-- ADR-0003 (KnowledgeTool single entry point) created
-- ADR-0004 (stateless state management) created
-- Architecture decisions cross-referenced
-- Standardized documentation structure
-
-### Testing
-- 855 tests passing, 4 skipped
-- Thread safety tests for ConversationStore, ExecutionRuntime, Tool execution
-- Regression tests for previously fixed runtime bugs
-- Backend API test coverage increased
-- UI test stage added to CI
+Historical initial release: deterministic infrastructure investigation stack, tool integrations, CLI/Web UI, RAG service, persistence, Docker deployment, API auth, benchmark/CI/security tooling.

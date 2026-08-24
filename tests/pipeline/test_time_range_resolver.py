@@ -8,7 +8,6 @@ from src.pipeline.time_range_resolver import (
     TimeRangeResolver,
 )
 
-
 NOW = datetime(
     2026,
     8,

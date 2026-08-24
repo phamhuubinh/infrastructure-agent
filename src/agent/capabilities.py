@@ -28,6 +28,7 @@ _ALLOWED_SCHEMA_KEYS = frozenset(
         "minItems",
         "maxItems",
         "items",
+        "oneOf",
     }
 )
 
@@ -87,17 +88,12 @@ class CapabilityDefinition:
                 continue
 
             if getattr(self, kind_field) is None:
-                raise ValueError(
-                    f"{field_name} requires {kind_field}."
-                )
+                raise ValueError(f"{field_name} requires {kind_field}.")
 
             if not isinstance(value, frozenset) or any(
-                not isinstance(item, str) or not item
-                for item in value
+                not isinstance(item, str) or not item for item in value
             ):
-                raise TypeError(
-                    f"{field_name} must be frozenset[str] or None."
-                )
+                raise TypeError(f"{field_name} must be frozenset[str] or None.")
 
         if type(self.available) is not bool:
             raise TypeError("available must be bool.")
@@ -119,12 +115,14 @@ class CapabilityDefinition:
 
         if (
             not isinstance(self.arguments_schema, Mapping)
-            or self.arguments_schema.get("type") != "object"
-            or self.arguments_schema.get("additionalProperties") is not False
+            or (
+                self.arguments_schema.get("type") != "object"
+                and "oneOf" not in self.arguments_schema
+            )
         ):
             raise ValueError(
-                "arguments_schema must be a closed object schema "
-                "with additionalProperties=false."
+                "arguments_schema must be a closed object schema or oneOf "
+                "of closed object schemas."
             )
 
         _validate_schema_definition(
@@ -146,23 +144,15 @@ class CapabilityRegistry:
         self,
         capabilities: Sequence[CapabilityDefinition],
     ) -> None:
-        if any(
-            not isinstance(item, CapabilityDefinition)
-            for item in capabilities
-        ):
-            raise TypeError(
-                "capabilities must contain CapabilityDefinition values."
-            )
+        if any(not isinstance(item, CapabilityDefinition) for item in capabilities):
+            raise TypeError("capabilities must contain CapabilityDefinition values.")
 
         ids = [item.capability_id for item in capabilities]
         if len(ids) != len(set(ids)):
             raise ValueError("Capability IDs must be unique.")
 
         self._capabilities = tuple(capabilities)
-        self._by_id = {
-            item.capability_id: item
-            for item in capabilities
-        }
+        self._by_id = {item.capability_id: item for item in capabilities}
 
     @property
     def capabilities(self) -> tuple[CapabilityDefinition, ...]:
@@ -179,10 +169,7 @@ class CapabilityRegistry:
 
 def thaw_schema(value: object) -> object:
     if isinstance(value, Mapping):
-        return {
-            key: thaw_schema(item)
-            for key, item in value.items()
-        }
+        return {key: thaw_schema(item) for key, item in value.items()}
 
     if isinstance(value, tuple):
         return [thaw_schema(item) for item in value]
@@ -212,9 +199,7 @@ def _require_text(
         or value != value.strip()
         or len(value) > max_chars
     ):
-        raise ValueError(
-            f"{field_name} must be bounded non-empty trimmed text."
-        )
+        raise ValueError(f"{field_name} must be bounded non-empty trimmed text.")
     return value
 
 
@@ -257,52 +242,53 @@ def _validate_schema_definition(
     unknown = set(schema) - _ALLOWED_SCHEMA_KEYS
     if unknown:
         raise ValueError(
-            f"{path} schema contains unsupported keywords: "
-            f"{sorted(unknown)}."
+            f"{path} schema contains unsupported keywords: {sorted(unknown)}."
         )
+
+    one_of = schema.get("oneOf")
+    if one_of is not None:
+        if (
+            set(schema) != {"oneOf"}
+            or not isinstance(one_of, Sequence)
+            or isinstance(one_of, (str, bytes))
+            or not one_of
+        ):
+            raise ValueError(f"{path}.oneOf must be a non-empty exclusive schema list.")
+        for index, branch in enumerate(one_of):
+            _validate_schema_definition(branch, path=f"{path}.oneOf[{index}]")
+        return
 
     types = _schema_types(schema, path=path)
 
     if "object" in types:
         if schema.get("additionalProperties") is not False:
             raise ValueError(
-                f"{path} object schema must set "
-                "additionalProperties=false."
+                f"{path} object schema must set additionalProperties=false."
             )
 
         properties = schema.get("properties")
         required = schema.get("required", [])
 
         if not isinstance(properties, Mapping):
-            raise ValueError(
-                f"{path}.properties must be an object."
-            )
+            raise ValueError(f"{path}.properties must be an object.")
 
         if (
             not isinstance(required, Sequence)
             or isinstance(required, (str, bytes))
             or any(not isinstance(item, str) for item in required)
         ):
-            raise ValueError(
-                f"{path}.required must be an array of strings."
-            )
+            raise ValueError(f"{path}.required must be an array of strings.")
 
         if len(required) != len(set(required)):
-            raise ValueError(
-                f"{path}.required contains duplicates."
-            )
+            raise ValueError(f"{path}.required contains duplicates.")
 
         undeclared = set(required) - set(properties)
         if undeclared:
-            raise ValueError(
-                f"{path}.required references undeclared properties."
-            )
+            raise ValueError(f"{path}.required references undeclared properties.")
 
         for name, child in properties.items():
             if not isinstance(name, str) or not name:
-                raise ValueError(
-                    f"{path}.properties keys must be non-empty strings."
-                )
+                raise ValueError(f"{path}.properties keys must be non-empty strings.")
             _validate_schema_definition(
                 child,
                 path=f"{path}.{name}",
@@ -316,9 +302,7 @@ def _validate_schema_definition(
             "required",
         )
     ):
-        raise ValueError(
-            f"{path} uses object keywords without object type."
-        )
+        raise ValueError(f"{path} uses object keywords without object type.")
 
     if "array" in types:
         items = schema.get("items")
@@ -327,27 +311,18 @@ def _validate_schema_definition(
                 items,
                 path=f"{path}[]",
             )
-    elif any(
-        key in schema
-        for key in ("items", "minItems", "maxItems")
-    ):
-        raise ValueError(
-            f"{path} uses array keywords without array type."
-        )
+    elif any(key in schema for key in ("items", "minItems", "maxItems")):
+        raise ValueError(f"{path} uses array keywords without array type.")
 
     enum = schema.get("enum")
     if enum is not None and (
-        not isinstance(enum, Sequence)
-        or isinstance(enum, (str, bytes))
-        or not enum
+        not isinstance(enum, Sequence) or isinstance(enum, (str, bytes)) or not enum
     ):
         raise ValueError(f"{path}.enum must be a non-empty array.")
 
     for key in ("minimum", "maximum"):
         value = schema.get(key)
-        if value is not None and (
-            type(value) not in {int, float}
-        ):
+        if value is not None and (type(value) not in {int, float}):
             raise ValueError(f"{path}.{key} must be numeric.")
 
     for key in (
@@ -357,12 +332,8 @@ def _validate_schema_definition(
         "maxItems",
     ):
         value = schema.get(key)
-        if value is not None and (
-            type(value) is not int or value < 0
-        ):
-            raise ValueError(
-                f"{path}.{key} must be a non-negative integer."
-            )
+        if value is not None and (type(value) is not int or value < 0):
+            raise ValueError(f"{path}.{key} must be a non-negative integer.")
 
     pattern = schema.get("pattern")
     if pattern is not None:
@@ -371,24 +342,16 @@ def _validate_schema_definition(
         try:
             re.compile(pattern)
         except re.error as exc:
-            raise ValueError(
-                f"{path}.pattern must be valid regex."
-            ) from exc
+            raise ValueError(f"{path}.pattern must be valid regex.") from exc
 
 
 def _freeze_json(value: object) -> object:
     if isinstance(value, Mapping):
         return MappingProxyType(
-            {
-                key: _freeze_json(item)
-                for key, item in value.items()
-            }
+            {key: _freeze_json(item) for key, item in value.items()}
         )
 
-    if (
-        isinstance(value, Sequence)
-        and not isinstance(value, (str, bytes))
-    ):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return tuple(_freeze_json(item) for item in value)
 
     return value

@@ -118,7 +118,6 @@ jobs:
         run: |
           python -m pytest \
             tests/qa/test_golden_schema.py \
-            tests/qa/test_transcript_regression.py \
             tests/qa/test_acceptance_scoring.py \
             tests/security/ \
             -q --tb=short

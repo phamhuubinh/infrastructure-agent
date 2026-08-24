@@ -8,9 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
-MAX_GOAL_CHARS = 1024
 MAX_TEXT_CHARS = 8192
 MAX_REFERENCE_CHARS = 256
 MAX_CAPABILITY_ID_CHARS = 128
@@ -49,6 +48,11 @@ class DecisionKind(str, Enum):
     REFUSE = "refuse"
 
 
+class FinalClaimKind(str, Enum):
+    OBSERVATION = "observation"
+    DETERMINISTIC_RESULT = "deterministic_result"
+
+
 class ObservationStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"
@@ -68,16 +72,24 @@ def _require_text(
 
     if not isinstance(value, str) or not value.strip():
         suffix = " or null" if nullable else ""
-        raise ContractError(
-            f"{field_name} must be a non-empty string{suffix}."
-        )
+        raise ContractError(f"{field_name} must be a non-empty string{suffix}.")
 
     if len(value) > max_chars:
-        raise ContractError(
-            f"{field_name} exceeds maximum length of {max_chars}."
-        )
+        raise ContractError(f"{field_name} exceeds maximum length of {max_chars}.")
 
     return value
+
+
+def _require_non_null_text(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int,
+) -> str:
+    result = _require_text(value, field_name, max_chars=max_chars)
+    if result is None:
+        raise ContractError(f"{field_name} must be a non-empty string.")
+    return result
 
 
 def _exact_object(
@@ -101,8 +113,7 @@ def _exact_object(
             detail.append(f"unexpected={unexpected}")
 
         raise ContractError(
-            f"{name} fields do not match contract: "
-            + ", ".join(detail)
+            f"{name} fields do not match contract: " + ", ".join(detail)
         )
 
     return dict(value)
@@ -137,9 +148,7 @@ def _freeze_json(
 
         for key, item in value.items():
             if not isinstance(key, str) or not key:
-                raise ContractError(
-                    "JSON object keys must be non-empty strings."
-                )
+                raise ContractError("JSON object keys must be non-empty strings.")
 
             if (
                 reject_sensitive_keys
@@ -170,17 +179,12 @@ def _freeze_json(
             for item in value
         )
 
-    raise ContractError(
-        "Contract values must contain JSON-compatible data only."
-    )
+    raise ContractError("Contract values must contain JSON-compatible data only.")
 
 
 def _thaw_json(value: object) -> object:
     if isinstance(value, Mapping):
-        return {
-            key: _thaw_json(item)
-            for key, item in value.items()
-        }
+        return {key: _thaw_json(item) for key, item in value.items()}
 
     if isinstance(value, tuple):
         return [_thaw_json(item) for item in value]
@@ -231,42 +235,47 @@ class AgentAction:
         object.__setattr__(self, "arguments", frozen)
 
     def to_wire(self) -> dict[str, object]:
-        return {
+        wire: dict[str, object] = {
             "capability_id": self.capability_id,
-            "target_ref": self.target_ref,
-            "source_ref": self.source_ref,
             "arguments": _thaw_json(self.arguments),
-            "activity_text": self.activity_text,
         }
+        if self.target_ref is not None:
+            wire["target_ref"] = self.target_ref
+        if self.source_ref is not None:
+            wire["source_ref"] = self.source_ref
+        if self.activity_text is not None:
+            wire["activity_text"] = self.activity_text
+        return wire
 
     @classmethod
     def from_wire(cls, value: object) -> AgentAction:
-        data = _exact_object(
-            value,
-            {
-                "capability_id",
-                "target_ref",
-                "source_ref",
-                "arguments",
-                "activity_text",
-            },
-            "action",
-        )
+        if not isinstance(value, Mapping):
+            raise ContractError("action must be an object.")
+        data = dict(value)
+        allowed = {
+            "capability_id",
+            "target_ref",
+            "source_ref",
+            "arguments",
+            "activity_text",
+        }
+        if set(data) - allowed or not {"capability_id", "arguments"} <= set(data):
+            raise ContractError("action fields do not match contract.")
 
         return cls(
-            capability_id=_require_text(
+            capability_id=_require_non_null_text(
                 data["capability_id"],
                 "action.capability_id",
                 max_chars=MAX_CAPABILITY_ID_CHARS,
             ),
             target_ref=_require_text(
-                data["target_ref"],
+                data.get("target_ref"),
                 "action.target_ref",
                 max_chars=MAX_REFERENCE_CHARS,
                 nullable=True,
             ),
             source_ref=_require_text(
-                data["source_ref"],
+                data.get("source_ref"),
                 "action.source_ref",
                 max_chars=MAX_REFERENCE_CHARS,
                 nullable=True,
@@ -276,7 +285,7 @@ class AgentAction:
                 "action.arguments",
             ),
             activity_text=_require_text(
-                data["activity_text"],
+                data.get("activity_text"),
                 "action.activity_text",
                 max_chars=MAX_TEXT_CHARS,
                 nullable=True,
@@ -285,24 +294,140 @@ class AgentAction:
 
 
 @dataclass(frozen=True, slots=True)
+class FinalClaim:
+    """One bounded objective assertion a FINAL derives from evidence.
+
+    Answer prose is model-owned language.  These references make the
+    execution/status/identity portion deterministic without attempting to
+    interpret that prose in a post-router.
+    """
+
+    kind: FinalClaimKind
+    action_id: int
+    capability_id: str
+    target_ref: str | None = None
+    source_ref: str | None = None
+    require_fresh: bool = False
+    result: Mapping[str, object] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, FinalClaimKind):
+            raise ContractError("final claim kind is invalid.")
+        if type(self.action_id) is not int or self.action_id < 1:
+            raise ContractError("final claim action_id must be positive.")
+        _require_text(
+            self.capability_id,
+            "final claim capability_id",
+            max_chars=MAX_CAPABILITY_ID_CHARS,
+        )
+        _require_text(
+            self.target_ref,
+            "final claim target_ref",
+            max_chars=MAX_REFERENCE_CHARS,
+            nullable=True,
+        )
+        _require_text(
+            self.source_ref,
+            "final claim source_ref",
+            max_chars=MAX_REFERENCE_CHARS,
+            nullable=True,
+        )
+        if not isinstance(self.require_fresh, bool):
+            raise ContractError("final claim require_fresh must be boolean.")
+        if self.kind is FinalClaimKind.OBSERVATION:
+            if self.result is not None:
+                raise ContractError("observation final claims must not contain result.")
+        elif not isinstance(self.result, Mapping) or not self.result:
+            raise ContractError(
+                "deterministic_result final claims require a non-empty result object."
+            )
+        if self.result is not None:
+            frozen_result = _freeze_json(self.result)
+            if not isinstance(frozen_result, Mapping):
+                raise ContractError("final claim result must be an object.")
+            object.__setattr__(self, "result", frozen_result)
+
+    def to_wire(self) -> dict[str, object]:
+        wire: dict[str, object] = {
+            "kind": self.kind.value,
+            "action_id": self.action_id,
+            "capability_id": self.capability_id,
+        }
+        if self.target_ref is not None:
+            wire["target_ref"] = self.target_ref
+        if self.source_ref is not None:
+            wire["source_ref"] = self.source_ref
+        if self.require_fresh:
+            wire["require_fresh"] = True
+        if self.result is not None:
+            wire["result"] = _thaw_json(self.result)
+        return wire
+
+    @classmethod
+    def from_wire(cls, value: object) -> FinalClaim:
+        if not isinstance(value, Mapping):
+            raise ContractError("final claim must be an object.")
+        data = dict(value)
+        allowed = {
+            "kind", "action_id", "capability_id", "target_ref", "source_ref",
+            "require_fresh", "result",
+        }
+        if set(data) - allowed or not {"kind", "action_id", "capability_id"} <= set(data):
+            raise ContractError("final claim fields do not match contract.")
+        try:
+            kind = FinalClaimKind(data["kind"])
+        except (TypeError, ValueError) as exc:
+            raise ContractError("final claim kind is invalid.") from exc
+        action_id = data["action_id"]
+        if type(action_id) is not int or action_id < 1:
+            raise ContractError("final claim action_id must be positive.")
+        require_fresh = data.get("require_fresh", False)
+        if not isinstance(require_fresh, bool):
+            raise ContractError("final claim require_fresh must be boolean.")
+        result = data.get("result")
+        if result is not None and not isinstance(result, Mapping):
+            raise ContractError("final claim result must be an object or null.")
+        return cls(
+            kind=kind,
+            action_id=action_id,
+            capability_id=_require_non_null_text(
+                data["capability_id"],
+                "final claim capability_id",
+                max_chars=MAX_CAPABILITY_ID_CHARS,
+            ),
+            target_ref=_require_text(
+                data.get("target_ref"),
+                "final claim target_ref",
+                max_chars=MAX_REFERENCE_CHARS,
+                nullable=True,
+            ),
+            source_ref=_require_text(
+                data.get("source_ref"),
+                "final claim source_ref",
+                max_chars=MAX_REFERENCE_CHARS,
+                nullable=True,
+            ),
+            require_fresh=require_fresh,
+            result=dict(result) if result is not None else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class AgentDecision:
     kind: DecisionKind
-    goal: str
+    # Retained only as a non-wire convenience for in-process callers. The v3
+    # canonical model contract never requests or accepts this field.
+    goal: str | None = field(default=None, compare=False)
     category: str | None = None
     action: AgentAction | None = None
     answer: str | None = None
     question: str | None = None
     reason: str | None = None
+    claims: tuple[FinalClaim, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, DecisionKind):
             raise ContractError("decision.kind must be DecisionKind.")
-
-        _require_text(
-            self.goal,
-            "decision.goal",
-            max_chars=MAX_GOAL_CHARS,
-        )
 
         bodies = {
             DecisionKind.FINAL: ("answer", self.answer),
@@ -319,7 +444,7 @@ class AgentDecision:
                 f"{self.kind.value} decision requires {required_field}."
             )
 
-        for kind, (field_name, value) in bodies.items():
+        for kind, (_field_name, value) in bodies.items():
             if kind is self.kind:
                 continue
             if value is not None:
@@ -329,9 +454,7 @@ class AgentDecision:
 
         if self.kind is DecisionKind.ACTION:
             if not isinstance(self.action, AgentAction):
-                raise ContractError(
-                    "action decision requires AgentAction."
-                )
+                raise ContractError("action decision requires AgentAction.")
         else:
             value = getattr(self, required_field)
             _require_text(
@@ -339,43 +462,41 @@ class AgentDecision:
                 f"decision.{required_field}",
                 max_chars=MAX_TEXT_CHARS,
             )
+        if not isinstance(self.claims, tuple) or any(
+            not isinstance(claim, FinalClaim) for claim in self.claims
+        ):
+            raise ContractError("decision.claims must be FinalClaim values.")
+        if self.kind is not DecisionKind.FINAL and self.claims:
+            raise ContractError("Only FINAL decisions may contain claims.")
 
     def to_wire(self) -> dict[str, object]:
-        return {
+        wire: dict[str, object] = {
             "version": PROTOCOL_VERSION,
             "kind": self.kind.value,
-            "goal": self.goal,
-            "category": self.category,
-            "action": (
-                self.action.to_wire()
-                if self.action is not None
-                else None
-            ),
-            "answer": self.answer,
-            "question": self.question,
-            "reason": self.reason,
         }
+        if self.kind is DecisionKind.FINAL:
+            wire["answer"] = self.answer
+            if self.claims:
+                wire["claims"] = [claim.to_wire() for claim in self.claims]
+        elif self.kind is DecisionKind.DISCOVER:
+            wire["category"] = self.category
+        elif self.kind is DecisionKind.ACTION:
+            wire["action"] = self.action.to_wire() if self.action is not None else None
+        elif self.kind is DecisionKind.CLARIFY:
+            wire["question"] = self.question
+        else:
+            wire["reason"] = self.reason
+        return wire
 
     @classmethod
     def from_wire(cls, value: object) -> AgentDecision:
-        data = _exact_object(
-            value,
-            {
-                "version",
-                "kind",
-                "goal",
-                "category",
-                "action",
-                "answer",
-                "question",
-                "reason",
-            },
-            "decision",
-        )
+        if not isinstance(value, Mapping):
+            raise ContractError("decision must be an object.")
+        data = dict(value)
 
-        if data["version"] != PROTOCOL_VERSION:
+        if data.get("version") != PROTOCOL_VERSION:
             raise ContractError(
-                f"Unsupported protocol version: {data['version']!r}."
+                f"Unsupported protocol version: {data.get('version')!r}."
             )
 
         kind_value = data["kind"]
@@ -389,45 +510,53 @@ class AgentDecision:
                 "decision.kind contains an unknown enum value."
             ) from exc
 
-        action_value = data["action"]
-        action = (
-            None
-            if action_value is None
-            else AgentAction.from_wire(action_value)
-        )
+        required_by_kind = {
+            DecisionKind.FINAL: {"version", "kind", "answer"},
+            DecisionKind.DISCOVER: {"version", "kind", "category"},
+            DecisionKind.ACTION: {"version", "kind", "action"},
+            DecisionKind.CLARIFY: {"version", "kind", "question"},
+            DecisionKind.REFUSE: {"version", "kind", "reason"},
+        }
+        allowed = set(required_by_kind[kind])
+        if kind is DecisionKind.FINAL:
+            allowed.add("claims")
+        if not required_by_kind[kind] <= set(data) or set(data) - allowed:
+            raise ContractError("decision fields do not match contract.")
+
+        action_value = data.get("action")
+        action = None if action_value is None else AgentAction.from_wire(action_value)
+        claims_value = data.get("claims", [])
+        if not isinstance(claims_value, list):
+            raise ContractError("decision.claims must be an array.")
 
         return cls(
             kind=kind,
-            goal=_require_text(
-                data["goal"],
-                "decision.goal",
-                max_chars=MAX_GOAL_CHARS,
-            ),
             category=_require_text(
-                data["category"],
+                data.get("category"),
                 "decision.category",
                 max_chars=MAX_TEXT_CHARS,
                 nullable=True,
             ),
             action=action,
             answer=_require_text(
-                data["answer"],
+                data.get("answer"),
                 "decision.answer",
                 max_chars=MAX_TEXT_CHARS,
                 nullable=True,
             ),
             question=_require_text(
-                data["question"],
+                data.get("question"),
                 "decision.question",
                 max_chars=MAX_TEXT_CHARS,
                 nullable=True,
             ),
             reason=_require_text(
-                data["reason"],
+                data.get("reason"),
                 "decision.reason",
                 max_chars=MAX_TEXT_CHARS,
                 nullable=True,
             ),
+            claims=tuple(FinalClaim.from_wire(value) for value in claims_value),
         )
 
 
@@ -450,9 +579,7 @@ class AgentObservation:
             or isinstance(self.action_id, bool)
             or self.action_id < 1
         ):
-            raise ContractError(
-                "observation.action_id must be a positive integer."
-            )
+            raise ContractError("observation.action_id must be a positive integer.")
 
         _require_text(
             self.capability_id,
@@ -461,9 +588,7 @@ class AgentObservation:
         )
 
         if not isinstance(self.status, ObservationStatus):
-            raise ContractError(
-                "observation.status must be ObservationStatus."
-            )
+            raise ContractError("observation.status must be ObservationStatus.")
 
         _require_text(
             self.summary,
@@ -491,41 +616,29 @@ class AgentObservation:
         )
 
         if not isinstance(self.recoverable, bool):
-            raise ContractError(
-                "observation.recoverable must be boolean."
-            )
+            raise ContractError("observation.recoverable must be boolean.")
 
         if not isinstance(self.facts, tuple):
-            raise ContractError(
-                "observation.facts must be a tuple."
-            )
+            raise ContractError("observation.facts must be a tuple.")
 
         frozen_facts: list[Mapping[str, object]] = []
 
         for fact in self.facts:
             if not isinstance(fact, Mapping):
-                raise ContractError(
-                    "Each observation fact must be an object."
-                )
+                raise ContractError("Each observation fact must be an object.")
 
             frozen = _freeze_json(fact)
             if not isinstance(frozen, Mapping):
-                raise ContractError(
-                    "Each observation fact must be an object."
-                )
+                raise ContractError("Each observation fact must be an object.")
 
             frozen_facts.append(frozen)
 
         if not isinstance(self.provenance, Mapping):
-            raise ContractError(
-                "observation.provenance must be an object."
-            )
+            raise ContractError("observation.provenance must be an object.")
 
         frozen_provenance = _freeze_json(self.provenance)
         if not isinstance(frozen_provenance, Mapping):
-            raise ContractError(
-                "observation.provenance must be an object."
-            )
+            raise ContractError("observation.provenance must be an object.")
 
         object.__setattr__(
             self,
@@ -546,10 +659,7 @@ class AgentObservation:
             "target_ref": self.target_ref,
             "source_ref": self.source_ref,
             "summary": self.summary,
-            "facts": [
-                _thaw_json(fact)
-                for fact in self.facts
-            ],
+            "facts": [_thaw_json(fact) for fact in self.facts],
             "provenance": _thaw_json(self.provenance),
             "reason": self.reason,
             "recoverable": self.recoverable,
@@ -580,15 +690,11 @@ class AgentObservation:
             or isinstance(action_id, bool)
             or action_id < 1
         ):
-            raise ContractError(
-                "observation.action_id must be a positive integer."
-            )
+            raise ContractError("observation.action_id must be a positive integer.")
 
         status_value = data["status"]
         if not isinstance(status_value, str):
-            raise ContractError(
-                "observation.status must be a string."
-            )
+            raise ContractError("observation.status must be a string.")
 
         try:
             status = ObservationStatus(status_value)
@@ -599,27 +705,21 @@ class AgentObservation:
 
         facts_value = data["facts"]
         if not isinstance(facts_value, (list, tuple)):
-            raise ContractError(
-                "observation.facts must be an array."
-            )
+            raise ContractError("observation.facts must be an array.")
 
         facts: list[Mapping[str, object]] = []
         for fact in facts_value:
             if not isinstance(fact, Mapping):
-                raise ContractError(
-                    "Each observation fact must be an object."
-                )
+                raise ContractError("Each observation fact must be an object.")
             facts.append(dict(fact))
 
         recoverable = data["recoverable"]
         if not isinstance(recoverable, bool):
-            raise ContractError(
-                "observation.recoverable must be boolean."
-            )
+            raise ContractError("observation.recoverable must be boolean.")
 
         return cls(
             action_id=action_id,
-            capability_id=_require_text(
+            capability_id=_require_non_null_text(
                 data["capability_id"],
                 "observation.capability_id",
                 max_chars=MAX_CAPABILITY_ID_CHARS,
@@ -674,9 +774,7 @@ def _reject_duplicate_pairs(
 
     for key, value in pairs:
         if key in result:
-            raise ContractError(
-                f"Duplicate JSON field: {key!r}."
-            )
+            raise ContractError(f"Duplicate JSON field: {key!r}.")
         result[key] = value
 
     return result
@@ -699,14 +797,10 @@ def decision_from_json(value: str | bytes) -> AgentDecision:
         try:
             value = value.decode("utf-8")
         except UnicodeDecodeError as exc:
-            raise ContractError(
-                "Decision bytes must be UTF-8."
-            ) from exc
+            raise ContractError("Decision bytes must be UTF-8.") from exc
 
     if not isinstance(value, str):
-        raise ContractError(
-            "Decision payload must be JSON text."
-        )
+        raise ContractError("Decision payload must be JSON text.")
 
     try:
         decoded = json.loads(
@@ -716,8 +810,6 @@ def decision_from_json(value: str | bytes) -> AgentDecision:
     except ContractError:
         raise
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        raise ContractError(
-            "Decision payload is not valid JSON."
-        ) from exc
+        raise ContractError("Decision payload is not valid JSON.") from exc
 
     return AgentDecision.from_wire(decoded)

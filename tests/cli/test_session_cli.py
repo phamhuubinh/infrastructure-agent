@@ -4,11 +4,17 @@ import argparse
 import importlib
 import io
 import json
+from datetime import datetime, timezone
 from unittest import mock
 
 from src.agent.canonical_factory import create_canonical_session_agent
 from src.agent.contracts import AgentDecision, DecisionKind
-from src.cli.main import _list_saved_sessions, _print_saved_sessions
+from src.cli.main import (
+    _list_saved_sessions,
+    _print_runtime_event,
+    _print_saved_sessions,
+)
+from src.observability.events import AgentEvent, EventStatus, get_event_store
 from tests.fixtures.fake_agent_backend import ScriptedAgentBackend
 
 cli_main = importlib.import_module("src.cli.main")
@@ -166,3 +172,72 @@ def test_cli_chat_prints_one_configured_v2_final_without_controller_wire(
     assert output.count("CLI final answer.") == 1
     assert '"k":"final"' not in output
     assert "controller_prompt_metadata" not in output
+
+
+def test_cli_status_and_verbose_project_safe_runtime_events(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    store = get_event_store()
+    store.clear()
+    agent = create_canonical_session_agent(
+        target_store_path=str(tmp_path / "targets.json"),
+        model_backend=ScriptedAgentBackend(_controller_final("CLI final answer.")),
+    )
+    args = argparse.Namespace(
+        resume="cli-status",
+        target_file=str(tmp_path / "targets.json"),
+        server=None,
+        model=None,
+        status=True,
+        verbose=True,
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO("hello from CLI\n"))
+
+    with (
+        mock.patch.object(cli_main, "SQLiteConversationStore"),
+        mock.patch.object(cli_main, "create_canonical_session_agent", return_value=agent),
+    ):
+        cli_main._run_agent(args)
+
+    output = capsys.readouterr().out
+    assert "[status] event=model.decision status=succeeded decision_kind=final" in output
+    assert "[status] event=model.final status=succeeded" in output
+    assert "[trace] terminal=final model_calls=1" in output
+    assert "hello from CLI" not in output
+
+
+def test_cli_verbose_projects_safe_provider_generation_diagnostics(capsys) -> None:
+    event = AgentEvent(
+        occurred_at=datetime.now(timezone.utc),
+        request_id="req-1",
+        component="model",
+        event_type="model.failed",
+        status=EventStatus.FAILED,
+        error_code="invalid_output",
+        metadata={
+            "parse_diagnostics": {
+                "provider_generation": {
+                    "finish_reason": "length",
+                    "completion_count": 1024,
+                    "prompt_count": 312,
+                    "stop_sequence_configured": False,
+                    "content_bytes_before_sanitization": 1309,
+                    "content_bytes_after_sanitization": 1309,
+                    "provider_http_status": 200,
+                }
+            }
+        },
+    )
+
+    _print_runtime_event(event, verbose=True)
+
+    output = capsys.readouterr().out
+    assert "finish_reason=length" in output
+    assert "completion_count=1024" in output
+    assert "prompt_count=312" in output
+    assert "requested_output_limit" not in output
+    assert "requested_completion_limit" not in output
+    assert "stop_configured=False" in output
+    assert "sanitize_before=1309" in output
+    assert "sanitize_after=1309" in output
+    assert "http_status=200" in output

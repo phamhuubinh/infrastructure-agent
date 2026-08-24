@@ -7,9 +7,9 @@ import pytest
 from src.agent.authority import (
     ActionAuthorizer,
     ApprovalScope,
+    AuthorityBudget,
     AuthorizationReason,
     AuthorizationStatus,
-    AuthorityBudget,
     ExactReferenceRegistry,
     ReferenceEntry,
 )
@@ -19,6 +19,7 @@ from src.agent.capabilities import (
 )
 from src.agent.contracts import AgentAction
 from src.agent.permissions import EffectClass, PermissionMode
+from src.pipeline.calculator_action_contract import calculator_capability
 
 
 def _schema() -> dict[str, object]:
@@ -115,10 +116,7 @@ def test_capability_lookup_is_exact_and_case_sensitive() -> None:
     )
 
     assert result.status is AuthorizationStatus.REJECT
-    assert (
-        result.reason
-        is AuthorizationReason.CAPABILITY_UNKNOWN
-    )
+    assert result.reason is AuthorizationReason.CAPABILITY_UNKNOWN
 
 
 def test_target_is_required_without_default_localhost() -> None:
@@ -149,10 +147,7 @@ def test_unavailable_target_fails_closed() -> None:
     )
 
     assert result.status is AuthorizationStatus.UNAVAILABLE
-    assert (
-        result.reason
-        is AuthorizationReason.TARGET_UNAVAILABLE
-    )
+    assert result.reason is AuthorizationReason.TARGET_UNAVAILABLE
 
 
 def test_source_lookup_is_exact_and_kind_checked() -> None:
@@ -183,10 +178,7 @@ def test_source_lookup_is_exact_and_kind_checked() -> None:
         permission_mode=PermissionMode.READ,
         budget=AuthorityBudget(),
     )
-    assert (
-        wrong_kind.reason
-        is AuthorizationReason.SOURCE_KIND_MISMATCH
-    )
+    assert wrong_kind.reason is AuthorizationReason.SOURCE_KIND_MISMATCH
 
 
 def test_reference_is_rejected_when_capability_does_not_use_it() -> None:
@@ -198,10 +190,7 @@ def test_reference_is_rejected_when_capability_does_not_use_it() -> None:
         budget=AuthorityBudget(),
     )
 
-    assert (
-        result.reason
-        is AuthorizationReason.TARGET_NOT_ALLOWED
-    )
+    assert result.reason is AuthorizationReason.TARGET_NOT_ALLOWED
 
 
 @pytest.mark.parametrize(
@@ -234,6 +223,36 @@ def test_closed_schema_is_authority(
 
     result = _authorizer(_capability()).authorize(
         action,
+        permission_mode=PermissionMode.READ,
+        budget=AuthorityBudget(),
+    )
+
+    assert result.reason is reason
+
+
+@pytest.mark.parametrize(
+    ("arguments", "reason"),
+    (
+        ({"operation": "multiply"}, AuthorizationReason.ARGUMENT_REQUIRED),
+        (
+            {"operation": "multiply", "left": None, "right": None},
+            AuthorizationReason.ARGUMENT_INVALID,
+        ),
+        (
+            {"operation": "multiply", "left": 2, "right": 3},
+            AuthorizationReason.VALIDATED,
+        ),
+    ),
+)
+def test_operation_discriminated_calculator_schema_is_runtime_authority(
+    arguments: dict[str, object],
+    reason: AuthorizationReason,
+) -> None:
+    result = _authorizer(calculator_capability()).authorize(
+        AgentAction(
+            capability_id="compute.deterministic",
+            arguments=arguments,
+        ),
         permission_mode=PermissionMode.READ,
         budget=AuthorityBudget(),
     )
@@ -276,10 +295,7 @@ def test_rw_ask_requires_exact_scoped_approval() -> None:
         permission_mode=PermissionMode.RW_ASK,
         budget=AuthorityBudget(),
     )
-    assert (
-        missing.status
-        is AuthorizationStatus.APPROVAL_REQUIRED
-    )
+    assert missing.status is AuthorizationStatus.APPROVAL_REQUIRED
 
     wrong_target = ApprovalScope(
         approval_id="approval-1",
@@ -293,10 +309,7 @@ def test_rw_ask_requires_exact_scoped_approval() -> None:
         budget=AuthorityBudget(),
         approval=wrong_target,
     )
-    assert (
-        still_missing.status
-        is AuthorizationStatus.APPROVAL_REQUIRED
-    )
+    assert still_missing.status is AuthorizationStatus.APPROVAL_REQUIRED
 
     exact = ApprovalScope(
         approval_id="approval-2",
@@ -332,19 +345,14 @@ def test_rw_full_allows_valid_reviewed_write_without_approval() -> None:
 
 
 def test_unreviewed_capability_cannot_execute() -> None:
-    result = _authorizer(
-        _capability(safety_reviewed=False)
-    ).authorize(
+    result = _authorizer(_capability(safety_reviewed=False)).authorize(
         _action(),
         permission_mode=PermissionMode.READ,
         budget=AuthorityBudget(),
     )
 
     assert result.status is AuthorizationStatus.UNAVAILABLE
-    assert (
-        result.reason
-        is AuthorizationReason.SAFETY_NOT_REVIEWED
-    )
+    assert result.reason is AuthorizationReason.SAFETY_NOT_REVIEWED
 
 
 def test_budget_is_checked_without_being_consumed() -> None:
@@ -361,10 +369,7 @@ def test_budget_is_checked_without_being_consumed() -> None:
             cost_used=1,
         ),
     )
-    assert (
-        exhausted.reason
-        is AuthorizationReason.BUDGET_EXHAUSTED
-    )
+    assert exhausted.reason is AuthorizationReason.BUDGET_EXHAUSTED
 
     budget = AuthorityBudget(max_actions=2, max_cost=5)
     valid = authorizer.authorize(
@@ -377,9 +382,7 @@ def test_budget_is_checked_without_being_consumed() -> None:
     assert budget.actions_used == 0
     assert budget.cost_used == 0
 
-    consumed = budget.after_execution(
-        valid.budget_cost
-    )
+    consumed = budget.after_execution(valid.budget_cost)
     assert consumed.actions_used == 1
     assert consumed.cost_used == 3
 
@@ -440,14 +443,11 @@ def test_duplicate_registries_fail_closed() -> None:
 
 
 def test_authorizer_has_no_natural_language_constraint_input() -> None:
-    parameters = inspect.signature(
-        ActionAuthorizer.authorize
-    ).parameters
+    parameters = inspect.signature(ActionAuthorizer.authorize).parameters
 
     assert "hard_constraints" not in parameters
     assert "raw_request" not in parameters
     assert "semantic_plan" not in parameters
-
 
 
 def test_exact_registered_ref_must_be_supported_by_capability() -> None:
@@ -461,10 +461,7 @@ def test_exact_registered_ref_must_be_supported_by_capability() -> None:
         budget=AuthorityBudget(),
     )
 
-    assert (
-        wrong_target.reason
-        is AuthorizationReason.TARGET_NOT_SUPPORTED
-    )
+    assert wrong_target.reason is AuthorizationReason.TARGET_NOT_SUPPORTED
 
     source_scoped = _capability(
         capability_id="grafana.metrics",
@@ -484,11 +481,7 @@ def test_exact_registered_ref_must_be_supported_by_capability() -> None:
     )
 
     # Kind mismatch fails before capability scope.
-    assert (
-        wrong_source.reason
-        is AuthorizationReason.SOURCE_KIND_MISMATCH
-    )
-
+    assert wrong_source.reason is AuthorizationReason.SOURCE_KIND_MISMATCH
 
 
 def test_approval_scope_does_not_cover_missing_scoped_reference() -> None:
@@ -516,14 +509,8 @@ def test_approval_scope_does_not_cover_missing_scoped_reference() -> None:
         approval=approval,
     )
 
-    assert (
-        result.status
-        is AuthorizationStatus.APPROVAL_REQUIRED
-    )
-    assert (
-        result.reason
-        is AuthorizationReason.APPROVAL_MISSING
-    )
+    assert result.status is AuthorizationStatus.APPROVAL_REQUIRED
+    assert result.reason is AuthorizationReason.APPROVAL_MISSING
 
 
 def test_capability_requires_closed_object_root_schema() -> None:

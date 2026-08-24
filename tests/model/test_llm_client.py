@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest import mock
 
 import pytest
@@ -23,7 +24,6 @@ class TestLLMClient:
         assert client._api_key is None
         assert client._timeout == 180
         assert client._temperature == 0.0
-        assert client._max_tokens == 2048
 
     def test_init_custom_values(self) -> None:
         client = LLMClient(
@@ -32,14 +32,12 @@ class TestLLMClient:
             api_key="sk-test",
             timeout=30,
             temperature=0.5,
-            max_tokens=4096,
         )
         assert client._base_url == "http://test:8080"
         assert client._model == "my-model"
         assert client._api_key == "sk-test"
         assert client._timeout == 30
         assert client._temperature == 0.5
-        assert client._max_tokens == 4096
 
     def test_trailing_slash_stripped(self) -> None:
         client = LLMClient(base_url="http://test:8000/")
@@ -74,6 +72,20 @@ class TestLLMClient:
         body = json.loads(call_args.data)
         assert body["model"] == "gpt-4"
         assert body["messages"][0]["content"] == "test prompt"
+        assert "max_tokens" not in body
+        assert "max_completion_tokens" not in body
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_uses_message_content_not_parsed_or_reasoning_fields(
+        self, mock_urlopen: mock.Mock
+    ) -> None:
+        mock_urlopen.return_value = _mock_response(
+            b'{"choices":[{"message":{"content":"content-field",'
+            b'"parsed":{"kind":"action"},'
+            b'"reasoning_content":"reasoning-field"}}]}'
+        )
+
+        assert LLMClient().generate("test prompt") == "content-field"
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_with_response_schema(self, mock_urlopen: mock.Mock) -> None:
@@ -90,8 +102,6 @@ class TestLLMClient:
         result = LLMClient().generate("test prompt", response_schema=schema)
 
         assert result == '{"ok": true}'
-
-        import json
 
         request = mock_urlopen.call_args[0][0]
         body = json.loads(request.data)
@@ -112,8 +122,6 @@ class TestLLMClient:
 
         LLMClient(model="qwen").generate("test prompt", json_object=True)
 
-        import json
-
         request = mock_urlopen.call_args[0][0]
         assert json.loads(request.data)["response_format"] == {"type": "json_object"}
 
@@ -124,23 +132,17 @@ class TestLLMClient:
         assert client.supports_json_object_output
 
     @mock.patch("urllib.request.urlopen")
-    def test_generate_accepts_a_smaller_per_call_output_cap(
+    def test_generate_omits_output_limit_without_explicit_configuration(
         self, mock_urlopen: mock.Mock
     ) -> None:
         mock_urlopen.return_value = _mock_response(
             b'{"choices": [{"message": {"content": "ok"}}]}'
         )
 
-        LLMClient(max_tokens=512).generate("test prompt", max_tokens=32)
-
-        import json
+        LLMClient().generate("test prompt")
 
         request = mock_urlopen.call_args[0][0]
-        assert json.loads(request.data)["max_tokens"] == 32
-
-    def test_generate_rejects_an_output_cap_above_the_configured_limit(self) -> None:
-        with pytest.raises(ValueError, match="configured client limit"):
-            LLMClient(max_tokens=32).generate("test prompt", max_tokens=33)
+        assert "max_tokens" not in json.loads(request.data)
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_removes_internal_reasoning(self, mock_urlopen: mock.Mock) -> None:
@@ -149,6 +151,47 @@ class TestLLMClient:
         )
 
         assert LLMClient().generate("hello") == "Visible answer"
+
+    @mock.patch("urllib.request.urlopen")
+    def test_generate_keeps_safe_generation_metadata_without_content(
+        self, mock_urlopen: mock.Mock
+    ) -> None:
+        content = "<think>private reasoning</think>\n{\"kind\":\"action\""
+        mock_urlopen.return_value = _mock_response(
+            json.dumps(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {"content": content},
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 111,
+                        "completion_tokens": 1024,
+                    },
+                }
+            ).encode("utf-8"),
+            status=200,
+        )
+        client = LLMClient()
+
+        assert client.generate("hello") == '{"kind":"action"'
+        assert client.last_generation_diagnostics == {
+            "finish_reason": "length",
+            "usage_completion_tokens": 1024,
+            "usage_prompt_tokens": 111,
+            "stop_sequence_configured": False,
+            "content_bytes_before_sanitization": len(content.encode("utf-8")),
+            "content_bytes_after_sanitization": len(b'{"kind":"action"'),
+            "provider_http_status": 200,
+        }
+
+        request = mock_urlopen.call_args[0][0]
+        body = json.loads(request.data)
+        assert "max_tokens" not in body
+        assert "max_completion_tokens" not in body
+        assert "stop" not in body
 
     @mock.patch("urllib.request.urlopen")
     def test_generate_normalizes_usage_payload(self, mock_urlopen: mock.Mock) -> None:

@@ -9,9 +9,6 @@ from src.agent.contracts import (
     AgentObservation,
     ObservationStatus,
 )
-from src.agent.permissions import (
-    PermissionMode,
-)
 from src.agent.runtime import (
     AgentRuntimeResult,
     RuntimeFailureReason,
@@ -19,15 +16,14 @@ from src.agent.runtime import (
 )
 from src.agent.session_agent import (
     CanonicalSessionAgent,
+    _configured_model_identity,
 )
 from src.model.agent_backend import (
     AgentModelBackend,
 )
 
 
-class FakeAssessmentModel(
-    AgentModelBackend
-):
+class FakeAssessmentModel(AgentModelBackend):
     def __init__(self) -> None:
         self.summarize_calls = 0
 
@@ -48,25 +44,31 @@ class FakeAssessmentModel(
         return True
 
 
+def test_configured_model_identity_uses_runtime_metadata_not_model_text() -> None:
+    for provider, model in (("vllm", "qwen"), ("openai", "foo"), ("ollama", "bar")):
+        backend = FakeAssessmentModel()
+        backend._provider = provider
+        backend._model = model
+        backend.complete = lambda _prompt: "I am a different provider/model"  # type: ignore[method-assign]
+        assert _configured_model_identity(backend) == {
+            "provider": provider,
+            "model": model,
+        }
+
+
 class FakeStore:
     def __init__(self) -> None:
         self._history = [
             {
                 "role": "user",
-                "content": (
-                    "Earlier question about monitor"
-                ),
+                "content": ("Earlier question about monitor"),
             },
             {
                 "role": "assistant",
-                "content": (
-                    "Earlier answer."
-                ),
+                "content": ("Earlier answer."),
             },
         ]
-        self.turns: list[
-            tuple[str, str]
-        ] = []
+        self.turns: list[tuple[str, str]] = []
         self.summarize_fn = None
 
     @property
@@ -78,9 +80,7 @@ class FakeStore:
         user: str,
         assistant: str,
     ) -> None:
-        self.turns.append(
-            (user, assistant)
-        )
+        self.turns.append((user, assistant))
         self._history.extend(
             [
                 {
@@ -107,9 +107,7 @@ class FakeRuntime:
         result: AgentRuntimeResult,
     ) -> None:
         self.result = result
-        self.requests: list[
-            dict[str, object]
-        ] = []
+        self.requests: list[dict[str, object]] = []
 
     def run(
         self,
@@ -119,14 +117,16 @@ class FakeRuntime:
         budget=None,
         approval=None,
         request_id=None,
+        chat_id=None,
+        model_identity=None,
     ) -> AgentRuntimeResult:
         self.requests.append(
             {
                 "request": request,
-                "permission_mode": (
-                    permission_mode
-                ),
+                "permission_mode": (permission_mode),
                 "request_id": request_id,
+                "chat_id": chat_id,
+                "model_identity": model_identity,
             }
         )
         return self.result
@@ -142,9 +142,7 @@ def _result(
     return AgentRuntimeResult(
         terminal=terminal,
         response_text=response,
-        observations=tuple(
-            observations
-        ),
+        observations=tuple(observations),
         budget=AuthorityBudget(),
         model_calls=1,
         discovery_calls=0,
@@ -154,47 +152,28 @@ def _result(
 
 
 def test_session_agent_passes_bounded_history_as_context() -> None:
-    runtime = FakeRuntime(
-        _result()
-    )
+    runtime = FakeRuntime(_result())
     store = FakeStore()
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        model_backend=(FakeAssessmentModel()),
         conversation_store=store,
     )
 
-    payload = agent.run_with_steps(
-        "What about memory?"
-    )
+    payload = agent.run_with_steps("What about memory?")
 
-    assert payload["response"] == (
-        "Canonical answer."
-    )
+    assert payload["response"] == ("Canonical answer.")
 
-    envelope = json.loads(
-        runtime.requests[0]["request"]
-    )
+    envelope = json.loads(runtime.requests[0]["request"])
 
-    assert envelope[
-        "current_request"
-    ] == "What about memory?"
+    assert envelope["current_request"] == "What about memory?"
 
-    assert envelope[
-        "conversation_context"
-    ][0]["content"] == (
+    assert envelope["conversation_context"][0]["content"] == (
         "Earlier question about monitor"
     )
 
-    assert (
-        envelope["context_policy"]
-        .startswith(
-            "Conversation and attachment"
-        )
-    )
+    assert envelope["context_policy"].startswith("Conversation and attachment")
 
     assert store.turns == [
         (
@@ -205,60 +184,38 @@ def test_session_agent_passes_bounded_history_as_context() -> None:
 
 
 def test_attachment_context_never_grants_authority_or_leaks_secrets() -> None:
-    runtime = FakeRuntime(
-        _result()
-    )
+    runtime = FakeRuntime(_result())
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        model_backend=(FakeAssessmentModel()),
     )
 
     agent.run_with_steps(
         "Summarize attachment.",
         attachment_evidence=(
             {
-                "text": (
-                    "status ok "
-                    "token=attachment-secret"
-                ),
-                "api_key": (
-                    "never-expose"
-                ),
+                "text": ("status ok token=attachment-secret"),
+                "api_key": ("never-expose"),
                 "target": "monitor",
             },
         ),
     )
 
-    request = runtime.requests[0][
-        "request"
-    ]
+    request = runtime.requests[0]["request"]
 
     assert isinstance(
         request,
         str,
     )
 
-    assert (
-        "attachment-secret"
-        not in request
-    )
+    assert "attachment-secret" not in request
     assert "never-expose" not in request
 
     envelope = json.loads(request)
 
-    assert (
-        "capability"
-        in envelope["context_policy"]
-    )
-    assert (
-        envelope[
-            "attachment_context"
-        ][0]["target"]
-        == "monitor"
-    )
+    assert "capability" in envelope["context_policy"]
+    assert envelope["attachment_context"][0]["target"] == "monitor"
 
 
 def test_steps_expose_metadata_not_raw_fact_values() -> None:
@@ -279,35 +236,20 @@ def test_steps_expose_metadata_not_raw_fact_values() -> None:
         },
     )
 
-    runtime = FakeRuntime(
-        _result(
-            observations=(
-                observation,
-            )
-        )
-    )
+    runtime = FakeRuntime(_result(observations=(observation,)))
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        model_backend=(FakeAssessmentModel()),
     )
 
-    payload = agent.run_with_steps(
-        "Inspect monitor."
-    )
+    payload = agent.run_with_steps("Inspect monitor.")
 
     step = payload["steps"][0]
 
     assert step["type"] == "evidence"
-    assert (
-        step["capability_id"]
-        == "host.get_cpu"
-    )
-    assert step["target_id"] == (
-        "monitor"
-    )
+    assert step["capability_id"] == "host.get_cpu"
+    assert step["target_id"] == ("monitor")
 
     rendered = json.dumps(payload)
 
@@ -316,32 +258,19 @@ def test_steps_expose_metadata_not_raw_fact_values() -> None:
 
 
 def test_public_trace_never_echoes_runtime_request() -> None:
-    runtime = FakeRuntime(
-        _result()
-    )
+    runtime = FakeRuntime(_result())
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        model_backend=(FakeAssessmentModel()),
     )
 
-    payload = agent.run_with_steps(
-        "check token=top-secret"
-    )
+    payload = agent.run_with_steps("check token=top-secret")
 
-    trace = payload[
-        "execution_trace"
-    ]
+    trace = payload["execution_trace"]
 
     assert trace["user_request"] == ""
-    assert (
-        trace["runtime_metrics"]
-        ["canonical_runtime"]
-        ["terminal"]
-        == "final"
-    )
+    assert trace["runtime_metrics"]["canonical_runtime"]["terminal"] == "final"
 
     rendered = json.dumps(trace)
 
@@ -353,42 +282,23 @@ def test_public_trace_never_echoes_runtime_request() -> None:
 def test_failed_runtime_has_safe_trace() -> None:
     runtime = FakeRuntime(
         _result(
-            response=(
-                "Unable to complete request."
-            ),
-            terminal=(
-                RuntimeTerminal.FAILED
-            ),
-            failure=(
-                RuntimeFailureReason
-                .MODEL_FAILURE
-            ),
+            response=("Unable to complete request."),
+            terminal=(RuntimeTerminal.FAILED),
+            failure=(RuntimeFailureReason.MODEL_FAILURE),
         )
     )
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        model_backend=(FakeAssessmentModel()),
     )
 
-    payload = agent.run_with_steps(
-        "hello"
-    )
+    payload = agent.run_with_steps("hello")
 
-    canonical = (
-        payload["execution_trace"]
-        ["runtime_metrics"]
-        ["canonical_runtime"]
-    )
+    canonical = payload["execution_trace"]["runtime_metrics"]["canonical_runtime"]
 
-    assert canonical["terminal"] == (
-        "failed"
-    )
-    assert canonical["failure"] == (
-        "model_failure"
-    )
+    assert canonical["terminal"] == ("failed")
+    assert canonical["failure"] == ("model_failure")
 
 
 def test_store_receives_model_summarizer() -> None:
@@ -396,30 +306,19 @@ def test_store_receives_model_summarizer() -> None:
     store = FakeStore()
 
     CanonicalSessionAgent(
-        runtime=FakeRuntime(
-            _result()
-        ),
+        runtime=FakeRuntime(_result()),
         model_backend=model,
         conversation_store=store,
     )
 
-    assert callable(
-        store.summarize_fn
-    )
-    assert (
-        store.summarize_fn("history")
-        == "summary"
-    )
+    assert callable(store.summarize_fn)
+    assert store.summarize_fn("history") == "summary"
 
 
 def test_health_check_delegates_to_model() -> None:
     agent = CanonicalSessionAgent(
-        runtime=FakeRuntime(
-            _result()
-        ),
-        model_backend=(
-            FakeAssessmentModel()
-        ),
+        runtime=FakeRuntime(_result()),
+        model_backend=(FakeAssessmentModel()),
     )
 
     assert agent.health_check() is True
@@ -430,39 +329,23 @@ def test_setup_mode_never_calls_runtime() -> None:
         UnconfiguredAgentBackend,
     )
 
-    runtime = FakeRuntime(
-        _result()
-    )
+    runtime = FakeRuntime(_result())
 
     store = FakeStore()
 
     agent = CanonicalSessionAgent(
         runtime=runtime,
-        model_backend=(
-            UnconfiguredAgentBackend()
-        ),
+        model_backend=(UnconfiguredAgentBackend()),
         conversation_store=store,
     )
 
-    payload = agent.run_with_steps(
-        "hello"
-    )
+    payload = agent.run_with_steps("hello")
 
     assert runtime.requests == []
-    assert "No model is configured" in (
-        payload["response"]
-    )
+    assert "No model is configured" in (payload["response"])
 
-    canonical = (
-        payload["execution_trace"]
-        ["runtime_metrics"]
-        ["canonical_runtime"]
-    )
+    canonical = payload["execution_trace"]["runtime_metrics"]["canonical_runtime"]
 
-    assert canonical["terminal"] == (
-        "setup_required"
-    )
+    assert canonical["terminal"] == ("setup_required")
     assert canonical["model_calls"] == 0
-    assert canonical[
-        "action_attempts"
-    ] == 0
+    assert canonical["action_attempts"] == 0

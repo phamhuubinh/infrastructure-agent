@@ -1,113 +1,78 @@
 # Agent Runtime
 
-## Goal
-
-The runtime should behave like a bounded modern agent: the model decides what
-to do next, tools provide observations, and the model continues until it can
-answer, needs the user, or cannot make useful progress.
-
 ## Decision types
 
-The model-facing protocol should remain small and readable. A decision is one
-of:
+Exactly one of:
 
-- **FINAL** — return an answer candidate;
-- **ACTION** — propose one registered capability call;
-- **DISCOVER** — request bounded information about available capabilities when
-  progressive disclosure is used;
-- **CLARIFY** — ask the user for missing information or help;
-- **REFUSE** — explain that the request cannot be performed.
+- **FINAL** — answer candidate;
+- **DISCOVER** — request bounded capability metadata;
+- **ACTION** — propose one registered/disclosed capability call;
+- **CLARIFY** — ask for missing information/help;
+- **REFUSE** — decline the request.
 
-The transport format may evolve, but it should favor readable explicit field
-names and simple closed schemas over cryptic token-saving keys or complicated
-provider-specific schemas.
+## Stage legality and progressive disclosure
 
-## Action content
+Decision legality is stage-specific and is enforced by the harness after generation. Provider-native structured output/guided decoding is not the final correctness boundary.
 
-An ACTION needs enough information for the harness to validate the model's
-semantic choice without reparsing the original prose. Conceptually it contains:
+### FIRST
 
-```text
-capability_id
-target_ref      optional
-source_ref      optional
-arguments       typed object
-activity_text   optional short user-visible status
-```
+The model sees the request and bounded capability **group names**, not arbitrary capability IDs.
 
-`target_ref` and `source_ref` are proposals, not authority. The validator must
-resolve them exactly against registered state.
-
-## Loop
+Legal:
 
 ```text
-build bounded context
-      |
-      v
-model decision
-      |
-      +-- FINAL -----> completion/delivery
-      |
-      +-- CLARIFY ---> user
-      |
-      +-- REFUSE ----> user
-      |
-      +-- DISCOVER --> bounded capability metadata --> model
-      |
-      +-- ACTION ----> validate
-                         |
-                    reject/observe
-                         |
-                      execute
-                         |
-                     evidence
-                         |
-                    observation
-                         |
-                         +-----------------> model
+FINAL | DISCOVER | CLARIFY | REFUSE
 ```
 
-The harness never automatically invents a semantic alternative after a rejected
-model action. If an action fails, the model receives a compact observation and
-chooses what to do next.
+`ACTION` is illegal because no capability ID has been disclosed. `DISCOVER.category` must exactly match a currently disclosed group.
 
-## Progress and circuit breakers
+### DISCOVERY
 
-The model controls strategy; the harness controls resource bounds.
+Successful discovery exposes exact capability summaries from one group. The harness records what was actually disclosed.
 
-Limits are configuration, not semantic routing. They may include:
+The next decision receives those summaries and may select only their exact
+capability IDs. DISCOVER is constrained to still-undisclosed groups; a
+provider-ignored repeat of an already disclosed group creates no new state and
+stops through the no-progress guard without consuming another discovery call.
 
-- maximum model calls;
-- maximum tool actions;
-- maximum discovery operations;
-- maximum Internet operations;
-- request deadline;
-- context/token budget;
-- maximum write scope size;
-- maximum repeated no-progress states.
+A known registry capability is not equivalent to a disclosed capability.
 
-The runtime should detect obvious non-progress patterns such as repeating the
-same action with the same result/error or cycling through the same state without
-new evidence. The purpose is to stop loops, not to choose the correct semantic
-path for the model.
+### ACTION_DETAIL
 
-When a circuit breaker fires, the model should receive a compact terminal or
-near-terminal observation when practical so it can explain the problem or ask
-the user for help.
+When one capability's detail/schema is disclosed, `ACTION` must use that exact capability ID and satisfy the exact closed argument/target/source schema. The provider action schema is generated from that same disclosure: non-applicable refs are omitted, and applicable refs are exact disclosed enums. Runtime reference validation remains authoritative.
 
-## User-visible activity
+### OBSERVATION / FEEDBACK
 
-The model/runtime may emit a short activity description for the UI, for example:
+The model receives bounded structured feedback/observations and can choose the next legal decision. New actions remain subject to disclosure and authority validation.
 
-- "Checking Grafana metrics"
-- "Searching project documents"
-- "Comparing Linux and Zabbix observations"
+A future protocol may expose capabilities earlier, but legal IDs must always be explicit harness state.
 
-This is not private chain-of-thought. Raw hidden reasoning is never required for
-UI activity.
+## Branch field exclusivity
 
-## Direct answers
+- FINAL → `answer`, with `claims` only when evidence is asserted
+- DISCOVER → `category`
+- ACTION → `action`
+- CLARIFY → `question`
+- REFUSE → `reason`
 
-If the model decides no tool is needed, it may answer directly. Orion should
-not force every request through infrastructure, RAG, Internet, or calculator
-logic.
+The v3 wire contract contains `version`, `kind`, and only the selected branch
+field. It does not accept unrelated nullable fields or a model-generated
+`goal`; authority remains harness-owned structured state.
+
+## Protected internal information
+
+Requests whose goal is to reveal/reproduce system/developer prompts, hidden policies/internal instructions, credentials/secrets, or private hidden reasoning terminate as `REFUSE`. The agent must not use discovery/actions to obtain protected internal information.
+
+This policy is model-semantic plus deterministic output/security enforcement; it is not a language-specific keyword router.
+
+## Loop/no progress
+
+The harness never invents a semantic alternative after rejection.
+
+No-progress includes repeated identical action/result, repeated forbidden-stage decision, repeated undisclosed capability proposal, repeated invalid discovery, or feedback cycles that add no evidence/disclosure/authority state.
+
+Do not raise model-call limits to hide a deterministic feedback loop.
+
+## Direct answers/model identity
+
+Direct FINAL is valid when no capability is needed. Objective runtime facts such as configured model/provider identity must be grounded in safe machine-readable configuration; model self-description is not evidence.

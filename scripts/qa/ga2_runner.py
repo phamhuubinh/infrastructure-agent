@@ -337,6 +337,17 @@ def _executed_action_count(
     )
 
 
+def _successful_public_evidence(record: dict[str, object]) -> bool:
+    """A tool success requires a public successful evidence observation."""
+    return any(
+        step.get("type") == "evidence"
+        and step.get("status") == "success"
+        and isinstance(step.get("capability_id"), str)
+        and bool(step["capability_id"])
+        for step in _runtime_steps(record)
+    )
+
+
 def _required_hard_source(
     question: str,
 ) -> tuple[str, ...] | None:
@@ -528,9 +539,7 @@ def _runtime_viability_summary(
 
         terminal = runtime.get("terminal")
         failure = runtime.get("failure")
-        executed_actions = _executed_action_count(
-            runtime
-        )
+        successful_evidence = _successful_public_evidence(record)
 
         if (
             terminal == "failed"
@@ -552,7 +561,7 @@ def _runtime_viability_summary(
             model_failure_count += 1
 
         if terminal in successful_terminals:
-            if executed_actions:
+            if successful_evidence:
                 if _requires_tool_execution(record):
                     successful_tool_execution_count += 1
             else:

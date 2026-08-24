@@ -6,13 +6,11 @@ from src.model.agent_adapter import (
     AgentProviderRequest,
     StructuredAgentProvider,
 )
-from src.model.agent_provider_bridge import (
-    AgentBackendProvider,
-    MAX_AGENT_OUTPUT_TOKENS,
-)
 from src.model.agent_llm_adapter import (
     AgentLLMAdapter,
 )
+from src.model.agent_prompt import build_feedback_prompt
+from src.model.agent_provider_bridge import AgentBackendProvider
 from src.model.llm_client import LLMClient
 from src.model.usage_metadata import ModelCallUsage
 
@@ -87,9 +85,100 @@ def test_native_structured_client_receives_exact_schema(
     )
     assert calls[0]["purpose"] == "agent_decision"
     assert calls[0]["request_id"] == "req-1"
-    assert calls[0]["max_tokens"] <= (
-        MAX_AGENT_OUTPUT_TOKENS
+    assert "max_tokens" not in calls[0]
+
+
+def test_bridge_forwards_safe_llm_generation_metadata(
+    monkeypatch,
+) -> None:
+    client = LLMClient(
+        model="test-model",
+        supports_structured_output=True,
     )
+    provider = AgentBackendProvider(AgentLLMAdapter(client))
+
+    def generate(prompt: str, **kwargs):
+        assert "max_tokens" not in kwargs
+        client._last_generation_diagnostics = {
+            "finish_reason": "length",
+            "usage_completion_tokens": 1024,
+            "usage_prompt_tokens": 250,
+            "stop_sequence_configured": False,
+            "content_bytes_before_sanitization": 1309,
+            "content_bytes_after_sanitization": 1309,
+            "provider_http_status": 200,
+        }
+        return '{"kind":"action"'
+
+    monkeypatch.setattr(client, "generate", generate)
+
+    response = provider.generate_agent_decision(_request())
+
+    assert response.payload == '{"kind":"action"'
+    assert response.generation_diagnostics == client.last_generation_diagnostics
+
+
+def test_bridge_does_not_apply_an_agent_stage_output_cap(monkeypatch) -> None:
+    client = LLMClient(
+        model="test-model",
+        supports_structured_output=True,
+    )
+    provider = AgentBackendProvider(AgentLLMAdapter(client))
+    calls: list[dict[str, object]] = []
+
+    def generate(prompt: str, **kwargs):
+        calls.append({"prompt": prompt, **kwargs})
+        return '{"kind":"final"}'
+
+    monkeypatch.setattr(client, "generate", generate)
+
+    provider.generate_agent_decision(_request())
+
+    assert "max_tokens" not in calls[0]
+
+
+def test_native_structured_client_receives_corrected_recovery_schema(
+    monkeypatch,
+) -> None:
+    client = LLMClient(
+        model="test-model",
+        supports_structured_output=True,
+    )
+    provider = AgentBackendProvider(AgentLLMAdapter(client))
+    prompt = build_feedback_prompt(
+        "Compute exactly.",
+        feedback={
+            "status": "completion_rejected",
+            "reason": "evidence_missing",
+            "final_allowed": False,
+        },
+        capability_groups=("calculator",),
+    )
+    request = AgentProviderRequest(
+        system_prompt=prompt.system_prompt,
+        user_prompt=prompt.user_prompt,
+        response_schema=prompt.response_schema,
+        timeout_seconds=30.0,
+        request_id="recovery-1",
+    )
+    calls: list[dict[str, object]] = []
+
+    def generate(prompt_text: str, **kwargs):
+        calls.append({"prompt": prompt_text, **kwargs})
+        return '{"kind":"discover"}'
+
+    monkeypatch.setattr(client, "generate", generate)
+
+    provider.generate_agent_decision(request)
+
+    assert calls[0]["response_schema"] == prompt.response_schema
+    schema = calls[0]["response_schema"]
+    assert isinstance(schema, dict)
+    assert "required" not in schema
+    assert {branch["properties"]["kind"]["enum"][0] for branch in schema["oneOf"]} == {
+        "discover", "action", "clarify", "refuse"
+    }
+    assert all("claims" not in branch["properties"] for branch in schema["oneOf"])
 
 
 def test_json_object_fallback_does_not_change_authority_schema(

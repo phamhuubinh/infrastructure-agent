@@ -37,9 +37,7 @@ from src.tool.tool import Tool
 
 
 def _handler(window: int = 60) -> CapabilityResult:
-    return CapabilityResult.from_data(
-        {"window": window, "value": 42}
-    )
+    return CapabilityResult.from_data({"window": window, "value": 42})
 
 
 def _grafana_tool(monkeypatch) -> Tool:
@@ -79,7 +77,7 @@ def _grafana_tool(monkeypatch) -> Tool:
             )
 
     GrafanaTool.__module__ = module_name
-    setattr(module, "GrafanaTool", GrafanaTool)
+    module.GrafanaTool = GrafanaTool
     monkeypatch.setitem(sys.modules, module_name, module)
 
     return GrafanaTool()
@@ -96,20 +94,9 @@ def _knowledge(monkeypatch) -> KnowledgeTool:
 
 def _calculator_arguments() -> dict[str, object]:
     return {
-        "operation": "add",
-        "values": None,
-        "left": 2,
-        "right": 3,
-        "base_value": None,
-        "percent": None,
-        "total_tasks": None,
-        "workers": None,
-        "duration": None,
-        "duration_unit": None,
-        "rate_value": None,
-        "rate_unit": None,
-        "target_rate_unit": None,
-        "unit": None,
+        "operation": "multiply",
+        "left": 287,
+        "right": 419,
     }
 
 
@@ -184,9 +171,7 @@ def test_knowledge_binding_dispatches_exact_source_and_resource(
         recording_execute,
     )
 
-    result = CanonicalActionExecutor(
-        knowledge
-    ).execute(
+    result = CanonicalActionExecutor(knowledge).execute(
         AuthorizedExecutionRequest(
             capability_id="grafana.metrics",
             runtime_binding="knowledge.dispatch",
@@ -217,15 +202,10 @@ def test_knowledge_binding_does_not_fallback_source(
     monkeypatch.setattr(
         knowledge,
         "execute",
-        lambda arguments: (
-            calls.append(dict(arguments))
-            or ToolResult(success=True)
-        ),
+        lambda arguments: calls.append(dict(arguments)) or ToolResult(success=True),
     )
 
-    result = CanonicalActionExecutor(
-        knowledge
-    ).execute(
+    result = CanonicalActionExecutor(knowledge).execute(
         AuthorizedExecutionRequest(
             capability_id="grafana.metrics",
             runtime_binding="knowledge.dispatch",
@@ -261,15 +241,10 @@ def test_executor_blocks_effect_metadata_drift(
     monkeypatch.setattr(
         knowledge,
         "execute",
-        lambda arguments: (
-            calls.append(dict(arguments))
-            or ToolResult(success=True)
-        ),
+        lambda arguments: calls.append(dict(arguments)) or ToolResult(success=True),
     )
 
-    result = CanonicalActionExecutor(
-        knowledge
-    ).execute(
+    result = CanonicalActionExecutor(knowledge).execute(
         AuthorizedExecutionRequest(
             capability_id="grafana.metrics",
             runtime_binding="knowledge.dispatch",
@@ -289,9 +264,7 @@ def test_executor_blocks_effect_metadata_drift(
 def test_calculator_executes_structured_transport(
     monkeypatch,
 ) -> None:
-    result = CanonicalActionExecutor(
-        _knowledge(monkeypatch)
-    ).execute(
+    result = CanonicalActionExecutor(_knowledge(monkeypatch)).execute(
         AuthorizedExecutionRequest(
             capability_id="compute.deterministic",
             runtime_binding="calculator.execute",
@@ -304,7 +277,7 @@ def test_calculator_executes_structured_transport(
 
     assert result.status is ExecutionStatus.SUCCESS
     assert result.dispatched is True
-    assert result.facts[0]["value"] == "5"
+    assert result.facts[0]["value"] == "120253"
 
 
 def test_evidence_projection_removes_secret_shaped_values() -> None:
@@ -360,9 +333,7 @@ def test_evidence_projection_removes_secret_shaped_values() -> None:
 def test_unknown_runtime_binding_never_dispatches(
     monkeypatch,
 ) -> None:
-    result = CanonicalActionExecutor(
-        _knowledge(monkeypatch)
-    ).execute(
+    result = CanonicalActionExecutor(_knowledge(monkeypatch)).execute(
         AuthorizedExecutionRequest(
             capability_id="host.unknown",
             runtime_binding="unknown.execute",
@@ -376,7 +347,6 @@ def test_unknown_runtime_binding_never_dispatches(
     assert result.status is ExecutionStatus.UNAVAILABLE
     assert result.dispatched is False
     assert result.reason == "runtime_binding_unavailable"
-
 
 
 def _internet_knowledge() -> KnowledgeTool:
@@ -412,9 +382,7 @@ def test_internet_current_uses_exact_source_and_fresh_semantics() -> None:
             target_ref=None,
             source_ref="internet-main",
             arguments={
-                "queries": (
-                    "latest release",
-                ),
+                "queries": ("latest release",),
             },
         )
     )
@@ -425,9 +393,7 @@ def test_internet_current_uses_exact_source_and_fresh_semantics() -> None:
     assert internet.search_calls == [
         {
             "source_id": "internet-main",
-            "queries": (
-                "latest release",
-            ),
+            "queries": ("latest release",),
             "max_results": 5,
             "freshness_required": True,
         }
@@ -476,9 +442,7 @@ def test_internet_fetch_uses_only_authorized_url() -> None:
 def test_post_dispatch_normalization_failure_remains_dispatched(
     monkeypatch,
 ) -> None:
-    executor = CanonicalActionExecutor(
-        _knowledge(monkeypatch)
-    )
+    executor = CanonicalActionExecutor(_knowledge(monkeypatch))
 
     def explode(**kwargs):
         raise RuntimeError("normalizer failed")

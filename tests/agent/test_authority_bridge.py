@@ -5,8 +5,8 @@ from types import ModuleType
 
 from src.agent.authority import (
     ActionAuthorizer,
-    AuthorizationReason,
     AuthorityBudget,
+    AuthorizationReason,
 )
 from src.agent.authority_bridge import (
     build_legacy_authority_catalog,
@@ -15,6 +15,7 @@ from src.agent.contracts import AgentAction
 from src.agent.permissions import EffectClass, PermissionMode
 from src.pipeline.calculator_action_contract import (
     CALCULATOR_CAPABILITY_ID,
+    calculator_capability,
 )
 from src.pipeline.internet_action_contract import (
     INTERNET_CURRENT_CAPABILITY_ID,
@@ -37,8 +38,7 @@ def _fake_tool(
     capabilities: dict[str, Capability],
 ) -> Tool:
     module_name = (
-        f"tests.fake_authority_bridge_"
-        f"{class_name.casefold()}_{id(capabilities)}"
+        f"tests.fake_authority_bridge_{class_name.casefold()}_{id(capabilities)}"
     )
     module = ModuleType(module_name)
     module._CAPABILITIES = capabilities  # type: ignore[attr-defined]
@@ -48,9 +48,7 @@ def _fake_tool(
             self,
             arguments: dict[str, object],
         ):
-            raise AssertionError(
-                "authority bridge must never execute tools"
-            )
+            raise AssertionError("authority bridge must never execute tools")
 
     FakeTool.__name__ = class_name
     FakeTool.__qualname__ = class_name
@@ -82,8 +80,7 @@ def test_bridge_projects_linux_targets_as_exact_machine_refs() -> None:
     read_entry = next(
         entry
         for entry in metadata
-        if entry.get("mutation_risk") == "none"
-        and isinstance(entry.get("name"), str)
+        if entry.get("mutation_risk") == "none" and isinstance(entry.get("name"), str)
     )
     capability_id = f"host.{read_entry['name']}"
     capability = catalog.capabilities.get(capability_id)
@@ -92,9 +89,7 @@ def test_bridge_projects_linux_targets_as_exact_machine_refs() -> None:
     assert capability.effect is EffectClass.READ
     assert capability.target_kind == "machine"
     assert capability.source_kind is None
-    assert capability.allowed_target_refs == frozenset(
-        {"monitor", "server01"}
-    )
+    assert capability.allowed_target_refs == frozenset({"monitor", "server01"})
 
 
 def test_bridge_projects_domain_source_scope_exactly(
@@ -132,16 +127,12 @@ def test_bridge_projects_domain_source_scope_exactly(
         registry,
     )
 
-    capability = catalog.capabilities.get(
-        "grafana.metrics"
-    )
+    capability = catalog.capabilities.get("grafana.metrics")
 
     assert capability is not None
     assert capability.source_kind == "grafana"
     assert capability.target_kind is None
-    assert capability.allowed_source_refs == frozenset(
-        {"grafana-prod"}
-    )
+    assert capability.allowed_source_refs == frozenset({"grafana-prod"})
 
     result = ActionAuthorizer(
         catalog.capabilities,
@@ -203,14 +194,10 @@ def test_bridge_unions_only_sources_that_expose_capability(
         knowledge,
         registry,
     )
-    capability = catalog.capabilities.get(
-        "grafana.metrics"
-    )
+    capability = catalog.capabilities.get("grafana.metrics")
 
     assert capability is not None
-    assert capability.allowed_source_refs == frozenset(
-        {"grafana-prod"}
-    )
+    assert capability.allowed_source_refs == frozenset({"grafana-prod"})
 
     result = ActionAuthorizer(
         catalog.capabilities,
@@ -226,10 +213,7 @@ def test_bridge_unions_only_sources_that_expose_capability(
         budget=AuthorityBudget(),
     )
 
-    assert (
-        result.reason
-        is AuthorizationReason.SOURCE_NOT_SUPPORTED
-    )
+    assert result.reason is AuthorizationReason.SOURCE_NOT_SUPPORTED
 
 
 def test_legacy_write_is_classified_but_disabled_until_review(
@@ -259,9 +243,7 @@ def test_legacy_write_is_classified_but_disabled_until_review(
         knowledge,
         registry,
     )
-    capability = catalog.capabilities.get(
-        "grafana.set_alert"
-    )
+    capability = catalog.capabilities.get("grafana.set_alert")
 
     assert capability is not None
     assert capability.effect is EffectClass.WRITE
@@ -301,47 +283,41 @@ def test_bridge_exposes_reviewed_high_level_internet_not_raw_primitives(
         registry,
     )
 
-    assert (
-        catalog.capabilities.get("internet.web_search")
-        is None
-    )
-    assert (
-        catalog.capabilities.get("internet.web_fetch")
-        is None
-    )
+    assert catalog.capabilities.get("internet.web_search") is None
+    assert catalog.capabilities.get("internet.web_fetch") is None
 
-    current = catalog.capabilities.get(
-        INTERNET_CURRENT_CAPABILITY_ID
-    )
-    fetch = catalog.capabilities.get(
-        INTERNET_FETCH_URL_CAPABILITY_ID
-    )
+    current = catalog.capabilities.get(INTERNET_CURRENT_CAPABILITY_ID)
+    fetch = catalog.capabilities.get(INTERNET_FETCH_URL_CAPABILITY_ID)
 
     assert current is not None
     assert fetch is not None
-    assert current.allowed_source_refs == frozenset(
-        {"internet-main"}
-    )
-    assert fetch.allowed_source_refs == frozenset(
-        {"internet-main"}
-    )
+    assert current.allowed_source_refs == frozenset({"internet-main"})
+    assert fetch.allowed_source_refs == frozenset({"internet-main"})
 
 
-def test_bridge_always_registers_deterministic_calculator() -> None:
+def test_bridge_registers_local_capabilities_without_tool_specific_wiring() -> None:
     registry = TargetRegistry()
     knowledge = KnowledgeTool(registry)
 
     catalog = build_legacy_authority_catalog(
         knowledge,
         registry,
+        local_capabilities=(calculator_capability(),),
     )
 
-    calculator = catalog.capabilities.get(
-        CALCULATOR_CAPABILITY_ID
-    )
+    calculator = catalog.capabilities.get(CALCULATOR_CAPABILITY_ID)
 
     assert calculator is not None
     assert calculator.effect is EffectClass.READ
     assert calculator.target_kind is None
     assert calculator.source_kind is None
     assert calculator.safety_reviewed is True
+
+
+def test_bridge_does_not_implicitly_register_calculator() -> None:
+    registry = TargetRegistry()
+    knowledge = KnowledgeTool(registry)
+
+    catalog = build_legacy_authority_catalog(knowledge, registry)
+
+    assert catalog.capabilities.get(CALCULATOR_CAPABILITY_ID) is None

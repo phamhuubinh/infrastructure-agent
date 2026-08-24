@@ -24,16 +24,19 @@ def _request(
 def test_save_model_persists_secret_without_returning_it(tmp_path: Path) -> None:
     request, store, reload_models = _request(tmp_path)
 
-    result = models.save_model(
-        {
-            "name": "primary",
-            "provider": "openai",
-            "base_url": "https://api.openai.com/v1",
-            "model": "gpt-4.1",
-            "api_key": "secret",
-        },
-        request,
-    )
+    with mock.patch(
+        "src.model.config_store.LLMClient.health_check", return_value=True
+    ):
+        result = models.save_model(
+            {
+                "name": "primary",
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4.1",
+                "api_key": "secret",
+            },
+            request,
+        )
 
     assert result["active_server"] == "primary"
     assert result["models"][0]["api_key_configured"] is True
@@ -62,6 +65,32 @@ def test_connection_test_returns_503_with_useful_error(tmp_path: Path) -> None:
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "connection refused"
+
+
+def test_failed_save_remains_configured_but_inactive(tmp_path: Path) -> None:
+    request, store, reload_models = _request(tmp_path)
+
+    with (
+        mock.patch(
+            "src.model.config_store.LLMClient.health_check",
+            side_effect=OSError("connection refused"),
+        ),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        models.save_model(
+            {
+                "name": "primary",
+                "base_url": "http://model",
+                "model": "qwen",
+                "activate": True,
+            },
+            request,
+        )
+
+    assert exc_info.value.status_code == 503
+    assert store.list_public()["active_server"] == ""
+    assert store.list_public()["models"][0]["health_state"] == "unhealthy"
+    reload_models.assert_not_called()
 
 
 def test_delete_last_model_returns_to_setup_mode(tmp_path: Path) -> None:

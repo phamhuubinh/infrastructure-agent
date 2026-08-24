@@ -126,6 +126,24 @@ def test_groups_are_exact_registry_metadata() -> None:
     )
 
 
+def test_group_guidance_uses_available_capability_metadata_without_ids() -> None:
+    guidance = _discovery().group_guidance()
+
+    assert guidance == (
+        {
+            "group": "grafana",
+            "purposes": ["Purpose for grafana.metrics"],
+            "result_kinds": ["observation"],
+        },
+        {
+            "group": "host",
+            "purposes": ["Purpose for host.cpu"],
+            "result_kinds": ["observation"],
+        },
+    )
+    assert all("capability_id" not in item for item in guidance)
+
+
 def test_discover_is_exact_without_alias_or_fuzzy_match() -> None:
     discovery = _discovery()
 
@@ -168,6 +186,8 @@ def test_selected_detail_comes_from_same_capability_registry() -> None:
     assert detail.selected_capability_schema == {
         "capability_id": "grafana.metrics",
         "arguments_schema": _schema(),
+        "target_ref": {"applicable": False},
+        "source_ref": {"applicable": True, "allowed_refs": ["grafana-prod"]},
     }
 
 

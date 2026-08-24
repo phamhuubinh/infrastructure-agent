@@ -60,7 +60,27 @@ class CapabilityDetail:
         return {
             "capability_id": self.capability_id,
             "arguments_schema": schema,
+            "target_ref": _reference_contract(self.detail, "target"),
+            "source_ref": _reference_contract(self.detail, "source"),
         }
+
+
+def _reference_contract(
+    detail: dict[str, object],
+    name: str,
+) -> dict[str, object]:
+    """Represent selected-capability reference authority for provider schema."""
+    kind_key = f"{name}_kind"
+    refs_key = f"{name}_refs"
+    if kind_key not in detail:
+        return {"applicable": False}
+
+    refs = detail.get(refs_key)
+    if not isinstance(refs, list) or any(
+        not isinstance(ref, str) or not ref for ref in refs
+    ) or len(refs) != len(set(refs)):
+        raise ValueError(f"Capability detail has invalid {refs_key}.")
+    return {"applicable": True, "allowed_refs": list(refs)}
 
 
 class CapabilityDiscovery:
@@ -117,6 +137,33 @@ class CapabilityDiscovery:
             )
 
         return tuple(groups)
+
+    def group_guidance(self) -> tuple[dict[str, object], ...]:
+        """Expose bounded non-authorizing group metadata for first-stage choice.
+
+        This intentionally omits capability IDs, action schemas, and refs.  It
+        helps the model decide whether to DISCOVER a group without granting
+        authority before normal progressive disclosure.
+        """
+        guidance: list[dict[str, object]] = []
+        for group in self.groups():
+            capabilities = tuple(
+                capability
+                for capability in self._capabilities.capabilities
+                if capability.discovery_group == group and capability.available
+            )
+            guidance.append(
+                {
+                    "group": group,
+                    "purposes": sorted(
+                        {capability.purpose for capability in capabilities}
+                    )[:MAX_DISCOVERY_SUMMARIES],
+                    "result_kinds": sorted(
+                        {capability.result_kind for capability in capabilities}
+                    )[:MAX_DISCOVERY_SUMMARIES],
+                }
+            )
+        return tuple(guidance)
 
     def discover(
         self,

@@ -29,7 +29,7 @@ class TestServerConfig:
         assert cfg.model == "gpt-4"
         assert cfg.timeout == 60
         assert cfg.temperature == 0.0
-        assert cfg.max_tokens == 2048
+        assert cfg.provider_max_tokens is None
 
     def test_valid_full(self) -> None:
         cfg = ServerConfig.model_validate(
@@ -40,7 +40,6 @@ class TestServerConfig:
                 "provider": "openai",
                 "timeout": 120,
                 "temperature": 0.7,
-                "max_tokens": 4096,
             }
         )
         assert cfg.model == "qwen"
@@ -96,13 +95,13 @@ class TestServersConfig:
                 }
             )
 
-    def test_missing_active_server_with_models(self) -> None:
-        with pytest.raises(ValueError, match="active_server"):
-            ServersConfig.model_validate(
-                {
-                    "servers": {"sv1": {"base_url": "http://x"}},
-                }
-            )
+    def test_inactive_registry_with_models_is_valid(self) -> None:
+        cfg = ServersConfig.model_validate(
+            {
+                "servers": {"sv1": {"base_url": "http://x"}},
+            }
+        )
+        assert cfg.active_server == ""
 
     def test_missing_servers_is_valid_when_active_is_empty(self) -> None:
         cfg = ServersConfig.model_validate({})

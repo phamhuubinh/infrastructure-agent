@@ -15,9 +15,8 @@ provider is invoked:
   section = highest priority) and dropped whole — never sliced — as soon
   as adding one would exceed the budget.
 
-No tokenizer or provider SDK is involved: estimates reuse
-:func:`ResponseBudgetPolicy.estimated_tokens`, so the same input always
-yields the same estimate.
+No tokenizer or provider SDK is involved: the same fixed estimate is used for
+every input so equivalent contexts always yield the same estimate.
 """
 
 from __future__ import annotations
@@ -26,7 +25,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from src.pipeline.response_budget import ResponseBudgetPolicy
+
+def _estimated_tokens_from_chars(char_count: int) -> int:
+    """Return the fixed, provider-independent token estimate."""
+    return (char_count + 3) // 4
 
 
 class InputContextBudgetClass(str, Enum):
@@ -77,7 +79,7 @@ class EnforcedInputContext:
     @property
     def estimated_input_tokens(self) -> int:
         """Provider-independent token estimate of the enforced context."""
-        return ResponseBudgetPolicy.estimated_tokens_from_chars(self.total_chars)
+        return _estimated_tokens_from_chars(self.total_chars)
 
     @property
     def within_budget(self) -> bool:
@@ -97,12 +99,12 @@ class InputContextBudget:
 
     @property
     def max_estimated_tokens(self) -> int:
-        return ResponseBudgetPolicy.estimated_tokens_from_chars(self.max_chars)
+        return _estimated_tokens_from_chars(self.max_chars)
 
     @staticmethod
     def estimated_tokens(text: str) -> int:
         """Provider-independent token estimate, shared with output budgets."""
-        return ResponseBudgetPolicy.estimated_tokens(text)
+        return _estimated_tokens_from_chars(len(text))
 
     def enforce(
         self,

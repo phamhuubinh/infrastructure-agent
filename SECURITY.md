@@ -2,64 +2,31 @@
 
 ## Scope
 
-Orion is currently a **local, single-user AI agent** for project knowledge and infrastructure work.
-It has optional API-key authentication for Web/API use (`ORION_API_KEY`) and is intended for trusted
-local/internal deployment. It is not a hardened public multi-tenant Internet service.
+Orion is a local, single-user agent intended for trusted local/internal deployment, not a hardened public multi-tenant service.
 
-The architecture separates model reasoning from execution authority. The model may propose a
-registered action, but only the deterministic harness can validate and execute it.
-
-## Core security boundary
+## Core boundary
 
 - Natural-language text is never execution authority.
-- The model does not receive API keys, passwords, SSH private keys, bearer tokens, or equivalent
-  credentials.
-- The model selects only registered capabilities; it does not receive arbitrary shell, HTTP,
-  filesystem, database, credential-lookup, or registry-mutation authority.
-- Target/source references must resolve exactly. Unknown identities are rejected rather than
-  fuzzy-mapped or silently defaulted.
-- READ/WRITE permission is enforced from the reviewed capability effect before execution.
-- Secrets and private chain-of-thought must not appear in normal logs or public traces.
+- The model never receives credentials/secrets.
+- System prompts, developer prompts, hidden policies/internal instructions, credentials/secrets, and private hidden reasoning are protected internal information.
+- Requests to reveal/reproduce protected internal instructions terminate as `REFUSE`; Orion must not use discovery/actions to retrieve them.
+- Parsed model decisions remain untrusted until active-stage/disclosure/exact-authority validation passes.
+- Unknown/malformed target/source/capability/configuration fails closed; no fuzzy/default-localhost behavior.
+- READ/WRITE comes from reviewed capability effect.
+- Objective final execution claims must agree with structured observations.
 
-See `docs/architecture/SECURITY.md` and the accepted ADRs under `docs/decisions/`.
+## SSH/credentials
 
-## SSH host-key verification
+SSH host-key checking is enabled by default. Deployment credentials live outside the checkout, normally `/etc/orion/tool-credentials.json`.
 
-SSH host-key verification is enabled by default (`StrictHostKeyChecking=yes`). Add each target's
-host key to the Orion runtime user's `~/.ssh/known_hosts` before registering it.
+## Network exposure
 
-An operator can explicitly set `strict_host_key_checking: false` for a temporary trusted-network
-exception. This weakens SSH transport authentication and is not appropriate for production or
-untrusted networks.
+The root packaged Compose stack is intended for loopback-local access and keeps RAG internal.
 
-## Credential management
+### Standalone RAG development stack
 
-Grafana and Zabbix deployment credentials are stored outside the source checkout in
-`/etc/orion/tool-credentials.json`.
+`src/tool/RAGTool/docker-compose.yml` currently publishes RAG/Qdrant and is not equivalent to the root deployment. It also accepts request-scoped model endpoint configuration in analysis requests. Until hardened, do not expose it to an untrusted network.
 
-Never hardcode credentials in source files, tracked configuration, prompts, traces, or tests.
+The target is loopback-only development exposure or explicit auth/mTLS, secured vector administration, and server-side SSRF/DNS/redirect/private-address protection without arbitrary bearer-token forwarding.
 
-## Infrastructure and network exposure
-
-The application can make outbound connections to reviewed/configured resources including:
-
-- SSH targets from the target registry;
-- Grafana;
-- Zabbix;
-- configured model-provider endpoints;
-- public Internet search/fetch through registered Internet behavior;
-- the internal Project RAG service.
-
-The model may decide that an Internet capability is useful, but network safety remains deterministic
-runtime policy. Public URL fetch retains SSRF controls such as address policy, DNS/redirect
-validation, timeouts, response-size bounds, and rebinding protections implemented by the tool.
-
-In source-development Web mode, the backend listens on `localhost:61888`. In the packaged Docker
-deployment, the local reverse proxy is intended for loopback access. Put separately authenticated
-TLS ingress in front of Orion before exposing it beyond the trusted host/network, and review the
-deployment configuration for that environment.
-
-## Reporting a vulnerability
-
-Report security issues privately to the maintainers when possible. Do not publish exploitable
-details before the issue has been addressed.
+See `docs/development/IMPLEMENTATION_GAPS.md`.

@@ -36,6 +36,7 @@ class RagServiceConfig:
 
     collection: str = "documents"
     data_dir: str = "/tmp/orion-rag"
+    internal_token: str = ""
 
 
 def load_config() -> RagServiceConfig:
@@ -53,6 +54,7 @@ def load_config() -> RagServiceConfig:
         llm_api_key=_env("RAG_LLM_API_KEY", ""),
         collection=_env("RAG_COLLECTION", "documents"),
         data_dir=_env("RAG_DATA_DIR", "/tmp/orion-rag"),
+        internal_token=_env("RAG_INTERNAL_TOKEN", "").strip(),
     )
 
 

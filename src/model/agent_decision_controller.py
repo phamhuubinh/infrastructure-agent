@@ -16,6 +16,7 @@ from src.agent.contracts import (
 from src.agent.discovery import (
     CapabilityDetailStatus,
     CapabilityDiscovery,
+    DiscoveryResult,
     DiscoveryStatus,
 )
 from src.model.agent_adapter import (
@@ -66,6 +67,7 @@ class AgentDecisionController:
         prompt = build_first_prompt(
             request,
             capability_groups=self._discovery.groups(),
+            capability_group_guidance=self._discovery.group_guidance(),
         )
         return self._decide(
             prompt,
@@ -76,11 +78,10 @@ class AgentDecisionController:
         self,
         request: str,
         *,
-        group: str,
+        result: DiscoveryResult,
+        additional_capability_groups: Sequence[str],
         request_id: str | None = None,
     ) -> AgentDecisionResult:
-        result = self._discovery.discover(group)
-
         if result.status is not DiscoveryStatus.DISCOVERED:
             raise ValueError(
                 f"Capability group is not discoverable: "
@@ -90,6 +91,7 @@ class AgentDecisionController:
         prompt = build_discovery_prompt(
             request,
             result,
+            additional_capability_groups=additional_capability_groups,
         )
         return self._decide(
             prompt,
@@ -175,6 +177,7 @@ class AgentDecisionController:
             selected_capability_schema=(
                 prompt.selected_capability_schema
             ),
+            response_schema=prompt.response_schema,
             request_id=request_id,
         )
 

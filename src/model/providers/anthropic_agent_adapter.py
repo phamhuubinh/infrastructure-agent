@@ -28,13 +28,15 @@ class AnthropicAgentAdapter(
         model: str,
         timeout: int = 180,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        provider_required_max_tokens: int,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._timeout = timeout
         self._temperature = temperature
-        self._max_tokens = max_tokens
+        if type(provider_required_max_tokens) is not int or provider_required_max_tokens < 1:
+            raise ValueError("provider_required_max_tokens must be a positive integer.")
+        self._provider_required_max_tokens = provider_required_max_tokens
         self._last_usage: (
             ModelCallUsage | None
         ) = None
@@ -129,9 +131,7 @@ class AnthropicAgentAdapter(
             response = (
                 client.messages.create(
                     model=self._model,
-                    max_tokens=(
-                        self._max_tokens
-                    ),
+                    max_tokens=self._provider_required_max_tokens,
                     temperature=(
                         self._temperature
                     ),

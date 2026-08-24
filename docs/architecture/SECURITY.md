@@ -1,72 +1,21 @@
 # Security and Secret Boundary
 
-## Secret rule
+## Protected data
 
-> **The model never receives credentials.**
+The model never receives credentials. System/developer prompts, hidden policies/internal instructions, credentials/secrets, and private hidden reasoning are protected internal information.
 
-API keys, passwords, SSH private keys, bearer tokens, and similar secrets stay
-on the machine running Orion and are resolved only by trusted runtime
-components.
+Requests to reveal/reproduce protected internal instructions terminate as `REFUSE`; do not DISCOVER/ACTION to retrieve them. This is language-independent policy, not a keyword semantic router. See ADR-0009.
 
-## Secret references
+## Stage/disclosure safety
 
-The model may see safe logical identifiers such as:
-
-```text
-grafana-prod
-zabbix-main
-monitor
-staging-db
-```
-
-It should not need to know the secret value or, where avoidable, the secret's
-filesystem path.
-
-The runtime maps logical connection/tool identifiers to local configuration,
-SSH config, environment variables, private files, OS secret stores, or another
-trusted provider.
-
-## Tool isolation
-
-The model selects a registered capability. It does not receive arbitrary:
-
-- shell execution;
-- filesystem mutation;
-- HTTP requests;
-- database queries with unrestricted effects;
-- credential lookup;
-- registry modification.
-
-Any powerful primitive used internally by a tool remains behind a reviewed
-capability boundary.
+Provider output remains untrusted. Validate active decision kind, actual disclosure state, exact capability/target/source, arguments, permission/approval/budget before execution.
 
 ## Network safety
 
-Internet and remote-access tools retain deterministic controls appropriate to
-their transport, including where relevant:
+Internet/remote tools retain deterministic IP/DNS/redirect/timeout/size/credential scoping controls.
 
-- public/private address policy;
-- DNS and redirect validation;
-- request timeouts;
-- response-size limits;
-- bounded retries;
-- target allowlists/registries;
-- credential scoping.
+The root Compose keeps RAG internal. The standalone RAG development stack currently exposes a broader unauthenticated surface and request-controlled model endpoint boundary; harden it before untrusted-network exposure.
 
-These controls are independent of model reasoning.
+## Logs/metrics
 
-## READ/WRITE enforcement
-
-The declared capability effect is checked before execution. Runtime
-implementations must match their declared effect. A capability declared READ
-must not mutate external state.
-
-Tests should explicitly verify the effect boundary for high-risk capabilities.
-
-## Logs and traces
-
-Secret values, raw authorization headers, private keys, passwords, and private
-chain-of-thought must not appear in public traces or normal logs.
-
-Structured logs may include safe connection identifiers, action IDs, error
-codes, timings, and redacted evidence summaries.
+Never log secrets/protected instructions/private reasoning. Operational health/metrics must reflect real state rather than hardcoded availability or permanently zero counters.

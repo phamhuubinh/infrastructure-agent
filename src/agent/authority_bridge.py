@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from types import MappingProxyType
 
 from src.agent.authority import (
     ExactReferenceRegistry,
@@ -20,10 +19,6 @@ from src.agent.capabilities import (
     CapabilityRegistry,
 )
 from src.agent.permissions import EffectClass
-from src.pipeline.calculator_action_contract import (
-    CALCULATOR_CAPABILITY_ID,
-    calculator_arguments_schema,
-)
 from src.pipeline.internet_action_contract import (
     INTERNET_CURRENT_CAPABILITY_ID,
     INTERNET_FETCH_URL_CAPABILITY_ID,
@@ -59,8 +54,10 @@ class _LegacyCapability:
 def build_legacy_authority_catalog(
     knowledge_tool: KnowledgeTool,
     target_registry: TargetRegistry,
+    *,
+    local_capabilities: Sequence[CapabilityDefinition] = (),
 ) -> AuthorityCatalog:
-    """Project current reviewed registrations into the new authority model."""
+    """Project reviewed registrations into the canonical authority model."""
 
     if not isinstance(knowledge_tool, KnowledgeTool):
         raise TypeError("knowledge_tool must be KnowledgeTool.")
@@ -68,13 +65,22 @@ def build_legacy_authority_catalog(
     if not isinstance(target_registry, TargetRegistry):
         raise TypeError("target_registry must be TargetRegistry.")
 
+    if isinstance(local_capabilities, (str, bytes)) or not isinstance(
+        local_capabilities, Sequence
+    ):
+        raise TypeError("local_capabilities must be a capability sequence.")
+    if any(
+        not isinstance(capability, CapabilityDefinition)
+        for capability in local_capabilities
+    ):
+        raise TypeError("local_capabilities must contain CapabilityDefinition values.")
+
     registry_names = tuple(target_registry.target_names())
     knowledge_names = tuple(sorted(knowledge_tool.source_names()))
 
     if tuple(sorted(registry_names)) != knowledge_names:
         raise ValueError(
-            "knowledge_tool and target_registry must describe "
-            "the same registrations."
+            "knowledge_tool and target_registry must describe the same registrations."
         )
 
     targets = ExactReferenceRegistry(
@@ -107,8 +113,7 @@ def build_legacy_authority_catalog(
             internet_resources[source_ref] = {
                 name
                 for entry in entries
-                if isinstance((name := entry.get("name")), str)
-                and name
+                if isinstance((name := entry.get("name")), str) and name
             }
             continue
 
@@ -121,14 +126,11 @@ def build_legacy_authority_catalog(
             )
 
     capabilities = [
-        _finalize_legacy_capability(item)
-        for _, item in sorted(accumulated.items())
+        _finalize_legacy_capability(item) for _, item in sorted(accumulated.items())
     ]
 
-    capabilities.extend(
-        _internet_capabilities(internet_resources)
-    )
-    capabilities.append(_calculator_capability())
+    capabilities.extend(_internet_capabilities(internet_resources))
+    capabilities.extend(local_capabilities)
 
     return AuthorityCatalog(
         capabilities=CapabilityRegistry(tuple(capabilities)),
@@ -157,11 +159,7 @@ def _accumulate_metadata_capability(
 
     prefix = "host" if source_kind == "linux" else source_kind
     capability_id = f"{prefix}.{name}"
-    effect = (
-        EffectClass.READ
-        if mutation_risk == "none"
-        else EffectClass.WRITE
-    )
+    effect = EffectClass.READ if mutation_risk == "none" else EffectClass.WRITE
 
     description = entry.get("description")
     purpose = (
@@ -172,11 +170,7 @@ def _accumulate_metadata_capability(
     purpose = purpose[:1024].strip()
 
     target_kind = "machine" if source_kind == "linux" else None
-    capability_source_kind = (
-        None
-        if source_kind == "linux"
-        else source_kind
-    )
+    capability_source_kind = None if source_kind == "linux" else source_kind
 
     candidate = _LegacyCapability(
         capability_id=capability_id,
@@ -185,22 +179,12 @@ def _accumulate_metadata_capability(
         effect=effect,
         arguments_schema=_arguments_schema(entry),
         runtime_binding="knowledge.dispatch",
-        discovery_group=(
-            "host"
-            if source_kind == "linux"
-            else source_kind
-        ),
+        discovery_group=("host" if source_kind == "linux" else source_kind),
         target_kind=target_kind,
         source_kind=capability_source_kind,
-        allowed_target_refs=(
-            {source_ref}
-            if target_kind is not None
-            else set()
-        ),
+        allowed_target_refs=({source_ref} if target_kind is not None else set()),
         allowed_source_refs=(
-            {source_ref}
-            if capability_source_kind is not None
-            else set()
+            {source_ref} if capability_source_kind is not None else set()
         ),
     )
 
@@ -211,16 +195,10 @@ def _accumulate_metadata_capability(
         return
 
     if not _same_authority_shape(existing, candidate):
-        raise ValueError(
-            f"Conflicting metadata for capability {capability_id!r}."
-        )
+        raise ValueError(f"Conflicting metadata for capability {capability_id!r}.")
 
-    existing.allowed_target_refs.update(
-        candidate.allowed_target_refs
-    )
-    existing.allowed_source_refs.update(
-        candidate.allowed_source_refs
-    )
+    existing.allowed_target_refs.update(candidate.allowed_target_refs)
+    existing.allowed_source_refs.update(candidate.allowed_source_refs)
 
 
 def _same_authority_shape(
@@ -282,9 +260,7 @@ def _internet_capabilities(
         return ()
 
     fetch_sources = frozenset(
-        source
-        for source, names in resources.items()
-        if "web_fetch" in names
+        source for source, names in resources.items() if "web_fetch" in names
     )
     current_sources = frozenset(
         source
@@ -328,23 +304,6 @@ def _internet_capabilities(
     )
 
 
-def _calculator_capability() -> CapabilityDefinition:
-    return CapabilityDefinition(
-        capability_id=CALCULATOR_CAPABILITY_ID,
-        purpose="Perform deterministic computation",
-        tool_id="calculator",
-        effect=EffectClass.READ,
-        arguments_schema=calculator_arguments_schema(),
-        runtime_binding="calculator.execute",
-        discovery_group="calculator",
-        available=True,
-        safety_reviewed=True,
-        budget_cost=1,
-        result_kind="deterministic_result",
-        activity_label="Calculating",
-    )
-
-
 def _arguments_schema(
     entry: Mapping[str, object],
 ) -> dict[str, object]:
@@ -362,20 +321,14 @@ def _arguments_schema(
     names = {
         name
         for name in _sequence(raw_parameters)
-        if isinstance(name, str)
-        and name not in {"action", "resource", "source"}
+        if isinstance(name, str) and name not in {"action", "resource", "source"}
     }
     names.update(specs)
 
-    properties = {
-        name: _property_schema(specs.get(name))
-        for name in sorted(names)
-    }
+    properties = {name: _property_schema(specs.get(name)) for name in sorted(names)}
 
     required = sorted(
-        name
-        for name, spec in specs.items()
-        if spec.get("required") is True
+        name for name, spec in specs.items() if spec.get("required") is True
     )
 
     return {
@@ -389,11 +342,8 @@ def _arguments_schema(
 def _property_schema(
     spec: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    value_type = (
-        spec.get("value_type")
-        if spec is not None
-        else "str"
-    )
+    raw_value_type = spec.get("value_type") if spec is not None else "str"
+    value_type = raw_value_type if isinstance(raw_value_type, str) else "str"
 
     json_type = {
         "str": "string",
@@ -412,11 +362,7 @@ def _property_schema(
         return result
 
     enum = spec.get("enum")
-    if (
-        isinstance(enum, Sequence)
-        and not isinstance(enum, (str, bytes))
-        and enum
-    ):
+    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes)) and enum:
         result["enum"] = list(enum)
 
     for source_key in ("minimum", "maximum"):
@@ -432,10 +378,7 @@ def _property_schema(
 
 
 def _sequence(value: object) -> Sequence[object]:
-    if (
-        isinstance(value, Sequence)
-        and not isinstance(value, (str, bytes))
-    ):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return value
     return ()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -46,6 +47,15 @@ _SENSITIVE_TRACE_KEYS = frozenset(
         "user_prompt",
     }
 )
+
+
+@contextmanager
+def _active_session_lease(lease: AbstractContextManager[object]):
+    try:
+        with lease:
+            yield
+    except KeyError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 def _trace_key_is_sensitive(key: str) -> bool:
@@ -170,7 +180,7 @@ def query(body: dict, request: Request):
             server_name=server_name,
         )
         set_context(request_id=request_id, session_id=session_id)
-        with session_lock:
+        with _active_session_lease(session_lock):
             store = agent.conversation_store
             snapshot = None
             if regenerate_turn_index is not None:
@@ -188,7 +198,10 @@ def query(body: dict, request: Request):
                     else ()
                 )
                 result = agent.run_with_steps(
-                    question, attachment_evidence=attachment_evidence
+                    question,
+                    attachment_evidence=attachment_evidence,
+                    request_id=request_id,
+                    chat_id=session_id,
                 )
                 # Final defense-in-depth output boundary (GA2-B05).  Every
                 # user-visible response — normal answer, deterministic

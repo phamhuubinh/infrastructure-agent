@@ -20,6 +20,8 @@ from src.model.agent_adapter import (
 from src.model.agent_decision_controller import (
     AgentDecisionController,
 )
+from src.pipeline.calculator_action_contract import calculator_capability
+from src.pipeline.external_verification import ExternalVerificationExecutor
 from src.tool.knowledge_tool import KnowledgeTool
 from src.tool.target_registry import TargetRegistry
 
@@ -42,39 +44,25 @@ class CanonicalAgentComponents:
         sources = self.catalog.sources
 
         if self.discovery.capabilities is not capabilities:
-            raise ValueError(
-                "discovery must share the catalog capability registry."
-            )
+            raise ValueError("discovery must share the catalog capability registry.")
 
         if self.discovery.targets is not targets:
-            raise ValueError(
-                "discovery must share the catalog target registry."
-            )
+            raise ValueError("discovery must share the catalog target registry.")
 
         if self.discovery.sources is not sources:
-            raise ValueError(
-                "discovery must share the catalog source registry."
-            )
+            raise ValueError("discovery must share the catalog source registry.")
 
         if self.authorizer.capabilities is not capabilities:
-            raise ValueError(
-                "authorizer must share the catalog capability registry."
-            )
+            raise ValueError("authorizer must share the catalog capability registry.")
 
         if self.authorizer.targets is not targets:
-            raise ValueError(
-                "authorizer must share the catalog target registry."
-            )
+            raise ValueError("authorizer must share the catalog target registry.")
 
         if self.authorizer.sources is not sources:
-            raise ValueError(
-                "authorizer must share the catalog source registry."
-            )
+            raise ValueError("authorizer must share the catalog source registry.")
 
         if self.controller.discovery is not self.discovery:
-            raise ValueError(
-                "controller must share the canonical discovery instance."
-            )
+            raise ValueError("controller must share the canonical discovery instance.")
 
 
 def build_canonical_agent_components(
@@ -84,7 +72,7 @@ def build_canonical_agent_components(
     providers: Sequence[StructuredAgentProvider],
     model_timeout_seconds: float = 30.0,
     runtime_config: AgentRuntimeConfig | None = None,
-    external_verification: object | None = None,
+    external_verification: ExternalVerificationExecutor | None = None,
 ) -> CanonicalAgentComponents:
     """Build one canonical model-authority-execution runtime graph.
 
@@ -94,26 +82,18 @@ def build_canonical_agent_components(
     """
 
     if not isinstance(knowledge_tool, KnowledgeTool):
-        raise TypeError(
-            "knowledge_tool must be KnowledgeTool."
-        )
+        raise TypeError("knowledge_tool must be KnowledgeTool.")
 
     if not isinstance(target_registry, TargetRegistry):
-        raise TypeError(
-            "target_registry must be TargetRegistry."
-        )
+        raise TypeError("target_registry must be TargetRegistry.")
 
-    if (
-        not isinstance(providers, Sequence)
-        or isinstance(providers, (str, bytes))
-    ):
-        raise TypeError(
-            "providers must be a sequence."
-        )
+    if not isinstance(providers, Sequence) or isinstance(providers, (str, bytes)):
+        raise TypeError("providers must be a sequence.")
 
     catalog = build_legacy_authority_catalog(
         knowledge_tool,
         target_registry,
+        local_capabilities=(calculator_capability(),),
     )
 
     discovery = CapabilityDiscovery(
@@ -170,7 +150,7 @@ def build_canonical_agent_runtime(
     providers: Sequence[StructuredAgentProvider],
     model_timeout_seconds: float = 30.0,
     runtime_config: AgentRuntimeConfig | None = None,
-    external_verification: object | None = None,
+    external_verification: ExternalVerificationExecutor | None = None,
 ) -> AgentRuntime:
     """Convenience view for callers that only need the runtime."""
 

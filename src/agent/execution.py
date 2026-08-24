@@ -207,6 +207,8 @@ class AuthorizedActionExecutor(Protocol):
 def authorization_observation(
     action_id: int,
     authorization: AuthorizationResult,
+    *,
+    provenance: Mapping[str, object] | None = None,
 ) -> AgentObservation:
     if not isinstance(authorization, AuthorizationResult):
         raise TypeError(
@@ -229,6 +231,7 @@ def authorization_observation(
         source_ref=authorization.source_ref,
         reason=authorization.reason.value,
         recoverable=recoverable,
+        provenance=dict(provenance or {}),
     )
 
 

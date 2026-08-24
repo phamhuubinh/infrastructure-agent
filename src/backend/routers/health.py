@@ -1,57 +1,17 @@
 from __future__ import annotations
 
 import shutil
-import threading
 import time
 
 from fastapi import APIRouter, Request
 
 from src.backend.db import _get_dsn, _import_driver
+from src.observability.events import get_event_store
 
 router = APIRouter(tags=["health"])
 
 
-class MetricsCollector:
-    """Simple thread-safe in-memory metrics collector (singleton)."""
-
-    _instance = None
-    _lock = threading.Lock()
-
-    def __init__(self) -> None:
-        self._counters = {
-            "execution_count": 0,
-            "evidence_count": 0,
-            "error_count": 0,
-            "tool_call_count": 0,
-        }
-        self._active_sessions = 0
-
-    @classmethod
-    def get(cls) -> MetricsCollector:
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-
-    def increment(self, metric: str, delta: int = 1) -> None:
-        with self._lock:
-            if metric in self._counters:
-                self._counters[metric] += delta
-
-    def set_active_sessions(self, count: int) -> None:
-        with self._lock:
-            self._active_sessions = count
-
-    def snapshot(self) -> dict:
-        with self._lock:
-            return {
-                **self._counters,
-                "active_sessions": self._active_sessions,
-            }
-
-
-metrics = MetricsCollector.get()
+event_store = get_event_store()
 
 CORE_RUNTIME_BINARIES: tuple[str, ...] = (
     "df",
@@ -86,19 +46,28 @@ def health():
 @router.get("/api/metrics")
 def get_metrics():
     return {
-        "metrics": metrics.snapshot(),
+        "metrics": event_store.metrics_snapshot(),
     }
 
 
 @router.get("/api/check-model")
 def check_model(request: Request):
     request.app.state.deps.reload_models_if_changed()
+    if request.app.state.deps.model_store.active() is None:
+        return {"status": "not_configured", "health_state": "not_configured"}
     agent = request.app.state.deps.agent
     try:
         ok = agent.health_check(timeout=5)
-        return {"status": "ok" if ok else "error"}
+        return {
+            "status": "ok" if ok else "error",
+            "health_state": "healthy" if ok else "unhealthy",
+        }
     except Exception as exc:
-        return {"status": "error", "error": str(exc)[:120]}
+        return {
+            "status": "error",
+            "health_state": "unhealthy",
+            "error": str(exc)[:120],
+        }
 
 
 @router.get("/api/status")

@@ -94,7 +94,7 @@ class FakeInternetTool:
         )
 
 
-def test_current_action_requires_fetched_evidence() -> None:
+def test_search_action_returns_discovery_evidence() -> None:
     tool = FakeInternetTool()
     executor = (
         ExternalVerificationExecutor(
@@ -102,32 +102,24 @@ def test_current_action_requires_fetched_evidence() -> None:
         )
     )
 
-    outcome = (
-        executor.collect_current_action(
-            source_id="internet",
-            query="current Python version",
-            user_request=(
-                "What is the current "
-                "Python version?"
-            ),
-            freshness_required=True,
-        )
+    outcome = executor.collect_search_action(
+        source_id="internet",
+        queries=("current Python version",),
+        max_results=5,
+        freshness_required=True,
     )
 
-    assert outcome.verified is True
     assert outcome.search_calls == 1
-    assert outcome.fetch_calls == 1
+    assert outcome.fetch_calls == 0
 
     evidence = executor.action_evidence(
         outcome
     )
 
-    assert evidence.capability_status is (
-        CapabilityStatus.VALID
-    )
+    assert evidence.capability_status is CapabilityStatus.VALID
 
 
-def test_url_action_fetches_exact_url_without_search() -> None:
+def test_fetch_action_fetches_exact_url_without_search() -> None:
     tool = FakeInternetTool()
     executor = (
         ExternalVerificationExecutor(
@@ -135,7 +127,7 @@ def test_url_action_fetches_exact_url_without_search() -> None:
         )
     )
 
-    outcome = executor.collect_url_action(
+    outcome = executor.collect_fetch_action(
         source_id="internet",
         url=(
             "https://example.com/release"
@@ -161,13 +153,11 @@ def test_failed_fetch_is_not_valid_evidence() -> None:
         )
     )
 
-    outcome = (
-        executor.collect_current_action(
-            source_id="internet",
-            query="current version",
-            user_request="current version",
-            freshness_required=True,
-        )
+    outcome = executor.collect_fetch_action(
+        source_id="internet",
+        url="https://example.com/release",
+        user_request="current version",
+        freshness_required=True,
     )
 
     assert outcome.verified is False

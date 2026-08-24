@@ -16,3 +16,8 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+# Root Orion uses importlib mode; make the standalone RAG package explicit so
+# CI and local `uv run pytest` resolve its top-level `app` package identically.
+pythonpath = [".", "../../.."]

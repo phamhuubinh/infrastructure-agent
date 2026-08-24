@@ -25,6 +25,7 @@ def _request(
 ) -> SimpleNamespace:
     deps = SimpleNamespace(
         rag_service_url=rag_url,
+        rag_internal_token="root-to-rag-test-token",
         model_store=SimpleNamespace(active=lambda: model),
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(deps=deps)))
@@ -44,6 +45,7 @@ def test_create_project_proxies_normalized_payload() -> None:
         "/projects",
         method="POST",
         body={"name": "Project One", "description": "Corpus"},
+        token="root-to-rag-test-token",
     )
 
 
@@ -73,6 +75,7 @@ def test_analysis_is_scoped_to_encoded_project_id() -> None:
             },
         },
         timeout=120,
+        token="root-to-rag-test-token",
     )
 
 
@@ -82,6 +85,20 @@ def test_analysis_requires_a_configured_model() -> None:
             "project-1", {"query": "compare", "top_k": 5}, _request(model=None)
         )
     assert exc_info.value.status_code == 503
+
+
+def test_proxy_refuses_requests_without_its_configured_internal_token() -> None:
+    request = _request()
+    request.app.state.deps.rag_internal_token = ""
+
+    with (
+        mock.patch.object(knowledge, "_json_request") as proxy,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        knowledge.create_project({"name": "Project One"}, request)
+
+    assert exc_info.value.status_code == 503
+    proxy.assert_not_called()
 
 
 @pytest.mark.parametrize("top_k", [0, 21, "not-a-number"])

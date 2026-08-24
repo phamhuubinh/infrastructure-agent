@@ -4,56 +4,28 @@
 
 ```bash
 pip install -e ".[test]"
-
 python -m pytest tests/ -q --tb=short
-
 ruff check src/ tests/ --select ALL --ignore D --ignore INP --ignore S --ignore E501
 ```
 
 ## Architecture
 
-Start with `docs/README.md`, then read the relevant accepted ADRs and architecture documents.
+Read `docs/README.md`, relevant ADRs/architecture docs, `docs/development/ENGINEERING_RULES.md`, and for current repair work `docs/development/IMPLEMENTATION_GAPS.md`.
 
-The central boundary is:
+The model owns language interpretation/reasoning/proposals. The harness owns active-stage validation, actual capability disclosure, exact capability/target/source authority, arguments, permission/approval, budgets, execution, evidence, and completion.
 
-> **The model owns language understanding, reasoning, and next-action proposals.**
+Do not add a language-specific semantic router. Natural language never authorizes shell/HTTP/database/file/infrastructure execution. Unknown/malformed authority state fails closed; no default localhost/source fallback.
 
-> **The harness owns authority, validation, execution, evidence, limits, and completion.**
-
-For normal configured requests, do not put a language-specific intent/target/source/freshness/
-mutation/follow-up router in front of the model. The model proposes structured decisions; the
-harness validates exact capability/target/source identities, arguments, permissions, budgets, and
-safety before execution.
-
-Natural-language text never authorizes shell, HTTP, database, file, or infrastructure operations.
-READ/WRITE is determined by the reviewed capability effect, not by English/Vietnamese keyword
-matching. Unknown identities fail closed; do not default to localhost or another source.
-
-The accepted target architecture is under `docs/`. Current implementation facts come from code,
-tests, generated API documentation, and runtime evidence. If they differ, document the gap instead
-of adding compatibility behavior that violates an ADR.
+Provider structured output does not remove harness validation. A capability that merely exists in the registry is not automatically disclosed.
 
 ## Before committing
 
-1. Run the smallest affected unit/contract tests.
-2. Run relevant lint/type/static checks for changed Python/TypeScript.
-3. For destructive cleanup, inspect imports/callers/repository-wide references.
-4. Run `git diff --check` and review `git status --short`.
-5. Update current documentation when behavior changes.
-6. Regenerate generated artifacts through their canonical generator when their source contract
-   changes.
-7. Update `CHANGELOG.md` for user-facing changes.
+1. Run affected unit/contract tests.
+2. Run relevant lint/type/static checks.
+3. For broad/destructive cleanup inspect callers/imports/static references.
+4. Run `git diff --check` and review status/diff.
+5. For repository-wide repair, run the full local unit/static suite when practical.
+6. Update docs and implementation-gap ledger.
+7. Regenerate generated artifacts through canonical generators.
 
-Smoke, E2E, Docker, full-QA, benchmark, and external-service validation are separate gates. Run them
-only when the task explicitly requires that class of validation.
-
-When a full QA run fails, fix the first real failure before treating later cascaded failures as
-separate problems.
-
-## Commit guidelines
-
-- One logical change per commit.
-- Use clear, descriptive commit messages.
-- Do not preserve or reintroduce legacy architecture only for compatibility unless a real caller
-  still requires it.
-- Reference related issues, ADRs, or documents when useful.
+Live smoke/E2E/Docker/model/tool QA remains a separate explicit gate.

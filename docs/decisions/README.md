@@ -1,8 +1,6 @@
 # Architecture Decisions
 
-These records lock the major product/architecture choices for the Orion
-refactor. They are intentionally short. Superseding one requires a new explicit
-decision rather than silently reintroducing legacy behavior.
+Accepted decisions. Superseding one requires a new explicit decision.
 
 - [0001-model-harness-boundary.md](0001-model-harness-boundary.md)
 - [0002-permission-autonomy.md](0002-permission-autonomy.md)
@@ -12,3 +10,4 @@ decision rather than silently reintroducing legacy behavior.
 - [0006-no-semantic-pre-router.md](0006-no-semantic-pre-router.md)
 - [0007-secrets-outside-model.md](0007-secrets-outside-model.md)
 - [0008-dynamic-evidence.md](0008-dynamic-evidence.md)
+- [0009-protected-internal-instructions.md](0009-protected-internal-instructions.md)

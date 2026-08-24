@@ -56,9 +56,6 @@ class SQLiteConversationStore:
         self._mem: list[dict[str, Any]] = []
         self._summary: str | None = None
         self._title: str = ""
-        from src.agent.session_investigation_context import SessionInvestigationContext
-
-        self._investigation_context = SessionInvestigationContext()
         self._lock = threading.RLock()
 
         # Thread-local connections for WAL mode safety
@@ -102,22 +99,11 @@ class SQLiteConversationStore:
                 source TEXT NOT NULL DEFAULT 'terminal',
                 title TEXT DEFAULT '',
                 summary TEXT,
-                investigation_context TEXT NOT NULL DEFAULT '{}',
                 messages TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
-
-        columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
-        }
-        if "investigation_context" not in columns:
-            conn.execute(
-                "ALTER TABLE sessions ADD COLUMN investigation_context TEXT "
-                "NOT NULL DEFAULT '{}'"
-            )
 
         # FTS5 full-text search — manually synced in _save().
         conn.execute("""
@@ -163,20 +149,6 @@ class SQLiteConversationStore:
         with self._lock:
             return self._summary
 
-    @property
-    def investigation_context(self) -> object:
-        with self._lock:
-            return self._investigation_context
-
-    def set_investigation_context(self, context: object) -> None:
-        from src.agent.session_investigation_context import SessionInvestigationContext
-
-        if not isinstance(context, SessionInvestigationContext):
-            raise TypeError("context must be a SessionInvestigationContext")
-        with self._lock:
-            self._investigation_context = context
-            self._save()
-
     # ------------------------------------------------------------------
     # Turn management
     # ------------------------------------------------------------------
@@ -220,15 +192,6 @@ class SQLiteConversationStore:
                     break
             if assistant_updated:
                 self._save()
-
-    def add_classifier_turn(self, user: str, label: str) -> None:
-        with self._lock:
-            self._mem.append({"role": "user", "content": user})
-            self._mem.append(
-                {"role": "assistant", "content": f"[classified as {label}]"}
-            )
-            self._save()
-            self._check_compress()
 
     # ------------------------------------------------------------------
     # Summary management
@@ -322,7 +285,7 @@ class SQLiteConversationStore:
         with self._lock:
             conn = self._get_conn()
             row = conn.execute(
-                "SELECT source, title, summary, investigation_context, messages "
+                "SELECT source, title, summary, messages "
                 "FROM sessions WHERE session_id = ?",
                 (self._session_id,),
             ).fetchone()
@@ -333,14 +296,6 @@ class SQLiteConversationStore:
         self._source = row["source"] or "terminal"
         self._title = row["title"] or ""
         self._summary = row["summary"] or None
-        from src.agent.session_investigation_context import SessionInvestigationContext
-
-        try:
-            raw_context = json.loads(row["investigation_context"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            raw_context = {}
-        self._investigation_context = SessionInvestigationContext.from_dict(raw_context)
-
         try:
             messages = json.loads(row["messages"])
             if isinstance(messages, list):
@@ -373,15 +328,13 @@ class SQLiteConversationStore:
         conn.execute(
             """
             INSERT INTO sessions (
-                session_id, source, title, summary, investigation_context,
-                messages, updated_at
+                session_id, source, title, summary, messages, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_id) DO UPDATE SET
                 source = excluded.source,
                 title = excluded.title,
                 summary = excluded.summary,
-                investigation_context = excluded.investigation_context,
                 messages = excluded.messages,
                 updated_at = excluded.updated_at
             """,
@@ -390,7 +343,6 @@ class SQLiteConversationStore:
                 self._source,
                 self._title,
                 self._summary,
-                json.dumps(self._investigation_context.to_dict(), ensure_ascii=False),
                 json.dumps(self._mem, ensure_ascii=False),
                 now,
             ),
@@ -502,6 +454,22 @@ class SQLiteConversationStore:
             deleted = cursor.rowcount > 0
             conn.commit()
             return deleted
+        finally:
+            conn.close()
+
+    @staticmethod
+    def delete_all_sessions(db_path: Path | str | None = None) -> int:
+        """Delete session rows without deleting the SQLite database itself."""
+        path = Path(db_path) if db_path else _get_default_db_path()
+        if not path.exists():
+            return 0
+
+        conn = sqlite3.connect(str(path))
+        try:
+            cursor = conn.execute("DELETE FROM sessions")
+            conn.execute("DELETE FROM sessions_fts")
+            conn.commit()
+            return max(0, cursor.rowcount)
         finally:
             conn.close()
 

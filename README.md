@@ -2,132 +2,100 @@
 
 Orion is a local, single-operator AI agent for project knowledge and infrastructure work.
 
-> **Implementation baseline:** `259f85b` (`refactor(agent): remove legacy deterministic stack`).
-> The configured Chat path uses the canonical model-driven agent runtime. The accepted target
-> architecture is documented under `docs/`; where current implementation still differs from the
-> target, the difference must be stated explicitly rather than hidden behind compatibility behavior.
+> **Implementation baseline:** GitHub `main` at `3e88075` (`qa: migrate GA2 to canonical runtime contract`), built on the canonical-agent refactor at `259f85b`.
+>
+> Accepted target architecture lives under `docs/decisions/` and `docs/architecture/`. Current implementation truth comes from source code, tests, generated API schema, and runtime evidence. Known mismatches are tracked explicitly in `docs/development/IMPLEMENTATION_GAPS.md`; fix them toward the accepted architecture rather than hiding them behind compatibility behavior.
 
 ## Architecture
 
-Two rules define Orion's architecture:
+Two rules define Orion:
 
 > **The model owns language understanding, reasoning, and next-action proposals.**
 
-> **The harness owns authority, validation, execution, evidence, limits, and completion.**
+> **The harness owns authority, validation, execution, evidence, limits, no-progress handling, and completion.**
 
-For normal configured Chat requests there is no language-specific semantic pre-router in front of
-the model. The model produces one of the canonical decisions (`FINAL`, `ACTION`, `DISCOVER`,
-`CLARIFY`, or `REFUSE`). An `ACTION` is only a proposal. The harness must validate the exact
-capability, target/source references, arguments, permissions, budgets, and safety policy before any
-tool can run.
+Normal configured Chat requests go to the canonical model-driven agent without a language-specific semantic pre-router. The model returns one of `FINAL`, `DISCOVER`, `ACTION`, `CLARIFY`, or `REFUSE`.
+
+An `ACTION` is only a proposal. Before execution the harness validates the active decision stage, actual capability-disclosure state, exact capability/target/source identities, typed arguments, permission/approval, budget, and safety policy.
+
+Provider-native structured output is a generation aid, not execution authority. The parsed decision must still satisfy the active stage/schema.
 
 ```text
-User request + bounded session context
+User request + bounded session/project context
     ↓
 Canonical agent model
     ↓
-FINAL / ACTION / DISCOVER / CLARIFY / REFUSE
+FINAL / DISCOVER / ACTION / CLARIFY / REFUSE
     ↓
-Capability discovery + exact authority validation
+Stage validation + capability disclosure + exact authority validation
     ↓
 Validated action only
     ↓
-Executor → reviewed tool/capability runtime
+Executor → reviewed capability runtime
     ↓
 Normalized observation/evidence
     ↓
 Agent model
     ↓
-repeat while useful, within harness limits
+repeat while useful, within resource/no-progress limits
     ↓
-Final delivery + safe execution trace
+Evidence-aware final delivery + safe trace
 ```
 
-Natural-language text is never execution authority. Unknown capabilities, targets, or sources fail
-closed; Orion must not fuzzy-map them or silently fall back to localhost or another source.
+Natural-language text is never execution authority. Unknown/malformed capabilities, targets, sources, backend types, configuration, or stage decisions fail closed. Orion must not fuzzy-map an unknown identity or silently substitute localhost/another source.
 
-### Current Chat and Project/RAG implementation
+## Current Chat and Project/RAG implementation
 
-The canonical Chat runtime is the configured path used by Web/CLI construction. Session
-attachments can be supplied to Chat as bounded, untrusted model context.
+Configured Web/CLI Chat construction uses the canonical runtime. Session attachments can be supplied as bounded, untrusted context.
 
-The current Project RAG service under `src/tool/RAGTool/` is still a standalone Web document
-workspace and is **not currently registered as a Chat agent capability**. This is a current
-implementation boundary, not the accepted long-term architecture. ADR-0003 requires Project
-knowledge to become a normal READ capability inside the same agent loop.
+`src/tool/RAGTool/` is still a standalone Web Project/document workspace and is **not yet registered as a Chat capability**. ADR-0003 remains the target: Project knowledge becomes a normal READ capability in the same agent loop.
+
+The root Compose stack keeps RAG internal. The standalone RAG development Compose has a broader exposure and is not hardened for an untrusted network; see `docs/development/IMPLEMENTATION_GAPS.md`.
 
 ## Permission model
 
-Executable capabilities have an effect class:
+Capabilities declare one reviewed effect:
 
-- **READ** — observes or retrieves data without changing external state.
+- **READ** — observes/retrieves data without changing external state.
 - **WRITE** — creates, changes, deletes, restarts, deploys, installs, or otherwise mutates state.
 
-User modes are `READ`, `RW + ASK`, and `RW + FULL`. Permission is determined by the declared,
-reviewed capability effect and structured authority state, not by matching English/Vietnamese
-mutation keywords.
+Modes are `READ`, `RW + ASK`, and `RW + FULL`. Permission is based on structured capability effect/authority, not English/Vietnamese mutation keywords.
+
+## Protected internal information
+
+System prompts, developer prompts, hidden policies/internal instructions, credentials/secrets, and private hidden reasoning are not user-retrievable data. Requests whose goal is to reveal/reproduce protected internal instructions terminate as `REFUSE`; the agent must not use discovery/actions to retrieve them. See ADR-0009.
 
 ## Configuration
 
 ### Infrastructure tools
 
-Infrastructure tool configuration is split by sensitivity:
+- `tools.json` — tracked non-secret tool registry.
+- `/etc/orion/tool-credentials.json` — deployment endpoints/credentials outside the checkout, mounted read-only.
 
-- `tools.json` — tracked, non-secret tool registry. Do not put credentials in it.
-- `/etc/orion/tool-credentials.json` — deployment endpoints and credentials outside the source
-  checkout, mounted read-only into the API container.
+Malformed authority/configuration fails closed.
 
-Example:
+### Targets
 
-```json
-{
-  "grafana": {
-    "url": "http://your-grafana:3000",
-    "token": "your-grafana-token"
-  },
-  "zabbix": {
-    "url": "http://your-zabbix/zabbix",
-    "token": "your-zabbix-token"
-  }
-}
-```
+An explicit valid `localhost` target means the Orion runtime environment (inside Docker, the API container), not the physical host.
 
-A template is available at `config/tool-credentials.example.json`.
-
-If `/etc/orion/tool-credentials.json` is absent, `./install.sh` creates a private empty `{}` file,
-skips unavailable Grafana/Zabbix setup, and reports missing fields. After adding credentials, run:
-
-```bash
-docker compose up -d --force-recreate api
-```
-
-### Internet access
-
-Internet capabilities use reviewed bounded search/fetch implementations. The model may decide that
-current public information is useful, but deterministic runtime controls still own SSRF protection,
-DNS/redirect validation, timeouts, response-size limits, and execution authority.
+Malformed target JSON, unknown backend types, or an invalid configured target file must **not** synthesize a local backend. The actual `ORION_TARGETS_FILE` selected by the deployment must be validated.
 
 ### Models
 
-Orion does not install or manage model runtimes or model weights. The configured agent core is
-provider-neutral. Supported connections include OpenAI-compatible endpoints and provider adapters
-implemented by the repository.
+Orion is provider-neutral and does not manage model weights/runtimes.
 
-If no model is configured, Orion can still start and expose configuration/diagnostics. A request
-that requires model reasoning returns a clear setup error rather than being semantically routed by
-legacy deterministic keyword logic.
+Configured model identity is machine-readable runtime state. User-visible claims about which model/provider Orion is using must be grounded in that configuration, not in model self-identification.
+
+Model configuration and model health are separate states. A saved connection is not automatically healthy.
+
+If no model is configured, Orion exposes setup/diagnostics and returns a clear setup error for model-requiring requests rather than invoking legacy keyword routing.
 
 ## Quick start
 
-Docker Engine with Docker Compose is the main platform prerequisite.
-
 ```bash
 ./install.sh
-# → http://localhost
-# → `orion help` is available from the host shell
+# http://localhost
 ```
-
-Configure or inspect a model connection from the containerized CLI:
 
 ```bash
 docker compose exec api orion model list
@@ -137,24 +105,9 @@ docker compose exec api orion model add primary \
 docker compose exec api orion model test primary
 ```
 
-The Web settings can also manage model connections. Loopback model endpoints such as
-`http://localhost:11434` are mapped to the host in the Docker installation.
+Loopback model endpoints can be mapped to the host in the packaged Docker installation.
 
-## Uninstall
-
-```bash
-./uninstall.sh
-./uninstall.sh --yes
-./uninstall.sh --dry-run
-```
-
-Uninstall removes Orion containers, project-built images, Docker volumes, model connections,
-sessions, RAG projects/documents, logs, `.env`, and the host launcher. Interactive uninstall asks
-separately whether `/etc/orion/tool-credentials.json` should be removed; `--yes` preserves that
-shared credential file automatically. The source checkout and independently managed model runtimes
-are preserved.
-
-## CLI
+## CLI and sessions
 
 ```bash
 orion help
@@ -164,72 +117,32 @@ orion log
 orion model list
 ```
 
-The host command is a lightweight Docker launcher. `orion web` starts the Web services when needed
-and follows logs for that invocation; `Ctrl+C` stops those Web services. `orion log` follows the
-Compose service logs and exits without stopping the stack.
-
-## Development Web UI
-
-For source-development mode:
-
-```bash
-# Terminal 1: Project RAG service
-cd src/tool/RAGTool
-uv sync --group dev
-uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
-
-# Terminal 2: backend + Vite frontend
-cd ../../..
-python3 -m src.cli web
-# → backend: http://localhost:61888
-# → frontend: http://localhost:5173
-```
-
-The Project/document-analysis UI uses the standalone RAG service described above. Analysis requires
-an active model; project/document lifecycle operations can remain available without one.
-
-## Docker Compose
-
-Use `./install.sh` for a complete first installation. Direct `docker compose up -d --build` is for
-operators who already have `.env` and `/etc/orion/tool-credentials.json` prepared. An empty `{}` is
-valid for the credentials file.
-
-The RAG service is internal-only in the root Compose stack; browser requests pass through the API.
+Session list/delete/clean must operate on a consistent persistence view and confirm destructive operations **before** mutation. Current gaps are tracked in `docs/development/IMPLEMENTATION_GAPS.md`.
 
 ## QA
 
-Unit/static validation and live runtime QA are separate classes of testing. The manual GA2 runners
-can start Docker and make real model/tool requests, so run them only when that validation is
-intended.
+Local unit/static checks and live runtime QA are separate gates.
 
 ```bash
 make test
 make lint
 
-# live runtime QA
+# explicit live runtime QA
 make qa-smoke
 make qa-full
 ```
 
-Generated QA output is written under ignored `artifacts/qa/`.
+GA2 must distinguish proposed/attempted/dispatched actions from successful evidence. `budget.actions_used` is a budget/dispatch counter and is not proof of tool success.
 
 ## Documentation
 
-`docs/` contains the accepted target architecture.
+Start with `docs/README.md`.
 
-Start with `docs/README.md`. Its source-of-truth order is:
+Target-design precedence:
 
 1. accepted ADRs in `docs/decisions/`;
-2. architecture documents in `docs/architecture/`;
-3. engineering/development documents in `docs/development/`;
-4. product documents.
+2. `docs/architecture/`;
+3. `docs/development/` engineering/migration rules;
+4. product docs.
 
-Current implementation facts are established by source code, tests, generated API schema, and
-runtime evidence. They may reveal an implementation gap, but they do not silently override an
-accepted ADR.
-
-Additional references:
-
-- `docs/api/` — generated API schema and generation rules;
-- `scripts/qa/` — manual end-to-end/runtime QA;
-- `src/tool/RAGTool/README.md` — current standalone Project RAG service implementation.
+Implementation truth comes from source/tests/generated artifacts/runtime evidence. Known current mismatches are recorded in `docs/development/IMPLEMENTATION_GAPS.md` and do not override accepted ADRs.

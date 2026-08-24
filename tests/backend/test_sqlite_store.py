@@ -87,6 +87,33 @@ def test_add_turn_persists_to_db(db_path: Path) -> None:
     assert store2.history[1] == {"role": "assistant", "content": "a1"}
 
 
+def test_loads_legacy_semantic_column_without_restoring_it(db_path: Path) -> None:
+    store = SQLiteConversationStore("legacy-session", db_path=db_path)
+    conn = store._get_conn()
+    conn.execute(
+        "ALTER TABLE sessions ADD COLUMN investigation_context TEXT "
+        "NOT NULL DEFAULT '{}'"
+    )
+    conn.execute(
+        "INSERT INTO sessions (session_id, source, title, summary, "
+        "investigation_context, messages, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ,
+        (
+            "legacy-session",
+            "terminal",
+            "",
+            None,
+            '{"legacy": "semantic state"}',
+            '[{"role": "user", "content": "q"}]',
+            "2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    reloaded = SQLiteConversationStore("legacy-session", db_path=db_path)
+
+    assert reloaded.history == [{"role": "user", "content": "q"}]
+
+
 def test_response_time_persists_with_assistant_message(db_path: Path) -> None:
     store = SQLiteConversationStore("response-time", db_path=db_path)
     store.add_turn("hello", "world")
@@ -100,7 +127,6 @@ def test_response_time_persists_with_assistant_message(db_path: Path) -> None:
 def test_regeneration_truncation_and_restore_persist(db_path: Path) -> None:
     store = SQLiteConversationStore("regenerate", db_path=db_path)
     store.add_turn("q1", "a1")
-    store.add_classifier_turn("q2", "second")
     store.add_turn("q2", "a2")
 
     snapshot = store.truncate_for_regeneration(1)
@@ -115,22 +141,6 @@ def test_regeneration_truncation_and_restore_persist(db_path: Path) -> None:
     truncated.restore_messages(snapshot)
     restored = SQLiteConversationStore("regenerate", db_path=db_path)
     assert restored.history == snapshot
-
-
-# ---------------------------------------------------------------------------
-# add_classifier_turn
-# ---------------------------------------------------------------------------
-
-
-def test_add_classifier_turn(db_path: Path) -> None:
-    store = SQLiteConversationStore("cls-test", db_path=db_path)
-    store.add_classifier_turn("check health", "health_check")
-    assert len(store.history) == 2
-    assert store.history[0] == {"role": "user", "content": "check health"}
-    assert store.history[1] == {
-        "role": "assistant",
-        "content": "[classified as health_check]",
-    }
 
 
 # ---------------------------------------------------------------------------

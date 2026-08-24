@@ -6,6 +6,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from src.backend.db import (
     delete_document as db_delete_document,
@@ -32,13 +33,37 @@ _PUBLIC_DOCUMENT_FIELDS = (
 )
 
 
+class DocumentPersistenceError(RuntimeError):
+    """Document metadata cannot be safely read or mutated."""
+
+
 def _ensure_storage_dir() -> Path:
     _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     return _STORAGE_DIR
 
 
 def _safe_filename(filename: str) -> str:
-    return Path(filename).name
+    if not isinstance(filename, str):
+        raise ValueError("filename must be text")
+    name = Path(filename).name.strip()
+    if not name or any(ord(char) < 32 or ord(char) == 127 for char in name):
+        raise ValueError("filename contains unsafe control characters")
+    return name
+
+
+def content_disposition_attachment(filename: str) -> str:
+    """Build a CR/LF-safe RFC 5987 attachment header from stored metadata."""
+    name = _safe_filename(filename)
+    fallback = (
+        "".join(
+            char if 32 <= ord(char) < 127 and char not in {'"', "\\"} else "_"
+            for char in name
+        ).strip()
+        or "download"
+    )
+    return (
+        f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+    )
 
 
 def public_file_metadata(document: dict) -> dict:
@@ -54,16 +79,27 @@ def _local_index_path() -> Path:
 def _read_local_index() -> dict[str, dict]:
     try:
         data = json.loads(_local_index_path().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return {}
-    return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DocumentPersistenceError(
+            "Document metadata is unreadable; refusing mutation to preserve recovery data."
+        ) from exc
+    if not isinstance(data, dict):
+        raise DocumentPersistenceError(
+            "Document metadata is malformed; refusing mutation to preserve recovery data."
+        )
+    return data
 
 
 def _write_local_index(records: dict[str, dict]) -> None:
     path = _local_index_path()
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
-    temporary.replace(path)
+    try:
+        temporary.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+    except OSError as exc:
+        raise DocumentPersistenceError("Could not persist document metadata.") from exc
 
 
 def store_file(
@@ -83,22 +119,35 @@ def store_file(
     storage_dir = _ensure_storage_dir()
     ext = Path(safe_name).suffix
     storage_name = f"{doc_id}{ext}"
-    storage_path = str(storage_dir / storage_name)
-    (storage_dir / storage_name).write_bytes(content)
+    final_path = storage_dir / storage_name
+    staging_path = storage_dir / f".{storage_name}.{uuid.uuid4().hex}.pending"
+    staging_path.write_bytes(content)
+    storage_path = str(final_path)
 
     size = len(content)
 
     if dsn:
-        db_insert_document(
-            dsn=dsn,
-            doc_id=doc_id,
-            filename=safe_name,
-            content_type=ct,
-            size_bytes=size,
-            storage_path=storage_path,
-            session_id=session_id,
-            metadata=metadata,
-        )
+        try:
+            db_insert_document(
+                dsn=dsn,
+                doc_id=doc_id,
+                filename=safe_name,
+                content_type=ct,
+                size_bytes=size,
+                storage_path=storage_path,
+                session_id=session_id,
+                metadata=metadata,
+            )
+            staging_path.replace(final_path)
+        except Exception:
+            staging_path.unlink(missing_ok=True)
+            # If metadata was committed but the final promote failed, remove
+            # the record so callers never receive a completed-looking upload.
+            try:
+                db_delete_document(dsn, doc_id)
+            except Exception:
+                pass
+            raise
     else:
         records = _read_local_index()
         records[doc_id] = {
@@ -112,7 +161,19 @@ def store_file(
             "created_at": datetime.now(timezone.utc).isoformat(),
             "created_order": time.time_ns(),
         }
-        _write_local_index(records)
+        try:
+            _write_local_index(records)
+            staging_path.replace(final_path)
+        except Exception:
+            staging_path.unlink(missing_ok=True)
+            try:
+                records.pop(doc_id, None)
+                _write_local_index(records)
+            except Exception:
+                # A failed rollback remains recoverable: the staged payload
+                # has been removed and the metadata failure is surfaced.
+                pass
+            raise
 
     return {
         "id": doc_id,
@@ -213,18 +274,26 @@ def delete_file(dsn: str | None, doc_id: str) -> bool:
         doc = db_get_document(dsn, doc_id)
         if doc:
             storage_path = doc.get("storage_path", "")
-            p = Path(storage_path)
-            if p.exists():
-                p.unlink()
-            return db_delete_document(dsn, doc_id)
+            if not db_delete_document(dsn, doc_id):
+                return False
+            try:
+                Path(storage_path).unlink(missing_ok=True)
+            except OSError:
+                # The metadata deletion is durable; leave the orphan for
+                # retryable garbage collection rather than claiming a failed
+                # delete and inviting a duplicate metadata mutation.
+                pass
+            return True
 
     records = _read_local_index()
     record = records.pop(doc_id, None)
     if isinstance(record, dict):
         p = Path(str(record.get("storage_path", "")))
-        if p.exists():
-            p.unlink()
         _write_local_index(records)
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
         return True
     storage_dir = _ensure_storage_dir()
     for p in storage_dir.iterdir():

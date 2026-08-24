@@ -44,7 +44,6 @@ from src.shared.redaction import redact_sensitive
 from src.tool.capability_result import CapabilityStatus
 from src.tool.knowledge_tool import KnowledgeTool
 
-
 _MAX_FACTS = 8
 _MAX_COLLECTION_ITEMS = 16
 _MAX_VALUE_DEPTH = 6
@@ -95,7 +94,7 @@ class CanonicalActionExecutor:
         self,
         knowledge_tool: KnowledgeTool,
         *,
-        external_verification: object | None = None,
+        external_verification: ExternalVerificationExecutor | None = None,
     ) -> None:
         if not isinstance(knowledge_tool, KnowledgeTool):
             raise TypeError(
@@ -616,15 +615,12 @@ def _success_summary(
     else:
         base = "Capability completed."
 
-    warnings = [
-        _safe_text(item)
-        for item in evidence.warnings[:2]
-        if isinstance(item, str) and item
-    ]
-    warnings = [
-        item for item in warnings
-        if item is not None
-    ]
+    warnings: list[str] = []
+    for warning in evidence.warnings[:2]:
+        if isinstance(warning, str) and warning:
+            safe_warning = _safe_text(warning)
+            if safe_warning is not None:
+                warnings.append(safe_warning)
 
     if warnings:
         base += " " + " ".join(warnings)

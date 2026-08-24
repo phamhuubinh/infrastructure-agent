@@ -3,8 +3,7 @@ from __future__ import annotations
 import os
 import secrets
 
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from fastapi import Request
 
 from src.shared.logger import info as _info
 
@@ -18,10 +17,17 @@ def _is_public_path(path: str) -> bool:
     return path == "/api/health"
 
 
-class APIKeyMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+class APIKeyMiddleware:
+    """Small ASGI auth middleware; avoids BaseHTTP task/stream deadlocks."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope, receive=receive)
         api_key = _get_api_key()
         if api_key is not None and not _is_public_path(request.url.path):
             auth_header = request.headers.get("Authorization")
@@ -41,14 +47,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 )
                 from fastapi.responses import JSONResponse
 
-                return JSONResponse(
+                await JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid or missing API key"},
-                )
+                )(scope, receive, send)
+                return
             _info(
                 "audit",
                 event="auth_success",
                 path=request.url.path,
                 client=str(request.client.host) if request.client else "unknown",
             )
-        return await call_next(request)
+        await self.app(scope, receive, send)

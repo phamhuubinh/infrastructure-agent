@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from src.pipeline.evidence_package import EvidencePackage
 from src.pipeline.fact_normalizers import FactNormalizerRegistry
 from src.shared.execution.tool_result import ToolResult

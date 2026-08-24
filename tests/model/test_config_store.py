@@ -27,11 +27,12 @@ def test_upsert_redacts_secret_and_activates_model(tmp_path: Path) -> None:
         },
     )
 
-    assert result["active_server"] == "primary"
+    assert result["active_server"] == ""
     assert result["models"][0]["api_key_configured"] is True
     assert "api_key" not in result["models"][0]
     assert store.get("primary")["api_key"] == "secret"
     assert store.get("primary")["base_url"] == "http://model:8000"
+    assert "max_tokens" not in store.get("primary")
 
 
 def test_upsert_accepts_openai_v1_url_and_stores_server_root(tmp_path: Path) -> None:
@@ -86,11 +87,30 @@ def test_switch_and_delete_active_model(tmp_path: Path) -> None:
     store.upsert("one", {"base_url": "http://one", "model": "one"})
     store.upsert("two", {"base_url": "http://two", "model": "two"})
 
+    with mock.patch("src.model.config_store.LLMClient.health_check", return_value=True):
+        assert store.test("one")["health_state"] == "healthy"
+        assert store.test("two")["health_state"] == "healthy"
     store.set_active("one")
     assert store.active()[0] == "one"
     assert store.delete("one") is True
     assert store.active()[0] == "two"
     assert store.delete("missing") is False
+
+
+def test_health_state_survives_config_reload(tmp_path: Path) -> None:
+    store = ModelConfigStore(tmp_path / "models.json")
+    store.upsert("primary", {"base_url": "http://model", "model": "qwen"})
+
+    assert store.list_public()["models"][0]["health_state"] == "configured_unknown"
+    with mock.patch(
+        "src.model.config_store.LLMClient.health_check", return_value=True
+    ):
+        assert store.test("primary")["health_state"] == "healthy"
+
+    reloaded = ModelConfigStore(tmp_path / "models.json")
+    model = reloaded.list_public()["models"][0]
+    assert model["health_state"] == "healthy"
+    assert model["available"] is True
 
 
 def test_connection_test_uses_saved_model(tmp_path: Path) -> None:

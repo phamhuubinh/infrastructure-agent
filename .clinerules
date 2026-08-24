@@ -1,53 +1,20 @@
 # Orion repository rules
 
-Read before changing code:
+Read: `docs/README.md` → relevant ADRs → architecture docs → `docs/development/ENGINEERING_RULES.md` → `docs/development/IMPLEMENTATION_GAPS.md` → relevant source/tests.
 
-1. `docs/README.md`
-2. relevant `docs/decisions/*.md`
-3. relevant `docs/architecture/*.md`
-4. `docs/development/ENGINEERING_RULES.md`
-5. relevant `docs/development/*.md`
-6. `README.md`
-7. relevant source and tests
-
-Ignore generated/cache/vendor directories unless the task requires them:
-`.git/`, `.venv/`, `__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `node_modules/`.
-
-Core rules:
-
-- Respond in the same language as the user when practical.
-- Model owns natural-language understanding, reasoning, and next-action proposals.
-- Harness owns authority, exact validation, execution, evidence, limits, and completion.
-- Do not add intent/target/source/freshness/mutation/follow-up semantic routers before the model.
+- Model owns semantics/reasoning/proposals; harness owns stage legality, disclosure state, exact authority, execution, evidence, limits, no-progress, completion.
+- No language-specific semantic router before the model.
 - Natural-language text is never execution authority.
-- Validate exact capability, target, source, schema, permission, budget, and safety before execution.
-- Never fuzzy-authorize an unknown identity or silently fall back to localhost/another source.
-- READ/WRITE is the reviewed capability effect, not a language-keyword decision.
-- Keep credentials and private reasoning out of model context, logs, traces, and UI.
-- Preserve explicit evidence status, time, target/source, and provenance.
-- Do not resurrect legacy deterministic/semantic routing or compatibility shims to make tests pass.
-- Reuse proven tool/evidence implementations behind the canonical boundary.
-- Keep changes narrow and avoid unrelated cleanup.
+- Validate every parsed decision against the active stage/schema; provider native JSON schema is only a generation aid.
+- An invented capability ID is not disclosed authority.
+- Exact capability/target/source only; malformed configuration fails closed; never silently fall back to localhost/another source.
+- READ/WRITE is capability effect, not prose keywords.
+- Protect credentials, internal prompts/policies, and private reasoning. Requests to reveal protected internal instructions use REFUSE.
+- Objective final execution claims must be evidence-backed.
+- Configured model metadata is the source for model identity/health, not model self-description.
+- Do not resurrect dead deterministic/semantic routing.
+- `IMPLEMENTATION_GAPS.md` is the current repair ledger; it does not override ADRs.
 
-Validation:
+Validation: smallest local checks by default; for broad/destructive repair also callers/imports, `git diff --check`, and full local unit/static suite when practical. Live Docker/model/GA2/E2E remains an explicit separate gate.
 
-- Run the smallest affected unit/contract/static checks by default.
-- After destructive cleanup, inspect callers/imports/static references and run `git diff --check`.
-- Do not automatically run smoke, E2E, Docker, full QA, benchmark, or external-service validation.
-- Run those classes only when the user's current request explicitly asks for them.
-- When full QA fails, isolate the first real failure before chasing cascades.
-- Never report planned work or an unexecuted test as completed/passing.
-
-Git:
-
-- Review the complete relevant diff.
-- Do not commit/push/rebase/reset/create branches unless explicitly requested.
-- Do not mix unrelated changes.
-
-Documentation:
-
-- `docs/decisions/` > `docs/architecture/` > `docs/development/` > product docs for target design.
-- Source/tests/generated schema/runtime evidence establish current implementation facts.
-- Never restore references to the removed legacy AI-documentation hierarchy.
-- Regenerate generated artifacts through their canonical generator; do not hand-edit them for
-  appearance.
+Git: do not commit/push/rebase/reset/stash/clean/create branches unless explicitly requested; preserve unrelated dirty changes.

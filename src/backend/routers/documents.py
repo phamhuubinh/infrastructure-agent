@@ -7,6 +7,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
 from src.backend.document_service import (
+    DocumentPersistenceError,
+    content_disposition_attachment,
+)
+from src.backend.document_service import (
     delete_file as doc_delete_file,
 )
 from src.backend.document_service import (
@@ -46,14 +50,17 @@ def document_upload(body: dict, request: Request):
     session_id = body.get("session_id")
     metadata = body.get("metadata")
 
-    result = doc_store_file(
-        dsn=deps.dsn,
-        filename=filename,
-        content=content,
-        content_type=content_type,
-        session_id=session_id,
-        metadata=metadata,
-    )
+    try:
+        result = doc_store_file(
+            dsn=deps.dsn,
+            filename=filename,
+            content=content,
+            content_type=content_type,
+            session_id=session_id,
+            metadata=metadata,
+        )
+    except (DocumentPersistenceError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
     return doc_public_metadata(result)
 
 
@@ -89,7 +96,9 @@ def document_download(doc_id: str, request: Request):
     return Response(
         content=content,
         media_type=doc.get("content_type", "application/octet-stream"),
-        headers={"Content-Disposition": f'attachment; filename="{doc["filename"]}"'},
+        headers={
+            "Content-Disposition": content_disposition_attachment(doc["filename"])
+        },
     )
 
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from src.shared.language import detect_language
 from src.shared.execution.command_result import redact_sensitive
+from src.shared.language import detect_language
 
 _REASONING_BLOCK = re.compile(
     # A missing closing tag must fail closed too. Treating it as ordinary

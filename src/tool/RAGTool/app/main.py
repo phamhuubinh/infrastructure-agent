@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from app.chunking.hierarchical_semantic_chunker import HierarchicalSemanticChunker
 from app.config import (
@@ -22,7 +24,12 @@ from app.config import (
 from app.parsers.router import ParserRouter
 from app.pipeline.ingest_pipeline import IngestPipeline
 from app.pipeline.query_pipeline import QueryPipeline
-from app.project_store import ProjectNotFoundError, ProjectStore
+from app.project_store import (
+    ProjectNotFoundError,
+    ProjectRecoveringError,
+    ProjectStore,
+)
+from app.recovery import ProjectRecovery, RecoveryPendingError
 from app.schemas import (
     IngestResponse,
     ProjectCreateRequest,
@@ -54,8 +61,28 @@ _project_locks: dict[str, threading.RLock] = {}
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
+@app.middleware("http")
+async def require_internal_token(request: Request, call_next):
+    """Reject all state/data operations unless invoked by Orion's proxy."""
+    if request.url.path == "/health":
+        return await call_next(request)
+    expected = _config.internal_token
+    supplied = request.headers.get("X-Orion-Rag-Token", "")
+    if not expected or not secrets.compare_digest(supplied, expected):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "RAG service requires authenticated Orion proxy access"},
+        )
+    return await call_next(request)
+
+
 def _collection(project_id: str) -> str:
     return f"{_config.collection}_{project_id}"
+
+
+def _promote_staged(staged_path: Path, stored_path: Path) -> None:
+    """Atomically expose a fully indexed document file."""
+    staged_path.replace(stored_path)
 
 
 def _bm25(project_id: str) -> BM25Index:
@@ -85,6 +112,16 @@ def _ingest_pipeline(project_id: str) -> IngestPipeline:
     )
 
 
+def _recovery_for_current_state() -> ProjectRecovery:
+    """Build against the active process resources (also keeps test swaps exact)."""
+    return ProjectRecovery(
+        projects=_projects,
+        vector_store=_vector_store,
+        bm25_for_project=_bm25,
+        collection_for_project=_collection,
+    )
+
+
 def _query_pipeline(project_id: str, llm_client, final_top_k: int = 5) -> QueryPipeline:
     return QueryPipeline(
         embedder=_embedder,
@@ -100,8 +137,18 @@ def _query_pipeline(project_id: str, llm_client, final_top_k: int = 5) -> QueryP
 def _require_project(project_id: str) -> dict:
     try:
         return _projects.get(project_id)
+    except ProjectRecoveringError as exc:
+        raise HTTPException(409, f"RAG project '{project_id}' is recovering") from exc
     except ProjectNotFoundError as exc:
         raise HTTPException(404, f"RAG project '{project_id}' not found") from exc
+
+
+def _recover_then_require(project_id: str) -> dict:
+    try:
+        _recovery_for_current_state().recover(project_id)
+    except RecoveryPendingError as exc:
+        raise HTTPException(503, "RAG project recovery is pending") from exc
+    return _require_project(project_id)
 
 
 def _query_response(result) -> QueryResponse:
@@ -160,31 +207,36 @@ def list_projects():
 
 @app.get("/projects/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: str):
-    return _require_project(project_id)
+    return _recover_then_require(project_id)
 
 
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: str):
     with _project_lock(project_id):
-        _require_project(project_id)
+        _recover_then_require(project_id)
         if project_id == "default":
             raise HTTPException(400, "The compatibility project cannot be deleted")
-        project = _projects.get(project_id)
+        project = _projects.get(project_id, include_recovering=True)
         chunk_ids = [
             chunk_id
             for document in project["documents"]
             for chunk_id in document.get("chunk_ids", [])
         ]
-        if chunk_ids:
-            _vector_store.delete(_collection(project_id), chunk_ids)
-        if hasattr(_vector_store, "delete_collection"):
-            _vector_store.delete_collection(_collection(project_id))
-        index = _bm25(project_id)
-        index.clear()
-        index.remove_persistence()
+        record = _projects.begin_recovery(
+            "project_delete",
+            project_id=project_id,
+            chunk_ids=chunk_ids,
+            documents_dir=str(_projects.documents_dir / project_id),
+            phase="prepared",
+        )
+        _projects.mark_project_deleting(project_id)
+        _projects.update_recovery(record["id"], phase="tombstoned")
+        try:
+            _recovery_for_current_state().recover(project_id)
+        except RecoveryPendingError as exc:
+            raise HTTPException(503, "Project deletion recovery is pending") from exc
         with _index_lock:
             _bm25_indexes.pop(project_id, None)
-        _projects.delete(project_id)
     with _index_lock:
         _project_locks.pop(project_id, None)
     return {"status": "deleted", "project_id": project_id}
@@ -195,7 +247,7 @@ def delete_project(project_id: str):
     response_model=IngestResponse,
 )
 def upload_project_document(project_id: str, file: UploadFile):
-    _require_project(project_id)
+    _recover_then_require(project_id)
     filename = Path(file.filename or "upload").name
     if not filename:
         raise HTTPException(400, "filename is required")
@@ -204,12 +256,21 @@ def upload_project_document(project_id: str, file: UploadFile):
     suffix = Path(filename).suffix.lower()
     with _project_lock(project_id):
         project_dir = _projects.project_documents_dir(project_id)
+        staged_path = _projects.staging_documents_dir(project_id) / f"{doc_id}{suffix}"
         stored_path = project_dir / f"{doc_id}{suffix}"
-        indexed_chunk_ids: list[str] = []
+        record = _projects.begin_recovery(
+            "upload",
+            project_id=project_id,
+            doc_id=doc_id,
+            staging_path=str(staged_path),
+            final_path=str(stored_path),
+            chunk_ids=[],
+            phase="staging",
+        )
 
         try:
             size_bytes = 0
-            with stored_path.open("wb") as destination:
+            with staged_path.open("wb") as destination:
                 while chunk := file.file.read(1024 * 1024):
                     size_bytes += len(chunk)
                     if size_bytes > _MAX_UPLOAD_BYTES:
@@ -219,11 +280,16 @@ def upload_project_document(project_id: str, file: UploadFile):
                     destination.write(chunk)
 
             result = _ingest_pipeline(project_id).ingest(
-                stored_path,
+                staged_path,
                 doc_id=doc_id,
                 metadata={"project_id": project_id, "filename": filename},
+                on_prepared_chunks=lambda chunk_ids: _projects.update_recovery(
+                    record["id"], chunk_ids=chunk_ids, phase="indexing"
+                ),
             )
-            indexed_chunk_ids = result.chunk_ids
+            _projects.update_recovery(record["id"], phase="indexed")
+            _promote_staged(staged_path, stored_path)
+            _projects.update_recovery(record["id"], phase="promoted")
             document = {
                 "id": doc_id,
                 "filename": filename,
@@ -235,15 +301,10 @@ def upload_project_document(project_id: str, file: UploadFile):
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             _projects.add_document(project_id, document)
+            _projects.resolve_recovery(record["id"])
         except HTTPException:
-            stored_path.unlink(missing_ok=True)
             raise
         except Exception as exc:
-            if indexed_chunk_ids:
-                _vector_store.delete(_collection(project_id), indexed_chunk_ids)
-                for chunk_id in indexed_chunk_ids:
-                    _bm25(project_id).delete(chunk_id)
-            stored_path.unlink(missing_ok=True)
             logger.exception("RAG document ingestion failed")
             raise HTTPException(422, f"Ingestion failed: {exc}") from exc
 
@@ -259,26 +320,31 @@ def upload_project_document(project_id: str, file: UploadFile):
 @app.delete("/projects/{project_id}/documents/{doc_id}")
 def delete_project_document(project_id: str, doc_id: str):
     with _project_lock(project_id):
-        _require_project(project_id)
+        _recover_then_require(project_id)
         document = _projects.get_document(project_id, doc_id)
         if document is None:
             raise HTTPException(404, f"Document '{doc_id}' not found")
-        chunk_ids = document.get("chunk_ids", [])
-        _vector_store.delete(_collection(project_id), chunk_ids)
-        index = _bm25(project_id)
-        for chunk_id in chunk_ids:
-            index.delete(chunk_id)
-        storage_path = Path(str(document.get("storage_path", "")))
-        if storage_path.is_file():
-            storage_path.unlink()
-        _projects.remove_document(project_id, doc_id)
+        record = _projects.begin_recovery(
+            "document_delete",
+            project_id=project_id,
+            doc_id=doc_id,
+            chunk_ids=document.get("chunk_ids", []),
+            storage_path=str(document.get("storage_path", "")),
+            phase="prepared",
+        )
+        _projects.mark_document_deleting(project_id, doc_id)
+        _projects.update_recovery(record["id"], phase="tombstoned")
+        try:
+            _recovery_for_current_state().recover(project_id)
+        except RecoveryPendingError as exc:
+            raise HTTPException(503, "Document deletion recovery is pending") from exc
     return {"status": "deleted", "project_id": project_id, "doc_id": doc_id}
 
 
 @app.post("/projects/{project_id}/analyses", response_model=QueryResponse)
 def analyze_project(project_id: str, body: QueryRequest):
     with _project_lock(project_id):
-        _require_project(project_id)
+        _recover_then_require(project_id)
         query_text = body.query.strip()
         if not query_text:
             raise HTTPException(400, "query is required")

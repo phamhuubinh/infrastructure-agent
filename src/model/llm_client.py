@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from urllib import error as urlerror
 from urllib import request
 
@@ -37,7 +38,6 @@ class LLMClient:
         api_key: str | None = None,
         timeout: int = 180,
         temperature: float = 0.0,
-        max_tokens: int = 2048,
         supports_reasoning_effort: bool = False,
         supports_structured_output: bool | None = None,
         supports_json_object_output: bool | None = None,
@@ -49,7 +49,6 @@ class LLMClient:
         self._api_key = api_key
         self._timeout = timeout
         self._temperature = temperature
-        self._max_tokens = max_tokens
         if not isinstance(supports_reasoning_effort, bool):
             raise TypeError("supports_reasoning_effort must be bool.")
         self._supports_reasoning_effort = supports_reasoning_effort
@@ -58,6 +57,7 @@ class LLMClient:
         ):
             raise TypeError("supports_structured_output must be bool or None.")
         self._last_usage: ModelCallUsage | None = None
+        self._last_generation_diagnostics: dict[str, object] | None = None
         self._provider = _extract_provider(base_url, model)
         self._supports_structured_output = (
             self._provider != "ollama"
@@ -79,6 +79,19 @@ class LLMClient:
         return self._last_usage
 
     @property
+    def last_generation_diagnostics(self) -> Mapping[str, object] | None:
+        """Safe, bounded metadata from the most recent chat completion.
+
+        This deliberately excludes prompts, content, reasoning, and raw provider
+        payloads. It exists so an invalid structured response can explain whether
+        generation ended because of a provider limit without retaining that text.
+        """
+
+        if self._last_generation_diagnostics is None:
+            return None
+        return dict(self._last_generation_diagnostics)
+
+    @property
     def supports_structured_output(self) -> bool:
         """Whether this endpoint accepts OpenAI-compatible JSON Schema output."""
 
@@ -90,12 +103,6 @@ class LLMClient:
 
         return self._supports_json_object_output
 
-    @property
-    def max_tokens(self) -> int:
-        """Configured upper bound for one provider response."""
-
-        return self._max_tokens
-
     def generate(
         self,
         prompt: str,
@@ -105,28 +112,16 @@ class LLMClient:
         reasoning_effort: ReasoningEffort | None = None,
         response_schema: dict[str, object] | None = None,
         json_object: bool = False,
-        max_tokens: int | None = None,
     ) -> str:
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        output_token_limit = self._max_tokens if max_tokens is None else max_tokens
-        if isinstance(output_token_limit, bool) or not isinstance(
-            output_token_limit, int
-        ):
-            raise TypeError("max_tokens must be an int or None.")
-        if output_token_limit < 1:
-            raise ValueError("max_tokens must be at least 1.")
-        if output_token_limit > self._max_tokens:
-            raise ValueError("max_tokens may not exceed the configured client limit.")
-
         payload: dict[str, object] = {
             "model": self._model,
             "messages": messages,
             "temperature": self._temperature,
-            "max_tokens": output_token_limit,
             "stream": False,
         }
         if not isinstance(json_object, bool):
@@ -183,8 +178,13 @@ class LLMClient:
 
         elapsed_ms: int = 0
         self._last_usage = None
+        self._last_generation_diagnostics = None
+        provider_http_status: int | None = None
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
+                status = getattr(response, "status", None)
+                if isinstance(status, int) and not isinstance(status, bool):
+                    provider_http_status = status
                 data: dict[str, object] = json.loads(response.read().decode("utf-8"))
         except KeyboardInterrupt as ki_exc:
             elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -266,12 +266,27 @@ class LLMClient:
         if not isinstance(content, str):
             msg = "LLM API returned no content in message"
             raise RuntimeError(msg)
+        content_bytes_before_sanitization = len(content.encode("utf-8"))
         content = sanitize_model_output(content)
+        content_bytes_after_sanitization = len(content.encode("utf-8"))
+
+        usage = data.get("usage")
+        self._last_generation_diagnostics = {
+            "finish_reason": _safe_finish_reason(finish_reason),
+            "usage_completion_tokens": _usage_token_count(
+                usage,
+                "completion_tokens",
+            ),
+            "usage_prompt_tokens": _usage_token_count(usage, "prompt_tokens"),
+            "stop_sequence_configured": "stop" in payload,
+            "content_bytes_before_sanitization": content_bytes_before_sanitization,
+            "content_bytes_after_sanitization": content_bytes_after_sanitization,
+            "provider_http_status": provider_http_status,
+        }
         if not content:
             msg = "LLM API returned no user-visible content"
             raise RuntimeError(msg)
 
-        usage = data.get("usage")
         self._last_usage = normalize_openai_usage(
             usage,
             model=self._model,
@@ -287,7 +302,6 @@ class LLMClient:
             model=self._model,
             provider=self._provider,
             endpoint=self._base_url,
-            max_tokens=self._max_tokens,
             temperature=self._temperature,
             timeout=self._timeout,
             input_tokens=self._last_usage.input_tokens,
@@ -318,3 +332,29 @@ class LLMClient:
         with request.urlopen(req, timeout=timeout) as resp:
             resp.read()
         return True
+
+
+def _usage_token_count(usage: object, key: str) -> int | None:
+    if not isinstance(usage, dict):
+        return None
+    value = usage.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _safe_finish_reason(value: object) -> str | None:
+    """Keep only a provider control category, never arbitrary response text."""
+
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if not normalized or len(normalized) > 64:
+        return "other"
+    if all(character.isascii() and (character.isalnum() or character in "_.-") for character in normalized):
+        return normalized
+    return "other"

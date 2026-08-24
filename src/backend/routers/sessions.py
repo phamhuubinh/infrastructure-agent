@@ -51,17 +51,15 @@ def list_sessions(request: Request):
 @router.delete("/api/sessions/{session_id}")
 def delete_session(session_id: str, request: Request):
     deps = request.app.state.deps
-    if deps.dsn:
-        from src.backend.db import delete_session as db_delete_session
 
-        deleted = db_delete_session(deps.dsn, session_id)
-        deps.drop_session(session_id)
-        if not deleted:
-            raise HTTPException(404, f"Session '{session_id}' not found")
-        return {"status": "deleted", "session_id": session_id}
+    def delete_persisted() -> bool:
+        if deps.dsn:
+            from src.backend.db import delete_session as db_delete_session
 
-    deleted = SQLiteConversationStore.delete_session(session_id)
-    deps.drop_session(session_id)
+            return db_delete_session(deps.dsn, session_id)
+        return SQLiteConversationStore.delete_session(session_id)
+
+    deleted = deps.delete_session(session_id, delete_persisted)
     if not deleted:
         raise HTTPException(404, f"Session '{session_id}' not found")
     return {"status": "deleted", "session_id": session_id}

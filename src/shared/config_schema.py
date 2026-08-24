@@ -22,7 +22,12 @@ class ServerConfig(BaseModel):
     provider: str | None = None
     timeout: int = Field(default=60, ge=1, le=300)
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=2048, ge=1, le=32768)
+    # Anthropic's Messages API requires this request parameter. It is not used
+    # by OpenAI-compatible providers, which receive no Orion output cap.
+    provider_max_tokens: int | None = Field(default=None, ge=1)
+    health_state: Literal["configured_unknown", "healthy", "unhealthy"] = (
+        "configured_unknown"
+    )
 
 
 class ServersConfig(BaseModel):
@@ -33,50 +38,13 @@ class ServersConfig(BaseModel):
 
     @model_validator(mode="after")
     def active_must_exist(self) -> ServersConfig:
-        if not self.servers:
-            if self.active_server:
-                raise ValueError(
-                    "active_server must be empty when no model is configured"
-                )
-            return self
-        if self.active_server not in self.servers:
+        if self.active_server and self.active_server not in self.servers:
             available = ", ".join(sorted(self.servers))
             raise ValueError(
                 f"active_server '{self.active_server}' is not defined "
                 f"in servers. Available servers: {available}"
             )
         return self
-
-
-# ---------------------------------------------------------------------------
-# Deterministic reasoning rollout flags (config/feature_flags.yaml)
-# ---------------------------------------------------------------------------
-
-
-class FeatureFlagsConfig(BaseModel):
-    """Temporary, independently reversible deterministic-reasoning gates.
-
-    These flags deliberately have an explicit, closed schema.  A typo must
-    fail configuration validation rather than silently leave a rollout gate in
-    an unintended state.  All defaults are ``False`` so a migration starts
-    from the previously shipped evidence path until its QA gate enables a
-    feature deliberately.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    schema_version: Literal["rollout.v1"] = "rollout.v1"
-    structured_command_result: bool = False
-    canonical_facts: bool = False
-    composite_rules: bool = False
-    claim_guard: bool = False
-    # GA1 rollout controls default enabled once the deterministic paths are
-    # shipped. Operators can temporarily disable one new route without
-    # reintroducing an unsafe model/tool fallback.
-    general_agent_routing_v1: bool = True
-    external_verification_v1: bool = True
-    web_search_v1: bool = True
-    source_constraints_v1: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -120,9 +88,12 @@ class TargetEntry(BaseModel):
 
     model_config = {"extra": "allow"}
 
-    backend: str
+    backend: Literal["local", "ssh"]
     host: str | None = None
     user: str | None = None
+    port: int | None = Field(default=None, ge=1, le=65535)
+    identity_file: str | None = None
+    strict_host_key_checking: bool = True
 
 
 class TargetsConfig(BaseModel):
@@ -300,9 +271,9 @@ def _servers_path() -> Path:
     return Path(configured) if configured else _project_root() / "servers.json"
 
 
-def _feature_flags_path(root: Path) -> Path:
-    configured = os.environ.get("ORION_FEATURE_FLAGS_FILE", "").strip()
-    return Path(configured) if configured else root / "config" / "feature_flags.yaml"
+def _targets_path(root: Path) -> Path:
+    configured = os.environ.get("ORION_TARGETS_FILE", "").strip()
+    return Path(configured) if configured else root / "targets.json"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -342,30 +313,21 @@ def validate_all_configs() -> None:
             errors.append(f"tools.json: {exc}")
 
     # --- targets.json ---
-    targets_path = root / "targets.json"
+    targets_path = _targets_path(root)
     if targets_path.exists():
         try:
             data = _load_json(targets_path)
             TargetsConfig.model_validate(data)
         except Exception as exc:
-            errors.append(f"targets.json: {exc}")
+            errors.append(f"{targets_path}: {exc}")
+    elif os.environ.get("ORION_TARGETS_FILE", "").strip():
+        errors.append(f"{targets_path}: configured targets file does not exist")
 
     # --- config/rules/*.yaml ---
     try:
         load_rule_configs(root / "config" / "rules")
     except Exception as exc:
         errors.append(f"config/rules: {exc}")
-
-    # --- config/feature_flags.yaml (optional) ---
-    feature_flags_path = _feature_flags_path(root)
-    if feature_flags_path.exists():
-        try:
-            raw = yaml.safe_load(feature_flags_path.read_text())
-            if not isinstance(raw, dict):
-                raise ValueError("must contain a YAML object at the top level")
-            FeatureFlagsConfig.model_validate(raw)
-        except Exception as exc:
-            errors.append(f"{feature_flags_path.name}: {exc}")
 
     if errors:
         raise ConfigValidationError(errors)

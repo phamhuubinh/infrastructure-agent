@@ -1,74 +1,38 @@
 # Orion Documentation
 
-This documentation defines the **accepted target architecture** for Orion.
+This documentation defines the **accepted target architecture** and keeps current implementation gaps explicit.
 
-Orion is a personal AI agent focused on two practical jobs:
-
-1. work with project knowledge and documents so the model can help create, review, explain, and
-   reason about project material;
-2. investigate infrastructure, assess what is happening, and propose the best practical course of
-   action.
-
-The agent may also answer ordinary questions directly when no tool or project knowledge is needed.
+Orion is one personal AI agent for project knowledge/documents and infrastructure work. The agent may also answer ordinary questions directly when no capability is needed.
 
 ## Core principles
 
-Two rules govern the architecture:
-
 > **The model owns language understanding, reasoning, and next-action proposals.**
 
-> **The harness owns authority, validation, execution, evidence, limits, and completion.**
+> **The harness owns authority, validation, execution, evidence, limits, no-progress handling, and completion.**
 
-Natural-language text is never execution authority. A model can propose an action, but only a
-validated structured action can run.
+Natural-language text is never execution authority. Provider-native structured output is not the final authority boundary: every returned decision must satisfy the active stage/schema and actual disclosed-capability state.
 
 ## Product model
 
-Orion exposes one agent experience rather than separate semantic modes for infrastructure, Internet,
-RAG, or calculation. The accepted design lets the model choose whichever registered capability is
-useful for the current request.
+One agent, many capabilities. Current/target families include Linux/SSH, Grafana, Zabbix, Internet, Calculator, and Project Knowledge/RAG.
 
-Current/target capability families include:
+Project Knowledge/RAG is **target architecture but not yet a Chat capability** at the current baseline; the existing RAG service remains a standalone Web workspace.
 
-- Linux / SSH
-- Grafana
-- Zabbix
-- Project knowledge / RAG
-- Internet search and fetch
-- Calculator
+## Protected internal information
 
-Future capability families should be addable without changing the agent's semantic core.
-
-## Permission model
-
-Orion has two effect classes:
-
-- **READ** — observe or retrieve data without changing external state.
-- **WRITE** — create, modify, delete, restart, deploy, or otherwise change state.
-
-READ actions can run automatically. WRITE authority depends on the configured autonomy mode
-(`READ`, `RW + ASK`, or `RW + FULL`).
-
-## Projects
-
-In the accepted target architecture, a Project is a workspace containing files/project knowledge and
-multiple chats. Project knowledge is a normal READ capability available to chats in that Project;
-it is not a separate reasoning architecture.
+System/developer prompts, hidden policies/internal instructions, credentials/secrets, and private hidden reasoning are not user-retrievable data. Requests to reveal/reproduce protected internal instructions terminate as `REFUSE`. See ADR-0009.
 
 ## Current implementation baseline
 
-At commit `259f85b`, the configured Web/CLI Chat path uses the canonical model-driven agent runtime
-and the superseded deterministic/semantic routing stack has been removed from that configured hot
-path.
+GitHub `main` at `3e88075` uses canonical model-driven Web/CLI Chat construction, but target convergence is not complete.
 
-Not every accepted target item should be assumed to be implemented merely because it appears in
-these documents. In particular, the current `src/tool/RAGTool/` service remains a standalone Web
-Project/document-analysis workspace and is not registered as a Chat agent capability. That is an
-implementation gap relative to ADR-0003, not a change to the accepted architecture.
+The current repair ledger is:
 
-Current implementation facts are established by source code, tests, generated API documentation,
-and runtime evidence. If current code and an accepted ADR differ, document the gap and migrate the
-implementation; do not silently redefine the ADR or resurrect legacy routing.
+- `development/IMPLEMENTATION_GAPS.md`
+
+It records confirmed implementation defects/gaps from repository-wide audit and live runtime evidence. It is subordinate to accepted ADRs: repair implementation toward architecture rather than redefining architecture to match bugs.
+
+Notable current gaps include stage/disclosure enforcement, evidence-backed completion, target fail-closed behavior, persistence/session correctness, model health/identity, unified event/metrics wiring, CI debt, standalone RAG hardening, Project RAG Chat integration, and UI correctness.
 
 ## Reading order
 
@@ -85,23 +49,20 @@ implementation; do not silently redefine the ADR or resurrect legacy routing.
 11. [architecture/EVENTS_LOGS_UI.md](architecture/EVENTS_LOGS_UI.md)
 12. [architecture/FAILURE_RECOVERY.md](architecture/FAILURE_RECOVERY.md)
 13. [development/ENGINEERING_RULES.md](development/ENGINEERING_RULES.md)
-14. [development/TARGET_CODE_LAYOUT.md](development/TARGET_CODE_LAYOUT.md)
-15. [development/MIGRATION.md](development/MIGRATION.md)
-16. [development/TESTING.md](development/TESTING.md)
-17. [development/CLEANUP.md](development/CLEANUP.md)
-18. [decisions/README.md](decisions/README.md)
+14. [development/IMPLEMENTATION_GAPS.md](development/IMPLEMENTATION_GAPS.md)
+15. [development/TARGET_CODE_LAYOUT.md](development/TARGET_CODE_LAYOUT.md)
+16. [development/MIGRATION.md](development/MIGRATION.md)
+17. [development/TESTING.md](development/TESTING.md)
+18. [development/CLEANUP.md](development/CLEANUP.md)
+19. [decisions/README.md](decisions/README.md)
 
 ## Source-of-truth order
 
-For target architecture decisions:
+For target architecture:
 
-1. accepted decisions in `docs/decisions/`;
-2. architecture documents in `docs/architecture/`;
-3. engineering rules in `docs/development/`;
-4. product documents.
+1. accepted ADRs;
+2. architecture docs;
+3. engineering/development rules;
+4. product docs.
 
-A superseding architecture change requires an explicit new decision. Historical changelog entries
-and migration notes do not override accepted ADRs.
-
-For implementation truth, inspect the relevant code/tests/generated artifacts/runtime trace. An
-implementation gap does not grant permission to reintroduce an architecture that an ADR rejected.
+For implementation truth, inspect source/tests/generated artifacts/runtime evidence. `IMPLEMENTATION_GAPS.md` records known mismatches but never grants permission to reintroduce architecture rejected by an ADR.

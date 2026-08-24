@@ -39,7 +39,6 @@ from scripts.qa.build_golden import (  # noqa: E402
     validate_cases,
 )
 
-
 _CONTRACT_FIELDS = tuple(EXPECTED_FIELDS)
 
 
@@ -655,17 +654,13 @@ def _apply_case_context(
         )
 
     try:
-        setattr(
-            agent,
-            "conversation_store",
-            context_store,
-        )
-    except (AttributeError, TypeError):
+        agent.conversation_store = context_store
+    except (AttributeError, TypeError) as exc:
         if context_store is not None:
             raise BaselinePreflightError(
                 "Injected agent does not "
                 "support canonical case context."
-            )
+            ) from exc
 
 
 def run_baseline(

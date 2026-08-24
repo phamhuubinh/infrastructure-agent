@@ -12,7 +12,6 @@ from typing import Protocol, runtime_checkable
 from src.shared.language import detect_language
 from src.shared.logger import warning as _warning
 
-
 MODEL_UNCONFIGURED_MESSAGE = (
     "Chưa cấu hình model. Hãy mở Cài đặt → Model hoặc dùng lệnh "
     "`orion model add` rồi chạy kiểm tra kết nối."

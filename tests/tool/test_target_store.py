@@ -3,16 +3,52 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from src.tool.execution_backend import LocalExecutionBackend, SSHExecutionBackend
-from src.tool.target_store import TargetStore
+from src.tool.target_store import TargetConfigurationError, TargetStore
 
 
 def test_load_creates_default_local_target_when_file_missing(tmp_path: Path) -> None:
-    store = TargetStore(path=str(tmp_path / "no_such_file.json"))
+    store = TargetStore(
+        path=str(tmp_path / "no_such_file.json"),
+        allow_missing_bootstrap=True,
+    )
     backends = store.load()
 
     assert "localhost" in backends
     assert isinstance(backends["localhost"], LocalExecutionBackend)
+
+
+def test_custom_missing_targets_file_fails_closed(tmp_path: Path) -> None:
+    store = TargetStore(
+        path=str(tmp_path / "deployment-targets.json"),
+    )
+
+    with pytest.raises(TargetConfigurationError, match="does not exist"):
+        store.load()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "{not-json",
+        json.dumps({"targets": {"prod": None}}),
+        json.dumps({"targets": {"prod": {"backend": "typo"}}}),
+        json.dumps({"targets": {"prod": {"backend": "ssh", "host": ""}}}),
+        json.dumps(
+            {"targets": {"prod": {"backend": "ssh", "host": "x", "port": "22"}}}
+        ),
+    ),
+)
+def test_malformed_target_authority_never_synthesizes_local_backend(
+    tmp_path: Path, payload: str
+) -> None:
+    path = tmp_path / "deployment-targets.json"
+    path.write_text(payload)
+
+    with pytest.raises(TargetConfigurationError):
+        TargetStore(path=str(path)).load()
 
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:

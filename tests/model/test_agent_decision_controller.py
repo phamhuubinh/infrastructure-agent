@@ -16,7 +16,11 @@ from src.agent.contracts import (
     AgentDecision,
     DecisionKind,
 )
-from src.agent.discovery import CapabilityDiscovery
+from src.agent.discovery import (
+    CapabilityDiscovery,
+    DiscoveryResult,
+    DiscoveryStatus,
+)
 from src.agent.permissions import EffectClass
 from src.model.agent_adapter import (
     AgentModelAdapter,
@@ -114,7 +118,7 @@ def test_first_decision_uses_registry_groups() -> None:
         provider.requests[0].user_prompt
     )
 
-    assert payload["capability_groups"] == ["host"]
+    assert payload["groups"][0]["group"] == "host"
     assert provider.requests[0].request_id == "req-1"
 
 
@@ -123,14 +127,28 @@ def test_discovery_decision_uses_registry_summaries() -> None:
 
     controller.decide_after_discovery(
         "Check CPU.",
-        group="host",
+        result=DiscoveryResult(
+            DiscoveryStatus.DISCOVERED,
+            group="host",
+            summaries=(
+                {
+                    "capability_id": "host.cpu",
+                    "purpose": "Inspect CPU",
+                    "effect": "read",
+                    "tool_id": "linux",
+                    "target_kind": "machine",
+                    "result_kind": "observation",
+                },
+            ),
+        ),
+        additional_capability_groups=(),
     )
 
     payload = json.loads(
         provider.requests[0].user_prompt
     )
 
-    assert payload["discovery"]["capabilities"][0][
+    assert payload["capabilities"][0][
         "capability_id"
     ] == "host.cpu"
 
@@ -150,7 +168,7 @@ def test_action_detail_uses_same_registry_schema() -> None:
     request = provider.requests[0]
 
     assert request.response_schema["title"] == (
-        "OrionAgentDecisionV2"
+        "OrionAgentDecisionV3"
     )
 
     action_branch = next(

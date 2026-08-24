@@ -26,9 +26,7 @@ class ReferenceEntry:
         for field_name in ("ref_id", "kind"):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value:
-                raise ValueError(
-                    f"{field_name} must be non-empty text."
-                )
+                raise ValueError(f"{field_name} must be non-empty text.")
 
         if type(self.available) is not bool:
             raise TypeError("available must be bool.")
@@ -41,23 +39,15 @@ class ExactReferenceRegistry:
         self,
         entries: Sequence[ReferenceEntry],
     ) -> None:
-        if any(
-            not isinstance(item, ReferenceEntry)
-            for item in entries
-        ):
-            raise TypeError(
-                "entries must contain ReferenceEntry values."
-            )
+        if any(not isinstance(item, ReferenceEntry) for item in entries):
+            raise TypeError("entries must contain ReferenceEntry values.")
 
         ids = [item.ref_id for item in entries]
         if len(ids) != len(set(ids)):
             raise ValueError("Reference IDs must be unique.")
 
         self._entries = tuple(entries)
-        self._by_id = {
-            item.ref_id: item
-            for item in entries
-        }
+        self._by_id = {item.ref_id: item for item in entries}
 
     @property
     def entries(self) -> tuple[ReferenceEntry, ...]:
@@ -80,13 +70,8 @@ class ApprovalScope:
     source_refs: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.approval_id, str)
-            or not self.approval_id
-        ):
-            raise ValueError(
-                "approval_id must be non-empty text."
-            )
+        if not isinstance(self.approval_id, str) or not self.approval_id:
+            raise ValueError("approval_id must be non-empty text.")
 
         if not isinstance(self.goal, str) or not self.goal.strip():
             raise ValueError("goal must be non-empty text.")
@@ -98,17 +83,12 @@ class ApprovalScope:
         ):
             value = getattr(self, field_name)
             if not isinstance(value, frozenset) or any(
-                not isinstance(item, str) or not item
-                for item in value
+                not isinstance(item, str) or not item for item in value
             ):
-                raise TypeError(
-                    f"{field_name} must be frozenset[str]."
-                )
+                raise TypeError(f"{field_name} must be frozenset[str].")
 
         if not self.capability_ids:
-            raise ValueError(
-                "approval must contain at least one capability."
-            )
+            raise ValueError("approval must contain at least one capability.")
 
     def covers(
         self,
@@ -120,19 +100,13 @@ class ApprovalScope:
         if self.target_refs and action.target_ref is None:
             return False
 
-        if (
-            action.target_ref is not None
-            and action.target_ref not in self.target_refs
-        ):
+        if action.target_ref is not None and action.target_ref not in self.target_refs:
             return False
 
         if self.source_refs and action.source_ref is None:
             return False
 
-        if (
-            action.source_ref is not None
-            and action.source_ref not in self.source_refs
-        ):
+        if action.source_ref is not None and action.source_ref not in self.source_refs:
             return False
 
         return True
@@ -154,19 +128,13 @@ class AuthorityBudget:
         ):
             value = getattr(self, field_name)
             if type(value) is not int or value < 0:
-                raise ValueError(
-                    f"{field_name} must be a non-negative integer."
-                )
+                raise ValueError(f"{field_name} must be a non-negative integer.")
 
         if self.actions_used > self.max_actions:
-            raise ValueError(
-                "actions_used must not exceed max_actions."
-            )
+            raise ValueError("actions_used must not exceed max_actions.")
 
         if self.cost_used > self.max_cost:
-            raise ValueError(
-                "cost_used must not exceed max_cost."
-            )
+            raise ValueError("cost_used must not exceed max_cost.")
 
     def permits(self, cost: int) -> bool:
         return (
@@ -181,9 +149,7 @@ class AuthorityBudget:
         cost: int,
     ) -> AuthorityBudget:
         if not self.permits(cost):
-            raise ValueError(
-                "Cannot consume exhausted authority budget."
-            )
+            raise ValueError("Cannot consume exhausted authority budget.")
 
         return AuthorityBudget(
             max_actions=self.max_actions,
@@ -261,17 +227,11 @@ class ActionAuthorizer:
         sources: ExactReferenceRegistry,
     ) -> None:
         if not isinstance(capabilities, CapabilityRegistry):
-            raise TypeError(
-                "capabilities must be CapabilityRegistry."
-            )
+            raise TypeError("capabilities must be CapabilityRegistry.")
         if not isinstance(targets, ExactReferenceRegistry):
-            raise TypeError(
-                "targets must be ExactReferenceRegistry."
-            )
+            raise TypeError("targets must be ExactReferenceRegistry.")
         if not isinstance(sources, ExactReferenceRegistry):
-            raise TypeError(
-                "sources must be ExactReferenceRegistry."
-            )
+            raise TypeError("sources must be ExactReferenceRegistry.")
 
         self._capabilities = capabilities
         self._targets = targets
@@ -300,23 +260,17 @@ class ActionAuthorizer:
         if not isinstance(action, AgentAction):
             raise TypeError("action must be AgentAction.")
         if not isinstance(permission_mode, PermissionMode):
-            raise TypeError(
-                "permission_mode must be PermissionMode."
-            )
+            raise TypeError("permission_mode must be PermissionMode.")
         if not isinstance(budget, AuthorityBudget):
             raise TypeError("budget must be AuthorityBudget.")
         if approval is not None and not isinstance(
             approval,
             ApprovalScope,
         ):
-            raise TypeError(
-                "approval must be ApprovalScope or None."
-            )
+            raise TypeError("approval must be ApprovalScope or None.")
 
         # 1. Exact capability lookup.
-        capability = self._capabilities.get(
-            action.capability_id
-        )
+        capability = self._capabilities.get(action.capability_id)
         if capability is None:
             return _result(
                 AuthorizationStatus.REJECT,
@@ -365,9 +319,7 @@ class ActionAuthorizer:
 
         # 6. ASK approval scope.
         approval_id: str | None = None
-        if permission_mode.requires_approval(
-            capability.effect
-        ):
+        if permission_mode.requires_approval(capability.effect):
             if approval is None or not approval.covers(action):
                 return _result(
                     AuthorizationStatus.APPROVAL_REQUIRED,
@@ -422,9 +374,7 @@ class ActionAuthorizer:
             not_allowed_reason=AuthorizationReason.TARGET_NOT_ALLOWED,
             unknown_reason=AuthorizationReason.TARGET_UNKNOWN,
             unavailable_reason=AuthorizationReason.TARGET_UNAVAILABLE,
-            kind_mismatch_reason=(
-                AuthorizationReason.TARGET_KIND_MISMATCH
-            ),
+            kind_mismatch_reason=(AuthorizationReason.TARGET_KIND_MISMATCH),
         )
         if target_reason is not None:
             return _result(
@@ -454,9 +404,7 @@ class ActionAuthorizer:
             not_allowed_reason=AuthorizationReason.SOURCE_NOT_ALLOWED,
             unknown_reason=AuthorizationReason.SOURCE_UNKNOWN,
             unavailable_reason=AuthorizationReason.SOURCE_UNAVAILABLE,
-            kind_mismatch_reason=(
-                AuthorizationReason.SOURCE_KIND_MISMATCH
-            ),
+            kind_mismatch_reason=(AuthorizationReason.SOURCE_KIND_MISMATCH),
         )
         if source_reason is not None:
             return _result(
@@ -493,11 +441,7 @@ def _reference_reason(
     kind_mismatch_reason: AuthorizationReason,
 ) -> AuthorizationReason | None:
     if required_kind is None:
-        return (
-            not_allowed_reason
-            if ref_id is not None
-            else None
-        )
+        return not_allowed_reason if ref_id is not None else None
 
     if ref_id is None:
         return required_reason
@@ -538,18 +482,10 @@ def _result(
         status=status,
         reason=reason,
         capability_id=action.capability_id,
-        effect=(
-            capability.effect
-            if capability is not None
-            else None
-        ),
+        effect=(capability.effect if capability is not None else None),
         target_ref=action.target_ref,
         source_ref=action.source_ref,
-        budget_cost=(
-            capability.budget_cost
-            if capability is not None
-            else 0
-        ),
+        budget_cost=(capability.budget_cost if capability is not None else 0),
         approval_id=approval_id,
     )
 
@@ -558,16 +494,34 @@ def _validate_arguments(
     arguments: Mapping[str, object],
     schema: Mapping[str, object],
 ) -> AuthorizationReason | None:
+    one_of = schema.get("oneOf")
+    if isinstance(one_of, Sequence) and not isinstance(one_of, (str, bytes)):
+        matches = [
+            branch
+            for branch in one_of
+            if isinstance(branch, Mapping)
+            and _validate_arguments(arguments, branch) is None
+        ]
+        if len(matches) == 1:
+            return None
+        return (
+            AuthorizationReason.ARGUMENT_REQUIRED
+            if any(
+                isinstance(branch, Mapping)
+                and _validate_arguments(arguments, branch)
+                is AuthorizationReason.ARGUMENT_REQUIRED
+                for branch in one_of
+            )
+            else AuthorizationReason.ARGUMENT_INVALID
+        )
+
     properties = schema.get("properties")
     required = schema.get("required", [])
 
     if not isinstance(properties, Mapping):
         return AuthorizationReason.ARGUMENT_INVALID
 
-    if (
-        not isinstance(required, Sequence)
-        or isinstance(required, (str, bytes))
-    ):
+    if not isinstance(required, Sequence) or isinstance(required, (str, bytes)):
         return AuthorizationReason.ARGUMENT_INVALID
 
     declared = set(properties)
@@ -580,10 +534,7 @@ def _validate_arguments(
 
     for name, value in arguments.items():
         child = properties.get(name)
-        if (
-            not isinstance(child, Mapping)
-            or not _value_matches_schema(value, child)
-        ):
+        if not isinstance(child, Mapping) or not _value_matches_schema(value, child):
             return AuthorizationReason.ARGUMENT_INVALID
 
     return None
@@ -596,18 +547,12 @@ def _value_matches_schema(
     raw_types = schema.get("type")
     if isinstance(raw_types, str):
         allowed_types = (raw_types,)
-    elif (
-        isinstance(raw_types, Sequence)
-        and not isinstance(raw_types, (str, bytes))
-    ):
+    elif isinstance(raw_types, Sequence) and not isinstance(raw_types, (str, bytes)):
         allowed_types = tuple(raw_types)
     else:
         return False
 
-    if not any(
-        _matches_json_type(value, value_type)
-        for value_type in allowed_types
-    ):
+    if not any(_matches_json_type(value, value_type) for value_type in allowed_types):
         return False
 
     enum = schema.get("enum")
@@ -615,9 +560,7 @@ def _value_matches_schema(
         isinstance(enum, Sequence)
         and not isinstance(enum, (str, bytes))
         and not any(
-            type(value) is type(candidate)
-            and value == candidate
-            for candidate in enum
+            type(value) is type(candidate) and value == candidate for candidate in enum
         )
     ):
         return False
@@ -627,72 +570,53 @@ def _value_matches_schema(
         maximum = schema.get("maxLength")
         pattern = schema.get("pattern")
 
-        if (
-            isinstance(minimum, int)
-            and len(value) < minimum
-        ):
+        if isinstance(minimum, int) and len(value) < minimum:
             return False
-        if (
-            isinstance(maximum, int)
-            and len(value) > maximum
-        ):
+        if isinstance(maximum, int) and len(value) > maximum:
             return False
-        if (
-            isinstance(pattern, str)
-            and re.fullmatch(pattern, value) is None
-        ):
+        if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             return False
 
-    if (
-        type(value) in {int, float}
-        and type(value) is not bool
-    ):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         minimum = schema.get("minimum")
         maximum = schema.get("maximum")
 
         if (
-            type(minimum) in {int, float}
+            isinstance(minimum, (int, float))
+            and not isinstance(minimum, bool)
             and value < minimum
         ):
             return False
         if (
-            type(maximum) in {int, float}
+            isinstance(maximum, (int, float))
+            and not isinstance(maximum, bool)
             and value > maximum
         ):
             return False
 
-    if (
-        isinstance(value, Sequence)
-        and not isinstance(value, (str, bytes))
-    ):
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         minimum = schema.get("minItems")
         maximum = schema.get("maxItems")
         items = schema.get("items")
 
-        if (
-            isinstance(minimum, int)
-            and len(value) < minimum
-        ):
+        if isinstance(minimum, int) and len(value) < minimum:
             return False
-        if (
-            isinstance(maximum, int)
-            and len(value) > maximum
-        ):
+        if isinstance(maximum, int) and len(value) > maximum:
             return False
         if items is not None and (
             not isinstance(items, Mapping)
-            or not all(
-                _value_matches_schema(item, items)
-                for item in value
-            )
+            or not all(_value_matches_schema(item, items) for item in value)
         ):
             return False
 
     if isinstance(value, Mapping):
-        return _validate_arguments(
-            value,
-            schema,
-        ) is None
+        return (
+            _validate_arguments(
+                value,
+                schema,
+            )
+            is None
+        )
 
     return True
 
@@ -710,9 +634,6 @@ def _matches_json_type(
         "boolean": type(value) is bool,
         "integer": type(value) is int,
         "number": type(value) in {int, float},
-        "array": (
-            isinstance(value, Sequence)
-            and not isinstance(value, (str, bytes))
-        ),
+        "array": (isinstance(value, Sequence) and not isinstance(value, (str, bytes))),
         "object": isinstance(value, Mapping),
     }.get(value_type, False)

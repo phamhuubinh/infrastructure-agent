@@ -1,139 +1,68 @@
 # AGENTS.md — Repository instructions for Orion
 
-This file defines repository-level instructions for AI coding agents working on Orion.
-
 ## 1. Read project context first
 
-Before changing code, understand the accepted architecture and the current implementation.
+Read, when relevant:
 
-Read in this order when relevant:
+1. `docs/README.md`
+2. relevant accepted ADRs in `docs/decisions/`
+3. relevant `docs/architecture/`
+4. `docs/development/ENGINEERING_RULES.md`
+5. `docs/development/IMPLEMENTATION_GAPS.md`
+6. relevant migration/testing/cleanup docs
+7. `README.md`
+8. relevant implementation/tests
 
-1. `docs/README.md` — documentation scope, reading order, and conflict priority.
-2. Relevant accepted ADRs under `docs/decisions/`.
-3. Relevant architecture documents under `docs/architecture/`.
-4. `docs/development/ENGINEERING_RULES.md`.
-5. Relevant development/migration/testing documents under `docs/development/`.
-6. `README.md` for current operator/product behavior.
-7. Relevant implementation and tests.
-
-Do not infer current implementation state from an old roadmap or historical changelog entry. Source
-code, tests, generated API documentation, and runtime evidence establish implementation facts.
-Accepted ADRs remain authoritative for target architecture.
-
-Ignore generated/cache/vendor directories such as `.git/`, `.venv/`, `__pycache__/`,
-`.pytest_cache/`, `.ruff_cache/`, and `node_modules/` unless the task requires them.
+Source/tests/generated schema/runtime evidence establish current implementation facts. ADRs establish target architecture. `IMPLEMENTATION_GAPS.md` is a repair ledger, not architecture authority.
 
 ## 2. Core architecture rules
 
-- **Model semantics, deterministic authority.** For normal configured requests, the model owns
-  natural-language interpretation, reasoning, and next-action proposals. The harness owns
-  authority, exact validation, execution, evidence, limits, and completion.
-- Do not add a semantic pre-router that decides intent, target, source, freshness/currentness,
-  mutation meaning, tool family, or follow-up meaning from prose before the model.
-- Natural-language text is not execution authority. Execute only structured actions that passed the
-  canonical validator.
-- Capability/target/source identities resolve exactly. Never add fuzzy authorization, silent source
-  fallback, or default-localhost behavior.
-- READ/WRITE is an effect classification of reviewed capabilities, not a keyword classifier.
-- Tool integrations own commands/API behavior. The model does not receive raw shell, HTTP,
-  credential, or database authority.
-- Preserve evidence status, time, target/source, and provenance. Never turn failure or stale data
-  into a healthy-looking result.
-- Do not expose secrets or private chain-of-thought to model context, public traces, logs, or UI.
-- Keep provider-specific behavior behind model adapters.
-- Do not recreate legacy deterministic/semantic routing or compatibility shells merely to make a
-  test pass.
-- Compatibility code may exist only while real callers require it; remove it after caller/import
-  analysis proves it is dead.
-- Keep changes narrowly scoped. Do not make unrelated refactors during another task.
+- Model owns language semantics/reasoning/next-action proposals.
+- Harness owns stage legality, actual progressive-disclosure state, exact authority, execution, evidence, limits, no-progress handling, and completion.
+- Do not add a prose semantic pre-router for intent, target, source, freshness, mutation, tool family, or follow-up.
+- Natural-language text never authorizes execution.
+- Validate parsed model output against the active stage/schema even after provider-native structured output.
+- An invented registry capability ID is not disclosed authority.
+- Exact capability/target/source resolution only; malformed configuration fails closed; no implicit localhost/source fallback.
+- READ/WRITE is reviewed capability effect, not keyword classification.
+- Tools own shell/HTTP/database implementation; model never receives arbitrary primitives or credentials.
+- Preserve evidence status/time/target/source/provenance. Attempted/dispatched is not the same as successful.
+- Objective final execution claims must be checked against structured evidence.
+- System/developer prompts, hidden policies/internal instructions, credentials/secrets, and private hidden reasoning are protected. Requests to reveal/reproduce them use `REFUSE`, not DISCOVER/ACTION.
+- Model identity claims must come from configured model metadata, not model self-description.
+- Do not resurrect legacy semantic routing/compatibility to satisfy tests.
+- Remove dead compatibility/semantic code only after caller/import/config analysis proves it is unused.
 
-## 3. Testing policy — IMPORTANT
+## 3. Validation policy
 
-### Never run smoke/full runtime QA automatically
+By default run the smallest relevant local unit/contract/static checks.
 
-Do not run smoke tests, full QA, E2E, Docker-based runtime validation, benchmarks, browser/Electron
-flows, or external-service tests unless the user's current request explicitly asks for that class
-of validation.
+For a broad/destructive repository repair, also inspect callers/imports/static references, run `git diff --check`, and run the full **local unit/static suite** when practical.
 
-In particular, do not automatically run:
+Live Docker/model/GA2/E2E/benchmark/external-service validation is a separate gate. Do not cross it unless the user's current request explicitly asks for it.
 
-- `make qa-smoke`
-- `make qa-full`
-- `python3 scripts/qa/ga2_runner.py --mode smoke ...`
-- `python3 scripts/qa/unified_qa.py`
-- E2E/browser tests
-- Docker Compose startup for validation
-- Electron/UI startup for validation
-- live benchmarks
-- network-dependent security scans
+When live/full QA fails, isolate the first real failure before chasing cascades. Never raise retry/model-call limits just to hide a no-progress loop.
 
-Do not ask for permission to cross a release/runtime QA gate merely because it is the next step.
-Stop at the code-complete boundary, state the pending gate, and provide the exact manual command when
-useful.
+## 4. Current repair rules
 
-### Allowed default validation
+When resolving `IMPLEMENTATION_GAPS.md`:
 
-After a code change, run the smallest relevant local checks needed to catch regressions:
+- fix root causes, not QA-specific phrases;
+- preserve corrupt persistence data for recovery instead of treating it as empty;
+- synchronize delete/clean with in-flight session work;
+- make multi-store mutations transactional or explicitly recoverable;
+- represent model health as unknown/healthy/unhealthy instead of configured=true;
+- scope UI generation timers/actions to exact session + generation token;
+- use safe download header construction;
+- wire real events/metrics or remove misleading surfaces;
+- remove unreachable semantic code only after proving it is dead; never reconnect it.
 
-- targeted pytest tests for changed components;
-- relevant unit/contract tests;
-- targeted `ruff check` / `ruff format --check`;
-- targeted TypeScript type checking;
-- syntax/import/collection checks that do not start external services.
+## 5. Git/side effects
 
-For destructive refactors or legacy cleanup, also check the caller/import graph and repository-wide
-static references, then run `git diff --check`. Full suite/runtime QA remains a separate gate unless
-explicitly requested.
+Do not commit/push/rebase/reset/stash/clean/create branches unless explicitly requested. Preserve unrelated dirty changes.
 
-When a full QA run is explicitly requested and fails, isolate the first real failure before treating
-later cascaded failures as separate architecture problems.
+Do not automatically start Docker/servers/browsers, install system packages, modify credentials/.env, or delete/reset user data.
 
-Never claim a test passed unless it was actually executed successfully.
+## 6. Documentation
 
-## 4. Commands and side effects
-
-Do not automatically:
-
-- start long-running servers;
-- start Docker containers;
-- open browsers or GUI applications;
-- install system packages;
-- install/upgrade dependencies unless required by the task;
-- modify credentials, secrets, `.env`, or machine-level configuration;
-- delete user data or reset persistent state.
-
-For ordinary inspection, editing, and lightweight local validation, proceed without unnecessary
-confirmation.
-
-## 5. Git policy
-
-- Review the relevant diff after making changes.
-- Do not commit, push, force-push, rebase, reset, create branches, or modify remote state unless the
-  user explicitly requests it.
-- Do not revert unrelated working-tree changes.
-- Keep edits atomic and limited to the task.
-
-## 6. Documentation policy
-
-When behavior or architecture changes:
-
-- update the relevant current documentation;
-- update an ADR only through an explicit superseding decision when architecture changes;
-- regenerate generated artifacts such as OpenAPI through their canonical generator rather than
-  hand-editing them;
-- distinguish accepted target architecture from current implementation gaps;
-- do not resurrect references to the removed legacy AI-documentation hierarchy.
-
-## 7. Completion criteria
-
-A coding task is complete when the requested change is implemented, the diff is reviewed, appropriate
-lightweight validation has run where practical, and the response states exactly what was and was not
-validated.
-
-A separate runtime/release gate may remain pending. Do not cross it unless the user's current request
-explicitly includes that validation.
-
-## 8. User instruction priority
-
-The user's current explicit request takes priority over repository defaults when safe and feasible.
-For example, an explicit request to run GA2 permits GA2; an ordinary bug fix does not.
+When behavior changes, update current docs and mark/remove resolved entries from `IMPLEMENTATION_GAPS.md`. Regenerate OpenAPI through its generator rather than hand-editing it.

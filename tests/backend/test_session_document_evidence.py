@@ -341,9 +341,12 @@ def test_query_injects_only_the_prepared_active_session_evidence() -> None:
     evidence_service.build.assert_called_once_with(
         session_id="alpha", question="Summarize"
     )
-    agent.run_with_steps.assert_called_once_with(
-        "Summarize", attachment_evidence=attachment_evidence
-    )
+    call_args = agent.run_with_steps.call_args
+    assert call_args is not None
+    assert call_args.args == ("Summarize",)
+    assert call_args.kwargs["attachment_evidence"] == attachment_evidence
+    assert call_args.kwargs["chat_id"] == "alpha"
+    assert isinstance(call_args.kwargs["request_id"], str)
 
 
 def test_attachment_evidence_survives_a_canonical_continuation(

@@ -3,9 +3,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.project_store import ProjectStore
+from app.project_store import ProjectStore, ProjectStoreCorruptError
 
 
 def test_projects_persist_and_remain_isolated(tmp_path: Path) -> None:
@@ -42,7 +44,9 @@ def test_analysis_history_is_bounded(tmp_path: Path) -> None:
     assert analyses[-1]["id"] == "5"
 
 
-def test_delete_removes_only_selected_project_documents(tmp_path: Path) -> None:
+def test_metadata_delete_does_not_remove_files_without_recovery_coordinator(
+    tmp_path: Path,
+) -> None:
     store = ProjectStore(tmp_path)
     alpha = store.create("Alpha")
     beta = store.create("Beta")
@@ -52,6 +56,22 @@ def test_delete_removes_only_selected_project_documents(tmp_path: Path) -> None:
     (beta_dir / "b.txt").write_text("b")
 
     assert store.delete(alpha["id"])
-    assert not alpha_dir.exists()
+    # Cross-store file cleanup belongs to ProjectRecovery, which writes a
+    # durable project-delete tombstone before destructive work. The metadata
+    # primitive intentionally does not claim that cleanup happened.
+    assert alpha_dir.exists()
     assert beta_dir.exists()
     assert store.get(beta["id"])["name"] == "Beta"
+
+
+def test_corrupt_metadata_fails_closed_without_overwriting_recovery_evidence(
+    tmp_path: Path,
+) -> None:
+    metadata = tmp_path / "projects.json"
+    metadata.write_text("{not-json", encoding="utf-8")
+
+    store = ProjectStore(tmp_path)
+
+    with pytest.raises(ProjectStoreCorruptError):
+        store.create("must not overwrite")
+    assert metadata.read_text(encoding="utf-8") == "{not-json"

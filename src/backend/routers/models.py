@@ -26,29 +26,48 @@ def save_model(body: dict, request: Request):
         "model": str(body.get("model", existing.get("model", ""))).strip(),
         "timeout": body.get("timeout", existing.get("timeout", 180)),
         "temperature": body.get("temperature", existing.get("temperature", 0.0)),
-        "max_tokens": body.get("max_tokens", existing.get("max_tokens", 4096)),
     }
     if api_key is not None and str(api_key).strip():
         config["api_key"] = str(api_key).strip()
     elif existing.get("api_key"):
         config["api_key"] = existing["api_key"]
+    activate = bool(body.get("activate", True))
     try:
         request.app.state.deps.model_store.upsert(
             name,
             config,
-            activate=bool(body.get("activate", True)),
+            # A newly saved connection is unverified.  Test it before making
+            # it the active runtime connection.
+            activate=False,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    if activate:
+        result = request.app.state.deps.model_store.test(name)
+        if result["status"] != "ok":
+            raise HTTPException(
+                503, str(result.get("error", "Model connection test failed"))
+            )
+        try:
+            request.app.state.deps.model_store.set_active(name)
+        except ValueError as exc:
+            raise HTTPException(503, str(exc)) from exc
     return _reload(request)
 
 
 @router.post("/{name}/activate")
 def activate_model(name: str, request: Request):
     try:
+        result = request.app.state.deps.model_store.test(name)
+        if result["status"] != "ok":
+            raise HTTPException(
+                503, str(result.get("error", "Model connection test failed"))
+            )
         request.app.state.deps.model_store.set_active(name)
     except KeyError as exc:
         raise HTTPException(404, f"Model connection '{name}' not found") from exc
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
     return _reload(request)
 
 

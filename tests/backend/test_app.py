@@ -4,6 +4,7 @@ import json
 from unittest import mock
 
 from src.backend.app import create_app
+from src.shared.config import _reset_config
 
 
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)
@@ -33,32 +34,56 @@ def test_check_model_calls_health_check(mock_dsn: mock.MagicMock) -> None:
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)
 @mock.patch("src.agent.session_agent.CanonicalSessionAgent.health_check")
 def test_check_model_returns_ok_when_llm_healthy(
-    mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
+    mock_health: mock.MagicMock,
+    mock_dsn: mock.MagicMock,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     mock_health.return_value = True
+    monkeypatch.setenv("ORION_SERVERS_FILE", str(tmp_path / "servers.json"))
     app, _, _ = create_app(database_url="")
+    app.state.deps.model_store.upsert(
+        "primary", {"base_url": "http://model", "model": "qwen"}
+    )
+    app.state.deps.model_store._set_health_state("primary", "healthy")
+    app.state.deps.model_store.set_active("primary")
+    app.state.deps.reload_models()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
     resp = client.get("/api/check-model")
     assert resp.json()["status"] == "ok"
+    assert resp.json()["health_state"] == "healthy"
     mock_health.assert_called_once()
+    _reset_config()
 
 
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)
 @mock.patch("src.agent.session_agent.CanonicalSessionAgent.health_check")
 def test_check_model_returns_error_when_llm_unhealthy(
-    mock_health: mock.MagicMock, mock_dsn: mock.MagicMock
+    mock_health: mock.MagicMock,
+    mock_dsn: mock.MagicMock,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     mock_health.side_effect = RuntimeError("LLM unreachable")
+    monkeypatch.setenv("ORION_SERVERS_FILE", str(tmp_path / "servers.json"))
     app, _, _ = create_app(database_url="")
+    app.state.deps.model_store.upsert(
+        "primary", {"base_url": "http://model", "model": "qwen"}
+    )
+    app.state.deps.model_store._set_health_state("primary", "healthy")
+    app.state.deps.model_store.set_active("primary")
+    app.state.deps.reload_models()
     from fastapi.testclient import TestClient
 
     client = TestClient(app)
     resp = client.get("/api/check-model")
     data = resp.json()
     assert data["status"] == "error"
+    assert data["health_state"] == "unhealthy"
     assert "LLM unreachable" in data.get("error", "")
+    _reset_config()
 
 
 @mock.patch("src.backend.dependencies._get_dsn", return_value=None)

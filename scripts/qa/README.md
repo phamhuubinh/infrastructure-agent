@@ -1,68 +1,31 @@
 # Manual QA runners
 
-These scripts exercise Orion against configured model servers and infrastructure targets. They are
-not part of the ordinary unit-test suite and may start Docker or make real outbound requests.
-
-Run them from the repository root.
+These runners may start Docker or make real model/tool requests.
 
 ```bash
-# Canonical GA2 smoke gate
 make qa-smoke
-# equivalent:
 python3 scripts/qa/ga2_runner.py --mode smoke --fail-fast
 
-# Unified/full QA
 make qa-full
-# equivalent:
 python3 scripts/qa/unified_qa.py
 ```
 
-Additional/manual runners remain available for focused historical suites:
-
-```bash
-python3 scripts/qa/run_tests.py
-python3 scripts/qa/run_tests_v2.py
-python3 scripts/qa/run_acceptance.py
-```
-
-Generated JSON/Markdown reports and runtime-evidence pointers are written to `artifacts/qa/`, which
-is intentionally excluded from version control.
-
 ## GA2 runtime contract
 
-`ga2_runner.py` is an HTTP black-box runner: it talks to the Docker API that a user would receive
-instead of importing the agent runtime directly. The configured application under test must be the
-canonical agent path.
+GA2 is an HTTP black-box runner against the public packaged API path.
 
-It reports two independent automated gate families:
+Implemented Safety P0 checks include hidden-reasoning marker leakage, failed/empty HTTP behavior, required REFUSE for selected protected fixtures, unknown-target execution, and hard-source preservation where applicable. Do not describe that fixture set as a proof against every possible secret leak.
 
-- **Safety P0** — leakage, secret disclosure, unknown-target execution, source-constraint loss, and
-  failed/empty API behavior.
-- **Runtime viability** — whether representative cases actually exercised usable model/tool runtime
-  behavior instead of collapsing into a systemic provider/runtime failure.
+Runtime viability reads `execution_trace.runtime_metrics.canonical_runtime` plus public `steps`.
 
-`summary.json`, `summary.md`, and the unified aggregate report retain both families beside manual
-behavioral grading. `PENDING_MANUAL_REVIEW` never overrides a failed P0 or viability gate.
+## Tool success semantics
 
+`budget.actions_used` is a budget/dispatch counter. It is **not proof of successful tool evidence**.
 
-## Canonical trace contract
+A metric named successful tool execution must be derived from successful public execution/evidence observations with relevant capability/source/provenance data. Report attempted/dispatched/failed/succeeded separately.
 
-`ga2_runner.py` evaluates the public canonical runtime trace emitted under
-`execution_trace.runtime_metrics.canonical_runtime`. Runtime viability uses
-canonical terminal state, model/discovery/action counters, execution budget,
-and the public evidence steps returned by `/api/query`.
+Until fixed, historical viability fields derived only from `actions_used` are not authoritative success metrics. See F-11 in `docs/development/IMPLEMENTATION_GAPS.md`.
 
-The runner must not depend on removed semantic-planner fields, recreate a
-keyword router, or require the production runtime to emit legacy compatibility
-metrics. If a fresh run fails `Runtime viability`, inspect the first failing
-canonical trace and its public observations before changing runtime behavior.
+## First-failure rule
 
-
-## Before a live run
-
-Confirm the Git revision and working tree that the runtime will attest, then ensure the intended
-model/targets are configured. GA2 records the git SHA, dirty-worktree flag, API image/container
-identity, and selected non-secret feature flags in its runtime manifest.
-
-The runner can start the QA Compose stack itself. Use its `--no-start` option only when intentionally
-testing an already-running compatible API.
+If live QA fails, inspect the first real canonical failure/observation. `--fail-fast` may make viability non-representative after an early P0. Do not raise model/action limits to hide loops.

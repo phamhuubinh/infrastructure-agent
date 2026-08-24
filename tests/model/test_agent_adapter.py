@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 
 import pytest
@@ -90,7 +91,7 @@ def test_adapter_returns_canonical_decision() -> None:
     request = provider.requests[0]
     assert request.request_id == "req-1"
     assert request.timeout_seconds == 30.0
-    assert request.response_schema["title"] == "OrionAgentDecisionV2"
+    assert request.response_schema["title"] == "OrionAgentDecisionV3"
 
 
 def test_selected_capability_schema_is_forwarded_to_transport() -> None:
@@ -101,6 +102,8 @@ def test_selected_capability_schema_is_forwarded_to_transport() -> None:
         user_prompt="user",
         selected_capability_schema={
             "capability_id": "host.cpu",
+            "target_ref": {"applicable": True, "allowed_refs": ["monitor"]},
+            "source_ref": {"applicable": False},
             "arguments_schema": {
                 "type": "object",
                 "additionalProperties": False,
@@ -180,6 +183,135 @@ def test_invalid_output_fails_over_without_repair_parser() -> None:
 
     assert result.provider == "good"
     assert result.provider_attempt_count == 2
+
+
+def test_invalid_action_wire_reports_sanitized_parser_diagnostics() -> None:
+    malformed_action = {
+        "version": 3,
+        "kind": "action",
+            "action": {
+                "capability_id": "compute.deterministic",
+                "arguments": {},
+                "unexpected": True,
+            },
+    }
+    provider = FakeProvider(
+        [
+            AgentProviderResponse(
+                payload=json.dumps(malformed_action),
+                provider="qwen",
+                model="qwen-test",
+            )
+        ]
+    )
+
+    with pytest.raises(AgentModelError) as captured:
+        AgentModelAdapter([provider]).decide(
+            system_prompt="system",
+            user_prompt="user",
+        )
+
+    failure = captured.value.failures[0]
+    assert failure.reason is AgentModelFailureReason.INVALID_OUTPUT
+    assert failure.diagnostics == {
+        "response_type": "str",
+        "response_length": len(json.dumps(malformed_action).encode("utf-8")),
+        "parse_error_category": "contract_error",
+        "schema_validation_error_path": None,
+        "parser_error_path": "action",
+        "json_parseable": True,
+        "stripped_starts_with_object": True,
+        "stripped_ends_with_object": True,
+        "contains_markdown_code_fence": False,
+        "contains_think_open_tag": False,
+        "contains_think_close_tag": False,
+        "leading_format": "json_object",
+        "trailing_format": "json_object_end",
+        "json_object_candidate_count": 1,
+        "json_top_level_keys": [
+            "action",
+            "kind",
+            "version",
+        ],
+        "unknown_top_level_key_count": 0,
+        "decision_kind": "action",
+    }
+
+
+def test_invalid_text_payload_reports_format_without_retaining_content() -> None:
+    payload = "```json\n{\"kind\":\"action\"}\n```"
+    provider = FakeProvider(
+        [
+            AgentProviderResponse(
+                payload=payload,
+                provider="qwen",
+                model="qwen-test",
+            )
+        ]
+    )
+
+    with pytest.raises(AgentModelError) as captured:
+        AgentModelAdapter([provider]).decide(
+            system_prompt="system",
+            user_prompt="user",
+        )
+
+    diagnostics = captured.value.failures[0].diagnostics
+    assert diagnostics == {
+        "response_type": "str",
+        "response_length": len(payload.encode("utf-8")),
+        "parse_error_category": "contract_error",
+        "schema_validation_error_path": None,
+        "parser_error_path": None,
+        "json_parseable": False,
+        "stripped_starts_with_object": False,
+        "stripped_ends_with_object": False,
+        "contains_markdown_code_fence": True,
+        "contains_think_open_tag": False,
+        "contains_think_close_tag": False,
+        "leading_format": "code_fence",
+        "trailing_format": "code_fence",
+        "json_object_candidate_count": 1,
+    }
+
+
+def test_invalid_text_payload_includes_safe_provider_generation_metadata() -> None:
+    provider = FakeProvider(
+        [
+            AgentProviderResponse(
+                payload='{"kind":"action"',
+                provider="qwen",
+                model="qwen-test",
+                generation_diagnostics={
+                    "finish_reason": "length",
+                    "usage_completion_tokens": 1024,
+                    "usage_prompt_tokens": 312,
+                    "stop_sequence_configured": False,
+                    "content_bytes_before_sanitization": 1309,
+                    "content_bytes_after_sanitization": 1309,
+                    "provider_http_status": 200,
+                    "untrusted_payload": "must not be emitted",
+                },
+            )
+        ]
+    )
+
+    with pytest.raises(AgentModelError) as captured:
+        AgentModelAdapter([provider]).decide(
+            system_prompt="system",
+            user_prompt="user",
+        )
+
+    diagnostics = captured.value.failures[0].diagnostics
+    assert diagnostics["provider_generation"] == {
+        "finish_reason": "length",
+        "usage_completion_tokens": 1024,
+        "usage_prompt_tokens": 312,
+        "content_bytes_before_sanitization": 1309,
+        "content_bytes_after_sanitization": 1309,
+        "provider_http_status": 200,
+        "stop_sequence_configured": False,
+    }
 
 
 def test_all_failures_preserve_bounded_failure_reasons() -> None:

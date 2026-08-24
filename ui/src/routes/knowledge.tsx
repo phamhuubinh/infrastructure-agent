@@ -158,6 +158,8 @@ export function KnowledgePage() {
 
   async function deleteDocument(docId: string) {
     if (!selected) return;
+    const document = selected.documents.find((item) => item.id === docId);
+    if (!window.confirm(`Xóa vĩnh viễn tài liệu "${document?.filename || docId}"?`)) return;
     setBusy(true);
     try {
       await apiJson(`/api/rag/projects/${selected.id}/documents/${docId}`, {
@@ -173,6 +175,7 @@ export function KnowledgePage() {
 
   async function deleteProject() {
     if (!selected || selected.id === "default") return;
+    if (!window.confirm(`Xóa vĩnh viễn project "${selected.name}" và toàn bộ tài liệu?`)) return;
     setBusy(true);
     try {
       await apiJson(`/api/rag/projects/${selected.id}`, { method: "DELETE" });

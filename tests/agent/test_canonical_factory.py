@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from src.agent.canonical_factory import (
     CanonicalProductionRuntime,
     create_canonical_production_runtime,
@@ -20,22 +18,18 @@ from src.agent.permissions import (
 from src.agent.runtime import (
     RuntimeTerminal,
 )
-from src.model.agent_provider_bridge import (
-    AgentBackendProvider,
+from src.model.agent_backend import (
+    AgentModelBackend,
+    FallbackAgentBackend,
+    UnconfiguredAgentBackend,
 )
 from src.model.agent_llm_adapter import (
     AgentLLMAdapter,
 )
-from src.model.agent_backend import (
-    AgentModelBackend,
-)
-from src.model.agent_backend import (
-    FallbackAgentBackend,
+from src.model.agent_provider_bridge import (
+    AgentBackendProvider,
 )
 from src.shared.config import OrionConfig
-from src.model.agent_backend import (
-    UnconfiguredAgentBackend,
-)
 
 
 class FinalModelBackend(

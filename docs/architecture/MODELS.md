@@ -1,56 +1,35 @@
 # Model Provider Architecture
 
-## Goal
-
-Orion must not depend architecturally on one model vendor or one local runtime.
-Today a user may run Qwen locally; tomorrow the same installation may use
-OpenAI, Anthropic, Ollama, vLLM, another OpenAI-compatible server, or a CPU-only
-model.
-
-## Provider-neutral interface
-
-The agent core talks to a model interface that normalizes:
-
-- connection/model identity;
-- messages/input context;
-- structured decision schema support;
-- timeouts and cancellation;
-- token/usage metadata when available;
-- provider errors;
-- optional reasoning configuration;
-- streaming/activity support when available.
-
-Provider adapters translate that common contract to vendor-specific APIs.
+Orion uses a provider-neutral model interface for configured identity, input, structured decision schema, timeout/cancellation, usage/error metadata, and provider-specific translation.
 
 ## Structured output
 
-The controller protocol should be designed for portability:
+Use simple closed portable schemas. Strict parsing is followed by strict validation against the **active stage/schema**. Native structured output is an optimization, not an authority boundary.
 
-- simple closed objects;
-- readable field names;
-- small decision enum;
-- minimal nesting;
-- no provider-specific schema tricks in core semantics;
-- strict parser/validation after generation.
+OpenAI-compatible canonical calls omit `max_tokens` and
+`max_completion_tokens`, allowing the configured provider/model to determine
+generation termination. Orion retains aggregate input-context budgets and all
+runtime safety limits. A provider that requires an output parameter at its own
+API boundary (currently Anthropic Messages) uses explicit provider-required
+configuration rather than an Orion default ceiling.
 
-If a provider cannot guarantee native structured output, its adapter may use a
-bounded text-to-structure mechanism, but the resulting decision must still pass
-the same canonical parser.
+## Model identity
 
-## Model fallback
+A model is not a reliable source of truth about its own deployment identity. User-visible provider/model claims must be grounded in Orion's configured connection metadata. If unavailable, say unknown rather than inventing GPT/OpenAI/Qwen/etc.
 
-Fallback between configured models may be supported as runtime policy. Fallback
-must not silently change permissions, capability authority, target/source
-scope, or execution budgets.
+## Health state
 
-## Model absence
+Configuration and health are separate:
 
-Orion should still start and expose configuration/diagnostics when no model is
-configured. Requests that require the agent model should return a clear setup
-error rather than guessing a semantic route with deterministic keywords.
+```text
+not_configured
+configured_unknown
+healthy
+unhealthy
+```
 
-## Token efficiency
+Do not hardcode `available=true` because a connection exists. Activation policy is explicit: test before activation or roll back on failed validation. UI must inspect semantic health state, not only HTTP 200/transport success.
 
-Token efficiency is achieved by bounded context, progressive capability
-disclosure, compact observations, RAG retrieval, and chat-memory compaction.
-Do not trade away protocol clarity merely to save a few field-name tokens.
+## Fallback/absence
+
+Model fallback may not widen authority. No-model mode returns setup error for model-requiring requests, not legacy keyword routing.

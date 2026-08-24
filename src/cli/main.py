@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from src.agent.canonical_factory import create_canonical_session_agent
@@ -13,12 +14,129 @@ from src.backend.sqlite_store import (
     migrate_json_to_sqlite,
 )
 from src.model.config_store import ModelConfigStore
+from src.observability.events import AgentEvent, AgentEventStore, get_event_store
 from src.shared.logger import info as _info
 from src.tool.execution_backend import SSHExecutionBackend
 from src.tool.target_registry import TargetRegistry
 from src.tool.target_store import TargetStore
 
-_last_result = None
+_last_result: dict[str, object] | None = None
+
+
+def _print_runtime_status(
+    event_store: AgentEventStore,
+    request_id: str,
+    result: dict[str, object],
+    *,
+    verbose: bool,
+) -> None:
+    """Print safe lifecycle events, never prompts, answers, or private reasoning."""
+    for event in event_store.events(request_id=request_id):
+        _print_runtime_event(event, verbose=verbose)
+
+    if verbose:
+        trace = result.get("execution_trace")
+        canonical = (
+            trace.get("runtime_metrics", {}).get("canonical_runtime", {})
+            if isinstance(trace, dict)
+            and isinstance(trace.get("runtime_metrics"), dict)
+            else {}
+        )
+        if isinstance(canonical, dict):
+            fields = (
+                "terminal",
+                "model_calls",
+                "discovery_calls",
+                "action_attempts",
+                "observation_count",
+                "failure",
+            )
+            safe = " ".join(
+                f"{field}={canonical[field]}"
+                for field in fields
+                if canonical.get(field) is not None
+            )
+            print(f"  [trace] {safe}")
+
+
+def _print_runtime_event(event: AgentEvent, *, verbose: bool) -> None:
+    fields = [
+        f"event={event.event_type}",
+        f"status={event.status.value}",
+    ]
+    for name, value in (
+        ("capability", event.capability_id),
+        ("target", event.target_ref),
+        ("source", event.source_ref),
+        ("error", event.error_code),
+    ):
+        if value:
+            fields.append(f"{name}={value}")
+
+    if verbose:
+        for name in ("decision_kind", "group", "capability_count"):
+            metadata_value = event.metadata.get(name)
+            if isinstance(metadata_value, (str, int)):
+                fields.append(f"{name}={metadata_value}")
+
+        if event.event_type == "model.failed":
+            diagnostics = event.metadata.get("parse_diagnostics")
+            if isinstance(diagnostics, Mapping):
+                for output_name, metadata_name in (
+                    ("parse_error", "parse_error_category"),
+                    ("parser_path", "parser_error_path"),
+                    ("schema_path", "schema_validation_error_path"),
+                    ("response_type", "response_type"),
+                    ("response_length", "response_length"),
+                    ("decision_kind", "decision_kind"),
+                    ("unknown_keys", "unknown_top_level_key_count"),
+                    ("json_parseable", "json_parseable"),
+                    ("starts_object", "stripped_starts_with_object"),
+                    ("ends_object", "stripped_ends_with_object"),
+                    ("code_fence", "contains_markdown_code_fence"),
+                    ("think_open", "contains_think_open_tag"),
+                    ("think_close", "contains_think_close_tag"),
+                    ("leading_format", "leading_format"),
+                    ("trailing_format", "trailing_format"),
+                    ("object_candidates", "json_object_candidate_count"),
+                ):
+                    value = diagnostics.get(metadata_name)
+                    if isinstance(value, (str, int, bool)):
+                        fields.append(f"{output_name}={value}")
+
+                provider_generation = diagnostics.get("provider_generation")
+                if isinstance(provider_generation, Mapping):
+                    for output_name, metadata_name in (
+                        ("finish_reason", "finish_reason"),
+                        ("completion_count", "completion_count"),
+                        ("prompt_count", "prompt_count"),
+                        ("stop_configured", "stop_sequence_configured"),
+                        (
+                            "sanitize_before",
+                            "content_bytes_before_sanitization",
+                        ),
+                        (
+                            "sanitize_after",
+                            "content_bytes_after_sanitization",
+                        ),
+                        ("http_status", "provider_http_status"),
+                    ):
+                        value = provider_generation.get(metadata_name)
+                        if isinstance(value, (str, int, bool)):
+                            fields.append(f"{output_name}={value}")
+
+                keys = diagnostics.get("json_top_level_keys")
+                if (
+                    isinstance(keys, Sequence)
+                    and not isinstance(keys, (str, bytes, bytearray))
+                ):
+                    safe_keys = [
+                        key for key in keys if isinstance(key, str)
+                    ]
+                    if len(safe_keys) == len(keys):
+                        fields.append(f"keys={','.join(safe_keys)}")
+
+    print("  [status] " + " ".join(fields))
 
 
 def _list_saved_sessions() -> list[dict]:
@@ -100,25 +218,37 @@ def _manage_model(args: argparse.Namespace) -> None:
         api_key = args.api_key
         if args.api_key_stdin:
             api_key = sys.stdin.readline().rstrip("\r\n")
+        config = {
+            "provider": args.provider,
+            "base_url": args.base_url,
+            "model": args.model_name,
+            "api_key": api_key or None,
+            "timeout": args.timeout,
+            "temperature": args.temperature,
+        }
         try:
             store.upsert(
                 args.name,
-                {
-                    "provider": args.provider,
-                    "base_url": args.base_url,
-                    "model": args.model_name,
-                    "api_key": api_key or None,
-                    "timeout": args.timeout,
-                    "temperature": args.temperature,
-                    "max_tokens": args.max_tokens,
-                },
-                activate=not args.no_activate,
+                config,
+                activate=False,
             )
         except ValueError as exc:
             print(f"Model configuration error: {exc}", file=sys.stderr)
             raise SystemExit(1) from exc
-        print(f"Model connection '{args.name}' saved.")
-        print(f"Run: orion model test {args.name}")
+        if args.no_activate:
+            print(f"Model connection '{args.name}' saved but not activated.")
+            print(f"Run: orion model test {args.name}")
+            return
+        result = store.test(args.name, timeout=args.timeout)
+        if result["status"] != "ok":
+            print(
+                f"Connection failed; '{args.name}' was saved but not activated: "
+                f"{result.get('error', 'unknown error')}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        store.set_active(args.name)
+        print(f"Model connection '{args.name}' saved, tested, and selected.")
         return
 
     if action == "test":
@@ -135,8 +265,12 @@ def _manage_model(args: argparse.Namespace) -> None:
 
     if action == "use":
         try:
+            result = store.test(args.name, timeout=30)
+            if result["status"] != "ok":
+                print(f"Connection failed: {result.get('error', 'unknown error')}")
+                raise SystemExit(1)
             store.set_active(args.name)
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             print(f"Model connection '{args.name}' not found.", file=sys.stderr)
             raise SystemExit(1) from exc
         print(f"Model connection '{args.name}' selected.")
@@ -221,7 +355,6 @@ def _list_targets(args: argparse.Namespace) -> None:
 
 
 def _run_log() -> None:
-    from pathlib import Path
 
     _log_path = str(Path.home() / ".orion" / "orion.log")
     try:
@@ -325,7 +458,8 @@ def _run_agent(args: argparse.Namespace) -> None:
                 print("  No previous request.")
                 continue
 
-            steps = _last_result.get("steps", [])
+            raw_steps = _last_result.get("steps", [])
+            steps = raw_steps if isinstance(raw_steps, list) else []
             evidence_steps = [
                 step
                 for step in steps
@@ -402,10 +536,9 @@ def _run_agent(args: argparse.Namespace) -> None:
 
             targets: list[str] = []
 
-            for step in _last_result.get(
-                "steps",
-                [],
-            ):
+            raw_steps = _last_result.get("steps", [])
+            steps = raw_steps if isinstance(raw_steps, list) else []
+            for step in steps:
                 if not isinstance(
                     step,
                     dict,
@@ -449,11 +582,21 @@ def _run_agent(args: argparse.Namespace) -> None:
             lambda signum, frame: (_sig.default_int_handler(signum, frame), None),
         )
         try:
-            result = agent.run_with_steps(raw_input)
+            request_id = uuid4().hex
+            result = agent.run_with_steps(raw_input, request_id=request_id)
             _last_result = result
             answer = result["response"]
             print()
             print(answer)
+            if getattr(args, "status", False) or getattr(args, "verbose", False):
+                event_store = getattr(agent, "event_store", get_event_store())
+                if isinstance(event_store, AgentEventStore):
+                    _print_runtime_status(
+                        event_store,
+                        request_id,
+                        result,
+                        verbose=bool(getattr(args, "verbose", False)),
+                    )
         except KeyboardInterrupt:
             print()
             print("  Cancelled.")
@@ -540,7 +683,8 @@ def main() -> None:
     del_parser = session_sub.add_parser("delete", help=argparse.SUPPRESS)
     del_parser.add_argument("id", type=str, help=argparse.SUPPRESS)
     del_parser.add_argument("-y", "--yes", action="store_true", help=argparse.SUPPRESS)
-    session_sub.add_parser("clean", help=argparse.SUPPRESS)
+    clean_parser = session_sub.add_parser("clean", help=argparse.SUPPRESS)
+    clean_parser.add_argument("-y", "--yes", action="store_true", help=argparse.SUPPRESS)
 
     # Migrate command: JSON → SQLite
     migrate_parser = subparsers.add_parser("migrate", help=argparse.SUPPRESS)
@@ -578,7 +722,6 @@ def main() -> None:
     )
     model_add.add_argument("--timeout", type=int, default=180)
     model_add.add_argument("--temperature", type=float, default=0.0)
-    model_add.add_argument("--max-tokens", type=int, default=4096)
     model_add.add_argument("--no-activate", action="store_true")
 
     model_test = model_sub.add_parser("test", help="Test a saved connection")
@@ -709,27 +852,45 @@ def main() -> None:
 
     if args.command == "session":
         if args.session_action == "delete":
-            deleted = SQLiteConversationStore.delete_session(args.id)
-            if not deleted:
-                print(f"Session '{args.id}' not found.")
-                return
             if not args.yes:
                 ans = input(f"Delete session '{args.id}'? [y/N] ").strip().lower()
                 if ans not in ("y", "yes"):
                     print("Cancelled.")
                     return
+            deleted = SQLiteConversationStore.delete_session(args.id)
+            from src.backend.db import _get_dsn
+            from src.backend.db import delete_session as delete_postgres_session
+
+            dsn = _get_dsn()
+            if dsn:
+                deleted = delete_postgres_session(dsn, args.id) or deleted
+            if not deleted:
+                print(f"Session '{args.id}' not found.")
+                return
             print(f"Session '{args.id}' deleted.")
             return
 
         if args.session_action == "clean":
-            DB_PATH = Path.home() / ".orion" / "sessions.db"
-            import os as _os
+            sessions = _list_saved_sessions()
+            if not sessions:
+                print("No sessions found.")
+                return
+            if not args.yes:
+                ans = input(
+                    f"Delete all {len(sessions)} saved sessions? [y/N] "
+                ).strip().lower()
+                if ans not in ("y", "yes"):
+                    print("Cancelled.")
+                    return
+            sqlite_deleted = SQLiteConversationStore.delete_all_sessions()
+            from src.backend.db import _get_dsn
+            from src.backend.db import (
+                delete_all_sessions as delete_all_postgres_sessions,
+            )
 
-            if _os.path.exists(DB_PATH):
-                _os.remove(DB_PATH)
-                print("All sessions deleted (SQLite database removed).")
-            else:
-                print("No sessions database found.")
+            dsn = _get_dsn()
+            postgres_deleted = delete_all_postgres_sessions(dsn) if dsn else 0
+            print(f"Deleted {sqlite_deleted + postgres_deleted} saved sessions.")
             return
 
         _print_saved_sessions(_list_saved_sessions())

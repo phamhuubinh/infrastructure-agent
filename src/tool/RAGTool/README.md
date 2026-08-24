@@ -1,78 +1,31 @@
 # Orion Project RAG Service
 
-This directory contains the **current standalone Project/document-analysis service** used by the Web
-UI.
+This directory is the **current standalone Project/document-analysis service** used by the Web UI. It is not currently registered as a canonical Chat capability. ADR-0003 defines the target: Project knowledge becomes a normal READ capability in the same agent loop.
 
-At implementation baseline `259f85b`, this service is not imported into the canonical Chat agent
-and does not participate in Chat capability selection.
+## Deployment/security boundary
 
-That current separation is **not** the accepted target architecture. ADR-0003 and
-`docs/architecture/PROJECTS_RAG_MEMORY.md` define Project knowledge as a normal READ capability in
-the same agent loop. The retrieval implementation here may remain useful as the backend for that
-future capability; do not create a second semantic agent architecture around it.
+The root Orion Compose stack keeps RAG internal. The standalone Compose in this directory is a development stack and currently publishes the RAG API and Qdrant ports without a hardened public auth boundary.
 
-## Isolation and persistence
+**Do not expose the standalone stack to an untrusted network.** Prefer loopback-only bindings or add explicit auth/mTLS and secured vector-store administration.
 
-Each project owns:
+Analysis requests can carry request-scoped `model_config` (`base_url`, `model`, `api_key`, `timeout`). That is intended for trusted Orion-internal configuration; it must not remain an unrestricted unauthenticated SSRF/token-forwarding surface in a hardened deployment. Enforce destination allowlisting/private-IP/DNS/rebinding/redirect policy before untrusted clients can control it.
 
-- document files under `RAG_DATA_DIR/documents/{project_id}`;
-- a dense collection named `documents_{project_id}`;
-- a persistent, Vietnamese-accent-folded BM25 index;
-- project metadata and the latest 100 analysis records.
+## Isolation/persistence
 
-The offline `memory` vector provider persists collections to `RAG_DATA_DIR/vectors.json`. The root
-Compose stack mounts `/data` to a named volume. Project operations are serialized per project so
-upload/query/delete cannot observe a partially updated index.
+Each Project has document files, dense collection, BM25 index, and project metadata. Per-project locking prevents concurrent interleaving in one process, but **does not make filesystem/vector/BM25/metadata mutation transactional**. Multi-store crash/failure consistency is tracked as F-19.
 
-## Pipeline
-
-```text
-File → parser → hierarchical/semantic chunks
-     → embedding → project dense collection + project BM25 index
-
-Analysis request → original-query BM25 + bounded same-model lexical variants
-                 → rank-based RRF → deterministic/no-op reranker
-                 → document-balanced context → required RAG LLM synthesis
-```
-
-The root Compose configuration uses pypdf/text parsing, hash embeddings, the persistent memory vector
-store, BM25, RRF, a no-op reranker, and a no-op OCR provider.
-
-Hash embeddings are deterministic development plumbing, not semantic retrieval, so hash dense
-rankings are excluded from fusion. A configured semantic embedding provider may contribute a bounded
-dense ranking alongside BM25.
-
-The request-scoped analysis model makes at most one lexical-expansion call before final synthesis;
-expansion failure falls back to original-query BM25 only.
+Corrupt metadata must be preserved/quarantined rather than treated as empty and overwritten (F-07).
 
 ## Running locally
 
-From this directory:
-
 ```bash
 uv sync --group dev
-RAG_DATA_DIR=/tmp/orion-rag uv run uvicorn app.main:app --reload --port 8080
+RAG_DATA_DIR=/tmp/orion-rag \
+  uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
 uv run pytest tests -q
 ```
 
-The service can boot and ingest documents before a model is configured:
-
-```bash
-RAG_EMBEDDING_PROVIDER=hash
-RAG_VECTOR_STORE=memory
-RAG_RERANKER=noop
-```
-
-Analysis itself requires a model. In the root Orion stack, the backend passes the active Orion model
-as request-scoped internal configuration so concurrent projects do not mutate shared model state.
-
-For standalone development:
-
-```bash
-export RAG_LLM_BASE_URL=http://your-llm:8000/v1
-export RAG_LLM_MODEL=your-model
-export RAG_LLM_API_KEY=your-key
-```
+Analysis requires a model. Standalone trusted-local environment variables can configure the model.
 
 ## API
 
@@ -87,27 +40,27 @@ DELETE /projects/{project_id}/documents/{doc_id}
 POST   /projects/{project_id}/analyses
 ```
 
-Upload uses multipart field `file` and rejects files over 50 MiB.
+Upload limit: 50 MiB.
 
-Analysis accepts:
+Typical analysis:
 
 ```json
-{"query": "Compare the proposals and list risks", "top_k": 5}
+{"query":"Compare the proposals and list risks","top_k":5}
 ```
 
-The response includes `answer` and `retrieved`. Without a configured model, analysis returns HTTP
-503 rather than a retrieval-only answer.
+Internal/request-scoped form may additionally contain:
 
-Legacy `/ingest` and `/query` endpoints remain isolated in the built-in `default` project for older
-clients. Canonical Chat does not use them.
+```json
+{
+  "query": "Compare the proposals and list risks",
+  "top_k": 5,
+  "model_config": {
+    "base_url": "http://model.example/v1",
+    "model": "model-name",
+    "api_key": "...",
+    "timeout": 180
+  }
+}
+```
 
-## Migration boundary
-
-When Project knowledge is integrated into the canonical agent, preserve these rules:
-
-- Project/document isolation remains deterministic authority.
-- Retrieval results are bounded evidence, not execution authority.
-- The model decides when Project retrieval is useful.
-- The Chat agent should call a registered READ capability rather than bypassing the capability/
-  validation boundary.
-- Do not keep a separate RAG semantic mode once the canonical capability is wired.
+Legacy `/ingest` and `/query` remain isolated in the built-in `default` Project for older clients; canonical Chat does not use them.

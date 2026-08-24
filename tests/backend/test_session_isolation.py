@@ -6,9 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from src.agent.conversation_store import ConversationStore
-from src.agent.contracts import AgentAction, AgentDecision, DecisionKind
 from src.agent.canonical_factory import create_canonical_session_agent
+from src.agent.contracts import AgentAction, AgentDecision, DecisionKind
+from src.agent.conversation_store import ConversationStore
 from src.backend.dependencies import AppState
 from src.backend.routers.query import query
 from src.model.agent_backend import AgentModelBackend
@@ -21,6 +21,16 @@ from src.tool.target_preflight import EnvironmentFingerprint
 class _Store:
     def __init__(self, session_id: str, **_kwargs: object) -> None:
         self.session_id = session_id
+
+
+class _PostgresStore(_Store):
+    def __init__(self, session_id: str, dsn: str, **kwargs: object) -> None:
+        super().__init__(session_id, **kwargs)
+        self.dsn = dsn
+        self.saves: list[str] = []
+
+    def persist(self, value: str) -> None:
+        self.saves.append(value)
 
 
 class _QueuedAssessmentModel(AgentModelBackend):
@@ -43,9 +53,7 @@ def _wire(
 ) -> str:
     if kind == "action":
         if capability_id is None:
-            raise ValueError(
-                "action requires capability_id"
-            )
+            raise ValueError("action requires capability_id")
 
         decision = AgentDecision(
             kind=DecisionKind.ACTION,
@@ -55,11 +63,15 @@ def _wire(
                 target_ref=target_ref,
             ),
         )
+    elif kind == "discover":
+        decision = AgentDecision(
+            kind=DecisionKind.DISCOVER,
+            goal="Follow the request.",
+            category="host",
+        )
     elif kind == "final":
         if answer is None:
-            raise ValueError(
-                "final requires answer"
-            )
+            raise ValueError("final requires answer")
 
         decision = AgentDecision(
             kind=DecisionKind.FINAL,
@@ -67,13 +79,10 @@ def _wire(
             answer=answer,
         )
     else:
-        raise ValueError(
-            f"unsupported test decision: {kind}"
-        )
+        raise ValueError(f"unsupported test decision: {kind}")
 
-    return json.dumps(
-        decision.to_wire()
-    )
+    return json.dumps(decision.to_wire())
+
 
 def _reachable_monitor(*_args: object, **_kwargs: object) -> EnvironmentFingerprint:
     return EnvironmentFingerprint(
@@ -102,10 +111,27 @@ def _state() -> AppState:
     state.agent.model_backend.complete = mock.MagicMock()
     state.web_sessions = {}
     state.web_agents = {}
+    state._lifecycles = {}
+    state._next_session_generation = 1
+    state._deleting_all_sessions = False
     state._session_locks = {}
     state.rag_service_url = "http://rag-service:8080"
     state.reload_models_if_changed = mock.MagicMock()
     return state
+
+
+def test_get_or_create_session_does_not_require_legacy_assessment_model() -> None:
+    state = _state()
+    state.agent = SimpleNamespace()
+
+    with mock.patch(
+        "src.backend.dependencies.SQLiteConversationStore",
+        _Store,
+    ):
+        store = state.get_or_create_session("alpha")
+
+    assert store.session_id == "alpha"
+    assert store is state.web_sessions["alpha"]
 
 
 def test_prepare_query_reuses_only_the_same_session_agent() -> None:
@@ -130,12 +156,189 @@ def test_prepare_query_reuses_only_the_same_session_agent() -> None:
         _, beta_agent, beta_lock = state.prepare_query("beta")
 
     assert alpha_agent is alpha_agent_again
-    assert alpha_lock is alpha_lock_again
+    assert alpha_lock._lifecycle is alpha_lock_again._lifecycle
     assert beta_agent is not alpha_agent
-    assert beta_lock is not alpha_lock
+    assert beta_lock._lifecycle is not alpha_lock._lifecycle
     assert alpha_agent.conversation_store is state.web_sessions["alpha"]
     assert beta_agent.conversation_store is state.web_sessions["beta"]
     assert len(created_agents) == 2
+
+
+def test_delete_invalidates_queued_old_lease_before_same_id_recreation() -> None:
+    state = _state()
+    delete_started = threading.Event()
+    release_delete = threading.Event()
+    deleted: list[bool] = []
+
+    with mock.patch("src.backend.dependencies.SQLiteConversationStore", _Store):
+        _, _, old_lease = state.prepare_query("alpha")
+
+        def delete_persisted() -> bool:
+            delete_started.set()
+            assert release_delete.wait(timeout=2)
+            return True
+
+        thread = threading.Thread(
+            target=lambda: deleted.append(
+                state.delete_session("alpha", delete_persisted)
+            )
+        )
+        thread.start()
+        assert delete_started.wait(timeout=2)
+
+        # The lifecycle is marked before persistence begins, so a queued old
+        # query cannot enter and write after deletion completes.
+        release_delete.set()
+        thread.join(timeout=2)
+        assert not thread.is_alive()
+        assert deleted == [True]
+        try:
+            with old_lease:
+                raise AssertionError("old lease must not enter")
+        except KeyError:
+            pass
+
+        _, _, new_lease = state.prepare_query("alpha")
+
+    assert new_lease._lifecycle.generation > old_lease._lifecycle.generation
+    assert new_lease._lifecycle.lock is not old_lease._lifecycle.lock
+
+
+def test_delete_waits_for_inflight_writer_then_prevents_resurrection() -> None:
+    state = _state()
+    query_entered = threading.Event()
+    release_query = threading.Event()
+    delete_finished = threading.Event()
+    order: list[str] = []
+
+    with mock.patch("src.backend.dependencies.SQLiteConversationStore", _Store):
+        _, _, lease = state.prepare_query("alpha")
+
+        def query_writer() -> None:
+            with lease:
+                query_entered.set()
+                assert release_query.wait(timeout=2)
+                order.append("old-persist")
+
+        def delete_persisted() -> bool:
+            order.append("delete")
+            delete_finished.set()
+            return True
+
+        query_thread = threading.Thread(target=query_writer)
+        delete_thread = threading.Thread(
+            target=lambda: state.delete_session("alpha", delete_persisted)
+        )
+        query_thread.start()
+        assert query_entered.wait(timeout=2)
+        delete_thread.start()
+        assert state._lifecycles["alpha"].deleting is True
+        assert not delete_finished.is_set()
+        release_query.set()
+        query_thread.join(timeout=2)
+        delete_thread.join(timeout=2)
+
+    assert not query_thread.is_alive()
+    assert not delete_thread.is_alive()
+    assert order == ["old-persist", "delete"]
+    assert "alpha" not in state.web_sessions
+
+
+def test_postgres_lifecycle_rejects_queued_old_generation_save_and_recreates() -> None:
+    state = _state()
+    state.dsn = "postgresql://fake"
+    state.use_postgresql = True
+    delete_started = threading.Event()
+    release_delete = threading.Event()
+    old_save_attempted = threading.Event()
+    old_save_rejected = threading.Event()
+    deleted_rows: list[str] = []
+
+    def build_agent(**kwargs: object) -> mock.MagicMock:
+        agent = mock.MagicMock()
+        agent.conversation_store = kwargs["conversation_store"]
+        return agent
+
+    with (
+        mock.patch("src.backend.dependencies.PostgresConversationStore", _PostgresStore),
+        mock.patch(
+            "src.backend.dependencies.create_canonical_session_agent",
+            side_effect=build_agent,
+        ),
+    ):
+        _, _, old_lease = state.prepare_query("alpha")
+        old_store = state.web_sessions["alpha"]
+
+        def delete_persisted() -> bool:
+            delete_started.set()
+            assert release_delete.wait(timeout=2)
+            deleted_rows.append("alpha")
+            return True
+
+        deleting = threading.Thread(
+            target=lambda: state.delete_session("alpha", delete_persisted)
+        )
+        deleting.start()
+        assert delete_started.wait(timeout=2)
+
+        def old_generation_save() -> None:
+            old_save_attempted.set()
+            try:
+                with old_lease:
+                    old_store.persist("must-not-save")
+            except KeyError:
+                old_save_rejected.set()
+
+        old_writer = threading.Thread(target=old_generation_save)
+        old_writer.start()
+        assert old_save_attempted.wait(timeout=2)
+        release_delete.set()
+        deleting.join(timeout=2)
+        old_writer.join(timeout=2)
+
+        _, _, new_lease = state.prepare_query("alpha")
+
+    assert not deleting.is_alive()
+    assert not old_writer.is_alive()
+    assert deleted_rows == ["alpha"]
+    assert old_save_rejected.is_set()
+    assert old_store.saves == []
+    assert new_lease._lifecycle.generation > old_lease._lifecycle.generation
+
+
+def test_postgres_clean_all_tombstones_inflight_lifecycle_without_replacement() -> None:
+    state = _state()
+    state.dsn = "postgresql://fake"
+    state.use_postgresql = True
+    entered = threading.Event()
+    release = threading.Event()
+    cleaned = threading.Event()
+
+    with mock.patch("src.backend.dependencies.PostgresConversationStore", _PostgresStore):
+        _, _, lease = state.prepare_query("alpha")
+
+        def old_work() -> None:
+            with lease:
+                entered.set()
+                assert release.wait(timeout=2)
+
+        worker = threading.Thread(target=old_work)
+        worker.start()
+        assert entered.wait(timeout=2)
+        cleaner = threading.Thread(
+            target=lambda: (state.delete_all_sessions(lambda: 1), cleaned.set())
+        )
+        cleaner.start()
+        assert state._lifecycles["alpha"].deleting is True
+        release.set()
+        worker.join(timeout=2)
+        cleaner.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert not cleaner.is_alive()
+    assert cleaned.is_set()
+    assert state.web_sessions == {}
+    assert state._lifecycles == {}
 
 
 def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
@@ -153,6 +356,7 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
         ),
         model_backend=_QueuedAssessmentModel(
             [
+                _wire("discover"),
                 _wire(
                     "action",
                     capability_id="host.get_cpu",
@@ -166,18 +370,19 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
                     "final",
                     answer="CPU observed for monitor.",
                 ),
+                _wire("discover"),
                 _wire(
                     "action",
-                    capability_id="host.get_memory",
+                    capability_id="host.get_cpu",
                 ),
                 _wire(
                     "action",
-                    capability_id="host.get_memory",
+                    capability_id="host.get_cpu",
                     target_ref="monitor",
                 ),
                 _wire(
                     "final",
-                    answer="Memory observed for monitor.",
+                    answer="CPU observed again for monitor.",
                 ),
             ]
         ),
@@ -240,48 +445,31 @@ def test_web_session_factory_isolates_v2_target_context_and_runtime_state(
     alpha_follow_up = alpha_agent.run_with_steps("What about memory?")
     beta_result = beta_agent.run_with_steps("What about memory?")
 
-    assert alpha_follow_up["response"] == "Memory observed for monitor."
+    assert alpha_follow_up["response"] == "CPU observed again for monitor."
     assert beta_result["response"] == "Beta has no inherited target."
-    alpha_history = state.web_sessions[
-        "alpha"
-    ].history
-    beta_history = state.web_sessions[
-        "beta"
-    ].history
+    alpha_history = state.web_sessions["alpha"].history
+    beta_history = state.web_sessions["beta"].history
 
     assert [
-        item["content"]
-        for item in alpha_history
-        if item.get("role") == "user"
+        item["content"] for item in alpha_history if item.get("role") == "user"
     ] == [
         "Inspect monitor.",
         "What about memory?",
     ]
 
-    assert [
-        item["content"]
-        for item in beta_history
-        if item.get("role") == "user"
-    ] == [
+    assert [item["content"] for item in beta_history if item.get("role") == "user"] == [
         "What about memory?",
     ]
 
-    assert (
-        alpha_follow_up["steps"][0]["target_id"]
-        == "monitor"
-    )
+    assert alpha_follow_up["steps"][0]["target_id"] == "monitor"
     assert beta_result["steps"] == []
 
-    alpha_runtime = (
-        alpha_follow_up["execution_trace"]
-        ["runtime_metrics"]
-        ["canonical_runtime"]
-    )
-    beta_runtime = (
-        beta_result["execution_trace"]
-        ["runtime_metrics"]
-        ["canonical_runtime"]
-    )
+    alpha_runtime = alpha_follow_up["execution_trace"]["runtime_metrics"][
+        "canonical_runtime"
+    ]
+    beta_runtime = beta_result["execution_trace"]["runtime_metrics"][
+        "canonical_runtime"
+    ]
 
     assert alpha_runtime["action_attempts"] == 1
     assert beta_runtime["action_attempts"] == 0

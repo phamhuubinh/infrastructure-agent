@@ -23,9 +23,12 @@ def _json_request(
     method: str = "GET",
     body: dict | None = None,
     timeout: int = 30,
+    token: str = "",
 ):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     headers = {"Content-Type": "application/json"} if data is not None else {}
+    if token:
+        headers["X-Orion-Rag-Token"] = token
     request = urllib.request.Request(
         f"{base_url}{path}", data=data, headers=headers, method=method
     )
@@ -70,6 +73,13 @@ def _rag_url(request: Request) -> str:
     return str(configured).rstrip("/")
 
 
+def _rag_token(request: Request) -> str:
+    token = str(getattr(request.app.state.deps, "rag_internal_token", "")).strip()
+    if not token:
+        raise HTTPException(503, "RAG proxy token is not configured")
+    return token
+
+
 def _analysis_model_config(request: Request) -> dict:
     active = request.app.state.deps.model_store.active()
     if active is None:
@@ -108,7 +118,7 @@ def knowledge_health(request: Request):
 
 @router.get("/api/rag/projects")
 def list_projects(request: Request):
-    return _json_request(_rag_url(request), "/projects")
+    return _json_request(_rag_url(request), "/projects", token=_rag_token(request))
 
 
 @router.post("/api/rag/projects")
@@ -121,18 +131,19 @@ def create_project(body: dict, request: Request):
         "/projects",
         method="POST",
         body={"name": name, "description": str(body.get("description", ""))},
+        token=_rag_token(request),
     )
 
 
 @router.get("/api/rag/projects/{project_id}")
 def get_project(project_id: str, request: Request):
-    return _json_request(_rag_url(request), f"/projects/{_segment(project_id)}")
+    return _json_request(_rag_url(request), f"/projects/{_segment(project_id)}", token=_rag_token(request))
 
 
 @router.delete("/api/rag/projects/{project_id}")
 def delete_project(project_id: str, request: Request):
     return _json_request(
-        _rag_url(request), f"/projects/{_segment(project_id)}", method="DELETE"
+        _rag_url(request), f"/projects/{_segment(project_id)}", method="DELETE", token=_rag_token(request)
     )
 
 
@@ -149,7 +160,7 @@ def upload_project_document(
     upstream = urllib.request.Request(
         f"{_rag_url(request)}/projects/{_segment(project_id)}/documents",
         data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-Orion-Rag-Token": _rag_token(request)},
         method="POST",
     )
     try:
@@ -168,6 +179,7 @@ def delete_project_document(project_id: str, doc_id: str, request: Request):
         _rag_url(request),
         f"/projects/{_segment(project_id)}/documents/{_segment(doc_id)}",
         method="DELETE",
+        token=_rag_token(request),
     )
 
 
@@ -189,6 +201,7 @@ def analyze_project(project_id: str, body: dict, request: Request):
         method="POST",
         body={"query": query, "top_k": top_k, "model_config": model_config},
         timeout=120,
+        token=_rag_token(request),
     )
 
 
@@ -213,4 +226,5 @@ def knowledge_query(body: dict, request: Request):
         method="POST",
         body={"query": query, "top_k": top_k},
         timeout=120,
+        token=_rag_token(request),
     )

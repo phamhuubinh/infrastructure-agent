@@ -20,6 +20,7 @@ def app():
         mock.patch("urllib.request.urlopen", side_effect=RuntimeError("no rag")),
     ):
         app, _, _ = create_app(database_url="")
+    app.state.deps.rag_internal_token = "root-to-rag-test-token"
     from fastapi.testclient import TestClient
 
     return TestClient(app)
@@ -163,6 +164,7 @@ def test_knowledge_health_success(mock_urlopen):
     ):
         app_obj, _, _ = create_app(database_url="")
         app_obj.state.deps.rag_service_url = "http://fake-rag:8080"
+        app_obj.state.deps.rag_internal_token = "root-to-rag-test-token"
         client = TestClient(app_obj)
         resp = client.get("/api/knowledge/health")
         assert resp.status_code == 200
@@ -201,6 +203,7 @@ def test_knowledge_query_success():
         mock_urlopen.return_value = mock_resp
         app_obj, _, _ = create_app(database_url="")
         app_obj.state.deps.rag_service_url = "http://fake-rag:8080"
+        app_obj.state.deps.rag_internal_token = "root-to-rag-test-token"
         client = TestClient(app_obj)
         resp = client.post("/api/knowledge/query", json={"query": "ansible"})
         assert resp.status_code == 200

@@ -42,11 +42,11 @@ type SessionGenState = {
   abortRef: AbortController | null;
   idleTimerRef: number | null;
   startedAt: number | null;
+  generation: number;
 };
 
 function ChatPage() {
   const chatCtx = useChat();
-  const [drag, setDrag] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedServer, setSelectedServer] = useState<string>("");
   const [loadingModels, setLoadingModels] = useState(true);
@@ -103,18 +103,7 @@ function ChatPage() {
 
   return (
     <>
-      <div
-        className="flex-1 min-w-0 flex flex-col relative"
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDrag(true);
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDrag(false);
-        }}
-      >
+      <div className="flex-1 min-w-0 flex flex-col relative">
         <div
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
@@ -160,15 +149,6 @@ function ChatPage() {
             </div>
           </div>
         </div>
-
-        {drag && (
-          <div className="pointer-events-none absolute inset-0 grid place-items-center border-2 border-dashed border-titanium/50 bg-titanium/5">
-            <div className="text-center">
-              <div className="text-display text-3xl text-titanium">Drop to attach</div>
-              <div className="text-sm text-muted-foreground mt-1">PDF, images, code</div>
-            </div>
-          </div>
-        )}
       </div>
 
       {session && <ContextPanel session={session} />}
@@ -423,6 +403,7 @@ function ChatInput({
         abortRef: null,
         idleTimerRef: null,
         startedAt: null,
+        generation: 0,
       };
     }
     let st = sessionGenRef.current.get(sid);
@@ -435,6 +416,7 @@ function ChatInput({
         abortRef: null,
         idleTimerRef: null,
         startedAt: null,
+        generation: 0,
       };
       sessionGenRef.current.set(sid, st);
     }
@@ -497,9 +479,10 @@ function ChatInput({
   }, [currentSessionId, getSession, updateSession, resetIdleTimer, setSessionGenerating]);
 
   const startIdleTimer = useCallback(
-    (g: SessionGenState) => {
+    (sid: string, generation: number, g: SessionGenState) => {
       resetIdleTimer(g);
       g.idleTimerRef = window.setTimeout(async () => {
+        if (sessionGenRef.current.get(sid) !== g || g.generation !== generation) return;
         try {
           const healthController = new AbortController();
           const healthTimer = setTimeout(() => healthController.abort(), 5000);
@@ -507,20 +490,21 @@ function ChatInput({
             signal: healthController.signal,
           });
           clearTimeout(healthTimer);
-          if (healthRes.ok) {
+          const health = healthRes.ok ? await healthRes.json() : null;
+          if (health?.health_state === "healthy") {
             g.pipelineStatus = "Model đang xử lý, vui lòng đợi...";
-            startIdleTimer(g);
+            startIdleTimer(sid, generation, g);
           } else {
-            handleStop();
+            g.abortRef?.abort();
             g.error = "Model không phản hồi, vui lòng thử lại sau.";
           }
         } catch {
-          handleStop();
+          g.abortRef?.abort();
           g.error = "Model không phản hồi, vui lòng thử lại sau.";
         }
       }, 60000);
     },
-    [handleStop, resetIdleTimer],
+    [resetIdleTimer],
   );
 
   /** Update messages for a specific session by its ID (for background sessions). */
@@ -599,6 +583,8 @@ function ChatInput({
     g.pipelineStatus = "Đang phân tích intent...";
     g.streamingContent = "";
     g.startedAt = startedAt;
+    g.generation += 1;
+    const generation = g.generation;
 
     const thinkingMsg: Message = {
       role: "assistant",
@@ -678,7 +664,7 @@ function ChatInput({
       let buffer = "";
 
       g.pipelineStatus = null;
-      startIdleTimer(g);
+      startIdleTimer(sid, generation, g);
 
       while (true) {
         const { done, value: chunk } = await reader.read();

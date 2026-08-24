@@ -25,17 +25,19 @@ def test_model_add_reads_secret_from_stdin(tmp_path: Path, monkeypatch, capsys) 
         api_key_stdin=True,
         timeout=180,
         temperature=0.0,
-        max_tokens=4096,
         no_activate=False,
     )
 
-    _manage_model(args)
+    with mock.patch(
+        "src.model.config_store.LLMClient.health_check", return_value=True
+    ):
+        _manage_model(args)
 
     saved = ModelConfigStore(config_path).get("primary")
     assert saved is not None
     assert saved["base_url"] == "https://api.openai.com"
     assert saved["api_key"] == "private-key"
-    assert "model test primary" in capsys.readouterr().out
+    assert "saved, tested, and selected" in capsys.readouterr().out
 
 
 def test_model_test_exits_nonzero_when_connection_fails(

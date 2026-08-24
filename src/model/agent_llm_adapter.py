@@ -139,7 +139,7 @@ class AgentLLMAdapter(AgentModelBackend):
         try:
             return bool(
                 self._client.health_check(
-                    timeout=timeout
+                    timeout=max(1, int(timeout))
                 )
             )
         except Exception:

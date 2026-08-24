@@ -12,9 +12,6 @@ from src.model.agent_backend import AgentModelBackend
 from src.model.llm_client import LLMClient
 from src.model.usage_metadata import ModelCallUsage
 
-
-MAX_AGENT_OUTPUT_TOKENS = 1024
-
 _JSON_ONLY_HINT = (
     "Return only one JSON object matching the supplied response contract. "
     "Do not include markdown, prose outside the JSON object, hidden reasoning, "
@@ -53,6 +50,7 @@ class AgentBackendProvider:
                 request,
             )
             usage = client.last_usage
+            generation_diagnostics = client.last_generation_diagnostics
             fallback_provider = getattr(
                 client,
                 "_provider",
@@ -70,6 +68,7 @@ class AgentBackendProvider:
                 "last_usage",
                 None,
             )
+            generation_diagnostics = None
             fallback_provider = (
                 type(self._backend).__name__
             )
@@ -108,6 +107,7 @@ class AgentBackendProvider:
                 if normalized_usage is not None
                 else None
             ),
+            generation_diagnostics=generation_diagnostics,
         )
 
     @staticmethod
@@ -115,11 +115,6 @@ class AgentBackendProvider:
         client: LLMClient,
         request: AgentProviderRequest,
     ) -> str:
-        max_tokens = min(
-            MAX_AGENT_OUTPUT_TOKENS,
-            client.max_tokens,
-        )
-
         if client.supports_structured_output:
             return client.generate(
                 request.user_prompt,
@@ -127,7 +122,6 @@ class AgentBackendProvider:
                 purpose="agent_decision",
                 system_prompt=request.system_prompt,
                 response_schema=request.response_schema,
-                max_tokens=max_tokens,
             )
 
         return client.generate(
@@ -142,7 +136,6 @@ class AgentBackendProvider:
             json_object=(
                 client.supports_json_object_output
             ),
-            max_tokens=max_tokens,
         )
 
     def _generate_generic(
@@ -174,5 +167,4 @@ class AgentBackendProvider:
 
 __all__ = [
     "AgentBackendProvider",
-    "MAX_AGENT_OUTPUT_TOKENS",
 ]
