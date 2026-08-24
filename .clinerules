@@ -1,0 +1,7 @@
+Read `AGENTS.md` and `docs/README.md` first.
+
+This is a greenfield Orion rebuild, not a compatibility refactor. Current code is audit evidence, not architecture authority.
+
+Core rule: model-native tool loop + harness-owned authority + bounded execution + harness-owned evidence.
+
+Never recreate model-visible workflow states such as ACTION_DETAIL/OBSERVATION/FEEDBACK. Never use prose as execution authority. Never add fuzzy capability/target/source resolution or implicit localhost. Never preserve old abstractions merely to reduce diff size.
