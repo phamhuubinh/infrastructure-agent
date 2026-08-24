@@ -79,16 +79,23 @@ function ChatPage() {
       try {
         const res = await apiFetch("/api/models");
         if (!res.ok || cancelled) return;
-        const data = await res.json();
+        const configured = (await res.json()) as {
+          model_config_id: string;
+          model_id: string;
+          provider_type: string;
+          base_url: string;
+        }[];
         if (cancelled) return;
-        setModels(data.models || []);
-        if (data.active_server) {
-          setSelectedServer(data.active_server);
-        } else if (data.models?.length > 0) {
-          const firstAvailable = data.models.find((m: ModelInfo) => m.available);
-          if (firstAvailable) {
-            setSelectedServer(firstAvailable.name);
-          }
+        const available = configured.map((item) => ({
+          name: item.model_config_id,
+          model: item.model_id,
+          provider: item.provider_type,
+          base_url: item.base_url,
+          available: true,
+        }));
+        setModels(available);
+        if (available.length > 0) {
+          setSelectedServer(available[0].name);
         }
       } catch {
         // Server not available
@@ -375,8 +382,6 @@ function ChatInput({
   regenerateRef: React.MutableRefObject<((assistantMessageIndex: number) => void) | null>;
 }) {
   const [value, setValue] = useState("");
-  const selectedServerRef = useRef(selectedServer);
-  selectedServerRef.current = selectedServer;
 
   const {
     currentSessionId,
@@ -535,7 +540,6 @@ function ChatInput({
     const isRegeneration = regenerateAssistantIndex !== undefined;
     let question = (text ?? value).trim();
     let askedAt = new Date().toISOString();
-    let regenerateTurnIndex: number | undefined;
     let originalMessages: Message[] | null = null;
     let retainedMessages: Message[] | null = null;
 
@@ -554,9 +558,6 @@ function ChatInput({
       question = userMessage.content.trim();
       if (!question) return;
       askedAt = userMessage.askedAt || askedAt;
-      regenerateTurnIndex =
-        session.messages.slice(0, userMessageIndex + 1).filter((message) => message.role === "user")
-          .length - 1;
       originalMessages = session.messages;
       retainedMessages = session.messages.slice(0, userMessageIndex + 1);
     } else if (!question) {
@@ -607,27 +608,12 @@ function ChatInput({
     g.abortRef = controller;
 
     try {
-      const history = historyMessages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
       const connTimeout = setTimeout(() => controller.abort(), 180000);
 
-      const rawId = sid;
-      const sessionId = rawId || undefined;
-      const res = await apiFetch("/api/query", {
+      const res = await apiFetch(`/api/sessions/${encodeURIComponent(sid)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question,
-          messages: history,
-          session_id: sessionId,
-          server_name: selectedServerRef.current || undefined,
-          asked_at: askedAt,
-          ...(regenerateTurnIndex !== undefined
-            ? { regenerate_turn_index: regenerateTurnIndex }
-            : {}),
-        }),
+        body: JSON.stringify({ content: question }),
         signal: controller.signal,
       });
 
@@ -641,14 +627,20 @@ function ChatInput({
       const contentType = res.headers.get("content-type") || "";
       if (!contentType.includes("text/event-stream")) {
         const data = await res.json();
+        const eventsResponse = await apiFetch(`/api/requests/${data.request_id}/events`);
+        const events = eventsResponse.ok ? await eventsResponse.json() : [];
         g.pipelineStatus = null;
 
         const msgs = [...requestMessages];
         msgs[msgs.length - 1] = {
           role: "assistant",
-          content: data.assessment || "(empty response)",
-          steps: data.steps,
-          responseTimeMs: data.response_time_ms ?? elapsedResponseTime(g),
+          content: data.assistant_content || "(empty response)",
+          steps: events.map((event: { type: string; payload: unknown }) => ({
+            type: event.type,
+            content: JSON.stringify(event.payload),
+            success: event.type !== "tool.failed" && event.type !== "request.failed",
+          })),
+          responseTimeMs: elapsedResponseTime(g),
         };
         updateSessionById(sid, { messages: msgs });
         g.loading = false;

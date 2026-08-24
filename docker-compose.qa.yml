@@ -1,6 +1,0 @@
-services:
-  api:
-    environment:
-      # The GA2 runner owns this explicit read-only fixture. It never changes
-      # operator-managed targets in the persistent Orion data volume.
-      ORION_TARGETS_FILE: /app/qa-targets.json

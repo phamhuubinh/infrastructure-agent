@@ -1,18 +1,10 @@
 # Installation
 
-This page documents the repository's **current** `install.sh` behavior.
+This page documents the repository's **current M1** `install.sh` behavior.
 
 ## Host assumptions
 
-The installer is currently Linux-oriented because it configures a system group and external credential file for tool secrets.
-
-Required/expected utilities include:
-
-- Docker Engine;
-- Docker Compose;
-- `getent`;
-- `groupadd`;
-- `sudo` when the current user lacks the required privileges.
+The M1 installer requires Python 3.12 or newer and creates a local `.venv`.
 
 ## Standard installation
 
@@ -23,71 +15,21 @@ cd /path/to/infrastructure-agent
 
 ## What the installer currently does
 
-The script:
-
-1. verifies Docker Engine and Docker Compose;
-2. creates `.env` if it does not exist;
-3. ensures `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `ORION_API_KEY` exist;
-4. ensures `ORION_TOOL_SECRETS_FILE` and `ORION_TOOL_SECRETS_GID` exist;
-5. creates/configures the `orion-tool-secrets` group when needed;
-6. creates or secures the external tool-credentials JSON file;
-7. installs the `orion` CLI through `scripts/install-cli`;
-8. when stdin is interactive, optionally prompts for an existing OpenAI-compatible model endpoint;
-9. starts the full Compose application with:
-
-```bash
-docker compose up -d --build --remove-orphans
-```
-
-10. reports Grafana/Zabbix credential readiness;
-11. if a model was configured interactively, adds/tests the model connection.
+The script creates `.venv` and installs Orion with its development checks. Configure a
+model through the `/api/models` API or set `ORION_MODEL_BASE_URL` and `ORION_MODEL_ID`
+before starting `orion web`.
 
 ## Current flags
 
-The current script does not implement documented installer flags such as:
-
-```text
---non-interactive
---skip-up
-```
-
-Do not document or rely on such flags unless they are added to the script.
-
-For automation/non-interactive execution, run the installer with non-TTY stdin; the model setup prompt is skipped because the script only prompts when stdin is interactive.
-
-## `.env`
-
-The installer does not copy `.env.example` as its primary mechanism. It creates/touches `.env` and fills required values directly.
-
-`.env.example` exists mainly as an operator reference for intentionally running Compose by hand.
-
-## Tool credentials
-
-Default external secret file:
-
-```text
-/etc/orion/tool-credentials.json
-```
-
-The exact path can be overridden with `ORION_TOOL_SECRETS_FILE`.
-
-Grafana/Zabbix credentials can be added later. After changing the credentials file, recreate the API container as instructed by the installer output, for example:
-
-```bash
-docker compose up -d --force-recreate api
-```
+The M1 installer has no command-line flags and does not alter an existing `.env`.
 
 ## After installation
 
 ```bash
 orion web
-```
-
-Useful diagnostics:
-
-```bash
-docker compose ps
 orion log
+make test
+make lint
 ```
 
-See `LOCAL_RUN.md`, `DOCKER.md`, and `CONFIGURATION.md`.
+See `LOCAL_RUN.md` and `CONFIGURATION.md`.

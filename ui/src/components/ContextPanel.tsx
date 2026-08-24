@@ -87,6 +87,11 @@ const stepLabels: Record<
   evidence: { icon: Layers, label: "Evidence Collection", color: "text-amber-400" },
   prompt: { icon: FileText, label: "Prompt Assembly", color: "text-purple-400" },
   assessment: { icon: OrionIcon, label: "AI Assessment", color: "text-green-400" },
+  "tool.started": { icon: Wrench, label: "Tool started", color: "text-amber-400" },
+  "tool.completed": { icon: CheckCircle2, label: "Tool completed", color: "text-green-400" },
+  "tool.failed": { icon: XCircle, label: "Tool failed", color: "text-destructive" },
+  "model.started": { icon: Activity, label: "Model started", color: "text-blue-400" },
+  "model.completed": { icon: MessageSquare, label: "Model completed", color: "text-blue-400" },
 };
 
 export function ContextPanel({ session }: { session: Session }) {

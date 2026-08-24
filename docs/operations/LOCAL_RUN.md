@@ -6,24 +6,14 @@
 orion web
 ```
 
-Current CLI behavior:
+Current CLI behavior starts the local API at `http://127.0.0.1:61888`.
+It does not open a browser or manage Docker in M1.
 
-- starts the Web-facing Docker services;
-- prints the Web URL;
-- opens a browser when a graphical desktop is available;
-- follows API/UI logs;
-- Ctrl+C stops the Web-facing services started for that command.
-
-Disable automatic browser opening:
+Run the preserved UI in a second terminal:
 
 ```bash
-ORION_DISABLE_BROWSER=1 orion web
-```
-
-Override URL shown/opened:
-
-```bash
-ORION_WEB_URL=http://localhost orion web
+cd ui
+npm run dev
 ```
 
 ## Logs
@@ -32,33 +22,11 @@ ORION_WEB_URL=http://localhost orion web
 orion log
 ```
 
-This follows all Compose logs while services continue to run.
-
-## Docker status
-
-```bash
-docker compose ps
-```
-
-## Direct Compose lifecycle
-
-```bash
-docker compose up -d
-docker compose logs -f
-docker compose down
-```
+This reports the path to the local SQLite database.
 
 ## CLI commands
 
-When the API container is running, the installed `orion` wrapper forwards non-Web commands into the API container.
-
-Use:
-
-```bash
-orion --help
-```
-
-to inspect the current CLI surface.
+Use `orion --help` to inspect the M1 CLI surface.
 
 ## Target runtime
 

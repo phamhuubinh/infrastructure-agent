@@ -1,1 +1,0 @@
-"""Orion structured observability contracts."""

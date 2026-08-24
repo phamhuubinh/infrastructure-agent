@@ -48,16 +48,10 @@ assemble context
 
 There is intentionally **no semantic pre-router** that classifies the user's prompt into "RAG", "Internet", "Linux", or another intent before the model sees it.
 
-## Current tool families
+## Current M1 tool family
 
-The repository currently contains implementations for:
-
-- Knowledge / RAG;
-- deterministic calculation;
-- Internet;
-- Linux;
-- Grafana;
-- Zabbix.
+The current executable slice provides deterministic calculation. Knowledge/RAG,
+Internet, Linux, Grafana, and Zabbix are planned milestones and are not registered yet.
 
 The target architecture keeps configured/registered tools available automatically to the model. A tool is configured at the application/integration level, not manually selected for each message.
 
@@ -80,12 +74,13 @@ Read:
 orion web
 ```
 
+The preserved React UI is run separately during M1 (`cd ui && npm run dev`); it connects to
+the local API at `http://127.0.0.1:61888`.
+
 Useful commands:
 
 ```bash
 orion log
-docker compose ps
-docker compose logs -f
 make test
 make lint
 ```
