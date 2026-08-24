@@ -1,83 +1,68 @@
 import {
   createContext,
-  useContext,
-  useState,
-  useRef,
-  useMemo,
   useCallback,
+  useContext,
   useEffect,
+  useMemo,
+  useState,
   type ReactNode,
 } from "react";
-import { apiFetch, apiJson } from "@/lib/api";
+import { apiJson } from "@/lib/api";
 
-export type Step = {
+const SESSION_IDS_STORAGE = "orion-m1-session-ids";
+
+export type TimelineKind =
+  "user_message" | "assistant_message" | "tool_call" | "tool_result" | "runtime_notice";
+
+export type TimelineItem = {
+  item_id: string;
+  session_id: string;
+  created_at: string;
+  kind: TimelineKind;
+  payload: Record<string, unknown>;
+  call_id: string | null;
+  tool_name: string | null;
+};
+
+export type RuntimeEvent = {
   type: string;
-  intent?: string;
-  confidence?: string;
-  target?: string;
-  matched_keywords?: string[];
-  required_evidence?: string[];
-  optional_evidence?: string[];
-  planned_capabilities?: { capability: string; evidence: string }[];
-  collected?: number;
-  successful?: number;
-  failed?: number;
-  items?: {
-    capability: string;
-    evidence: string;
-    success: boolean;
-    error?: string | null;
-    data_preview?: string | null;
-    data?: unknown;
-  }[];
-  complete?: boolean;
-  missing_evidence?: string[];
-  runtime_metrics?: {
-    execution_duration: number;
-    total_nodes: number;
-    successful_nodes: number;
-    failed_nodes: number;
-    parallel_ratio: number;
-    tool_calls: number;
-  };
-  size?: number;
-  preview?: string;
-  model?: string;
-  latency_ms?: number;
-  success?: boolean;
-  error?: string | null;
-  content?: string;
-  prompt_tokens?: number | null;
-  completion_tokens?: number | null;
+  created_at: string;
+  payload: Record<string, unknown>;
+};
+
+export type ToolActivity = {
+  callId: string;
+  toolName: string;
+  status: "started" | "completed" | "failed";
 };
 
 export type Message = {
+  itemId: string;
   role: "user" | "assistant";
   content: string;
-  steps?: Step[];
-  responseTimeMs?: number;
   askedAt?: string;
 };
 
 export type Session = {
   id: string;
   title: string;
+  timeline: TimelineItem[];
   messages: Message[];
+  activity: ToolActivity[];
 };
 
 type ChatContextValue = {
   sessions: Session[];
   currentSessionId: string | null;
   generatingSessions: Set<string>;
-  setSessionGenerating: (sessionId: string, generating: boolean) => void;
   createSession: () => Promise<string>;
   startNewChat: () => void;
-  switchSession: (id: string) => void;
-  getSession: () => Session | undefined;
-  updateSession: (updates: Partial<Session>) => void;
-  updateSessionById: (id: string, updates: Partial<Session>) => void;
-  deleteSession: (id: string) => void;
-  renameSession: (id: string, title: string) => void;
+  switchSession: (id: string) => Promise<void>;
+  loadSession: (id: string) => Promise<void>;
+  addOptimisticMessage: (sessionId: string, content: string) => void;
+  addOptimisticAssistant: (sessionId: string) => void;
+  recordEvent: (sessionId: string, event: RuntimeEvent) => void;
+  setSessionGenerating: (sessionId: string, generating: boolean) => void;
 };
 
 const ChatContext = createContext<ChatContextValue>(null!);
@@ -86,164 +71,189 @@ export function useChat() {
   return useContext(ChatContext);
 }
 
-function emptySession(id: string, title: string = "New chat", msgs: Message[] = []): Session {
+function rememberedSessionIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(SESSION_IDS_STORAGE) || "[]");
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberSession(id: string) {
+  if (typeof window === "undefined") return;
+  const next = [id, ...rememberedSessionIds().filter((known) => known !== id)].slice(0, 20);
+  window.localStorage.setItem(SESSION_IDS_STORAGE, JSON.stringify(next));
+}
+
+function sessionFromTimeline(id: string, timeline: TimelineItem[]): Session {
+  const messages: Message[] = timeline.flatMap((item) => {
+    if (item.kind !== "user_message" && item.kind !== "assistant_message") return [];
+    const content = typeof item.payload.content === "string" ? item.payload.content : "";
+    // Empty assistant entries represent a model turn that is making tool calls.
+    // They are public runtime context, not rendered hidden reasoning.
+    if (!content) return [];
+    return [
+      {
+        itemId: item.item_id,
+        role: item.kind === "user_message" ? "user" : "assistant",
+        content,
+        askedAt: item.kind === "user_message" ? item.created_at : undefined,
+      },
+    ];
+  });
+  const firstUser = messages.find((message) => message.role === "user");
+  const activity = timeline.flatMap((item): ToolActivity[] => {
+    if (item.kind === "tool_call" && item.call_id && item.tool_name) {
+      return [{ callId: item.call_id, toolName: item.tool_name, status: "started" }];
+    }
+    if (item.kind === "tool_result" && item.call_id && item.tool_name) {
+      const result = item.payload.result as { status?: unknown } | undefined;
+      return [
+        {
+          callId: item.call_id,
+          toolName: item.tool_name,
+          status: result?.status === "success" ? "completed" : "failed",
+        },
+      ];
+    }
+    return [];
+  });
   return {
     id,
-    title,
-    messages: msgs.map((message) => {
-      const storedMessage = message as Message & { response_time_ms?: number; asked_at?: string };
-      return {
-        ...message,
-        responseTimeMs: message.responseTimeMs ?? storedMessage.response_time_ms,
-        askedAt: message.askedAt ?? storedMessage.asked_at,
-      };
-    }),
+    title: firstUser ? firstUser.content.slice(0, 60) : "New chat",
+    timeline,
+    messages,
+    activity,
   };
+}
+
+function upsertSession(sessions: Session[], next: Session): Session[] {
+  return [next, ...sessions.filter((session) => session.id !== next.id)];
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
-  const [loaded, setLoaded] = useState(false);
-  const sessionsRef = useRef(sessions);
-  const currentIdRef = useRef(currentSessionId);
-  sessionsRef.current = sessions;
-  currentIdRef.current = currentSessionId;
 
-  // Load sessions from backend on mount
+  const loadSession = useCallback(async (id: string) => {
+    const timeline = await apiJson<TimelineItem[]>(
+      `/api/sessions/${encodeURIComponent(id)}/timeline`,
+    );
+    const session = sessionFromTimeline(id, timeline);
+    rememberSession(id);
+    setSessions((previous) => upsertSession(previous, session));
+  }, []);
+
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await apiFetch("/api/sessions");
-        if (!res.ok) throw new Error("failed");
-        const data = await res.json();
-        if (cancelled) return;
-        const serverSessions: Session[] = (data.sessions || [])
-          .map((s: { id: string; title?: string; messages?: Message[] }) =>
-            emptySession(s.id, s.title || "New chat", s.messages || []),
-          )
-          .filter((session: Session) => session.messages.length > 0);
-        if (serverSessions.length > 0) {
-          setSessions(serverSessions);
-          setCurrentSessionId(serverSessions[0].id);
-          currentIdRef.current = serverSessions[0].id;
-        } else {
-          // No sessions on server — leave empty, user will create one
-          setSessions([]);
-          setCurrentSessionId(null);
+    let disposed = false;
+    const ids = rememberedSessionIds();
+    if (ids.length === 0) return;
+    void Promise.all(
+      ids.map(async (id) => {
+        try {
+          const timeline = await apiJson<TimelineItem[]>(
+            `/api/sessions/${encodeURIComponent(id)}/timeline`,
+          );
+          return sessionFromTimeline(id, timeline);
+        } catch {
+          return null;
         }
-      } catch {
-        // Server not available — keep the unsaved draft screen available.
-        if (cancelled) return;
-        sessionsRef.current = [];
-        setSessions([]);
-        setCurrentSessionId(null);
-        currentIdRef.current = null;
-      }
-      setLoaded(true);
-    }
-    load();
+      }),
+    ).then((loaded) => {
+      if (disposed) return;
+      const available = loaded.filter((session): session is Session => session !== null);
+      setSessions(available);
+      setCurrentSessionId(available[0]?.id || null);
+    });
     return () => {
-      cancelled = true;
+      disposed = true;
     };
   }, []);
 
-  const setSessionGenerating = useCallback((sessionId: string, generating: boolean) => {
-    setGeneratingSessions((prev) => {
-      const next = new Set(prev);
-      if (generating) {
-        next.add(sessionId);
-      } else {
-        next.delete(sessionId);
-      }
-      return next;
-    });
-  }, []);
-
   const createSession = useCallback(async () => {
-    let sessionId: string;
-    try {
-      const data = await apiJson<{ session_id: string }>("/api/sessions", {
-        method: "POST",
-      });
-      sessionId = data.session_id;
-    } catch {
-      sessionId = `local_${Date.now().toString(36)}`;
-    }
-
-    const newSession = emptySession(sessionId);
-    const nextSessions = [newSession, ...sessionsRef.current];
-    sessionsRef.current = nextSessions;
-    setSessions(nextSessions);
-    setCurrentSessionId(sessionId);
-    currentIdRef.current = sessionId;
-    return sessionId;
+    const data = await apiJson<{ session_id: string }>("/api/sessions", { method: "POST" });
+    const session = sessionFromTimeline(data.session_id, []);
+    rememberSession(data.session_id);
+    setSessions((previous) => upsertSession(previous, session));
+    setCurrentSessionId(data.session_id);
+    return data.session_id;
   }, []);
 
-  const startNewChat = useCallback(() => {
-    setCurrentSessionId(null);
-    currentIdRef.current = null;
-  }, []);
+  const startNewChat = useCallback(() => setCurrentSessionId(null), []);
 
-  const switchSession = useCallback((id: string) => {
-    setCurrentSessionId(id);
-    currentIdRef.current = id;
-  }, []);
-
-  const getSession = useCallback(() => {
-    return sessionsRef.current.find((s) => s.id === currentIdRef.current);
-  }, []);
-
-  const updateSession = useCallback((updates: Partial<Session>) => {
-    const id = currentIdRef.current;
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-  }, []);
-
-  const updateSessionById = useCallback((id: string, updates: Partial<Session>) => {
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-  }, []);
-
-  const deleteSession = useCallback(async (id: string) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, { method: "DELETE" });
-    } catch {
-      // server not available, delete locally anyway
-    }
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      sessionsRef.current = next;
-      if (next.length > 0) {
-        if (currentIdRef.current === id) {
-          setCurrentSessionId(next[0].id);
-          currentIdRef.current = next[0].id;
-        }
-      } else {
-        setCurrentSessionId(null);
-        currentIdRef.current = null;
+  const switchSession = useCallback(
+    async (id: string) => {
+      setCurrentSessionId(id);
+      try {
+        await loadSession(id);
+      } catch {
+        // A later submission can surface a clear backend error to the user.
       }
-      return next;
-    });
-    // Clean up generating state
-    setGeneratingSessions((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
+    },
+    [loadSession],
+  );
+
+  const addOptimisticMessage = useCallback((sessionId: string, content: string) => {
+    setSessions((previous) => {
+      const current =
+        previous.find((session) => session.id === sessionId) || sessionFromTimeline(sessionId, []);
+      const message: Message = {
+        itemId: `optimistic-user-${Date.now()}`,
+        role: "user",
+        content,
+        askedAt: new Date().toISOString(),
+      };
+      return upsertSession(previous, {
+        ...current,
+        title: current.messages.length === 0 ? content.slice(0, 60) : current.title,
+        messages: [...current.messages, message],
+      });
     });
   }, []);
 
-  const renameSession = useCallback(async (id: string, title: string) => {
-    try {
-      await apiFetch(`/api/sessions/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+  const addOptimisticAssistant = useCallback((sessionId: string) => {
+    setSessions((previous) => {
+      const current = previous.find((session) => session.id === sessionId);
+      if (!current) return previous;
+      return upsertSession(previous, {
+        ...current,
+        messages: [
+          ...current.messages,
+          { itemId: `optimistic-assistant-${Date.now()}`, role: "assistant", content: "" },
+        ],
       });
-    } catch {
-      // server not available
-    }
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title } : s)));
+    });
+  }, []);
+
+  const recordEvent = useCallback((sessionId: string, event: RuntimeEvent) => {
+    if (!event.type.startsWith("tool.")) return;
+    const callId = typeof event.payload.call_id === "string" ? event.payload.call_id : "unknown";
+    const toolName = typeof event.payload.tool_name === "string" ? event.payload.tool_name : "tool";
+    const status =
+      event.type === "tool.started"
+        ? "started"
+        : event.type === "tool.completed"
+          ? "completed"
+          : "failed";
+    setSessions((previous) =>
+      previous.map((session) =>
+        session.id === sessionId
+          ? { ...session, activity: [...session.activity, { callId, toolName, status }] }
+          : session,
+      ),
+    );
+  }, []);
+
+  const setSessionGenerating = useCallback((sessionId: string, generating: boolean) => {
+    setGeneratingSessions((previous) => {
+      const next = new Set(previous);
+      if (generating) next.add(sessionId);
+      else next.delete(sessionId);
+      return next;
+    });
   }, []);
 
   const value = useMemo<ChatContextValue>(
@@ -251,35 +261,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessions,
       currentSessionId,
       generatingSessions,
-      setSessionGenerating,
       createSession,
       startNewChat,
       switchSession,
-      getSession,
-      updateSession,
-      updateSessionById,
-      deleteSession,
-      renameSession,
+      loadSession,
+      addOptimisticMessage,
+      addOptimisticAssistant,
+      recordEvent,
+      setSessionGenerating,
     }),
     [
       sessions,
       currentSessionId,
       generatingSessions,
-      setSessionGenerating,
       createSession,
       startNewChat,
       switchSession,
-      getSession,
-      updateSession,
-      updateSessionById,
-      deleteSession,
-      renameSession,
+      loadSession,
+      addOptimisticMessage,
+      addOptimisticAssistant,
+      recordEvent,
+      setSessionGenerating,
     ],
   );
-
-  if (!loaded) {
-    return <ChatContext.Provider value={value}>{null}</ChatContext.Provider>;
-  }
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }

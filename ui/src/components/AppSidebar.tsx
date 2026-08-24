@@ -1,44 +1,22 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   MessageSquare,
-  BookOpen,
   Settings,
   SquarePen,
-  MoreHorizontal,
-  Trash2,
-  Pencil,
   Sun,
   Moon,
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from "@/components/ui/alert-dialog";
 import { useChat } from "@/lib/chat-store";
 import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
   { to: "/", label: "Trò chuyện", icon: MessageSquare },
-  { to: "/knowledge", label: "Kiến thức", icon: BookOpen },
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
@@ -195,26 +173,6 @@ function ChatRow({
   isGenerating: boolean;
   onSelect: () => void;
 }) {
-  const { deleteSession, renameSession } = useChat();
-  const [renaming, setRenaming] = useState(false);
-  const [editValue, setEditValue] = useState(title);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const prevTitleRef = useRef(title);
-  useEffect(() => {
-    if (prevTitleRef.current !== title) {
-      setEditValue(title);
-      prevTitleRef.current = title;
-    }
-  }, [title]);
-
-  function handleRename() {
-    const trimmed = editValue.trim();
-    if (trimmed && trimmed !== title) {
-      renameSession(id, trimmed);
-    }
-    setRenaming(false);
-  }
-
   return (
     <div
       className={cn(
@@ -225,71 +183,13 @@ function ChatRow({
       )}
     >
       {isGenerating && <Loader2 className="ml-1 h-3.5 w-3.5 shrink-0 animate-spin text-titanium" />}
-      {!isGenerating && !renaming && <span className="w-4 shrink-0" />}
-      {renaming ? (
-        <input
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleRename();
-            if (e.key === "Escape") setRenaming(false);
-          }}
-          className="flex-1 rounded border border-ring bg-transparent px-1.5 py-1.5 text-sm outline-none"
-          autoFocus
-        />
-      ) : (
-        <button
-          onClick={onSelect}
-          className="flex-1 truncate text-left px-1.5 py-1.5 cursor-pointer"
-        >
-          {title}
-        </button>
-      )}
-
-      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="h-7 w-7 rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-sidebar-accent opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem
-              onClick={() => {
-                setEditValue(title);
-                setRenaming(true);
-              }}
-              className="cursor-pointer"
-            >
-              <Pencil className="h-4 w-4 mr-2" /> Đổi tên
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => setDeleteConfirmOpen(true)}
-              className="text-destructive cursor-pointer"
-            >
-              <Trash2 className="h-4 w-4 mr-2" /> Xoá
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Xoá hội thoại?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Hành động này không thể hoàn tác. Hội thoại "{title}" sẽ bị xoá vĩnh viễn.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Huỷ</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => deleteSession(id)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Xoá
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {!isGenerating && <span className="w-4 shrink-0" />}
+      <button
+        onClick={() => void onSelect()}
+        className="flex-1 truncate text-left px-1.5 py-1.5 cursor-pointer"
+      >
+        {title}
+      </button>
     </div>
   );
 }

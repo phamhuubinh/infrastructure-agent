@@ -1,14 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { apiErrorMessage, apiFetch, setStoredApiKey } from "@/lib/api";
+import { apiErrorMessage, apiFetch } from "@/lib/api";
 
-afterEach(() => {
-  setStoredApiKey("");
-});
-
-describe("apiFetch", () => {
-  it("sends the browser API key when direct backend access needs it", async () => {
-    setStoredApiKey("browser-secret");
+describe("M1 API client", () => {
+  it("does not retain or attach browser credentials", async () => {
     const originalFetch = globalThis.fetch;
     let captured: Headers | undefined;
     globalThis.fetch = async (_input, init) => {
@@ -22,26 +17,15 @@ describe("apiFetch", () => {
       globalThis.fetch = originalFetch;
     }
 
-    expect(captured?.get("X-API-Key")).toBe("browser-secret");
-  });
-});
-
-describe("apiErrorMessage", () => {
-  it("turns an authentication JSON response into an actionable message", async () => {
-    const response = new Response('{"detail":"Invalid or missing API key"}', {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
-
-    await expect(apiErrorMessage(response)).resolves.toContain("reverse proxy");
+    expect(captured?.has("Authorization")).toBe(false);
+    expect(captured?.has("X-API-Key")).toBe(false);
   });
 
-  it("keeps a normal API detail message", async () => {
-    const response = new Response('{"detail":"Model connection failed"}', {
-      status: 503,
+  it("keeps a canonical API detail message", async () => {
+    const response = new Response('{"detail":"No active model configuration"}', {
+      status: 502,
       headers: { "Content-Type": "application/json" },
     });
-
-    await expect(apiErrorMessage(response)).resolves.toBe("Model connection failed");
+    await expect(apiErrorMessage(response)).resolves.toBe("No active model configuration");
   });
 });

@@ -80,7 +80,13 @@ class ChatRuntime:
                 self._store.append_timeline(
                     session_id, request_id, "user_message", {"content": content}
                 )
-                self._emit(request_id, "request.started", {"session_id": session_id})
+                # The stream is the public request boundary. Include the opaque request
+                # identifier so an SSE client can use cancellation and event history.
+                self._emit(
+                    request_id,
+                    "request.started",
+                    {"request_id": request_id, "session_id": session_id},
+                )
                 settings = self._settings()
                 while True:
                     self._ensure_not_cancelled(cancellation)

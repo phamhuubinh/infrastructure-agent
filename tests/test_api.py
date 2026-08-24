@@ -76,6 +76,7 @@ async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> No
         "model.completed",
         "request.completed",
     ]
+    assert events[0]["payload"]["request_id"] == response.json()["request_id"]
 
 
 @pytest.mark.anyio
