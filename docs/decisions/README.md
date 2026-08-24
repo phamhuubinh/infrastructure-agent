@@ -10,5 +10,7 @@ These decisions define the current target.
 - `0006-no-semantic-pre-router.md`
 - `0007-all-registered-tools-available.md`
 - `0008-provider-neutral-model-backend.md`
+- `0009-canonical-runtime-contracts.md`
+- `0010-project-scope-is-runtime-bound.md`
 
 A future change to these principles should be explicit rather than introduced indirectly through implementation convenience.

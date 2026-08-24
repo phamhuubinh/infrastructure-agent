@@ -1,15 +1,17 @@
 # Quickstart
 
-This page covers the current repository packaging while the codebase moves toward the target architecture.
+This page documents the repository's **current** installation/run path. Target architecture behavior is documented separately under `docs/architecture/`.
 
 ## Requirements
 
-The installer expects:
+Current `install.sh` expects a Linux-like host with:
 
 - Docker Engine;
 - Docker Compose;
-- Git;
-- `curl` is useful for health checks.
+- common account/group utilities such as `getent` and `groupadd`;
+- permission to create/configure the Orion tool-secrets group/file (directly or through `sudo`).
+
+Git and `curl` are useful for normal repository/development work.
 
 ## Install
 
@@ -19,23 +21,33 @@ From the repository root:
 ./install.sh
 ```
 
-Non-interactive installation:
+Current installer behavior:
 
-```bash
-./install.sh --non-interactive
+```text
+prepare .env
+→ generate missing PostgreSQL/API secrets
+→ create/configure external tool-credentials file
+→ install the `orion` CLI
+→ optionally prompt for an OpenAI-compatible model when stdin is interactive
+→ docker compose up -d --build --remove-orphans
+→ report tool credential status
 ```
 
-The installer creates `.env` from `.env.example` when necessary, generates missing local secrets, builds the Docker services, and installs the `orion` CLI under the configured install prefix.
+The current script does **not** define documented `--non-interactive` or `--skip-up` command-line options.
 
-## Start Web UI
+When stdin is non-interactive, the optional model setup prompt is skipped automatically.
+
+## Start/use the Web UI
+
+After installation:
 
 ```bash
 orion web
 ```
 
-The CLI starts the Web-facing services and opens the configured URL when a desktop browser is available.
+The wrapper ensures the Web-facing services are running, prints the configured Web URL, opens a browser when possible, and follows current API/UI logs.
 
-To disable browser launch:
+Disable browser launch:
 
 ```bash
 ORION_DISABLE_BROWSER=1 orion web
@@ -59,32 +71,44 @@ docker compose logs -f
 docker compose ps
 ```
 
+## Current Compose service names
+
+```text
+reverse-proxy
+api
+ui
+postgres
+rag-service
+```
+
 ## Development checks
+
+Use repository targets that exist in the current checkout. Common commands are:
 
 ```bash
 make test
 make lint
 ```
 
-Frontend tests:
+Frontend tests, when applicable:
 
 ```bash
 cd ui
 npm test
 ```
 
-## Architecture behavior
+## Target Chat/Project behavior
 
-Once the target runtime is implemented, Chat and Project should both behave this way:
+The target runtime remains:
 
 ```text
 message
-→ model
-→ direct answer OR automatic tool call
-→ Orion executes tool
-→ tool result back to model
+→ model with all registered tools
+→ direct answer OR automatic model-selected tool call
+→ Orion executes the registered tool
+→ ToolResult back to the same model
 → repeat as useful
 → final answer
 ```
 
-No manual tool selection step exists.
+There is no manual tool selection step in Chat or Project.

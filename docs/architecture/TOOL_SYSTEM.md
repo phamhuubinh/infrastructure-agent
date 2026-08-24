@@ -15,11 +15,13 @@ ToolDefinition(
     name="internet.search",
     description="Search the Internet",
     input_schema={...},
-    handler=...
+    handler_key="internet.search",
 )
 ```
 
-The exact implementation may differ, but tool identity, schema, description, and handler binding should not be duplicated across multiple selectors/routers.
+Canonical identities are defined in `CONTRACTS.md`.
+
+The exact implementation may differ, but tool identity, schema, description, and handler binding must not be duplicated across semantic selectors/routers.
 
 ## Startup
 
@@ -28,7 +30,7 @@ application startup
        ↓
 discover/register configured tools
        ↓
-validate tool definitions
+validate ToolDefinition contracts
        ↓
 build model-facing tool schemas
        ↓
@@ -38,22 +40,55 @@ all registered tools available to every Chat/Project model turn
 ## Runtime
 
 ```text
-Model ToolCall
+ModelToolCall
+   ↓
+normalize provider output
    ↓
 tool exists?
    ↓
 input schema valid?
    ↓
+Orion attaches RuntimeScope
+   ↓
 ToolRunner
    ↓
 tool implementation/integration
    ↓
-structured ToolResult
+canonical ToolResult
    ↓
 Model
 ```
 
-Orion validates structure and dispatches. It does not second-guess the semantic reason the model chose the tool.
+Orion validates structure, attaches deterministic application scope, and dispatches.
+
+It does not second-guess the semantic reason the model chose the tool.
+
+## Runtime scope
+
+A tool call may need deterministic context that must not be model-selected, for example:
+
+```text
+session_id
+active project_id
+current attachment identities
+```
+
+Orion provides this as `RuntimeScope` to the tool implementation.
+
+Example:
+
+```text
+model:
+  knowledge.search(query="backup retention")
+
+Orion runtime:
+  session_id = S1
+  project_id = Project A
+
+Knowledge tool searches only sources valid for S1 / Project A.
+```
+
+The model chooses the query. Orion binds the application's actual scope.
 
 ## Current families
 
@@ -66,22 +101,34 @@ The current repository contains:
 - Grafana;
 - Zabbix.
 
-These should be integrated into the same model-facing registry rather than separate semantic pipelines.
+These should join the same model-facing registry rather than separate semantic pipelines.
 
 ## Configuration
 
-Global application settings may determine whether an integration is actually configured/available. This is different from a conversation tool picker.
+Global application settings may determine whether an integration can initialize and therefore register.
 
-A tool that cannot initialize because required integration configuration is missing should be reported unavailable at startup/health time rather than represented as a manually disabled chat choice.
+This is different from a conversation tool picker.
+
+A tool that cannot initialize because required integration configuration is missing should be reported unavailable through application/health state rather than represented as a manually disabled per-chat choice.
 
 ## Tool output
 
-Tool results should be:
+Tool results should use the canonical `ToolResult` shape and be:
 
 - structured where practical;
-- bounded enough for the model/context;
-- explicit about errors;
-- tagged with useful source metadata;
+- explicit about success/error;
+- source-aware where applicable;
+- safe for model context;
 - free of raw credentials/secrets.
 
-Large payloads should be summarized/indexed or referenced rather than blindly injected.
+Large payloads should use selective reads, references, reduction, or retrieval rather than blindly flooding the model context.
+
+## Non-goals
+
+The current target does not introduce:
+
+- manual tool selection;
+- semantic pre-routing;
+- `capability.search`;
+- dynamic/deferred tool exposure;
+- product-level per-request tool-call quotas.

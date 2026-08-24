@@ -2,13 +2,13 @@
 
 ## RAG's role
 
-RAG is a **knowledge source used by the model**, not a mandatory stage applied to every user message.
+RAG is a **knowledge source used by the model**, not a mandatory stage applied before every user message.
 
 The model decides when document retrieval is useful.
 
-## Knowledge scopes
+Orion binds deterministic session/project scope.
 
-The target supports distinct scopes:
+## Knowledge scopes
 
 ### Session/chat source
 
@@ -28,7 +28,35 @@ project_source:<project_id>
 
 ### Optional local/global knowledge
 
-A deployment may maintain a local shared knowledge library. If present, it is a separate explicit source, never implicitly mixed with project data.
+A deployment may maintain a local shared knowledge library. If present, it is a separate explicit source, never silently merged into project storage.
+
+## Scope binding
+
+The active project is resolved from Orion application state.
+
+Preferred model-facing behavior:
+
+```text
+knowledge.search(query="retention requirement")
+```
+
+rather than:
+
+```text
+knowledge.search(project_id="some-arbitrary-project", query="...")
+```
+
+Orion passes a bound runtime scope to the tool implementation:
+
+```text
+session_id
+active project_id (optional)
+current attachment identities
+```
+
+The Knowledge tool then searches only sources valid for that runtime scope.
+
+This is not semantic routing. The model still decides whether retrieval is needed and what information to retrieve.
 
 ## Active Project
 
@@ -59,26 +87,26 @@ chunk with document/page/section metadata
  ↓
 embedding
  ↓
-lexical/vector indexes
+lexical/vector index as configured
  ↓
 ready
 ```
 
-Parser/embedding/index implementations are replaceable components.
+Parser, embedding, lexical, and vector implementations are replaceable components.
 
-## Retrieval
+A deployment does not need a specific vector database to satisfy the architecture.
 
-Retrieval should not assume "top-k vector chunks" is sufficient for every task.
+## Retrieval task shapes
 
-Support at least these task shapes:
+Retrieval must not assume "top-k vector chunks" is sufficient for every task.
 
 ### Local fact/question answering
 
-Search relevant chunks, optionally rerank, return source metadata.
+Search relevant segments, optionally rerank, and return source metadata.
 
 ### Whole-document understanding
 
-Use document structure, larger sections, hierarchical summaries, or iterative reading rather than only local chunk search.
+Use document structure, larger sections, hierarchical summaries, or iterative reads rather than only local chunk search.
 
 ### Cross-document comparison
 
@@ -86,11 +114,11 @@ Retrieve from multiple explicitly scoped documents and preserve document identit
 
 ### Exact document reading
 
-When the model already knows the document ID, allow deterministic read/section retrieval without semantic search.
+When the model already knows the document identity, allow deterministic read/section retrieval without semantic search.
 
 ## Hybrid retrieval
 
-Useful pipeline:
+A possible implementation pipeline is:
 
 ```text
 query
@@ -104,23 +132,27 @@ optional rerank
 source-aware results
 ```
 
-Advanced GraphRAG/RAPTOR/HyDE techniques are optional optimizations, not architecture requirements.
+This is an implementation option, not a mandatory dependency list.
+
+GraphRAG, RAPTOR, HyDE, and similar techniques are optional optimizations.
 
 ## Citations
 
-A retrieved item should preserve:
+A retrieved segment should preserve enough identity to support citations:
 
 - source scope;
-- project/session ID;
+- project/session identity;
 - document ID;
 - document name;
 - page/section when available;
-- chunk/segment ID;
+- segment/chunk ID;
 - text;
 - retrieval score/rank metadata where useful.
 
-Document-grounded answers should cite these source identities when practical.
+See `CONTRACTS.md` for canonical `KnowledgeSourceRef`, `DocumentRef`, `RetrievedSegment`, and `SourceRef` concepts.
 
 ## Untrusted text
 
-Retrieved text is data. A document instruction such as "ignore previous rules" must not become an Orion system instruction.
+Retrieved text is data.
+
+A document instruction such as "ignore previous rules" must not become an Orion system instruction.

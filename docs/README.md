@@ -1,6 +1,6 @@
 # Orion documentation
 
-This documentation is the target specification for Orion.
+This documentation is the target specification for Orion, with operations pages explicitly marked where they describe current repository behavior.
 
 ## What Orion is
 
@@ -10,7 +10,7 @@ Orion is a local-first AI technical workbench centered on conversation:
 Chat
   → general conversation
   → session attachments
-  → all registered tools used automatically by the model
+  → all registered tools available automatically to the model
 
 Project
   → same Chat runtime
@@ -30,20 +30,23 @@ There is no tool picker in Chat or Project.
 
 ### Architecture
 
-- `architecture/OVERVIEW.md`
-- `architecture/CHAT_RUNTIME.md`
-- `architecture/PROJECT_RUNTIME.md`
-- `architecture/MODEL_TOOL_LOOP.md`
-- `architecture/TOOL_SYSTEM.md`
-- `architecture/RAG_AND_PROJECT_KNOWLEDGE.md`
-- `architecture/CONTEXT_AND_MEMORY.md`
-- `architecture/MODEL_BACKENDS.md`
-- `architecture/DATA_AND_PERSISTENCE.md`
-- `architecture/BACKEND_API.md`
-- `architecture/UI_UX.md`
-- `architecture/OBSERVABILITY.md`
-- `architecture/FAILURE_RECOVERY.md`
-- `architecture/SECURITY_LOCAL_FIRST.md`
+1. `architecture/OVERVIEW.md`
+2. `architecture/CONTRACTS.md`
+3. `architecture/CHAT_RUNTIME.md`
+4. `architecture/PROJECT_RUNTIME.md`
+5. `architecture/MODEL_TOOL_LOOP.md`
+6. `architecture/TOOL_SYSTEM.md`
+7. `architecture/RAG_AND_PROJECT_KNOWLEDGE.md`
+8. `architecture/CONTEXT_AND_MEMORY.md`
+9. `architecture/MODEL_BACKENDS.md`
+10. `architecture/DATA_AND_PERSISTENCE.md`
+11. `architecture/BACKEND_API.md`
+12. `architecture/UI_UX.md`
+13. `architecture/OBSERVABILITY.md`
+14. `architecture/FAILURE_RECOVERY.md`
+15. `architecture/SECURITY_LOCAL_FIRST.md`
+
+`CONTRACTS.md` defines the canonical identities shared by the runtime. Other architecture documents should refer to these concepts rather than inventing competing representations.
 
 ### Tool families
 
@@ -66,6 +69,8 @@ There is no tool picker in Chat or Project.
 - `operations/RAG_SERVICE.md`
 - `operations/TROUBLESHOOTING.md`
 
+Operations pages that say **current** must be verified against the actual scripts/Compose configuration when they are changed.
+
 ### Development
 
 - `development/TARGET_CODE_LAYOUT.md`
@@ -83,6 +88,10 @@ There is no tool picker in Chat or Project.
 
 ## Target docs vs current code
 
-The docs describe the desired system. The repository may temporarily contain older routing, agent protocol, capability, or evidence code while implementation catches up.
+Architecture/product docs describe the desired system.
+
+The repository may temporarily contain older routing, agent protocol, capability, or evidence code while implementation catches up.
+
+Operations docs are different: when they describe current commands, service names, ports, installer flags, or configuration files, those facts must match the current repository.
 
 Do not preserve an obsolete implementation merely because it exists. Conversely, do not delete or rewrite code merely because you read this document: repository modifications require an explicit current task.

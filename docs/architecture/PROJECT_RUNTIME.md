@@ -14,9 +14,47 @@ When a chat is associated with an active project, Orion deterministically includ
 - project name;
 - safe project metadata;
 - project instructions/description when configured;
-- references to project documents/knowledge source.
+- references to the project's documents/knowledge source.
 
 The model still receives the same registered tool set as ordinary Chat.
+
+## Scope ownership
+
+Project identity is application state owned by Orion.
+
+The model does not choose an arbitrary project by inventing a `project_id` in ordinary retrieval arguments.
+
+Conceptually:
+
+```text
+Session / Project state
+       ↓
+active_project_id = Project A
+       ↓
+RuntimeScope(project_id=Project A)
+       ↓
+model tool call
+       ↓
+ToolRunner
+       ↓
+project-aware tool receives the bound RuntimeScope
+```
+
+This separates responsibilities cleanly:
+
+```text
+Model:
+- decides whether project knowledge is needed;
+- decides the search/read query;
+- reasons over returned material.
+
+Orion:
+- decides which Project the conversation belongs to;
+- binds exact project scope;
+- prevents cross-project retrieval leakage.
+```
+
+See `CONTRACTS.md` for the canonical `RuntimeScope` contract.
 
 ## Project knowledge
 
@@ -34,17 +72,19 @@ Project B
        └── ...
 ```
 
-Retrieval from Project A must not silently return Project B content.
+Retrieval from Project A must never silently return Project B content.
 
 ## Model flow
 
 ```text
 User asks within Project A
         ↓
-Model sees:
+Orion assembles deterministic context:
 - conversation
-- active project metadata
-- all registered tools
+- active Project A metadata
+- current attachments
+        ↓
+Model sees all registered tools
         ↓
 Model may:
 - answer directly
@@ -61,7 +101,7 @@ There is no "Project tool mode" and no tool checkbox.
 
 ## Cross-source reasoning
 
-A Project question may legitimately require several tools:
+A Project question may legitimately require several sources:
 
 ```text
 project requirement
@@ -72,3 +112,19 @@ project requirement
 ```
 
 The runtime must allow the model to combine them naturally in one conversation loop.
+
+## Project lifecycle
+
+At minimum a Project should support:
+
+```text
+create
+read/update metadata
+document upload
+document ingestion status
+document delete
+project conversations
+project delete/archive according to product behavior
+```
+
+Deleting a project/document must also remove or tombstone its retrievable index entries so stale content cannot reappear.
