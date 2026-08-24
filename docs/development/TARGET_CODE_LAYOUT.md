@@ -1,76 +1,85 @@
 # Target code layout
 
-The exact package names may evolve, but dependencies should point inward toward small canonical contracts.
+This is a clean target layout, not a requirement to preserve current module names.
 
 ```text
-src/
-  orion/
-    contracts/
-      model.py
-      tools.py
-      evidence.py
-      authority.py
-      events.py
-    runtime/
-      session_runtime.py
-      context_builder.py
-      tool_exposure.py
-      no_progress.py
-      completion.py
-    capabilities/
-      definition.py
-      registry.py
-      search.py
-      targets.py
-      sources.py
-    authority/
-      authorizer.py
-      permissions.py
-      approvals.py
-      budgets.py
-      policy.py
-    execution/
-      request.py
-      registry.py
-      isolation.py
-      result.py
-    evidence/
-      store.py
-      projector.py
-      validation.py
-    models/
-      backend.py
-      openai.py
-      anthropic.py
+src/orion/
+  app/
+    config.py
+    dependencies.py
+
+  runtime/
+    chat_runtime.py
+    context_builder.py
+    timeline.py
+    streaming.py
+
+  models/
+    backend.py
+    contracts.py
+    registry.py
+    providers/
       openai_compatible.py
-    integrations/
-      calculator/
-      host/
-      grafana/
-      zabbix/
-      internet/
-      project/
-    persistence/
-      sessions.py
-      events.py
-      approvals.py
-      evidence.py
-      recovery.py
-    api/
-    cli/
+      anthropic.py
+      ...
+
+  tools/
+    contracts.py
+    registry.py
+    runner.py
+    health.py
+    knowledge/
+    calculator/
+    internet/
+    linux/
+    grafana/
+    zabbix/
+
+  knowledge/
+    documents.py
+    sources.py
+    ingestion.py
+    retrieval.py
+    citations.py
+
+  projects/
+    service.py
+    contracts.py
+
+  persistence/
+    sessions.py
+    projects.py
+    documents.py
+
+  api/
+    app.py
+    sessions.py
+    projects.py
+    documents.py
+    models.py
+    health.py
+
+ui/
+tests/
 ```
 
-## Dependency rules
+## Dependency direction
 
-- contracts depend on almost nothing;
-- runtime depends on contracts and interfaces, not concrete integrations;
-- capability registry contains metadata, not execution logic;
-- authority does not call model or interpret prose;
-- executors do not decide permission;
-- integrations do not bypass evidence/event normalization;
-- provider adapters do not own authority or retries;
-- UI/backend never infer execution truth from assistant prose.
+```text
+UI/API
+  ↓
+ChatRuntime
+  ├── ContextBuilder
+  ├── ModelBackend
+  ├── ToolRegistry/ToolRunner
+  ├── Session/Project stores
+  └── Knowledge service
+```
 
-## Reuse existing code
+Tools depend on their integrations, not on semantic routers.
 
-Existing modules may be kept in place temporarily if they satisfy the new interface cleanly. Do not create wrapper chains solely to preserve old file paths. Once migrated, move or delete code based on clarity and dependency direction.
+Project uses ChatRuntime rather than owning a second runtime.
+
+## Migration rule
+
+Current code can be reused if it cleanly implements one of these responsibilities. Old routing/protocol abstractions should not be preserved solely to reduce diff size.

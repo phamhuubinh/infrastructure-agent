@@ -1,55 +1,46 @@
 # Engineering rules
 
-## Architecture
+## Runtime
 
-- Build target contracts first.
-- Prefer deleting obsolete code to adding compatibility glue.
-- One concept has one owner and one source of truth.
-- Do not maintain old and new agent protocols in parallel beyond explicit migration gates.
+- One Chat runtime serves ordinary Chat and Project conversations.
+- Project adds project context/source; it does not fork runtime logic.
+- The model makes semantic tool decisions.
+- Do not introduce a pre-model intent/tool router.
+- Do not introduce an Orion-specific model-visible workflow FSM.
 
-## Model boundary
+## Tools
 
-- Model output is untrusted.
-- Use native tool calls when available; strict provider-neutral fallback otherwise.
-- Never repair malformed output into an executable action.
-- Do not ask the model to mirror harness state it does not need to know.
+- One registry is the source of model-visible tool definitions.
+- Every registered tool is available automatically.
+- Tool descriptions/schemas must be provider-serializable.
+- Tool results must be explicit successes or errors.
+- Integration credentials stay outside model arguments where possible.
+- Adding a tool must not require editing keyword intent maps.
 
-## Capability boundary
+## RAG
 
-- All executable operations are registered capabilities.
-- Closed schemas only.
-- Exact identities only.
-- No default localhost/source.
-- Non-applicable refs are omitted, not nullable authority fields.
+- RAG is a tool/source.
+- Session and Project scopes are explicit.
+- Project retrieval cannot leak across projects.
+- Preserve document/page/section/chunk provenance.
+- Whole-document tasks need more than naive top-k chunk search.
 
-## Execution
+## Models
 
-- Authorization precedes dispatch.
-- Credentials resolved only after authorization.
-- Result schemas are bounded and validated.
-- Side-effecting actions require explicit idempotency/duplicate policy.
-- Failure to establish required sandbox/isolation is a failure, not a fallback.
+- Keep provider specifics behind adapters.
+- Prefer native tool calling where reliable.
+- A JSON fallback must stay small and tool-native.
+- Never fix a weak provider by rebuilding a multi-stage Orion state protocol.
 
-## Evidence
+## Local-first
 
-- Evidence is created only from validated execution/retrieval results.
-- Dispatch is not success.
-- Model final output references evidence; it does not construct evidence identity/provenance.
+- Prefer local persistence/services.
+- External integrations are optional.
+- No product-level quota/rate-limit/tool-call-budget layer in the core architecture.
+- Operational timeouts are allowed for hung-process recovery.
 
-## Security
+## Changes
 
-- Reject secret-shaped model/tool fields at boundaries.
-- Bound text, arrays, nesting, output bytes and runtime.
-- Treat internet/RAG/integration content as untrusted data.
-
-## Quality
-
-- Typed contracts over dictionary conventions.
-- Pure validators where practical.
-- Explicit enums for status/effect/reason.
-- Deterministic fingerprints for actions/approvals/idempotency.
-- No broad exception swallowing that turns errors into healthy results.
-
-## Git and validation
-
-Run the smallest relevant checks during implementation. Do not claim live/Docker/QA success unless actually run. Do not commit/push unless explicitly requested.
+- Keep changes cohesive.
+- Delete superseded paths when cutover is complete rather than maintaining two semantic runtimes.
+- Add tests at the contract boundary changed.

@@ -1,54 +1,70 @@
-# Testing strategy
+# Testing
 
-## Test pyramid
+## Testing pyramid
 
-### Contract tests
+### Unit
 
-Prove exact serialization, closed schemas, capability registration, authority decisions, evidence records, event contracts, and provider normalization.
+Test:
 
-### Runtime tests with fake model/executor
+- context assembly;
+- tool registry;
+- tool schema conversion;
+- provider adapters;
+- ToolResult normalization;
+- project source scoping;
+- document parsers/chunking/retrieval components;
+- persistence.
 
-Cover complete loops without external systems:
+### Contract
 
-- direct final;
-- capability search → exposed tool → tool call → evidence → final;
-- invented/unexposed tool rejected;
-- malformed arguments rejected before executor;
-- exact target/source enforcement;
-- permission allow/ask/deny;
-- approval fingerprint binding;
-- budget exhaustion;
-- duplicate successful call not redispatched;
-- no-progress termination;
-- evidence-reference validation.
+Verify each registered tool can be serialized to every supported provider adapter and dispatched back to the correct handler.
 
-### Executor tests
+### Runtime vertical slices
 
-Per integration, test argument binding, least-privilege routing, failure normalization, bounded outputs, result schema, and evidence projection.
+Use fake model + fake tools:
 
-### Persistence tests
+```text
+direct chat → final
+chat → one tool → final
+chat → several tools → final
+project → project RAG → final
+project → RAG + calculator → final
+tool failure → model explains/uses fallback
+```
 
-Failure injection for transaction/recovery behavior, concurrent delete/clean, corruption preservation, and resume semantics.
+### RAG
 
-### API/UI tests
+Test:
 
-Typed timeline, approvals, evidence, semantic health, cancellation, and session isolation.
+- session-source isolation;
+- project-source isolation;
+- exact document read;
+- semantic search;
+- cross-document comparison fixtures;
+- deletion/reindex recovery;
+- citation metadata.
 
-## Live-model gates
+### Live model
 
-Fake tests cannot prove model usability. Use narrow live probes only after static contracts are green.
+Run narrow live probes only after deterministic runtime tests pass.
 
-Mandatory first live probes after runtime cutover:
+Live tests should prove the configured model can naturally use model-facing tool schemas without special keyword routing.
 
-1. exact arithmetic: one tool execution, evidence, correct final;
-2. different arithmetic input to rule out memorized prompt behavior;
-3. model identity grounded from configuration;
-4. protected-instruction refusal;
-5. read-only infrastructure capability;
-6. write requiring approval.
+## Current commands
 
-Trace first real failure only. Do not shotgun-fix cascades.
+```bash
+make test
+make lint
+```
 
-## Release acceptance
+Backend:
 
-See `ACCEPTANCE_CRITERIA.md`.
+```bash
+make test-backend
+```
+
+Frontend:
+
+```bash
+make test-frontend
+```

@@ -1,7 +1,23 @@
 # API documentation
 
-The API must expose product resources and typed runtime state, not leak internal provider protocol details.
+The API should expose product resources rather than the model's internal reasoning.
 
-OpenAPI is generated from the implemented backend after the new API stabilizes. This reset intentionally does not ship the previous `openapi.json` because it would incorrectly bless an old implementation contract.
+Target resource families:
 
-See `../architecture/API_BACKEND.md` for target semantics.
+```text
+health
+models
+sessions/messages
+attachments
+projects
+project documents
+knowledge/document lifecycle
+integrations/tool health
+streaming events
+```
+
+Normal message submission must not require the user to choose tools.
+
+The backend should generate OpenAPI from implementation once endpoint contracts are stable.
+
+See `../architecture/BACKEND_API.md`.

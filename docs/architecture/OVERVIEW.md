@@ -1,97 +1,107 @@
 # Architecture overview
 
-## Design statement
+## Design target
 
-Orion is a **model-native capability harness for infrastructure operations**.
+Orion is a local-first conversational runtime with automatic model-driven tool use.
 
-The model interacts with ordinary tools and tool results. The harness owns tool exposure, authority, policy, execution, evidence, limits, and terminal acceptance.
-
-## Planes
+The architecture is intentionally centered on one loop:
 
 ```text
-User / UI / API
-      |
-      v
-+------------------+
-| Session Runtime  |
-+------------------+
-      |
-      v
-+------------------+        dynamic tools
-| Model Adapter    | <-----------------------+
-+------------------+                         |
-      | tool call                            |
-      v                                      |
-+------------------+                         |
-| Tool Exposure    | -- search/load ---------+
-+------------------+
-      |
-      v
-+------------------+
-| Authority Engine |
-+------------------+
-      |
-      v
-+------------------+
-| Permission /     |
-| Approval / Budget|
-+------------------+
-      |
-      v
-+------------------+
-| Execution Boundary|
-+------------------+
-      |
-      v
-+------------------+
-| Executor Registry|
-+------------------+
-      |
-      v
-+------------------+
-| Evidence Store   |
-+------------------+
-      |
-      +---- ToolResult ----> Model
+┌───────────────┐
+│     USER      │
+└───────┬───────┘
+        │ message
+        v
+┌────────────────────────────┐
+│ ORION CONTEXT ASSEMBLY     │
+│                            │
+│ session/history            │
+│ current attachments        │
+│ active project (optional)  │
+│ project metadata           │
+└──────────────┬─────────────┘
+               │
+               v
+┌────────────────────────────┐
+│           MODEL            │
+│ all registered tools       │
+│ are available automatically│
+└──────────┬───────────┬─────┘
+           │           │
+     final answer      │ tool call
+           │           v
+           │   ┌───────────────────┐
+           │   │ ORION TOOL HUB    │
+           │   │ validate contract │
+           │   │ dispatch tool     │
+           │   └─────────┬─────────┘
+           │             │
+           │             v
+           │      ┌───────────────┐
+           │      │ TOOL / SOURCE │
+           │      └───────┬───────┘
+           │              │ result
+           │              v
+           │      ┌───────────────┐
+           │      │  TOOL RESULT  │
+           │      └───────┬───────┘
+           │              │
+           │              └─────────────> MODEL
+           v
+┌────────────────────────────┐
+│       FINAL RESPONSE       │
+└────────────────────────────┘
 ```
 
-## Ownership
+## Responsibility split
 
-### Model owns
+### Model
 
-- natural-language interpretation;
-- reasoning;
-- deciding whether more evidence is needed;
-- proposing a tool call from currently exposed tools;
-- composing the user-facing answer;
-- referencing evidence IDs when making objective claims.
+The model owns semantic reasoning:
 
-### Harness owns
+- understand the user's request;
+- decide whether existing context is sufficient;
+- choose a registered tool when useful;
+- combine multiple tool/source results;
+- ask a clarification if necessary;
+- produce the final answer.
 
-- which tools are visible/callable now;
-- parsing and validating model output;
-- exact capability, target and source identity;
-- argument schema validation;
-- permission, approval and budget;
-- idempotency and duplicate suppression;
-- execution isolation;
-- evidence creation and storage;
-- runtime limits and no-progress detection;
-- final evidence-reference validation.
+### Orion
 
-## Hard invariants
+Orion owns deterministic application behavior:
 
-1. A tool call is a proposal, not authority.
-2. Registered is not the same as exposed.
-3. Exposed is not the same as authorized.
-4. Authorized is not the same as executed.
-5. Executed is not the same as successful.
-6. Successful is not the same as evidenced unless an evidence record exists.
-7. User-facing prose is not an authority channel.
-8. Provider-native structured output is not the final validation boundary.
-9. No implicit target/source/default-localhost behavior.
-10. No parallel legacy runtime after cutover.
+- persist sessions/projects/documents;
+- assemble known context;
+- register and describe tools;
+- validate model tool-call structure;
+- invoke the selected tool;
+- return structured results to the model;
+- stream/persist public runtime events;
+- keep project/session data scoped correctly;
+- manage model provider adapters.
 
-## Why this design
+Orion does **not** own a separate semantic intent classifier before the model.
 
-Coding agents such as Codex and Claude Code are reliable partly because models interact with actual tools rather than narrating an internal workflow protocol. Orion adopts that model-native loop but narrows the action surface to reviewed infrastructure capabilities and adds stronger logical authority before execution.
+## Local-first
+
+Primary dependencies should be runnable locally:
+
+- backend;
+- UI;
+- persistence;
+- RAG/index;
+- vector database;
+- model endpoint when the user provides one locally.
+
+Remote models or Internet integrations are optional integrations, not architectural assumptions.
+
+## Chat and Project
+
+There is one runtime.
+
+```text
+Chat = base runtime
+Project = base runtime + project-scoped knowledge
+```
+
+Do not fork the agent/tool implementation for Project.

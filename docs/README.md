@@ -1,54 +1,88 @@
 # Orion documentation
 
-These documents define a new target architecture. They were written as a clean-sheet specification and should not be interpreted as a description of the previous implementation.
+This documentation is the target specification for Orion.
 
-## Documentation map
+## What Orion is
+
+Orion is a local-first AI technical workbench centered on conversation:
+
+```text
+Chat
+  → general conversation
+  → session attachments
+  → all registered tools used automatically by the model
+
+Project
+  → same Chat runtime
+  → same registered tools
+  → persistent project metadata/documents
+  → additional project-scoped RAG source
+```
+
+There is no tool picker in Chat or Project.
+
+## Read in this order
 
 ### Product
 
-- `PRODUCT.md` — users, use cases, behavior, non-goals.
+- `PRODUCT.md`
+- `QUICKSTART.md`
 
 ### Architecture
 
-- `architecture/OVERVIEW.md` — system decomposition and invariants.
-- `architecture/MODEL_TOOL_PROTOCOL.md` — model-native tool loop.
-- `architecture/DISCOVERY_TOOL_EXPOSURE.md` — dynamic tool loading/exposure.
-- `architecture/CAPABILITIES.md` — canonical capability definition and registry.
-- `architecture/AUTHORITY_PERMISSIONS.md` — authorization, permission, approval, budget.
-- `architecture/EXECUTION_BOUNDARIES.md` — sandboxing, network, credentials, least privilege.
-- `architecture/EVIDENCE.md` — evidence store, references, final grounding.
-- `architecture/MODELS.md` — provider-neutral model adapters.
-- `architecture/SESSIONS_CONTEXT.md` — sessions, context and bounded history.
-- `architecture/PROJECTS_RAG_MEMORY.md` — project knowledge and retrieval.
-- `architecture/API_BACKEND.md` — backend/service contracts.
-- `architecture/EVENTS_OBSERVABILITY.md` — typed lifecycle events and metrics.
-- `architecture/UI_UX.md` — operator experience.
-- `architecture/FAILURE_RECOVERY.md` — bounded failures, retries and recovery.
-- `architecture/SECURITY.md` — threat model and security invariants.
+- `architecture/OVERVIEW.md`
+- `architecture/CHAT_RUNTIME.md`
+- `architecture/PROJECT_RUNTIME.md`
+- `architecture/MODEL_TOOL_LOOP.md`
+- `architecture/TOOL_SYSTEM.md`
+- `architecture/RAG_AND_PROJECT_KNOWLEDGE.md`
+- `architecture/CONTEXT_AND_MEMORY.md`
+- `architecture/MODEL_BACKENDS.md`
+- `architecture/DATA_AND_PERSISTENCE.md`
+- `architecture/BACKEND_API.md`
+- `architecture/UI_UX.md`
+- `architecture/OBSERVABILITY.md`
+- `architecture/FAILURE_RECOVERY.md`
+- `architecture/SECURITY_LOCAL_FIRST.md`
 
-### Decisions
+### Tool families
 
-`decisions/` contains accepted ADRs for the new system only. Old historical ADRs are intentionally not part of this reset package.
+- `tools/README.md`
+- `tools/KNOWLEDGE_RAG.md`
+- `tools/CALCULATOR.md`
+- `tools/INTERNET.md`
+- `tools/LINUX.md`
+- `tools/GRAFANA.md`
+- `tools/ZABBIX.md`
+- `tools/ADDING_A_TOOL.md`
+
+### Running Orion
+
+- `operations/INSTALLATION.md`
+- `operations/LOCAL_RUN.md`
+- `operations/DOCKER.md`
+- `operations/CONFIGURATION.md`
+- `operations/MODELS.md`
+- `operations/RAG_SERVICE.md`
+- `operations/TROUBLESHOOTING.md`
 
 ### Development
 
-- `development/CODE_AUDIT_BRIEF.md` — instructions for a deep code audit before implementation.
-- `development/REBUILD_PLAN.md` — phased rebuild plan.
-- `development/TARGET_CODE_LAYOUT.md` — proposed module boundaries.
-- `development/ENGINEERING_RULES.md` — implementation rules.
-- `development/TESTING.md` — test pyramid and gates.
-- `development/MIGRATION.md` — coexistence and cutover strategy.
-- `development/CLEANUP.md` — deletion rules.
-- `development/ACCEPTANCE_CRITERIA.md` — definition of done.
+- `development/TARGET_CODE_LAYOUT.md`
+- `development/ENGINEERING_RULES.md`
+- `development/TESTING.md`
+- `development/ACCEPTANCE_CRITERIA.md`
+- `development/REBUILD_GUIDE.md`
+- `development/CLEANUP.md`
 
-### API
+### Decisions and reference
 
-- `api/README.md` — API design principles. OpenAPI is generated from implementation and is intentionally not shipped as a hand-authored target artifact.
+- `decisions/README.md`
+- `reference/GLOSSARY.md`
+- `reference/ARCHITECTURE_PRINCIPLES.md`
 
-### Reference
+## Target docs vs current code
 
-- `reference/EXTERNAL_INFLUENCES.md` — architectural patterns taken from current Codex/OpenAI Agents and Claude Code documentation, with explicit differences for infrastructure use.
+The docs describe the desired system. The repository may temporarily contain older routing, agent protocol, capability, or evidence code while implementation catches up.
 
-## Conflict rule
-
-Accepted ADRs override architecture docs; architecture docs override development guidance. Current code never silently overrides target design.
+Do not preserve an obsolete implementation merely because it exists. Conversely, do not delete or rewrite code merely because you read this document: repository modifications require an explicit current task.

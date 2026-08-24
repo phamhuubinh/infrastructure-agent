@@ -1,24 +1,52 @@
-# Contributing to Orion
+# Contributing
 
-Contributions must move the repository toward the target architecture, not add another compatibility layer around the previous runtime.
+Orion is being shaped around a small set of product invariants rather than compatibility with an older agent protocol.
 
-## Before coding
+Before changing architecture, read:
 
-Read `docs/README.md`, relevant architecture documents, and `docs/development/ENGINEERING_RULES.md`. For major work, also read `docs/development/CODE_AUDIT_BRIEF.md` and `REBUILD_PLAN.md`.
+- `docs/PRODUCT.md`
+- `docs/architecture/OVERVIEW.md`
+- `docs/architecture/MODEL_TOOL_LOOP.md`
+- `docs/architecture/TOOL_SYSTEM.md`
+- `docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md`
+- `docs/development/ENGINEERING_RULES.md`
 
-## Pull request expectations
+## Engineering expectations
 
-A change should state:
+Changes should:
 
-- target contract being implemented;
-- old components kept, adapted, rewritten, or deleted;
-- security/authority impact;
-- tests executed and tests not executed;
-- migration or persistence impact;
-- remaining gaps.
+- preserve one Chat/Project runtime;
+- keep tool choice model-driven;
+- avoid semantic routing heuristics before the model;
+- register tools through one registry;
+- return structured tool results to the model loop;
+- keep project data isolated by project scope;
+- keep provider details behind model adapters;
+- prefer local dependencies and local persistence;
+- include focused tests for behavior changed.
 
-Architecture changes require an ADR in `docs/decisions/`. Implementation convenience is not sufficient reason to weaken exact authority, evidence integrity, or execution isolation.
+## Quality checks
 
-## Validation
+Current repository commands:
 
-Prefer contract and vertical-slice tests. Fake-model tests prove deterministic harness behavior; they do not prove live-model usability. Live-model gates are separate and must be recorded as such.
+```bash
+make test
+make lint
+```
+
+Frontend:
+
+```bash
+cd ui
+npm test
+```
+
+Docker:
+
+```bash
+docker compose build
+docker compose up -d
+docker compose ps
+```
+
+Do not change repository history or publish changes unless explicitly requested.

@@ -1,7 +1,9 @@
-# ADR-0008: Provider-neutral model backend
-
-Status: Accepted
+# ADR 0008 — Provider-neutral model backend
 
 ## Decision
 
-Core runtime depends only on canonical ModelTurn and tool definitions/results. Native OpenAI, Anthropic, and OpenAI-compatible/vLLM behaviors remain inside adapters. Provider structured output is never final authority.
+Core Chat/Project/tool runtime depends on provider-neutral contracts.
+
+OpenAI-compatible local models are first-class. Other providers are adapters.
+
+Provider-specific response types must not define Orion's core architecture.

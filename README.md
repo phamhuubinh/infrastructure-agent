@@ -1,40 +1,94 @@
 # Orion
 
-Orion is a security-oriented infrastructure agent runtime. It lets a language model reason about an operator request and propose calls to reviewed infrastructure capabilities without granting execution authority to natural language or to the model itself.
+Orion is a **local-first AI technical workbench** for technical work.
 
-This repository is undergoing a **greenfield rebuild inside the existing repository**. The target design is defined by `docs/`. Existing implementation code is evidence to audit and selectively reuse; it is not an architectural constraint and does not receive compatibility priority by default.
+The primary interface is conversation. Users chat normally; Orion gives the configured model access to every registered tool automatically. There is no per-chat tool picker and no requirement for the user to decide whether RAG, Internet, Linux, Grafana, Zabbix, calculator, or another registered tool should be used.
 
-## Product thesis
+A **Project** uses the same chat/runtime and the same automatic tool system, while adding a persistent project-scoped knowledge source for documents and project context.
 
-Orion combines three ideas:
+## Product shape
 
-1. **Model-native tool use** — the model works through ordinary tool calls and tool results rather than learning an internal harness state machine.
-2. **Harness-owned authority** — the harness validates exact capability identity, schema, target/source scope, permission, approval, budget, and execution policy before any side effect.
-3. **Evidence-backed answers** — executors produce structured evidence owned by the harness; the model references evidence rather than reconstructing or authorizing it.
+```text
+Chat
+  = conversation + session context + attachments + all registered tools
 
-A short formulation:
+Project
+  = Chat
+  + active project metadata
+  + persistent project documents
+  + project-scoped RAG source
+```
 
-> Model proposes tool use. The harness decides whether it may execute. Executors act inside bounded environments. Evidence supports the final answer.
+The model makes semantic decisions:
+
+```text
+answer directly
+or
+use one or more tools
+or
+retrieve documents
+or
+combine several sources
+```
+
+Orion performs deterministic orchestration:
+
+```text
+assemble context
+→ expose all registered tools
+→ execute model tool calls
+→ normalize tool results
+→ return results to the model
+→ persist public conversation state
+```
+
+There is intentionally **no semantic pre-router** that tries to classify the user's prompt into "RAG", "Internet", "Linux", or another intent before the model sees it.
+
+## Current tool families
+
+The repository currently contains implementations for:
+
+- Knowledge / RAG;
+- deterministic calculation;
+- Internet;
+- Linux;
+- Grafana;
+- Zabbix.
+
+The target architecture keeps these available automatically to the model. A tool is configured at the application/integration level, not manually selected for each message.
 
 ## Start here
 
-Read in this order:
+Read:
 
-1. `docs/PRODUCT.md`
-2. `docs/architecture/OVERVIEW.md`
-3. `docs/architecture/MODEL_TOOL_PROTOCOL.md`
-4. `docs/architecture/CAPABILITIES.md`
-5. `docs/architecture/AUTHORITY_PERMISSIONS.md`
-6. `docs/architecture/EXECUTION_BOUNDARIES.md`
-7. `docs/architecture/EVIDENCE.md`
-8. `docs/development/REBUILD_PLAN.md`
-9. `docs/development/CODE_AUDIT_BRIEF.md`
-10. `docs/development/ENGINEERING_RULES.md`
+1. [`docs/PRODUCT.md`](docs/PRODUCT.md)
+2. [`docs/architecture/OVERVIEW.md`](docs/architecture/OVERVIEW.md)
+3. [`docs/architecture/MODEL_TOOL_LOOP.md`](docs/architecture/MODEL_TOOL_LOOP.md)
+4. [`docs/architecture/PROJECT_RUNTIME.md`](docs/architecture/PROJECT_RUNTIME.md)
+5. [`docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md`](docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md)
+6. [`docs/operations/INSTALLATION.md`](docs/operations/INSTALLATION.md)
 
-## Non-goals
+## Install and run the current repository
 
-Orion is not a generic autonomous shell agent, not an intent-router framework, not a multi-agent society, and not a compatibility preservation exercise for the previous runtime. It should not expose raw root shell, arbitrary HTTP, arbitrary database access, or unrestricted credentials to the model.
+```bash
+./install.sh
+orion web
+```
 
-## Current implementation status
+Useful commands:
 
-The documentation defines the target system. Until the rebuild is complete, code may disagree with these documents. When that happens, the disagreement is an implementation gap, not permission to weaken the target design.
+```bash
+orion log
+docker compose ps
+docker compose logs -f
+make test
+make lint
+```
+
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) and [`docs/operations/`](docs/operations/).
+
+## Documentation authority
+
+The `docs/` tree describes the **target product and architecture**. Existing source code is implementation state, not architectural authority. When current code differs from the target docs, the difference is an implementation gap unless a newer explicit decision changes the target.
+
+Reading these docs does not itself authorize code changes, migrations, commits, or repository operations.

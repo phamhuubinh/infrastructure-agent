@@ -1,41 +1,76 @@
-# UI/UX architecture
+# UI and UX
 
-## Operator mental model
+## Primary experience
 
-The UI should make four states visually distinct:
+The UI should make Orion feel like one conversational technical workspace.
 
-1. model reasoning/output;
-2. proposed tool action;
-3. approval/authorization state;
-4. execution/evidence result.
+Main concepts:
 
-Never imply that model prose itself performed an action.
+- Chat;
+- Projects;
+- Documents/knowledge;
+- Settings/integrations.
 
-## Chat timeline
+## No tool picker
 
-Render typed items:
+Chat composer and Project chat must not contain a required tool selector.
 
-- user message;
-- assistant message;
-- tool search/load;
-- proposed action with capability/target/source/arguments safe summary;
-- approval card;
-- execution status;
-- evidence/result card;
-- terminal failure.
+Avoid:
 
-## Approval UX
+- tool checkboxes;
+- "RAG mode";
+- "Grafana mode";
+- "Linux mode";
+- per-message tool dropdowns.
 
-An approval card must show the exact action scope the approval binds to. Changing scope requires a new approval. Cancel/deny performs no execution.
+The model chooses tools automatically.
 
-## Failure UX
+## Tool transparency
 
-Use specific deterministic states such as `permission_denied`, `approval_required`, `tool_not_exposed`, `invalid_arguments`, `executor_unavailable`, `no_progress`, and `model_failure`. Avoid generic healthy-looking answers after a failed action.
+Automatic tool use may still be visible:
 
-## Evidence UX
+```text
+Searching project documents…
+Querying Grafana…
+Inspecting Linux host…
+Searching Internet…
+Calculating…
+```
 
-Users should be able to inspect evidence provenance and status without reading internal debug logs. Secret values and private model reasoning are never displayed.
+Users can inspect results/source references without managing orchestration.
+
+## Project UX
+
+Opening a Project should feel like opening a Chat workspace with project knowledge attached.
+
+Project pages may show:
+
+- project metadata;
+- documents and ingestion status;
+- project conversations;
+- source references.
+
+## Documents
+
+The UI should show:
+
+- upload state;
+- parsing/indexing state;
+- failure reason;
+- document metadata;
+- deletion;
+- source/citation navigation.
 
 ## Settings
 
-Model, target/source, permission, project, and security settings should expose semantic health and validation errors, not just connectivity flags.
+Settings may configure:
+
+- model endpoint/provider;
+- embeddings/reranker;
+- Internet integration;
+- Linux targets/credentials;
+- Grafana;
+- Zabbix;
+- storage paths.
+
+These are application/integration settings, not per-chat tool choices.

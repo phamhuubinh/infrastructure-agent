@@ -1,51 +1,100 @@
-# Orion product specification
+# Product
 
-## Purpose
+## Mission
 
-Orion is an infrastructure investigation and operations agent. An operator can ask natural-language questions or request infrastructure actions. A language model reasons about the request and proposes calls to reviewed capabilities; a deterministic harness controls what can actually execute.
+Orion is a **local-first AI technical workbench** for technical work.
 
-## Primary users
+It provides one conversational surface for:
 
-- infrastructure and platform engineers;
-- SRE and operations teams;
-- security-conscious teams that want LLM assistance without granting a model arbitrary shell/network/credential authority.
+- general technical chat;
+- reading and understanding documents;
+- project-specific knowledge work;
+- comparison and analysis;
+- deterministic calculation;
+- Internet research;
+- Linux inspection/actions exposed by the installed tool;
+- Grafana queries;
+- Zabbix queries;
+- future technical integrations.
 
-## Core user journeys
+The user's job is to state the task. The user should not need to choose whether Orion needs RAG, Internet, calculator, Linux, Grafana, or Zabbix.
 
-### Investigate
+## Primary surfaces
 
-The operator asks why a host, service, dashboard, alert, or application is unhealthy. Orion searches available capabilities, invokes read-only tools, correlates evidence, and explains what it found.
+### Chat
 
-### Execute a reviewed change
+Chat is the default workspace.
 
-The operator asks for a mutation such as restarting a service. Orion proposes the exact reviewed capability with exact target and arguments. The harness validates authority and permission, requests approval when policy requires it, executes using least privilege, verifies evidence, and reports the result.
+It contains:
 
-### Use project knowledge
+- conversation history;
+- current user message;
+- session attachments;
+- model configuration;
+- every registered tool.
 
-The operator attaches or indexes architecture/runbook material. Orion retrieves relevant project evidence through bounded retrieval tools; project documents do not automatically become execution instructions.
+### Project
 
-### Current information
+Project is not a different agent.
 
-When current external information is required, Orion uses a reviewed internet capability with explicit network/source policy and evidence provenance.
+Project is:
 
-## Product principles
+```text
+Chat runtime
++ active project identity
++ project metadata/instructions
++ persistent project documents
++ project-scoped RAG source
+```
 
-- Powerful inside explicit boundaries.
-- Low-friction for safe reads; deliberate for risky writes.
-- Model-native interaction, harness-native control.
-- No hidden semantic router that guesses tool/target authority from language.
-- Explanations are useful, but evidence and action state remain inspectable independently of prose.
-- A failed or unavailable tool must never be presented as successful.
+All ordinary tools remain available in Project.
 
-## Non-goals
+## Tool behavior
 
-- unrestricted remote shell assistant;
-- general browser automation platform;
-- automatic root-level infrastructure administrator;
-- multi-agent orchestration framework;
-- model-owned authorization or policy engine;
-- transparent compatibility with every previous Orion internal API.
+There is no tool picker.
 
-## Success criteria
+The model receives the registered tool definitions and autonomously decides:
 
-A competent model should be able to solve common read-only tasks with a small number of natural tool calls. Invalid or malicious model calls must fail closed. High-risk actions must be controllable by policy and approval. Operators must be able to audit what was proposed, authorized, executed, and evidenced.
+- whether a tool is needed;
+- which tool is appropriate;
+- what arguments to provide;
+- whether another tool call is useful after receiving a result;
+- when enough information exists to answer.
+
+Orion itself does not infer semantic intent before the model with keyword rules, regex lists, bilingual aliases, or a separate tool-selection classifier.
+
+## RAG behavior
+
+RAG is not always-on prompt augmentation.
+
+The model can use document retrieval when it needs document evidence.
+
+Knowledge sources can include:
+
+- current/session attachments;
+- project documents when a project is active;
+- an optional global/local knowledge library if configured.
+
+Project knowledge must remain isolated by project.
+
+## Current scope priority
+
+The first priority is excellent:
+
+1. Chat;
+2. Project;
+3. document ingestion and understanding;
+4. automatic tool use;
+5. local model support;
+6. reliable persistence and UI.
+
+Infrastructure automation can grow from the same tool loop, but it must not distort the Chat/Project architecture.
+
+## User experience principles
+
+- Ask naturally; do not select a tool first.
+- Project feels like Chat with additional private project knowledge.
+- Tool activity may be visible for transparency, but is not a configuration burden in the conversation flow.
+- Document-grounded answers should identify their sources.
+- If a tool/source fails, Orion should explain the missing information instead of pretending it succeeded.
+- Local operation is the default deployment assumption.

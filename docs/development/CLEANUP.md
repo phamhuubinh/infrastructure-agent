@@ -1,31 +1,18 @@
-# Cleanup rules
+# Cleanup targets
 
-Delete aggressively only after replacement and reachability are understood.
+This file records categories that conflict with the target architecture. It is not an instruction to delete them automatically.
 
-## Delete candidates
+When implementation migration is explicitly requested and complete, remove code whose only purpose is:
 
-- old model-visible decision FSM/state types;
-- semantic pre-routing/planning layers;
-- action-selection/action-detail protocol code;
-- completion-obligation machinery made unnecessary by evidence references;
-- tool-family-specific authority bridges replaced by CapabilityDefinition;
-- duplicate event/metrics systems;
-- stale feature flags and rollout compatibility;
-- tests that assert obsolete protocol behavior;
-- generated artifacts that no longer match public API.
+- model-visible ACTION/ACTION_DETAIL/OBSERVATION/FEEDBACK workflow;
+- semantic pre-routing/tool selection before the model;
+- keyword/alias intent maps used to choose tools;
+- per-chat manual tool selection;
+- dynamic capability search/exposure;
+- artificial per-request tool-call quota/budget orchestration;
+- duplicate Chat and Project runtimes;
+- provider-specific types inside core runtime;
+- RAG automatically run before every model request;
+- stale docs/tests that assert those behaviors.
 
-## Before deletion
-
-- search imports/callers;
-- inspect config and persistence references;
-- inspect CLI/Web/QA use;
-- decide data migration requirement;
-- add replacement tests;
-- run static reference checks.
-
-## After deletion
-
-- no dead compatibility shim unless external contract requires it;
-- `git diff --check` clean;
-- lint/type/unit tests green;
-- regenerate generated artifacts from the new source of truth.
+Keep reusable parsers, RAG components, integration clients, tool implementations, stores, UI components, and tests when they fit the new contracts.

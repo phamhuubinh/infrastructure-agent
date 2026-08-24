@@ -1,39 +1,54 @@
 # Failure and recovery
 
-## Failure classes
+## Philosophy
 
-Recommended terminal/runtime reasons:
+Failures should be explicit and local to the failing component where possible.
 
-- `model_failure`;
-- `model_call_limit`;
-- `tool_search_limit`;
-- `tool_call_limit`;
-- `no_progress`;
-- `contract_failure`;
-- `tool_not_exposed`;
-- `authority_denied`;
-- `permission_denied`;
-- `approval_required` / `approval_denied`;
-- `executor_failure`;
-- `evidence_failure`;
-- `persistence_failure`.
+## Model failures
 
-## Retry philosophy
+Examples:
 
-Retry only when the failure is plausibly transient and retry is safe. Do not use retries to repair malformed authority or to hide a model loop.
+- endpoint unavailable;
+- invalid provider response;
+- transport timeout;
+- context overflow.
 
-## Duplicate successful calls
+Return a clear request failure or retry only when the error is plausibly transient and retry is safe.
 
-For exact repeated successful calls, return existing evidence when capability semantics permit it. For writes, capability-specific idempotency policy determines whether reuse, explicit re-approval, verification, or rejection is appropriate.
+## Tool failures
 
-## No progress
+A tool failure returns a structured error to the model:
 
-Track fingerprints of repeated model outputs/tool calls and whether each iteration adds new exposure, approval state, evidence, or user input. Stop boundedly when nothing changes.
+```text
+tool unavailable
+invalid input
+connection failure
+upstream error
+timeout
+not found
+```
 
-## Persistence recovery
+The model may:
 
-Multi-store project/session mutations require transactional behavior or durable recovery journals/tombstones. Corrupt data should be quarantined/preserved, not silently treated as empty healthy state.
+- use another source;
+- retry with corrected input when appropriate;
+- explain the unavailable information;
+- ask the user.
 
-## Fail closed
+Do not convert a failed tool call into fake successful data.
 
-Unknown capability, target/source, schema mismatch, unavailable isolation, malformed config, or ambiguous authority must block execution rather than guess a fallback.
+## RAG failures
+
+Preserve document ingestion state and error details.
+
+If parsing succeeds but indexing fails, the document must not be marked fully ready.
+
+## Cancellation
+
+Users should be able to cancel long model/tool operations. Cancellation is not the same as semantic failure.
+
+## No artificial usage ceiling
+
+The architecture does not use fixed tool-call/model-call quotas as normal termination logic.
+
+A process-level watchdog/transport timeout may terminate genuinely hung work so the application remains recoverable.

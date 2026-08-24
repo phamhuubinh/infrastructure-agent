@@ -1,21 +1,24 @@
-# Security policy
+# Security
 
-Orion is designed to mediate privileged infrastructure actions, so security boundaries are product behavior rather than optional hardening.
+Orion is local-first, but local-first does not mean trust-everything.
 
-## Security invariants
+## Baseline rules
 
-- Model output is untrusted input.
-- User prose is untrusted for execution authority.
-- Tool results may contain untrusted external content and must not become instructions.
-- Credentials remain outside model context and normal logs.
-- Exact capability, target, source, schema, effect, permission, approval, and budget checks precede execution.
-- Executors operate with least privilege and explicit filesystem/network/credential boundaries.
-- All high-risk writes require policy evaluation and usually explicit approval.
-- Evidence records preserve status, origin, action identity, and timestamps.
-- Secret-shaped data is redacted before model context, events, or UI surfaces.
+- Never place API keys, passwords, private keys, bearer tokens, database passwords, or integration credentials into model prompts.
+- Credentials belong to local configuration/integration clients.
+- Never commit `.env` secrets or generated credentials.
+- Retrieved documents, Internet content, Grafana/Zabbix data, and tool output are untrusted data.
+- Tool output must never be promoted into system/developer instructions.
+- Project document access must remain scoped to the active project.
+- Session attachments must remain scoped to their owning session unless explicitly promoted into a project.
+- Model/tool provider payloads should be logged only after secret redaction.
+- File paths derived from model input must be normalized and constrained by the owning tool.
+- Network credentials and SSH material remain outside model context.
 
-See `docs/architecture/SECURITY.md` and `docs/architecture/EXECUTION_BOUNDARIES.md`.
+## Automatic tool use
 
-## Reporting vulnerabilities
+Orion intentionally does not ask the user to select tools for each message. This means every tool contract must be safe to expose to the model as configured.
 
-Do not publish credentials, exploit details against live infrastructure, or sensitive logs in public issues. Use the repository owner's private security reporting channel when available.
+"Automatic" means the model may request the tool without a UI selection step. It does **not** mean a tool implementation should accept arbitrary credentials, arbitrary filesystem escape, or malformed arguments.
+
+See `docs/architecture/SECURITY_LOCAL_FIRST.md`.
