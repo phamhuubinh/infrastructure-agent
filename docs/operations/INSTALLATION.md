@@ -1,38 +1,31 @@
 # Installation
 
-This page documents Orion's local-first installation surface.
-
-## Host assumptions
-
-The M1 installer requires Python 3.12 or newer and creates a local `.venv`.
-
-## Standard installation
+Orion is installed as one local web application: FastAPI serves both the API and the
+packaged Orion UI. The normal installation and launch flow is:
 
 ```bash
-cd /path/to/Orion_agent
 ./install.sh
-source .venv/bin/activate
+orion
 ```
 
-## What the installer currently does
+The installer requires Python 3.12 or newer, Node.js 22.12 or newer, and npm. It uses
+`npm ci` and a production Vite build, then copies the resulting client bundle into the
+install-owned `.orion-ui` directory. No Vite development server is needed after install.
 
-The script creates or reuses `.venv` and installs the current Orion package with its
-development checks. It does not create, overwrite, or remove Orion data or credentials.
-Configure a model through `/api/models` or set `ORION_MODEL_BASE_URL` and `ORION_MODEL_ID`
-before starting `orion web`.
+`ORION_PYTHON` selects an explicit Python interpreter. If it is unset, an existing valid
+`PREFIX/.venv/bin/python` is reused before system Python candidates are considered. A
+failure reports every candidate and its version; the installer never changes system Python.
 
-## Current flags
+By default, installation manages `~/.local/bin/orion`. The managed launcher points at the
+new virtual-environment CLI, replaces the known legacy `scripts/orion` launcher, and refuses
+to overwrite an unrelated executable. It is safe to run the installer repeatedly.
 
-Use `--prefix DIRECTORY` for an isolated installation (useful for a smoke test), or
-`--no-dev` for a runtime-only virtual environment. The installer never alters `.env`.
-
-## After installation
+Use an isolated prefix without altering the global command:
 
 ```bash
-orion web
-orion log
-make test
-make lint
+./install.sh --prefix /tmp/orion-smoke --no-dev
+/tmp/orion-smoke/.venv/bin/orion web --no-open
 ```
 
-See `LOCAL_RUN.md` and `CONFIGURATION.md`.
+Add `--global-launcher` only when that custom prefix should become the managed global
+launcher. The installer does not create, delete, or print Orion data or credentials.

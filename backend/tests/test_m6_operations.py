@@ -6,6 +6,8 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -374,9 +376,16 @@ def _wait_for_health(port: int) -> None:
 
 
 def test_cli_loopback_restart_and_redacted_log_smoke(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    data, home = tmp_path / "data", tmp_path / "home"
+    data, home, frontend = tmp_path / "data", tmp_path / "home", tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<title>Orion</title>", encoding="utf-8")
     port = _free_port()
-    environment = {**os.environ, "HOME": str(home), "ORION_TEST_SECRET_TOKEN": "do-not-print"}
+    environment = {
+        **os.environ,
+        "HOME": str(home),
+        "ORION_TEST_SECRET_TOKEN": "do-not-print",
+        "ORION_UI_DIR": str(frontend),
+    }
     command = [
         sys.executable,
         "-m",
@@ -414,3 +423,65 @@ def test_cli_loopback_restart_and_redacted_log_smoke(tmp_path) -> None:  # type:
     assert persisted["session_id"] == session
     assert str(data / "orion.db") in output
     assert "do-not-print" not in output
+
+
+def test_bare_cli_maps_to_web_and_browser_opening_is_loopback_only(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    frontend = tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<title>Orion</title>", encoding="utf-8")
+    captured: list[object] = []
+    monkeypatch.setenv("ORION_UI_DIR", str(frontend))
+    monkeypatch.setattr(cli, "_run_web", captured.append)
+    monkeypatch.setattr(sys, "argv", ["orion"])
+    cli.main()
+
+    arguments = captured[0]
+    assert arguments.command == "web"  # type: ignore[union-attr]
+    assert arguments.no_open is False  # type: ignore[union-attr]
+    assert cli._is_loopback_host("127.0.0.1")
+    assert cli._is_loopback_host("localhost")
+    assert not cli._is_loopback_host("0.0.0.0")
+    assert cli._local_url("::1", 61888) == "http://[::1]:61888/"
+
+    opened: list[str] = []
+
+    class ReadyServer:
+        started = True
+        should_exit = False
+
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    cli._open_browser_when_ready(ReadyServer(), "http://127.0.0.1:61888/")
+    assert opened == ["http://127.0.0.1:61888/"]
+
+
+def test_installer_reports_python_candidates_when_no_supported_interpreter_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    repository = Path(__file__).parents[2]
+    candidates = tmp_path / "candidates"
+    candidates.mkdir()
+    for name in ("python3.12", "python3"):
+        candidate = candidates / name
+        candidate.write_text("#!/usr/bin/env bash\necho Python 3.11.0\nexit 1\n", encoding="utf-8")
+        candidate.chmod(0o755)
+    result = subprocess.run(
+        [str(repository / "install.sh"), "--prefix", str(tmp_path / "install")],
+        cwd=repository,
+        env={**os.environ, "PATH": f"{candidates}:{os.environ['PATH']}"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "Python 3.12 or newer is required." in result.stderr
+    assert "Checked Python candidates:" in result.stderr
+    assert "Python 3.11.0" in result.stderr
+
+
+def test_web_startup_fails_clearly_without_packaged_ui(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    monkeypatch.setenv("ORION_UI_DIR", str(tmp_path / "missing-ui"))
+    with pytest.raises(SystemExit, match="packaged UI is missing"):
+        cli._run_web(SimpleNamespace(host="127.0.0.1", port=61888, no_open=True))

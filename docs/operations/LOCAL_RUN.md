@@ -1,47 +1,38 @@
 # Running Orion locally
 
-## Web UI
+Start the complete local web application with either command:
 
 ```bash
+orion
 orion web
 ```
 
-The command starts the local API at `http://127.0.0.1:61888` by default. It binds to
-loopback by default and does not open a browser or manage Docker.
+Both serve the preserved Orion UI at `http://127.0.0.1:61888/` and the API at
+`http://127.0.0.1:61888/api/...`. A browser opens after the loopback server is ready.
+For automation or headless use, disable that behavior explicitly:
 
-Use `orion web --host HOST --port PORT` (or `ORION_HOST`/`ORION_PORT`) to configure the
-listener. `--data-dir DIRECTORY` keeps a test or alternate installation fully isolated.
+```bash
+orion web --no-open
+```
 
-Run the preserved UI in a second terminal:
+The browser is automatically opened only for loopback hosts (`127.0.0.1`, `localhost`, or
+`::1`). `orion web --host HOST --port PORT` (or `ORION_HOST` / `ORION_PORT`) configures the
+listener; non-loopback bindings never auto-open a browser. Orion remains loopback-only by
+default.
+
+The production UI is built by `./install.sh` and served by the same FastAPI process. Do not
+run `npm run dev` for normal installed use. It remains a frontend-development workflow only.
 
 ```bash
 cd ui
 npm run dev
 ```
 
-## Logs
+Show sanitized local logs with:
 
 ```bash
 orion log
 ```
 
-This prints the database/log locations and the last 100 sanitized public application
-events. Use `orion log --tail 20` to limit output.
-
-## CLI commands
-
-Use `orion --help` to inspect the CLI surface. Stop `orion web` with Ctrl-C; starting it
-again with the same data directory resumes the same SQLite/WAL database and blob store.
-
-## Target runtime
-
-Running locally does not change Chat/Project semantics:
-
-```text
-UI/CLI
-→ backend
-→ local/remote configured model
-→ automatic registered tool calls
-→ local integrations/RAG
-→ final response
-```
+Use `orion log --tail 20` to limit output. Stop the web app with Ctrl-C; restarting it with
+the same data directory resumes the same SQLite/WAL database and blob store.

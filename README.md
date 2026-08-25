@@ -71,11 +71,13 @@ Read:
 
 ```bash
 ./install.sh
-orion web
+orion
 ```
 
-The preserved React UI is run separately during M1 (`cd ui && npm run dev`); it connects to
-the local API at `http://127.0.0.1:61888`.
+This starts the packaged UI at `http://127.0.0.1:61888/` and its API at
+`http://127.0.0.1:61888/api/...`; the browser opens once Orion is ready. Use
+`orion web --no-open` for headless use. `npm run dev` remains only a frontend development
+workflow.
 
 Useful commands:
 

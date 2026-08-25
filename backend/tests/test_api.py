@@ -62,6 +62,37 @@ async def test_api_reports_optional_internet_integration_without_exposing_secret
 
 
 @pytest.mark.anyio
+async def test_packaged_ui_serves_root_assets_and_client_routes_without_capturing_api(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    frontend = tmp_path / "ui"
+    assets = frontend / "assets"
+    assets.mkdir(parents=True)
+    (frontend / "index.html").write_text(
+        "<!doctype html><html><head><title>Orion</title></head><body>Orion UI</body></html>",
+        encoding="utf-8",
+    )
+    (assets / "app.js").write_text("console.log('orion');", encoding="utf-8")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=create_app(tmp_path / "orion.db", ScriptedBackend([]), ui_directory=frontend)
+        ),
+        base_url="http://test",
+    ) as client:
+        root = await client.get("/")
+        asset = await client.get("/assets/app.js")
+        route = await client.get("/projects/example")
+        health = await client.get("/api/health")
+        missing_api = await client.get("/api/not-a-route")
+
+    assert root.status_code == 200 and "<title>Orion</title>" in root.text
+    assert asset.status_code == 200 and asset.text == "console.log('orion');"
+    assert route.status_code == 200 and "Orion UI" in route.text
+    assert health.status_code == 200 and health.json()["status"] == "ok"
+    assert missing_api.status_code == 404 and "Orion UI" not in missing_api.text
+
+
+@pytest.mark.anyio
 async def test_api_distinguishes_healthy_and_unhealthy_internet_configuration(
     tmp_path,
 ) -> None:  # type: ignore[no-untyped-def]

@@ -4,14 +4,8 @@ This page documents the repository's **current** installation/run path. Target a
 
 ## Requirements
 
-Current `install.sh` expects a Linux-like host with:
-
-- Docker Engine;
-- Docker Compose;
-- common account/group utilities such as `getent` and `groupadd`;
-- permission to create/configure the Orion tool-secrets group/file (directly or through `sudo`).
-
-Git and `curl` are useful for normal repository/development work.
+Current `install.sh` requires Python 3.12+, Node.js 22.12+, and npm. Git is useful for
+normal repository/development work.
 
 ## Install
 
@@ -21,36 +15,25 @@ From the repository root:
 ./install.sh
 ```
 
-Current installer behavior:
-
-```text
-prepare .env
-→ generate missing PostgreSQL/API secrets
-→ create/configure external tool-credentials file
-→ install the `orion` CLI
-→ optionally prompt for an OpenAI-compatible model when stdin is interactive
-→ docker compose up -d --build --remove-orphans
-→ report tool credential status
-```
-
-The current script does **not** define documented `--non-interactive` or `--skip-up` command-line options.
-
-When stdin is non-interactive, the optional model setup prompt is skipped automatically.
+The installer creates or reuses `.venv`, installs Orion, runs a deterministic frontend build,
+and installs the resulting client assets for FastAPI to serve. It manages the default
+`~/.local/bin/orion` launcher without touching Orion data or credentials.
 
 ## Start/use the Web UI
 
 After installation:
 
 ```bash
-orion web
+orion
 ```
 
-The wrapper ensures the Web-facing services are running, prints the configured Web URL, opens a browser when possible, and follows current API/UI logs.
+The command serves the UI and API at `http://127.0.0.1:61888/` and opens a browser once the
+loopback server is ready.
 
 Disable browser launch:
 
 ```bash
-ORION_DISABLE_BROWSER=1 orion web
+orion web --no-open
 ```
 
 ## Logs
@@ -59,27 +42,6 @@ ORION_DISABLE_BROWSER=1 orion web
 orion log
 ```
 
-or:
-
-```bash
-docker compose logs -f
-```
-
-## Service status
-
-```bash
-docker compose ps
-```
-
-## Current Compose service names
-
-```text
-reverse-proxy
-api
-ui
-postgres
-rag-service
-```
 
 ## Development checks
 

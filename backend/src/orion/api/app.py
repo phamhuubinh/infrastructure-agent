@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from orion.access import LocalAccessAdapter
@@ -17,6 +18,7 @@ from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
 from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
+from orion.paths import packaged_ui_directory
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_text, safe_endpoint
 
@@ -95,6 +97,7 @@ def create_app(
     database_path: Path | None = None,
     backend: ModelBackend | None = None,
     application: OrionApplication | None = None,
+    ui_directory: Path | None = None,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     assembled = application or build_application(database_path, backend)
@@ -328,7 +331,34 @@ def create_app(
             raise HTTPException(status_code=409, detail="Request is no longer running.")
         return {"status": "cancellation_requested"}
 
+    frontend = (ui_directory or packaged_ui_directory()).expanduser().resolve()
+
+    @app.get("/{frontend_path:path}", include_in_schema=False)
+    async def frontend_application(frontend_path: str) -> Response:
+        """Serve packaged client assets and let the browser router own UI routes.
+
+        API paths stay inside the API namespace even when no endpoint matches;
+        they must never receive the SPA shell.
+        """
+        if frontend_path == "api" or frontend_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found.")
+        requested = (frontend / frontend_path).resolve()
+        if requested.is_relative_to(frontend) and requested.is_file():
+            return _static_file_response(requested)
+        shell = frontend / "index.html"
+        if not shell.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail="Orion's packaged UI is missing. Run ./install.sh to build it.",
+            )
+        return _static_file_response(shell)
+
     return app
+
+
+def _static_file_response(path: Path) -> Response:
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return Response(content=path.read_bytes(), media_type=media_type)
 
 
 async def _sse_events(

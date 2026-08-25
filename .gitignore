@@ -27,6 +27,7 @@ artifacts/
 # UI dependencies
 ui/node_modules/
 ui/dist/
+.orion-ui/
 desktop/node_modules/
 desktop/release/
 
