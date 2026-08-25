@@ -20,7 +20,7 @@ without exposing private hidden reasoning.
 ## Recommended events
 
 ```text
-request.started
+request.accepted
 model.started
 model.completed
 tool.started

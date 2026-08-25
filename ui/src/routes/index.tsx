@@ -399,7 +399,7 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
         const parsed = parseSseEvents(buffer);
         buffer = parsed.remainder;
         for (const event of parsed.events) {
-          if (event.type === "request.started" && typeof event.payload.request_id === "string") {
+          if (event.type === "request.accepted" && typeof event.payload.request_id === "string") {
             current.requestId = event.payload.request_id;
           }
           if (event.type === "request.failed") {

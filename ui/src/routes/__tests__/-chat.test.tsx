@@ -47,7 +47,7 @@ describe("M1 Chat integration", () => {
       if (path === "/api/sessions/chat-1/messages/stream") {
         return sseResponse([
           {
-            type: "request.started",
+            type: "request.accepted",
             created_at: "now",
             payload: { request_id: "req-1", session_id: "chat-1" },
           },
@@ -124,7 +124,7 @@ describe("M1 Chat integration", () => {
       if (path === "/api/sessions/chat-1/messages/stream") {
         return sseResponse([
           {
-            type: "request.started",
+            type: "request.accepted",
             created_at: "now",
             payload: { request_id: "req-1", session_id: "chat-1" },
           },
@@ -229,7 +229,7 @@ describe("M1 Chat integration", () => {
               new TextEncoder().encode(
                 "data: " +
                   JSON.stringify({
-                    type: "request.started",
+                    type: "request.accepted",
                     created_at: "now",
                     payload: { request_id: "req-1", session_id: "chat-1" },
                   }) +
