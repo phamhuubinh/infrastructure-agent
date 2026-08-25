@@ -1,0 +1,172 @@
+"""Knowledge operations registered in the common ToolRegistry."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from orion.contracts import ToolCall, ToolDefinition, ToolResult
+from orion.knowledge.service import KnowledgeService
+from orion.tool_runtime.registry import ToolRegistration
+
+
+def knowledge_registrations(service: KnowledgeService) -> tuple[ToolRegistration, ...]:
+    return tuple(
+        ToolRegistration(definition=definition, handler=handler)
+        for definition, handler in (
+            (list_documents_definition(), _list_documents(service)),
+            (search_definition(), _search(service)),
+            (read_definition(), _read(service)),
+            (source_metadata_definition(), _source_metadata(service)),
+        )
+    )
+
+
+def list_documents_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="knowledge.list_documents",
+        description="List ready document attachments visible in the current session scope.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        handler_key="knowledge.list_documents",
+    )
+
+
+def search_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="knowledge.search",
+        description=(
+            "Search visible session documents for relevant passages. "
+            "Use exact read for full documents."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+                "document_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "uniqueItems": True,
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        handler_key="knowledge.search",
+    )
+
+
+def read_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="knowledge.read",
+        description=(
+            "Read one exact visible document, or one named section. This returns all matching "
+            "segments; use it for whole-document work instead of treating search results "
+            "as complete."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "minLength": 1},
+                "section": {"type": "string", "minLength": 1},
+            },
+            "required": ["document_id"],
+            "additionalProperties": False,
+        },
+        handler_key="knowledge.read",
+    )
+
+
+def source_metadata_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="knowledge.source_metadata",
+        description="Get structure and provenance metadata for visible documents.",
+        input_schema={
+            "type": "object",
+            "properties": {"document_id": {"type": "string", "minLength": 1}},
+            "additionalProperties": False,
+        },
+        handler_key="knowledge.source_metadata",
+    )
+
+
+def _list_documents(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
+    def handler(call: ToolCall) -> ToolResult:
+        documents = service.list_documents(call.runtime_scope)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"documents": [document.model_dump(mode="json") for document in documents]},
+        )
+
+    return handler
+
+
+def _search(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
+    def handler(call: ToolCall) -> ToolResult:
+        try:
+            segments = service.search(
+                call.runtime_scope,
+                str(call.arguments["query"]),
+                int(call.arguments.get("limit", 5)),
+                tuple(str(document_id) for document_id in call.arguments.get("document_ids", [])),
+            )
+        except PermissionError as error:
+            return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
+        sources = tuple(service.source_for_segment(segment) for segment in segments)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"segments": [segment.model_dump(mode="json") for segment in segments]},
+            sources=sources,
+        )
+
+    return handler
+
+
+def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
+    def handler(call: ToolCall) -> ToolResult:
+        try:
+            document, segments = service.read(
+                call.runtime_scope,
+                str(call.arguments["document_id"]),
+                str(call.arguments["section"]) if "section" in call.arguments else None,
+            )
+        except PermissionError as error:
+            return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
+        except LookupError as error:
+            return ToolResult.failure(call.call_id, call.tool_name, "not_found", str(error))
+        sources = tuple(service.source_for_segment(segment) for segment in segments)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={
+                "document": document.model_dump(mode="json"),
+                "segments": [segment.model_dump(mode="json") for segment in segments],
+                "complete_document": "section" not in call.arguments,
+            },
+            sources=sources,
+        )
+
+    return handler
+
+
+def _source_metadata(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
+    def handler(call: ToolCall) -> ToolResult:
+        try:
+            metadata = service.source_metadata(
+                call.runtime_scope,
+                str(call.arguments["document_id"]) if "document_id" in call.arguments else None,
+            )
+        except PermissionError as error:
+            return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"sources": metadata},
+        )
+
+    return handler

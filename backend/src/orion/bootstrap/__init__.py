@@ -8,6 +8,8 @@ from pathlib import Path
 
 from orion.access import LocalAccessAdapter
 from orion.chat.runtime import ChatRuntime
+from orion.knowledge import KnowledgeService, knowledge_registrations
+from orion.knowledge.blob_store import LocalBlobStore
 from orion.models.backend import ModelBackend
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.persistence.sqlite import SQLiteStore
@@ -23,6 +25,7 @@ class OrionApplication:
     access: LocalAccessAdapter
     backend: ModelBackend
     registry: ToolRegistry
+    knowledge: KnowledgeService
     runtime: ChatRuntime
 
 
@@ -37,9 +40,12 @@ def build_application(
     _configure_model_from_environment(store)
     access = LocalAccessAdapter()
     registry_builder = ToolRegistryBuilder()
+    knowledge = KnowledgeService(store, LocalBlobStore(resolved_path.parent / "blobs"))
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
+        registry_builder.register(registration.definition, registration.handler)
+    for registration in knowledge_registrations(knowledge):
         registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
     selected_backend = backend or OpenAICompatibleBackend()
@@ -49,6 +55,7 @@ def build_application(
         access=access,
         backend=selected_backend,
         registry=registry,
+        knowledge=knowledge,
         runtime=runtime,
     )
 

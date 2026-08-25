@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
+from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
 from orion.persistence.sqlite import SQLiteStore
 
@@ -46,6 +47,19 @@ class SessionView(BaseModel):
 class AssistantResponse(BaseModel):
     request_id: str
     assistant_content: str
+
+
+class AttachmentInput(StrictRequest):
+    name: str = Field(min_length=1)
+    content: str
+    media_type: str | None = "text/plain"
+
+
+class AttachmentView(BaseModel):
+    document: dict[str, object]
+    attachment_id: str
+    status: str
+    error_message: str | None = None
 
 
 def create_app(
@@ -91,6 +105,49 @@ def create_app(
     async def get_timeline(session_id: str) -> list[dict[str, object]]:
         _require_session(store, session_id)
         return [item.model_dump(mode="json") for item in store.timeline(session_id)]
+
+    @app.post(
+        "/api/sessions/{session_id}/attachments", response_model=AttachmentView, status_code=201
+    )
+    async def attach_document(session_id: str, attachment: AttachmentInput) -> AttachmentView:
+        _require_session(store, session_id)
+        uploaded = assembled.knowledge.attach(
+            session_id, attachment.name, attachment.content.encode(), attachment.media_type
+        )
+        return AttachmentView(
+            document=uploaded.document.model_dump(mode="json"),
+            attachment_id=uploaded.attachment_id,
+            status=uploaded.status,
+            error_message=uploaded.error_message,
+        )
+
+    @app.get("/api/documents/{document_id}")
+    async def document_status(document_id: str) -> dict[str, object]:
+        status = assembled.knowledge.document_status(document_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        return status
+
+    @app.delete("/api/documents/{document_id}")
+    async def delete_document(document_id: str) -> dict[str, str]:
+        row = store.document(document_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        session_id = str(row["session_id"])
+        principal = assembled.access.current_principal()
+        scope = RuntimeScope(
+            session_id=session_id,
+            attachment_ids=store.session_attachment_ids(session_id),
+            principal_id=principal.principal_id,
+            workspace_id=principal.workspace_id,
+        )
+        try:
+            deleted = assembled.knowledge.delete(document_id, scope)
+        except PermissionError as error:
+            raise HTTPException(status_code=404, detail="Document not found.") from error
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        return {"status": "deleted"}
 
     @app.post("/api/sessions/{session_id}/messages", response_model=AssistantResponse)
     async def submit_message(session_id: str, message: SubmitMessage) -> AssistantResponse:

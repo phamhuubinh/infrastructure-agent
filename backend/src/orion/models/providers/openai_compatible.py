@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -191,7 +192,10 @@ class OpenAICompatibleBackend(ModelBackend):
                     )
                 )
             content = "".join(content_parts)
-            assistant = AssistantMessage(content=content) if content else None
+            citations = tuple(re.findall(r"\[\[source:([^\]\s]+)\]\]", content))
+            assistant = None
+            if content:
+                assistant = AssistantMessage(content=content, citation_source_ref_ids=citations)
             return ModelTurn(assistant=assistant, tool_calls=tuple(tool_calls))
         except (TypeError, ValueError, json.JSONDecodeError) as error:
             raise ModelBackendError("Model returned an invalid streaming response.") from error

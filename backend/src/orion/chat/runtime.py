@@ -14,6 +14,7 @@ from orion.contracts import (
     RuntimeScope,
     TimelineItem,
     ToolResult,
+    citations_are_visible,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
 from orion.persistence.sqlite import SQLiteStore
@@ -105,6 +106,7 @@ class ChatRuntime:
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
+                    self._validate_citations(turn, session_id)
                     assistant_item = self._persist_assistant_turn(session_id, request_id, turn)
                     if turn.assistant is not None:
                         self._emit(
@@ -196,7 +198,7 @@ class ChatRuntime:
         return RuntimeScope(
             session_id=session_id,
             project_id=None,
-            attachment_ids=(),
+            attachment_ids=self._store.session_attachment_ids(session_id),
             principal_id=principal.principal_id,
             workspace_id=principal.workspace_id,
         )
@@ -223,6 +225,11 @@ class ChatRuntime:
             "assistant_message",
             {
                 "content": turn.assistant.content if turn.assistant is not None else "",
+                "citation_source_ref_ids": (
+                    list(turn.assistant.citation_source_ref_ids)
+                    if turn.assistant is not None
+                    else []
+                ),
                 "tool_calls": [call.model_dump(mode="json") for call in turn.tool_calls],
             },
         )
@@ -249,6 +256,31 @@ class ChatRuntime:
     def _fail_unexpected(self, request_id: str) -> None:
         self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")
         self._emit(request_id, "request.failed", {"message": "Request failed unexpectedly."})
+
+    def _validate_citations(self, turn: ModelTurn, session_id: str) -> None:
+        if turn.assistant is None or not turn.assistant.citation_source_ref_ids:
+            return
+        visible_source_ref_ids: set[str] = set()
+        attachment_ids = self._store.session_attachment_ids(session_id)
+        for item in self._store.timeline(session_id):
+            if item.kind != "tool_result":
+                continue
+            result = ToolResult.model_validate(item.payload["result"])
+            for source in result.sources:
+                if source.document_id is None:
+                    continue
+                document = self._store.document(source.document_id)
+                if (
+                    document is not None
+                    and document["session_id"] == session_id
+                    and document["attachment_id"] in attachment_ids
+                    and document["status"] == "ready"
+                ):
+                    visible_source_ref_ids.add(source.source_ref_id)
+        if not citations_are_visible(
+            turn.assistant.citation_source_ref_ids, visible_source_ref_ids
+        ):
+            raise RequestFailed("Assistant cited an unavailable source.")
 
     @staticmethod
     def _ensure_not_cancelled(cancellation: asyncio.Event) -> None:

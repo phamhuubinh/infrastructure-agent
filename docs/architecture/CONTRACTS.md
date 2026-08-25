@@ -203,6 +203,7 @@ A tool result may include source references that the assistant can cite.
 ```python
 @dataclass
 class SourceRef:
+    source_ref_id: str
     source_kind: str
     source_id: str
     document_id: str | None
@@ -212,7 +213,10 @@ class SourceRef:
     label: str | None
 ```
 
-A final citation is a presentation-level reference to one or more `SourceRef` values. Citation rendering belongs to the UI/API presentation layer, not to retrieval ranking logic.
+A final citation is a presentation-level reference to one or more canonical visible
+`source_ref_id` values. Orion rejects citation IDs that were not returned in a visible
+tool result. Citation rendering belongs to the UI/API presentation layer, not to retrieval
+ranking logic.
 
 ## TimelineItem
 

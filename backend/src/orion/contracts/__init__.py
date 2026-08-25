@@ -16,6 +16,9 @@ class CanonicalModel(BaseModel):
 
 class AssistantMessage(CanonicalModel):
     content: str = ""
+    # These are presentation references, not document IDs supplied by the model.
+    # Orion validates them against SourceRef values actually returned by tools.
+    citation_source_ref_ids: tuple[str, ...] = ()
 
 
 class ModelToolCall(CanonicalModel):
@@ -105,6 +108,7 @@ class RetrievedSegment(CanonicalModel):
 
 
 class SourceRef(CanonicalModel):
+    source_ref_id: str = Field(min_length=1)
     source_kind: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
     document_id: str | None = None
@@ -115,7 +119,14 @@ class SourceRef(CanonicalModel):
 
 
 class Citation(CanonicalModel):
-    sources: tuple[SourceRef, ...] = Field(min_length=1)
+    source_ref_ids: tuple[str, ...] = Field(min_length=1)
+
+
+def citations_are_visible(
+    citation_source_ref_ids: tuple[str, ...], visible_source_ref_ids: set[str]
+) -> bool:
+    """Return whether every presentation citation names a tool-visible source."""
+    return all(source_ref_id in visible_source_ref_ids for source_ref_id in citation_source_ref_ids)
 
 
 class ToolResult(CanonicalModel):
@@ -152,6 +163,7 @@ class ContextMessage(CanonicalModel):
     tool_calls: tuple[ModelToolCall, ...] = ()
     tool_call_id: str | None = None
     tool_name: str | None = None
+    citation_source_ref_ids: tuple[str, ...] = ()
 
 
 class AssistantDelta(CanonicalModel):
@@ -180,6 +192,7 @@ TimelineKind = Literal[
     "assistant_message",
     "tool_call",
     "tool_result",
+    "attachment",
     "runtime_notice",
 ]
 

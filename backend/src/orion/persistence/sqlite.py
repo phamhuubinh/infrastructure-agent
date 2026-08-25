@@ -74,6 +74,40 @@ class SQLiteStore:
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS documents (
+                    document_id TEXT PRIMARY KEY,
+                    attachment_id TEXT NOT NULL UNIQUE,
+                    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                    blob_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    media_type TEXT,
+                    status TEXT NOT NULL,
+                    normalized_text TEXT,
+                    error_message TEXT,
+                    deleted_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS documents_session_visibility
+                    ON documents(session_id, status, deleted_at);
+                CREATE TABLE IF NOT EXISTS document_segments (
+                    segment_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL REFERENCES documents(document_id),
+                    ordinal INTEGER NOT NULL,
+                    text TEXT NOT NULL,
+                    page INTEGER,
+                    section TEXT,
+                    UNIQUE(document_id, ordinal)
+                );
+                CREATE INDEX IF NOT EXISTS document_segments_document
+                    ON document_segments(document_id, ordinal);
+                CREATE TABLE IF NOT EXISTS document_ingestion_events (
+                    event_id TEXT PRIMARY KEY,
+                    document_id TEXT NOT NULL REFERENCES documents(document_id),
+                    state TEXT NOT NULL,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
             columns = {
@@ -157,7 +191,7 @@ class SQLiteStore:
     def append_timeline(
         self,
         session_id: str,
-        request_id: str,
+        request_id: str | None,
         kind: str,
         payload: dict[str, Any],
         call_id: str | None = None,
@@ -262,3 +296,137 @@ class SQLiteStore:
                 "WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1"
             ).fetchone()
         return dict(row) if row else None
+
+    # Document metadata and normalized segments deliberately live at this persistence
+    # boundary. Blob bytes remain in the opaque local blob store.
+    def create_document(
+        self,
+        document_id: str,
+        attachment_id: str,
+        session_id: str,
+        blob_id: str,
+        name: str,
+        media_type: str | None,
+    ) -> None:
+        now = _utc_now()
+        with self._lock, self._connection:
+            self._connection.execute(
+                """INSERT INTO documents(document_id, attachment_id, session_id, blob_id, name,
+                   media_type, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)""",
+                (document_id, attachment_id, session_id, blob_id, name, media_type, now, now),
+            )
+            self._record_ingestion_event(document_id, "uploaded", None)
+
+    def set_document_state(
+        self, document_id: str, state: str, error_message: str | None = None
+    ) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE documents SET status = ?, error_message = ?, updated_at = ? "
+                "WHERE document_id = ?",
+                (state, error_message, _utc_now(), document_id),
+            )
+            self._record_ingestion_event(document_id, state, error_message)
+
+    def store_parsed_document(
+        self, document_id: str, normalized_text: str, segments: list[dict[str, Any]]
+    ) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "UPDATE documents SET normalized_text = ?, updated_at = ? WHERE document_id = ?",
+                (normalized_text, _utc_now(), document_id),
+            )
+            self._connection.execute(
+                "DELETE FROM document_segments WHERE document_id = ?", (document_id,)
+            )
+            self._connection.executemany(
+                """INSERT INTO document_segments(segment_id, document_id, ordinal, text,
+                   page, section)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        segment["segment_id"],
+                        document_id,
+                        segment["ordinal"],
+                        segment["text"],
+                        segment.get("page"),
+                        segment.get("section"),
+                    )
+                    for segment in segments
+                ],
+            )
+
+    def document(self, document_id: str, include_deleted: bool = False) -> dict[str, Any] | None:
+        query = "SELECT * FROM documents WHERE document_id = ?"
+        if not include_deleted:
+            query += " AND deleted_at IS NULL"
+        with self._lock:
+            row = self._connection.execute(query, (document_id,)).fetchone()
+        return dict(row) if row else None
+
+    def visible_documents(
+        self, session_id: str, attachment_ids: tuple[str, ...]
+    ) -> list[dict[str, Any]]:
+        if not attachment_ids:
+            return []
+        placeholders = ", ".join("?" for _ in attachment_ids)
+        with self._lock:
+            rows = self._connection.execute(
+                f"""SELECT * FROM documents WHERE session_id = ?
+                AND attachment_id IN ({placeholders})
+                AND status = 'ready' AND deleted_at IS NULL ORDER BY created_at, document_id""",
+                (session_id, *attachment_ids),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def session_attachment_ids(self, session_id: str) -> tuple[str, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT attachment_id FROM documents WHERE session_id = ? AND deleted_at IS NULL "
+                "ORDER BY created_at, document_id",
+                (session_id,),
+            ).fetchall()
+        return tuple(str(row["attachment_id"]) for row in rows)
+
+    def document_segments(
+        self, document_id: str, section: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = "SELECT * FROM document_segments WHERE document_id = ?"
+        values: tuple[object, ...] = (document_id,)
+        if section is not None:
+            query += " AND section = ?"
+            values = (document_id, section)
+        query += " ORDER BY ordinal"
+        with self._lock:
+            rows = self._connection.execute(query, values).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_document(self, document_id: str) -> bool:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE documents SET deleted_at = ?, updated_at = ? WHERE document_id = ? "
+                "AND deleted_at IS NULL",
+                (_utc_now(), _utc_now(), document_id),
+            )
+            if cursor.rowcount:
+                self._record_ingestion_event(document_id, "deleted", None)
+            return cursor.rowcount == 1
+
+    def document_ingestion_events(self, document_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT state, error_message, created_at FROM document_ingestion_events "
+                "WHERE document_id = ? ORDER BY created_at, rowid",
+                (document_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def _record_ingestion_event(
+        self, document_id: str, state: str, error_message: str | None
+    ) -> None:
+        self._connection.execute(
+            """INSERT INTO document_ingestion_events(event_id, document_id, state, error_message,
+               created_at) VALUES (?, ?, ?, ?, ?)""",
+            (str(uuid.uuid4()), document_id, state, error_message, _utc_now()),
+        )

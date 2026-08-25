@@ -56,7 +56,13 @@ def test_registry_builder_rejects_duplicate_names_handler_keys_and_invalid_schem
 def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # type: ignore[no-untyped-def]
     app = build_application(tmp_path / "orion.db", ScriptedBackend([]))
 
-    assert [definition.name for definition in app.registry.definitions()] == ["calculator.evaluate"]
+    assert [definition.name for definition in app.registry.definitions()] == [
+        "calculator.evaluate",
+        "knowledge.list_documents",
+        "knowledge.read",
+        "knowledge.search",
+        "knowledge.source_metadata",
+    ]
     assert not hasattr(app.registry, "register")
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.
 
