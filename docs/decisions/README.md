@@ -12,5 +12,6 @@ These decisions define the current target.
 - `0008-provider-neutral-model-backend.md`
 - `0009-canonical-runtime-contracts.md`
 - `0010-project-scope-is-runtime-bound.md`
+- `0011-infrastructure-mutation-contracts.md`
 
 A future change to these principles should be explicit rather than introduced indirectly through implementation convenience.

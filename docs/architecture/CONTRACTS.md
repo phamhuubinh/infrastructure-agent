@@ -147,6 +147,94 @@ scope_violation
 
 Do not turn failures into fake successful tool data.
 
+### Infrastructure-operation errors
+
+Linux, Grafana, and Zabbix tools use the same `ToolError` contract.  Their
+implementation must use the existing codes above where they fit, plus the following
+stable codes where the distinction is necessary:
+
+```text
+invalid_input          closed-schema or operation-specific validation failed
+unknown_target         target_ref is not an exact configured target
+credential_unavailable configured target credentials cannot be resolved safely
+permission_denied      configured identity is not permitted to perform the operation
+verification_failed    a dispatched mutation did not reach its required observed state
+outcome_unknown        a side effect may have happened but its final state is unknown
+cancelled              cancellation was observed before the side-effect boundary
+```
+
+`unavailable`, `connection_error`, `timeout`, `upstream_error`, and `not_found`
+retain their ordinary canonical meanings. `retryable=true` is only allowed when a
+new call is known not to duplicate a side effect; it is false for a mutation after
+its side-effect boundary. Errors are always returned as
+`ToolResult(status="error")`, never as success-shaped data.
+
+### Configured infrastructure targets
+
+Infrastructure tools may accept a `target_ref`: an opaque, stable, non-secret
+configured identity. It identifies a configured Linux host, Grafana deployment, or
+Zabbix deployment; it is not `RuntimeScope` and does not replace session, project,
+principal, or workspace binding.
+
+Before an integration performs a read or side effect, its ordinary ToolRunner call
+must resolve `target_ref` by exact match, validate that the target is known for the
+bound Orion context, and resolve that target's server-side connection and credential
+configuration. Unknown or forged references fail with `unknown_target` before any
+network, SSH, or upstream request. The model can receive only sanitized target
+display metadata/ref supplied deterministically by Orion configuration.
+
+Model arguments, model context, `ToolResult`, `SourceRef`, logs, and public activity
+must not contain a connection URL, SSH username, private-key location, API token,
+password, `credential_ref`, authorization header, or arbitrary transport option.
+Credentials are resolved server-side only. A resolution failure is
+`credential_unavailable`.
+
+### Infrastructure mutations
+
+Mutations are ordinary ToolRunner calls, not a second runtime or an approval
+orchestrator. Their common lifecycle is:
+
+```text
+exact tool lookup
+→ closed-schema validation
+→ RuntimeScope attachment
+→ exact target_ref resolution and validation
+→ server-side credential resolution
+→ operation-specific preflight
+→ cancellation check immediately before the side-effect boundary
+→ issue exactly one semantic side effect
+→ bounded required post-action verification
+→ canonical ToolResult
+→ normal public timeline/activity and same model loop
+```
+
+The side-effect boundary is the moment the integration dispatches the documented
+semantic request to its target (restart/install request, Grafana annotation create,
+or Zabbix acknowledgement). Before that boundary cancellation produces no side
+effect and may return `cancelled`. After dispatch, cancellation is not rollback and
+must not claim that no change happened. The integration attempts bounded verification
+when possible; if the final state cannot be determined, it returns `outcome_unknown`
+and does not retry or replay the mutation.
+
+Read retries may be bounded only when an operation document explicitly permits them;
+they never change target or `RuntimeScope`. No mutation has a transparent automatic
+retry after its side-effect boundary. `call_id` remains correlation identity, not a
+global idempotency key.
+
+Successful mutation `data` is structured and includes at least:
+
+```json
+{
+  "target_ref": "configured-target",
+  "changed": true,
+  "verification": {"status": "verified"}
+}
+```
+
+Operation-specific safe observed data may be added. A mutation source reference, if
+present, identifies only meaningful post-action observation/evidence; it is never
+authorization evidence.
+
 ## KnowledgeSourceRef
 
 A knowledge source identifies a retrieval scope, not a free-form query hint.
@@ -221,6 +309,15 @@ tool result. Citation rendering belongs to the UI/API presentation layer, not to
 ranking logic. Non-document sources such as Internet retrieval use `url` and
 `retrieved_at` for canonical provenance while leaving document-specific fields unset.
 
+Infrastructure read observations may use this same citation path. Their
+`source_kind` is `linux`, `grafana`, or `zabbix`; `source_id` is the sanitized
+configured target reference/identity; and `label`, `section`, and `retrieved_at` may
+contain only safe operation-specific provenance. Infrastructure sources must leave
+`url` unset unless a separately safe, non-secret presentation URL is explicitly
+defined. They must never contain credentials, private keys, authorization headers,
+or secret-bearing URLs. Citation validation remains unchanged: a final answer may
+only cite a `source_ref_id` returned in a visible result for that model loop.
+
 ## TimelineItem
 
 Persist public conversation/runtime state as typed timeline items.
@@ -247,6 +344,13 @@ public payload
 ```
 
 Tool items additionally carry `call_id` and `tool_name`.
+
+For infrastructure activity, the normal public tool events/timeline can additionally
+carry sanitized target display/ref, read versus mutation, lifecycle state
+(`started`, `completed`, `failed`), `changed` when applicable, verification status,
+and explicit `outcome_unknown`. This is transparency only: it exposes no hidden model
+reasoning and does not introduce a tool picker, approval modal, or infrastructure
+mode.
 
 ## Project binding rule
 
