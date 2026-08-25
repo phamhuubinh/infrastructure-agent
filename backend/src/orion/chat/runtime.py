@@ -128,11 +128,17 @@ class ChatRuntime:
                         )
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
+                        definition = self._registry.definition(model_call.tool_name)
                         self._store.append_timeline(
                             session_id,
                             request_id,
                             "tool_call",
-                            {"arguments": model_call.arguments},
+                            {
+                                "arguments": model_call.arguments,
+                                "operation_kind": definition.operation_kind
+                                if definition
+                                else "read",
+                            },
                             call_id=model_call.call_id,
                             tool_name=model_call.tool_name,
                         )

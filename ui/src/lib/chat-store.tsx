@@ -331,20 +331,36 @@ export function sessionFromTimeline(
       : [];
   });
   const firstUser = messages.find((message) => message.role === "user");
-  const targetRefs = new Map<string, string>();
+  const callMetadata = new Map<
+    string,
+    { targetRef?: string; operationKind?: "read" | "mutation" }
+  >();
   for (const item of timeline) {
     const targetRef =
       item.payload.arguments && typeof item.payload.arguments === "object"
         ? (item.payload.arguments as Record<string, unknown>).target_ref
         : undefined;
-    if (item.kind === "tool_call" && item.call_id && typeof targetRef === "string") {
-      targetRefs.set(item.call_id, targetRef);
+    if (item.kind === "tool_call" && item.call_id) {
+      callMetadata.set(item.call_id, {
+        ...(typeof targetRef === "string" ? { targetRef } : {}),
+        ...(item.payload.operation_kind === "read" || item.payload.operation_kind === "mutation"
+          ? { operationKind: item.payload.operation_kind }
+          : {}),
+      });
     }
   }
   const activity = timeline.flatMap((item): ToolActivity[] => {
     if (item.kind === "tool_call" && item.call_id && item.tool_name) {
-      const targetRef = targetRefs.get(item.call_id);
-      return [publicActivity(item.call_id, item.tool_name, "started", {}, targetRef)];
+      const metadata = callMetadata.get(item.call_id);
+      return [
+        publicActivity(
+          item.call_id,
+          item.tool_name,
+          "started",
+          metadata || {},
+          metadata?.targetRef,
+        ),
+      ];
     }
     if (item.kind === "tool_result" && item.call_id && item.tool_name) {
       const result = item.payload.result as
@@ -363,6 +379,7 @@ export function sessionFromTimeline(
           item.tool_name,
           result?.status === "success" ? "completed" : "failed",
           {
+            operation_kind: callMetadata.get(item.call_id)?.operationKind,
             target_ref: data.target_ref,
             changed: data.changed,
             verification:
@@ -371,7 +388,7 @@ export function sessionFromTimeline(
                 : undefined,
             outcome_unknown: error.code === "outcome_unknown",
           },
-          targetRefs.get(item.call_id),
+          callMetadata.get(item.call_id)?.targetRef,
         ),
       ];
     }

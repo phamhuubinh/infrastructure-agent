@@ -729,6 +729,8 @@ def _grafana_query(call: ToolCall, catalog: TargetCatalog, client: GrafanaClient
         target, credential = _target(call, catalog, "grafana")
         uid = str(call.arguments["datasource_uid"])
         kind = target.datasource_types.get(uid)
+        if kind is None:
+            kind = client.datasource_type(target, credential, uid)
         if kind not in {"prometheus", "loki"}:
             raise InfrastructureError(
                 "invalid_input", "Datasource is not configured for a supported read-only adapter."

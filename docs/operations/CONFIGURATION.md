@@ -70,3 +70,18 @@ registry used by Chat and Project. Unconfigured families are absent from that re
 their sanitized health status is `unconfigured`. Configured families report `healthy`
 only after a bounded probe succeeds, otherwise `unhealthy`; unrelated local tools and
 Chat/Project remain available.
+
+### Existing local deployment sources
+
+As an alternative to `ORION_INFRASTRUCTURE_CONFIG`, Orion can adapt the server-side
+`/etc/orion/tool-credentials.json` deployment file. Set
+`ORION_TOOL_CREDENTIALS_PATH` to use a different server-side path. Its Grafana and
+Zabbix entries supply only server-side connection/token material; Zabbix frontend
+roots are normalized internally to their JSON-RPC endpoint and neither form is
+public.
+
+Linux targets may be ordinary OpenSSH aliases. Orion uses `ORION_SSH_TARGET_REFS`
+(default `monitor`) as safe target references and lets the normal SSH client resolve
+the alias from `ORION_SSH_CONFIG_PATH` (defaulting to the local OpenSSH config).
+This avoids duplicating SSH host, user, or identity-file information into model-visible
+configuration.

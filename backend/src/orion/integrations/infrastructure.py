@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -101,8 +102,14 @@ class TargetCatalog:
                 continue
             reference = f"{family}-token"
             credentials[reference] = item["token"]
+            base_url = item["url"]
+            if family == "zabbix":
+                normalized = _zabbix_jsonrpc_endpoint(base_url)
+                if normalized is None:
+                    continue
+                base_url = normalized
             targets[family].append(
-                {"target_ref": family, "credential_ref": reference, "base_url": item["url"]}
+                {"target_ref": family, "credential_ref": reference, "base_url": base_url}
             )
         aliases = [
             item for item in os.getenv("ORION_SSH_TARGET_REFS", "monitor").split(",") if item
@@ -203,6 +210,18 @@ class TargetCatalog:
         return tuple(
             (target.family, target.target_ref, target.display_name) for target in self._targets
         )
+
+
+def _zabbix_jsonrpc_endpoint(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    parts = urlsplit(value)
+    if parts.scheme not in {"http", "https"} or not parts.netloc or parts.query or parts.fragment:
+        return None
+    path = parts.path.rstrip("/")
+    if not path.endswith("/api_jsonrpc.php"):
+        path = f"{path}/api_jsonrpc.php"
+    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
 
 
 def _target_ref_valid(value: str) -> bool:
@@ -380,6 +399,8 @@ def _key_values(value: str, service: str) -> Mapping[str, object]:
 
 
 class GrafanaClient(Protocol):
+    def datasource_type(self, target: Target, credential: object, uid: str) -> str: ...
+
     def dashboard_get(
         self, target: Target, credential: object, uid: str
     ) -> Mapping[str, object]: ...
@@ -429,6 +450,8 @@ class HttpGrafanaClient:
         except httpx.TimeoutException as error:
             raise InfrastructureError("timeout", "Grafana request timed out.", True) from error
         except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                raise InfrastructureError("not_found", "Grafana resource was not found.") from error
             raise InfrastructureError("upstream_error", "Grafana request failed.") from error
         except (httpx.HTTPError, ValueError) as error:
             raise InfrastructureError(
@@ -461,6 +484,13 @@ class HttpGrafanaClient:
                 "queries": [{"refId": "A", "datasource": {"uid": uid}, "expr": query}],
             },
         )
+
+    def datasource_type(self, target: Target, credential: object, uid: str) -> str:
+        response = self._request(target, credential, "GET", f"/api/datasources/uid/{uid}")
+        kind = response.get("type") if isinstance(response, dict) else None
+        if not isinstance(kind, str):
+            raise InfrastructureError("unavailable", "Grafana datasource metadata is unavailable.")
+        return kind
 
     def alert_list(self, target: Target, credential: object) -> object:
         try:
