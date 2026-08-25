@@ -27,7 +27,7 @@ type ModelConnection = {
 };
 
 type InternetIntegration = {
-  status: "configured" | "unavailable";
+  status: "unconfigured" | "healthy" | "unhealthy";
   provider: string | null;
   endpoint: string | null;
   message: string | null;
@@ -186,11 +186,17 @@ export function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <h2 className="font-medium">Internet</h2>
                   {internet && (
-                    <Badge>{internet.status === "configured" ? "Sẵn sàng" : "Chưa cấu hình"}</Badge>
+                    <Badge>
+                      {internet.status === "healthy"
+                        ? "Sẵn sàng"
+                        : internet.status === "unhealthy"
+                          ? "Không khả dụng"
+                          : "Chưa cấu hình"}
+                    </Badge>
                   )}
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {internet?.status === "configured"
+                  {internet?.status === "healthy"
                     ? `Tìm kiếm qua ${internet.provider ?? "integration"}: ${internet.endpoint}`
                     : (internet?.message ?? "Đang tải trạng thái tích hợp Internet.")}
                 </p>

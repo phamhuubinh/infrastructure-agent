@@ -29,7 +29,9 @@ Internet search is optional. Set `ORION_INTERNET_SEARCH_URL` to the administrato
 SearXNG-compatible JSON search endpoint (for example a locally operated SearXNG service).
 The endpoint is server-side configuration; it is never supplied by the model or persisted in
 chat state. When it is not configured, Chat, Project, documents, and calculator remain usable,
-and `/api/integrations/internet` reports an `unavailable` status.
+and `/api/integrations/internet` reports an `unconfigured` status. A configured
+integration is reported as `healthy` only after its bounded provider probe succeeds;
+otherwise it is `unhealthy` and local Orion features remain available.
 
 The registered `internet.search` and `internet.fetch` operations have no credential or scope
 arguments. Arbitrary fetch URLs are limited to public HTTP(S) targets; the configured search

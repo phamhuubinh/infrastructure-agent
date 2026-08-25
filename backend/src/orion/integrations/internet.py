@@ -5,14 +5,17 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
+from types import TracebackType
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
+import httpcore
 import httpx
+from httpx._transports.default import ResponseStream, map_httpcore_exceptions
 
 MAX_SEARCH_RESULTS = 8
 MAX_SEARCH_SNIPPET_CHARS = 1_000
@@ -20,6 +23,8 @@ MAX_FETCH_TEXT_CHARS = 12_000
 MAX_RESPONSE_BYTES = 512_000
 MAX_REDIRECTS = 3
 REQUEST_TIMEOUT_SECONDS = 10.0
+HEALTH_TIMEOUT_SECONDS = 3.0
+MAX_HEALTH_RESPONSE_BYTES = 32_000
 
 
 class InternetClientError(RuntimeError):
@@ -67,7 +72,7 @@ class UnavailableInternetClient:
 
     def status(self) -> InternetStatus:
         return InternetStatus(
-            status="unavailable",
+            status="unconfigured",
             message=(
                 "Internet search is not configured. Set ORION_INTERNET_SEARCH_URL to enable it."
             ),
@@ -123,6 +128,108 @@ class _TextExtractor(HTMLParser):
 Resolver = Callable[[str, int], Sequence[str]]
 
 
+@dataclass(frozen=True)
+class _ValidatedFetchTarget:
+    """A URL plus the exact public address selected by Orion's resolver."""
+
+    url: str
+    host: str
+    port: int
+    address: str
+
+
+class _PinnedNetworkBackend(httpcore.NetworkBackend):
+    """Dial one prevalidated address while HTTP Core retains the original origin.
+
+    HTTP Core receives the hostname in its request origin, so it constructs Host and
+    TLS SNI from that hostname. Only the TCP dial is substituted with the public
+    address that Orion just resolved and validated.
+    """
+
+    def __init__(self, address: str, delegate: httpcore.NetworkBackend | None = None) -> None:
+        self._address = address
+        self._delegate = delegate or httpcore.SyncBackend()
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        return self._delegate.connect_tcp(
+            self._address,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        return self._delegate.connect_unix_socket(
+            path, timeout=timeout, socket_options=socket_options
+        )
+
+    def sleep(self, seconds: float) -> None:
+        self._delegate.sleep(seconds)
+
+
+class _PinnedHTTPTransport(httpx.BaseTransport):
+    """Small HTTPX transport backed by a TCP-address-pinned HTTP Core pool."""
+
+    def __init__(
+        self, address: str, network_backend: httpcore.NetworkBackend | None = None
+    ) -> None:
+        self._pool = httpcore.ConnectionPool(
+            max_connections=1,
+            max_keepalive_connections=0,
+            network_backend=_PinnedNetworkBackend(address, network_backend),
+        )
+
+    def __enter__(self) -> _PinnedHTTPTransport:
+        self._pool.__enter__()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc_value: BaseException | None = None,
+        traceback: TracebackType | None = None,
+    ) -> None:
+        with map_httpcore_exceptions():
+            self._pool.__exit__(exc_type, exc_value, traceback)
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(request.stream, httpx.SyncByteStream)
+        core_request = httpcore.Request(
+            method=request.method,
+            url=httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        with map_httpcore_exceptions():
+            core_response = self._pool.handle_request(core_request)
+        assert isinstance(core_response.stream, Iterable)
+        return httpx.Response(
+            status_code=core_response.status,
+            headers=core_response.headers,
+            stream=ResponseStream(core_response.stream),
+            extensions=core_response.extensions,
+        )
+
+
 class SearxngInternetClient:
     """A small SearXNG-compatible client; its configured endpoint is admin trusted.
 
@@ -142,8 +249,17 @@ class SearxngInternetClient:
         self._transport = transport
 
     def status(self) -> InternetStatus:
+        try:
+            self._probe()
+        except InternetClientError:
+            return InternetStatus(
+                status="unhealthy",
+                provider="searxng",
+                endpoint=_display_endpoint(self._search_url),
+                message="Configured Internet search integration is currently unavailable.",
+            )
         return InternetStatus(
-            status="configured",
+            status="healthy",
             provider="searxng",
             endpoint=_display_endpoint(self._search_url),
         )
@@ -195,11 +311,13 @@ class SearxngInternetClient:
         return tuple(results)
 
     def fetch(self, url: str) -> InternetFetch:
-        current_url = self._validate_fetch_url(url)
+        target = self._validate_fetch_url(url)
         try:
-            with self._http_client() as client:
-                for redirect_count in range(MAX_REDIRECTS + 1):
-                    with client.stream("GET", current_url) as response:
+            for redirect_count in range(MAX_REDIRECTS + 1):
+                # Each hop gets a fresh one-connection transport, so its validated
+                # address is also exactly the address dialed for that hop.
+                with self._fetch_http_client(target) as client:
+                    with client.stream("GET", target.url) as response:
                         if response.status_code in {301, 302, 303, 307, 308}:
                             location = response.headers.get("location")
                             if not location:
@@ -210,7 +328,7 @@ class SearxngInternetClient:
                                 raise InternetClientError(
                                     "too_many_redirects", "Too many redirects while fetching URL."
                                 )
-                            current_url = self._validate_fetch_url(urljoin(current_url, location))
+                            target = self._validate_fetch_url(urljoin(target.url, location))
                             continue
                         self._raise_for_fetch_status(response)
                         content_type = (
@@ -228,12 +346,12 @@ class SearxngInternetClient:
                                 "unsupported_content", "Fetched URL contained no usable text."
                             )
                         return InternetFetch(
-                            url=current_url,
+                            url=target.url,
                             title=title,
                             text=text,
                             retrieved_at=datetime.now(UTC),
                         )
-                raise AssertionError("redirect loop should return or raise")
+            raise AssertionError("redirect loop should return or raise")
         except InternetClientError:
             raise
         except httpx.TimeoutException as error:
@@ -243,14 +361,23 @@ class SearxngInternetClient:
                 "connection_error", "Internet fetch connection failed.", True
             ) from error
 
-    def _http_client(self) -> httpx.Client:
+    def _http_client(self, timeout: float = REQUEST_TIMEOUT_SECONDS) -> httpx.Client:
+        return httpx.Client(
+            timeout=httpx.Timeout(timeout),
+            follow_redirects=False,
+            transport=self._transport,
+            trust_env=False,
+        )
+
+    def _fetch_http_client(self, target: _ValidatedFetchTarget) -> httpx.Client:
         return httpx.Client(
             timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
             follow_redirects=False,
-            transport=self._transport,
+            transport=self._transport or _PinnedHTTPTransport(target.address),
+            trust_env=False,
         )
 
-    def _validate_fetch_url(self, raw_url: str) -> str:
+    def _validate_fetch_url(self, raw_url: str) -> _ValidatedFetchTarget:
         try:
             parsed = urlsplit(raw_url)
             host = parsed.hostname
@@ -276,7 +403,35 @@ class SearxngInternetClient:
             raise InternetClientError(
                 "unsafe_url", "Fetch URL resolves to a non-public network address."
             )
-        return parsed.geturl()
+        return _ValidatedFetchTarget(
+            url=parsed.geturl(), host=host, port=port, address=str(addresses[0])
+        )
+
+    def _probe(self) -> None:
+        """Bounded provider probe used only for integration health reporting."""
+        try:
+            with self._http_client(HEALTH_TIMEOUT_SECONDS) as client:
+                with client.stream(
+                    "GET",
+                    self._search_url,
+                    params={"q": "orion-healthcheck", "format": "json"},
+                ) as response:
+                    self._raise_for_search_status(response)
+                    payload = _read_json_response(response, MAX_HEALTH_RESPONSE_BYTES)
+        except InternetClientError:
+            raise
+        except httpx.TimeoutException as error:
+            raise InternetClientError(
+                "timeout", "Internet health probe timed out.", True
+            ) from error
+        except httpx.RequestError as error:
+            raise InternetClientError(
+                "connection_error", "Internet health probe connection failed.", True
+            ) from error
+        if not isinstance(payload.get("results"), list):
+            raise InternetClientError(
+                "invalid_response", "Internet health probe returned invalid data."
+            )
 
     @staticmethod
     def _raise_for_search_status(response: httpx.Response) -> None:
@@ -330,11 +485,11 @@ def _display_endpoint(raw_url: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
-def _read_bounded_body(response: httpx.Response) -> bytes:
+def _read_bounded_body(response: httpx.Response, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:
     content_length = response.headers.get("content-length")
     if content_length is not None:
         try:
-            if int(content_length) > MAX_RESPONSE_BYTES:
+            if int(content_length) > max_bytes:
                 raise InternetClientError("response_too_large", "Internet response is too large.")
         except ValueError as error:
             raise InternetClientError(
@@ -344,15 +499,17 @@ def _read_bounded_body(response: httpx.Response) -> bytes:
     seen = 0
     for chunk in response.iter_bytes():
         seen += len(chunk)
-        if seen > MAX_RESPONSE_BYTES:
+        if seen > max_bytes:
             raise InternetClientError("response_too_large", "Internet response is too large.")
         chunks.append(chunk)
     return b"".join(chunks)
 
 
-def _read_json_response(response: httpx.Response) -> dict[str, Any]:
+def _read_json_response(
+    response: httpx.Response, max_bytes: int = MAX_RESPONSE_BYTES
+) -> dict[str, Any]:
     try:
-        payload = json.loads(_read_bounded_body(response))
+        payload = json.loads(_read_bounded_body(response, max_bytes))
     except UnicodeDecodeError as error:
         raise InternetClientError(
             "invalid_response", "Internet search response was not text."

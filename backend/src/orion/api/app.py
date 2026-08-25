@@ -98,11 +98,13 @@ def create_app(
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
-        return {"status": "ok", "internet": assembled.internet.status().__dict__}
+        internet_status = assembled.internet.status()
+        return {"status": "ok", "internet": internet_status.__dict__}
 
     @app.get("/api/integrations/internet", response_model=InternetIntegrationView)
     async def internet_integration() -> InternetIntegrationView:
-        return InternetIntegrationView.model_validate(assembled.internet.status().__dict__)
+        internet_status = assembled.internet.status()
+        return InternetIntegrationView.model_validate(internet_status.__dict__)
 
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:

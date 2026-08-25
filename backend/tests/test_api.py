@@ -5,7 +5,9 @@ import pytest
 from conftest import ScriptedBackend
 
 from orion.api.app import create_app
+from orion.bootstrap import build_application
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn
+from orion.integrations import SearxngInternetClient
 
 
 async def _configure(client: httpx.AsyncClient) -> None:
@@ -50,13 +52,54 @@ async def test_api_reports_optional_internet_integration_without_exposing_secret
         health = await client.get("/api/health")
 
     assert integration.json() == {
-        "status": "unavailable",
+        "status": "unconfigured",
         "provider": None,
         "endpoint": None,
         "message": "Internet search is not configured. Set ORION_INTERNET_SEARCH_URL to enable it.",
     }
-    assert health.json()["internet"]["status"] == "unavailable"
+    assert health.json()["internet"]["status"] == "unconfigured"
     assert "key" not in str(integration.json()).lower()
+
+
+@pytest.mark.anyio
+async def test_api_distinguishes_healthy_and_unhealthy_internet_configuration(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    healthy_application = build_application(
+        tmp_path / "healthy.db",
+        ScriptedBackend([]),
+        internet_client=SearxngInternetClient(
+            "https://search.test/api",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, json={"results": []})
+            ),
+        ),
+    )
+    unhealthy_application = build_application(
+        tmp_path / "unhealthy.db",
+        ScriptedBackend([]),
+        internet_client=SearxngInternetClient(
+            "https://search.test/api",
+            transport=httpx.MockTransport(lambda request: httpx.Response(503)),
+        ),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(application=healthy_application)),
+        base_url="http://test",
+    ) as healthy_client:
+        healthy = await healthy_client.get("/api/integrations/internet")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(application=unhealthy_application)),
+        base_url="http://test",
+    ) as unhealthy_client:
+        unhealthy = await unhealthy_client.get("/api/integrations/internet")
+
+    assert healthy.json()["status"] == "healthy"
+    assert unhealthy.json()["status"] == "unhealthy"
+    assert (
+        unhealthy.json()["message"]
+        == "Configured Internet search integration is currently unavailable."
+    )
 
 
 @pytest.mark.anyio

@@ -22,7 +22,7 @@ describe("M1 model settings", () => {
       if (path === "/api/integrations/internet") {
         return Promise.resolve(
           jsonResponse({
-            status: "unavailable",
+            status: "unconfigured",
             provider: null,
             endpoint: null,
             message: "Internet search is not configured.",
@@ -85,5 +85,30 @@ describe("M1 model settings", () => {
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
     await screen.findByText("Internet search is not configured.");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+  });
+
+  it("does not show a configured-but-unhealthy Internet integration as ready", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/integrations/internet") {
+        return Promise.resolve(
+          jsonResponse({
+            status: "unhealthy",
+            provider: "searxng",
+            endpoint: "https://search.test/api",
+            message: "Configured Internet search integration is currently unavailable.",
+          }),
+        );
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SettingsPage />);
+
+    await screen.findByText("Không khả dụng");
+    expect(screen.queryByText("Sẵn sàng")).toBeNull();
+    expect(
+      screen.getByText("Configured Internet search integration is currently unavailable."),
+    ).toBeTruthy();
   });
 });

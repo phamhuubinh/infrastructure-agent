@@ -18,6 +18,7 @@ from orion.integrations import (
     SearxngInternetClient,
     UnavailableInternetClient,
 )
+from orion.integrations.internet import _PinnedHTTPTransport
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
 from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
@@ -57,6 +58,16 @@ class FakeInternetClient:
 class FailingInternetClient(FakeInternetClient):
     def fetch(self, url: str) -> InternetFetch:
         raise InternetClientError("timeout", "Internet fetch timed out.", retryable=True)
+
+
+class UnhealthyInternetClient(FakeInternetClient):
+    def status(self) -> InternetStatus:
+        return InternetStatus(
+            status="unhealthy",
+            provider="fake",
+            endpoint="https://search.test",
+            message="Configured Internet search integration is currently unavailable.",
+        )
 
 
 def _scope() -> RuntimeScope:
@@ -109,6 +120,20 @@ async def test_registered_internet_tools_are_exposed_and_direct_answer_does_not_
     assert outcome.assistant_content == "No lookup needed."
     assert not internet.searches and not internet.fetches
     assert {tool.name for tool in backend.calls[0][1]} >= {"internet.search", "internet.fetch"}
+
+
+@pytest.mark.anyio
+async def test_unhealthy_internet_does_not_break_direct_local_chat(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend([ModelTurn(assistant=AssistantMessage(content="Local answer."))])
+    app = build_application(
+        tmp_path / "orion.db", backend, internet_client=UnhealthyInternetClient()
+    )
+    app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
+    session = app.store.create_session()
+
+    outcome = await app.runtime.submit(session, "Answer from local knowledge")
+
+    assert outcome.assistant_content == "Local answer."
 
 
 @pytest.mark.anyio
@@ -337,6 +362,96 @@ def test_fetch_rejects_unsafe_urls_and_revalidates_redirects() -> None:
     assert calls == 1
 
 
+def test_fetch_pins_validated_address_across_dns_rebinding_and_redirects() -> None:
+    calls_by_host: dict[str, int] = {}
+    selected_targets: list[tuple[str, str]] = []
+
+    def resolver(host: str, port: int) -> list[str]:
+        calls_by_host[host] = calls_by_host.get(host, 0) + 1
+        # A second resolution of either hostname would be private. The fetch
+        # implementation must neither ask for it nor let the HTTP client do so.
+        return ["93.184.216.34"] if calls_by_host[host] == 1 else ["127.0.0.1"]
+
+    responses = iter(
+        [
+            httpx.Response(302, headers={"location": "https://redirect.test/final"}),
+            httpx.Response(200, headers={"content-type": "text/plain"}, text="safe result"),
+        ]
+    )
+    client = SearxngInternetClient(
+        "http://search-admin.test/search",
+        resolver=resolver,
+        transport=httpx.MockTransport(lambda request: next(responses)),
+    )
+    original_fetch_client = client._fetch_http_client  # noqa: SLF001 - transport safety proof.
+
+    def capture_fetch_target(target):  # type: ignore[no-untyped-def]
+        selected_targets.append((target.host, target.address))
+        return original_fetch_client(target)
+
+    client._fetch_http_client = capture_fetch_target  # type: ignore[method-assign]  # noqa: SLF001
+
+    fetched = client.fetch("https://rebind.test/start")
+
+    assert fetched.url == "https://redirect.test/final"
+    assert calls_by_host == {"rebind.test": 1, "redirect.test": 1}
+    assert selected_targets == [
+        ("rebind.test", "93.184.216.34"),
+        ("redirect.test", "93.184.216.34"),
+    ]
+
+    dialed_addresses: list[str] = []
+    tls_server_names: list[str | None] = []
+    written_requests: list[bytes] = []
+
+    class ScriptedStream:
+        def __init__(self) -> None:
+            self._response = bytearray(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                b"Content-Length: 4\r\nConnection: close\r\n\r\nsafe"
+            )
+
+        def read(self, max_bytes, timeout=None):  # type: ignore[no-untyped-def]
+            chunk = bytes(self._response[:max_bytes])
+            del self._response[:max_bytes]
+            return chunk
+
+        def write(self, buffer, timeout=None):  # type: ignore[no-untyped-def]
+            written_requests.append(buffer)
+
+        def close(self) -> None:
+            return None
+
+        def start_tls(self, ssl_context, server_hostname=None, timeout=None):  # type: ignore[no-untyped-def]
+            tls_server_names.append(server_hostname)
+            return self
+
+        def get_extra_info(self, info):  # type: ignore[no-untyped-def]
+            return None
+
+    class RecordingNetworkBackend:
+        def connect_tcp(self, host, port, **kwargs):  # type: ignore[no-untyped-def]
+            dialed_addresses.append(host)
+            return ScriptedStream()
+
+        def connect_unix_socket(self, path, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError("unexpected Unix socket connection")
+
+        def sleep(self, seconds):  # type: ignore[no-untyped-def]
+            raise AssertionError("unexpected retry")
+
+    with httpx.Client(
+        transport=_PinnedHTTPTransport("93.184.216.34", RecordingNetworkBackend()),
+        trust_env=False,
+    ) as pinned_client:
+        response = pinned_client.get("https://rebind.test/path")
+
+    assert response.text == "safe"
+    assert dialed_addresses == ["93.184.216.34"]
+    assert tls_server_names == ["rebind.test"]
+    assert b"Host: rebind.test" in b"".join(written_requests)
+
+
 def test_fetch_bounds_text_and_response_bytes_and_normalises_html() -> None:
     huge = "x" * 20_000
     client = SearxngInternetClient(
@@ -439,8 +554,45 @@ def test_search_bounds_results_snippets_and_normalises_failures() -> None:
 
 
 def test_internet_status_redacts_endpoint_credentials_and_query_tokens() -> None:
-    client = SearxngInternetClient("https://secret@search.test/api?token=hidden")
+    client = SearxngInternetClient(
+        "https://secret@search.test/api?token=hidden",
+        transport=httpx.MockTransport(lambda request: httpx.Response(503)),
+    )
 
     status = client.status()
 
     assert status.endpoint == "https://search.test/api"
+
+
+def test_internet_status_probes_healthy_and_unhealthy_configurations() -> None:
+    probe_requests: list[httpx.URL] = []
+
+    def healthy(request: httpx.Request) -> httpx.Response:
+        probe_requests.append(request.url)
+        return httpx.Response(200, json={"results": []})
+
+    healthy_client = SearxngInternetClient(
+        "https://search.test/api",
+        transport=httpx.MockTransport(healthy),
+    )
+    unhealthy_client = SearxngInternetClient(
+        "https://search.test/api",
+        transport=httpx.MockTransport(lambda request: httpx.Response(503)),
+    )
+
+    healthy_status = healthy_client.status()
+    unhealthy_status = unhealthy_client.status()
+
+    assert healthy_status.status == "healthy"
+    assert probe_requests[0].params == httpx.QueryParams(
+        {"q": "orion-healthcheck", "format": "json"}
+    )
+    assert unhealthy_status.status == "unhealthy"
+    assert (
+        unhealthy_status.message
+        == "Configured Internet search integration is currently unavailable."
+    )
+
+
+def test_unconfigured_internet_status_is_distinct_from_unhealthy() -> None:
+    assert UnavailableInternetClient().status().status == "unconfigured"
