@@ -466,8 +466,39 @@ describe("M1 session store", () => {
         call_id: "source-1",
         tool_name: "linux.system.inspect",
       },
+      {
+        item_id: "restart-call",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:03Z",
+        kind: "tool_call",
+        payload: { arguments: { target_ref: "monitor" }, operation_kind: "mutation" },
+        call_id: "restart-1",
+        tool_name: "linux.service.restart",
+      },
+      {
+        item_id: "restart-result",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:04Z",
+        kind: "tool_result",
+        payload: {
+          result: {
+            status: "success",
+            data: { target_ref: "monitor", changed: true, verification: { status: "verified" } },
+            sources: [],
+          },
+        },
+        call_id: "restart-1",
+        tool_name: "linux.service.restart",
+      },
     ]);
 
+    expect(session.activity).toContainEqual({
+      callId: "infra-1",
+      toolName: "linux.system.inspect",
+      status: "started",
+      targetRef: "monitor",
+      operationKind: "read",
+    });
     expect(session.activity).toContainEqual({
       callId: "infra-1",
       toolName: "linux.system.inspect",
@@ -477,6 +508,22 @@ describe("M1 session store", () => {
       changed: true,
       verification: "unknown",
       outcomeUnknown: true,
+    });
+    expect(session.activity).toContainEqual({
+      callId: "restart-1",
+      toolName: "linux.service.restart",
+      status: "started",
+      targetRef: "monitor",
+      operationKind: "mutation",
+    });
+    expect(session.activity).toContainEqual({
+      callId: "restart-1",
+      toolName: "linux.service.restart",
+      status: "completed",
+      targetRef: "monitor",
+      operationKind: "mutation",
+      changed: true,
+      verification: "verified",
     });
     expect(session.sources).toContainEqual({
       sourceRefId: "linux-source",

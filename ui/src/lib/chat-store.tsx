@@ -357,7 +357,10 @@ export function sessionFromTimeline(
           item.call_id,
           item.tool_name,
           "started",
-          metadata || {},
+          {
+            target_ref: metadata?.targetRef,
+            operation_kind: metadata?.operationKind,
+          },
           metadata?.targetRef,
         ),
       ];
