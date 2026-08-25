@@ -22,10 +22,10 @@ Exact routes may evolve, but product resources should remain recognizable:
 /sessions
 /sessions/{id}/messages
 /sessions/{id}/attachments
+/sessions/{id}/documents/{document_id}
 /projects
 /projects/{id}
 /projects/{id}/documents
-/documents/{id}
 /knowledge/...
 /integrations/...
 ```

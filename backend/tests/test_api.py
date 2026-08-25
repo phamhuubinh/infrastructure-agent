@@ -102,3 +102,43 @@ async def test_api_streams_public_runtime_events(tmp_path) -> None:  # type: ign
     assert response.text.count('"type": "assistant.delta"') == 2
     assert '"type": "assistant.message"' in response.text
     assert '"type": "request.completed"' in response.text
+
+
+@pytest.mark.anyio
+async def test_document_status_and_delete_are_session_scoped(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend([])
+    app = create_app(tmp_path / "orion.db", backend)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        first_session = (await client.post("/api/sessions")).json()["session_id"]
+        second_session = (await client.post("/api/sessions")).json()["session_id"]
+        attachment = await client.post(
+            f"/api/sessions/{first_session}/attachments",
+            json={"name": "private.txt", "content": "private document"},
+        )
+        document_id = attachment.json()["document"]["document_id"]
+
+        own_status = await client.get(f"/api/sessions/{first_session}/documents/{document_id}")
+        foreign_status = await client.get(f"/api/sessions/{second_session}/documents/{document_id}")
+        foreign_delete = await client.delete(
+            f"/api/sessions/{second_session}/documents/{document_id}"
+        )
+        unscoped_status = await client.get(f"/api/documents/{document_id}")
+        own_delete = await client.delete(f"/api/sessions/{first_session}/documents/{document_id}")
+        remote_session = app.state.application.store.create_session("remote", "remote")
+        remote_document = app.state.application.knowledge.attach(
+            remote_session, "remote.txt", b"not local principal data"
+        )
+        remote_status = await client.get(
+            f"/api/sessions/{remote_session}/documents/{remote_document.document.document_id}"
+        )
+
+    assert attachment.status_code == 201
+    assert own_status.status_code == 200
+    assert foreign_status.status_code == 404
+    assert foreign_delete.status_code == 404
+    assert unscoped_status.status_code == 404
+    assert own_delete.status_code == 200
+    assert remote_status.status_code == 404

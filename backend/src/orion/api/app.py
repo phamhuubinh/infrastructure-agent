@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from orion.access import LocalAccessAdapter
 from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
 from orion.contracts import RuntimeScope
@@ -121,26 +122,17 @@ def create_app(
             error_message=uploaded.error_message,
         )
 
-    @app.get("/api/documents/{document_id}")
-    async def document_status(document_id: str) -> dict[str, object]:
-        status = assembled.knowledge.document_status(document_id)
+    @app.get("/api/sessions/{session_id}/documents/{document_id}")
+    async def document_status(session_id: str, document_id: str) -> dict[str, object]:
+        scope = _session_scope(store, assembled.access, session_id)
+        status = assembled.knowledge.document_status(document_id, scope)
         if status is None:
             raise HTTPException(status_code=404, detail="Document not found.")
         return status
 
-    @app.delete("/api/documents/{document_id}")
-    async def delete_document(document_id: str) -> dict[str, str]:
-        row = store.document(document_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Document not found.")
-        session_id = str(row["session_id"])
-        principal = assembled.access.current_principal()
-        scope = RuntimeScope(
-            session_id=session_id,
-            attachment_ids=store.session_attachment_ids(session_id),
-            principal_id=principal.principal_id,
-            workspace_id=principal.workspace_id,
-        )
+    @app.delete("/api/sessions/{session_id}/documents/{document_id}")
+    async def delete_document(session_id: str, document_id: str) -> dict[str, str]:
+        scope = _session_scope(store, assembled.access, session_id)
         try:
             deleted = assembled.knowledge.delete(document_id, scope)
         except PermissionError as error:
@@ -213,3 +205,19 @@ async def _sse_events(
 def _require_session(store: SQLiteStore, session_id: str) -> None:
     if not store.session_exists(session_id):
         raise HTTPException(status_code=404, detail="Session not found.")
+
+
+def _session_scope(store: SQLiteStore, access: LocalAccessAdapter, session_id: str) -> RuntimeScope:
+    identity = store.session_identity(session_id)
+    if identity is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    try:
+        principal = access.principal_for_session(identity["principal_id"], identity["workspace_id"])
+    except PermissionError as error:
+        raise HTTPException(status_code=404, detail="Session not found.") from error
+    return RuntimeScope(
+        session_id=session_id,
+        attachment_ids=store.session_attachment_ids(session_id),
+        principal_id=principal.principal_id,
+        workspace_id=principal.workspace_id,
+    )

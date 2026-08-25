@@ -24,6 +24,8 @@ from orion.knowledge.local import (
 from orion.knowledge.ports import Chunker, DocumentParser, IndexedSegment, LexicalIndex, VectorIndex
 from orion.persistence.sqlite import SQLiteStore
 
+_READ_WINDOW_MAX_SEGMENTS = 8
+
 
 @dataclass(frozen=True)
 class DocumentUpload:
@@ -31,6 +33,18 @@ class DocumentUpload:
     attachment_id: str
     status: str
     error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentRead:
+    """A bounded exact-document window that can be continued by cursor."""
+
+    document: DocumentRef
+    segments: tuple[RetrievedSegment, ...]
+    cursor: int
+    next_cursor: int | None
+    complete: bool
+    total_segments: int
 
 
 class KnowledgeService:
@@ -84,9 +98,9 @@ class KnowledgeService:
             error_message=row["error_message"],
         )
 
-    def document_status(self, document_id: str) -> dict[str, Any] | None:
-        row = self._store.document(document_id, include_deleted=True)
-        if row is None:
+    def document_status(self, document_id: str, scope: RuntimeScope) -> dict[str, Any] | None:
+        row = self._store.document(document_id)
+        if row is None or not self._is_visible(row, scope):
             return None
         return {
             "document": self._document_ref(row).model_dump(mode="json"),
@@ -141,8 +155,13 @@ class KnowledgeService:
         )
 
     def read(
-        self, scope: RuntimeScope, document_id: str, section: str | None = None
-    ) -> tuple[DocumentRef, tuple[RetrievedSegment, ...]]:
+        self,
+        scope: RuntimeScope,
+        document_id: str,
+        section: str | None = None,
+        cursor: int = 0,
+        limit: int = 5,
+    ) -> DocumentRead:
         row = self._store.document(document_id)
         if row is None:
             raise LookupError("Document was not found")
@@ -151,10 +170,22 @@ class KnowledgeService:
         segments = self._store.document_segments(document_id, section)
         if section is not None and not segments:
             raise LookupError("Section was not found")
+        if cursor > len(segments):
+            raise LookupError("Read cursor is outside the document")
         document = self._document_ref(row)
         by_id = {document_id: row}
-        return document, tuple(
-            self._retrieved_segment(segment, by_id, None) for segment in segments
+        window_limit = max(1, min(limit, _READ_WINDOW_MAX_SEGMENTS))
+        window_end = min(cursor + window_limit, len(segments))
+        retrieved = tuple(
+            self._retrieved_segment(segment, by_id, None) for segment in segments[cursor:window_end]
+        )
+        return DocumentRead(
+            document=document,
+            segments=retrieved,
+            cursor=cursor,
+            next_cursor=window_end if window_end < len(segments) else None,
+            complete=window_end == len(segments),
+            total_segments=len(segments),
         )
 
     def source_metadata(
@@ -235,7 +266,8 @@ class KnowledgeService:
 
     @staticmethod
     def _source_ref_id(document_id: str, segment_id: str) -> str:
-        return f"source:{document_id}:{segment_id}"
+        value = f"orion:source:{document_id}:{segment_id}"
+        return str(uuid.uuid5(uuid.NAMESPACE_OID, value))
 
     def _document_ref(self, row: dict[str, Any]) -> DocumentRef:
         return DocumentRef(

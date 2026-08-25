@@ -59,15 +59,16 @@ def read_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.read",
         description=(
-            "Read one exact visible document, or one named section. This returns all matching "
-            "segments; use it for whole-document work instead of treating search results "
-            "as complete."
+            "Read a bounded window from one exact visible document or named section. "
+            "Continue with next_cursor until complete for whole-document work."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "document_id": {"type": "string", "minLength": 1},
                 "section": {"type": "string", "minLength": 1},
+                "cursor": {"type": "integer", "minimum": 0, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
             },
             "required": ["document_id"],
             "additionalProperties": False,
@@ -128,24 +129,30 @@ def _search(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
 def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
     def handler(call: ToolCall) -> ToolResult:
         try:
-            document, segments = service.read(
+            window = service.read(
                 call.runtime_scope,
                 str(call.arguments["document_id"]),
                 str(call.arguments["section"]) if "section" in call.arguments else None,
+                int(call.arguments.get("cursor", 0)),
+                int(call.arguments.get("limit", 5)),
             )
         except PermissionError as error:
             return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
         except LookupError as error:
             return ToolResult.failure(call.call_id, call.tool_name, "not_found", str(error))
-        sources = tuple(service.source_for_segment(segment) for segment in segments)
+        sources = tuple(service.source_for_segment(segment) for segment in window.segments)
         return ToolResult(
             call_id=call.call_id,
             tool_name=call.tool_name,
             status="success",
             data={
-                "document": document.model_dump(mode="json"),
-                "segments": [segment.model_dump(mode="json") for segment in segments],
-                "complete_document": "section" not in call.arguments,
+                "document": window.document.model_dump(mode="json"),
+                "segments": [segment.model_dump(mode="json") for segment in window.segments],
+                "cursor": window.cursor,
+                "next_cursor": window.next_cursor,
+                "complete": window.complete,
+                "total_segments": window.total_segments,
+                "section": call.arguments.get("section"),
             },
             sources=sources,
         )

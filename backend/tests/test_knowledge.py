@@ -5,7 +5,7 @@ from conftest import ScriptedBackend
 
 from orion.access import LocalAccessAdapter
 from orion.chat.runtime import ChatRuntime, RequestFailed
-from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope
+from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolResult
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.service import KnowledgeService
 from orion.knowledge.tools import knowledge_registrations
@@ -27,11 +27,15 @@ def knowledge(store, tmp_path):  # type: ignore[no-untyped-def]
     return KnowledgeService(store, LocalBlobStore(tmp_path / "blobs"))
 
 
-def _runner(knowledge: KnowledgeService) -> ToolRunner:
+def _registry(knowledge: KnowledgeService):  # type: ignore[no-untyped-def]
     builder = ToolRegistryBuilder()
     for registration in knowledge_registrations(knowledge):
         builder.register(registration.definition, registration.handler)
-    return ToolRunner(builder.freeze())
+    return builder.freeze()
+
+
+def _runner(knowledge: KnowledgeService) -> ToolRunner:
+    return ToolRunner(_registry(knowledge))
 
 
 def test_upload_lifecycle_is_explicit_and_preserves_opaque_blob(knowledge, store) -> None:  # type: ignore[no-untyped-def]
@@ -40,7 +44,9 @@ def test_upload_lifecycle_is_explicit_and_preserves_opaque_blob(knowledge, store
     failed = knowledge.attach(session, "scan.pdf", b"not a PDF parser input", "application/pdf")
 
     assert ready.status == "ready"
-    status = knowledge.document_status(ready.document.document_id)
+    status = knowledge.document_status(
+        ready.document.document_id, _scope(session, ready.attachment_id, failed.attachment_id)
+    )
     assert status is not None
     assert [event["state"] for event in status["ingestion"]] == [
         "uploaded",
@@ -65,17 +71,78 @@ def test_exact_read_whole_document_preserves_stable_provenance(knowledge, store)
     )
     scope = _scope(session, upload.attachment_id)
 
-    document, first_read = knowledge.read(scope, upload.document.document_id)
-    _, second_read = knowledge.read(scope, upload.document.document_id)
+    first_read = knowledge.read(scope, upload.document.document_id)
+    second_read = knowledge.read(scope, upload.document.document_id)
 
-    assert document == upload.document
-    assert "The final requirement." in "\n".join(segment.text for segment in first_read)
-    assert [(segment.segment_id, segment.section) for segment in first_read] == [
-        (segment.segment_id, segment.section) for segment in second_read
+    assert first_read.document == upload.document
+    assert "The final requirement." in "\n".join(segment.text for segment in first_read.segments)
+    assert [(segment.segment_id, segment.section) for segment in first_read.segments] == [
+        (segment.segment_id, segment.section) for segment in second_read.segments
     ]
-    source = knowledge.source_for_segment(first_read[0])
-    expected_source_prefix = f"source:{document.document_id}:{first_read[0].segment_id}"
-    assert source.source_ref_id.startswith(expected_source_prefix)
+    source = knowledge.source_for_segment(first_read.segments[0])
+    repeated_source = knowledge.source_for_segment(second_read.segments[0])
+    assert source.source_ref_id != upload.document.document_id
+    assert source.source_ref_id != first_read.segments[0].segment_id
+    assert upload.document.document_id not in source.source_ref_id
+    assert first_read.segments[0].segment_id not in source.source_ref_id
+    assert source.source_ref_id == repeated_source.source_ref_id
+
+
+def test_exact_reads_are_bounded_and_iterative(knowledge, store) -> None:  # type: ignore[no-untyped-def]
+    session = store.create_session()
+    content = b"\n\n".join(f"segment-{index} ".encode() + (b"x" * 900) for index in range(10))
+    upload = knowledge.attach(session, "long.txt", content)
+    scope = _scope(session, upload.attachment_id)
+
+    first = knowledge.read(scope, upload.document.document_id, cursor=0, limit=2)
+    second = knowledge.read(
+        scope, upload.document.document_id, cursor=first.next_cursor or 0, limit=2
+    )
+    capped = knowledge.read(scope, upload.document.document_id, cursor=0, limit=99)
+
+    assert len(first.segments) == 2
+    assert first.next_cursor == 2
+    assert not first.complete
+    assert second.cursor == 2
+    assert second.segments[0].segment_id != first.segments[0].segment_id
+    assert len(capped.segments) == 8
+    assert capped.total_segments > len(capped.segments)
+    assert capped.next_cursor == len(capped.segments)
+
+    observed = list(first.segments)
+    window = first
+    while window.next_cursor is not None:
+        window = knowledge.read(
+            scope, upload.document.document_id, cursor=window.next_cursor, limit=2
+        )
+        observed.extend(window.segments)
+    assert window.complete
+    assert len(observed) == first.total_segments
+    assert "segment-9" in "\n".join(segment.text for segment in observed)
+
+    tool_result = _runner(knowledge).run(
+        ModelToolCall(
+            call_id="read-window",
+            tool_name="knowledge.read",
+            arguments={"document_id": upload.document.document_id, "limit": 2},
+        ),
+        scope,
+    )
+    invalid_limit = _runner(knowledge).run(
+        ModelToolCall(
+            call_id="read-too-large",
+            tool_name="knowledge.read",
+            arguments={"document_id": upload.document.document_id, "limit": 9},
+        ),
+        scope,
+    )
+
+    assert tool_result.status == "success"
+    assert tool_result.data["next_cursor"] == 2
+    assert tool_result.data["complete"] is False
+    assert len(tool_result.sources) == 2
+    assert invalid_limit.status == "error"
+    assert invalid_limit.error is not None and invalid_limit.error.code == "invalid_input"
 
 
 def test_session_scope_and_model_document_filter_cannot_escape(knowledge, store) -> None:  # type: ignore[no-untyped-def]
@@ -225,3 +292,41 @@ async def test_invented_citation_is_rejected(knowledge, store) -> None:  # type:
     with pytest.raises(RequestFailed, match="unavailable source"):
         await chat.submit(session, "Use the attachment")
     assert upload.status == "ready"
+
+
+@pytest.mark.anyio
+async def test_tombstoned_source_ref_is_not_citable(knowledge, store) -> None:  # type: ignore[no-untyped-def]
+    session = store.create_session()
+    upload = knowledge.attach(session, "facts.txt", b"A fact.")
+    scope = _scope(session, upload.attachment_id)
+    segment = knowledge.search(scope, "fact", 1)[0]
+    source = knowledge.source_for_segment(segment)
+    prior_result = ToolResult(
+        call_id="old-search",
+        tool_name="knowledge.search",
+        status="success",
+        data={"segments": [segment.model_dump(mode="json")]},
+        sources=(source,),
+    )
+    store.append_timeline(
+        session,
+        None,
+        "tool_result",
+        {"result": prior_result.model_dump(mode="json")},
+        call_id=prior_result.call_id,
+        tool_name=prior_result.tool_name,
+    )
+    assert knowledge.delete(upload.document.document_id, scope)
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Old fact.", citation_source_ref_ids=(source.source_ref_id,)
+                )
+            )
+        ]
+    )
+    chat = ChatRuntime(store, backend, _registry(knowledge), LocalAccessAdapter())
+
+    with pytest.raises(RequestFailed, match="unavailable source"):
+        await chat.submit(session, "Can I cite the old fact?")

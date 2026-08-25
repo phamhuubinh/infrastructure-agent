@@ -49,6 +49,10 @@ read exact document/section in scope
 retrieve source metadata
 ```
 
+Exact document/section reads are bounded segment windows. The result carries a cursor,
+`next_cursor`, completion flag, and total segment count so the model can iteratively read a
+whole document without mistaking top-k search output for complete coverage.
+
 ## Project behavior
 
 In a Project, the Project source is automatically bound to the runtime.
