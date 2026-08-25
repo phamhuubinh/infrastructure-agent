@@ -74,7 +74,7 @@ class KnowledgeService:
         document_id, attachment_id = str(uuid.uuid4()), str(uuid.uuid4())
         blob_id = self._blobs.put(content)
         self._store.create_document(
-            document_id, attachment_id, session_id, blob_id, name, media_type
+            document_id, attachment_id, session_id, None, blob_id, name, media_type
         )
         try:
             self._ingest(document_id)
@@ -91,6 +91,29 @@ class KnowledgeService:
                 "status": row["status"],
             },
         )
+        return DocumentUpload(
+            document=self._document_ref(row),
+            attachment_id=attachment_id,
+            status=str(row["status"]),
+            error_message=row["error_message"],
+        )
+
+    def attach_project(
+        self, project_id: str, name: str, content: bytes, media_type: str | None = "text/plain"
+    ) -> DocumentUpload:
+        """Persist a Project document through the exact same ingestion pipeline as attachments."""
+        if self._store.project(project_id) is None:
+            raise KeyError(project_id)
+        document_id, attachment_id = str(uuid.uuid4()), str(uuid.uuid4())
+        blob_id = self._blobs.put(content)
+        self._store.create_document(
+            document_id, attachment_id, None, project_id, blob_id, name, media_type
+        )
+        try:
+            self._ingest(document_id)
+        except (OSError, ValueError) as error:
+            self._store.set_document_state(document_id, "failed", str(error))
+        row = self._require_document(document_id)
         return DocumentUpload(
             document=self._document_ref(row),
             attachment_id=attachment_id,
@@ -121,6 +144,9 @@ class KnowledgeService:
 
     def list_documents(self, scope: RuntimeScope) -> list[DocumentRef]:
         return [self._document_ref(row) for row in self._visible_documents(scope)]
+
+    def list_project_documents(self, project_id: str) -> list[DocumentRef]:
+        return [self._document_ref(row) for row in self._store.project_documents(project_id)]
 
     def search(
         self, scope: RuntimeScope, query: str, limit: int, document_ids: tuple[str, ...] = ()
@@ -250,14 +276,21 @@ class KnowledgeService:
         self._store.set_document_state(document_id, "ready")
 
     def _visible_documents(self, scope: RuntimeScope) -> list[dict[str, Any]]:
-        # M2 deliberately exposes only the current session's application-owned attachments.
-        return self._store.visible_documents(scope.session_id, scope.attachment_ids)
+        # Sources are derived solely from Orion-owned scope; model arguments may only narrow them.
+        documents = self._store.visible_documents(scope.session_id, scope.attachment_ids)
+        if scope.project_id is not None:
+            documents.extend(self._store.visible_project_documents(scope.project_id))
+        # Shared sources remain empty until explicitly configured.
+        return documents
 
     @staticmethod
     def _is_visible(row: dict[str, Any], scope: RuntimeScope) -> bool:
-        return (
-            row["session_id"] == scope.session_id and row["attachment_id"] in scope.attachment_ids
-        )
+        if row["session_id"] is not None:
+            return (
+                row["session_id"] == scope.session_id
+                and row["attachment_id"] in scope.attachment_ids
+            )
+        return row["project_id"] is not None and row["project_id"] == scope.project_id
 
     @staticmethod
     def _segment_id(document_id: str, ordinal: int) -> str:
@@ -270,9 +303,13 @@ class KnowledgeService:
         return str(uuid.uuid5(uuid.NAMESPACE_OID, value))
 
     def _document_ref(self, row: dict[str, Any]) -> DocumentRef:
+        if row["project_id"] is not None:
+            source = KnowledgeSourceRef(kind="project", source_id=str(row["project_id"]))
+        else:
+            source = KnowledgeSourceRef(kind="session", source_id=str(row["session_id"]))
         return DocumentRef(
             document_id=str(row["document_id"]),
-            source=KnowledgeSourceRef(kind="session", source_id=str(row["session_id"])),
+            source=source,
             name=str(row["name"]),
             media_type=row["media_type"],
         )

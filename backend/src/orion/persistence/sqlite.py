@@ -47,7 +47,18 @@ class SQLiteStore:
                     session_id TEXT PRIMARY KEY,
                     principal_id TEXT NOT NULL DEFAULT 'local',
                     workspace_id TEXT NOT NULL DEFAULT 'local',
+                    project_id TEXT REFERENCES projects(project_id),
                     created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    instructions TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    deleted_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS requests (
                     request_id TEXT PRIMARY KEY,
@@ -77,7 +88,8 @@ class SQLiteStore:
                 CREATE TABLE IF NOT EXISTS documents (
                     document_id TEXT PRIMARY KEY,
                     attachment_id TEXT NOT NULL UNIQUE,
-                    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                    session_id TEXT REFERENCES sessions(session_id),
+                    project_id TEXT REFERENCES projects(project_id),
                     blob_id TEXT NOT NULL,
                     name TEXT NOT NULL,
                     media_type TEXT,
@@ -86,7 +98,11 @@ class SQLiteStore:
                     error_message TEXT,
                     deleted_at TEXT,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    CHECK (
+                        (session_id IS NOT NULL AND project_id IS NULL)
+                        OR (session_id IS NULL AND project_id IS NOT NULL)
+                    )
                 );
                 CREATE INDEX IF NOT EXISTS documents_session_visibility
                     ON documents(session_id, status, deleted_at);
@@ -121,17 +137,104 @@ class SQLiteStore:
                 self._connection.execute(
                     "ALTER TABLE sessions ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local'"
                 )
+            if "project_id" not in columns:
+                self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+        self._migrate_document_owners_if_needed()
+
+    def _migrate_document_owners_if_needed(self) -> None:
+        """Allow the existing document pipeline to persist either session or project owners."""
+        with self._lock:
+            columns = {
+                str(row["name"]): int(row["notnull"])
+                for row in self._connection.execute("PRAGMA table_info(documents)")
+            }
+            if "project_id" in columns and columns.get("session_id") == 0:
+                return
+            self._connection.execute("PRAGMA foreign_keys=OFF")
+            try:
+                with self._connection:
+                    self._connection.executescript(
+                        """
+                        CREATE TABLE documents_new (
+                            document_id TEXT PRIMARY KEY,
+                            attachment_id TEXT NOT NULL UNIQUE,
+                            session_id TEXT REFERENCES sessions(session_id),
+                            project_id TEXT REFERENCES projects(project_id),
+                            blob_id TEXT NOT NULL,
+                            name TEXT NOT NULL,
+                            media_type TEXT,
+                            status TEXT NOT NULL,
+                            normalized_text TEXT,
+                            error_message TEXT,
+                            deleted_at TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            CHECK ((session_id IS NOT NULL AND project_id IS NULL)
+                                OR (session_id IS NULL AND project_id IS NOT NULL))
+                        );
+                        INSERT INTO documents_new(document_id, attachment_id, session_id, blob_id,
+                            name, media_type, status, normalized_text, error_message, deleted_at,
+                            created_at, updated_at)
+                        SELECT document_id, attachment_id, session_id, blob_id, name, media_type,
+                            status, normalized_text, error_message, deleted_at, created_at,
+                            updated_at
+                        FROM documents;
+                        CREATE TABLE document_segments_new (
+                            segment_id TEXT PRIMARY KEY,
+                            document_id TEXT NOT NULL REFERENCES documents_new(document_id),
+                            ordinal INTEGER NOT NULL,
+                            text TEXT NOT NULL,
+                            page INTEGER,
+                            section TEXT,
+                            UNIQUE(document_id, ordinal)
+                        );
+                        INSERT INTO document_segments_new
+                        SELECT segment_id, document_id, ordinal, text, page, section
+                        FROM document_segments;
+                        CREATE TABLE document_ingestion_events_new (
+                            event_id TEXT PRIMARY KEY,
+                            document_id TEXT NOT NULL REFERENCES documents_new(document_id),
+                            state TEXT NOT NULL,
+                            error_message TEXT,
+                            created_at TEXT NOT NULL
+                        );
+                        INSERT INTO document_ingestion_events_new
+                        SELECT event_id, document_id, state, error_message, created_at
+                        FROM document_ingestion_events;
+                        DROP TABLE document_ingestion_events;
+                        DROP TABLE document_segments;
+                        DROP TABLE documents;
+                        ALTER TABLE documents_new RENAME TO documents;
+                        ALTER TABLE document_segments_new RENAME TO document_segments;
+                        ALTER TABLE document_ingestion_events_new
+                            RENAME TO document_ingestion_events;
+                        CREATE INDEX documents_session_visibility
+                            ON documents(session_id, status, deleted_at);
+                        CREATE INDEX document_segments_document
+                            ON document_segments(document_id, ordinal);
+                        """
+                    )
+            finally:
+                self._connection.execute("PRAGMA foreign_keys=ON")
 
     def close(self) -> None:
         self._connection.close()
 
-    def create_session(self, principal_id: str = "local", workspace_id: str = "local") -> str:
+    def create_session(
+        self,
+        principal_id: str = "local",
+        workspace_id: str = "local",
+        project_id: str | None = None,
+    ) -> str:
+        if project_id is not None and self.project(project_id) is None:
+            raise KeyError(project_id)
         session_id = str(uuid.uuid4())
         with self._lock, self._connection:
             self._connection.execute(
-                "INSERT INTO sessions(session_id, principal_id, workspace_id, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (session_id, principal_id, workspace_id, _utc_now()),
+                "INSERT INTO sessions(session_id, principal_id, workspace_id, project_id, "
+                "created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (session_id, principal_id, workspace_id, project_id, _utc_now()),
             )
         return session_id
 
@@ -144,13 +247,64 @@ class SQLiteStore:
                 is not None
             )
 
-    def session_identity(self, session_id: str) -> dict[str, str] | None:
+    def session_identity(self, session_id: str) -> dict[str, str | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT principal_id, workspace_id FROM sessions WHERE session_id = ?",
+                "SELECT principal_id, workspace_id, project_id FROM sessions WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def create_project(
+        self,
+        name: str,
+        description: str | None = None,
+        instructions: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        project_id, now = str(uuid.uuid4()), _utc_now()
+        with self._lock, self._connection:
+            self._connection.execute(
+                """INSERT INTO projects(project_id, name, description, instructions, metadata_json,
+                   created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (project_id, name, description, instructions, json.dumps(metadata or {}), now, now),
+            )
+        project = self.project(project_id)
+        if project is None:
+            raise RuntimeError("Project was not persisted")
+        return project
+
+    def project(self, project_id: str, include_deleted: bool = False) -> dict[str, Any] | None:
+        query = "SELECT * FROM projects WHERE project_id = ?"
+        if not include_deleted:
+            query += " AND deleted_at IS NULL"
+        with self._lock:
+            row = self._connection.execute(query, (project_id,)).fetchone()
+        return self._project_row(row) if row else None
+
+    def projects(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT * FROM projects WHERE deleted_at IS NULL ORDER BY created_at, project_id"
+            ).fetchall()
+        return [self._project_row(row) for row in rows]
+
+    def update_project(
+        self,
+        project_id: str,
+        name: str,
+        description: str | None,
+        instructions: str | None,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                """UPDATE projects SET name = ?, description = ?, instructions = ?,
+                   metadata_json = ?,
+                   updated_at = ? WHERE project_id = ? AND deleted_at IS NULL""",
+                (name, description, instructions, json.dumps(metadata), _utc_now(), project_id),
+            )
+        return self.project(project_id) if cursor.rowcount else None
 
     def create_request(self, session_id: str, status: str = "queued") -> str:
         request_id = str(uuid.uuid4())
@@ -303,7 +457,8 @@ class SQLiteStore:
         self,
         document_id: str,
         attachment_id: str,
-        session_id: str,
+        session_id: str | None,
+        project_id: str | None,
         blob_id: str,
         name: str,
         media_type: str | None,
@@ -311,10 +466,21 @@ class SQLiteStore:
         now = _utc_now()
         with self._lock, self._connection:
             self._connection.execute(
-                """INSERT INTO documents(document_id, attachment_id, session_id, blob_id, name,
-                   media_type, status, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)""",
-                (document_id, attachment_id, session_id, blob_id, name, media_type, now, now),
+                """INSERT INTO documents(document_id, attachment_id, session_id, project_id,
+                   blob_id,
+                   name, media_type, status, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)""",
+                (
+                    document_id,
+                    attachment_id,
+                    session_id,
+                    project_id,
+                    blob_id,
+                    name,
+                    media_type,
+                    now,
+                    now,
+                ),
             )
             self._record_ingestion_event(document_id, "uploaded", None)
 
@@ -380,6 +546,30 @@ class SQLiteStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def visible_project_documents(self, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT documents.* FROM documents JOIN projects
+                   ON projects.project_id = documents.project_id
+                   WHERE documents.project_id = ? AND documents.status = 'ready'
+                   AND documents.deleted_at IS NULL AND projects.deleted_at IS NULL
+                   ORDER BY documents.created_at, documents.document_id""",
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def project_documents(self, project_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT documents.* FROM documents JOIN projects
+                   ON projects.project_id = documents.project_id
+                   WHERE documents.project_id = ? AND documents.deleted_at IS NULL
+                   AND projects.deleted_at IS NULL
+                   ORDER BY documents.created_at, documents.document_id""",
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def session_attachment_ids(self, session_id: str) -> tuple[str, ...]:
         with self._lock:
             rows = self._connection.execute(
@@ -430,3 +620,10 @@ class SQLiteStore:
                created_at) VALUES (?, ?, ?, ?, ?)""",
             (str(uuid.uuid4()), document_id, state, error_message, _utc_now()),
         )
+
+    @staticmethod
+    def _project_row(row: sqlite3.Row) -> dict[str, Any]:
+        project = dict(row)
+        project["metadata"] = json.loads(project.pop("metadata_json"))
+        project.pop("deleted_at")
+        return project

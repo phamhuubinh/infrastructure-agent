@@ -13,6 +13,7 @@ from orion.knowledge.blob_store import LocalBlobStore
 from orion.models.backend import ModelBackend
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.persistence.sqlite import SQLiteStore
+from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
 from orion.tool_runtime.registry import ToolRegistration, ToolRegistry, ToolRegistryBuilder
 
@@ -26,6 +27,7 @@ class OrionApplication:
     backend: ModelBackend
     registry: ToolRegistry
     knowledge: KnowledgeService
+    projects: ProjectService
     runtime: ChatRuntime
 
 
@@ -41,6 +43,7 @@ def build_application(
     access = LocalAccessAdapter()
     registry_builder = ToolRegistryBuilder()
     knowledge = KnowledgeService(store, LocalBlobStore(resolved_path.parent / "blobs"))
+    projects = ProjectService(store)
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
@@ -56,6 +59,7 @@ def build_application(
         backend=selected_backend,
         registry=registry,
         knowledge=knowledge,
+        projects=projects,
         runtime=runtime,
     )
 

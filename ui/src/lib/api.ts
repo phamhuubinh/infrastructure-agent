@@ -21,6 +21,18 @@ export type AttachmentResponse = Pick<
   "document" | "attachment_id" | "status" | "error_message"
 >;
 
+export type Project = {
+  project_id: string;
+  name: string;
+  description: string | null;
+  instructions: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectInput = Pick<Project, "name" | "description" | "instructions" | "metadata">;
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   return fetch(`${API_URL}${path}`, { ...init, headers });
@@ -75,6 +87,45 @@ export async function sessionDocumentStatus(
 export async function deleteSessionDocument(sessionId: string, documentId: string): Promise<void> {
   const response = await apiFetch(
     `/api/sessions/${encodeURIComponent(sessionId)}/documents/${encodeURIComponent(documentId)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
+export async function listProjects(): Promise<Project[]> {
+  return apiJson<Project[]>("/api/projects");
+}
+
+export async function createProject(project: ProjectInput): Promise<Project> {
+  return apiJson<Project>("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(project),
+  });
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  return apiJson<Project>(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+export async function projectDocuments(projectId: string): Promise<DocumentStatus[]> {
+  return apiJson<DocumentStatus[]>(`/api/projects/${encodeURIComponent(projectId)}/documents`);
+}
+
+export async function attachProjectDocument(
+  projectId: string,
+  attachment: { name: string; content: string; media_type: string | null },
+): Promise<AttachmentResponse> {
+  return apiJson<AttachmentResponse>(`/api/projects/${encodeURIComponent(projectId)}/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(attachment),
+  });
+}
+
+export async function deleteProjectDocument(projectId: string, documentId: string): Promise<void> {
+  const response = await apiFetch(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}`,
     { method: "DELETE" },
   );
   if (!response.ok) throw new Error(await apiErrorMessage(response));

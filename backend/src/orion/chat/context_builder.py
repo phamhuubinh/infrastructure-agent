@@ -21,6 +21,27 @@ class ContextBuilder:
         messages: list[ContextMessage] = [
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
         ]
+        identity = self._store.session_identity(session_id)
+        project_id = identity["project_id"] if identity is not None else None
+        if project_id is not None:
+            project = self._store.project(project_id)
+            if project is not None:
+                details = [
+                    "Active Project (Orion-owned application context):",
+                    f"ID: {project['project_id']}",
+                    f"Name: {project['name']}",
+                ]
+                if project["description"]:
+                    details.append(f"Description: {project['description']}")
+                if project["instructions"]:
+                    details.append(f"Project instructions: {project['instructions']}")
+                if project["metadata"]:
+                    details.append(f"Metadata: {project['metadata']}")
+                details.append(
+                    "Project identity and available knowledge are fixed by Orion; do not infer or "
+                    "request another project through tool arguments."
+                )
+                messages.append(ContextMessage(role="system", content="\n".join(details)))
         for item in self._store.timeline(session_id):
             if item.kind == "user_message":
                 messages.append(ContextMessage(role="user", content=str(item.payload["content"])))

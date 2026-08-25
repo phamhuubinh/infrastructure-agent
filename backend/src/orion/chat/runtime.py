@@ -106,7 +106,7 @@ class ChatRuntime:
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
-                    self._validate_citations(turn, session_id)
+                    self._validate_citations(turn, scope)
                     assistant_item = self._persist_assistant_turn(session_id, request_id, turn)
                     if turn.assistant is not None:
                         self._emit(
@@ -193,11 +193,11 @@ class ChatRuntime:
         if identity is None:
             raise RequestFailed("Session is unavailable.")
         principal = self._access.principal_for_session(
-            identity["principal_id"], identity["workspace_id"]
+            str(identity["principal_id"]), str(identity["workspace_id"])
         )
         return RuntimeScope(
             session_id=session_id,
-            project_id=None,
+            project_id=identity["project_id"],
             attachment_ids=self._store.session_attachment_ids(session_id),
             principal_id=principal.principal_id,
             workspace_id=principal.workspace_id,
@@ -257,12 +257,12 @@ class ChatRuntime:
         self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")
         self._emit(request_id, "request.failed", {"message": "Request failed unexpectedly."})
 
-    def _validate_citations(self, turn: ModelTurn, session_id: str) -> None:
+    def _validate_citations(self, turn: ModelTurn, scope: RuntimeScope) -> None:
         if turn.assistant is None or not turn.assistant.citation_source_ref_ids:
             return
         visible_source_ref_ids: set[str] = set()
-        attachment_ids = self._store.session_attachment_ids(session_id)
-        for item in self._store.timeline(session_id):
+        attachment_ids = self._store.session_attachment_ids(scope.session_id)
+        for item in self._store.timeline(scope.session_id):
             if item.kind != "tool_result":
                 continue
             result = ToolResult.model_validate(item.payload["result"])
@@ -272,9 +272,21 @@ class ChatRuntime:
                 document = self._store.document(source.document_id)
                 if (
                     document is not None
-                    and document["session_id"] == session_id
-                    and document["attachment_id"] in attachment_ids
                     and document["status"] == "ready"
+                    and (
+                        (
+                            document["session_id"] == scope.session_id
+                            and document["attachment_id"] in attachment_ids
+                            and source.source_kind == "session"
+                            and source.source_id == scope.session_id
+                        )
+                        or (
+                            document["project_id"] == scope.project_id
+                            and scope.project_id is not None
+                            and source.source_kind == "project"
+                            and source.source_id == scope.project_id
+                        )
+                    )
                 ):
                     visible_source_ref_ids.add(source.source_ref_id)
         if not citations_are_visible(

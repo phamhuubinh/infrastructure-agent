@@ -142,3 +142,44 @@ async def test_document_status_and_delete_are_session_scoped(tmp_path) -> None: 
     assert unscoped_status.status_code == 404
     assert own_delete.status_code == 200
     assert remote_status.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_project_api_binds_sessions_and_documents_without_message_project_ids(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend([])
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(tmp_path / "orion.db", backend)),
+        base_url="http://test",
+    ) as client:
+        project = await client.post(
+            "/api/projects",
+            json={
+                "name": "Capacity",
+                "description": "Sizing",
+                "instructions": "Use the durable facts.",
+                "metadata": {"environment": "local"},
+            },
+        )
+        project_id = project.json()["project_id"]
+        session = await client.post(f"/api/projects/{project_id}/sessions")
+        document = await client.post(
+            f"/api/projects/{project_id}/documents",
+            json={"name": "requirements.txt", "content": "A-only fact"},
+        )
+        document_id = document.json()["document"]["document_id"]
+        status = await client.get(f"/api/projects/{project_id}/documents/{document_id}")
+        forged_message = await client.post(
+            f"/api/sessions/{session.json()['session_id']}/messages",
+            json={"content": "hello", "project_id": "forged"},
+        )
+        schema = (await client.get("/openapi.json")).json()
+
+    assert project.status_code == 201
+    assert session.status_code == 201
+    assert session.json()["project_id"] == project_id
+    assert document.status_code == 201
+    assert status.json()["document"]["source"] == {"kind": "project", "source_id": project_id}
+    assert forged_message.status_code == 422
+    assert "enabled_tools" not in str(schema)

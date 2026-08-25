@@ -4,6 +4,9 @@ import {
   apiErrorMessage,
   apiFetch,
   attachSessionDocument,
+  attachProjectDocument,
+  createProject,
+  deleteProjectDocument,
   deleteSessionDocument,
   sessionDocumentStatus,
 } from "@/lib/api";
@@ -77,5 +80,47 @@ describe("M1 API client", () => {
       media_type: "text/plain",
     });
     expect(fetchMock.mock.calls[2][1]?.method).toBe("DELETE");
+  });
+
+  it("uses Project-owned creation and document routes without a message project_id", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ project_id: "project-a", name: "A" }), { status: 201 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            document: {
+              document_id: "project-doc",
+              source: { kind: "project", source_id: "project-a" },
+              name: "requirements.txt",
+              media_type: "text/plain",
+            },
+            attachment_id: "upload-a",
+            status: "ready",
+            error_message: null,
+          }),
+          { status: 201 },
+        ),
+      )
+      .mockResolvedValueOnce(new Response('{"status":"deleted"}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProject({ name: "A", description: null, instructions: null, metadata: {} });
+    await attachProjectDocument("project-a", {
+      name: "requirements.txt",
+      content: "durable fact",
+      media_type: "text/plain",
+    });
+    await deleteProjectDocument("project-a", "project-doc");
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/projects",
+      "/api/projects/project-a/documents",
+      "/api/projects/project-a/documents/project-doc",
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty("project_id");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).not.toHaveProperty("project_id");
   });
 });

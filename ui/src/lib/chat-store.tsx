@@ -75,6 +75,7 @@ export type SourceReference = {
 
 export type Session = {
   id: string;
+  projectId: string | null;
   title: string;
   timeline: TimelineItem[];
   messages: Message[];
@@ -87,7 +88,7 @@ type ChatContextValue = {
   sessions: Session[];
   currentSessionId: string | null;
   generatingSessions: Set<string>;
-  createSession: () => Promise<string>;
+  createSession: (projectId?: string) => Promise<string>;
   startNewChat: () => void;
   switchSession: (id: string) => Promise<void>;
   loadSession: (id: string) => Promise<void>;
@@ -159,7 +160,6 @@ function attachmentCandidates(timeline: TimelineItem[]): SessionDocument[] {
 }
 
 function sourceReferences(
-  sessionId: string,
   timeline: TimelineItem[],
   documents: SessionDocument[],
 ): SourceReference[] {
@@ -181,13 +181,17 @@ function sourceReferences(
       if (
         typeof sourceRefId !== "string" ||
         typeof documentId !== "string" ||
-        source.source_kind !== "session" ||
-        source.source_id !== sessionId ||
         !availableDocuments.has(documentId)
       ) {
         continue;
       }
       const document = availableDocuments.get(documentId)!;
+      if (
+        source.source_kind !== document.document.source.kind ||
+        source.source_id !== document.document.source.source_id
+      ) {
+        continue;
+      }
       sources.set(sourceRefId, {
         sourceRefId,
         documentId,
@@ -205,8 +209,9 @@ export function sessionFromTimeline(
   id: string,
   timeline: TimelineItem[],
   documents: SessionDocument[] = attachmentCandidates(timeline),
+  projectId: string | null = null,
 ): Session {
-  const sources = sourceReferences(id, timeline, documents);
+  const sources = sourceReferences(timeline, documents);
   const availableSourceIds = new Set(sources.map((source) => source.sourceRefId));
   const messages: Message[] = timeline.flatMap((item) => {
     if (item.kind !== "user_message" && item.kind !== "assistant_message") return [];
@@ -248,6 +253,7 @@ export function sessionFromTimeline(
   });
   return {
     id,
+    projectId,
     title: firstUser ? firstUser.content.slice(0, 60) : "New chat",
     timeline,
     messages,
@@ -287,15 +293,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
 
-  const loadSession = useCallback(async (id: string) => {
-    const timeline = await apiJson<TimelineItem[]>(
-      `/api/sessions/${encodeURIComponent(id)}/timeline`,
-    );
-    const documents = await reconcileSessionDocuments(id, timeline);
-    const session = sessionFromTimeline(id, timeline, documents);
-    rememberSession(id);
-    setSessions((previous) => upsertSession(previous, session));
-  }, []);
+  const loadSession = useCallback(
+    async (id: string) => {
+      const timeline = await apiJson<TimelineItem[]>(
+        `/api/sessions/${encodeURIComponent(id)}/timeline`,
+      );
+      const documents = await reconcileSessionDocuments(id, timeline);
+      const knownProjectId = sessions.find((session) => session.id === id)?.projectId ?? null;
+      const session = sessionFromTimeline(id, timeline, documents, knownProjectId);
+      rememberSession(id);
+      setSessions((previous) => upsertSession(previous, session));
+    },
+    [sessions],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -324,9 +334,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const createSession = useCallback(async () => {
-    const data = await apiJson<{ session_id: string }>("/api/sessions", { method: "POST" });
-    const session = sessionFromTimeline(data.session_id, []);
+  const createSession = useCallback(async (projectId?: string) => {
+    const data = await apiJson<{ session_id: string; project_id: string | null }>(
+      projectId ? `/api/projects/${encodeURIComponent(projectId)}/sessions` : "/api/sessions",
+      { method: "POST" },
+    );
+    const session = sessionFromTimeline(data.session_id, [], [], data.project_id ?? null);
     rememberSession(data.session_id);
     setSessions((previous) => upsertSession(previous, session));
     setCurrentSessionId(data.session_id);

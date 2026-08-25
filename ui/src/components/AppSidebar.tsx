@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   MessageSquare,
+  FolderKanban,
   Settings,
   SquarePen,
   Sun,
@@ -17,6 +18,7 @@ import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
   { to: "/", label: "Trò chuyện", icon: MessageSquare },
+  { to: "/projects", label: "Projects", icon: FolderKanban },
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
