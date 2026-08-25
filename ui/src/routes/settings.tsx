@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { BrainCircuit, Globe2, Loader2, Save, Server } from "lucide-react";
 
@@ -39,6 +39,7 @@ type InfrastructureIntegration = {
 };
 
 export function SettingsPage() {
+  const navigate = useNavigate();
   const [models, setModels] = useState<ModelConnection[]>([]);
   const [internet, setInternet] = useState<InternetIntegration | null>(null);
   const [infrastructure, setInfrastructure] = useState<Record<string, InfrastructureIntegration>>(
@@ -111,6 +112,11 @@ export function SettingsPage() {
       setApiKey("");
       setNotice("Đã lưu cấu hình model.");
       await loadModels();
+      try {
+        await navigate({ to: "/" });
+      } catch {
+        // Direct component consumers without a router can still finish saving safely.
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Không thể lưu model.");
     } finally {
@@ -120,7 +126,14 @@ export function SettingsPage() {
 
   return (
     <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-      <PageHeader title="Cài đặt" subtitle="Cấu hình model đang dùng cho Chat." />
+      <PageHeader
+        title={models.length === 0 ? "Thiết lập Orion" : "Cài đặt"}
+        subtitle={
+          models.length === 0
+            ? "Kết nối model đầu tiên để bắt đầu trò chuyện với Orion."
+            : "Cấu hình model đang dùng cho Chat."
+        }
+      />
       <div className="flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-3xl space-y-5">
           {(error || notice) && (
@@ -150,7 +163,7 @@ export function SettingsPage() {
 
             {models.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                Chưa cấu hình model.
+                Đây là thiết lập Orion lần đầu. Lưu một model để quay lại Chat.
               </div>
             ) : (
               models.map((item) => (
@@ -225,7 +238,7 @@ export function SettingsPage() {
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {internet?.status === "healthy"
-                    ? `Tìm kiếm qua ${internet.provider ?? "integration"}: ${internet.endpoint}`
+                    ? `Internet integration ${internet.provider ?? "provider"} is ready.`
                     : (internet?.message ?? "Đang tải trạng thái tích hợp Internet.")}
                 </p>
               </div>

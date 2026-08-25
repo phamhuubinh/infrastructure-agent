@@ -51,6 +51,12 @@ export type SessionIdentity = {
   project_id: string | null;
 };
 
+export type SessionSummary = SessionIdentity & {
+  title: string;
+  created_at: string;
+  last_activity_at: string;
+};
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   return fetch(`${API_URL}${path}`, { ...init, headers });
@@ -114,6 +120,10 @@ export async function getSessionIdentity(sessionId: string): Promise<SessionIden
   return apiJson<SessionIdentity>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
+export async function listSessions(): Promise<SessionSummary[]> {
+  return apiJson<SessionSummary[]>("/api/sessions");
+}
+
 export async function listProjects(): Promise<Project[]> {
   return apiJson<Project[]>("/api/projects");
 }
@@ -130,8 +140,29 @@ export async function getProject(projectId: string): Promise<Project> {
   return apiJson<Project>(`/api/projects/${encodeURIComponent(projectId)}`);
 }
 
+export async function updateProject(projectId: string, project: ProjectInput): Promise<Project> {
+  return apiJson<Project>(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(project),
+  });
+}
+
 export async function projectDocuments(projectId: string): Promise<DocumentStatus[]> {
   return apiJson<DocumentStatus[]>(`/api/projects/${encodeURIComponent(projectId)}/documents`);
+}
+
+/** A missing status is the canonical project-document tombstone signal. */
+export async function projectDocumentStatus(
+  projectId: string,
+  documentId: string,
+): Promise<DocumentStatus | null> {
+  const response = await apiFetch(
+    `/api/projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(documentId)}`,
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  return (await response.json()) as DocumentStatus;
 }
 
 export async function attachProjectDocument(

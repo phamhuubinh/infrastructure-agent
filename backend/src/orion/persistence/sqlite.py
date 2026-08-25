@@ -12,6 +12,8 @@ from typing import Any, cast
 
 from orion.contracts import TimelineItem, TimelineKind
 
+MAX_SESSION_SUMMARIES = 100
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -254,6 +256,52 @@ class SQLiteStore:
                 (session_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def session_summaries(
+        self, principal_id: str, workspace_id: str, limit: int = MAX_SESSION_SUMMARIES
+    ) -> list[dict[str, str | None]]:
+        """Return bounded, scope-owned sidebar data without loading timelines."""
+        limit = max(1, min(limit, MAX_SESSION_SUMMARIES))
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT sessions.session_id, sessions.project_id, sessions.created_at,
+                       COALESCE(MAX(timeline.created_at), sessions.created_at) AS last_activity_at
+                FROM sessions
+                LEFT JOIN timeline ON timeline.session_id = sessions.session_id
+                WHERE sessions.principal_id = ? AND sessions.workspace_id = ?
+                GROUP BY sessions.session_id
+                ORDER BY last_activity_at DESC, sessions.session_id DESC
+                LIMIT ?
+                """,
+                (principal_id, workspace_id, limit),
+            ).fetchall()
+            summaries: list[dict[str, str | None]] = []
+            for row in rows:
+                title_row = self._connection.execute(
+                    """
+                    SELECT payload_json FROM timeline
+                    WHERE session_id = ? AND kind = 'user_message'
+                    ORDER BY created_at, rowid
+                    """,
+                    (row["session_id"],),
+                ).fetchall()
+                title = "New chat"
+                for title_candidate in title_row:
+                    content = json.loads(title_candidate["payload_json"]).get("content")
+                    if isinstance(content, str) and (normalized := " ".join(content.split())):
+                        title = normalized[:120]
+                        break
+                summaries.append(
+                    {
+                        "session_id": str(row["session_id"]),
+                        "project_id": row["project_id"],
+                        "title": title,
+                        "created_at": str(row["created_at"]),
+                        "last_activity_at": str(row["last_activity_at"]),
+                    }
+                )
+        return summaries
 
     def create_project(
         self,

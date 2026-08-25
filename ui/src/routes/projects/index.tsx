@@ -10,17 +10,27 @@ function ProjectsPage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void listProjects()
-      .then(setProjects)
-      .catch(() => setProjects([]));
+      .then((loaded) => {
+        setProjects(loaded);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        setProjects([]);
+        setError(reason instanceof Error ? reason.message : "Unable to load projects.");
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function create() {
     if (!name.trim() || creating) return;
     setCreating(true);
+    setError(null);
     try {
       const project = await createProject({
         name: name.trim(),
@@ -29,6 +39,8 @@ function ProjectsPage() {
         metadata: {},
       });
       await navigate({ to: "/projects/$projectId", params: { projectId: project.project_id } });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create project.");
     } finally {
       setCreating(false);
     }
@@ -57,6 +69,17 @@ function ProjectsPage() {
           </Button>
         </div>
         <div className="mt-6 space-y-2">
+          {loading && <div className="text-sm text-muted-foreground">Loading projects…</div>}
+          {error && (
+            <div role="alert" className="text-sm text-destructive">
+              {error}
+            </div>
+          )}
+          {!loading && !error && projects.length === 0 && (
+            <div className="text-sm text-muted-foreground">
+              No projects yet. Create one to add project-scoped knowledge.
+            </div>
+          )}
           {projects.map((project) => (
             <Link
               key={project.project_id}

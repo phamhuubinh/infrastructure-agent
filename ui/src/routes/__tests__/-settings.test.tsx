@@ -63,7 +63,7 @@ describe("M1 model settings", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<SettingsPage />);
-    await screen.findByText("Chưa cấu hình model.");
+    await screen.findByText(/Đây là thiết lập Orion lần đầu/);
     fireEvent.change(screen.getByPlaceholderText(/Base URL/), {
       target: { value: "https://api.openai.com/v1" },
     });

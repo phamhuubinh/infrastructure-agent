@@ -11,6 +11,15 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
+const configuredModels = [
+  {
+    model_config_id: "cfg-1",
+    provider_type: "openai_compatible",
+    base_url: "https://model.test/v1",
+    model_id: "test-model",
+  },
+];
+
 function sseResponse(events: unknown[]): Response {
   return new Response(events.map((event) => "data: " + JSON.stringify(event) + "\n\n").join(""), {
     headers: { "Content-Type": "text/event-stream" },
@@ -41,8 +50,9 @@ describe("M1 Chat integration", () => {
   });
 
   it("creates a session, submits a direct message over SSE, and renders the reloaded final assistant answer", async () => {
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
         return sseResponse([
@@ -114,6 +124,7 @@ describe("M1 Chat integration", () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/models",
       "/api/sessions",
+      "/api/sessions",
       "/api/sessions/chat-1/messages/stream",
       "/api/sessions/chat-1",
       "/api/sessions/chat-1/timeline",
@@ -121,8 +132,9 @@ describe("M1 Chat integration", () => {
   });
 
   it("presents calculator tool started/completed activity after the canonical timeline reload", async () => {
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
         return sseResponse([
@@ -202,8 +214,9 @@ describe("M1 Chat integration", () => {
   });
 
   it("presents a failed request returned by the M1 endpoint", async () => {
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
         return jsonResponse({ detail: "Model unavailable" }, 502);
@@ -225,8 +238,9 @@ describe("M1 Chat integration", () => {
   });
 
   it("sends the canonical cancellation request after receiving the SSE request identifier", async () => {
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/models") return Promise.resolve(jsonResponse([]));
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/models") return Promise.resolve(jsonResponse(configuredModels));
+      if (path === "/api/sessions" && !init?.method) return Promise.resolve(jsonResponse([]));
       if (path === "/api/sessions")
         return Promise.resolve(jsonResponse({ session_id: "chat-1" }, 201));
       if (path === "/api/sessions/chat-1/messages/stream") {
@@ -282,8 +296,9 @@ describe("M1 Chat integration", () => {
       name: "runbook.md",
       media_type: "text/markdown",
     };
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/attachments") {
         return jsonResponse(
@@ -351,15 +366,24 @@ describe("M1 Chat integration", () => {
   });
 
   it("reconnects a failed ingestion state separately from model and tool failures", async () => {
-    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
     const document = {
       document_id: "doc-failed",
       source: { kind: "session", source_id: "chat-1" },
       name: "scan.pdf",
       media_type: "application/pdf",
     };
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method)
+        return jsonResponse([
+          {
+            session_id: "chat-1",
+            project_id: null,
+            title: "Existing",
+            created_at: "now",
+            last_activity_at: "now",
+          },
+        ]);
       if (path === "/api/sessions/chat-1")
         return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") {
@@ -400,7 +424,6 @@ describe("M1 Chat integration", () => {
   });
 
   it("reconstructs grounded citations from canonical sources and opens exact page/section metadata", async () => {
-    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
     const document = {
       document_id: "doc-1",
       source: { kind: "session", source_id: "chat-1" },
@@ -455,8 +478,18 @@ describe("M1 Chat integration", () => {
         tool_name: null,
       },
     ];
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path === "/api/models") return jsonResponse([]);
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method)
+        return jsonResponse([
+          {
+            session_id: "chat-1",
+            project_id: null,
+            title: "Existing",
+            created_at: "now",
+            last_activity_at: "now",
+          },
+        ]);
       if (path === "/api/sessions/chat-1")
         return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
@@ -484,7 +517,6 @@ describe("M1 Chat integration", () => {
   });
 
   it("removes tombstoned documents and their source cards after deletion", async () => {
-    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
     const document = {
       document_id: "doc-1",
       source: { kind: "session", source_id: "chat-1" },
@@ -504,7 +536,17 @@ describe("M1 Chat integration", () => {
     ];
     let statusCalls = 0;
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method)
+        return jsonResponse([
+          {
+            session_id: "chat-1",
+            project_id: null,
+            title: "Existing",
+            created_at: "now",
+            last_activity_at: "now",
+          },
+        ]);
       if (path === "/api/sessions/chat-1")
         return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);

@@ -340,6 +340,45 @@
         "title": "ProjectView",
         "type": "object"
       },
+      "SessionSummaryView": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "title",
+          "created_at",
+          "last_activity_at"
+        ],
+        "title": "SessionSummaryView",
+        "type": "object"
+      },
       "SessionView": {
         "properties": {
           "project_id": {
@@ -1024,6 +1063,26 @@
       }
     },
     "/api/sessions": {
+      "get": {
+        "operationId": "list_sessions_api_sessions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSummaryView"
+                  },
+                  "title": "Response List Sessions Api Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Sessions"
+      },
       "post": {
         "operationId": "create_session_api_sessions_post",
         "responses": {

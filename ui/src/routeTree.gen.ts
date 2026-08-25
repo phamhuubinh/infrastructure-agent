@@ -9,32 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TargetsRouteImport } from './routes/targets'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as KnowledgeRouteImport } from './routes/knowledge'
-import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProjectsIndexRouteImport } from './routes/projects/index'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects/$projectId'
 
-const TargetsRoute = TargetsRouteImport.update({
-  id: '/targets',
-  path: '/targets',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KnowledgeRoute = KnowledgeRouteImport.update({
-  id: '/knowledge',
-  path: '/knowledge',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AnalyticsRoute = AnalyticsRouteImport.update({
-  id: '/analytics',
-  path: '/analytics',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,100 +37,45 @@ const ProjectsProjectIdRoute = ProjectsProjectIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/knowledge': typeof KnowledgeRoute
   '/settings': typeof SettingsRoute
-  '/targets': typeof TargetsRoute
   '/projects/$projectId': typeof ProjectsProjectIdRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/knowledge': typeof KnowledgeRoute
   '/settings': typeof SettingsRoute
-  '/targets': typeof TargetsRoute
   '/projects/$projectId': typeof ProjectsProjectIdRoute
   '/projects': typeof ProjectsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/analytics': typeof AnalyticsRoute
-  '/knowledge': typeof KnowledgeRoute
   '/settings': typeof SettingsRoute
-  '/targets': typeof TargetsRoute
   '/projects/$projectId': typeof ProjectsProjectIdRoute
   '/projects/': typeof ProjectsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/analytics'
-    | '/knowledge'
-    | '/settings'
-    | '/targets'
-    | '/projects/$projectId'
-    | '/projects/'
+  fullPaths: '/' | '/settings' | '/projects/$projectId' | '/projects/'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/analytics'
-    | '/knowledge'
-    | '/settings'
-    | '/targets'
-    | '/projects/$projectId'
-    | '/projects'
-  id:
-    | '__root__'
-    | '/'
-    | '/analytics'
-    | '/knowledge'
-    | '/settings'
-    | '/targets'
-    | '/projects/$projectId'
-    | '/projects/'
+  to: '/' | '/settings' | '/projects/$projectId' | '/projects'
+  id: '__root__' | '/' | '/settings' | '/projects/$projectId' | '/projects/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AnalyticsRoute: typeof AnalyticsRoute
-  KnowledgeRoute: typeof KnowledgeRoute
   SettingsRoute: typeof SettingsRoute
-  TargetsRoute: typeof TargetsRoute
   ProjectsProjectIdRoute: typeof ProjectsProjectIdRoute
   ProjectsIndexRoute: typeof ProjectsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/targets': {
-      id: '/targets'
-      path: '/targets'
-      fullPath: '/targets'
-      preLoaderRoute: typeof TargetsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/knowledge': {
-      id: '/knowledge'
-      path: '/knowledge'
-      fullPath: '/knowledge'
-      preLoaderRoute: typeof KnowledgeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/analytics': {
-      id: '/analytics'
-      path: '/analytics'
-      fullPath: '/analytics'
-      preLoaderRoute: typeof AnalyticsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -177,10 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AnalyticsRoute: AnalyticsRoute,
-  KnowledgeRoute: KnowledgeRoute,
   SettingsRoute: SettingsRoute,
-  TargetsRoute: TargetsRoute,
   ProjectsProjectIdRoute: ProjectsProjectIdRoute,
   ProjectsIndexRoute: ProjectsIndexRoute,
 }

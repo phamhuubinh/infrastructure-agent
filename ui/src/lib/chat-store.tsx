@@ -11,14 +11,13 @@ import {
   attachSessionDocument,
   deleteSessionDocument,
   getSessionIdentity,
+  listSessions,
   projectDocuments,
   type DocumentRef,
   type DocumentStatus,
   apiJson,
   sessionDocumentStatus,
 } from "@/lib/api";
-
-const SESSION_IDS_STORAGE = "orion-m1-session-ids";
 
 export type TimelineKind =
   | "user_message"
@@ -104,6 +103,7 @@ export function sessionRoute(
 
 type ChatContextValue = {
   sessions: Session[];
+  sessionsLoaded: boolean;
   currentSessionId: string | null;
   generatingSessions: Set<string>;
   createSession: (projectId?: string) => Promise<string>;
@@ -127,22 +127,6 @@ const ChatContext = createContext<ChatContextValue>(null!);
 
 export function useChat() {
   return useContext(ChatContext);
-}
-
-function rememberedSessionIds(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(SESSION_IDS_STORAGE) || "[]");
-    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberSession(id: string) {
-  if (typeof window === "undefined") return;
-  const next = [id, ...rememberedSessionIds().filter((known) => known !== id)].slice(0, 20);
-  window.localStorage.setItem(SESSION_IDS_STORAGE, JSON.stringify(next));
 }
 
 function stringArray(value: unknown): string[] {
@@ -456,6 +440,7 @@ async function reconcileSessionDocuments(
 
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
 
@@ -467,35 +452,35 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const projectId = identity.project_id ?? null;
     const documents = await reconcileSessionDocuments(id, timeline, projectId);
     const session = sessionFromTimeline(id, timeline, documents, projectId);
-    rememberSession(id);
     setSessions((previous) => upsertSession(previous, session));
     return session;
   }, []);
 
   useEffect(() => {
     let disposed = false;
-    const ids = rememberedSessionIds();
-    if (ids.length === 0) return;
-    void Promise.all(
-      ids.map(async (id) => {
-        try {
-          const [identity, timeline] = await Promise.all([
-            getSessionIdentity(id),
-            apiJson<TimelineItem[]>(`/api/sessions/${encodeURIComponent(id)}/timeline`),
-          ]);
-          const projectId = identity.project_id ?? null;
-          const documents = await reconcileSessionDocuments(id, timeline, projectId);
-          return sessionFromTimeline(id, timeline, documents, projectId);
-        } catch {
-          return null;
+    void listSessions()
+      .then((summaries) => {
+        if (disposed) return;
+        setSessions(
+          summaries.map((summary) => ({
+            id: summary.session_id,
+            projectId: summary.project_id,
+            title: summary.title,
+            timeline: [],
+            messages: [],
+            activity: [],
+            documents: [],
+            sources: [],
+          })),
+        );
+        setSessionsLoaded(true);
+      })
+      .catch(() => {
+        if (!disposed) {
+          setSessions([]);
+          setSessionsLoaded(true);
         }
-      }),
-    ).then((loaded) => {
-      if (disposed) return;
-      const available = loaded.filter((session): session is Session => session !== null);
-      setSessions(available);
-      setCurrentSessionId(available[0]?.id || null);
-    });
+      });
     return () => {
       disposed = true;
     };
@@ -507,7 +492,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       { method: "POST" },
     );
     const session = sessionFromTimeline(data.session_id, [], [], data.project_id ?? null);
-    rememberSession(data.session_id);
     setSessions((previous) => upsertSession(previous, session));
     setCurrentSessionId(data.session_id);
     return data.session_id;
@@ -763,6 +747,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ChatContextValue>(
     () => ({
       sessions,
+      sessionsLoaded,
       currentSessionId,
       generatingSessions,
       createSession,
@@ -780,6 +765,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }),
     [
       sessions,
+      sessionsLoaded,
       currentSessionId,
       generatingSessions,
       createSession,

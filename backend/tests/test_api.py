@@ -41,6 +41,59 @@ async def test_api_direct_chat_has_no_tool_selector(tmp_path) -> None:  # type: 
 
 
 @pytest.mark.anyio
+async def test_session_summaries_are_scope_safe_durable_and_sidebar_ready(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    database = tmp_path / "sessions.db"
+    app = create_app(database, ScriptedBackend([]))
+    store = app.state.application.store
+    assert store.session_summaries("local", "local") == []
+    first = store.create_session("local", "local")
+    project = app.state.application.projects.create("Scoped project")
+    project_session = store.create_session("local", "local", project["project_id"])
+    foreign_principal = store.create_session("other", "local")
+    foreign_workspace = store.create_session("local", "other")
+    store.append_timeline(first, None, "user_message", {"content": "  First   persisted chat  "})
+    store.append_timeline(project_session, None, "user_message", {"content": "Project history"})
+    store.append_timeline(foreign_principal, None, "user_message", {"content": "Do not expose"})
+    store.append_timeline(foreign_workspace, None, "user_message", {"content": "Also private"})
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        listed = await client.get(
+            "/api/sessions",
+            params={"principal_id": "other", "workspace_id": "other", "project_id": "forged"},
+        )
+        foreign_session = await client.get(f"/api/sessions/{foreign_principal}")
+
+    assert listed.status_code == 200
+    assert foreign_session.status_code == 404
+    summaries = listed.json()
+    assert {item["session_id"] for item in summaries} == {first, project_session}
+    assert summaries[0]["last_activity_at"] >= summaries[1]["last_activity_at"]
+    normal = next(item for item in summaries if item["session_id"] == first)
+    project_summary = next(item for item in summaries if item["session_id"] == project_session)
+    assert normal["title"] == "First persisted chat"
+    assert project_summary["project_id"] == project["project_id"]
+    assert all("Do not expose" not in str(item) for item in summaries)
+
+    store.close()
+    restarted = create_app(database, ScriptedBackend([]))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted), base_url="http://test"
+    ) as client:
+        after_restart = await client.get("/api/sessions")
+    assert {item["session_id"] for item in after_restart.json()} == {first, project_session}
+
+
+def test_session_summaries_have_a_fixed_server_side_bound(tmp_path) -> None:
+    store = create_app(tmp_path / "sessions.db", ScriptedBackend([])).state.application.store
+    for _ in range(101):
+        store.create_session("local", "local")
+
+    assert len(store.session_summaries("local", "local", limit=10_000)) == 100
+
+
+@pytest.mark.anyio
 async def test_api_reports_optional_internet_integration_without_exposing_secrets(
     tmp_path,
 ) -> None:  # type: ignore[no-untyped-def]

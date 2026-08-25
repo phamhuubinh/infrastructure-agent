@@ -39,8 +39,13 @@ describe("M1 session store", () => {
     window.localStorage.clear();
     vi.restoreAllMocks();
   });
-  it("creates sessions through the current API and remembers only the opaque session ID", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ session_id: "session-1" }));
+  it("creates sessions through the current API without browser session storage", async () => {
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/sessions" && !init?.method) return Promise.resolve(jsonResponse([]));
+      if (path === "/api/sessions")
+        return Promise.resolve(jsonResponse({ session_id: "session-1" }));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(
@@ -51,9 +56,7 @@ describe("M1 session store", () => {
     fireEvent.click(screen.getByRole("button", { name: "create" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/sessions", expect.anything()));
-    expect(JSON.parse(window.localStorage.getItem("orion-m1-session-ids") || "[]")).toEqual([
-      "session-1",
-    ]);
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("reconstructs messages from the canonical per-session timeline", async () => {
@@ -100,8 +103,20 @@ describe("M1 session store", () => {
   });
 
   it("hydrates the canonical project identity and reopens the existing Project session", async () => {
-    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["project-session"]));
     const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "project-session",
+              project_id: "project-a",
+              title: "Keep this project timeline",
+              created_at: "2026-08-25T00:00:00Z",
+              last_activity_at: "2026-08-25T00:00:02Z",
+            },
+          ]),
+        );
+      }
       if (path === "/api/sessions/project-session") {
         return Promise.resolve(
           jsonResponse({ session_id: "project-session", project_id: "project-a" }),
@@ -184,17 +199,17 @@ describe("M1 session store", () => {
       </ChatProvider>,
     );
 
+    await waitFor(() => expect(screen.getByTestId("session-count").textContent).toBe("1"));
+    fireEvent.click(screen.getByRole("button", { name: "load" }));
     await waitFor(() => expect(screen.getByTestId("project-id").textContent).toBe("project-a"));
     expect(screen.getByTestId("project-id").textContent).toBe("project-a");
     expect(screen.getByTestId("citations").textContent).toBe("project-source");
-    fireEvent.click(screen.getByRole("button", { name: "load" }));
-    await waitFor(() => expect(screen.getByTestId("session-count").textContent).toBe("1"));
     expect(
       fetchMock.mock.calls.filter(([path]) => path === "/api/sessions/project-session"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       fetchMock.mock.calls.filter(([path]) => path === "/api/sessions/project-session/timeline"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("keeps only currently available canonical sources, including distinct cross-document identity", () => {

@@ -62,6 +62,12 @@ class SessionView(BaseModel):
     project_id: str | None = None
 
 
+class SessionSummaryView(SessionView):
+    title: str
+    created_at: str
+    last_activity_at: str
+
+
 class ProjectInput(StrictRequest):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=4000)
@@ -164,11 +170,17 @@ def create_app(
             session_id=store.create_session(principal.principal_id, principal.workspace_id)
         )
 
+    @app.get("/api/sessions", response_model=list[SessionSummaryView])
+    async def list_sessions() -> list[SessionSummaryView]:
+        principal = assembled.access.current_principal()
+        return [
+            SessionSummaryView.model_validate(summary)
+            for summary in store.session_summaries(principal.principal_id, principal.workspace_id)
+        ]
+
     @app.get("/api/sessions/{session_id}", response_model=SessionView)
     async def get_session(session_id: str) -> SessionView:
-        identity = store.session_identity(session_id)
-        if identity is None:
-            raise HTTPException(status_code=404, detail="Session not found.")
+        identity = _require_session(store, assembled.access, session_id)
         return SessionView(session_id=session_id, project_id=identity["project_id"])
 
     @app.get("/api/projects", response_model=list[ProjectView])
@@ -259,14 +271,14 @@ def create_app(
 
     @app.get("/api/sessions/{session_id}/timeline")
     async def get_timeline(session_id: str) -> list[dict[str, object]]:
-        _require_session(store, session_id)
+        _require_session(store, assembled.access, session_id)
         return [item.model_dump(mode="json") for item in store.timeline(session_id)]
 
     @app.post(
         "/api/sessions/{session_id}/attachments", response_model=AttachmentView, status_code=201
     )
     async def attach_document(session_id: str, attachment: AttachmentInput) -> AttachmentView:
-        _require_session(store, session_id)
+        _require_session(store, assembled.access, session_id)
         uploaded = assembled.knowledge.attach(
             session_id, attachment.name, attachment.content.encode(), attachment.media_type
         )
@@ -298,7 +310,7 @@ def create_app(
 
     @app.post("/api/sessions/{session_id}/messages", response_model=AssistantResponse)
     async def submit_message(session_id: str, message: SubmitMessage) -> AssistantResponse:
-        _require_session(store, session_id)
+        _require_session(store, assembled.access, session_id)
         try:
             outcome = await runtime.submit(session_id, message.content)
         except RequestCancelled as error:
@@ -311,7 +323,7 @@ def create_app(
 
     @app.post("/api/sessions/{session_id}/messages/stream")
     async def stream_message(session_id: str, message: SubmitMessage) -> StreamingResponse:
-        _require_session(store, session_id)
+        _require_session(store, assembled.access, session_id)
         request_id = runtime.begin(session_id, message.content)
         task = asyncio.create_task(runtime.run(session_id, request_id))
         return StreamingResponse(
@@ -320,14 +332,18 @@ def create_app(
 
     @app.get("/api/requests/{request_id}/events")
     async def request_events(request_id: str) -> list[dict[str, object]]:
-        if store.request(request_id) is None:
+        request = store.request(request_id)
+        if request is None:
             raise HTTPException(status_code=404, detail="Request not found.")
+        _require_session(store, assembled.access, str(request["session_id"]))
         return store.events(request_id)
 
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str) -> dict[str, str]:
-        if store.request(request_id) is None:
+        request = store.request(request_id)
+        if request is None:
             raise HTTPException(status_code=404, detail="Request not found.")
+        _require_session(store, assembled.access, str(request["session_id"]))
         if not runtime.cancel(request_id):
             raise HTTPException(status_code=409, detail="Request is no longer running.")
         return {"status": "cancellation_requested"}
@@ -394,21 +410,22 @@ async def _sse_events(
             runtime.cancel(request_id)
 
 
-def _require_session(store: SQLiteStore, session_id: str) -> None:
-    if not store.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="Session not found.")
-
-
-def _session_scope(store: SQLiteStore, access: LocalAccessAdapter, session_id: str) -> RuntimeScope:
+def _require_session(
+    store: SQLiteStore, access: LocalAccessAdapter, session_id: str
+) -> dict[str, str | None]:
     identity = store.session_identity(session_id)
     if identity is None:
         raise HTTPException(status_code=404, detail="Session not found.")
     try:
-        principal = access.principal_for_session(
-            str(identity["principal_id"]), str(identity["workspace_id"])
-        )
+        access.principal_for_session(str(identity["principal_id"]), str(identity["workspace_id"]))
     except PermissionError as error:
         raise HTTPException(status_code=404, detail="Session not found.") from error
+    return identity
+
+
+def _session_scope(store: SQLiteStore, access: LocalAccessAdapter, session_id: str) -> RuntimeScope:
+    identity = _require_session(store, access, session_id)
+    principal = access.current_principal()
     return RuntimeScope(
         session_id=session_id,
         project_id=identity["project_id"],

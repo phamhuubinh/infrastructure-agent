@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
@@ -82,11 +82,13 @@ export function parseSseEvents(buffer: string): { events: RuntimeEvent[]; remain
 
 export function ChatPage({ project }: { project?: Project }) {
   const chat = useChat();
+  const navigate = useNavigate();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const loadedInitialSessionId = useRef<string | null>(null);
   const session = chat.sessions.find(
     (item) =>
       item.id === chat.currentSessionId &&
@@ -123,6 +125,22 @@ export function ChatPage({ project }: { project?: Project }) {
       disposed = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!loadingModels && models.length === 0) {
+      void navigate({ to: "/settings", replace: true });
+    }
+  }, [loadingModels, models.length, navigate]);
+
+  useEffect(() => {
+    if (!chat.sessionsLoaded || loadedInitialSessionId.current !== null) return;
+    loadedInitialSessionId.current = "handled";
+    const candidate = chat.sessions.find((item) =>
+      project ? item.projectId === project.project_id : item.projectId === null,
+    );
+    if (!candidate) return;
+    void chat.switchSession(candidate.id);
+  }, [chat, project]);
 
   useEffect(() => {
     if (!project) return;
@@ -375,9 +393,14 @@ export function SourceLocation({ source }: { source: SourceReference }) {
 }
 
 function ModelStatus({ models, loading }: { models: ModelInfo[]; loading: boolean }) {
+  const navigate = useNavigate();
   const model = models[0];
   return (
-    <div
+    <button
+      type="button"
+      onClick={() => {
+        if (!model) void navigate({ to: "/settings" });
+      }}
       className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-foreground"
       title={model ? model.model_id + " (" + model.provider_type + ")" : "Chưa cấu hình model"}
     >
@@ -390,8 +413,8 @@ function ModelStatus({ models, loading }: { models: ModelInfo[]; loading: boolea
           }
         />
       )}
-      <span className="max-w-[140px] truncate">{model?.model_id || "No model"}</span>
-    </div>
+      <span className="max-w-[140px] truncate">{model?.model_id || "Configure model"}</span>
+    </button>
   );
 }
 
@@ -632,7 +655,7 @@ function ChatInput({
               size="icon"
               className="h-8 w-8 rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
               onClick={() => void submit()}
-              disabled={!value.trim()}
+              disabled={!value.trim() || (!loadingModels && models.length === 0)}
               aria-label="Send message"
             >
               <Send className="h-4 w-4" />
