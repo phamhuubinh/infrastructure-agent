@@ -74,15 +74,14 @@ Read:
 orion
 ```
 
-This starts the packaged UI at `http://127.0.0.1:61888/` and its API at
-`http://127.0.0.1:61888/api/...`; the browser opens once Orion is ready. Use
-`orion web --no-open` for headless use. `npm run dev` remains only a frontend development
-workflow.
+This starts the packaged UI and API at `http://127.0.0.1:61888/`; the browser opens once
+Orion is ready.
 
 Useful commands:
 
 ```bash
 orion log
+orion help
 make test
 make lint
 ```

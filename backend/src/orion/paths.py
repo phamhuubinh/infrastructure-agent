@@ -6,6 +6,11 @@ import os
 import sys
 from pathlib import Path
 
+PACKAGED_UI_SHELL = "_shell.html"
+ORION_HOST = "127.0.0.1"
+ORION_PORT = 61888
+ORION_HEALTH_IDENTITY = "orion"
+
 
 def data_directory() -> Path:
     """Return Orion's persistent local data directory without creating it."""

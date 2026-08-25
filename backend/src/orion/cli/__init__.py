@@ -1,110 +1,169 @@
-"""Small local CLI surface."""
+"""The intentionally small public CLI for the local Orion web application."""
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
+import shutil
+import socket
+import subprocess
+import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 import uvicorn
 
-from orion.paths import database_path, log_path, packaged_ui_directory
+from orion.paths import (
+    ORION_HEALTH_IDENTITY,
+    ORION_HOST,
+    ORION_PORT,
+    PACKAGED_UI_SHELL,
+    database_path,
+    log_path,
+    packaged_ui_directory,
+)
 from orion.security import redact_public
+
+ORION_URL = f"http://{ORION_HOST}:{ORION_PORT}/"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="orion")
-    subcommands = parser.add_subparsers(dest="command")
-    web = subcommands.add_parser("web", help="run Orion's local web application")
-    web.add_argument("--host", default=os.getenv("ORION_HOST", "127.0.0.1"))
-    web.add_argument("--port", default=int(os.getenv("ORION_PORT", "61888")), type=int)
-    web.add_argument("--data-dir", type=Path, help="persistent data directory")
-    web.add_argument("--database", type=Path, help="SQLite database path")
-    web.add_argument("--log-path", type=Path, help="sanitized application log path")
-    web.add_argument("--no-open", action="store_true", help="do not open a browser")
-    log = subcommands.add_parser("log", help="show sanitized local Orion application logs")
-    log.add_argument("--data-dir", type=Path, help="persistent data directory")
-    log.add_argument("--database", type=Path, help="SQLite database path")
-    log.add_argument("--log-path", type=Path, help="sanitized application log path")
-    log.add_argument("--tail", type=int, default=100, help="number of records to show")
-    arguments = parser.parse_args()
-    if arguments.command is None:
-        arguments.command = "web"
-        arguments.host = os.getenv("ORION_HOST", "127.0.0.1")
-        arguments.port = int(os.getenv("ORION_PORT", "61888"))
-        arguments.data_dir = None
-        arguments.database = None
-        arguments.log_path = None
-        arguments.no_open = False
-    if arguments.command == "web":
-        _configure_paths(arguments)
-        _run_web(arguments)
-    else:
-        _configure_paths(arguments)
-        _show_log(log_path(), database_path(), arguments.tail)
+    """Run one of Orion's four public commands without exposing dev switches."""
+    command = sys.argv[1:]
+    if command in ([], ["web"]):
+        _configure_default_log_path()
+        _run_web()
+        return
+    if command == ["log"]:
+        _configure_default_log_path()
+        _show_log(log_path(), database_path())
+        return
+    if command == ["help"]:
+        _show_help()
+        return
+    _invalid_command(command)
 
 
-def _configure_paths(arguments: argparse.Namespace) -> None:
-    if arguments.data_dir is not None:
-        os.environ["ORION_DATA_DIR"] = str(arguments.data_dir.expanduser())
-    if arguments.database is not None:
-        os.environ["ORION_DATABASE_PATH"] = str(arguments.database.expanduser())
-    if arguments.log_path is not None:
-        os.environ["ORION_LOG_PATH"] = str(arguments.log_path.expanduser())
-    elif "ORION_LOG_PATH" not in os.environ:
+def _show_help() -> None:
+    print(
+        "Orion\n\nUsage:\n"
+        "  orion          Start Orion\n"
+        "  orion web      Start Orion\n"
+        "  orion log      Show Orion logs\n"
+        "  orion help     Show this help"
+    )
+
+
+def _invalid_command(command: list[str]) -> None:
+    entered = " ".join(command) or "(none)"
+    raise SystemExit(f"Unknown Orion command: {entered}\nRun 'orion help' for help.")
+
+
+def _configure_default_log_path() -> None:
+    # Environment-owned paths remain useful for isolated automation, without
+    # becoming public CLI configuration or changing normal user defaults.
+    if "ORION_LOG_PATH" not in os.environ:
         os.environ["ORION_LOG_PATH"] = str(log_path())
 
 
-def _run_web(arguments: argparse.Namespace) -> None:
+def _run_web() -> None:
     frontend = packaged_ui_directory()
-    if not (frontend / "index.html").is_file():
+    if not (frontend / PACKAGED_UI_SHELL).is_file():
         raise SystemExit(
             f"Orion's packaged UI is missing at {frontend}. Run ./install.sh to build it."
         )
+    if _orion_is_healthy():
+        print(f"Orion is already running at {ORION_URL}")
+        _open_desktop_url(ORION_URL)
+        return
+    if _port_is_occupied():
+        raise SystemExit("Port 61888 is already in use by another application.")
+
     config = uvicorn.Config(
         "orion.api.app:create_app",
-        host=arguments.host,
-        port=arguments.port,
+        host=ORION_HOST,
+        port=ORION_PORT,
         factory=True,
     )
     server = uvicorn.Server(config)
-    if not arguments.no_open and _is_loopback_host(arguments.host):
-        url = _local_url(arguments.host, arguments.port)
-        threading.Thread(
-            target=_open_browser_when_ready, args=(server, url), daemon=True, name="orion-browser"
-        ).start()
+    threading.Thread(
+        target=_open_when_healthy,
+        args=(server,),
+        daemon=True,
+        name="orion-url-opener",
+    ).start()
     server.run()
 
 
-def _is_loopback_host(host: str) -> bool:
-    return host.lower() in {"127.0.0.1", "localhost", "::1"}
+def _orion_is_healthy() -> bool:
+    try:
+        with urlopen(f"{ORION_URL}api/health", timeout=0.5) as response:  # noqa: S310 - fixed loopback URL.
+            payload = json.loads(response.read())
+            return (
+                response.status == 200
+                and isinstance(payload, dict)
+                and payload.get("status") == "ok"
+                and payload.get("identity") == ORION_HEALTH_IDENTITY
+            )
+    except (OSError, TimeoutError, HTTPError, URLError, json.JSONDecodeError):
+        return False
 
 
-def _local_url(host: str, port: int) -> str:
-    return f"http://[{host}]:{port}/" if ":" in host else f"http://{host}:{port}/"
+def _port_is_occupied() -> bool:
+    try:
+        with socket.create_connection((ORION_HOST, ORION_PORT), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
-def _open_browser_when_ready(server: uvicorn.Server, url: str) -> None:
-    while not server.started and not server.should_exit:
+def _open_when_healthy(server: uvicorn.Server) -> None:
+    while not server.should_exit:
+        if _orion_is_healthy():
+            _open_desktop_url(ORION_URL)
+            return
         time.sleep(0.05)
-    if server.started and not server.should_exit:
-        webbrowser.open(url)
 
 
-def _show_log(log_file: Path, database: Path, tail: int) -> None:
-    if tail < 1:
-        raise SystemExit("--tail must be at least 1")
+def _open_desktop_url(url: str) -> None:
+    """Ask the OS to open a URL; an unavailable desktop never stops Orion."""
+    print(f"Open Orion at {url}")
+    if sys.platform == "darwin":
+        command = ["open", url]
+    elif sys.platform.startswith("win"):
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]  # noqa: S606 - URL association.
+        except OSError:
+            pass
+        return
+    else:
+        opener = shutil.which("xdg-open") or shutil.which("gio")
+        if opener is None:
+            return
+        command = [opener, url] if Path(opener).name == "xdg-open" else [opener, "open", url]
+    try:
+        subprocess.run(  # noqa: S603 - fixed argv for the system URL opener.
+            command,
+            check=False,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def _show_log(log_file: Path, database: Path) -> None:
     print(f"database: {database.resolve()}")
     print(f"log: {log_file.resolve()}")
     if not log_file.exists():
         print("No application log records yet.")
         return
-    lines = log_file.read_text(encoding="utf-8").splitlines()[-tail:]
-    for line in lines:
+    for line in log_file.read_text(encoding="utf-8").splitlines()[-100:]:
         try:
             print(json.dumps(redact_public(json.loads(line)), sort_keys=True))
         except json.JSONDecodeError:

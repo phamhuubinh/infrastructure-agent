@@ -1,38 +1,28 @@
 # Running Orion locally
 
-Start the complete local web application with either command:
+Install and start the complete local web application:
 
 ```bash
+./install.sh
 orion
-orion web
 ```
 
-Both serve the preserved Orion UI at `http://127.0.0.1:61888/` and the API at
-`http://127.0.0.1:61888/api/...`. A browser opens after the loopback server is ready.
-For automation or headless use, disable that behavior explicitly:
+Orion opens in your default browser when it is healthy. `orion web` has the same behavior.
+The only other public commands are:
 
 ```bash
-orion web --no-open
+orion log
+orion help
 ```
 
-The browser is automatically opened only for loopback hosts (`127.0.0.1`, `localhost`, or
-`::1`). `orion web --host HOST --port PORT` (or `ORION_HOST` / `ORION_PORT`) configures the
-listener; non-loopback bindings never auto-open a browser. Orion remains loopback-only by
-default.
+## Frontend development only
 
-The production UI is built by `./install.sh` and served by the same FastAPI process. Do not
-run `npm run dev` for normal installed use. It remains a frontend-development workflow only.
+The production application does not need a frontend development server. Contributors working
+on the UI may use:
 
 ```bash
 cd ui
 npm run dev
 ```
 
-Show sanitized local logs with:
-
-```bash
-orion log
-```
-
-Use `orion log --tail 20` to limit output. Stop the web app with Ctrl-C; restarting it with
-the same data directory resumes the same SQLite/WAL database and blob store.
+Stop Orion with Ctrl-C. Its local data survives normal restarts.

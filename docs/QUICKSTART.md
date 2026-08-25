@@ -1,51 +1,27 @@
 # Quickstart
 
-This page documents the repository's **current** installation/run path. Target architecture behavior is documented separately under `docs/architecture/`.
-
-## Requirements
-
-Current `install.sh` requires Python 3.12+, Node.js 22.12+, and npm. Git is useful for
-normal repository/development work.
-
-## Install
-
-From the repository root:
+Install and start Orion:
 
 ```bash
 ./install.sh
-```
-
-The installer creates or reuses `.venv`, installs Orion, runs a deterministic frontend build,
-and installs the resulting client assets for FastAPI to serve. It manages the default
-`~/.local/bin/orion` launcher without touching Orion data or credentials.
-
-## Start/use the Web UI
-
-After installation:
-
-```bash
 orion
 ```
 
-The command serves the UI and API at `http://127.0.0.1:61888/` and opens a browser once the
-loopback server is ready.
+Orion opens in your default browser when it is ready.
 
-Disable browser launch:
+The complete public command surface is:
 
-```bash
-orion web --no-open
-```
-
-## Logs
-
-```bash
-orion log
+```text
+orion          Start Orion
+orion web      Start Orion
+orion log      Show Orion logs
+orion help     Show this help
 ```
 
 
 ## Development checks
 
-Use repository targets that exist in the current checkout. Common commands are:
+For repository contributors:
 
 ```bash
 make test

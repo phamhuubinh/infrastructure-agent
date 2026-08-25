@@ -68,7 +68,7 @@ async def test_packaged_ui_serves_root_assets_and_client_routes_without_capturin
     frontend = tmp_path / "ui"
     assets = frontend / "assets"
     assets.mkdir(parents=True)
-    (frontend / "index.html").write_text(
+    (frontend / "_shell.html").write_text(
         "<!doctype html><html><head><title>Orion</title></head><body>Orion UI</body></html>",
         encoding="utf-8",
     )
@@ -89,6 +89,7 @@ async def test_packaged_ui_serves_root_assets_and_client_routes_without_capturin
     assert asset.status_code == 200 and asset.text == "console.log('orion');"
     assert route.status_code == 200 and "Orion UI" in route.text
     assert health.status_code == 200 and health.json()["status"] == "ok"
+    assert health.json()["identity"] == "orion"
     assert missing_api.status_code == 404 and "Orion UI" not in missing_api.text
 
 

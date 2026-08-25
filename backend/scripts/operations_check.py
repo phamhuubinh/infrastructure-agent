@@ -1,49 +1,189 @@
-"""Isolated installer/CLI smoke that never touches an Orion user prefix or data."""
+"""Isolated installer and fixed-address web lifecycle proof."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-
-def _free_port() -> int:
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        return int(listener.getsockname()[1])
+HOST = "127.0.0.1"
+PORT = 61888
+URL = f"http://{HOST}:{PORT}"
 
 
 def _get(url: str) -> tuple[int, str]:
-    with urlopen(Request(url), timeout=1) as response:  # noqa: S310 - isolated loopback smoke.
-        return response.status, response.read().decode("utf-8")
+    try:
+        with urlopen(Request(url), timeout=1) as response:  # noqa: S310 - isolated loopback smoke.
+            return response.status, response.read().decode("utf-8")
+    except HTTPError as error:
+        return error.code, error.read().decode("utf-8")
 
 
-def _wait_for(url: str) -> None:
+def _wait_for_health() -> None:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         try:
-            if _get(url)[0] == 200:
+            status, body = _get(f"{URL}/api/health")
+            if status == 200 and json.loads(body).get("identity") == "orion":
                 return
-        except OSError:
+        except (OSError, ValueError):
             time.sleep(0.05)
-    raise SystemExit(f"Orion did not start at {url}")
+    raise SystemExit(f"Orion did not become healthy at {URL}")
+
+
+def _wait_for_file(path: Path) -> bool:
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        if path.is_file():
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _packaged_text(directory: Path) -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8", errors="ignore")
+        for path in directory.rglob("*")
+        if path.is_file()
+    )
+
+
+def _loopback_available() -> bool:
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            with socket.socket() as listener:
+                listener.bind((HOST, PORT))
+            return True
+        except PermissionError:
+            print("operations socket check skipped: loopback sockets are unavailable")
+            return False
+        except OSError as error:
+            if error.errno != 98:
+                raise
+            if time.monotonic() >= deadline:
+                print("operations socket check skipped: port 61888 is already in use")
+                return False
+            time.sleep(0.1)
+
+
+def _asset_reference(shell: str, suffix: str) -> str:
+    match = re.search(rf'/(assets/[^" ]+{re.escape(suffix)})', shell)
+    if match is None:
+        raise SystemExit(f"installed SPA shell did not reference a generated {suffix} asset")
+    return match.group(1)
+
+
+def _assert_marker(marker: Path, count: int) -> None:
+    if not _wait_for_file(marker):
+        raise SystemExit("Orion did not request the operating-system URL opener")
+    if marker.read_text(encoding="utf-8") != "opened" * count:
+        raise SystemExit("Orion requested the URL opener an unexpected number of times")
+
+
+def _terminate(process: subprocess.Popen[str]) -> None:
+    process.terminate()
+    process.wait(timeout=5)
+
+
+def _exercise_socket_lifecycle(command: list[str], environment: dict[str, str], root: Path) -> None:
+    marker = root / "browser-opened"
+    process = subprocess.Popen(
+        command,
+        env={**environment, "ORION_BROWSER_MARKER": str(marker)},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        _wait_for_health()
+        _assert_marker(marker, 1)
+        root_status, root_html = _get(f"{URL}/")
+        shell = root_html
+        javascript = _asset_reference(shell, ".js")
+        stylesheet = _asset_reference(shell, ".css")
+        asset_status, _ = _get(f"{URL}/{javascript}")
+        css_status, _ = _get(f"{URL}/{stylesheet}")
+        route_status, route_html = _get(f"{URL}/projects")
+        health_status, health_body = _get(f"{URL}/api/health")
+        missing_api_status, missing_api_body = _get(f"{URL}/api/not-a-route")
+        session_request = Request(f"{URL}/api/sessions", method="POST")
+        with urlopen(session_request, timeout=1) as response:  # noqa: S310 - isolated loopback smoke.
+            session_id = json.loads(response.read())["session_id"]
+
+        second = subprocess.run(
+            command,
+            env={**environment, "ORION_BROWSER_MARKER": str(marker)},
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        if second.returncode != 0 or "already running" not in second.stdout:
+            raise SystemExit("a second orion invocation did not reuse the healthy Orion server")
+        _assert_marker(marker, 2)
+    finally:
+        _terminate(process)
+
+    if root_status != 200 or "<title>Orion</title>" not in root_html:
+        raise SystemExit("root URL did not serve the packaged Orion UI")
+    if asset_status != 200 or css_status != 200:
+        raise SystemExit("a real packaged Orion frontend asset was not served")
+    if route_status != 200 or route_html != root_html:
+        raise SystemExit("a client-side route refresh did not return the SPA shell")
+    if health_status != 200 or json.loads(health_body).get("identity") != "orion":
+        raise SystemExit("health did not identify the Orion server")
+    if missing_api_status != 404 or "<html" in missing_api_body.lower():
+        raise SystemExit("an unknown API route received SPA HTML")
+
+    restarted = subprocess.Popen(
+        [*command, "web"],
+        env={**environment, "ORION_BROWSER_MARKER": str(marker)},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        _wait_for_health()
+        _assert_marker(marker, 3)
+        session_status, _ = _get(f"{URL}/api/sessions/{session_id}")
+        if session_status != 200:
+            raise SystemExit("local data did not survive a normal Orion restart")
+    finally:
+        _terminate(restarted)
+
+    with socket.socket() as unrelated:
+        unrelated.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        unrelated.bind((HOST, PORT))
+        unrelated.listen()
+        rejected = subprocess.run(
+            command,
+            env={**environment, "ORION_BROWSER_MARKER": str(marker)},
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    if (
+        rejected.returncode == 0
+        or "Port 61888 is already in use by another application." not in rejected.stderr
+    ):
+        raise SystemExit("a non-Orion service on 61888 was not rejected clearly")
+    if marker.read_text(encoding="utf-8") != "opened" * 3:
+        raise SystemExit("a non-Orion service caused a browser-open request")
 
 
 def main() -> None:
     repository = Path(__file__).parents[2]
-    try:
-        _free_port()
-    except PermissionError:
-        # Some restricted CI sandboxes prohibit every loopback bind. The same
-        # smoke runs in normal local/CI environments; unit coverage still
-        # exercises the ASGI routes without a socket.
-        print("operations check skipped: loopback sockets are unavailable")
+    if not _loopback_available():
         return
     with tempfile.TemporaryDirectory(prefix="orion-operations-") as temporary:
         root = Path(temporary)
@@ -51,16 +191,24 @@ def main() -> None:
         launcher = home / ".local" / "bin" / "orion"
         launcher.parent.mkdir(parents=True)
         launcher.write_text(
-            "#!/usr/bin/env bash\nexec ~/projects/Orion_agent/scripts/orion \"$@\"\n",
+            '#!/usr/bin/env bash\nexec ~/projects/Orion_agent/scripts/orion "$@"\n',
             encoding="utf-8",
         )
         launcher.chmod(0o755)
+        opener = launcher.parent / "xdg-open"
+        opener.write_text(
+            '#!/usr/bin/env bash\nprintf opened >> "$ORION_BROWSER_MARKER"\n',
+            encoding="utf-8",
+        )
+        opener.chmod(0o755)
         environment = {
             **os.environ,
             "HOME": str(home),
             "PATH": f"{launcher.parent}:{os.environ['PATH']}",
+            "ORION_DATA_DIR": str(data),
             "ORION_PYTHON": sys.executable,
             "ORION_TEST_SECRET_TOKEN": "operations-marker-secret",
+            "ORION_API_KEY": "operations-ui-secret-marker",
         }
         subprocess.run(
             [
@@ -76,85 +224,39 @@ def main() -> None:
             stdout=subprocess.DEVNULL,
         )
         command = [str(launcher)]
-        help_output = subprocess.check_output([*command, "--help"], env=environment, text=True)
-        log_output = subprocess.check_output(
-            [*command, "log", "--data-dir", str(data)], env=environment, text=True
+        help_output = subprocess.check_output([*command, "help"], env=environment, text=True)
+        rejected_help = subprocess.run(
+            [*command, "--help"], env=environment, text=True, capture_output=True, check=False
         )
-        if "web" not in help_output or "log" not in help_output:
-            raise SystemExit("installed CLI did not expose web/log commands")
-        if not (prefix / ".orion-ui" / "index.html").is_file():
-            raise SystemExit("installed Orion did not contain packaged frontend assets")
+        log_output = subprocess.check_output([*command, "log"], env=environment, text=True)
+        if (
+            help_output
+            != (
+                "Orion\n\nUsage:\n"
+                "  orion          Start Orion\n"
+                "  orion web      Start Orion\n"
+                "  orion log      Show Orion logs\n"
+                "  orion help     Show this help\n"
+            )
+            or rejected_help.returncode == 0
+        ):
+            raise SystemExit("installed CLI help surface is not minimal")
+        packaged_ui = prefix / ".orion-ui"
+        shell = packaged_ui / "_shell.html"
+        if not shell.is_file() or not (packaged_ui / "orion-icon.png").is_file():
+            raise SystemExit("installed Orion did not contain the real packaged frontend")
+        shell_html = shell.read_text(encoding="utf-8")
+        for asset in (_asset_reference(shell_html, ".js"), _asset_reference(shell_html, ".css")):
+            if not (packaged_ui / asset).is_file():
+                raise SystemExit("installed SPA shell referenced a missing generated asset")
+        if "operations-ui-secret-marker" in _packaged_text(packaged_ui):
+            raise SystemExit("installed UI exposed an API-key test marker")
         if "scripts/orion" in launcher.read_text(encoding="utf-8"):
             raise SystemExit("managed launcher retained stale scripts/orion reference")
-        if str(data / "orion.db") not in log_output:
-            raise SystemExit("installed CLI did not use the isolated data directory")
-        if "operations-marker-secret" in log_output:
-            raise SystemExit("installed CLI exposed a configured marker secret")
+        if str(data / "orion.db") not in log_output or "operations-marker-secret" in log_output:
+            raise SystemExit("orion log did not use sanitized isolated local data")
 
-        port = _free_port()
-        marker = root / "browser-opened"
-        browser = root / "mock-browser"
-        browser.write_text(
-            "#!/usr/bin/env bash\nprintf opened > \"$ORION_BROWSER_MARKER\"\n",
-            encoding="utf-8",
-        )
-        browser.chmod(0o755)
-        no_open_environment = {
-            **environment,
-            "ORION_BROWSER_MARKER": str(marker),
-            # This mock makes an unexpected browser launch observable without
-            # ever starting a real browser.
-            "BROWSER": str(browser),
-        }
-        process = subprocess.Popen(
-            [*command, "web", "--no-open", "--data-dir", str(data), "--port", str(port)],
-            env=no_open_environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            base_url = f"http://127.0.0.1:{port}"
-            _wait_for(f"{base_url}/api/health")
-            root_status, root_html = _get(f"{base_url}/")
-            asset = next((prefix / ".orion-ui" / "assets").glob("*.js"))
-            asset_status, _ = _get(f"{base_url}/assets/{asset.name}")
-            health_status, health_body = _get(f"{base_url}/api/health")
-            session_request = Request(f"{base_url}/api/sessions", method="POST")
-            with urlopen(session_request, timeout=1) as response:  # noqa: S310 - loopback smoke.
-                session_id = json.loads(response.read())["session_id"]
-        finally:
-            process.terminate()
-            process.wait(timeout=5)
-        if root_status != 200 or "<title>Orion</title>" not in root_html:
-            raise SystemExit("root URL did not serve the packaged Orion UI")
-        if asset_status != 200 or health_status != 200 or '"status":"ok"' not in health_body:
-            raise SystemExit("packaged root/API smoke failed")
-        if marker.exists():
-            raise SystemExit("--no-open unexpectedly launched a browser")
-
-        # Starting through the bare managed launcher proves it maps to web and
-        # preserves the data created by the first local process.
-        port = _free_port()
-        process = subprocess.Popen(
-            [*command],
-            env={
-                **environment,
-                "BROWSER": str(browser),
-                "ORION_BROWSER_MARKER": str(root / "bare-browser-opened"),
-                "ORION_PORT": str(port),
-                "ORION_DATA_DIR": str(data),
-            },
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            base_url = f"http://127.0.0.1:{port}"
-            _wait_for(f"{base_url}/")
-            if _get(f"{base_url}/api/sessions/{session_id}")[0] != 200:
-                raise SystemExit("restart through bare orion did not preserve local data")
-        finally:
-            process.terminate()
-            process.wait(timeout=5)
+        _exercise_socket_lifecycle(command, environment, root)
 
 
 if __name__ == "__main__":

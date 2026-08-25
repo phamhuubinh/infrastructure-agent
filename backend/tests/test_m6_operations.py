@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
-import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
-from types import SimpleNamespace
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
 import httpx
 import pytest
@@ -302,7 +296,7 @@ async def test_public_marker_boundaries_cover_errors_sources_citations_apis_logs
         models = await client.get("/api/models")
     from orion.cli import _show_log
 
-    _show_log(log_path, tmp_path / "markers.db", 100)
+    _show_log(log_path, tmp_path / "markers.db")
     public = "\n".join(
         (
             str(app.registry.definitions()),
@@ -349,111 +343,76 @@ async def test_runtime_terminal_requests_clear_cancellation_registries(tmp_path)
     assert not cancelled.runtime._cancellations and not cancelled.runtime._pending_content  # noqa: SLF001
 
 
-def _free_port() -> int:
-    try:
-        with socket.socket() as listener:
-            listener.bind(("127.0.0.1", 0))
-            return int(listener.getsockname()[1])
-    except PermissionError:
-        pytest.skip("local loopback sockets are unavailable in this execution sandbox")
+def test_public_cli_has_only_web_log_and_help(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
 
+    started: list[str] = []
+    monkeypatch.setattr(cli, "_run_web", lambda: started.append("started"))
+    monkeypatch.setattr(sys, "argv", ["orion"])
+    cli.main()
+    monkeypatch.setattr(sys, "argv", ["orion", "web"])
+    cli.main()
+    monkeypatch.setattr(sys, "argv", ["orion", "help"])
+    cli.main()
 
-def _request(url: str, method: str = "GET") -> dict[str, object]:
-    request = Request(url, method=method)
-    with urlopen(request, timeout=1) as response:  # noqa: S310 - loopback smoke only.
-        return json.loads(response.read())
-
-
-def _wait_for_health(port: int) -> None:
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            if _request(f"http://127.0.0.1:{port}/api/health")["status"] == "ok":
-                return
-        except (URLError, TimeoutError, ConnectionError):
-            time.sleep(0.05)
-    raise AssertionError("Orion web did not bind loopback in time")
-
-
-def test_cli_loopback_restart_and_redacted_log_smoke(tmp_path) -> None:  # type: ignore[no-untyped-def]
-    data, home, frontend = tmp_path / "data", tmp_path / "home", tmp_path / "ui"
-    frontend.mkdir()
-    (frontend / "index.html").write_text("<title>Orion</title>", encoding="utf-8")
-    port = _free_port()
-    environment = {
-        **os.environ,
-        "HOME": str(home),
-        "ORION_TEST_SECRET_TOKEN": "do-not-print",
-        "ORION_UI_DIR": str(frontend),
-    }
-    command = [
-        sys.executable,
-        "-m",
-        "orion.cli",
-        "web",
-        "--data-dir",
-        str(data),
-        "--port",
-        str(port),
-    ]
-    process = subprocess.Popen(
-        command, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    assert started == ["started", "started"]
+    assert capsys.readouterr().out == (
+        "Orion\n\nUsage:\n"
+        "  orion          Start Orion\n"
+        "  orion web      Start Orion\n"
+        "  orion log      Show Orion logs\n"
+        "  orion help     Show this help\n"
     )
-    try:
-        _wait_for_health(port)
-        session = _request(f"http://127.0.0.1:{port}/api/sessions", "POST")["session_id"]
-    finally:
-        process.terminate()
-        process.wait(timeout=5)
-
-    process = subprocess.Popen(
-        command, env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
-    try:
-        _wait_for_health(port)
-        persisted = _request(f"http://127.0.0.1:{port}/api/sessions/{session}")
-    finally:
-        process.terminate()
-        process.wait(timeout=5)
-    output = subprocess.check_output(
-        [sys.executable, "-m", "orion.cli", "log", "--data-dir", str(data)],
-        env=environment,
-        text=True,
-    )
-    assert persisted["session_id"] == session
-    assert str(data / "orion.db") in output
-    assert "do-not-print" not in output
+    monkeypatch.setattr(sys, "argv", ["orion", "--help"])
+    with pytest.raises(SystemExit, match="Unknown Orion command"):
+        cli.main()
 
 
-def test_bare_cli_maps_to_web_and_browser_opening_is_loopback_only(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+def test_web_reuses_healthy_orion_and_rejects_other_port_occupants(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     from orion import cli
 
     frontend = tmp_path / "ui"
     frontend.mkdir()
-    (frontend / "index.html").write_text("<title>Orion</title>", encoding="utf-8")
-    captured: list[object] = []
+    (frontend / "_shell.html").write_text("<title>Orion</title>", encoding="utf-8")
     monkeypatch.setenv("ORION_UI_DIR", str(frontend))
-    monkeypatch.setattr(cli, "_run_web", captured.append)
-    monkeypatch.setattr(sys, "argv", ["orion"])
-    cli.main()
-
-    arguments = captured[0]
-    assert arguments.command == "web"  # type: ignore[union-attr]
-    assert arguments.no_open is False  # type: ignore[union-attr]
-    assert cli._is_loopback_host("127.0.0.1")
-    assert cli._is_loopback_host("localhost")
-    assert not cli._is_loopback_host("0.0.0.0")
-    assert cli._local_url("::1", 61888) == "http://[::1]:61888/"
-
     opened: list[str] = []
-
-    class ReadyServer:
-        started = True
-        should_exit = False
-
-    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
-    cli._open_browser_when_ready(ReadyServer(), "http://127.0.0.1:61888/")
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: True)
+    monkeypatch.setattr(cli, "_open_desktop_url", opened.append)
+    monkeypatch.setattr(cli.uvicorn, "Server", lambda config: pytest.fail("must not start"))
+    cli._run_web()
     assert opened == ["http://127.0.0.1:61888/"]
+
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: False)
+    monkeypatch.setattr(cli, "_port_is_occupied", lambda: True)
+    with pytest.raises(SystemExit, match="Port 61888 is already in use by another application"):
+        cli._run_web()
+
+
+def test_web_binds_only_the_fixed_loopback_address(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    frontend = tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "_shell.html").write_text("<title>Orion</title>", encoding="utf-8")
+    captured: list[object] = []
+
+    class Server:
+        should_exit = True
+
+        def __init__(self, config) -> None:  # type: ignore[no-untyped-def]
+            captured.append(config)
+
+        def run(self) -> None:
+            return
+
+    monkeypatch.setenv("ORION_UI_DIR", str(frontend))
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: False)
+    monkeypatch.setattr(cli, "_port_is_occupied", lambda: False)
+    monkeypatch.setattr(cli.uvicorn, "Server", Server)
+    cli._run_web()
+
+    assert captured[0].host == "127.0.0.1"  # type: ignore[union-attr]
+    assert captured[0].port == 61888  # type: ignore[union-attr]
 
 
 def test_installer_reports_python_candidates_when_no_supported_interpreter_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -484,4 +443,4 @@ def test_web_startup_fails_clearly_without_packaged_ui(monkeypatch, tmp_path) ->
 
     monkeypatch.setenv("ORION_UI_DIR", str(tmp_path / "missing-ui"))
     with pytest.raises(SystemExit, match="packaged UI is missing"):
-        cli._run_web(SimpleNamespace(host="127.0.0.1", port=61888, no_open=True))
+        cli._run_web()

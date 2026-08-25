@@ -8,9 +8,8 @@ packaged Orion UI. The normal installation and launch flow is:
 orion
 ```
 
-The installer requires Python 3.12 or newer, Node.js 22.12 or newer, and npm. It uses
-`npm ci` and a production Vite build, then copies the resulting client bundle into the
-install-owned `.orion-ui` directory. No Vite development server is needed after install.
+The installer requires Python 3.12 or newer, Node.js 22.12 or newer, and npm. It builds and
+installs the UI with the API as one local application.
 
 `ORION_PYTHON` selects an explicit Python interpreter. If it is unset, an existing valid
 `PREFIX/.venv/bin/python` is reused before system Python candidates are considered. A
@@ -20,11 +19,11 @@ By default, installation manages `~/.local/bin/orion`. The managed launcher poin
 new virtual-environment CLI, replaces the known legacy `scripts/orion` launcher, and refuses
 to overwrite an unrelated executable. It is safe to run the installer repeatedly.
 
-Use an isolated prefix without altering the global command:
+For isolated installer testing, use a custom prefix without altering the global command:
 
 ```bash
 ./install.sh --prefix /tmp/orion-smoke --no-dev
-/tmp/orion-smoke/.venv/bin/orion web --no-open
+/tmp/orion-smoke/.venv/bin/orion help
 ```
 
 Add `--global-launcher` only when that custom prefix should become the managed global

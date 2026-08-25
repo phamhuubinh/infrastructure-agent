@@ -18,7 +18,7 @@ from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
 from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
-from orion.paths import packaged_ui_directory
+from orion.paths import ORION_HEALTH_IDENTITY, PACKAGED_UI_SHELL, packaged_ui_directory
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_text, safe_endpoint
 
@@ -110,6 +110,7 @@ def create_app(
         internet_status = assembled.internet.status()
         return {
             "status": "ok",
+            "identity": ORION_HEALTH_IDENTITY,
             "internet": internet_status.__dict__,
             "infrastructure": {
                 family: assembled.infrastructure.status(family).__dict__
@@ -345,7 +346,7 @@ def create_app(
         requested = (frontend / frontend_path).resolve()
         if requested.is_relative_to(frontend) and requested.is_file():
             return _static_file_response(requested)
-        shell = frontend / "index.html"
+        shell = frontend / PACKAGED_UI_SHELL
         if not shell.is_file():
             raise HTTPException(
                 status_code=503,
@@ -356,9 +357,19 @@ def create_app(
     return app
 
 
-def _static_file_response(path: Path) -> Response:
+def _static_file_response(path: Path) -> StreamingResponse:
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    return Response(content=path.read_bytes(), media_type=media_type)
+    return StreamingResponse(
+        _file_chunks(path),
+        media_type=media_type,
+        headers={"Content-Length": str(path.stat().st_size)},
+    )
+
+
+async def _file_chunks(path: Path) -> AsyncIterator[bytes]:
+    with path.open("rb") as file:
+        while chunk := file.read(64 * 1024):
+            yield chunk
 
 
 async def _sse_events(

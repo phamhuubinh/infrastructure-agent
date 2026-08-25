@@ -136,8 +136,8 @@ npm ci --prefix "$source_root/ui"
 npm run build --prefix "$source_root/ui"
 ui_source="$source_root/ui/dist/client"
 ui_destination="$prefix/.orion-ui"
-if [[ ! -f "$ui_source/index.html" ]]; then
-  echo "UI build did not create $ui_source/index.html." >&2
+if [[ ! -f "$ui_source/_shell.html" ]]; then
+  echo "UI build did not create $ui_source/_shell.html." >&2
   exit 1
 fi
 rm -rf -- "$ui_destination"

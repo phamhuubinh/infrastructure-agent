@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    plugins: [tanstackStart({ server: { entry: "server" } }), react(), tailwindcss()],
+    plugins: [
+      tanstackStart({ spa: { enabled: true }, server: { entry: "server" } }),
+      react(),
+      tailwindcss(),
+    ],
   };
 });
