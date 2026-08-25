@@ -41,7 +41,9 @@ type InfrastructureIntegration = {
 export function SettingsPage() {
   const [models, setModels] = useState<ModelConnection[]>([]);
   const [internet, setInternet] = useState<InternetIntegration | null>(null);
-  const [infrastructure, setInfrastructure] = useState<Record<string, InfrastructureIntegration>>({});
+  const [infrastructure, setInfrastructure] = useState<Record<string, InfrastructureIntegration>>(
+    {},
+  );
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -68,14 +70,19 @@ export function SettingsPage() {
   const loadInfrastructure = useCallback(async () => {
     try {
       const entries = await Promise.all(
-        ["linux", "grafana", "zabbix"].map(async (family) => [
-          family,
-          await apiJson<InfrastructureIntegration>(`/api/integrations/${family}`),
-        ] as const),
+        ["linux", "grafana", "zabbix"].map(
+          async (family) =>
+            [
+              family,
+              await apiJson<InfrastructureIntegration>(`/api/integrations/${family}`),
+            ] as const,
+        ),
       );
       setInfrastructure(Object.fromEntries(entries));
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Không thể tải infrastructure.");
+      setError(
+        requestError instanceof Error ? requestError.message : "Không thể tải infrastructure.",
+      );
     }
   }, []);
 

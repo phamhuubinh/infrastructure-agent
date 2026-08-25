@@ -143,9 +143,9 @@ class ChatRuntime:
                                 model_call.tool_name, model_call.call_id, model_call.arguments
                             ),
                         )
-                        # The runner receives the live Orion-owned cancellation probe. Semantic
-                        # integrations check it after preflight and immediately before dispatch.
-                        result = self._runner.run(model_call, scope, cancellation.is_set)
+                        result = await self._runner.run_async(
+                            model_call, scope, cancellation.is_set
+                        )
                         self._persist_tool_result(session_id, request_id, result)
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:

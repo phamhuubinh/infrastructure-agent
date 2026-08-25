@@ -71,13 +71,55 @@ class TargetCatalog:
     def from_environment(cls) -> TargetCatalog:
         path = os.getenv("ORION_INFRASTRUCTURE_CONFIG")
         if not path:
-            return cls()
+            return cls._from_tool_credentials()
         try:
             raw = json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             # A malformed local configuration must never make ordinary Chat unusable.
             return cls()
         return cls.from_mapping(raw)
+
+    @classmethod
+    def _from_tool_credentials(cls) -> TargetCatalog:
+        """Adapt the established server-only credential file without exposing it."""
+        path = Path(os.getenv("ORION_TOOL_CREDENTIALS_PATH", "/etc/orion/tool-credentials.json"))
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return cls()
+        if not isinstance(raw, dict):
+            return cls()
+        credentials: dict[str, object] = {}
+        targets: dict[str, list[dict[str, object]]] = {"linux": [], "grafana": [], "zabbix": []}
+        for family in ("grafana", "zabbix"):
+            item = raw.get(family)
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("url"), str)
+                or not item.get("token")
+            ):
+                continue
+            reference = f"{family}-token"
+            credentials[reference] = item["token"]
+            targets[family].append(
+                {"target_ref": family, "credential_ref": reference, "base_url": item["url"]}
+            )
+        aliases = [
+            item for item in os.getenv("ORION_SSH_TARGET_REFS", "monitor").split(",") if item
+        ]
+        ssh_config = Path(os.getenv("ORION_SSH_CONFIG_PATH", str(Path.home() / ".ssh/config")))
+        if ssh_config.exists():
+            targets["linux"] = [
+                {
+                    "target_ref": alias,
+                    "display_name": alias,
+                    "ssh_alias": alias,
+                    "credential_ref": "ssh",
+                }
+                for alias in aliases
+            ]
+            credentials["ssh"] = "ssh-config"
+        return cls.from_mapping({"credentials": credentials, "targets": targets})
 
     @classmethod
     def from_mapping(cls, raw: object) -> TargetCatalog:
@@ -193,7 +235,19 @@ class LinuxExecutor(Protocol):
 class SshLinuxExecutor:
     """Concrete fixed-command SSH executor.  Model values never form a shell command."""
 
-    def _run(self, target: Target, credential: object, command: list[str]) -> str:
+    def _argv(self, target: Target, credential: object, command: list[str]) -> list[str]:
+        alias = target.connection.get("ssh_alias")
+        if isinstance(alias, str) and alias:
+            return [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+                alias,
+                "--",
+                " ".join(shlex.quote(part) for part in command),
+            ]
         host = target.connection.get("host")
         user = target.connection.get("ssh_user")
         if not isinstance(host, str) or not isinstance(user, str):
@@ -207,10 +261,26 @@ class SshLinuxExecutor:
             argv += ["-i", credential]
         # ssh delivers a command to a remote shell. Quote every fixed semantic
         # argument there too, so model paths remain data rather than command text.
-        argv += [f"{user}@{host}", "--", " ".join(shlex.quote(part) for part in command)]
+        return argv + [f"{user}@{host}", "--", " ".join(shlex.quote(part) for part in command)]
+
+    def _run(self, target: Target, credential: object, command: list[str]) -> str:
         try:
             return subprocess.run(
-                argv, check=True, capture_output=True, text=True, timeout=15
+                self._argv(target, credential, command),
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            ).stdout
+        except subprocess.TimeoutExpired as error:
+            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
+        except subprocess.CalledProcessError as error:
+            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
+
+    def _run_bytes(self, target: Target, credential: object, command: list[str]) -> bytes:
+        try:
+            return subprocess.run(
+                self._argv(target, credential, command), check=True, capture_output=True, timeout=15
             ).stdout
         except subprocess.TimeoutExpired as error:
             raise InfrastructureError("timeout", "Linux target timed out.", True) from error
@@ -246,12 +316,11 @@ class SshLinuxExecutor:
         self, target: Target, credential: object, path: str, offset: int, length: int
     ) -> bytes:
         # dd receives a fixed argument vector, not shell text.
-        output = self._run(
+        return self._run_bytes(
             target,
             credential,
             ["dd", f"if={path}", "bs=1", f"skip={offset}", f"count={length}", "status=none"],
         )
-        return output.encode()
 
     def service_status(
         self, target: Target, credential: object, service: str
@@ -335,6 +404,9 @@ class GrafanaClient(Protocol):
 
 
 class HttpGrafanaClient:
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+        self._transport = transport
+
     def _client(self, target: Target, credential: object) -> httpx.Client:
         base_url = target.connection.get("base_url")
         if not isinstance(base_url, str):
@@ -343,6 +415,7 @@ class HttpGrafanaClient:
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {credential}"},
             timeout=10,
+            transport=self._transport,
         )
 
     def _request(
@@ -357,7 +430,7 @@ class HttpGrafanaClient:
             raise InfrastructureError("timeout", "Grafana request timed out.", True) from error
         except httpx.HTTPStatusError as error:
             raise InfrastructureError("upstream_error", "Grafana request failed.") from error
-        except httpx.HTTPError as error:
+        except (httpx.HTTPError, ValueError) as error:
             raise InfrastructureError(
                 "connection_error", "Grafana is unavailable.", True
             ) from error
@@ -390,7 +463,23 @@ class HttpGrafanaClient:
         )
 
     def alert_list(self, target: Target, credential: object) -> object:
-        return self._request(target, credential, "GET", "/api/v1/provisioning/alert-rules")
+        try:
+            response = self._request(
+                target, credential, "GET", "/api/prometheus/grafana/api/v1/rules"
+            )
+        except InfrastructureError as error:
+            if error.code == "upstream_error":
+                raise InfrastructureError(
+                    "unavailable", "Grafana alert state API is unavailable."
+                ) from error
+            raise
+        if not isinstance(response, dict) or not isinstance(response.get("data"), dict):
+            raise InfrastructureError("unavailable", "Grafana alert state API is unavailable.")
+        rules: list[object] = []
+        for group in response["data"].get("groups", []):
+            if isinstance(group, dict) and isinstance(group.get("rules"), list):
+                rules.extend(group["rules"])
+        return rules
 
     def annotation_create(
         self, target: Target, credential: object, payload: Mapping[str, object]
@@ -419,33 +508,50 @@ class ZabbixClient(Protocol):
 
 
 class HttpZabbixClient:
-    def call(
-        self, target: Target, credential: object, method: str, params: Mapping[str, object]
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+        self._transport = transport
+
+    def _request(
+        self,
+        target: Target,
+        credential: object,
+        method: str,
+        params: Mapping[str, object],
+        *,
+        auth: bool,
     ) -> object:
         base_url = target.connection.get("base_url")
         if not isinstance(base_url, str):
             raise InfrastructureError("unavailable", "Zabbix target transport is incomplete.")
-        payload = {
+        payload: dict[str, object] = {
             "jsonrpc": "2.0",
             "id": 1,
             "method": method,
             "params": dict(params),
-            "auth": credential,
         }
+        if auth:
+            payload["auth"] = credential
         try:
-            response = httpx.post(base_url, json=payload, timeout=10)
+            with httpx.Client(transport=self._transport, timeout=10) as client:
+                response = client.post(base_url, json=payload)
             response.raise_for_status()
             body = response.json()
         except httpx.TimeoutException as error:
             raise InfrastructureError("timeout", "Zabbix request timed out.", True) from error
-        except httpx.HTTPError as error:
+        except (httpx.HTTPError, ValueError) as error:
             raise InfrastructureError("connection_error", "Zabbix is unavailable.", True) from error
         if not isinstance(body, dict) or "error" in body:
             raise InfrastructureError("upstream_error", "Zabbix request failed.")
         return body.get("result")
 
+    def call(
+        self, target: Target, credential: object, method: str, params: Mapping[str, object]
+    ) -> object:
+        return self._request(target, credential, method, params, auth=True)
+
     def health(self, target: Target, credential: object) -> None:
-        self.call(target, credential, "apiinfo.version", {})
+        self._request(target, credential, "apiinfo.version", {}, auth=False)
+        self._request(target, credential, "host.get", {"output": ["hostid"], "limit": 1}, auth=True)
 
 
 class InfrastructureIntegrations:

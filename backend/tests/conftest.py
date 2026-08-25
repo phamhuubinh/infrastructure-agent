@@ -25,6 +25,13 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+def isolate_server_side_infrastructure_paths(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Unit tests must never consult a workstation's deployed credentials or SSH config."""
+    monkeypatch.setenv("ORION_TOOL_CREDENTIALS_PATH", "/nonexistent/orion-tool-credentials.json")
+    monkeypatch.setenv("ORION_SSH_CONFIG_PATH", "/nonexistent/orion-ssh-config")
+
+
 class ScriptedBackend(ModelBackend):
     def __init__(
         self, turns: Sequence[ModelTurn], deltas: Sequence[Sequence[str]] | None = None

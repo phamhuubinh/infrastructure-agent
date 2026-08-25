@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 
 from pydantic import ValidationError
 
 from orion.contracts import ModelToolCall, RuntimeScope, ToolCall, ToolResult
-from orion.tool_runtime.registry import ToolRegistry
+from orion.tool_runtime.registry import ToolHandler, ToolRegistry
 
 
 class ToolRunner:
@@ -20,6 +21,50 @@ class ToolRunner:
         scope: RuntimeScope,
         cancellation_requested: Callable[[], bool] | None = None,
     ) -> ToolResult:
+        prepared = self._prepare(model_call, scope, cancellation_requested)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        handler, call = prepared
+        try:
+            raw_result = handler(call)
+        except Exception:
+            return ToolResult.failure(
+                call.call_id, call.tool_name, "upstream_error", "Tool execution failed."
+            )
+        if inspect.isawaitable(raw_result):
+            if inspect.iscoroutine(raw_result):
+                raw_result.close()
+            return ToolResult.failure(
+                call.call_id, call.tool_name, "unavailable", "Tool requires async dispatch."
+            )
+        return self._normalise(call, raw_result)
+
+    async def run_async(
+        self,
+        model_call: ModelToolCall,
+        scope: RuntimeScope,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> ToolResult:
+        prepared = self._prepare(model_call, scope, cancellation_requested)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        handler, call = prepared
+        try:
+            raw_result = handler(call)
+            if inspect.isawaitable(raw_result):
+                raw_result = await raw_result
+        except Exception:
+            return ToolResult.failure(
+                call.call_id, call.tool_name, "upstream_error", "Tool execution failed."
+            )
+        return self._normalise(call, raw_result)
+
+    def _prepare(
+        self,
+        model_call: ModelToolCall,
+        scope: RuntimeScope,
+        cancellation_requested: Callable[[], bool] | None,
+    ) -> ToolResult | tuple[ToolHandler, ToolCall]:
         definition = self._registry.definition(model_call.tool_name)
         if definition is None:
             return ToolResult.failure(
@@ -47,25 +92,22 @@ class ToolRunner:
             runtime_scope=scope,
             cancellation_requested=cancellation_requested,
         )
-        try:
-            raw_result = handler(call)
-        except Exception:
-            return ToolResult.failure(
-                model_call.call_id, model_call.tool_name, "upstream_error", "Tool execution failed."
-            )
+        return handler, call
+
+    def _normalise(self, call: ToolCall, raw_result: object) -> ToolResult:
         try:
             result = ToolResult.model_validate(raw_result)
         except ValidationError:
             return ToolResult.failure(
-                model_call.call_id,
-                model_call.tool_name,
+                call.call_id,
+                call.tool_name,
                 "upstream_error",
                 "Tool returned an invalid result.",
             )
         if result.call_id != call.call_id or result.tool_name != call.tool_name:
             return ToolResult.failure(
-                model_call.call_id,
-                model_call.tool_name,
+                call.call_id,
+                call.tool_name,
                 "upstream_error",
                 "Tool returned mismatched correlation metadata.",
             )

@@ -6,6 +6,9 @@ handlers below are deliberately the only place operation data maps to those clie
 
 from __future__ import annotations
 
+import asyncio
+import re
+import threading
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -23,7 +26,7 @@ from orion.integrations.infrastructure import (
     TargetCatalog,
     ZabbixClient,
 )
-from orion.tool_runtime.registry import ToolRegistration
+from orion.tool_runtime.registry import ToolHandler, ToolRegistration
 
 TARGET = {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}
 IDENTIFIER = {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9@+_.:-]{0,127}$"}
@@ -49,7 +52,39 @@ def infrastructure_registrations(
         registrations += _grafana_registrations(catalog, grafana or HttpGrafanaClient())
     if catalog.configured("zabbix"):
         registrations += _zabbix_registrations(catalog, zabbix or HttpZabbixClient())
-    return tuple(registrations)
+    return tuple(
+        ToolRegistration(registration.definition, _blocking_handler(registration.handler))
+        for registration in registrations
+    )
+
+
+def _blocking_handler(handler: ToolHandler) -> ToolHandler:
+    async def dispatch(call: ToolCall) -> object:
+        loop = asyncio.get_running_loop()
+        completion: asyncio.Future[object] = loop.create_future()
+
+        def work() -> None:
+            try:
+                result = handler(call)
+            except BaseException as error:
+                loop.call_soon_threadsafe(_complete_with_error, completion, error)
+            else:
+                loop.call_soon_threadsafe(_complete_with_result, completion, result)
+
+        threading.Thread(target=work, daemon=True).start()
+        return await completion
+
+    return dispatch
+
+
+def _complete_with_result(completion: asyncio.Future[object], result: object) -> None:
+    if not completion.done():
+        completion.set_result(result)
+
+
+def _complete_with_error(completion: asyncio.Future[object], error: BaseException) -> None:
+    if not completion.done():
+        completion.set_exception(error)
 
 
 def infrastructure_definitions() -> tuple[ToolDefinition, ...]:
@@ -752,6 +787,7 @@ def _grafana_annotation(
     def operation() -> ToolResult:
         target, credential = _target(call, catalog, "grafana")
         start = str(call.arguments["time"])
+        _parse_time(start)
         end = call.arguments.get("time_end")
         if end is not None:
             _interval(start, end, 31)
@@ -801,7 +837,7 @@ def _zabbix_read(
                     raise
         return _success(
             call,
-            {"target_ref": target.target_ref, "results": _bound(result)},
+            {"target_ref": target.target_ref, "results": _normalize_zabbix(call.tool_name, result)},
             target,
             call.tool_name.rsplit(".", 1)[-1],
         )
@@ -820,6 +856,14 @@ def _zabbix_ack(call: ToolCall, catalog: TargetCatalog, client: ZabbixClient) ->
             {"eventids": event_ids, "output": ["eventid", "acknowledged"]},
         )
         records = raw if isinstance(raw, list) else []
+        found = {
+            str(item.get("eventid"))
+            for item in records
+            if isinstance(item, dict) and isinstance(item.get("eventid"), (str, int))
+        }
+        missing = [event_id for event_id in event_ids if event_id not in found]
+        if missing:
+            raise InfrastructureError("not_found", "One or more requested events were not found.")
         pending = [
             str(item.get("eventid"))
             for item in records
@@ -898,13 +942,8 @@ def _validate_path(path: str) -> None:
 
 
 def _interval(start: object, end: object, max_days: int) -> tuple[str, str]:
-    try:
-        first = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
-        second = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
-    except ValueError as error:
-        raise InfrastructureError(
-            "invalid_input", "Timestamps must be valid RFC 3339 values."
-        ) from error
+    first = _parse_time(start)
+    second = _parse_time(end)
     if second <= first or second - first > timedelta(days=max_days):
         raise InfrastructureError(
             "invalid_input", "Timestamp interval is outside the allowed bound."
@@ -1035,16 +1074,80 @@ def _bound(value: object) -> object:
 def _normalize_alert(value: object) -> object:
     if not isinstance(value, dict):
         return value
-    raw = str(value.get("state", value.get("ruleState", "error"))).lower().replace(" ", "_")
-    aliases = {"ok": "normal", "firing": "alerting", "nodata": "no_data"}
+    raw = str(value.get("state", value.get("ruleState", ""))).lower().replace(" ", "_")
+    aliases = {
+        "ok": "normal",
+        "inactive": "normal",
+        "firing": "alerting",
+        "nodata": "no_data",
+    }
     state = aliases.get(raw, raw)
-    value["state"] = (
-        state
-        if state in {"normal", "alerting", "pending", "no_data", "error", "recovering"}
-        else "error"
-    )
+    if state not in {"normal", "alerting", "pending", "no_data", "error", "recovering"}:
+        raise InfrastructureError("unavailable", "Grafana alert state is unavailable.")
+    value["state"] = state
     return value
 
 
 def _parse_time(value: object) -> datetime:
-    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    text = str(value)
+    if not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})", text
+    ):
+        raise InfrastructureError(
+            "invalid_input", "Timestamps must be timezone-aware RFC 3339 values."
+        )
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise InfrastructureError(
+            "invalid_input", "Timestamps must be valid RFC 3339 values."
+        ) from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise InfrastructureError(
+            "invalid_input", "Timestamps must be timezone-aware RFC 3339 values."
+        )
+    return parsed
+
+
+def _normalize_zabbix(name: str, value: object) -> object:
+    records = value if isinstance(value, list) else []
+    if name == "zabbix.event.list":
+        severity = {
+            0: "not_classified",
+            1: "information",
+            2: "warning",
+            3: "average",
+            4: "high",
+            5: "disaster",
+        }
+        return [
+            {
+                "event_id": str(item.get("eventid", ""))[:128],
+                "name": str(item.get("name", ""))[:4000],
+                "severity": severity.get(int(item.get("severity", -1)), "not_classified"),
+                "acknowledged": str(item.get("acknowledged", "0")).lower() in {"1", "true"},
+                "clock": str(item.get("clock", ""))[:64],
+            }
+            for item in records
+            if isinstance(item, dict)
+        ]
+    if name == "zabbix.trigger.get":
+        severity = {
+            0: "not_classified",
+            1: "information",
+            2: "warning",
+            3: "average",
+            4: "high",
+            5: "disaster",
+        }
+        return [
+            {
+                "trigger_id": str(item.get("triggerid", ""))[:128],
+                "description": str(item.get("description", ""))[:4000],
+                "severity": severity.get(int(item.get("priority", -1)), "not_classified"),
+                "state": "problem" if str(item.get("value", "0")) == "1" else "normal",
+            }
+            for item in records
+            if isinstance(item, dict)
+        ]
+    return _bound(records)

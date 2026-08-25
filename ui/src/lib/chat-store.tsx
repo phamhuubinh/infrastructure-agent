@@ -48,6 +48,11 @@ export type ToolActivity = {
   callId: string;
   toolName: string;
   status: "started" | "completed" | "failed";
+  targetRef?: string;
+  operationKind?: "read" | "mutation";
+  changed?: boolean;
+  verification?: string;
+  outcomeUnknown?: boolean;
 };
 
 export type Message = {
@@ -146,6 +151,29 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function publicActivity(
+  callId: string,
+  toolName: string,
+  status: ToolActivity["status"],
+  payload: Record<string, unknown>,
+  targetRef?: string,
+): ToolActivity {
+  return {
+    callId,
+    toolName,
+    status,
+    ...(typeof payload.target_ref === "string" || targetRef
+      ? { targetRef: typeof payload.target_ref === "string" ? payload.target_ref : targetRef }
+      : {}),
+    ...(payload.operation_kind === "read" || payload.operation_kind === "mutation"
+      ? { operationKind: payload.operation_kind }
+      : {}),
+    ...(typeof payload.changed === "boolean" ? { changed: payload.changed } : {}),
+    ...(typeof payload.verification === "string" ? { verification: payload.verification } : {}),
+    ...(payload.outcome_unknown === true ? { outcomeUnknown: true } : {}),
+  };
+}
+
 export function assistantMessageFromTimelineItem(item: TimelineItem): Message | null {
   if (item.kind !== "assistant_message") return null;
   const content = typeof item.payload.content === "string" ? item.payload.content : "";
@@ -224,7 +252,9 @@ function sourceReferences(
         continue;
       }
       if (
-        (source.source_kind === "linux" || source.source_kind === "grafana" || source.source_kind === "zabbix") &&
+        (source.source_kind === "linux" ||
+          source.source_kind === "grafana" ||
+          source.source_kind === "zabbix") &&
         typeof sourceRefId === "string" &&
         typeof source.source_id === "string"
       ) {
@@ -301,18 +331,48 @@ export function sessionFromTimeline(
       : [];
   });
   const firstUser = messages.find((message) => message.role === "user");
+  const targetRefs = new Map<string, string>();
+  for (const item of timeline) {
+    const targetRef =
+      item.payload.arguments && typeof item.payload.arguments === "object"
+        ? (item.payload.arguments as Record<string, unknown>).target_ref
+        : undefined;
+    if (item.kind === "tool_call" && item.call_id && typeof targetRef === "string") {
+      targetRefs.set(item.call_id, targetRef);
+    }
+  }
   const activity = timeline.flatMap((item): ToolActivity[] => {
     if (item.kind === "tool_call" && item.call_id && item.tool_name) {
-      return [{ callId: item.call_id, toolName: item.tool_name, status: "started" }];
+      const targetRef = targetRefs.get(item.call_id);
+      return [publicActivity(item.call_id, item.tool_name, "started", {}, targetRef)];
     }
     if (item.kind === "tool_result" && item.call_id && item.tool_name) {
-      const result = item.payload.result as { status?: unknown } | undefined;
+      const result = item.payload.result as
+        { status?: unknown; data?: unknown; error?: unknown } | undefined;
+      const data =
+        result?.data && typeof result.data === "object"
+          ? (result.data as Record<string, unknown>)
+          : {};
+      const error =
+        result?.error && typeof result.error === "object"
+          ? (result.error as Record<string, unknown>)
+          : {};
       return [
-        {
-          callId: item.call_id,
-          toolName: item.tool_name,
-          status: result?.status === "success" ? "completed" : "failed",
-        },
+        publicActivity(
+          item.call_id,
+          item.tool_name,
+          result?.status === "success" ? "completed" : "failed",
+          {
+            target_ref: data.target_ref,
+            changed: data.changed,
+            verification:
+              data.verification && typeof data.verification === "object"
+                ? (data.verification as Record<string, unknown>).status
+                : undefined,
+            outcome_unknown: error.code === "outcome_unknown",
+          },
+          targetRefs.get(item.call_id),
+        ),
       ];
     }
     return [];
@@ -544,7 +604,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setSessions((previous) =>
       previous.map((session) =>
         session.id === sessionId
-          ? { ...session, activity: [...session.activity, { callId, toolName, status }] }
+          ? {
+              ...session,
+              activity: [
+                ...session.activity,
+                publicActivity(callId, toolName, status, event.payload),
+              ],
+            }
           : session,
       ),
     );

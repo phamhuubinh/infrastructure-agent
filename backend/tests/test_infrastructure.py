@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import Mapping
 
-from orion.contracts import ModelToolCall, RuntimeScope
+import pytest
+from conftest import ScriptedBackend, runtime
+
+from orion.chat.runtime import RequestCancelled
+from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope
 from orion.integrations.infrastructure import Target, TargetCatalog
 from orion.tool_runtime.infrastructure import (
     infrastructure_definitions,
@@ -55,6 +61,39 @@ class FakeLinux:
 
     def health(self, target: Target, credential: object) -> None:
         pass
+
+
+class BlockingPreflightLinux(FakeLinux):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reached = threading.Event()
+        self.release = threading.Event()
+        self.dispatches = 0
+
+    def service_preflight(self, target: Target, credential: object, service: str) -> None:
+        self.reached.set()
+        assert self.release.wait(2)
+
+    def restart_service(self, target: Target, credential: object, service: str) -> None:
+        self.dispatches += 1
+
+
+class BlockingVerificationLinux(FakeLinux):
+    def __init__(self) -> None:
+        super().__init__()
+        self.verification_entered = threading.Event()
+        self.release_verification = threading.Event()
+        self.dispatches = 0
+
+    def restart_service(self, target: Target, credential: object, service: str) -> None:
+        self.dispatches += 1
+
+    def service_status(
+        self, target: Target, credential: object, service: str
+    ) -> Mapping[str, object]:
+        self.verification_entered.set()
+        assert self.release_verification.wait(2)
+        return {"service": service, "load_state": "loaded", "active_state": "active"}
 
 
 class FakeGrafana:
@@ -163,6 +202,16 @@ def _scope() -> RuntimeScope:
     return RuntimeScope(session_id="session", principal_id="local", workspace_id="local")
 
 
+async def _wait_for_thread_event(event: threading.Event) -> None:
+    while not event.is_set():
+        await asyncio.sleep(0.01)
+
+
+async def _wait_for_task(task: asyncio.Task[object]) -> None:
+    while not task.done():
+        await asyncio.sleep(0.01)
+
+
 def test_all_frozen_infrastructure_schemas_are_closed() -> None:
     names = {definition.name for definition in infrastructure_definitions()}
     assert names == {
@@ -189,43 +238,46 @@ def test_all_frozen_infrastructure_schemas_are_closed() -> None:
     )
 
 
-def test_unknown_target_is_rejected_before_credentials_or_executor() -> None:
+@pytest.mark.anyio
+async def test_unknown_target_is_rejected_before_credentials_or_executor() -> None:
     linux, grafana, zabbix = FakeLinux(), FakeGrafana(), FakeZabbix()
-    result = _runner(linux, grafana, zabbix).run(
+    result = await _runner(linux, grafana, zabbix).run_async(
         _call("linux.system.inspect", {"target_ref": "forged"}), _scope()
     )
     assert result.error is not None and result.error.code == "unknown_target"
     assert linux.calls == 0
 
 
-def test_successful_read_per_family_is_sanitized_and_source_bearing() -> None:
+@pytest.mark.anyio
+async def test_successful_read_per_family_is_sanitized_and_source_bearing() -> None:
     linux, grafana, zabbix = FakeLinux(), FakeGrafana(), FakeZabbix()
     runner = _runner(linux, grafana, zabbix)
     results = [
-        runner.run(
+        await runner.run_async(
             _call("linux.file.read", {"target_ref": "node", "path": "/etc/hosts"}), _scope()
         ),
-        runner.run(
+        await runner.run_async(
             _call(
                 "grafana.dashboard.get", {"target_ref": "observability", "dashboard_uid": "home"}
             ),
             _scope(),
         ),
-        runner.run(_call("zabbix.host.get", {"target_ref": "monitoring"}), _scope()),
+        await runner.run_async(_call("zabbix.host.get", {"target_ref": "monitoring"}), _scope()),
     ]
     assert all(result.status == "success" and result.sources for result in results)
     assert {result.sources[0].source_kind for result in results} == {"linux", "grafana", "zabbix"}
     assert "private" not in str(results) and "not-printed" not in str(results)
 
 
-def test_cancellation_between_preflight_and_dispatch_issues_no_restart() -> None:
+@pytest.mark.anyio
+async def test_cancellation_between_preflight_and_dispatch_issues_no_restart() -> None:
     linux, grafana, zabbix = FakeLinux(), FakeGrafana(), FakeZabbix()
     cancelled = False
 
     def cancel_after_preflight() -> bool:
         return cancelled or linux.calls >= 1
 
-    result = _runner(linux, grafana, zabbix).run(
+    result = await _runner(linux, grafana, zabbix).run_async(
         _call("linux.service.restart", {"target_ref": "node", "service": "nginx"}),
         _scope(),
         cancel_after_preflight,
@@ -234,13 +286,14 @@ def test_cancellation_between_preflight_and_dispatch_issues_no_restart() -> None
     assert linux.calls == 1
 
 
-def test_package_convergence_and_zabbix_acknowledgement_dispatch_once() -> None:
+@pytest.mark.anyio
+async def test_package_convergence_and_zabbix_acknowledgement_dispatch_once() -> None:
     linux, grafana, zabbix = FakeLinux(), FakeGrafana(), FakeZabbix()
     runner = _runner(linux, grafana, zabbix)
-    install = runner.run(
+    install = await runner.run_async(
         _call("linux.package.install", {"target_ref": "node", "package": "curl"}), _scope()
     )
-    ack = runner.run(
+    ack = await runner.run_async(
         _call("zabbix.event.acknowledge", {"target_ref": "monitoring", "event_ids": ["1", "2"]}),
         _scope(),
     )
@@ -248,3 +301,87 @@ def test_package_convergence_and_zabbix_acknowledgement_dispatch_once() -> None:
     assert ack.status == "success" and ack.data["changed"] is True
     assert len(zabbix.ack_calls) == 1
     assert zabbix.ack_calls[0]["eventids"] == ["1", "2"]
+
+
+@pytest.mark.anyio
+async def test_runtime_cancellation_is_observed_between_linux_preflight_and_dispatch(store) -> None:  # type: ignore[no-untyped-def]
+    linux, grafana, zabbix = BlockingPreflightLinux(), FakeGrafana(), FakeZabbix()
+    builder = ToolRegistryBuilder()
+    for registration in infrastructure_registrations(
+        _catalog(), linux=linux, grafana=grafana, zabbix=zabbix
+    ):
+        builder.register(registration.definition, registration.handler)
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="restart",
+                        tool_name="linux.service.restart",
+                        arguments={"target_ref": "node", "service": "nginx"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="fallback")),
+        ]
+    )
+    chat = runtime(store, backend, builder.freeze())
+    session_id = store.create_session()
+    request_id = chat.begin(session_id, "restart")
+    task = asyncio.create_task(chat.run(session_id, request_id))
+    await asyncio.wait_for(_wait_for_thread_event(linux.reached), 2)
+    assert chat.cancel(request_id)
+    linux.release.set()
+    await asyncio.wait_for(_wait_for_task(task), 2)
+    with pytest.raises(RequestCancelled):
+        task.result()
+    assert linux.dispatches == 0
+    assert store.request(request_id)["status"] == "cancelled"
+    tool_result = store.timeline(session_id)[3].payload["result"]
+    assert tool_result["error"]["code"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_runtime_cancellation_after_restart_preserves_verified_dispatch_result(store) -> None:  # type: ignore[no-untyped-def]
+    linux, grafana, zabbix = BlockingVerificationLinux(), FakeGrafana(), FakeZabbix()
+    builder = ToolRegistryBuilder()
+    for registration in infrastructure_registrations(
+        _catalog(), linux=linux, grafana=grafana, zabbix=zabbix
+    ):
+        builder.register(registration.definition, registration.handler)
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="restart",
+                        tool_name="linux.service.restart",
+                        arguments={"target_ref": "node", "service": "nginx"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="must not be replayed")),
+        ]
+    )
+    chat = runtime(store, backend, builder.freeze())
+    session_id = store.create_session()
+    request_id = chat.begin(session_id, "restart")
+    task = asyncio.create_task(chat.run(session_id, request_id))
+
+    await asyncio.wait_for(_wait_for_thread_event(linux.verification_entered), 2)
+    assert linux.dispatches == 1
+    assert chat.cancel(request_id)
+    linux.release_verification.set()
+
+    await asyncio.wait_for(_wait_for_task(task), 2)
+    with pytest.raises(RequestCancelled):
+        task.result()
+
+    assert linux.dispatches == 1
+    assert len(backend.calls) == 1
+    assert store.request(request_id)["status"] == "cancelled"
+    tool_result = store.timeline(session_id)[3].payload["result"]
+    assert tool_result["status"] == "success"
+    assert tool_result["data"]["changed"] is True
+    assert tool_result["data"]["verification"]["status"] == "verified"
+    assert "rollback" not in str(tool_result).lower()

@@ -30,7 +30,9 @@ describe("M1 model settings", () => {
         );
       }
       if (path.startsWith("/api/integrations/")) {
-        return Promise.resolve(jsonResponse({ status: "unconfigured", message: "Not configured." }));
+        return Promise.resolve(
+          jsonResponse({ status: "unconfigured", message: "Not configured." }),
+        );
       }
       if (path === "/api/models" && init?.method === "POST") {
         modelConfigured = true;
@@ -103,7 +105,9 @@ describe("M1 model settings", () => {
         );
       }
       if (path.startsWith("/api/integrations/")) {
-        return Promise.resolve(jsonResponse({ status: "unconfigured", message: "Not configured." }));
+        return Promise.resolve(
+          jsonResponse({ status: "unconfigured", message: "Not configured." }),
+        );
       }
       return Promise.resolve(jsonResponse([]));
     });

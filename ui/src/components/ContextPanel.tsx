@@ -180,6 +180,11 @@ export function ContextPanel({
                     >
                       {activityLabel(activity)}
                     </div>
+                    {(activity.targetRef || activity.operationKind) && (
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        {[activity.targetRef, activity.operationKind].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
                   </div>
                   {open ? (
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -192,6 +197,13 @@ export function ContextPanel({
                     <Separator />
                     <div className="p-3 text-xs text-muted-foreground">
                       Call ID: <span className="font-mono text-foreground">{activity.callId}</span>
+                      {activity.changed !== undefined && (
+                        <div>Changed: {String(activity.changed)}</div>
+                      )}
+                      {activity.verification && <div>Verification: {activity.verification}</div>}
+                      {activity.outcomeUnknown && (
+                        <div className="text-destructive">Outcome unknown</div>
+                      )}
                     </div>
                   </>
                 )}

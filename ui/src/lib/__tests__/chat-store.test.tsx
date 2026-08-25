@@ -416,6 +416,80 @@ describe("M1 session store", () => {
     expect(message?.citationSourceRefIds).toEqual(["project-source"]);
   });
 
+  it("restores safe infrastructure activity and SourceRef metadata from the canonical timeline", () => {
+    const session = sessionFromTimeline("session-1", [
+      {
+        item_id: "call",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:00Z",
+        kind: "tool_call",
+        payload: { arguments: { target_ref: "monitor" } },
+        call_id: "infra-1",
+        tool_name: "linux.system.inspect",
+      },
+      {
+        item_id: "result",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:01Z",
+        kind: "tool_result",
+        payload: {
+          result: {
+            status: "error",
+            error: { code: "outcome_unknown" },
+            data: { target_ref: "monitor", changed: true, verification: { status: "unknown" } },
+            sources: [],
+          },
+        },
+        call_id: "infra-1",
+        tool_name: "linux.system.inspect",
+      },
+      {
+        item_id: "source-result",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:02Z",
+        kind: "tool_result",
+        payload: {
+          result: {
+            status: "success",
+            sources: [
+              {
+                source_ref_id: "linux-source",
+                source_kind: "linux",
+                source_id: "monitor",
+                label: "Monitor",
+                section: "system.inspect",
+                retrieved_at: "2026-08-25T00:00:01Z",
+              },
+            ],
+          },
+        },
+        call_id: "source-1",
+        tool_name: "linux.system.inspect",
+      },
+    ]);
+
+    expect(session.activity).toContainEqual({
+      callId: "infra-1",
+      toolName: "linux.system.inspect",
+      status: "failed",
+      targetRef: "monitor",
+      changed: true,
+      verification: "unknown",
+      outcomeUnknown: true,
+    });
+    expect(session.sources).toContainEqual({
+      sourceRefId: "linux-source",
+      sourceKind: "linux",
+      documentId: null,
+      segmentId: null,
+      page: null,
+      section: "system.inspect",
+      label: "Monitor",
+      url: null,
+      retrievedAt: "2026-08-25T00:00:01Z",
+    });
+  });
+
   it("maps normal and Project A/B sessions to their route-owned destinations", () => {
     expect(sessionRoute({ projectId: null })).toEqual({ to: "/" });
     expect(sessionRoute({ projectId: "project-a" })).toEqual({
