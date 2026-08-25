@@ -45,6 +45,11 @@ class InternetIntegrationView(BaseModel):
     message: str | None = None
 
 
+class InfrastructureIntegrationView(BaseModel):
+    status: str
+    message: str | None = None
+
+
 class SubmitMessage(StrictRequest):
     content: str = Field(min_length=1)
 
@@ -99,12 +104,27 @@ def create_app(
     @app.get("/api/health")
     async def health() -> dict[str, object]:
         internet_status = assembled.internet.status()
-        return {"status": "ok", "internet": internet_status.__dict__}
+        return {
+            "status": "ok",
+            "internet": internet_status.__dict__,
+            "infrastructure": {
+                family: assembled.infrastructure.status(family).__dict__
+                for family in ("linux", "grafana", "zabbix")
+            },
+        }
 
     @app.get("/api/integrations/internet", response_model=InternetIntegrationView)
     async def internet_integration() -> InternetIntegrationView:
         internet_status = assembled.internet.status()
         return InternetIntegrationView.model_validate(internet_status.__dict__)
+
+    @app.get("/api/integrations/{family}", response_model=InfrastructureIntegrationView)
+    async def infrastructure_integration(family: str) -> InfrastructureIntegrationView:
+        if family not in {"linux", "grafana", "zabbix"}:
+            raise HTTPException(status_code=404, detail="Integration not found.")
+        return InfrastructureIntegrationView.model_validate(
+            assembled.infrastructure.status(family).__dict__
+        )
 
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:

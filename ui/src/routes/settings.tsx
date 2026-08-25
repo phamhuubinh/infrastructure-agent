@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { BrainCircuit, Globe2, Loader2, Save } from "lucide-react";
+import { BrainCircuit, Globe2, Loader2, Save, Server } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -33,9 +33,15 @@ type InternetIntegration = {
   message: string | null;
 };
 
+type InfrastructureIntegration = {
+  status: "unconfigured" | "healthy" | "unhealthy";
+  message: string | null;
+};
+
 export function SettingsPage() {
   const [models, setModels] = useState<ModelConnection[]>([]);
   const [internet, setInternet] = useState<InternetIntegration | null>(null);
+  const [infrastructure, setInfrastructure] = useState<Record<string, InfrastructureIntegration>>({});
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -59,10 +65,25 @@ export function SettingsPage() {
     }
   }, []);
 
+  const loadInfrastructure = useCallback(async () => {
+    try {
+      const entries = await Promise.all(
+        ["linux", "grafana", "zabbix"].map(async (family) => [
+          family,
+          await apiJson<InfrastructureIntegration>(`/api/integrations/${family}`),
+        ] as const),
+      );
+      setInfrastructure(Object.fromEntries(entries));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không thể tải infrastructure.");
+    }
+  }, []);
+
   useEffect(() => {
     void loadModels();
     void loadInternet();
-  }, [loadInternet, loadModels]);
+    void loadInfrastructure();
+  }, [loadInfrastructure, loadInternet, loadModels]);
 
   async function saveConnection() {
     setBusy(true);
@@ -200,6 +221,38 @@ export function SettingsPage() {
                     ? `Tìm kiếm qua ${internet.provider ?? "integration"}: ${internet.endpoint}`
                     : (internet?.message ?? "Đang tải trạng thái tích hợp Internet.")}
                 </p>
+              </div>
+            </div>
+          </Card>
+          <Card className="p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-surface-3 p-2 text-foreground">
+                <Server className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="font-medium">Infrastructure</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Trạng thái kết nối đã cấu hình; chi tiết kết nối và credentials không hiển thị.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {["linux", "grafana", "zabbix"].map((family) => {
+                    const item = infrastructure[family];
+                    return (
+                      <div key={family} className="rounded-lg border p-3 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="capitalize">{family}</span>
+                          <Badge>
+                            {item?.status === "healthy"
+                              ? "Sẵn sàng"
+                              : item?.status === "unhealthy"
+                                ? "Không khả dụng"
+                                : "Chưa cấu hình"}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </Card>

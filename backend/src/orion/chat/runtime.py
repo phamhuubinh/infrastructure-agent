@@ -43,13 +43,14 @@ class ChatRuntime:
         backend: ModelBackend,
         registry: ToolRegistry,
         access: LocalAccessAdapter,
+        infrastructure_targets: tuple[tuple[str, str, str], ...] = (),
     ) -> None:
         self._store = store
         self._backend = backend
         self._registry = registry
         self._access = access
         self._runner = ToolRunner(registry)
-        self._context_builder = ContextBuilder(store)
+        self._context_builder = ContextBuilder(store, infrastructure_targets)
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -138,9 +139,13 @@ class ChatRuntime:
                         self._emit(
                             request_id,
                             "tool.started",
-                            {"call_id": model_call.call_id, "tool_name": model_call.tool_name},
+                            self._tool_activity(
+                                model_call.tool_name, model_call.call_id, model_call.arguments
+                            ),
                         )
-                        result = self._runner.run(model_call, scope)
+                        # The runner receives the live Orion-owned cancellation probe. Semantic
+                        # integrations check it after preflight and immediately before dispatch.
+                        result = self._runner.run(model_call, scope, cancellation.is_set)
                         self._persist_tool_result(session_id, request_id, result)
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
@@ -244,11 +249,47 @@ class ChatRuntime:
             tool_name=result.tool_name,
         )
         event_type = "tool.completed" if result.status == "success" else "tool.failed"
-        self._emit(
-            request_id,
-            event_type,
-            {"call_id": result.call_id, "tool_name": result.tool_name, "status": result.status},
-        )
+        payload: dict[str, object] = {
+            "call_id": result.call_id,
+            "tool_name": result.tool_name,
+            "status": result.status,
+        }
+        definition = self._registry.definition(result.tool_name)
+        if definition is not None and result.tool_name.split(".", 1)[0] in {
+            "linux",
+            "grafana",
+            "zabbix",
+        }:
+            payload["operation_kind"] = definition.operation_kind
+            if isinstance(result.data, dict):
+                target_ref = result.data.get("target_ref")
+                if isinstance(target_ref, str):
+                    payload["target_ref"] = target_ref
+                if "changed" in result.data:
+                    payload["changed"] = result.data["changed"]
+                verification = result.data.get("verification")
+                if isinstance(verification, dict):
+                    payload["verification"] = verification.get("status")
+            if result.error is not None and result.error.code == "outcome_unknown":
+                payload["outcome_unknown"] = True
+        self._emit(request_id, event_type, payload)
+
+    def _tool_activity(
+        self, tool_name: str, call_id: str, arguments: dict[str, object]
+    ) -> dict[str, object]:
+        """Emit only deterministic non-secret infrastructure activity metadata."""
+        payload: dict[str, object] = {"call_id": call_id, "tool_name": tool_name}
+        definition = self._registry.definition(tool_name)
+        if definition is not None and tool_name.split(".", 1)[0] in {
+            "linux",
+            "grafana",
+            "zabbix",
+        }:
+            payload["operation_kind"] = definition.operation_kind
+            target_ref = arguments.get("target_ref")
+            if isinstance(target_ref, str):
+                payload["target_ref"] = target_ref
+        return payload
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
         self._store.emit_event(request_id, event_type, payload)
@@ -270,6 +311,14 @@ class ChatRuntime:
                 if source.source_kind == "internet" and source.document_id is None and source.url:
                     # Internet sources are valid only when their canonical SourceRef was
                     # actually returned to this same model loop/session.
+                    visible_source_ref_ids.add(source.source_ref_id)
+                    continue
+                if (
+                    source.source_kind in {"linux", "grafana", "zabbix"}
+                    and source.document_id is None
+                ):
+                    # Infrastructure sources are visible only when this canonical ToolResult
+                    # was produced in this same session/model loop.
                     visible_source_ref_ids.add(source.source_ref_id)
                     continue
                 if source.document_id is None:

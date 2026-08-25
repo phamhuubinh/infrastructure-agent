@@ -29,6 +29,9 @@ describe("M1 model settings", () => {
           }),
         );
       }
+      if (path.startsWith("/api/integrations/")) {
+        return Promise.resolve(jsonResponse({ status: "unconfigured", message: "Not configured." }));
+      }
       if (path === "/api/models" && init?.method === "POST") {
         modelConfigured = true;
         return Promise.resolve(
@@ -84,7 +87,7 @@ describe("M1 model settings", () => {
     });
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
     await screen.findByText("Internet search is not configured.");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
   });
 
   it("does not show a configured-but-unhealthy Internet integration as ready", async () => {
@@ -98,6 +101,9 @@ describe("M1 model settings", () => {
             message: "Configured Internet search integration is currently unavailable.",
           }),
         );
+      }
+      if (path.startsWith("/api/integrations/")) {
+        return Promise.resolve(jsonResponse({ status: "unconfigured", message: "Not configured." }));
       }
       return Promise.resolve(jsonResponse([]));
     });

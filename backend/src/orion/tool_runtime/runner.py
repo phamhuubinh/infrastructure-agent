@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pydantic import ValidationError
 
 from orion.contracts import ModelToolCall, RuntimeScope, ToolCall, ToolResult
@@ -12,7 +14,12 @@ class ToolRunner:
     def __init__(self, registry: ToolRegistry) -> None:
         self._registry = registry
 
-    def run(self, model_call: ModelToolCall, scope: RuntimeScope) -> ToolResult:
+    def run(
+        self,
+        model_call: ModelToolCall,
+        scope: RuntimeScope,
+        cancellation_requested: Callable[[], bool] | None = None,
+    ) -> ToolResult:
         definition = self._registry.definition(model_call.tool_name)
         if definition is None:
             return ToolResult.failure(
@@ -38,6 +45,7 @@ class ToolRunner:
             tool_name=model_call.tool_name,
             arguments=model_call.arguments,
             runtime_scope=scope,
+            cancellation_requested=cancellation_requested,
         )
         try:
             raw_result = handler(call)

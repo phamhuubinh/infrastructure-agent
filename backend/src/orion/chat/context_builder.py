@@ -14,13 +14,23 @@ _SYSTEM_INSTRUCTIONS = (
 
 
 class ContextBuilder:
-    def __init__(self, store: SQLiteStore) -> None:
+    def __init__(
+        self, store: SQLiteStore, infrastructure_targets: tuple[tuple[str, str, str], ...] = ()
+    ) -> None:
         self._store = store
+        self._infrastructure_targets = infrastructure_targets
 
     def build(self, session_id: str) -> tuple[ContextMessage, ...]:
         messages: list[ContextMessage] = [
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
         ]
+        if self._infrastructure_targets:
+            lines = ["Configured infrastructure targets (safe identities only):"]
+            lines.extend(
+                f"- {family}: {target_ref}" + (f" ({display})" if display != target_ref else "")
+                for family, target_ref, display in self._infrastructure_targets
+            )
+            messages.append(ContextMessage(role="system", content="\n".join(lines)))
         identity = self._store.session_identity(session_id)
         project_id = identity["project_id"] if identity is not None else None
         if project_id is not None:

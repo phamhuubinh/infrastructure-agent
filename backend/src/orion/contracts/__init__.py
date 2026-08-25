@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Literal
 
@@ -53,6 +54,8 @@ class ToolDefinition(CanonicalModel):
     description: str = Field(min_length=1)
     input_schema: dict[str, Any]
     handler_key: str = Field(min_length=1)
+    # Registry metadata only.  It deliberately does not cross the provider boundary.
+    operation_kind: Literal["read", "mutation"] = "read"
 
     @field_validator("input_schema")
     @classmethod
@@ -78,6 +81,8 @@ class ToolCall(CanonicalModel):
     tool_name: str = Field(min_length=1)
     arguments: dict[str, Any]
     runtime_scope: RuntimeScope
+    # This is Orion-owned execution context, never model input or persisted result data.
+    cancellation_requested: Callable[[], bool] | None = Field(default=None, exclude=True)
 
 
 class ToolError(CanonicalModel):

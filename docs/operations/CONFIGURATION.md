@@ -42,3 +42,31 @@ endpoint is intentionally administrator-trusted and may be local.
 Calculator, knowledge, and Internet tools are registered through the common runtime. Future
 integrations configure credentials outside model arguments and prompts. Integration
 configuration never creates a per-chat tool picker.
+
+## Infrastructure integrations
+
+Linux, Grafana, and Zabbix are optional server-side integrations. Set
+`ORION_INFRASTRUCTURE_CONFIG` to a local JSON configuration file. Its `targets` map
+is grouped by integration family; each configured target has a safe `target_ref`, an
+optional safe display name, a `credential_ref`, and family-specific connection fields.
+Credential values live in the same server-side source under `credentials` (or can be
+provided by the composition root in an embedding application); neither values nor
+connection fields are model arguments, context, API responses, sources, activity, or
+Settings state.
+
+```json
+{
+  "credentials": {"linux-key": "server-side-value", "monitoring-api": "server-side-value"},
+  "targets": {
+    "linux": [{"target_ref": "production-node", "credential_ref": "linux-key", "host": "configured-host", "ssh_user": "configured-user"}],
+    "grafana": [{"target_ref": "observability", "credential_ref": "monitoring-api", "base_url": "configured-url", "datasources": {"metrics": "prometheus"}}],
+    "zabbix": [{"target_ref": "monitoring", "credential_ref": "monitoring-api", "base_url": "configured-url"}]
+  }
+}
+```
+
+Configured families register their full fixed semantic operation family in the same
+registry used by Chat and Project. Unconfigured families are absent from that registry;
+their sanitized health status is `unconfigured`. Configured families report `healthy`
+only after a bounded probe succeeds, otherwise `unhealthy`; unrelated local tools and
+Chat/Project remain available.

@@ -224,6 +224,24 @@ function sourceReferences(
         continue;
       }
       if (
+        (source.source_kind === "linux" || source.source_kind === "grafana" || source.source_kind === "zabbix") &&
+        typeof sourceRefId === "string" &&
+        typeof source.source_id === "string"
+      ) {
+        sources.set(sourceRefId, {
+          sourceRefId,
+          sourceKind: source.source_kind,
+          documentId: null,
+          segmentId: null,
+          page: null,
+          section: typeof source.section === "string" ? source.section : null,
+          label: typeof source.label === "string" ? source.label : source.source_id,
+          url: null,
+          retrievedAt: typeof source.retrieved_at === "string" ? source.retrieved_at : null,
+        });
+        continue;
+      }
+      if (
         typeof sourceRefId !== "string" ||
         typeof documentId !== "string" ||
         !availableDocuments.has(documentId)

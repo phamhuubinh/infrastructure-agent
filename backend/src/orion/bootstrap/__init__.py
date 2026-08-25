@@ -8,7 +8,16 @@ from pathlib import Path
 
 from orion.access import LocalAccessAdapter
 from orion.chat.runtime import ChatRuntime
-from orion.integrations import InternetClient, SearxngInternetClient, UnavailableInternetClient
+from orion.integrations import (
+    GrafanaClient,
+    InfrastructureIntegrations,
+    InternetClient,
+    LinuxExecutor,
+    SearxngInternetClient,
+    TargetCatalog,
+    UnavailableInternetClient,
+    ZabbixClient,
+)
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.models.backend import ModelBackend
@@ -16,6 +25,7 @@ from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.persistence.sqlite import SQLiteStore
 from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
+from orion.tool_runtime.infrastructure import infrastructure_registrations
 from orion.tool_runtime.internet import internet_registrations
 from orion.tool_runtime.registry import ToolRegistration, ToolRegistry, ToolRegistryBuilder
 
@@ -31,6 +41,7 @@ class OrionApplication:
     knowledge: KnowledgeService
     projects: ProjectService
     internet: InternetClient
+    infrastructure: InfrastructureIntegrations
     runtime: ChatRuntime
 
 
@@ -39,6 +50,10 @@ def build_application(
     backend: ModelBackend | None = None,
     tool_registrations: tuple[ToolRegistration, ...] | None = None,
     internet_client: InternetClient | None = None,
+    infrastructure_catalog: TargetCatalog | None = None,
+    linux_executor: LinuxExecutor | None = None,
+    grafana_client: GrafanaClient | None = None,
+    zabbix_client: ZabbixClient | None = None,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     resolved_path = database_path or Path(os.getenv("ORION_DATABASE_PATH", "data/orion.db"))
@@ -49,6 +64,10 @@ def build_application(
     knowledge = KnowledgeService(store, LocalBlobStore(resolved_path.parent / "blobs"))
     projects = ProjectService(store)
     internet = internet_client or _internet_client_from_environment()
+    infrastructure_catalog = infrastructure_catalog or TargetCatalog.from_environment()
+    infrastructure = InfrastructureIntegrations(
+        infrastructure_catalog, linux_executor, grafana_client, zabbix_client
+    )
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
@@ -57,9 +76,18 @@ def build_application(
         registry_builder.register(registration.definition, registration.handler)
     for registration in internet_registrations(internet):
         registry_builder.register(registration.definition, registration.handler)
+    for registration in infrastructure_registrations(
+        infrastructure_catalog,
+        linux=linux_executor,
+        grafana=grafana_client,
+        zabbix=zabbix_client,
+    ):
+        registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
     selected_backend = backend or OpenAICompatibleBackend()
-    runtime = ChatRuntime(store, selected_backend, registry, access)
+    runtime = ChatRuntime(
+        store, selected_backend, registry, access, infrastructure_catalog.model_context()
+    )
     return OrionApplication(
         store=store,
         access=access,
@@ -68,6 +96,7 @@ def build_application(
         knowledge=knowledge,
         projects=projects,
         internet=internet,
+        infrastructure=infrastructure,
         runtime=runtime,
     )
 
