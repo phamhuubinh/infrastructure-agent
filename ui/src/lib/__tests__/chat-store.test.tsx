@@ -286,6 +286,60 @@ describe("M1 session store", () => {
     expect(session.messages[0].citationSourceRefIds).toEqual(["source-a", "source-b"]);
   });
 
+  it("keeps Internet citations only when a canonical Internet source was returned", () => {
+    const session = sessionFromTimeline("session-1", [
+      {
+        item_id: "tool-result",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:00Z",
+        kind: "tool_result" as const,
+        call_id: "internet-1",
+        tool_name: "internet.search",
+        payload: {
+          result: {
+            status: "success",
+            sources: [
+              {
+                source_ref_id: "internet-source",
+                source_kind: "internet",
+                source_id: "https://example.test/article",
+                document_id: null,
+                segment_id: null,
+                page: null,
+                section: null,
+                label: "Example article",
+                url: "https://example.test/article",
+                retrieved_at: "2026-08-25T00:00:00Z",
+              },
+            ],
+          },
+        },
+      },
+      {
+        item_id: "assistant",
+        session_id: "session-1",
+        created_at: "2026-08-25T00:00:01Z",
+        kind: "assistant_message" as const,
+        call_id: null,
+        tool_name: null,
+        payload: {
+          content: "Grounded.",
+          citation_source_ref_ids: ["internet-source", "invented"],
+        },
+      },
+    ]);
+
+    expect(session.sources).toEqual([
+      expect.objectContaining({
+        sourceRefId: "internet-source",
+        sourceKind: "internet",
+        documentId: null,
+        url: "https://example.test/article",
+      }),
+    ]);
+    expect(session.messages[0].citationSourceRefIds).toEqual(["internet-source"]);
+  });
+
   it("keeps ready Project citations and hides unavailable Project citations", () => {
     const projectDocument: SessionDocument = {
       document: {

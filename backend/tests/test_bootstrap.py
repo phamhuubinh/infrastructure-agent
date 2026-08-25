@@ -58,6 +58,8 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
 
     assert [definition.name for definition in app.registry.definitions()] == [
         "calculator.evaluate",
+        "internet.fetch",
+        "internet.search",
         "knowledge.list_documents",
         "knowledge.read",
         "knowledge.search",

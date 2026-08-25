@@ -211,12 +211,15 @@ class SourceRef:
     page: int | None
     section: str | None
     label: str | None
+    url: str | None
+    retrieved_at: datetime | None
 ```
 
 A final citation is a presentation-level reference to one or more canonical visible
 `source_ref_id` values. Orion rejects citation IDs that were not returned in a visible
 tool result. Citation rendering belongs to the UI/API presentation layer, not to retrieval
-ranking logic.
+ranking logic. Non-document sources such as Internet retrieval use `url` and
+`retrieved_at` for canonical provenance while leaving document-specific fields unset.
 
 ## TimelineItem
 

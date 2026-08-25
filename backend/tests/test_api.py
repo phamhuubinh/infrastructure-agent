@@ -39,6 +39,27 @@ async def test_api_direct_chat_has_no_tool_selector(tmp_path) -> None:  # type: 
 
 
 @pytest.mark.anyio
+async def test_api_reports_optional_internet_integration_without_exposing_secrets(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_app(tmp_path / "orion.db", ScriptedBackend([]))),
+        base_url="http://test",
+    ) as client:
+        integration = await client.get("/api/integrations/internet")
+        health = await client.get("/api/health")
+
+    assert integration.json() == {
+        "status": "unavailable",
+        "provider": None,
+        "endpoint": None,
+        "message": "Internet search is not configured. Set ORION_INTERNET_SEARCH_URL to enable it.",
+    }
+    assert health.json()["internet"]["status"] == "unavailable"
+    assert "key" not in str(integration.json()).lower()
+
+
+@pytest.mark.anyio
 async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [

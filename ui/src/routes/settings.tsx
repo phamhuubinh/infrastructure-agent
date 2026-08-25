@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
-import { BrainCircuit, Loader2, Save } from "lucide-react";
+import { BrainCircuit, Globe2, Loader2, Save } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -26,8 +26,16 @@ type ModelConnection = {
   model_id: string;
 };
 
+type InternetIntegration = {
+  status: "configured" | "unavailable";
+  provider: string | null;
+  endpoint: string | null;
+  message: string | null;
+};
+
 export function SettingsPage() {
   const [models, setModels] = useState<ModelConnection[]>([]);
+  const [internet, setInternet] = useState<InternetIntegration | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -43,9 +51,18 @@ export function SettingsPage() {
     }
   }, []);
 
+  const loadInternet = useCallback(async () => {
+    try {
+      setInternet(await apiJson<InternetIntegration>("/api/integrations/internet"));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Không thể tải Internet.");
+    }
+  }, []);
+
   useEffect(() => {
     void loadModels();
-  }, [loadModels]);
+    void loadInternet();
+  }, [loadInternet, loadModels]);
 
   async function saveConnection() {
     setBusy(true);
@@ -158,6 +175,26 @@ export function SettingsPage() {
                 )}
                 Lưu model
               </Button>
+            </div>
+          </Card>
+          <Card className="p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-surface-3 p-2 text-foreground">
+                <Globe2 className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-medium">Internet</h2>
+                  {internet && (
+                    <Badge>{internet.status === "configured" ? "Sẵn sàng" : "Chưa cấu hình"}</Badge>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {internet?.status === "configured"
+                    ? `Tìm kiếm qua ${internet.provider ?? "integration"}: ${internet.endpoint}`
+                    : (internet?.message ?? "Đang tải trạng thái tích hợp Internet.")}
+                </p>
+              </div>
             </div>
           </Card>
         </div>

@@ -361,6 +361,13 @@ function CitationCards({
 }
 
 export function SourceLocation({ source }: { source: SourceReference }) {
+  if (source.url) {
+    try {
+      return <span className="truncate text-muted-foreground">{new URL(source.url).hostname}</span>;
+    } catch {
+      return null;
+    }
+  }
   const details = [source.page === null ? null : `p. ${source.page}`, source.section]
     .filter((value): value is string => Boolean(value))
     .join(" · ");

@@ -116,6 +116,10 @@ class SourceRef(CanonicalModel):
     page: int | None = None
     section: str | None = None
     label: str | None = None
+    # Non-document sources (for example Internet retrieval) retain their canonical
+    # citation identity while adding only the presentation provenance they need.
+    url: str | None = None
+    retrieved_at: datetime | None = None
 
 
 class Citation(CanonicalModel):

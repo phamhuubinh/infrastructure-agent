@@ -38,6 +38,13 @@ class ModelConfigView(BaseModel):
     model_id: str
 
 
+class InternetIntegrationView(BaseModel):
+    status: str
+    provider: str | None = None
+    endpoint: str | None = None
+    message: str | None = None
+
+
 class SubmitMessage(StrictRequest):
     content: str = Field(min_length=1)
 
@@ -90,8 +97,12 @@ def create_app(
     app.state.application = assembled
 
     @app.get("/api/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> dict[str, object]:
+        return {"status": "ok", "internet": assembled.internet.status().__dict__}
+
+    @app.get("/api/integrations/internet", response_model=InternetIntegrationView)
+    async def internet_integration() -> InternetIntegrationView:
+        return InternetIntegrationView.model_validate(assembled.internet.status().__dict__)
 
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:

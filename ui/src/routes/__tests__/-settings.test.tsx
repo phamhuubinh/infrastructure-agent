@@ -17,27 +17,44 @@ describe("M1 model settings", () => {
   });
 
   it("loads the active M1 model and posts only the current configuration contract", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse([]))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          model_config_id: "cfg-1",
-          provider_type: "openai_compatible",
-          base_url: "https://api.openai.com/v1",
-          model_id: "gpt-4.1",
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse([
-          {
+    let modelConfigured = false;
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/integrations/internet") {
+        return Promise.resolve(
+          jsonResponse({
+            status: "unavailable",
+            provider: null,
+            endpoint: null,
+            message: "Internet search is not configured.",
+          }),
+        );
+      }
+      if (path === "/api/models" && init?.method === "POST") {
+        modelConfigured = true;
+        return Promise.resolve(
+          jsonResponse({
             model_config_id: "cfg-1",
             provider_type: "openai_compatible",
             base_url: "https://api.openai.com/v1",
             model_id: "gpt-4.1",
-          },
-        ]),
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse(
+          modelConfigured
+            ? [
+                {
+                  model_config_id: "cfg-1",
+                  provider_type: "openai_compatible",
+                  base_url: "https://api.openai.com/v1",
+                  model_id: "gpt-4.1",
+                },
+              ]
+            : [],
+        ),
       );
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<SettingsPage />);
@@ -54,7 +71,10 @@ describe("M1 model settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Lưu model" }));
 
     await screen.findByText("Đã lưu cấu hình model.");
-    const [path, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const [path, init] = fetchMock.mock.calls.find(
+      ([requestPath, requestInit]) =>
+        requestPath === "/api/models" && requestInit?.method === "POST",
+    ) as [string, RequestInit];
     expect(path).toBe("/api/models");
     expect(JSON.parse(String(init.body))).toEqual({
       provider_type: "openai_compatible",
@@ -63,6 +83,7 @@ describe("M1 model settings", () => {
       api_key: "provider-secret",
     });
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await screen.findByText("Internet search is not configured.");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
   });
 });

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from orion.access import LocalAccessAdapter
 from orion.chat.runtime import ChatRuntime
+from orion.integrations import InternetClient, SearxngInternetClient, UnavailableInternetClient
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.models.backend import ModelBackend
@@ -15,6 +16,7 @@ from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.persistence.sqlite import SQLiteStore
 from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
+from orion.tool_runtime.internet import internet_registrations
 from orion.tool_runtime.registry import ToolRegistration, ToolRegistry, ToolRegistryBuilder
 
 
@@ -28,6 +30,7 @@ class OrionApplication:
     registry: ToolRegistry
     knowledge: KnowledgeService
     projects: ProjectService
+    internet: InternetClient
     runtime: ChatRuntime
 
 
@@ -35,6 +38,7 @@ def build_application(
     database_path: Path | None = None,
     backend: ModelBackend | None = None,
     tool_registrations: tuple[ToolRegistration, ...] | None = None,
+    internet_client: InternetClient | None = None,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     resolved_path = database_path or Path(os.getenv("ORION_DATABASE_PATH", "data/orion.db"))
@@ -44,11 +48,14 @@ def build_application(
     registry_builder = ToolRegistryBuilder()
     knowledge = KnowledgeService(store, LocalBlobStore(resolved_path.parent / "blobs"))
     projects = ProjectService(store)
+    internet = internet_client or _internet_client_from_environment()
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
         registry_builder.register(registration.definition, registration.handler)
     for registration in knowledge_registrations(knowledge):
+        registry_builder.register(registration.definition, registration.handler)
+    for registration in internet_registrations(internet):
         registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
     selected_backend = backend or OpenAICompatibleBackend()
@@ -60,6 +67,7 @@ def build_application(
         registry=registry,
         knowledge=knowledge,
         projects=projects,
+        internet=internet,
         runtime=runtime,
     )
 
@@ -72,3 +80,10 @@ def _configure_model_from_environment(store: SQLiteStore) -> None:
         store.upsert_model_config(
             "openai_compatible", base_url, model_id, os.getenv("ORION_MODEL_API_KEY")
         )
+
+
+def _internet_client_from_environment() -> InternetClient:
+    search_url = os.getenv("ORION_INTERNET_SEARCH_URL")
+    if not search_url:
+        return UnavailableInternetClient()
+    return SearxngInternetClient(search_url)

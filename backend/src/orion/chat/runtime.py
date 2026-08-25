@@ -267,6 +267,11 @@ class ChatRuntime:
                 continue
             result = ToolResult.model_validate(item.payload["result"])
             for source in result.sources:
+                if source.source_kind == "internet" and source.document_id is None and source.url:
+                    # Internet sources are valid only when their canonical SourceRef was
+                    # actually returned to this same model loop/session.
+                    visible_source_ref_ids.add(source.source_ref_id)
+                    continue
                 if source.document_id is None:
                     continue
                 document = self._store.document(source.document_id)

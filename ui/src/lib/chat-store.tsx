@@ -68,11 +68,14 @@ export type SessionDocument = {
 
 export type SourceReference = {
   sourceRefId: string;
-  documentId: string;
+  sourceKind: string;
+  documentId: string | null;
   segmentId: string | null;
   page: number | null;
   section: string | null;
   label: string;
+  url: string | null;
+  retrievedAt: string | null;
 };
 
 export type Session = {
@@ -201,6 +204,26 @@ function sourceReferences(
       const sourceRefId = source.source_ref_id;
       const documentId = source.document_id;
       if (
+        source.source_kind === "internet" &&
+        typeof sourceRefId === "string" &&
+        typeof source.url === "string" &&
+        typeof source.source_id === "string" &&
+        source.source_id === source.url
+      ) {
+        sources.set(sourceRefId, {
+          sourceRefId,
+          sourceKind: "internet",
+          documentId: null,
+          segmentId: null,
+          page: null,
+          section: null,
+          label: typeof source.label === "string" ? source.label : source.url,
+          url: source.url,
+          retrievedAt: typeof source.retrieved_at === "string" ? source.retrieved_at : null,
+        });
+        continue;
+      }
+      if (
         typeof sourceRefId !== "string" ||
         typeof documentId !== "string" ||
         !availableDocuments.has(documentId)
@@ -216,11 +239,14 @@ function sourceReferences(
       }
       sources.set(sourceRefId, {
         sourceRefId,
+        sourceKind: document.document.source.kind,
         documentId,
         segmentId: typeof source.segment_id === "string" ? source.segment_id : null,
         page: typeof source.page === "number" ? source.page : null,
         section: typeof source.section === "string" ? source.section : null,
         label: document.document.name,
+        url: null,
+        retrievedAt: null,
       });
     }
   }

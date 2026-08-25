@@ -89,7 +89,7 @@ export function ContextPanel({
 
       {(selectedSource || session.documents.length > 0) && (
         <div className="border-b border-border p-3">
-          <div className="mb-2 text-xs font-semibold">Tài liệu phiên chat</div>
+          <div className="mb-2 text-xs font-semibold">Nguồn phiên chat</div>
           {selectedSource && (
             <SourceCard
               source={selectedSource}
@@ -213,7 +213,19 @@ function SourceCard({
   selected?: boolean;
   onClick: () => void;
 }) {
-  const location = [source.page === null ? null : `Trang ${source.page}`, source.section]
+  const location = [
+    source.url
+      ? (() => {
+          try {
+            return new URL(source.url).hostname;
+          } catch {
+            return null;
+          }
+        })()
+      : null,
+    source.page === null ? null : `Trang ${source.page}`,
+    source.section,
+  ]
     .filter((value): value is string => Boolean(value))
     .join(" · ");
   return (
