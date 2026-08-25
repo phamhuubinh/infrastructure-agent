@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck test-backend test-frontend lint-backend lint-frontend
+.PHONY: test lint typecheck acceptance openapi openapi-check architecture-check operations-check test-backend test-frontend lint-backend lint-frontend
 
 test: test-backend test-frontend
 
@@ -18,3 +18,17 @@ lint-frontend:
 
 typecheck:
 	cd backend && PYTHONPATH=src ../.venv/bin/python -m mypy src
+
+openapi:
+	cd backend && PYTHONPATH=src ../.venv/bin/python scripts/openapi.py --write
+
+openapi-check:
+	cd backend && PYTHONPATH=src ../.venv/bin/python scripts/openapi.py
+
+architecture-check:
+	cd backend && PYTHONPATH=src ../.venv/bin/python scripts/architecture_check.py
+
+operations-check:
+	cd backend && PYTHONPATH=src ../.venv/bin/python scripts/operations_check.py
+
+acceptance: openapi-check architecture-check operations-check test lint typecheck

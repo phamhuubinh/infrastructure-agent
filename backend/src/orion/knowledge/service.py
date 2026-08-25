@@ -98,6 +98,19 @@ class KnowledgeService:
             error_message=row["error_message"],
         )
 
+    def reconcile_incomplete(self) -> None:
+        """Resume only non-terminal persisted ingestion after a normal restart.
+
+        The database keeps the source identity and the blob store keeps original bytes.
+        Replacing segments in one SQLite transaction makes repeat reconciliation idempotent.
+        """
+        for row in self._store.incomplete_documents():
+            document_id = str(row["document_id"])
+            try:
+                self._ingest(document_id)
+            except (OSError, ValueError) as error:
+                self._store.set_document_state(document_id, "failed", str(error))
+
     def attach_project(
         self, project_id: str, name: str, content: bytes, media_type: str | None = "text/plain"
     ) -> DocumentUpload:

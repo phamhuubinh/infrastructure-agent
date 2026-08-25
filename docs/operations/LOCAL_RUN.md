@@ -6,8 +6,11 @@
 orion web
 ```
 
-Current CLI behavior starts the local API at `http://127.0.0.1:61888`.
-It does not open a browser or manage Docker in M1.
+The command starts the local API at `http://127.0.0.1:61888` by default. It binds to
+loopback by default and does not open a browser or manage Docker.
+
+Use `orion web --host HOST --port PORT` (or `ORION_HOST`/`ORION_PORT`) to configure the
+listener. `--data-dir DIRECTORY` keeps a test or alternate installation fully isolated.
 
 Run the preserved UI in a second terminal:
 
@@ -22,11 +25,13 @@ npm run dev
 orion log
 ```
 
-This reports the path to the local SQLite database.
+This prints the database/log locations and the last 100 sanitized public application
+events. Use `orion log --tail 20` to limit output.
 
 ## CLI commands
 
-Use `orion --help` to inspect the M1 CLI surface.
+Use `orion --help` to inspect the CLI surface. Stop `orion web` with Ctrl-C; starting it
+again with the same data directory resumes the same SQLite/WAL database and blob store.
 
 ## Target runtime
 

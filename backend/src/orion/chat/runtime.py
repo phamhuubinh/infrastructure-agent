@@ -17,7 +17,9 @@ from orion.contracts import (
     citations_are_visible,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
+from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
+from orion.security import redact_public
 from orion.tool_runtime.registry import ToolRegistry
 from orion.tool_runtime.runner import ToolRunner
 
@@ -44,6 +46,7 @@ class ChatRuntime:
         registry: ToolRegistry,
         access: LocalAccessAdapter,
         infrastructure_targets: tuple[tuple[str, str, str], ...] = (),
+        application_log: ApplicationLog | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -51,6 +54,7 @@ class ChatRuntime:
         self._access = access
         self._runner = ToolRunner(registry)
         self._context_builder = ContextBuilder(store, infrastructure_targets)
+        self._application_log = application_log
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -115,7 +119,7 @@ class ChatRuntime:
                             "assistant.message",
                             {
                                 "item": assistant_item.model_dump(mode="json"),
-                                "content": turn.assistant.content,
+                                "content": redact_public(turn.assistant.content),
                             },
                         )
                     if not turn.tool_calls:
@@ -235,9 +239,11 @@ class ChatRuntime:
             request_id,
             "assistant_message",
             {
-                "content": turn.assistant.content if turn.assistant is not None else "",
+                "content": redact_public(turn.assistant.content)
+                if turn.assistant is not None
+                else "",
                 "citation_source_ref_ids": (
-                    list(turn.assistant.citation_source_ref_ids)
+                    list(redact_public(turn.assistant.citation_source_ref_ids))
                     if turn.assistant is not None
                     else []
                 ),
@@ -298,7 +304,10 @@ class ChatRuntime:
         return payload
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
-        self._store.emit_event(request_id, event_type, payload)
+        public_payload = redact_public(payload)
+        self._store.emit_event(request_id, event_type, public_payload)
+        if self._application_log is not None:
+            self._application_log.write(event_type, {"request_id": request_id, **public_payload})
 
     def _fail_unexpected(self, request_id: str) -> None:
         self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")

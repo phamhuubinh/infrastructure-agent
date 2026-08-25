@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from orion.contracts import ContextMessage, ModelToolCall, ToolResult
 from orion.persistence.sqlite import SQLiteStore
+from orion.security import redact_public, redact_text
 
 _SYSTEM_INSTRUCTIONS = (
     "You are Orion, a local-first technical workbench. Answer the user directly when "
@@ -42,11 +43,13 @@ class ContextBuilder:
                     f"Name: {project['name']}",
                 ]
                 if project["description"]:
-                    details.append(f"Description: {project['description']}")
+                    details.append(f"Description: {redact_text(str(project['description']))}")
                 if project["instructions"]:
-                    details.append(f"Project instructions: {project['instructions']}")
+                    details.append(
+                        f"Project instructions: {redact_text(str(project['instructions']))}"
+                    )
                 if project["metadata"]:
-                    details.append(f"Metadata: {project['metadata']}")
+                    details.append(f"Metadata: {redact_public(project['metadata'])}")
                 details.append(
                     "Project identity and available knowledge are fixed by Orion; do not infer or "
                     "request another project through tool arguments."

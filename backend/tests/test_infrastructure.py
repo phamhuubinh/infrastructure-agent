@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import pytest
 from conftest import ScriptedBackend, runtime
 
 from orion.chat.runtime import RequestCancelled
-from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope
+from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolCall
 from orion.integrations.infrastructure import Target, TargetCatalog
 from orion.tool_runtime.infrastructure import (
+    _INFRASTRUCTURE_WORKERS,
+    _blocking_handler,
     infrastructure_definitions,
     infrastructure_registrations,
 )
@@ -94,6 +96,34 @@ class BlockingVerificationLinux(FakeLinux):
         self.verification_entered.set()
         assert self.release_verification.wait(2)
         return {"service": service, "load_state": "loaded", "active_state": "active"}
+
+
+class BoundedBlockingLinux(FakeLinux):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+        self.started = threading.Event()
+        self._lock = threading.Lock()
+        self.active = 0
+        self.maximum_active = 0
+        self.finished = 0
+
+    def inspect(
+        self, target: Target, credential: object, sections: tuple[str, ...]
+    ) -> Mapping[str, object]:
+        with self._lock:
+            self.active += 1
+            self.maximum_active = max(self.maximum_active, self.active)
+            if self.active >= 8:
+                self.started.set()
+        assert self.release.wait(2)
+        with self._lock:
+            self.active -= 1
+            self.finished += 1
+        return {section: {"ok": True} for section in sections}
+
+    def block(self) -> Mapping[str, object]:
+        return self.inspect(_catalog().resolve("linux", "node"), "credential", ("cpu",))
 
 
 class FakeGrafana:
@@ -210,6 +240,14 @@ async def _wait_for_thread_event(event: threading.Event) -> None:
 async def _wait_for_task(task: asyncio.Task[object]) -> None:
     while not task.done():
         await asyncio.sleep(0.01)
+
+
+async def _wait_for_count(predicate: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("timed out waiting for worker count")
 
 
 def test_all_frozen_infrastructure_schemas_are_closed() -> None:
@@ -385,3 +423,45 @@ async def test_runtime_cancellation_after_restart_preserves_verified_dispatch_re
     assert tool_result["data"]["changed"] is True
     assert tool_result["data"]["verification"]["status"] == "verified"
     assert "rollback" not in str(tool_result).lower()
+
+
+@pytest.mark.anyio
+async def test_infrastructure_workers_are_bounded_and_capacity_is_restored() -> None:
+    linux = BoundedBlockingLinux()
+    handler = _blocking_handler(lambda call: linux.block())
+    for index in range(9):
+        asyncio.create_task(
+            handler(
+                ToolCall(
+                    call_id=str(index),
+                    tool_name="linux.system.inspect",
+                    arguments={},
+                    runtime_scope=_scope(),
+                )
+            )
+        )
+    await asyncio.wait_for(_wait_for_thread_event(linux.started), 2)
+    await asyncio.sleep(0.05)
+    assert linux.maximum_active == 8
+    assert linux.finished == 0
+    linux.release.set()
+    await asyncio.wait_for(_wait_for_count(lambda: linux.finished == 9), 2)
+    assert linux.finished == 9
+    workers = _INFRASTRUCTURE_WORKERS[asyncio.get_running_loop()]
+    await _wait_for_count(lambda: workers._value == 8)
+    assert workers._value == 8  # noqa: SLF001 - capacity restoration invariant.
+    follow_up = asyncio.create_task(
+        handler(
+            ToolCall(
+                call_id="after",
+                tool_name="linux.system.inspect",
+                arguments={},
+                runtime_scope=_scope(),
+            )
+        )
+    )
+    await asyncio.wait_for(_wait_for_count(lambda: linux.finished == 10), 2)
+    await _wait_for_count(lambda: workers._value == 8)
+    assert workers._value == 8
+    assert follow_up.done()
+    assert linux.finished == 10

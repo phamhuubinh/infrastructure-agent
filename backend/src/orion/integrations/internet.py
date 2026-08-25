@@ -5,17 +5,18 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from types import TracebackType
 from typing import Any, Protocol
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpcore
 import httpx
-from httpx._transports.default import ResponseStream, map_httpcore_exceptions
+
+from orion.security import safe_endpoint
 
 MAX_SEARCH_RESULTS = 8
 MAX_SEARCH_SNIPPET_CHARS = 1_000
@@ -202,8 +203,14 @@ class _PinnedHTTPTransport(httpx.BaseTransport):
         exc_value: BaseException | None = None,
         traceback: TracebackType | None = None,
     ) -> None:
-        with map_httpcore_exceptions():
+        try:
             self._pool.__exit__(exc_type, exc_value, traceback)
+        except httpcore.TimeoutException as error:
+            raise httpx.TimeoutException(str(error)) from error
+        except httpcore.NetworkError as error:
+            raise httpx.NetworkError(str(error)) from error
+        except httpcore.ProtocolError as error:
+            raise httpx.ProtocolError(str(error)) from error
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         assert isinstance(request.stream, httpx.SyncByteStream)
@@ -219,15 +226,50 @@ class _PinnedHTTPTransport(httpx.BaseTransport):
             content=request.stream,
             extensions=request.extensions,
         )
-        with map_httpcore_exceptions():
+        try:
             core_response = self._pool.handle_request(core_request)
+        except httpcore.ConnectTimeout as error:
+            raise httpx.ConnectTimeout(str(error), request=request) from error
+        except httpcore.ReadTimeout as error:
+            raise httpx.ReadTimeout(str(error), request=request) from error
+        except httpcore.WriteTimeout as error:
+            raise httpx.WriteTimeout(str(error), request=request) from error
+        except httpcore.PoolTimeout as error:
+            raise httpx.PoolTimeout(str(error), request=request) from error
+        except httpcore.ConnectError as error:
+            raise httpx.ConnectError(str(error), request=request) from error
+        except httpcore.ReadError as error:
+            raise httpx.ReadError(str(error), request=request) from error
+        except httpcore.WriteError as error:
+            raise httpx.WriteError(str(error), request=request) from error
+        except httpcore.ProxyError as error:
+            raise httpx.ProxyError(str(error), request=request) from error
+        except httpcore.UnsupportedProtocol as error:
+            raise httpx.UnsupportedProtocol(str(error), request=request) from error
+        except httpcore.ProtocolError as error:
+            raise httpx.ProtocolError(str(error), request=request) from error
         assert isinstance(core_response.stream, Iterable)
         return httpx.Response(
             status_code=core_response.status,
             headers=core_response.headers,
-            stream=ResponseStream(core_response.stream),
+            stream=_CoreStream(core_response.stream),
             extensions=core_response.extensions,
         )
+
+
+class _CoreStream(httpx.SyncByteStream):
+    """Public HTTPX stream adapter for HTTP Core's iterable response body."""
+
+    def __init__(self, stream: Iterable[bytes]) -> None:
+        self._stream = stream
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield from self._stream
+
+    def close(self) -> None:
+        close = getattr(self._stream, "close", None)
+        if callable(close):
+            close()
 
 
 class SearxngInternetClient:
@@ -469,20 +511,7 @@ def _is_public_address(address: str) -> bool:
 
 def _display_endpoint(raw_url: str) -> str:
     """Expose only safe endpoint identity in Settings/health, never URL credentials."""
-    try:
-        parsed = urlsplit(raw_url)
-    except ValueError:
-        return "configured"
-    host = parsed.hostname
-    if host is None:
-        return "configured"
-    try:
-        port = parsed.port
-    except ValueError:
-        return "configured"
-    display_host = f"[{host}]" if ":" in host else host
-    netloc = display_host if port is None else f"{display_host}:{port}"
-    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+    return safe_endpoint(raw_url)
 
 
 def _read_bounded_body(response: httpx.Response, max_bytes: int = MAX_RESPONSE_BYTES) -> bytes:

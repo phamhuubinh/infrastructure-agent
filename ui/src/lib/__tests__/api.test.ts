@@ -38,6 +38,17 @@ describe("M1 API client", () => {
     await expect(apiErrorMessage(response)).resolves.toBe("No active model configuration");
   });
 
+  it("redacts configured marker values from frontend activity errors", async () => {
+    const response = new Response(
+      '{"detail":"ORION_TEST_SECRET_TOKEN ORION_TEST_PRIVATE_URL /private/test/key"}',
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+    const message = await apiErrorMessage(response);
+    expect(message).not.toContain("ORION_TEST_SECRET_TOKEN");
+    expect(message).not.toContain("ORION_TEST_PRIVATE_URL");
+    expect(message).not.toContain("/private/test/key");
+  });
+
   it("uses only the M2 session-scoped attachment, status, and tombstone routes", async () => {
     const fetchMock = vi
       .fn()

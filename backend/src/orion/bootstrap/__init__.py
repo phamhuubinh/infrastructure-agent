@@ -20,8 +20,11 @@ from orion.integrations import (
 )
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
+from orion.knowledge.ports import Chunker, DocumentParser
 from orion.models.backend import ModelBackend
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
+from orion.observability import ApplicationLog
+from orion.paths import database_path as default_database_path
 from orion.persistence.sqlite import SQLiteStore
 from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
@@ -54,14 +57,22 @@ def build_application(
     linux_executor: LinuxExecutor | None = None,
     grafana_client: GrafanaClient | None = None,
     zabbix_client: ZabbixClient | None = None,
+    knowledge_parser: DocumentParser | None = None,
+    knowledge_chunker: Chunker | None = None,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
-    resolved_path = database_path or Path(os.getenv("ORION_DATABASE_PATH", "data/orion.db"))
+    resolved_path = database_path or default_database_path()
     store = SQLiteStore(resolved_path)
     _configure_model_from_environment(store)
     access = LocalAccessAdapter()
     registry_builder = ToolRegistryBuilder()
-    knowledge = KnowledgeService(store, LocalBlobStore(resolved_path.parent / "blobs"))
+    knowledge = KnowledgeService(
+        store,
+        LocalBlobStore(resolved_path.parent / "blobs"),
+        parser=knowledge_parser,
+        chunker=knowledge_chunker,
+    )
+    knowledge.reconcile_incomplete()
     projects = ProjectService(store)
     internet = internet_client or _internet_client_from_environment()
     infrastructure_catalog = infrastructure_catalog or TargetCatalog.from_environment()
@@ -86,7 +97,12 @@ def build_application(
     registry = registry_builder.freeze()
     selected_backend = backend or OpenAICompatibleBackend()
     runtime = ChatRuntime(
-        store, selected_backend, registry, access, infrastructure_catalog.model_context()
+        store,
+        selected_backend,
+        registry,
+        access,
+        infrastructure_catalog.model_context(),
+        ApplicationLog(Path(os.environ["ORION_LOG_PATH"])) if os.getenv("ORION_LOG_PATH") else None,
     )
     return OrionApplication(
         store=store,

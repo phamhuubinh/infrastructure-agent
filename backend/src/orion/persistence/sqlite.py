@@ -612,6 +612,15 @@ class SQLiteStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def incomplete_documents(self) -> list[dict[str, Any]]:
+        """Non-tombstoned ingestion work that a normal restart may reconcile."""
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT * FROM documents WHERE status IN ('uploaded', 'parsing', 'indexing')
+                   AND deleted_at IS NULL ORDER BY created_at, document_id"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _record_ingestion_event(
         self, document_id: str, state: str, error_message: str | None
     ) -> None:

@@ -1,6 +1,6 @@
 # Installation
 
-This page documents the repository's **current M1** `install.sh` behavior.
+This page documents Orion's local-first installation surface.
 
 ## Host assumptions
 
@@ -9,19 +9,22 @@ The M1 installer requires Python 3.12 or newer and creates a local `.venv`.
 ## Standard installation
 
 ```bash
-cd /path/to/infrastructure-agent
+cd /path/to/Orion_agent
 ./install.sh
+source .venv/bin/activate
 ```
 
 ## What the installer currently does
 
-The script creates `.venv` and installs Orion with its development checks. Configure a
-model through the `/api/models` API or set `ORION_MODEL_BASE_URL` and `ORION_MODEL_ID`
+The script creates or reuses `.venv` and installs the current Orion package with its
+development checks. It does not create, overwrite, or remove Orion data or credentials.
+Configure a model through `/api/models` or set `ORION_MODEL_BASE_URL` and `ORION_MODEL_ID`
 before starting `orion web`.
 
 ## Current flags
 
-The M1 installer has no command-line flags and does not alter an existing `.env`.
+Use `--prefix DIRECTORY` for an isolated installation (useful for a smoke test), or
+`--no-dev` for a runtime-only virtual environment. The installer never alters `.env`.
 
 ## After installation
 

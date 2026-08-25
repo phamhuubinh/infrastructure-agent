@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from orion.contracts import ModelToolCall, RuntimeScope, ToolCall, ToolResult
+from orion.security import redact_public
 from orion.tool_runtime.registry import ToolHandler, ToolRegistry
 
 
@@ -111,4 +112,4 @@ class ToolRunner:
                 "upstream_error",
                 "Tool returned mismatched correlation metadata.",
             )
-        return result
+        return ToolResult.model_validate(redact_public(result.model_dump(mode="json")))

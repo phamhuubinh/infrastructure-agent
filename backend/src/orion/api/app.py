@@ -18,6 +18,7 @@ from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
 from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
 from orion.persistence.sqlite import SQLiteStore
+from orion.security import redact_text, safe_endpoint
 
 
 class StrictRequest(BaseModel):
@@ -129,7 +130,16 @@ def create_app(
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:
         active = store.active_model_config()
-        return [ModelConfigView.model_validate(active)] if active else []
+        if active is None:
+            return []
+        return [
+            ModelConfigView(
+                model_config_id=str(active["model_config_id"]),
+                provider_type=str(active["provider_type"]),
+                base_url=safe_endpoint(str(active["base_url"])),
+                model_id=redact_text(str(active["model_id"])),
+            )
+        ]
 
     @app.post("/api/models", response_model=ModelConfigView, status_code=201)
     async def configure_model(config: ModelConfigInput) -> ModelConfigView:
@@ -139,8 +149,8 @@ def create_app(
         return ModelConfigView(
             model_config_id=config_id,
             provider_type=config.provider_type,
-            base_url=config.base_url.rstrip("/"),
-            model_id=config.model_id,
+            base_url=safe_endpoint(config.base_url.rstrip("/")),
+            model_id=redact_text(config.model_id),
         )
 
     @app.post("/api/sessions", response_model=SessionView, status_code=201)

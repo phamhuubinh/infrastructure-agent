@@ -1,5 +1,18 @@
 export const API_URL = import.meta.env.VITE_API_URL || "";
 
+const PUBLIC_SECRET_MARKERS = [
+  "ORION_TEST_SECRET_TOKEN",
+  "ORION_TEST_PRIVATE_URL",
+  "/private/test/key",
+];
+
+export function redactPublicText(value: string): string {
+  return PUBLIC_SECRET_MARKERS.reduce(
+    (result, marker) => result.replaceAll(marker, "[REDACTED]"),
+    value,
+  );
+}
+
 export type DocumentRef = {
   document_id: string;
   source: { kind: "session" | "project" | "shared"; source_id: string };
@@ -54,7 +67,7 @@ export async function apiErrorMessage(response: Response): Promise<string> {
     // Keep non-JSON upstream error text.
   }
 
-  return message || `Request failed (${response.status})`;
+  return redactPublicText(message || `Request failed (${response.status})`);
 }
 
 export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {

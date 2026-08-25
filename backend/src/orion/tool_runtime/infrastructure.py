@@ -13,6 +13,7 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
+from weakref import WeakKeyDictionary
 
 from orion.contracts import SourceRef, ToolCall, ToolDefinition, ToolError, ToolResult
 from orion.integrations.infrastructure import (
@@ -35,6 +36,14 @@ UID = {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$"}
 ID = {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"}
 DATE = {"type": "string", "format": "date-time", "maxLength": 40}
 TEXT128 = {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f]+$"}
+
+# Infrastructure transports are synchronous but bounded (SSH and HTTP clients have
+# operation timeouts). The shared per-event-loop semaphore bounds active workers at
+# eight. Threads end when their bounded handler returns, so shutdown never needs to
+# terminate a running thread unsafely.
+_INFRASTRUCTURE_WORKERS: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = (
+    WeakKeyDictionary()
+)
 
 
 def infrastructure_registrations(
@@ -62,6 +71,11 @@ def _blocking_handler(handler: ToolHandler) -> ToolHandler:
     async def dispatch(call: ToolCall) -> object:
         loop = asyncio.get_running_loop()
         completion: asyncio.Future[object] = loop.create_future()
+        workers = _INFRASTRUCTURE_WORKERS.get(loop)
+        if workers is None:
+            workers = asyncio.Semaphore(8)
+            _INFRASTRUCTURE_WORKERS[loop] = workers
+        await workers.acquire()
 
         def work() -> None:
             try:
@@ -70,8 +84,10 @@ def _blocking_handler(handler: ToolHandler) -> ToolHandler:
                 loop.call_soon_threadsafe(_complete_with_error, completion, error)
             else:
                 loop.call_soon_threadsafe(_complete_with_result, completion, result)
+            finally:
+                loop.call_soon_threadsafe(workers.release)
 
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=work, name="orion-tool", daemon=True).start()
         return await completion
 
     return dispatch

@@ -12,6 +12,7 @@ from jsonschema.protocols import Validator
 from jsonschema.validators import validator_for
 
 from orion.contracts import ToolCall, ToolDefinition
+from orion.security import redact_public
 
 ToolHandler = Callable[[ToolCall], object]
 
@@ -73,7 +74,12 @@ class ToolRegistry:
         self._validators: Mapping[str, Validator] = MappingProxyType(validators)
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
-        return tuple(self._definitions[name] for name in sorted(self._definitions))
+        # Definitions cross the model boundary. Internal handler bindings remain in
+        # the immutable registry, but descriptions/schema annotations are sanitized.
+        return tuple(
+            ToolDefinition.model_validate(redact_public(self._definitions[name].model_dump()))
+            for name in sorted(self._definitions)
+        )
 
     def definition(self, name: str) -> ToolDefinition | None:
         return self._definitions.get(name)

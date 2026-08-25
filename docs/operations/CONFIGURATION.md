@@ -2,14 +2,18 @@
 
 ## Local database
 
-`ORION_DATABASE_PATH` controls the SQLite database location. Its M1 default is:
+`ORION_DATABASE_PATH` controls the SQLite database location. Otherwise Orion uses
+`ORION_DATA_DIR/orion.db`; if `ORION_DATA_DIR` is unset the default is
+`$XDG_DATA_HOME/orion` or `~/.local/share/orion`.
 
 ```text
-./data/orion.db
+~/.local/share/orion/orion.db
 ```
 
 SQLite runs with WAL enabled. It persists model configuration, sessions, requests,
-and public timeline items.
+public timeline items, projects, document metadata, and indexed segments. Original
+document blobs live beside it in `blobs/`; `orion.log` is a sanitized local diagnostic
+log. Back up the whole data directory while Orion is stopped (or use SQLite's backup API).
 
 ## Model configuration
 
