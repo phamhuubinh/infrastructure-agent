@@ -41,7 +41,7 @@ describe("M1 Chat integration", () => {
   });
 
   it("creates a session, submits a direct message over SSE, and renders the reloaded final assistant answer", async () => {
-    const fetchMock = vi.fn(async (path: string) => {
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === "/api/models") return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
@@ -118,7 +118,7 @@ describe("M1 Chat integration", () => {
   });
 
   it("presents calculator tool started/completed activity after the canonical timeline reload", async () => {
-    const fetchMock = vi.fn(async (path: string) => {
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === "/api/models") return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
@@ -197,7 +197,7 @@ describe("M1 Chat integration", () => {
   });
 
   it("presents a failed request returned by the M1 endpoint", async () => {
-    const fetchMock = vi.fn(async (path: string) => {
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path === "/api/models") return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
       if (path === "/api/sessions/chat-1/messages/stream") {
@@ -214,7 +214,7 @@ describe("M1 Chat integration", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    await screen.findByText("Model unavailable");
+    await screen.findByText(/Model unavailable/);
   });
 
   it("sends the canonical cancellation request after receiving the SSE request identifier", async () => {
@@ -263,6 +263,263 @@ describe("M1 Chat integration", () => {
         true,
       ),
     );
-    await screen.findByText("Yêu cầu đã được hủy.");
+    await screen.findByText(/Yêu cầu đã được hủy/);
+  });
+
+  it("uploads into the active Chat session and presents its ready lifecycle state", async () => {
+    const document = {
+      document_id: "doc-1",
+      source: { kind: "session", source_id: "chat-1" },
+      name: "runbook.md",
+      media_type: "text/markdown",
+    };
+    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
+      if (path === "/api/sessions/chat-1/attachments") {
+        return jsonResponse(
+          { document, attachment_id: "attachment-1", status: "ready", error_message: null },
+          201,
+        );
+      }
+      if (path === "/api/sessions/chat-1/timeline") {
+        return jsonResponse([
+          {
+            item_id: "attachment-1",
+            session_id: "chat-1",
+            created_at: "2026-08-25T00:00:00Z",
+            kind: "attachment",
+            payload: { document, attachment_id: "attachment-1", status: "ready" },
+            call_id: null,
+            tool_name: null,
+          },
+        ]);
+      }
+      if (path === "/api/sessions/chat-1/documents/doc-1") {
+        return jsonResponse({
+          document,
+          attachment_id: "attachment-1",
+          status: "ready",
+          error_message: null,
+          deleted: false,
+          ingestion: [
+            { state: "uploaded", error_message: null, created_at: "now" },
+            { state: "parsing", error_message: null, created_at: "now" },
+            { state: "indexing", error_message: null, created_at: "now" },
+            { state: "ready", error_message: null, created_at: "now" },
+          ],
+        });
+      }
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["# Runbook"], "runbook.md", { type: "text/markdown" });
+    Object.assign(file, { text: async () => "# Runbook" });
+
+    renderChat();
+    const attachmentInput = (await screen.findAllByLabelText("Attach document")).find(
+      (element) => element.tagName === "INPUT",
+    );
+    fireEvent.change(attachmentInput!, {
+      target: { files: [file] },
+    });
+
+    await screen.findAllByText("runbook.md");
+    expect(screen.getByText("Sẵn sàng")).not.toBeNull();
+    expect(fetchMock.mock.calls.map(([path]) => path)).toContain(
+      "/api/sessions/chat-1/attachments",
+    );
+    const request = fetchMock.mock.calls.find(
+      ([path]) => path === "/api/sessions/chat-1/attachments",
+    );
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+      name: "runbook.md",
+      content: "# Runbook",
+      media_type: "text/markdown",
+    });
+  });
+
+  it("reconnects a failed ingestion state separately from model and tool failures", async () => {
+    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
+    const document = {
+      document_id: "doc-failed",
+      source: { kind: "session", source_id: "chat-1" },
+      name: "scan.pdf",
+      media_type: "application/pdf",
+    };
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1/timeline") {
+        return jsonResponse([
+          {
+            item_id: "attachment-failed",
+            session_id: "chat-1",
+            created_at: "2026-08-25T00:00:00Z",
+            kind: "attachment",
+            payload: { document, attachment_id: "attachment-failed", status: "failed" },
+            call_id: null,
+            tool_name: null,
+          },
+        ]);
+      }
+      if (path === "/api/sessions/chat-1/documents/doc-failed") {
+        return jsonResponse({
+          document,
+          attachment_id: "attachment-failed",
+          status: "failed",
+          error_message: "Unsupported document format",
+          deleted: false,
+          ingestion: [
+            { state: "uploaded", error_message: null, created_at: "now" },
+            { state: "parsing", error_message: null, created_at: "now" },
+            { state: "failed", error_message: "Unsupported document format", created_at: "now" },
+          ],
+        });
+      }
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChat();
+    await screen.findAllByText("scan.pdf");
+    expect(screen.getByText("Không thể nhập")).not.toBeNull();
+    expect(screen.getByText("Unsupported document format")).not.toBeNull();
+  });
+
+  it("reconstructs grounded citations from canonical sources and opens exact page/section metadata", async () => {
+    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
+    const document = {
+      document_id: "doc-1",
+      source: { kind: "session", source_id: "chat-1" },
+      name: "security.md",
+      media_type: "text/markdown",
+    };
+    const timeline = [
+      {
+        item_id: "attachment-1",
+        session_id: "chat-1",
+        created_at: "2026-08-25T00:00:00Z",
+        kind: "attachment",
+        payload: { document, attachment_id: "attachment-1", status: "ready" },
+        call_id: null,
+        tool_name: null,
+      },
+      {
+        item_id: "search-1",
+        session_id: "chat-1",
+        created_at: "2026-08-25T00:00:01Z",
+        kind: "tool_result",
+        payload: {
+          result: {
+            status: "success",
+            sources: [
+              {
+                source_ref_id: "source-1",
+                source_kind: "session",
+                source_id: "chat-1",
+                document_id: "doc-1",
+                segment_id: "segment-1",
+                page: 7,
+                section: "Security",
+                label: "security.md",
+              },
+            ],
+          },
+        },
+        call_id: "search-1",
+        tool_name: "knowledge.search",
+      },
+      {
+        item_id: "answer-1",
+        session_id: "chat-1",
+        created_at: "2026-08-25T00:00:02Z",
+        kind: "assistant_message",
+        payload: {
+          content: "The policy requires review. [[source:source-1]] [[source:invented-source]]",
+          citation_source_ref_ids: ["source-1", "invented-source"],
+        },
+        call_id: null,
+        tool_name: null,
+      },
+    ];
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
+      if (path === "/api/sessions/chat-1/documents/doc-1") {
+        return jsonResponse({
+          document,
+          attachment_id: "attachment-1",
+          status: "ready",
+          error_message: null,
+          deleted: false,
+          ingestion: [],
+        });
+      }
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChat();
+    const source = (await screen.findAllByRole("button", { name: "Open source security.md" }))[0];
+    expect(screen.queryByText(/invented-source/)).toBeNull();
+    fireEvent.click(source);
+
+    await screen.findByText("Trang 7 · Security");
+    expect(screen.getByText("knowledge.search")).not.toBeNull();
+  });
+
+  it("removes tombstoned documents and their source cards after deletion", async () => {
+    window.localStorage.setItem("orion-m1-session-ids", JSON.stringify(["chat-1"]));
+    const document = {
+      document_id: "doc-1",
+      source: { kind: "session", source_id: "chat-1" },
+      name: "obsolete.txt",
+      media_type: "text/plain",
+    };
+    const timeline = [
+      {
+        item_id: "attachment-1",
+        session_id: "chat-1",
+        created_at: "2026-08-25T00:00:00Z",
+        kind: "attachment",
+        payload: { document, attachment_id: "attachment-1", status: "ready" },
+        call_id: null,
+        tool_name: null,
+      },
+    ];
+    let statusCalls = 0;
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
+      if (path === "/api/sessions/chat-1/documents/doc-1" && init?.method === "DELETE") {
+        return jsonResponse({ status: "deleted" });
+      }
+      if (path === "/api/sessions/chat-1/documents/doc-1") {
+        statusCalls += 1;
+        if (statusCalls > 1) return jsonResponse({ detail: "Document not found." }, 404);
+        return jsonResponse({
+          document,
+          attachment_id: "attachment-1",
+          status: "ready",
+          error_message: null,
+          deleted: false,
+          ingestion: [],
+        });
+      }
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChat();
+    await screen.findAllByText("obsolete.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Delete obsolete.txt" }));
+
+    await waitFor(() => expect(screen.queryAllByText("obsolete.txt")).toHaveLength(0));
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, init]) =>
+          path === "/api/sessions/chat-1/documents/doc-1" && init?.method === "DELETE",
+      ),
+    ).toBe(true);
   });
 });

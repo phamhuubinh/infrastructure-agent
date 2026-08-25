@@ -1,6 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, Loader2, Send, Square } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  FileText,
+  Loader2,
+  Paperclip,
+  Send,
+  Square,
+  Trash2,
+  XCircle,
+} from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -10,7 +20,14 @@ import { AssistantMessage, UserMessage } from "@/components/chat/Message";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiErrorMessage, apiFetch } from "@/lib/api";
-import { useChat, type Message, type RuntimeEvent, type TimelineItem } from "@/lib/chat-store";
+import {
+  useChat,
+  type Message,
+  type RuntimeEvent,
+  type Session,
+  type SourceReference,
+  type TimelineItem,
+} from "@/lib/chat-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -60,6 +77,7 @@ export function ChatPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const session = chat.sessions.find((item) => item.id === chat.currentSessionId);
 
@@ -102,6 +120,8 @@ export function ChatPage() {
               <Conversation
                 messages={session.messages}
                 generating={chat.generatingSessions.has(session.id)}
+                sources={session.sources}
+                onOpenSource={setSelectedSourceRefId}
               />
             )}
           </div>
@@ -132,7 +152,13 @@ export function ChatPage() {
           </div>
         </div>
       </div>
-      {session && <ContextPanel session={session} />}
+      {session && (
+        <ContextPanel
+          session={session}
+          selectedSourceRefId={selectedSourceRefId}
+          onOpenSource={setSelectedSourceRefId}
+        />
+      )}
     </>
   );
 }
@@ -163,7 +189,17 @@ function ThinkingDots() {
   );
 }
 
-function Conversation({ messages, generating }: { messages: Message[]; generating: boolean }) {
+function Conversation({
+  messages,
+  generating,
+  sources,
+  onOpenSource,
+}: {
+  messages: Message[];
+  generating: boolean;
+  sources: SourceReference[];
+  onOpenSource: (sourceRefId: string) => void;
+}) {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (typeof bottomRef.current?.scrollIntoView === "function") {
@@ -183,9 +219,16 @@ function Conversation({ messages, generating }: { messages: Message[]; generatin
             <AssistantMessage agent="Orion" content={message.content}>
               <Card className="p-4 border-border/50">
                 <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
-                  <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
+                  <Markdown remarkPlugins={[remarkGfm]}>
+                    {displayAssistantContent(message.content)}
+                  </Markdown>
                 </div>
               </Card>
+              <CitationCards
+                sourceRefIds={message.citationSourceRefIds || []}
+                sources={sources}
+                onOpenSource={onOpenSource}
+              />
             </AssistantMessage>
           ) : (
             <ThinkingDots />
@@ -196,6 +239,58 @@ function Conversation({ messages, generating }: { messages: Message[]; generatin
       <div ref={bottomRef} />
     </div>
   );
+}
+
+function displayAssistantContent(content: string) {
+  // Citation IDs are runtime provenance, not user-facing document text. Source cards below are
+  // rendered only after the IDs resolve against canonical, currently available SourceRefs.
+  return content.replace(/\s*\[\[source:[^\]\s]+\]\]/g, "");
+}
+
+function CitationCards({
+  sourceRefIds,
+  sources,
+  onOpenSource,
+}: {
+  sourceRefIds: string[];
+  sources: SourceReference[];
+  onOpenSource: (sourceRefId: string) => void;
+}) {
+  const byId = new Map(sources.map((source) => [source.sourceRefId, source]));
+  const cited = sourceRefIds.flatMap((sourceRefId) => {
+    const source = byId.get(sourceRefId);
+    return source ? [source] : [];
+  });
+  if (cited.length === 0) return null;
+  return (
+    <div className="space-y-1.5" aria-label="Grounded sources">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        Nguồn
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {cited.map((source) => (
+          <button
+            key={source.sourceRefId}
+            type="button"
+            onClick={() => onOpenSource(source.sourceRefId)}
+            className="flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-2/70 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent"
+            aria-label={`Open source ${source.label}`}
+          >
+            <FileText className="h-3.5 w-3.5 shrink-0 text-titanium" />
+            <span className="truncate">{source.label}</span>
+            <SourceLocation source={source} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function SourceLocation({ source }: { source: SourceReference }) {
+  const details = [source.page === null ? null : `p. ${source.page}`, source.section]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  return details ? <span className="shrink-0 text-muted-foreground">{details}</span> : null;
 }
 
 function ModelStatus({ models, loading }: { models: ModelInfo[]; loading: boolean }) {
@@ -222,9 +317,13 @@ function ModelStatus({ models, loading }: { models: ModelInfo[]; loading: boolea
 function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingModels: boolean }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const generation = useRef<Generation | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const {
     currentSessionId,
+    sessions,
     createSession,
     addOptimisticMessage,
     addOptimisticAssistant,
@@ -233,7 +332,36 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
     loadSession,
     recordEvent,
     setSessionGenerating,
+    attachDocument,
+    deleteDocument,
   } = useChat();
+  const session = sessions.find((item) => item.id === currentSessionId);
+
+  const attachFile = useCallback(
+    async (file: File) => {
+      setAttachmentError(null);
+      setUploading(true);
+      try {
+        let sessionId = currentSessionId;
+        if (!sessionId) sessionId = await createSession();
+        await attachDocument(sessionId, {
+          name: file.name,
+          content: await file.text(),
+          mediaType: file.type || "text/plain",
+        });
+      } catch (attachmentFailure) {
+        setAttachmentError(
+          attachmentFailure instanceof Error
+            ? `Tải lên tài liệu thất bại: ${attachmentFailure.message}`
+            : "Tải lên tài liệu thất bại.",
+        );
+      } finally {
+        setUploading(false);
+        if (fileInput.current) fileInput.current.value = "";
+      }
+    },
+    [attachDocument, createSession, currentSessionId],
+  );
 
   const submit = useCallback(async () => {
     const content = value.trim();
@@ -393,8 +521,117 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
       {error && (
         <div className="absolute bottom-14 left-4 right-4 text-xs text-destructive flex items-center gap-2">
           <AlertCircle className="h-3 w-3" />
-          {error}
+          <span>Yêu cầu model thất bại: {error}</span>
         </div>
+      )}
+      <input
+        ref={fileInput}
+        type="file"
+        className="sr-only"
+        aria-label="Attach document"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void attachFile(file);
+        }}
+      />
+      <div className="absolute bottom-2 left-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+          onClick={() => fileInput.current?.click()}
+          disabled={uploading || Boolean(generation.current)}
+          aria-label="Attach document"
+          title="Đính kèm tài liệu"
+        >
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Paperclip className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+      {(session?.documents.length || attachmentError) && (
+        <div className="border-t border-border px-3 py-2">
+          <div className="flex flex-wrap gap-2">
+            {session?.documents.map((document) => (
+              <DocumentChip
+                key={document.document.document_id}
+                document={document}
+                onDelete={() => void deleteDocument(session.id, document.document.document_id)}
+              />
+            ))}
+          </div>
+          {attachmentError && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+              <XCircle className="h-3.5 w-3.5" /> {attachmentError}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentChip({
+  document,
+  onDelete,
+}: {
+  document: Session["documents"][number];
+  onDelete: () => void;
+}) {
+  const labels = {
+    uploaded: "Đã tải lên",
+    parsing: "Đang đọc",
+    indexing: "Đang lập chỉ mục",
+    ready: "Sẵn sàng",
+    failed: "Không thể nhập",
+  } as const;
+  const pending =
+    document.status === "uploaded" ||
+    document.status === "parsing" ||
+    document.status === "indexing";
+  return (
+    <div
+      className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface-2/70 px-2 py-1.5 text-xs"
+      title={document.errorMessage || document.document.media_type || undefined}
+    >
+      {pending ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+      ) : (
+        <FileText className="h-3.5 w-3.5 text-titanium" />
+      )}
+      <span className="max-w-40 truncate font-medium">{document.document.name}</span>
+      {document.document.media_type && (
+        <span className="max-w-28 truncate text-muted-foreground">
+          {document.document.media_type}
+        </span>
+      )}
+      <span
+        className={
+          document.status === "ready"
+            ? "text-success"
+            : document.status === "failed"
+              ? "text-destructive"
+              : "text-amber-400"
+        }
+      >
+        {labels[document.status]}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        aria-label={`Delete ${document.document.name}`}
+        title="Xóa tài liệu"
+      >
+        <Trash2 className="h-3 w-3" />
+      </Button>
+      {document.errorMessage && (
+        <span className="max-w-56 truncate text-destructive">{document.errorMessage}</span>
       )}
     </div>
   );

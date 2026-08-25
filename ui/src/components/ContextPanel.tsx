@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  FileText,
   Info,
   PanelRightClose,
   PanelRightOpen,
@@ -13,16 +14,30 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { Session, ToolActivity } from "@/lib/chat-store";
+import type { Session, SourceReference, ToolActivity } from "@/lib/chat-store";
 
 function activityLabel(activity: ToolActivity) {
   if (activity.status === "started") return "Đang chạy";
-  return activity.status === "completed" ? "Hoàn tất" : "Thất bại";
+  if (activity.status === "completed") return "Hoàn tất";
+  return activity.toolName.startsWith("knowledge.")
+    ? "Tra cứu tài liệu thất bại"
+    : "Công cụ thất bại";
 }
 
-export function ContextPanel({ session }: { session: Session }) {
+export function ContextPanel({
+  session,
+  selectedSourceRefId,
+  onOpenSource,
+}: {
+  session: Session;
+  selectedSourceRefId: string | null;
+  onOpenSource: (sourceRefId: string) => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [openCallId, setOpenCallId] = useState<string | null>(null);
+  const selectedSource = session.sources.find(
+    (source) => source.sourceRefId === selectedSourceRefId,
+  );
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("orion-context-panel-collapsed") === "true");
@@ -71,6 +86,52 @@ export function ContextPanel({ session }: { session: Session }) {
           <PanelRightClose className="h-4 w-4" />
         </Button>
       </div>
+
+      {(selectedSource || session.documents.length > 0) && (
+        <div className="border-b border-border p-3">
+          <div className="mb-2 text-xs font-semibold">Tài liệu phiên chat</div>
+          {selectedSource && (
+            <SourceCard
+              source={selectedSource}
+              selected
+              onClick={() => onOpenSource(selectedSource.sourceRefId)}
+            />
+          )}
+          <div className="space-y-1.5">
+            {session.documents.map((document) => (
+              <div
+                key={document.document.document_id}
+                className="flex items-center gap-2 rounded-md bg-surface-2/50 px-2 py-1.5 text-xs"
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-titanium" />
+                <span className="min-w-0 flex-1 truncate">{document.document.name}</span>
+                <span
+                  className={
+                    document.status === "ready"
+                      ? "text-success"
+                      : document.status === "failed"
+                        ? "text-destructive"
+                        : "text-amber-400"
+                  }
+                >
+                  {document.status}
+                </span>
+              </div>
+            ))}
+          </div>
+          {session.sources.length > 0 && !selectedSource && (
+            <div className="mt-2 space-y-1.5">
+              {session.sources.map((source) => (
+                <SourceCard
+                  key={source.sourceRefId}
+                  source={source}
+                  onClick={() => onOpenSource(source.sourceRefId)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {session.activity.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-4">
@@ -140,5 +201,34 @@ export function ContextPanel({ session }: { session: Session }) {
         </div>
       )}
     </aside>
+  );
+}
+
+function SourceCard({
+  source,
+  selected = false,
+  onClick,
+}: {
+  source: SourceReference;
+  selected?: boolean;
+  onClick: () => void;
+}) {
+  const location = [source.page === null ? null : `Trang ${source.page}`, source.section]
+    .filter((value): value is string => Boolean(value))
+    .join(" · ");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-xs transition-colors hover:bg-accent",
+        selected ? "border-titanium bg-titanium/10" : "border-border bg-surface-2/50",
+      )}
+      aria-label={`Open source ${source.label}`}
+    >
+      <FileText className="h-3.5 w-3.5 shrink-0 text-titanium" />
+      <span className="min-w-0 flex-1 truncate font-medium">{source.label}</span>
+      {location && <span className="shrink-0 text-muted-foreground">{location}</span>}
+    </button>
   );
 }
