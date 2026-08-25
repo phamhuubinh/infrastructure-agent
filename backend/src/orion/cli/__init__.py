@@ -95,7 +95,13 @@ def _run_web() -> None:
         daemon=True,
         name="orion-url-opener",
     ).start()
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        # Uvicorn re-raises its captured interactive SIGINT after it has
+        # completed graceful shutdown. Its own CLI catches this at the outer
+        # boundary; Orion owns that boundary when calling Server.run directly.
+        return
 
 
 def _orion_is_healthy() -> bool:

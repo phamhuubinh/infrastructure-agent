@@ -415,6 +415,55 @@ def test_web_binds_only_the_fixed_loopback_address(monkeypatch, tmp_path) -> Non
     assert captured[0].port == 61888  # type: ignore[union-attr]
 
 
+def test_web_treats_uvicorn_keyboard_interrupt_as_graceful_shutdown(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    frontend = tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "_shell.html").write_text("<title>Orion</title>", encoding="utf-8")
+
+    class Server:
+        should_exit = True
+
+        def __init__(self, config) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def run(self) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setenv("ORION_UI_DIR", str(frontend))
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: False)
+    monkeypatch.setattr(cli, "_port_is_occupied", lambda: False)
+    monkeypatch.setattr(cli.uvicorn, "Server", Server)
+
+    cli._run_web()
+
+
+def test_web_propagates_unexpected_server_run_errors(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    frontend = tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "_shell.html").write_text("<title>Orion</title>", encoding="utf-8")
+
+    class Server:
+        should_exit = True
+
+        def __init__(self, config) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def run(self) -> None:
+            raise RuntimeError("unexpected server failure")
+
+    monkeypatch.setenv("ORION_UI_DIR", str(frontend))
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: False)
+    monkeypatch.setattr(cli, "_port_is_occupied", lambda: False)
+    monkeypatch.setattr(cli.uvicorn, "Server", Server)
+
+    with pytest.raises(RuntimeError, match="unexpected server failure"):
+        cli._run_web()
+
+
 def test_installer_reports_python_candidates_when_no_supported_interpreter_exists(tmp_path) -> None:  # type: ignore[no-untyped-def]
     repository = Path(__file__).parents[2]
     candidates = tmp_path / "candidates"
