@@ -10,7 +10,7 @@ import { AssistantMessage, UserMessage } from "@/components/chat/Message";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiErrorMessage, apiFetch } from "@/lib/api";
-import { useChat, type Message, type RuntimeEvent } from "@/lib/chat-store";
+import { useChat, type Message, type RuntimeEvent, type TimelineItem } from "@/lib/chat-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -228,6 +228,8 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
     createSession,
     addOptimisticMessage,
     addOptimisticAssistant,
+    appendAssistantDelta,
+    reconcileAssistantMessage,
     loadSession,
     recordEvent,
     setSessionGenerating,
@@ -278,6 +280,21 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
                 ? event.payload.message
                 : "Yêu cầu thất bại.";
           }
+          if (event.type === "assistant.delta" && typeof event.payload.content === "string") {
+            appendAssistantDelta(sessionId, event.payload.content);
+          }
+          if (event.type === "assistant.message") {
+            const item = event.payload.item;
+            if (
+              item &&
+              typeof item === "object" &&
+              "item_id" in item &&
+              "kind" in item &&
+              "payload" in item
+            ) {
+              reconcileAssistantMessage(sessionId, item as TimelineItem);
+            }
+          }
           recordEvent(sessionId, event);
         }
         if (done) break;
@@ -305,10 +322,12 @@ function ChatInput({ models, loadingModels }: { models: ModelInfo[]; loadingMode
   }, [
     addOptimisticAssistant,
     addOptimisticMessage,
+    appendAssistantDelta,
     createSession,
     currentSessionId,
     loadSession,
     recordEvent,
+    reconcileAssistantMessage,
     setSessionGenerating,
     value,
   ]);

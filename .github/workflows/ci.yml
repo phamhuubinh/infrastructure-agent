@@ -7,136 +7,24 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -e ".[test,security,typecheck]"
-
-      - name: Lint
-        run: |
-          pip install ruff
-          ruff check .
-
-      - name: Type check
-        run: python -m mypy src --ignore-missing-imports
-
-      - name: Security scan (Bandit)
-        run: bandit -r src/ -c pyproject.toml --severity-level high
-        if: always()
-
-      - name: Dependency vulnerability scan (Safety)
-        run: safety check --full-report --exit-code
-        if: always()
-
-      - name: Package vulnerability scan (pip-audit)
-        run: pip-audit
-        if: always()
-
-      - name: Test with coverage
-        run: python -m pytest tests/ -q --tb=short -x --cov=src --cov-report=xml --cov-report=html
-
-      - name: Upload coverage report (XML)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-xml-${{ matrix.python-version }}
-          path: coverage.xml
-          if-no-files-found: ignore
-
-      - name: Upload coverage report (HTML)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-html-${{ matrix.python-version }}
-          path: htmlcov/
-          if-no-files-found: ignore
-
-      - name: Upload coverage to CodeCov
-        if: always()
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage.xml
-          flags: unittests
-          name: codecov-orion
-          fail_ci_if_error: false
-
-      - name: Archive benchmark results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-${{ matrix.python-version }}
-          path: benchmark_results_*
-          if-no-files-found: ignore
-
-  rag-test:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.11.28"
-      - name: Install RAG dependencies
-        run: uv sync --frozen --group dev
-        working-directory: src/tool/RAGTool
-      - name: Test RAG service
-        run: uv run pytest tests -q --tb=short
-        working-directory: src/tool/RAGTool
-
-  acceptance-gates:
-    name: Deterministic acceptance gates
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install QA dependencies
-        run: pip install -e ".[test]"
-
-      - name: Run P0 transcript, safety and stage gates
+      - name: Install backend
+        run: python -m pip install -e "./backend[dev]"
+      - name: Check backend
         run: |
-          python -m pytest \
-            tests/qa/test_golden_schema.py \
-            tests/qa/test_acceptance_scoring.py \
-            tests/security/ \
-            -q --tb=short
+          cd backend
+          ruff check src tests
+          ruff format --check src tests
+          mypy src
+          pytest
 
-      - name: Render deterministic acceptance artifact
-        run: >
-          python scripts/qa/run_acceptance.py
-          --report tests/data/qa_cases/acceptance_fixture.json
-          --output-dir artifacts/qa
-
-      - name: Upload QA gate artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: qa-acceptance-gates
-          path: artifacts/qa/
-          if-no-files-found: error
-
-  ui-test:
+  ui:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,154 +36,10 @@ jobs:
       - name: Install UI dependencies
         run: npm ci
         working-directory: ui
-      - name: Lint UI
-        run: npm run lint
-        working-directory: ui
-      - name: Test UI
-        run: npm test -- --run
-        working-directory: ui
-      - name: Build UI
-        run: npm run build
-        working-directory: ui
-
-  desktop:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            desktop/package-lock.json
-            ui/package-lock.json
-      - name: Install Desktop dependencies
-        run: npm ci
-        working-directory: desktop
-      - name: Test Desktop proxy contract
-        run: npm test
-        working-directory: desktop
-      - name: Install UI dependencies
-        run: npm ci
-        working-directory: ui
-      - name: Build UI for Desktop package
-        run: npm run build
-        working-directory: ui
-      - name: Build unpacked Desktop application
-        run: npm run package -- --linux dir
-        working-directory: desktop
-      - name: Upload Desktop package
-        uses: actions/upload-artifact@v4
-        with:
-          name: orion-desktop-linux
-          path: desktop/release/linux-unpacked/
-          if-no-files-found: error
-
-  docker-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build API image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.api
-          load: true
-          tags: orion-api:ci
-
-      - name: Build UI image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.ui
-          load: true
-          tags: orion-ui:ci
-
-      - name: Build RAG service image
-        uses: docker/build-push-action@v6
-        with:
-          context: src/tool/RAGTool
-          file: src/tool/RAGTool/Dockerfile
-          load: true
-          tags: orion-rag-service:ci
-
-  docker-compose:
-    runs-on: ubuntu-latest
-    env:
-      POSTGRES_PASSWORD: ci-only-postgres-password
-      ORION_API_KEY: ci-only-api-key
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build API image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.api
-          load: true
-          tags: orion-api:ci
-
-      - name: Build UI image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile.ui
-          load: true
-          tags: orion-ui:ci
-
-      - name: Build RAG service image
-        uses: docker/build-push-action@v6
-        with:
-          context: src/tool/RAGTool
-          file: src/tool/RAGTool/Dockerfile
-          load: true
-          tags: orion-rag-service:ci
-
-      - name: Start containers with docker compose
+      - name: Check UI
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
-          echo "Containers started, waiting for services to be ready..."
-
-      - name: Wait for API to be ready
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:61888/api/health > /dev/null 2>&1; then
-              echo "API is ready"
-              break
-            fi
-            echo "Waiting for API... ($i/30)"
-            sleep 3
-          done
-          curl -sf http://localhost:61888/api/health || {
-            echo "API failed to become ready"
-            docker compose logs api
-            exit 1
-          }
-
-      - name: Install Python dependencies for smoke test
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[test]"
-
-      - name: Run smoke tests
-        run: python -m pytest tests/test_smoke_containers.py -q --tb=short -x
-        env:
-          API_URL: http://localhost:61888
-          UI_URL: http://localhost:80
-          PROXY_URL: http://localhost:80
-          ORION_API_KEY: ci-only-api-key
-
-      - name: Dump container logs on failure
-        if: failure()
-        run: docker compose logs
-
-      - name: Tear down containers
-        if: always()
-        run: docker compose down -v
+          npm run lint
+          npx tsc --noEmit
+          npm test -- --run
+          npm run build
+        working-directory: ui

@@ -9,5 +9,5 @@ fi
 python3 -m venv .venv
 .venv/bin/python -m ensurepip --upgrade
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e './backend[dev]'
 echo "Installed Orion. Run: orion web"

@@ -52,7 +52,25 @@ describe("M1 Chat integration", () => {
             payload: { request_id: "req-1", session_id: "chat-1" },
           },
           { type: "model.started", created_at: "now", payload: {} },
+          { type: "assistant.delta", created_at: "now", payload: { content: "Hello " } },
+          { type: "assistant.delta", created_at: "now", payload: { content: "from M1." } },
           { type: "model.completed", created_at: "now", payload: { tool_call_count: 0 } },
+          {
+            type: "assistant.message",
+            created_at: "now",
+            payload: {
+              content: "Hello from M1.",
+              item: {
+                item_id: "a1",
+                session_id: "chat-1",
+                created_at: "2026-08-24T00:00:01Z",
+                kind: "assistant_message",
+                payload: { content: "Hello from M1." },
+                call_id: null,
+                tool_name: null,
+              },
+            },
+          },
           { type: "request.completed", created_at: "now", payload: {} },
         ]);
       }
@@ -90,6 +108,7 @@ describe("M1 Chat integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await screen.findByText("Hello from M1.");
+    expect(screen.getAllByText("Hello from M1.")).toHaveLength(1);
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/models",
       "/api/sessions",

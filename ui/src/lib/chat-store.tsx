@@ -61,6 +61,8 @@ type ChatContextValue = {
   loadSession: (id: string) => Promise<void>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
   addOptimisticAssistant: (sessionId: string) => void;
+  appendAssistantDelta: (sessionId: string, content: string) => void;
+  reconcileAssistantMessage: (sessionId: string, item: TimelineItem) => void;
   recordEvent: (sessionId: string, event: RuntimeEvent) => void;
   setSessionGenerating: (sessionId: string, generating: boolean) => void;
 };
@@ -228,6 +230,59 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const appendAssistantDelta = useCallback((sessionId: string, content: string) => {
+    if (!content) return;
+    setSessions((previous) =>
+      previous.map((session) => {
+        if (session.id !== sessionId) return session;
+        const last = session.messages.at(-1);
+        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
+          return {
+            ...session,
+            messages: [
+              ...session.messages.slice(0, -1),
+              { ...last, content: last.content + content },
+            ],
+          };
+        }
+        return {
+          ...session,
+          messages: [
+            ...session.messages,
+            {
+              itemId: `optimistic-assistant-${Date.now()}`,
+              role: "assistant",
+              content,
+            },
+          ],
+        };
+      }),
+    );
+  }, []);
+
+  const reconcileAssistantMessage = useCallback((sessionId: string, item: TimelineItem) => {
+    if (item.kind !== "assistant_message") return;
+    const content = typeof item.payload.content === "string" ? item.payload.content : "";
+    if (!content) return;
+    setSessions((previous) =>
+      previous.map((session) => {
+        if (session.id !== sessionId) return session;
+        const canonical: Message = { itemId: item.item_id, role: "assistant", content };
+        const existing = session.messages.findIndex((message) => message.itemId === item.item_id);
+        if (existing >= 0) {
+          const messages = [...session.messages];
+          messages[existing] = canonical;
+          return { ...session, messages };
+        }
+        const last = session.messages.at(-1);
+        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
+          return { ...session, messages: [...session.messages.slice(0, -1), canonical] };
+        }
+        return { ...session, messages: [...session.messages, canonical] };
+      }),
+    );
+  }, []);
+
   const recordEvent = useCallback((sessionId: string, event: RuntimeEvent) => {
     if (!event.type.startsWith("tool.")) return;
     const callId = typeof event.payload.call_id === "string" ? event.payload.call_id : "unknown";
@@ -267,6 +322,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       loadSession,
       addOptimisticMessage,
       addOptimisticAssistant,
+      appendAssistantDelta,
+      reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,
     }),
@@ -280,6 +337,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       loadSession,
       addOptimisticMessage,
       addOptimisticAssistant,
+      appendAssistantDelta,
+      reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,
     ],

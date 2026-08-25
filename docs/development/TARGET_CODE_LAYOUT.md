@@ -3,64 +3,24 @@
 This is a clean target layout, not a requirement to preserve current module names.
 
 ```text
-src/orion/
-  app/
-    config.py
-    dependencies.py
-
-  runtime/
-    chat_runtime.py
-    context_builder.py
-    timeline.py
-    streaming.py
-
-  models/
-    backend.py
-    contracts.py
-    registry.py
-    providers/
-      openai_compatible.py
-      anthropic.py
-      ...
-
-  tools/
-    contracts.py
-    registry.py
-    runner.py
-    health.py
-    knowledge/
-    calculator/
-    internet/
-    linux/
-    grafana/
-    zabbix/
-
-  knowledge/
-    documents.py
-    sources.py
-    ingestion.py
-    retrieval.py
-    citations.py
-
-  projects/
-    service.py
-    contracts.py
-
-  persistence/
-    sessions.py
-    projects.py
-    documents.py
-
-  api/
-    app.py
-    sessions.py
-    projects.py
-    documents.py
-    models.py
-    health.py
+backend/
+  pyproject.toml
+  src/orion/
+    bootstrap/       # application composition root
+    contracts/       # provider-neutral canonical contracts
+    access/          # local/authenticated principal adapters
+    chat/            # one ChatRuntime and context assembly
+    models/          # backend contracts and provider adapters
+    tool_runtime/    # registry, validation, dispatch, tool handlers
+    integrations/    # configured external clients when introduced
+    persistence/     # stores and public timeline mapping
+    api/             # HTTP/SSE boundary adapters
+    observability/   # safe runtime diagnostics when introduced
+    security/        # cross-cutting security helpers when introduced
+    cli/             # local command surface
+  tests/
 
 ui/
-tests/
 ```
 
 ## Dependency direction
