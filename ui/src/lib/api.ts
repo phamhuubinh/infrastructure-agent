@@ -33,6 +33,11 @@ export type Project = {
 
 export type ProjectInput = Pick<Project, "name" | "description" | "instructions" | "metadata">;
 
+export type SessionIdentity = {
+  session_id: string;
+  project_id: string | null;
+};
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   return fetch(`${API_URL}${path}`, { ...init, headers });
@@ -90,6 +95,10 @@ export async function deleteSessionDocument(sessionId: string, documentId: strin
     { method: "DELETE" },
   );
   if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
+export async function getSessionIdentity(sessionId: string): Promise<SessionIdentity> {
+  return apiJson<SessionIdentity>(`/api/sessions/${encodeURIComponent(sessionId)}`);
 }
 
 export async function listProjects(): Promise<Project[]> {

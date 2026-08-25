@@ -4,8 +4,16 @@ import pytest
 from conftest import ScriptedBackend
 
 from orion.access import LocalAccessAdapter
-from orion.chat.runtime import ChatRuntime
-from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope
+from orion.chat.runtime import ChatRuntime, RequestFailed
+from orion.contracts import (
+    AssistantMessage,
+    ModelToolCall,
+    ModelTurn,
+    RuntimeScope,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+)
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.service import KnowledgeService
 from orion.knowledge.tools import knowledge_registrations
@@ -146,3 +154,100 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
         "calculator.evaluate",
     ]
     assert document.document.source.kind == "project"
+
+
+@pytest.mark.anyio
+async def test_project_runtime_rejects_cross_project_citations(store, project_knowledge) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project_a, project_b = projects.create("A"), projects.create("B")
+    session_a = projects.create_session(project_a["project_id"], "local", "local")
+    document_b = knowledge.attach_project(project_b["project_id"], "b.txt", b"B-only fact")
+    segment_b = knowledge.search(
+        _scope(
+            projects.create_session(project_b["project_id"], "local", "local"),
+            project_b["project_id"],
+        ),
+        "B-only",
+        1,
+    )[0]
+    source_b = knowledge.source_for_segment(segment_b)
+    store.append_timeline(
+        session_a,
+        None,
+        "tool_result",
+        {
+            "result": ToolResult(
+                call_id="forged-result",
+                tool_name="knowledge.search",
+                status="success",
+                data={},
+                sources=(source_b,),
+            ).model_dump(mode="json")
+        },
+        call_id="forged-result",
+        tool_name="knowledge.search",
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Forged citation.", citation_source_ref_ids=(source_b.source_ref_id,)
+                )
+            )
+        ]
+    )
+
+    with pytest.raises(RequestFailed, match="unavailable source"):
+        await ChatRuntime(store, backend, _registry(knowledge), LocalAccessAdapter()).submit(
+            session_a, "Cite B"
+        )
+    assert document_b.document.source.source_id == project_b["project_id"]
+
+
+@pytest.mark.anyio
+async def test_request_scope_snapshots_project_id_for_every_tool_call(
+    store, project_knowledge
+) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project = projects.create("Snapshot")
+    session = projects.create_session(project["project_id"], "local", "local")
+    observed: list[RuntimeScope] = []
+
+    def capture(call: ToolCall) -> ToolResult:
+        observed.append(call.runtime_scope)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"captured": True},
+        )
+
+    definition = ToolDefinition(
+        name="test.capture",
+        description="Capture runtime scope for a deterministic test.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        handler_key="test.capture",
+    )
+    builder = ToolRegistryBuilder()
+    builder.register(definition, capture)
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="one", tool_name="test.capture", arguments={}),)
+            ),
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="two", tool_name="test.capture", arguments={}),)
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Done.")),
+        ]
+    )
+
+    await ChatRuntime(store, backend, builder.freeze(), LocalAccessAdapter()).submit(
+        session, "Capture"
+    )
+
+    assert [scope.project_id for scope in observed] == [
+        project["project_id"],
+        project["project_id"],
+    ]
+    assert [scope.session_id for scope in observed] == [session, session]

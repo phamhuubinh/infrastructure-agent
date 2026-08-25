@@ -74,6 +74,8 @@ describe("M1 Chat integration", () => {
           { type: "request.completed", created_at: "now", payload: {} },
         ]);
       }
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") {
         return jsonResponse([
           {
@@ -113,6 +115,7 @@ describe("M1 Chat integration", () => {
       "/api/models",
       "/api/sessions",
       "/api/sessions/chat-1/messages/stream",
+      "/api/sessions/chat-1",
       "/api/sessions/chat-1/timeline",
     ]);
   });
@@ -141,6 +144,8 @@ describe("M1 Chat integration", () => {
           { type: "request.completed", created_at: "now", payload: {} },
         ]);
       }
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") {
         return jsonResponse([
           {
@@ -203,6 +208,8 @@ describe("M1 Chat integration", () => {
       if (path === "/api/sessions/chat-1/messages/stream") {
         return jsonResponse({ detail: "Model unavailable" }, 502);
       }
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") return jsonResponse([]);
       throw new Error("unexpected endpoint " + path);
     });
@@ -245,6 +252,8 @@ describe("M1 Chat integration", () => {
       }
       if (path === "/api/requests/req-1/cancel")
         return Promise.resolve(jsonResponse({ status: "cancellation_requested" }));
+      if (path === "/api/sessions/chat-1")
+        return Promise.resolve(jsonResponse({ session_id: "chat-1", project_id: null }));
       if (path === "/api/sessions/chat-1/timeline") return Promise.resolve(jsonResponse([]));
       throw new Error("unexpected endpoint " + path);
     });
@@ -282,6 +291,8 @@ describe("M1 Chat integration", () => {
           201,
         );
       }
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") {
         return jsonResponse([
           {
@@ -349,6 +360,8 @@ describe("M1 Chat integration", () => {
     };
     const fetchMock = vi.fn(async (path: string) => {
       if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") {
         return jsonResponse([
           {
@@ -444,6 +457,8 @@ describe("M1 Chat integration", () => {
     ];
     const fetchMock = vi.fn(async (path: string) => {
       if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
       if (path === "/api/sessions/chat-1/documents/doc-1") {
         return jsonResponse({
@@ -490,6 +505,8 @@ describe("M1 Chat integration", () => {
     let statusCalls = 0;
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/models") return jsonResponse([]);
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
       if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
       if (path === "/api/sessions/chat-1/documents/doc-1" && init?.method === "DELETE") {
         return jsonResponse({ status: "deleted" });

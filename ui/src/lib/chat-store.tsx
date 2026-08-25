@@ -10,6 +10,8 @@ import {
 import {
   attachSessionDocument,
   deleteSessionDocument,
+  getSessionIdentity,
+  projectDocuments,
   type DocumentRef,
   type DocumentStatus,
   apiJson,
@@ -84,14 +86,22 @@ export type Session = {
   sources: SourceReference[];
 };
 
+export function sessionRoute(
+  session: Pick<Session, "projectId">,
+): { to: "/" } | { to: "/projects/$projectId"; params: { projectId: string } } {
+  return session.projectId === null
+    ? { to: "/" }
+    : { to: "/projects/$projectId", params: { projectId: session.projectId } };
+}
+
 type ChatContextValue = {
   sessions: Session[];
   currentSessionId: string | null;
   generatingSessions: Set<string>;
   createSession: (projectId?: string) => Promise<string>;
   startNewChat: () => void;
-  switchSession: (id: string) => Promise<void>;
-  loadSession: (id: string) => Promise<void>;
+  switchSession: (id: string) => Promise<Session | null>;
+  loadSession: (id: string) => Promise<Session>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
   addOptimisticAssistant: (sessionId: string) => void;
   appendAssistantDelta: (sessionId: string, content: string) => void;
@@ -131,6 +141,18 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+export function assistantMessageFromTimelineItem(item: TimelineItem): Message | null {
+  if (item.kind !== "assistant_message") return null;
+  const content = typeof item.payload.content === "string" ? item.payload.content : "";
+  if (!content) return null;
+  return {
+    itemId: item.item_id,
+    role: "assistant",
+    content,
+    citationSourceRefIds: stringArray(item.payload.citation_source_ref_ids),
+  };
 }
 
 function attachmentCandidates(timeline: TimelineItem[]): SessionDocument[] {
@@ -213,26 +235,26 @@ export function sessionFromTimeline(
 ): Session {
   const sources = sourceReferences(timeline, documents);
   const availableSourceIds = new Set(sources.map((source) => source.sourceRefId));
-  const messages: Message[] = timeline.flatMap((item) => {
+  const messages: Message[] = timeline.flatMap((item): Message[] => {
     if (item.kind !== "user_message" && item.kind !== "assistant_message") return [];
     const content = typeof item.payload.content === "string" ? item.payload.content : "";
     // Empty assistant entries represent a model turn that is making tool calls.
     // They are public runtime context, not rendered hidden reasoning.
     if (!content) return [];
-    return [
-      {
-        itemId: item.item_id,
-        role: item.kind === "user_message" ? "user" : "assistant",
-        content,
-        askedAt: item.kind === "user_message" ? item.created_at : undefined,
-        citationSourceRefIds:
-          item.kind === "assistant_message"
-            ? stringArray(item.payload.citation_source_ref_ids).filter((id) =>
-                availableSourceIds.has(id),
-              )
-            : undefined,
-      },
-    ];
+    if (item.kind === "user_message") {
+      return [{ itemId: item.item_id, role: "user" as const, content, askedAt: item.created_at }];
+    }
+    const assistant = assistantMessageFromTimelineItem(item);
+    return assistant
+      ? [
+          {
+            ...assistant,
+            citationSourceRefIds: assistant.citationSourceRefIds?.filter((id) =>
+              availableSourceIds.has(id),
+            ),
+          },
+        ]
+      : [];
   });
   const firstUser = messages.find((message) => message.role === "user");
   const activity = timeline.flatMap((item): ToolActivity[] => {
@@ -270,6 +292,7 @@ function upsertSession(sessions: Session[], next: Session): Session[] {
 async function reconcileSessionDocuments(
   sessionId: string,
   timeline: TimelineItem[],
+  projectId: string | null,
 ): Promise<SessionDocument[]> {
   const candidates = attachmentCandidates(timeline);
   const resolved = await Promise.all(
@@ -285,7 +308,26 @@ async function reconcileSessionDocuments(
       } satisfies SessionDocument;
     }),
   );
-  return resolved.filter((document): document is SessionDocument => document !== null);
+  const sessionDocuments = resolved.filter(
+    (document): document is SessionDocument => document !== null,
+  );
+  if (projectId === null) return sessionDocuments;
+  const project = await projectDocuments(projectId);
+  return [
+    ...sessionDocuments,
+    ...project
+      .filter((document) => !document.deleted)
+      .map(
+        (document) =>
+          ({
+            document: document.document,
+            attachmentId: document.attachment_id,
+            status: document.status,
+            errorMessage: document.error_message,
+            ingestion: document.ingestion || [],
+          }) satisfies SessionDocument,
+      ),
+  ];
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
@@ -293,19 +335,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [generatingSessions, setGeneratingSessions] = useState<Set<string>>(new Set());
 
-  const loadSession = useCallback(
-    async (id: string) => {
-      const timeline = await apiJson<TimelineItem[]>(
-        `/api/sessions/${encodeURIComponent(id)}/timeline`,
-      );
-      const documents = await reconcileSessionDocuments(id, timeline);
-      const knownProjectId = sessions.find((session) => session.id === id)?.projectId ?? null;
-      const session = sessionFromTimeline(id, timeline, documents, knownProjectId);
-      rememberSession(id);
-      setSessions((previous) => upsertSession(previous, session));
-    },
-    [sessions],
-  );
+  const loadSession = useCallback(async (id: string) => {
+    const [identity, timeline] = await Promise.all([
+      getSessionIdentity(id),
+      apiJson<TimelineItem[]>(`/api/sessions/${encodeURIComponent(id)}/timeline`),
+    ]);
+    const projectId = identity.project_id ?? null;
+    const documents = await reconcileSessionDocuments(id, timeline, projectId);
+    const session = sessionFromTimeline(id, timeline, documents, projectId);
+    rememberSession(id);
+    setSessions((previous) => upsertSession(previous, session));
+    return session;
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -314,11 +355,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     void Promise.all(
       ids.map(async (id) => {
         try {
-          const timeline = await apiJson<TimelineItem[]>(
-            `/api/sessions/${encodeURIComponent(id)}/timeline`,
-          );
-          const documents = await reconcileSessionDocuments(id, timeline);
-          return sessionFromTimeline(id, timeline, documents);
+          const [identity, timeline] = await Promise.all([
+            getSessionIdentity(id),
+            apiJson<TimelineItem[]>(`/api/sessions/${encodeURIComponent(id)}/timeline`),
+          ]);
+          const projectId = identity.project_id ?? null;
+          const documents = await reconcileSessionDocuments(id, timeline, projectId);
+          return sessionFromTimeline(id, timeline, documents, projectId);
         } catch {
           return null;
         }
@@ -352,9 +395,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     async (id: string) => {
       setCurrentSessionId(id);
       try {
-        await loadSession(id);
+        return await loadSession(id);
       } catch {
         // A later submission can surface a clear backend error to the user.
+        return null;
       }
     },
     [loadSession],
@@ -362,8 +406,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const addOptimisticMessage = useCallback((sessionId: string, content: string) => {
     setSessions((previous) => {
-      const current =
-        previous.find((session) => session.id === sessionId) || sessionFromTimeline(sessionId, []);
+      const current = previous.find((session) => session.id === sessionId);
+      if (!current) return previous;
       const message: Message = {
         itemId: `optimistic-user-${Date.now()}`,
         role: "user",
@@ -423,13 +467,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reconcileAssistantMessage = useCallback((sessionId: string, item: TimelineItem) => {
-    if (item.kind !== "assistant_message") return;
-    const content = typeof item.payload.content === "string" ? item.payload.content : "";
-    if (!content) return;
+    const canonical = assistantMessageFromTimelineItem(item);
+    if (canonical === null) return;
     setSessions((previous) =>
       previous.map((session) => {
         if (session.id !== sessionId) return session;
-        const canonical: Message = { itemId: item.item_id, role: "assistant", content };
         const existing = session.messages.findIndex((message) => message.itemId === item.item_id);
         if (existing >= 0) {
           const messages = [...session.messages];
@@ -492,7 +534,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                       }
                     : document,
                 );
-          return sessionFromTimeline(sessionId, session.timeline, documents);
+          return { ...session, documents, sources: sourceReferences(session.timeline, documents) };
         }),
       );
     },

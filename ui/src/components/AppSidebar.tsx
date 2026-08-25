@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   MessageSquare,
   FolderKanban,
@@ -13,7 +13,7 @@ import {
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useChat } from "@/lib/chat-store";
+import { sessionRoute, useChat } from "@/lib/chat-store";
 import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
@@ -24,6 +24,7 @@ const navItems = [
 
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const { sessions, currentSessionId, startNewChat, switchSession, generatingSessions } = useChat();
 
@@ -37,6 +38,11 @@ export function AppSidebar() {
       localStorage.setItem("orion-sidebar-collapsed", String(next));
       return next;
     });
+  }
+
+  async function selectConversation(sessionId: string) {
+    const session = await switchSession(sessionId);
+    if (session) await navigate(sessionRoute(session));
   }
 
   if (collapsed) {
@@ -123,7 +129,7 @@ export function AppSidebar() {
             title={s.title}
             active={s.id === currentSessionId}
             isGenerating={generatingSessions.has(s.id)}
-            onSelect={() => switchSession(s.id)}
+            onSelect={() => selectConversation(s.id)}
           />
         ))}
       </div>
