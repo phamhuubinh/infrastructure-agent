@@ -4,6 +4,7 @@ import importlib.util
 import json
 import re
 import sys
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,105 @@ def test_qa_rejects_malformed_cases_and_redacts_endpoint(qa_runner, tmp_path) ->
     assert qa_runner.sanitize_endpoint("https://user:secret@example.test:8443/v1?key=secret") == (
         "https://example.test:8443/v1"
     )
+
+
+def test_qa_http_error_diagnostics_are_bounded_and_redacted(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    error = qa_runner.urllib.error.HTTPError(
+        "http://127.0.0.1/test",
+        502,
+        "Bad Gateway",
+        None,
+        BytesIO(b'{"detail":"OpenAI-compatible model stream failed."}'),
+    )
+    diagnostics = qa_runner.http_error_diagnostics(error)
+
+    assert diagnostics == {
+        "http_status": 502,
+        "http_reason": "Bad Gateway",
+        "http_detail": "OpenAI-compatible model stream failed.",
+    }
+
+    non_json = qa_runner.urllib.error.HTTPError(
+        "http://127.0.0.1/test",
+        502,
+        "Bad Gateway",
+        None,
+        BytesIO(b"untrusted arbitrary body must not be persisted"),
+    )
+    assert qa_runner.http_error_diagnostics(non_json) == {
+        "http_status": 502,
+        "http_reason": "Bad Gateway",
+    }
+
+    secret = "provider-secret"
+    bounded = qa_runner.urllib.error.HTTPError(
+        "http://127.0.0.1/test",
+        502,
+        f"{secret}-" + "r" * 600,
+        None,
+        BytesIO(json.dumps({"detail": f"{secret}-" + "d" * 600}).encode()),
+    )
+    raw = qa_runner.http_error_diagnostics(bounded)
+    safe = qa_runner.redact_report(raw, (secret,))
+
+    assert isinstance(safe, dict)
+    assert len(str(raw["http_reason"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert len(str(raw["http_detail"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert len(str(safe["http_reason"])) <= qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert len(str(safe["http_detail"])) <= qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert secret not in json.dumps(safe)
+
+
+def test_qa_case_selection_is_precise_and_unknown_ids_fail_cleanly(
+    qa_runner, capsys, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    cases = [
+        qa_runner.Case(id="first", prompt="one", category="test"),
+        qa_runner.Case(id="second", prompt="two", category="test"),
+    ]
+
+    assert qa_runner.select_cases(cases, None) is cases
+    assert qa_runner.select_cases(cases, "second") == [cases[1]]
+    with pytest.raises(ValueError, match="QA case not found: absent"):
+        qa_runner.select_cases(cases, "absent")
+
+    assert qa_runner.run("smoke", fail_fast=False, case_id="absent") == 2
+    assert "QA preflight failed: QA case not found: absent" in capsys.readouterr().err
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model.test/v1", "id": "test", "api_key": ""},
+    )
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *args, **kwargs: object())
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "_configured_capabilities", lambda: {})
+    monkeypatch.setattr(qa_runner, "stop_qa_process", lambda process: None)
+    monkeypatch.setattr(
+        qa_runner.os,
+        "popen",
+        lambda command: type("Pipe", (), {"read": lambda self: "test-sha\n"})(),
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "_execute_case",
+        lambda *args: ([{"kind": "assistant_message", "payload": {"content": "answer"}}], [[]]),
+    )
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+
+    def capture_reports(report, manifest, results, **kwargs):  # type: ignore[no-untyped-def]
+        captured["manifest"] = manifest
+        captured["results"] = results
+
+    monkeypatch.setattr(qa_runner, "write_reports", capture_reports)
+
+    assert qa_runner.run("smoke", fail_fast=False, case_id="vi-direct") == 0
+    manifest = captured["manifest"]
+    results = captured["results"]
+    assert isinstance(manifest, dict) and manifest["selected_case_id"] == "vi-direct"
+    assert isinstance(results, list)
+    assert [result["id"] for result in results] == ["vi-direct"]
 
 
 def test_qa_loads_expected_tool_errors(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]

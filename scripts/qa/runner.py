@@ -24,8 +24,10 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "4"
+RUNNER_VERSION = "5"
 CITATION_DIAGNOSTIC_LIMIT = 8
+HTTP_ERROR_BODY_LIMIT = 4096
+DIAGNOSTIC_TEXT_LIMIT = 512
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -147,6 +149,40 @@ def sanitize_endpoint(value: str) -> str:
     if parts.port is not None:
         host = f"{host}:{parts.port}"
     return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
+def _bounded_text(value: str) -> str:
+    return value[:DIAGNOSTIC_TEXT_LIMIT]
+
+
+def http_error_diagnostics(error: urllib.error.HTTPError) -> dict[str, object]:
+    """Extract bounded safe HTTP metadata without retaining arbitrary response bodies."""
+    diagnostics: dict[str, object] = {"http_status": error.code}
+    if error.reason is not None:
+        diagnostics["http_reason"] = _bounded_text(str(error.reason))
+    try:
+        body = error.read(HTTP_ERROR_BODY_LIMIT)
+    except (OSError, ValueError):
+        return diagnostics
+    if not isinstance(body, bytes):
+        return diagnostics
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return diagnostics
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, str):
+        diagnostics["http_detail"] = _bounded_text(detail)
+    return diagnostics
+
+
+def select_cases(cases: list[Case], case_id: str | None) -> list[Case]:
+    if case_id is None:
+        return cases
+    selected = [case for case in cases if case.id == case_id]
+    if not selected:
+        raise ValueError(f"QA case not found: {case_id}")
+    return selected
 
 
 def evaluate(
@@ -669,8 +705,13 @@ def _execute_case(base_url: str, case: Case, secret: str) -> tuple[list[dict[str
     raise ScenarioFailure("unsupported QA scenario")
 
 
-def run(mode: str, fail_fast: bool) -> int:
+def run(mode: str, fail_fast: bool, case_id: str | None = None) -> int:
     cases = load_cases(ROOT / "scripts" / "qa" / "cases" / f"{mode}.json")
+    try:
+        cases = select_cases(cases, case_id)
+    except ValueError as error:
+        print(f"QA preflight failed: {error}", file=sys.stderr)
+        return 2
     model = active_model()
     if model is None:
         print(
@@ -728,11 +769,21 @@ def run(mode: str, fail_fast: bool) -> int:
                     if case.requires_citation:
                         result["citation_diagnostics"] = citation_diagnostics(timeline)
                     results.append(result)
+                except urllib.error.HTTPError as error:
+                    results.append(
+                        {
+                            "id": case.id,
+                            "category": case.category,
+                            "status": "FAIL",
+                            "reason": "HTTP/runtime failure",
+                            "detail": type(error).__name__,
+                            **http_error_diagnostics(error),
+                        }
+                    )
                 except (
                     AssertionError,
                     ScenarioFailure,
                     urllib.error.URLError,
-                    urllib.error.HTTPError,
                     json.JSONDecodeError,
                 ) as error:
                     results.append(
@@ -760,6 +811,8 @@ def run(mode: str, fail_fast: bool) -> int:
             "model_endpoint": sanitize_endpoint(model["base_url"]),
             "optional_capabilities": ["linux", "grafana", "zabbix"],
         }
+        if case_id is not None:
+            manifest["selected_case_id"] = case_id
         write_reports(reports, manifest, results, secret_values=(model["api_key"],))
     print(f"QA report: {reports}")
     return 1 if any(result["status"] == "FAIL" for result in results) else 0
@@ -769,5 +822,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("smoke", "full"), required=True)
     parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument("--case-id")
     arguments = parser.parse_args()
-    raise SystemExit(run(arguments.mode, arguments.fail_fast))
+    raise SystemExit(run(arguments.mode, arguments.fail_fast, arguments.case_id))
