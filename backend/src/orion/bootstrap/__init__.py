@@ -9,13 +9,13 @@ from pathlib import Path
 from orion.access import LocalAccessAdapter
 from orion.chat.runtime import ChatRuntime
 from orion.integrations import (
+    DuckDuckGoInternetClient,
     GrafanaClient,
     InfrastructureIntegrations,
     InternetClient,
     LinuxExecutor,
     SearxngInternetClient,
     TargetCatalog,
-    UnavailableInternetClient,
     ZabbixClient,
 )
 from orion.knowledge import KnowledgeService, knowledge_registrations
@@ -130,5 +130,5 @@ def _configure_model_from_environment(store: SQLiteStore) -> None:
 def _internet_client_from_environment() -> InternetClient:
     search_url = os.getenv("ORION_INTERNET_SEARCH_URL")
     if not search_url:
-        return UnavailableInternetClient()
+        return DuckDuckGoInternetClient()
     return SearxngInternetClient(search_url)

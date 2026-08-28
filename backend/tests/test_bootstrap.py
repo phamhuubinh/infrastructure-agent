@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import ScriptedBackend
 
-from orion.bootstrap import build_application
+from orion.bootstrap import _internet_client_from_environment, build_application
 from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
@@ -14,6 +14,7 @@ from orion.contracts import (
     ToolDefinition,
     ToolResult,
 )
+from orion.integrations import DuckDuckGoInternetClient, SearxngInternetClient
 from orion.tool_runtime.registry import ToolRegistration, ToolRegistryBuilder
 
 
@@ -67,6 +68,14 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
     ]
     assert not hasattr(app.registry, "register")
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.
+
+
+def test_internet_bootstrap_uses_built_in_default_or_explicit_searxng_override(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.delenv("ORION_INTERNET_SEARCH_URL", raising=False)
+    assert isinstance(_internet_client_from_environment(), DuckDuckGoInternetClient)
+
+    monkeypatch.setenv("ORION_INTERNET_SEARCH_URL", "https://search.test/api")
+    assert isinstance(_internet_client_from_environment(), SearxngInternetClient)
 
 
 def test_environment_model_bootstrap_preserves_existing_saved_profile(

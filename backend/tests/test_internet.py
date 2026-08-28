@@ -11,6 +11,7 @@ from orion.bootstrap import build_application
 from orion.chat.runtime import RequestFailed
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope
 from orion.integrations import (
+    DuckDuckGoInternetClient,
     InternetClientError,
     InternetFetch,
     InternetSearchResult,
@@ -18,7 +19,7 @@ from orion.integrations import (
     SearxngInternetClient,
     UnavailableInternetClient,
 )
-from orion.integrations.internet import _PinnedHTTPTransport
+from orion.integrations.internet import _duckduckgo_destination, _PinnedHTTPTransport
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
 from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
@@ -596,3 +597,68 @@ def test_internet_status_probes_healthy_and_unhealthy_configurations() -> None:
 
 def test_unconfigured_internet_status_is_distinct_from_unhealthy() -> None:
     assert UnavailableInternetClient().status().status == "unconfigured"
+
+
+def test_duckduckgo_default_search_parses_organic_results_and_normalises_redirects() -> None:
+    html = """
+      <div class="result results_links">
+        <a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.test%2Fguide">Example guide</a>
+        <a class="result__snippet">Useful summary</a>
+      </div>
+      <div class="result result--ad"><a class="result__a" href="https://ad.test">Ad</a></div>
+      <div class="result results_links">
+        <a class="result__a" href="javascript:alert(1)">Unsafe</a>
+      </div>
+      <div class="result results_links">
+        <a class="result__a" href="https://second.test">Second</a>
+        <div class="result__snippet">Second summary</div>
+      </div>
+    """
+    client = DuckDuckGoInternetClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=html))
+    )
+
+    results = client.search("orion", 1)
+
+    assert results == (
+        InternetSearchResult(
+            url="https://example.test/guide",
+            title="Example guide",
+            snippet="Useful summary",
+            retrieved_at=results[0].retrieved_at,
+        ),
+    )
+    assert _duckduckgo_destination("/l/?uddg=https%3A%2F%2Fexample.test%2Fguide") == (
+        "https://example.test/guide"
+    )
+    assert _duckduckgo_destination("javascript:alert(1)") is None
+
+
+def test_duckduckgo_default_search_has_bounded_zero_result_and_failure_behavior() -> None:
+    empty = DuckDuckGoInternetClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text="<html></html>"))
+    )
+    assert empty.search("nothing", 8) == ()
+
+    failing = DuckDuckGoInternetClient(
+        transport=httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("slow", request=request))
+        )
+    )
+    with pytest.raises(InternetClientError) as error:
+        failing.search("timeout", 1)
+    assert error.value.code == "timeout"
+    assert error.value.retryable
+
+
+def test_duckduckgo_default_client_reuses_secure_fetch() -> None:
+    client = DuckDuckGoInternetClient(
+        resolver=lambda host, port: ["93.184.216.34"],
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200, headers={"content-type": "text/plain"}, text="safe result"
+            )
+        ),
+    )
+
+    assert client.fetch("https://example.test/article").text == "safe result"

@@ -9,6 +9,7 @@ from orion.integrations.infrastructure import (
     ZabbixClient,
 )
 from orion.integrations.internet import (
+    DuckDuckGoInternetClient,
     InternetClient,
     InternetClientError,
     InternetFetch,
@@ -20,6 +21,7 @@ from orion.integrations.internet import (
 
 __all__ = [
     "InternetClient",
+    "DuckDuckGoInternetClient",
     "InternetClientError",
     "InternetFetch",
     "InternetSearchResult",

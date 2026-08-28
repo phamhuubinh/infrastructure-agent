@@ -116,6 +116,7 @@ type ChatContextValue = {
   startNewChat: () => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
+  removeProjectSessions: (projectId: string) => void;
   switchSession: (id: string) => Promise<Session | null>;
   loadSession: (id: string) => Promise<Session>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
@@ -567,6 +568,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [currentSessionId, loadSession, sessions],
   );
 
+  const removeProjectSessions = useCallback(
+    (projectId: string) => {
+      const removed = new Set(
+        sessions.filter((session) => session.projectId === projectId).map((session) => session.id),
+      );
+      setSessions((previous) => previous.filter((session) => session.projectId !== projectId));
+      setGeneratingSessions((previous) => {
+        const next = new Set(previous);
+        removed.forEach((sessionId) => next.delete(sessionId));
+        return next;
+      });
+      setCurrentSessionId((current) => (current !== null && removed.has(current) ? null : current));
+    },
+    [sessions],
+  );
+
   const switchSession = useCallback(
     async (id: string) => {
       setCurrentSessionId(id);
@@ -845,6 +862,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       startNewChat,
       renameSession,
       deleteSession,
+      removeProjectSessions,
       switchSession,
       loadSession,
       addOptimisticMessage,
@@ -865,6 +883,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       startNewChat,
       renameSession,
       deleteSession,
+      removeProjectSessions,
       switchSession,
       loadSession,
       addOptimisticMessage,

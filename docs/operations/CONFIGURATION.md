@@ -34,17 +34,18 @@ different saved profile first.
 
 ## Internet integration
 
-Internet search is optional. Set `ORION_INTERNET_SEARCH_URL` to the administrator-chosen,
+Internet search works out of the box through Orion's built-in bounded DuckDuckGo HTML search
+client. Set `ORION_INTERNET_SEARCH_URL` only to override it with an administrator-chosen,
 SearXNG-compatible JSON search endpoint (for example a locally operated SearXNG service).
 The endpoint is server-side configuration; it is never supplied by the model or persisted in
-chat state. When it is not configured, Chat, Project, documents, and calculator remain usable,
-and `/api/integrations/internet` reports an `unconfigured` status. A configured
-integration is reported as `healthy` only after its bounded provider probe succeeds;
+chat state. A provider is reported as `healthy` only after its bounded probe succeeds;
 otherwise it is `unhealthy` and local Orion features remain available.
 
 The registered `internet.search` and `internet.fetch` operations have no credential or scope
-arguments. Arbitrary fetch URLs are limited to public HTTP(S) targets; the configured search
-endpoint is intentionally administrator-trusted and may be local.
+arguments and there is no Internet toggle or tool picker. The model decides when Internet search
+is useful; only then does the search query leave the local Orion machine. Arbitrary fetch URLs
+are limited to public HTTP(S) targets; the configured SearXNG endpoint is intentionally
+administrator-trusted and may be local.
 
 ## Tools and secrets
 

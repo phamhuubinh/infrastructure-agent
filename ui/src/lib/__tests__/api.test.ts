@@ -6,6 +6,7 @@ import {
   attachSessionDocument,
   attachProjectDocument,
   createProject,
+  deleteProject,
   deleteProjectDocument,
   deleteSessionDocument,
   sessionDocumentStatus,
@@ -133,5 +134,17 @@ describe("M1 API client", () => {
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty("project_id");
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).not.toHaveProperty("project_id");
+  });
+
+  it("uses the canonical Project deletion route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteProject("project-a");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-a",
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 });

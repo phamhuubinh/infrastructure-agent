@@ -3,7 +3,6 @@ import {
   MessageSquare,
   FolderKanban,
   Settings,
-  SquarePen,
   Sun,
   Moon,
   Loader2,
@@ -174,19 +173,6 @@ export function AppSidebar() {
         </div>
       </div>
 
-      {/* New chat */}
-      <div className="p-3 border-b border-sidebar-border">
-        <Button
-          asChild
-          variant="default"
-          className="w-full justify-start gap-2 bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover active:bg-primary-active"
-        >
-          <Link to="/" onClick={startNewChat}>
-            <SquarePen className="h-4 w-4" /> Đoạn chat mới
-          </Link>
-        </Button>
-      </div>
-
       {/* Nav */}
       <nav className="px-2 pt-3 pb-1 space-y-0.5">
         {navItems.map((item) => {
@@ -195,6 +181,7 @@ export function AppSidebar() {
             <Link
               key={item.to}
               to={item.to}
+              onClick={item.to === "/" ? startNewChat : undefined}
               className={cn(
                 "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
                 active
@@ -212,7 +199,7 @@ export function AppSidebar() {
       {/* Ordinary Chat conversations stay separate from Project workspaces. */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 mt-2 space-y-0.5">
         <div className="px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Trò chuyện
+          Gần đây
         </div>
         {chatSessions.length === 0 && (
           <div className="px-2.5 py-4 text-[11px] text-muted-foreground text-center">

@@ -38,6 +38,9 @@ class ProjectService:
     ) -> dict[str, Any] | None:
         return self._store.update_project(project_id, name, description, instructions, metadata)
 
+    def delete(self, project_id: str) -> tuple[str, ...] | None:
+        return self._store.delete_project(project_id)
+
     def create_session(self, project_id: str, principal_id: str, workspace_id: str) -> str:
         if self.get(project_id) is None:
             raise KeyError(project_id)

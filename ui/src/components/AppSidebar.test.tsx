@@ -89,6 +89,44 @@ describe("Project workspace navigation", () => {
     expect(projectListCalls).toBe(2);
   });
 
+  it("uses Trò chuyện as the sole lazy ordinary Chat action", async () => {
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/sessions" && !init?.method) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "chat-1",
+              project_id: null,
+              title: "Existing conversation",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      }
+      if (path === "/api/projects") return Promise.resolve(jsonResponse([]));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ChatProvider>
+        <AppSidebar />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("Existing conversation");
+    expect(screen.getAllByText("Trò chuyện")).toHaveLength(1);
+    expect(screen.queryByText("Đoạn chat mới")).toBeNull();
+    expect(screen.getByText("Gần đây")).toBeTruthy();
+    fireEvent.click(screen.getByText("Trò chuyện"));
+    expect(
+      fetchMock.mock.calls.some(
+        ([path, init]) => path === "/api/sessions" && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
   it("manages persisted ordinary and Project conversation rows through one menu", async () => {
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
       if (path === "/api/sessions" && !init?.method)

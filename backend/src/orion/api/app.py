@@ -294,6 +294,25 @@ def create_app(
             raise HTTPException(status_code=404, detail="Project not found.")
         return ProjectView.model_validate(updated)
 
+    @app.delete("/api/projects/{project_id}", status_code=204)
+    async def delete_project(project_id: str) -> Response:
+        try:
+            blob_ids = assembled.projects.delete(project_id)
+        except RuntimeError as error:
+            if str(error) == "active_request":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The active Project conversation must finish or be cancelled before "
+                        "deleting this Project."
+                    ),
+                ) from error
+            raise
+        if blob_ids is None:
+            raise HTTPException(status_code=404, detail="Project not found.")
+        assembled.knowledge.delete_blobs(blob_ids)
+        return Response(status_code=204)
+
     @app.post("/api/projects/{project_id}/sessions", response_model=SessionView, status_code=201)
     async def create_project_session(project_id: str) -> SessionView:
         principal = assembled.access.current_principal()

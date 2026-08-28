@@ -239,6 +239,7 @@ describe("M1 Chat integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await screen.findByText("The answer is 4.");
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
     expect(screen.getAllByText("calculator.evaluate")).toHaveLength(1);
     expect(screen.getByText("Hoàn tất")).toBeTruthy();
     expect(screen.queryByText("Đang chạy")).toBeNull();
@@ -343,6 +344,7 @@ describe("M1 Chat integration", () => {
 
     await screen.findByText("The answer is 4.");
     expect(screen.getAllByText("Orion")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
     expect(screen.getAllByText("calculator.evaluate").length).toBeGreaterThan(0);
     expect(screen.getByText(/Trả lời trong 2,4 giây/)).toBeTruthy();
     expect(screen.getByText(/1.824 token vào · 216 token ra/)).toBeTruthy();
@@ -646,6 +648,7 @@ describe("M1 Chat integration", () => {
     const source = (await screen.findAllByRole("button", { name: "Open source security.md" }))[0];
     expect(screen.queryByText(/invented-source/)).toBeNull();
     fireEvent.click(source);
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
 
     await screen.findByText("Trang 7 · Security");
     expect(screen.getByText("knowledge.search")).not.toBeNull();

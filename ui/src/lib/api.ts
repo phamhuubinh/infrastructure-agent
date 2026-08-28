@@ -166,6 +166,13 @@ export async function updateProject(projectId: string, project: ProjectInput): P
   });
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  const response = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
 export async function projectDocuments(projectId: string): Promise<DocumentStatus[]> {
   return apiJson<DocumentStatus[]>(`/api/projects/${encodeURIComponent(projectId)}/documents`);
 }

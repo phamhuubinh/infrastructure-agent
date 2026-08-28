@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ContextPanel } from "@/components/ContextPanel";
@@ -18,8 +18,8 @@ const session: Session = {
 describe("ContextPanel", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("uses a layout-owned rail for its collapsed reopen control", async () => {
-    window.localStorage.setItem("orion-context-panel-collapsed", "true");
+  it("starts collapsed regardless of prior storage and uses a layout-owned reopen control", async () => {
+    window.localStorage.setItem("orion-context-panel-collapsed", "false");
     render(
       <ContextPanel session={session} selectedSourceRefId={null} onOpenSource={() => undefined} />,
     );
@@ -46,9 +46,34 @@ describe("ContextPanel", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
     expect(screen.getAllByText("linux.system.inspect")).toHaveLength(2);
     expect(screen.getByText("Hoàn tất")).toBeTruthy();
     expect(screen.getByText("Lỗi")).toBeTruthy();
     expect(screen.queryByText("Đang chạy")).toBeNull();
+  });
+
+  it("opens and closes manually, then closes again when the session changes", () => {
+    const { rerender } = render(
+      <ContextPanel session={session} selectedSourceRefId={null} onOpenSource={() => undefined} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
+    expect(screen.getByRole("button", { name: "Đóng bảng chi tiết" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Đóng bảng chi tiết" }));
+    expect(screen.getByRole("button", { name: "Mở bảng chi tiết" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
+    rerender(
+      <ContextPanel
+        session={{
+          ...session,
+          id: "session-2",
+          activity: [{ callId: "x", toolName: "tool", status: "completed" }],
+        }}
+        selectedSourceRefId={null}
+        onOpenSource={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Mở bảng chi tiết" })).toBeTruthy();
   });
 });

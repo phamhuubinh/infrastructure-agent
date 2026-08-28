@@ -1,6 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@tanstack/react-router", async () => {
+  const actual =
+    await vi.importActual<typeof import("@tanstack/react-router")>("@tanstack/react-router");
+  return { ...actual, useNavigate: () => vi.fn() };
+});
+
 import { ChatProvider } from "@/lib/chat-store";
 import { ProjectWorkspace } from "@/routes/projects/$projectId";
 
@@ -283,5 +289,56 @@ describe("Project workspace", () => {
         ([path, init]) => path === "/api/projects/project-a/sessions" && init?.method === "POST",
       ),
     ).toHaveLength(1);
+  });
+
+  it("requires confirmation before deleting a Project and clears local Project work on success", async () => {
+    let deleted = false;
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([model]);
+      if (path === "/api/sessions" && !init?.method) {
+        return jsonResponse([
+          {
+            session_id: "project-session",
+            project_id: "project-a",
+            title: "Existing Project conversation",
+            created_at: "now",
+            last_activity_at: "now",
+          },
+        ]);
+      }
+      if (path === "/api/projects/project-a" && init?.method === "DELETE") {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      }
+      if (path === "/api/projects/project-a") return jsonResponse(project);
+      if (path === "/api/projects/project-a/documents") return jsonResponse([]);
+      if (path === "/api/projects") return jsonResponse(deleted ? [] : [project]);
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await screen.findByRole("heading", { name: "Atlas rollout" });
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    const details = await screen.findByRole("dialog");
+    fireEvent.click(within(details).getByRole("button", { name: "Xóa Project" }));
+    const confirmation = await screen.findByRole("dialog", { name: /Xóa Project/ });
+    expect(within(confirmation).getByText(/hội thoại và tài liệu/)).toBeTruthy();
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Hủy" }));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-a",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+
+    fireEvent.click(within(details).getByRole("button", { name: "Xóa Project" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Xóa Project" })).at(-1)!);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/projects/project-a",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "Orion" })).toBeTruthy();
   });
 });

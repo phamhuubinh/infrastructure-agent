@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FileText, FolderKanban, Loader2, Plus, Save, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -15,6 +15,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   attachProjectDocument,
+  deleteProject,
   deleteProjectDocument,
   getProject,
   projectDocumentStatus,
@@ -25,6 +26,14 @@ import {
 } from "@/lib/api";
 import { useChat } from "@/lib/chat-store";
 import { invalidateProjectList } from "@/lib/project-list";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/projects/$projectId")({ component: ProjectWorkspaceRoute });
 
@@ -34,6 +43,7 @@ function ProjectWorkspaceRoute() {
 
 export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const chat = useChat();
+  const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [documents, setDocuments] = useState<DocumentStatus[]>([]);
@@ -44,6 +54,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [deleteConfirmationOpen, setDeleteConfirmationOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -145,6 +157,28 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to delete document.");
+    }
+  }
+
+  async function removeProject() {
+    if (!project || deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteProject(project.project_id);
+      chat.removeProjectSessions(project.project_id);
+      invalidateProjectList();
+      setDeleteConfirmationOpen(false);
+      setDetailsOpen(false);
+      await navigate({ to: "/projects" });
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Không thể xóa Project. Hãy hoàn tất hoặc hủy hội thoại đang chạy.",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -292,9 +326,46 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
                 )}
               </div>
             </section>
+            <section className="border-t border-destructive/30 pt-5">
+              <div className="text-sm font-medium text-destructive">Khu vực nguy hiểm</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Xóa vĩnh viễn Project cùng mọi hội thoại và tài liệu thuộc Project này.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                variant="destructive"
+                onClick={() => setDeleteConfirmationOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" /> Xóa Project
+              </Button>
+            </section>
           </div>
         </SheetContent>
       </Sheet>
+      <Dialog open={deleteConfirmationOpen} onOpenChange={setDeleteConfirmationOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Xóa Project “{project.name}”?</DialogTitle>
+            <DialogDescription>
+              Tất cả hội thoại và tài liệu của Project này sẽ bị xóa vĩnh viễn. Thao tác này không
+              thể hoàn tác.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmationOpen(false)}>
+              Hủy
+            </Button>
+            <Button variant="destructive" onClick={() => void removeProject()} disabled={deleting}>
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Xóa Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

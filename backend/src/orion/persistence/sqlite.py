@@ -454,6 +454,92 @@ class SQLiteStore:
             )
         return self.project(project_id) if cursor.rowcount else None
 
+    def delete_project(self, project_id: str) -> tuple[str, ...] | None:
+        """Tombstone a Project after atomically removing its exclusively owned data.
+
+        Filesystem cleanup is intentionally deferred to the service/API boundary so a blob
+        deletion failure cannot compromise the committed relational state.
+        """
+        with self._lock, self._connection:
+            project = self._connection.execute(
+                "SELECT 1 FROM projects WHERE project_id = ? AND deleted_at IS NULL", (project_id,)
+            ).fetchone()
+            if project is None:
+                return None
+            session_rows = self._connection.execute(
+                "SELECT session_id FROM sessions WHERE project_id = ?", (project_id,)
+            ).fetchall()
+            session_ids = tuple(str(row["session_id"]) for row in session_rows)
+            if session_ids:
+                session_placeholders = ", ".join("?" for _ in session_ids)
+                active = self._connection.execute(
+                    f"SELECT 1 FROM requests WHERE session_id IN ({session_placeholders}) "
+                    "AND status IN ('queued', 'running') LIMIT 1",
+                    session_ids,
+                ).fetchone()
+                if active is not None:
+                    raise RuntimeError("active_request")
+                document_query = (
+                    "SELECT document_id, blob_id FROM documents WHERE project_id = ? "
+                    f"OR session_id IN ({session_placeholders})"
+                )
+                document_rows = self._connection.execute(
+                    document_query, (project_id, *session_ids)
+                ).fetchall()
+                request_rows = self._connection.execute(
+                    f"SELECT request_id FROM requests WHERE session_id IN ({session_placeholders})",
+                    session_ids,
+                ).fetchall()
+                request_ids = tuple(str(row["request_id"]) for row in request_rows)
+            else:
+                document_rows = self._connection.execute(
+                    "SELECT document_id, blob_id FROM documents WHERE project_id = ?", (project_id,)
+                ).fetchall()
+                request_ids = ()
+
+            document_ids = tuple(str(row["document_id"]) for row in document_rows)
+            if document_ids:
+                document_placeholders = ", ".join("?" for _ in document_ids)
+                self._connection.execute(
+                    "DELETE FROM document_ingestion_events "
+                    f"WHERE document_id IN ({document_placeholders})",
+                    document_ids,
+                )
+                self._connection.execute(
+                    f"DELETE FROM document_segments WHERE document_id IN ({document_placeholders})",
+                    document_ids,
+                )
+                self._connection.execute(
+                    f"DELETE FROM documents WHERE document_id IN ({document_placeholders})",
+                    document_ids,
+                )
+            if request_ids:
+                request_placeholders = ", ".join("?" for _ in request_ids)
+                self._connection.execute(
+                    f"DELETE FROM request_events WHERE request_id IN ({request_placeholders})",
+                    request_ids,
+                )
+            if session_ids:
+                session_placeholders = ", ".join("?" for _ in session_ids)
+                self._connection.execute(
+                    f"DELETE FROM timeline WHERE session_id IN ({session_placeholders})",
+                    session_ids,
+                )
+                self._connection.execute(
+                    f"DELETE FROM requests WHERE session_id IN ({session_placeholders})",
+                    session_ids,
+                )
+                self._connection.execute(
+                    f"DELETE FROM sessions WHERE session_id IN ({session_placeholders})",
+                    session_ids,
+                )
+            now = _utc_now()
+            self._connection.execute(
+                "UPDATE projects SET deleted_at = ?, updated_at = ? WHERE project_id = ?",
+                (now, now, project_id),
+            )
+        return tuple(str(row["blob_id"]) for row in document_rows)
+
     def create_request(self, session_id: str, status: str = "queued") -> str:
         request_id = str(uuid.uuid4())
         with self._lock, self._connection:

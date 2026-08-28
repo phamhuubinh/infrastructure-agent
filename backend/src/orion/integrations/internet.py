@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from html.parser import HTMLParser
 from types import TracebackType
 from typing import Any, Protocol
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpcore
 import httpx
@@ -26,6 +26,7 @@ MAX_REDIRECTS = 3
 REQUEST_TIMEOUT_SECONDS = 10.0
 HEALTH_TIMEOUT_SECONDS = 3.0
 MAX_HEALTH_RESPONSE_BYTES = 32_000
+DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/"
 
 
 class InternetClientError(RuntimeError):
@@ -124,6 +125,58 @@ class _TextExtractor(HTMLParser):
     @property
     def title(self) -> str | None:
         return _bounded_text(" ".join(self._title_parts), 500) or None
+
+
+class _DuckDuckGoResultParser(HTMLParser):
+    """Extract the small public result subset Orion exposes to the model."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._results: list[tuple[str, str, str]] = []
+        self._depth = 0
+        self._ad = False
+        self._url: str | None = None
+        self._title: list[str] = []
+        self._snippet: list[str] = []
+        self._capture: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if self._depth:
+            self._depth += 1
+        elif tag == "div" and "result" in classes:
+            self._depth = 1
+            self._ad = "result--ad" in classes
+            self._url = None
+            self._title = []
+            self._snippet = []
+        if not self._depth or self._ad:
+            return
+        if tag == "a" and "result__a" in classes:
+            self._url = attributes.get("href")
+            self._capture = "title"
+        elif "result__snippet" in classes:
+            self._capture = "snippet"
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._capture and tag in {"a", "div", "span"}:
+            self._capture = None
+        if not self._depth:
+            return
+        self._depth -= 1
+        if self._depth == 0 and not self._ad and self._url:
+            self._results.append((self._url, " ".join(self._title), " ".join(self._snippet)))
+
+    def handle_data(self, data: str) -> None:
+        if self._capture == "title":
+            self._title.append(data)
+        elif self._capture == "snippet":
+            self._snippet.append(data)
+
+    @property
+    def results(self) -> tuple[tuple[str, str, str], ...]:
+        return tuple(self._results)
 
 
 Resolver = Callable[[str, int], Sequence[str]]
@@ -492,6 +545,97 @@ class SearxngInternetClient:
             raise InternetClientError(
                 "upstream_error", "Fetched URL returned an error.", response.status_code >= 500
             )
+
+
+class DuckDuckGoInternetClient(SearxngInternetClient):
+    """Built-in bounded DuckDuckGo HTML search with the existing secure fetch path."""
+
+    def __init__(
+        self,
+        *,
+        resolver: Resolver | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        super().__init__(DUCKDUCKGO_SEARCH_URL, resolver=resolver, transport=transport)
+
+    def status(self) -> InternetStatus:
+        try:
+            self._probe()
+        except InternetClientError:
+            return InternetStatus(
+                status="unhealthy",
+                provider="duckduckgo",
+                message="Tìm kiếm Internet hiện không khả dụng.",
+            )
+        return InternetStatus(
+            status="healthy",
+            provider="duckduckgo",
+            message="Sẵn sàng để Orion tìm kiếm Internet tự động khi cần.",
+        )
+
+    def search(self, query: str, limit: int) -> tuple[InternetSearchResult, ...]:
+        try:
+            with self._http_client() as client:
+                with client.stream("GET", DUCKDUCKGO_SEARCH_URL, params={"q": query}) as response:
+                    self._raise_for_search_status(response)
+                    body = _read_bounded_body(response)
+        except InternetClientError:
+            raise
+        except httpx.TimeoutException as error:
+            raise InternetClientError("timeout", "Internet search timed out.", True) from error
+        except httpx.RequestError as error:
+            raise InternetClientError(
+                "connection_error", "Internet search connection failed.", True
+            ) from error
+        try:
+            parser = _DuckDuckGoResultParser()
+            parser.feed(body.decode("utf-8", errors="replace"))
+            parser.close()
+        except (ValueError, UnicodeError) as error:
+            raise InternetClientError(
+                "invalid_response", "Internet search returned an invalid response."
+            ) from error
+        retrieved_at = datetime.now(UTC)
+        results: list[InternetSearchResult] = []
+        for raw_url, raw_title, raw_snippet in parser.results:
+            url = _duckduckgo_destination(raw_url)
+            if url is None:
+                continue
+            results.append(
+                InternetSearchResult(
+                    url=url,
+                    title=_bounded_text(raw_title, 500) or None,
+                    snippet=_bounded_text(raw_snippet, MAX_SEARCH_SNIPPET_CHARS) or None,
+                    retrieved_at=retrieved_at,
+                )
+            )
+            if len(results) == min(limit, MAX_SEARCH_RESULTS):
+                break
+        return tuple(results)
+
+    def _probe(self) -> None:
+        self.search("orion-healthcheck", 1)
+
+
+def _duckduckgo_destination(raw_url: str) -> str | None:
+    """Return a canonical public HTTP(S) result, never a DuckDuckGo tracking URL."""
+    try:
+        parsed = urlsplit(urljoin(DUCKDUCKGO_SEARCH_URL, raw_url))
+    except ValueError:
+        return None
+    if parsed.hostname in {"duckduckgo.com", "www.duckduckgo.com", "html.duckduckgo.com"}:
+        destination = parse_qs(parsed.query).get("uddg", [])
+        if len(destination) != 1:
+            return None
+        return _duckduckgo_destination(destination[0])
+    if (
+        parsed.scheme not in {"http", "https"}
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    return parsed.geturl()
 
 
 def _resolve_host(host: str, port: int) -> Sequence[str]:

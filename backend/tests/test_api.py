@@ -7,7 +7,7 @@ from conftest import ScriptedBackend
 from orion.api.app import create_app
 from orion.bootstrap import build_application
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn
-from orion.integrations import SearxngInternetClient
+from orion.integrations import DuckDuckGoInternetClient, SearxngInternetClient
 
 
 async def _configure(client: httpx.AsyncClient) -> None:
@@ -97,20 +97,27 @@ def test_session_summaries_have_a_fixed_server_side_bound(tmp_path) -> None:
 async def test_api_reports_optional_internet_integration_without_exposing_secrets(
     tmp_path,
 ) -> None:  # type: ignore[no-untyped-def]
+    application = build_application(
+        tmp_path / "orion.db",
+        ScriptedBackend([]),
+        internet_client=DuckDuckGoInternetClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, text=""))
+        ),
+    )
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(tmp_path / "orion.db", ScriptedBackend([]))),
+        transport=httpx.ASGITransport(app=create_app(application=application)),
         base_url="http://test",
     ) as client:
         integration = await client.get("/api/integrations/internet")
         health = await client.get("/api/health")
 
     assert integration.json() == {
-        "status": "unconfigured",
-        "provider": None,
+        "status": "healthy",
+        "provider": "duckduckgo",
         "endpoint": None,
-        "message": "Internet search is not configured. Set ORION_INTERNET_SEARCH_URL to enable it.",
+        "message": "Sẵn sàng để Orion tìm kiếm Internet tự động khi cần.",
     }
-    assert health.json()["internet"]["status"] == "unconfigured"
+    assert health.json()["internet"]["status"] == "healthy"
     assert "key" not in str(integration.json()).lower()
 
 

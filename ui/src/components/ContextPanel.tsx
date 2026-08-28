@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -31,23 +31,17 @@ export function ContextPanel({
   selectedSourceRefId: string | null;
   onOpenSource: (sourceRefId: string) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
   const [openCallId, setOpenCallId] = useState<string | null>(null);
   const selectedSource = session.sources.find(
     (source) => source.sourceRefId === selectedSourceRefId,
   );
   const visibleActivity = session.activity.filter((activity) => activity.status !== "started");
 
-  useEffect(() => {
-    setCollapsed(localStorage.getItem("orion-context-panel-collapsed") === "true");
-  }, []);
+  const collapsed = openSessionId !== session.id;
 
   function togglePanel() {
-    setCollapsed((current) => {
-      const next = !current;
-      localStorage.setItem("orion-context-panel-collapsed", String(next));
-      return next;
-    });
+    setOpenSessionId((current) => (current === session.id ? null : session.id));
   }
 
   if (collapsed) {

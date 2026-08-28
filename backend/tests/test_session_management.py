@@ -108,3 +108,76 @@ async def test_deleting_session_with_running_request_returns_conflict(tmp_path) 
         response = await client.delete(f"/api/sessions/{session}")
     assert response.status_code == 409
     assert "finish or be cancelled" in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_deleting_project_removes_exclusively_owned_data_and_tombstones_root(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    app = create_app(tmp_path / "orion.db", ScriptedBackend([]))
+    store, knowledge = app.state.application.store, app.state.application.knowledge
+    project = app.state.application.projects.create("Delete me")
+    project_session = store.create_session(project_id=project["project_id"])
+    request = store.create_request(project_session, status="completed")
+    store.emit_event(request, "request.completed", {})
+    store.append_timeline(project_session, request, "user_message", {"content": "Delete me"})
+    session_document = knowledge.attach(project_session, "session.txt", b"session-owned")
+    project_document = knowledge.attach_project(
+        project["project_id"], "project.txt", b"project-owned"
+    )
+    session_blob = store.document(session_document.document.document_id)["blob_id"]  # type: ignore[index]
+    project_blob = store.document(project_document.document.document_id)["blob_id"]  # type: ignore[index]
+    ordinary = store.create_session()
+    survivor = app.state.application.projects.create("Survivor")
+    survivor_session = store.create_session(project_id=survivor["project_id"])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        deleted = await client.delete(f"/api/projects/{project['project_id']}")
+        listed = await client.get("/api/projects")
+        missing = await client.get(f"/api/projects/{project['project_id']}")
+        created = await client.post(f"/api/projects/{project['project_id']}/sessions")
+
+    assert deleted.status_code == 204
+    assert project["project_id"] not in {item["project_id"] for item in listed.json()}
+    assert missing.status_code == 404 and created.status_code == 404
+    assert store.project(project["project_id"]) is None
+    tombstone = store._connection.execute(  # noqa: SLF001 - persistence tombstone invariant.
+        "SELECT deleted_at FROM projects WHERE project_id = ?", (project["project_id"],)
+    ).fetchone()
+    assert tombstone is not None and tombstone["deleted_at"] is not None
+    assert store.session_exists(project_session) is False
+    assert store.request(request) is None and store.events(request) == []
+    for document_id in (
+        session_document.document.document_id,
+        project_document.document.document_id,
+    ):
+        assert store.document(document_id) is None
+        assert store.document_segments(document_id) == []
+        assert store.document_ingestion_events(document_id) == []
+    assert not (tmp_path / "blobs" / session_blob).exists()
+    assert not (tmp_path / "blobs" / project_blob).exists()
+    assert store.session_exists(ordinary)
+    assert store.session_exists(survivor_session)
+    assert app.state.application.projects.get(survivor["project_id"]) is not None
+
+
+@pytest.mark.anyio
+async def test_deleting_project_with_active_request_returns_conflict_without_mutation(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    app = create_app(tmp_path / "orion.db", ScriptedBackend([]))
+    project = app.state.application.projects.create("Busy")
+    session = app.state.application.store.create_session(project_id=project["project_id"])
+    app.state.application.store.create_request(session, status="running")
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.delete(f"/api/projects/{project['project_id']}")
+
+    assert response.status_code == 409
+    assert "finish or be cancelled" in response.json()["detail"]
+    assert app.state.application.projects.get(project["project_id"]) is not None
+    assert app.state.application.store.session_exists(session)
