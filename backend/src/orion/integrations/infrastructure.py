@@ -27,6 +27,12 @@ class InfrastructureError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class LinuxFileMetadata:
+    file_type: str
+    size: int
+
+
+@dataclass(frozen=True)
 class Target:
     family: str
     target_ref: str
@@ -231,7 +237,11 @@ class LinuxExecutor(Protocol):
     def read_file(
         self, target: Target, credential: object, path: str, offset: int, length: int
     ) -> bytes: ...
+    def file_metadata(self, target: Target, credential: object, path: str) -> LinuxFileMetadata: ...
     def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None: ...
+    def prepare_file_replacement(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None: ...
     def replace_file(
         self, target: Target, credential: object, temporary_path: str, path: str
     ) -> None: ...
@@ -356,17 +366,37 @@ class SshLinuxExecutor:
             ["dd", f"if={path}", "bs=1", f"skip={offset}", f"count={length}", "status=none"],
         )
 
+    def file_metadata(self, target: Target, credential: object, path: str) -> LinuxFileMetadata:
+        value = self._run(target, credential, ["stat", "-c", "%F|%s", "--", path]).strip()
+        file_type, separator, size = value.partition("|")
+        if not separator:
+            raise InfrastructureError("upstream_error", "Linux file metadata is invalid.")
+        try:
+            parsed_size = int(size)
+        except ValueError as error:
+            raise InfrastructureError(
+                "upstream_error", "Linux file metadata is invalid."
+            ) from error
+        if parsed_size < 0:
+            raise InfrastructureError("upstream_error", "Linux file metadata is invalid.")
+        return LinuxFileMetadata(
+            file_type="regular" if file_type == "regular file" else "other", size=parsed_size
+        )
+
     def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None:
         self._run_input(
             target, credential, ["dd", f"of={path}", "bs=65536", "status=none"], content
         )
 
+    def prepare_file_replacement(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None:
+        # This is deliberately separate from rename: failure here proves the original remains.
+        self._run(target, credential, ["chmod", "--reference", path, temporary_path])
+
     def replace_file(
         self, target: Target, credential: object, temporary_path: str, path: str
     ) -> None:
-        # The temporary path is Orion-generated in the original directory. Preserve mode where
-        # possible before the fixed atomic rename operation.
-        self._run(target, credential, ["chmod", "--reference", path, temporary_path])
         self._run(target, credential, ["mv", "-f", "--", temporary_path, path])
 
     def remove_file(self, target: Target, credential: object, path: str) -> None:

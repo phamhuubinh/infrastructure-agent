@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable, Mapping
+from io import BytesIO
 
 import pytest
 from conftest import ScriptedBackend, runtime
+from docx import Document
+from openpyxl import Workbook
 
 from orion.chat.runtime import RequestCancelled
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolCall
-from orion.integrations.infrastructure import Target, TargetCatalog
+from orion.integrations.infrastructure import LinuxFileMetadata, Target, TargetCatalog
 from orion.tool_runtime.infrastructure import (
     _INFRASTRUCTURE_WORKERS,
     _blocking_handler,
@@ -27,7 +30,9 @@ class FakeLinux:
         self.calls = 0
         self.package = {"installed": False, "version": None}
         self.files: dict[str, bytes] = {"/etc/hosts": b"bounded text"}
+        self.file_types: dict[str, str] = {}
         self.replacements: list[tuple[str, str]] = []
+        self.writes = 0
 
     def inspect(
         self, target: Target, credential: object, sections: tuple[str, ...]
@@ -41,9 +46,21 @@ class FakeLinux:
         self.calls += 1
         return self.files.get(path, b"")[offset : offset + length]
 
+    def file_metadata(self, target: Target, credential: object, path: str) -> LinuxFileMetadata:
+        self.calls += 1
+        return LinuxFileMetadata(
+            self.file_types.get(path, "regular"), len(self.files.get(path, b""))
+        )
+
     def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None:
         self.calls += 1
+        self.writes += 1
         self.files[path] = content
+
+    def prepare_file_replacement(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None:
+        self.calls += 1
 
     def replace_file(
         self, target: Target, credential: object, temporary_path: str, path: str
@@ -403,6 +420,144 @@ def test_linux_file_edit_rejects_ambiguous_or_cancelled_text_without_writing() -
     assert ambiguous.error is not None and ambiguous.error.code == "ambiguous"
     assert cancelled.error is not None and cancelled.error.code == "cancelled"
     assert linux.files["/tmp/orion-qa.txt"] == b"same same"
+
+
+def test_linux_file_edit_semantic_noop_does_not_write_or_replace() -> None:
+    linux = FakeLinux()
+    linux.files["/tmp/orion-qa.txt"] = b"unchanged"
+    result = _linux_file_edit(
+        ToolCall(
+            call_id="noop",
+            tool_name="linux.file.edit",
+            arguments={
+                "target_ref": "node",
+                "path": "/tmp/orion-qa.txt",
+                "operations": [
+                    {"kind": "replace_text", "old_text": "unchanged", "new_text": "unchanged"}
+                ],
+            },
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+
+    assert result.status == "success" and result.data["changed"] is False
+    assert linux.writes == 0 and not linux.replacements
+
+
+@pytest.mark.parametrize("path", ["/tmp/orion-qa.docx", "/tmp/orion-qa.xlsx"])
+def test_linux_office_semantic_noop_does_not_write_or_replace(path: str) -> None:
+    payload = BytesIO()
+    if path.endswith(".docx"):
+        document = Document()
+        document.add_paragraph("unchanged")
+        document.save(payload)
+        operation: dict[str, object] = {
+            "kind": "set_paragraph",
+            "paragraph_index": 0,
+            "text": "unchanged",
+        }
+    else:
+        workbook = Workbook()
+        workbook.active.title = "Plan"
+        workbook.active["A1"] = "unchanged"
+        workbook.save(payload)
+        operation = {"kind": "set_cell", "sheet": "Plan", "cell": "A1", "value": "unchanged"}
+    linux = FakeLinux()
+    linux.files[path] = payload.getvalue()
+    result = _linux_file_edit(
+        ToolCall(
+            call_id="office-noop",
+            tool_name="linux.file.edit",
+            arguments={"target_ref": "node", "path": path, "operations": [operation]},
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+
+    assert result.status == "success" and result.data["changed"] is False
+    assert linux.writes == 0 and not linux.replacements
+
+
+@pytest.mark.parametrize("file_type", ["symlink", "directory", "other"])
+def test_linux_file_edit_rejects_non_regular_files_before_mutation(file_type: str) -> None:
+    linux = FakeLinux()
+    linux.files["/tmp/orion-qa.txt"] = b"before"
+    linux.file_types["/tmp/orion-qa.txt"] = file_type
+
+    result = _linux_file_edit(
+        ToolCall(
+            call_id="nonregular",
+            tool_name="linux.file.edit",
+            arguments={
+                "target_ref": "node",
+                "path": "/tmp/orion-qa.txt",
+                "operations": [{"kind": "replace_text", "old_text": "before", "new_text": "after"}],
+            },
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+
+    assert result.error is not None and result.error.code == "unsupported_file_type"
+    assert linux.files["/tmp/orion-qa.txt"] == b"before"
+    assert not linux.replacements
+
+
+def test_linux_file_edit_rejects_oversized_or_changed_final_file_without_mutation_claim() -> None:
+    linux = FakeLinux()
+    linux.files["/tmp/orion-qa.txt"] = b"before"
+    linux.file_types["/tmp/orion-qa.txt"] = "regular"
+    oversized = _linux_file_edit(
+        ToolCall(
+            call_id="oversized",
+            tool_name="linux.file.edit",
+            arguments={
+                "target_ref": "node",
+                "path": "/tmp/orion-qa.txt",
+                "operations": [{"kind": "replace_text", "old_text": "before", "new_text": "after"}],
+            },
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        type(
+            "OversizedLinux",
+            (FakeLinux,),
+            {
+                "file_metadata": lambda self, *args: LinuxFileMetadata(
+                    "regular", 4 * 1024 * 1024 + 1
+                )
+            },
+        )(),
+    )
+    assert oversized.error is not None and oversized.error.code == "too_large"
+
+    class ConcurrentChangeLinux(FakeLinux):
+        def replace_file(self, target, credential, temporary_path, path):  # type: ignore[no-untyped-def]
+            self.replacements.append((temporary_path, path))
+            self.files[path] = b"after but not the validated bytes"
+            self.files.pop(temporary_path, None)
+
+    changed = ConcurrentChangeLinux()
+    changed.files["/tmp/orion-qa.txt"] = b"before"
+    result = _linux_file_edit(
+        ToolCall(
+            call_id="changed-final",
+            tool_name="linux.file.edit",
+            arguments={
+                "target_ref": "node",
+                "path": "/tmp/orion-qa.txt",
+                "operations": [{"kind": "replace_text", "old_text": "before", "new_text": "after"}],
+            },
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        changed,
+    )
+    assert result.error is not None and result.error.code == "outcome_unknown"
 
 
 @pytest.mark.anyio

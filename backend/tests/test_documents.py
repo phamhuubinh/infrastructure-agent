@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from docx import Document
@@ -29,6 +30,7 @@ def _xlsx_bytes() -> bytes:
     worksheet["A1"] = "Original"
     worksheet["B1"] = 2
     worksheet["B1"].font = Font(bold=True)
+    worksheet["C1"] = "=B1*2"
     workbook.create_sheet("Archive")["A1"] = "Saved"
     output = BytesIO()
     workbook.save(output)
@@ -116,3 +118,81 @@ def test_text_edits_require_exact_single_match_and_noop_is_detectable() -> None:
     assert missing.value.code == "not_found"
     assert ambiguous.value.code == "ambiguous"
     assert unchanged == b"same"
+
+
+def test_office_semantic_noops_return_original_bytes_without_destroying_formatting() -> None:
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run("Bold").bold = True
+    paragraph.add_run(" text")
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "Same cell"
+    output = BytesIO()
+    document.save(output)
+    docx_payload = output.getvalue()
+    same_paragraph, _ = edit_document(
+        "/tmp/report.docx",
+        docx_payload,
+        [{"kind": "set_paragraph", "paragraph_index": 0, "text": "Bold text"}],
+    )
+    same_cell, _ = edit_document(
+        "/tmp/report.docx",
+        docx_payload,
+        [{"kind": "set_table_cell", "table_index": 0, "row": 0, "column": 0, "text": "Same cell"}],
+    )
+    xlsx_payload = _xlsx_bytes()
+    same_value, _ = edit_document(
+        "/tmp/plan.xlsx",
+        xlsx_payload,
+        [{"kind": "set_cell", "sheet": "Plan", "cell": "A1", "value": "Original"}],
+    )
+    same_formula, _ = edit_document(
+        "/tmp/plan.xlsx",
+        xlsx_payload,
+        [{"kind": "set_formula", "sheet": "Plan", "cell": "C1", "formula": "=B1*2"}],
+    )
+
+    assert same_paragraph == docx_payload and same_cell == docx_payload
+    assert Document(BytesIO(same_paragraph)).paragraphs[0].runs[0].bold is True
+    assert same_value == xlsx_payload and same_formula == xlsx_payload
+
+
+def test_office_archives_and_out_of_bounds_coordinates_are_controlled() -> None:
+    archive = BytesIO()
+    with ZipFile(archive, "w", ZIP_DEFLATED) as package:
+        package.writestr("word/document.xml", b"x" * (8 * 1024 * 1024 + 1))
+    with pytest.raises(DocumentCodecError) as expanded:
+        read_document("/tmp/large.docx", archive.getvalue())
+    macro = BytesIO()
+    with ZipFile(macro, "w") as package:
+        package.writestr("word/vbaProject.bin", b"macro")
+    with pytest.raises(DocumentCodecError) as macro_error:
+        read_document("/tmp/renamed.docx", macro.getvalue())
+    member_count = BytesIO()
+    with ZipFile(member_count, "w") as package:
+        for index in range(1001):
+            package.writestr(f"word/entry-{index}.xml", b"x")
+    with pytest.raises(DocumentCodecError) as member_error:
+        read_document("/tmp/members.docx", member_count.getvalue())
+    payload = _xlsx_bytes()
+    for cell_range in ("XFE1", "A1048577", "ZZZ9999999"):
+        with pytest.raises(DocumentCodecError) as bounds:
+            read_document("/tmp/plan.xlsx", payload, sheet="Plan", cell_range=cell_range)
+        assert bounds.value.code == "invalid_input"
+    with pytest.raises(DocumentCodecError) as edit_bounds:
+        edit_document(
+            "/tmp/plan.xlsx",
+            payload,
+            [{"kind": "set_cell", "sheet": "Plan", "cell": "XFE1", "value": "x"}],
+        )
+    boundary, boundary_summary = edit_document(
+        "/tmp/plan.xlsx",
+        payload,
+        [{"kind": "set_cell", "sheet": "Plan", "cell": "XFD1048576", "value": "edge"}],
+    )
+
+    assert expanded.value.code == "too_large"
+    assert macro_error.value.code == "unsupported_content"
+    assert member_error.value.code == "too_large"
+    assert edit_bounds.value.code == "invalid_input"
+    assert boundary != payload and boundary_summary["changed"] is True

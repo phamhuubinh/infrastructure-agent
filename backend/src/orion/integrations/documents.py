@@ -5,6 +5,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Any
+from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.document import Document as DocxDocument
@@ -17,6 +18,11 @@ MAX_DOCUMENT_ITEMS = 100
 MAX_DOCUMENT_CELLS = 200
 MAX_EDIT_OPERATIONS = 32
 MAX_EDIT_TEXT_CHARS = 16_000
+MAX_OFFICE_ARCHIVE_MEMBERS = 1_000
+MAX_OFFICE_ARCHIVE_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_OFFICE_ARCHIVE_MEMBER_BYTES = 8 * 1024 * 1024
+XLSX_MAX_COLUMN = 16_384
+XLSX_MAX_ROW = 1_048_576
 
 
 class DocumentCodecError(RuntimeError):
@@ -118,22 +124,29 @@ def edit_document(
         )
     if fmt == "text":
         result = _edit_text(_decode_text(payload), operations)
-        return result.encode("utf-8"), {"format": fmt, "operations": len(operations)}
+        edited = result.encode("utf-8")
+        return edited, {
+            "format": fmt,
+            "operations": len(operations),
+            "changed": edited != payload,
+        }
     if fmt == "docx":
         document = _load_docx(payload)
-        _edit_docx(document, operations)
+        if not _edit_docx(document, operations):
+            return payload, {"format": fmt, "operations": len(operations), "changed": False}
         output = BytesIO()
         document.save(output)
         edited = output.getvalue()
         _load_docx(edited)
-        return edited, {"format": fmt, "operations": len(operations)}
+        return edited, {"format": fmt, "operations": len(operations), "changed": True}
     workbook = _load_xlsx(payload)
-    _edit_xlsx(workbook, operations)
+    if not _edit_xlsx(workbook, operations):
+        return payload, {"format": fmt, "operations": len(operations), "changed": False}
     output = BytesIO()
     workbook.save(output)
     edited = output.getvalue()
     _load_xlsx(edited)
-    return edited, {"format": fmt, "operations": len(operations)}
+    return edited, {"format": fmt, "operations": len(operations), "changed": True}
 
 
 def verify_document_edit(
@@ -217,6 +230,7 @@ def _decode_text(payload: bytes) -> str:
 
 
 def _load_docx(payload: bytes) -> DocxDocument:
+    _office_zip_preflight(payload)
     try:
         return Document(BytesIO(payload))
     except Exception as error:  # python-docx normalizes several zip/XML errors.
@@ -226,12 +240,44 @@ def _load_docx(payload: bytes) -> DocxDocument:
 
 
 def _load_xlsx(payload: bytes) -> Workbook:
+    _office_zip_preflight(payload)
     try:
         return load_workbook(BytesIO(payload), data_only=False, keep_vba=False)
     except Exception as error:  # openpyxl normalizes several zip/XML errors.
         raise DocumentCodecError(
             "invalid_document", "Excel workbook is invalid or corrupt."
         ) from error
+
+
+def _office_zip_preflight(payload: bytes) -> None:
+    """Reject unsafe Office containers before a library expands or parses them."""
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            members = archive.infolist()
+    except (BadZipFile, OSError, ValueError) as error:
+        raise DocumentCodecError(
+            "invalid_document", "Office document is invalid or corrupt."
+        ) from error
+    if len(members) > MAX_OFFICE_ARCHIVE_MEMBERS:
+        raise DocumentCodecError("too_large", "Office document has too many archive entries.")
+    total = 0
+    for member in members:
+        name = member.filename.lower()
+        if member.flag_bits & 0x1:
+            raise DocumentCodecError(
+                "unsupported_content", "Encrypted Office documents are unsupported."
+            )
+        if member.file_size < 0 or member.file_size > MAX_OFFICE_ARCHIVE_MEMBER_BYTES:
+            raise DocumentCodecError(
+                "too_large", "Office document archive entry exceeds Orion's limit."
+            )
+        total += member.file_size
+        if total > MAX_OFFICE_ARCHIVE_TOTAL_BYTES:
+            raise DocumentCodecError("too_large", "Office document expands beyond Orion's limit.")
+        if "vba" in name or "macro" in name:
+            raise DocumentCodecError(
+                "unsupported_content", "Macro-bearing Office documents are unsupported."
+            )
 
 
 def _docx_items(document: DocxDocument) -> list[dict[str, object]]:
@@ -273,6 +319,7 @@ def _xlsx_bounds(worksheet: Any, cell_range: str | None) -> tuple[int, int, int,
     assert minimum_row is not None
     assert maximum_col is not None
     assert maximum_row is not None
+    _ensure_xlsx_bounds(minimum_col, minimum_row, maximum_col, maximum_row)
     if (maximum_col - minimum_col + 1) * (maximum_row - minimum_row + 1) > MAX_DOCUMENT_CELLS:
         raise DocumentCodecError("invalid_input", "Excel range exceeds Orion's cell limit.")
     return minimum_col, minimum_row, maximum_col, maximum_row
@@ -294,14 +341,19 @@ def _edit_text(text: str, operations: list[dict[str, object]]) -> str:
     return text
 
 
-def _edit_docx(document: DocxDocument, operations: list[dict[str, object]]) -> None:
+def _edit_docx(document: DocxDocument, operations: list[dict[str, object]]) -> bool:
+    changes: list[tuple[str, tuple[int, ...], str]] = []
+    targets: set[tuple[str, tuple[int, ...]]] = set()
     for operation in operations:
         kind = operation.get("kind")
+        target: tuple[str, tuple[int, ...]]
         if kind == "set_paragraph":
             index = _index(operation, "paragraph_index")
             if index >= len(document.paragraphs):
                 raise DocumentCodecError("not_found", "Word paragraph was not found.")
-            document.paragraphs[index].text = _text(operation, "text")
+            target = ("paragraph", (index,))
+            text = _text(operation, "text")
+            current = document.paragraphs[index].text
         elif kind == "set_table_cell":
             table, row, column = (
                 _index(operation, "table_index"),
@@ -314,14 +366,29 @@ def _edit_docx(document: DocxDocument, operations: list[dict[str, object]]) -> N
                 or column >= len(document.tables[table].rows[row].cells)
             ):
                 raise DocumentCodecError("not_found", "Word table cell was not found.")
-            document.tables[table].cell(row, column).text = _text(operation, "text")
+            target = ("table_cell", (table, row, column))
+            text = _text(operation, "text")
+            current = document.tables[table].cell(row, column).text
         else:
             raise DocumentCodecError(
                 "invalid_input", "Edit operation does not match this document format."
             )
+        if target in targets:
+            raise DocumentCodecError("invalid_input", "Document edit target is duplicated.")
+        targets.add(target)
+        if current != text:
+            changes.append((target[0], target[1], text))
+    for target_kind, location, text in changes:
+        if target_kind == "paragraph":
+            document.paragraphs[location[0]].text = text
+        else:
+            document.tables[location[0]].cell(location[1], location[2]).text = text
+    return bool(changes)
 
 
-def _edit_xlsx(workbook: Workbook, operations: list[dict[str, object]]) -> None:
+def _edit_xlsx(workbook: Workbook, operations: list[dict[str, object]]) -> bool:
+    changes: list[tuple[str, str, object]] = []
+    targets: set[tuple[str, str]] = set()
     for operation in operations:
         kind, sheet, cell = operation.get("kind"), operation.get("sheet"), operation.get("cell")
         if (
@@ -339,7 +406,15 @@ def _edit_xlsx(workbook: Workbook, operations: list[dict[str, object]]) -> None:
             raise DocumentCodecError("invalid_input", "Excel formulas must begin with '='.")
         if not isinstance(value, (str, int, float, bool)) and value is not None:
             raise DocumentCodecError("invalid_input", "Excel cell value is not supported.")
+        target = (sheet, cell.upper())
+        if target in targets:
+            raise DocumentCodecError("invalid_input", "Workbook edit target is duplicated.")
+        targets.add(target)
+        if workbook[sheet][cell].value != value:
+            changes.append((sheet, cell, value))
+    for sheet, cell, value in changes:
         workbook[sheet][cell].value = value
+    return bool(changes)
 
 
 def _index(operation: dict[str, object], key: str) -> int:
@@ -361,8 +436,27 @@ def _validate_cell(cell: str) -> None:
         minimum_col, minimum_row, maximum_col, maximum_row = range_boundaries(cell)
     except ValueError as error:
         raise DocumentCodecError("invalid_input", "Excel cell is invalid.") from error
+    if None in {minimum_col, minimum_row, maximum_col, maximum_row}:
+        raise DocumentCodecError("invalid_input", "Excel cell is invalid.")
+    assert minimum_col is not None
+    assert minimum_row is not None
+    assert maximum_col is not None
+    assert maximum_row is not None
     if minimum_col != maximum_col or minimum_row != maximum_row:
         raise DocumentCodecError("invalid_input", "Excel edit requires one cell.")
+    _ensure_xlsx_bounds(minimum_col, minimum_row, maximum_col, maximum_row)
+
+
+def _ensure_xlsx_bounds(
+    minimum_col: int, minimum_row: int, maximum_col: int, maximum_row: int
+) -> None:
+    if (
+        minimum_col < 1
+        or minimum_row < 1
+        or maximum_col > XLSX_MAX_COLUMN
+        or maximum_row > XLSX_MAX_ROW
+    ):
+        raise DocumentCodecError("invalid_input", "Excel coordinate is outside worksheet bounds.")
 
 
 def _cell_value(value: object) -> str | int | float | bool | None:

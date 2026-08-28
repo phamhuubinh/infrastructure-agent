@@ -43,7 +43,19 @@ def test_qa_case_loading_evaluation_and_report_generation(qa_runner, tmp_path) -
             {
                 "kind": "tool_result",
                 "tool_name": "calculator.evaluate",
-                "payload": {"sources": [{}]},
+                "payload": {
+                    "result": {
+                        "status": "success",
+                        "sources": [{"source_ref_id": "source-1"}],
+                    }
+                },
+            },
+            {
+                "kind": "assistant_message",
+                "payload": {
+                    "content": "The result is cited.",
+                    "citation_source_ref_ids": ["source-1"],
+                },
             },
         ],
     )
@@ -76,8 +88,69 @@ def test_qa_rejects_malformed_cases_and_redacts_endpoint(qa_runner, tmp_path) ->
 
     with pytest.raises(ValueError):
         qa_runner.load_cases(corpus)
-    assert qa_runner.sanitize_endpoint("https://user:secret@example.test/v1?key=secret") == (
-        "https://example.test/v1"
+    assert qa_runner.sanitize_endpoint("https://user:secret@example.test:8443/v1?key=secret") == (
+        "https://example.test:8443/v1"
+    )
+
+
+def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    case = qa_runner.Case(id="citation", prompt="cite", category="test", requires_citation=True)
+    source = {
+        "kind": "tool_result",
+        "payload": {"result": {"status": "success", "sources": [{"source_ref_id": "real"}]}},
+    }
+    assistant = {"kind": "assistant_message", "payload": {"content": "answer"}}
+
+    assert qa_runner.evaluate(case, [source, assistant])[:2] == (
+        "FAIL",
+        "final assistant citation is absent",
+    )
+    invented = {
+        "kind": "assistant_message",
+        "payload": {"content": "answer", "citation_source_ref_ids": ["invented"]},
+    }
+    assert qa_runner.evaluate(case, [source, invented])[:2] == (
+        "FAIL",
+        "final assistant cites unavailable source",
+    )
+    cited = {
+        "kind": "assistant_message",
+        "payload": {"content": "answer", "citation_source_ref_ids": ["real"]},
+    }
+    assert qa_runner.evaluate(case, [source, cited])[:2] == ("PASS", None)
+
+
+def test_qa_citation_parsing_is_nested_defensive_and_handles_multiple_sources(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    case = qa_runner.Case(id="citation", prompt="cite", category="test", requires_citation=True)
+    malformed = {
+        "kind": "tool_result",
+        "payload": {"sources": [{"source_ref_id": "wrong-level"}], "result": "not-a-result"},
+    }
+    first = {
+        "kind": "tool_result",
+        "payload": {"result": {"status": "success", "sources": [{"source_ref_id": "one"}]}},
+    }
+    second = {
+        "kind": "tool_result",
+        "payload": {"result": {"status": "success", "sources": [{"source_ref_id": "two"}]}},
+    }
+    final = {
+        "kind": "assistant_message",
+        "payload": {"content": "answer", "citation_source_ref_ids": ["one", "two"]},
+    }
+    malformed_final = {
+        "kind": "assistant_message",
+        "payload": {"content": "answer", "citation_source_ref_ids": "one"},
+    }
+
+    assert qa_runner.evaluate(case, [malformed, final])[:2] == (
+        "FAIL",
+        "final assistant cites unavailable source",
+    )
+    assert qa_runner.evaluate(case, [first, second, final])[:2] == ("PASS", None)
+    assert qa_runner.evaluate(case, [first, malformed_final])[:2] == (
+        "FAIL",
+        "final assistant citation is absent",
     )
 
 
@@ -129,6 +202,9 @@ def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_
             assert value == qa_runner.signal.SIGTERM
             self.stopped = True
 
+        def poll(self):  # type: ignore[no-untyped-def]
+            return None
+
         def wait(self, timeout):  # type: ignore[no-untyped-def]
             assert timeout == 10
 
@@ -139,8 +215,44 @@ def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_
     qa_runner.stop_qa_process(process)
 
     assert environment["ORION_DATABASE_PATH"] == str(tmp_path / "orion.db")
+    assert environment["ORION_LOG_PATH"] == str(tmp_path / "orion.log")
     assert environment["ORION_MODEL_API_KEY"] == "secret"
     assert command[-2:] == ["--port", "61889"]
     assert "127.0.0.1" in command and "uvicorn" in command
     assert report == qa_runner.ROOT / "artifacts" / "qa" / "run-id"
     assert process.stopped and not process.killed
+
+
+def test_qa_redacts_secret_values_and_capability_skip_is_conditional(
+    qa_runner, tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    report = tmp_path / "report"
+    qa_runner.write_reports(
+        report,
+        {"mode": "smoke", "detail": "provider-secret appeared"},
+        [{"id": "safety", "category": "safety", "status": "PASS", "reason": "provider-secret"}],
+        secret_values=("provider-secret",),
+    )
+    assert "provider-secret" not in "".join(
+        item.read_text(encoding="utf-8") for item in report.iterdir()
+    )
+
+    case = qa_runner.Case(id="linux", prompt="read", category="linux", capability="linux")
+    assert (
+        qa_runner._optional_skip_reason(case, {"linux": ()})
+        == "optional capability not configured: linux"
+    )
+    assert qa_runner._optional_skip_reason(case, {"linux": ("safe",)}) is None
+    mutation = qa_runner.Case(
+        id="edit",
+        prompt="edit",
+        category="linux",
+        capability="linux",
+        mutation=True,
+        fixture_env="FIXTURE",
+    )
+    assert qa_runner._optional_skip_reason(mutation, {"linux": ("safe",)}) is not None
+    monkeypatch.setenv("ORION_QA_ALLOW_MUTATION", "1")
+    monkeypatch.setenv("ORION_QA_LINUX_TARGET_REF", "safe")
+    monkeypatch.setenv("FIXTURE", "/tmp/orion-qa-safe/file.txt")
+    assert qa_runner._optional_skip_reason(mutation, {"linux": ("safe",)}) is None

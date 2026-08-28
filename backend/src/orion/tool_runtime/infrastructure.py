@@ -723,7 +723,7 @@ def _linux_file_edit(call: ToolCall, catalog: TargetCatalog, executor: LinuxExec
         path = str(call.arguments["path"])
         _validate_path(path)
         target, credential = _target(call, catalog, "linux")
-        payload = _read_document_bytes(executor, target, credential, path)
+        payload = _read_document_bytes(executor, target, credential, path, require_regular=True)
         raw_operations = call.arguments["operations"]
         if not isinstance(raw_operations, list) or not all(
             isinstance(item, dict) for item in raw_operations
@@ -734,7 +734,7 @@ def _linux_file_edit(call: ToolCall, catalog: TargetCatalog, executor: LinuxExec
             edited, summary = edit_document(path, payload, operations)
         except DocumentCodecError as error:
             raise InfrastructureError(error.code, error.message) from error
-        if edited == payload:
+        if not summary["changed"]:
             return _success(
                 call,
                 {
@@ -751,47 +751,69 @@ def _linux_file_edit(call: ToolCall, catalog: TargetCatalog, executor: LinuxExec
             raise InfrastructureError("cancelled", "Operation cancelled before dispatch.")
         temporary_path = str(PurePosixPath(path).parent / f".orion-{uuid.uuid4().hex}.tmp")
         try:
-            executor.write_file(target, credential, temporary_path, edited)
-            temporary = _read_document_bytes(executor, target, credential, temporary_path)
-            if temporary != edited:
-                raise InfrastructureError(
-                    "verification_failed", "Temporary file content did not match the edit."
+            try:
+                executor.write_file(target, credential, temporary_path, edited)
+                temporary = _read_document_bytes(
+                    executor, target, credential, temporary_path, require_regular=True
                 )
-            verify_document_edit(path, temporary, operations)
-        except DocumentCodecError as error:
+                if temporary != edited:
+                    raise InfrastructureError(
+                        "verification_failed", "Temporary file content did not match the edit."
+                    )
+                verify_document_edit(path, temporary, operations)
+            except DocumentCodecError as error:
+                raise InfrastructureError(error.code, error.message) from error
+            # Preserve the target mode before the replace.  This remains a distinct stage so a
+            # preparation failure proves the original destination was not replaced.
+            executor.prepare_file_replacement(target, credential, temporary_path, path)
+            try:
+                executor.replace_file(target, credential, temporary_path, path)
+            except InfrastructureError:
+                return _unknown(call, target, path, None)
+            try:
+                final = _read_document_bytes(
+                    executor, target, credential, path, require_regular=True
+                )
+                if final != edited:
+                    return _unknown(call, target, path, None)
+                verification = verify_document_edit(path, final, operations)
+            except (InfrastructureError, DocumentCodecError):
+                return _unknown(call, target, path, None)
+            return _success(
+                call,
+                {
+                    "target_ref": target.target_ref,
+                    "path": path,
+                    "changed": True,
+                    **summary,
+                    "verification": verification,
+                },
+                target,
+                "file.edit",
+            )
+        finally:
+            # mv removes the candidate on success.  On every other path this is best-effort
+            # cleanup of only Orion's UUID-generated sibling temporary file.
             _cleanup_temporary(executor, target, credential, temporary_path)
-            raise InfrastructureError(error.code, error.message) from error
-        except InfrastructureError:
-            _cleanup_temporary(executor, target, credential, temporary_path)
-            raise
-        try:
-            executor.replace_file(target, credential, temporary_path, path)
-        except InfrastructureError:
-            return _unknown(call, target, path, None)
-        try:
-            final = _read_document_bytes(executor, target, credential, path)
-            verification = verify_document_edit(path, final, operations)
-        except (InfrastructureError, DocumentCodecError):
-            return _unknown(call, target, path, None)
-        return _success(
-            call,
-            {
-                "target_ref": target.target_ref,
-                "path": path,
-                "changed": True,
-                **summary,
-                "verification": verification,
-            },
-            target,
-            "file.edit",
-        )
 
     return _with_errors(call, operation)
 
 
 def _read_document_bytes(
-    executor: LinuxExecutor, target: Target, credential: object, path: str
+    executor: LinuxExecutor,
+    target: Target,
+    credential: object,
+    path: str,
+    *,
+    require_regular: bool = False,
 ) -> bytes:
+    metadata = executor.file_metadata(target, credential, path)
+    if require_regular and metadata.file_type != "regular":
+        raise InfrastructureError(
+            "unsupported_file_type", "Document editing requires a regular file."
+        )
+    if metadata.size > MAX_DOCUMENT_BYTES:
+        raise InfrastructureError("too_large", "Document exceeds Orion's safe read limit.")
     payload = executor.read_file(target, credential, path, 0, MAX_DOCUMENT_BYTES + 1)
     if len(payload) > MAX_DOCUMENT_BYTES:
         raise InfrastructureError("too_large", "Document exceeds Orion's safe read limit.")

@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -16,7 +17,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,16 @@ from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_VERSION = "1"
+SCENARIOS = {
+    "ordinary_chat",
+    "continuity",
+    "session_document",
+    "project_shared_document",
+    "tool_error_recovery",
+    "project_isolation",
+    "prompt_injection_document",
+    "safety_response",
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +46,13 @@ class Case:
     forbidden_tools: tuple[str, ...] = ()
     requires_citation: bool = False
     capability: str | None = None
+    scenario: str = "ordinary_chat"
+    first_prompt: str | None = None
+    expected_marker: str | None = None
+    document_content: str | None = None
+    forbidden_marker: str | None = None
+    mutation: bool = False
+    fixture_env: str | None = None
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -65,6 +83,15 @@ def load_cases(path: Path) -> list[Case]:
         capability = item.get("capability")
         if capability is not None and not isinstance(capability, str):
             raise ValueError(f"QA case {item['id']} has an invalid capability.")
+        scenario = item.get("scenario", "ordinary_chat")
+        if scenario not in SCENARIOS:
+            raise ValueError(f"QA case {item['id']} has an unknown scenario.")
+        optional_strings = {
+            key: item.get(key)
+            for key in ("first_prompt", "expected_marker", "document_content", "forbidden_marker", "fixture_env")
+        }
+        if any(value is not None and not isinstance(value, str) for value in optional_strings.values()):
+            raise ValueError(f"QA case {item['id']} has invalid scenario data.")
         cases.append(
             Case(
                 id=item["id"],
@@ -74,6 +101,13 @@ def load_cases(path: Path) -> list[Case]:
                 forbidden_tools=tuple(forbidden),
                 requires_citation=bool(item.get("requires_citation", False)),
                 capability=capability,
+                scenario=scenario,
+                first_prompt=optional_strings["first_prompt"],
+                expected_marker=optional_strings["expected_marker"],
+                document_content=optional_strings["document_content"],
+                forbidden_marker=optional_strings["forbidden_marker"],
+                mutation=bool(item.get("mutation", False)),
+                fixture_env=optional_strings["fixture_env"],
             )
         )
     return cases
@@ -81,7 +115,10 @@ def load_cases(path: Path) -> list[Case]:
 
 def sanitize_endpoint(value: str) -> str:
     parts = urlsplit(value)
-    return urlunsplit((parts.scheme, parts.hostname or "", parts.path, "", ""))
+    host = parts.hostname or ""
+    if parts.port is not None:
+        host = f"{host}:{parts.port}"
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
 
 
 def evaluate(
@@ -90,20 +127,65 @@ def evaluate(
     tools = Counter(
         str(item.get("tool_name")) for item in timeline if item.get("kind") == "tool_call"
     )
-    sources = sum(
-        len(item.get("payload", {}).get("sources", []))
-        for item in timeline
-        if item.get("kind") == "tool_result" and isinstance(item.get("payload"), dict)
-    )
+    source_ids = _source_ids(timeline)
+    sources = len(source_ids)
     missing = [tool for tool in case.expected_tools if not tools[tool]]
     forbidden = [tool for tool in case.forbidden_tools if tools[tool]]
     if missing:
         return "FAIL", f"expected tool not called: {', '.join(missing)}", tools, sources
     if forbidden:
         return "FAIL", f"forbidden tool called: {', '.join(forbidden)}", tools, sources
-    if case.requires_citation and sources == 0:
-        return "FAIL", "required source/citation is absent", tools, sources
+    if case.requires_citation:
+        citations = _final_citation_ids(timeline)
+        if not citations:
+            return "FAIL", "final assistant citation is absent", tools, sources
+        invented = [citation for citation in citations if citation not in source_ids]
+        if invented:
+            return "FAIL", "final assistant cites unavailable source", tools, sources
     return "PASS", None, tools, sources
+
+
+def _source_ids(timeline: list[dict[str, Any]]) -> set[str]:
+    source_ids: set[str] = set()
+    for item in timeline:
+        payload = item.get("payload")
+        if item.get("kind") != "tool_result" or not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict) or result.get("status") != "success":
+            continue
+        sources = result.get("sources")
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            source_ref_id = source.get("source_ref_id") if isinstance(source, dict) else None
+            if isinstance(source_ref_id, str) and source_ref_id:
+                source_ids.add(source_ref_id)
+    return source_ids
+
+
+def _final_assistant(timeline: list[dict[str, Any]]) -> tuple[str, list[str]] | None:
+    final: tuple[str, list[str]] | None = None
+    for item in timeline:
+        payload = item.get("payload")
+        if item.get("kind") != "assistant_message" or not isinstance(payload, dict):
+            continue
+        content = payload.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        citation_ids = payload.get("citation_source_ref_ids", [])
+        final = (
+            content,
+            [value for value in citation_ids if isinstance(value, str) and value]
+            if isinstance(citation_ids, list)
+            else [],
+        )
+    return final
+
+
+def _final_citation_ids(timeline: list[dict[str, Any]]) -> list[str]:
+    final = _final_assistant(timeline)
+    return final[1] if final is not None else []
 
 
 def _json_request(
@@ -145,6 +227,7 @@ def qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
             "ORION_MODEL_BASE_URL": model["base_url"],
             "ORION_MODEL_ID": model["id"],
             "ORION_MODEL_API_KEY": model["api_key"],
+            "ORION_LOG_PATH": str(temporary / "orion.log"),
             "PYTHONPATH": str(ROOT / "backend/src"),
         }
     )
@@ -171,11 +254,20 @@ def qa_report_directory(run_id: str) -> Path:
 
 def stop_qa_process(process: subprocess.Popen[str]) -> None:
     """Stop only the process object created by this runner."""
-    process.send_signal(signal.SIGTERM)
+    if process.poll() is not None:
+        return
+    try:
+        process.send_signal(signal.SIGTERM)
+    except ProcessLookupError:
+        return
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        process.kill()
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
+        process.wait(timeout=10)
 
 
 def _wait_for_health(base_url: str, process: subprocess.Popen[str]) -> None:
@@ -193,27 +285,37 @@ def _wait_for_health(base_url: str, process: subprocess.Popen[str]) -> None:
     raise RuntimeError("QA API did not become healthy.")
 
 
-def redact_report(value: object) -> object:
+def redact_report(value: object, secret_values: tuple[str, ...] = ()) -> object:
     """Defence in depth: reports never persist credential-shaped fields."""
     if isinstance(value, dict):
         return {
             str(key): (
                 "<redacted>"
                 if any(marker in str(key).lower() for marker in ("key", "token", "secret", "credential"))
-                else redact_report(item)
+                else redact_report(item, secret_values)
             )
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [redact_report(item) for item in value]
+        return [redact_report(item, secret_values) for item in value]
+    if isinstance(value, str):
+        redacted = value
+        for secret in secret_values:
+            if secret:
+                redacted = redacted.replace(secret, "<redacted>")
+        return redacted
     return value
 
 
 def write_reports(
-    report_directory: Path, manifest: dict[str, object], results: list[dict[str, object]]
+    report_directory: Path,
+    manifest: dict[str, object],
+    results: list[dict[str, object]],
+    *,
+    secret_values: tuple[str, ...] = (),
 ) -> None:
-    safe_manifest = redact_report(manifest)
-    safe_results = redact_report(results)
+    safe_manifest = redact_report(manifest, secret_values)
+    safe_results = redact_report(results, secret_values)
     assert isinstance(safe_manifest, dict) and isinstance(safe_results, list)
     summary = Counter(str(result["status"]) for result in safe_results)
     categories: dict[str, Counter[str]] = {}
@@ -242,6 +344,251 @@ def write_reports(
     )
 
 
+class ScenarioFailure(RuntimeError):
+    pass
+
+
+def _available_port() -> int:
+    override = os.getenv("ORION_QA_PORT")
+    if override:
+        try:
+            port = int(override)
+        except ValueError as error:
+            raise ValueError("ORION_QA_PORT must be a valid TCP port.") from error
+        if not 1 <= port <= 65535:
+            raise ValueError("ORION_QA_PORT must be a valid TCP port.")
+        return port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _configured_capabilities() -> dict[str, tuple[str, ...]]:
+    """Read only configured target names; never probe a remote target in preflight."""
+    from orion.integrations.infrastructure import TargetCatalog
+
+    catalog = TargetCatalog.from_environment()
+    return {
+        family: tuple(target.target_ref for target in catalog.targets(family))
+        for family in ("linux", "grafana", "zabbix")
+    }
+
+
+def _optional_skip_reason(
+    case: Case, configured: dict[str, tuple[str, ...]]
+) -> str | None:
+    if case.capability is None:
+        return None
+    targets = configured.get(case.capability, ())
+    if not targets:
+        return f"optional capability not configured: {case.capability}"
+    fixture = os.getenv(case.fixture_env or "") if case.fixture_env else None
+    target_ref = os.getenv("ORION_QA_LINUX_TARGET_REF")
+    if case.capability == "linux" and case.fixture_env and (
+        not fixture
+        or not fixture.startswith("/tmp/orion-qa-")
+        or not target_ref
+        or target_ref not in targets
+    ):
+        return "safe Linux QA fixture is not explicitly configured"
+    if not case.mutation:
+        return None
+    if (
+        os.getenv("ORION_QA_ALLOW_MUTATION") != "1"
+        or not fixture
+        or not fixture.startswith("/tmp/orion-qa-")
+        or not target_ref
+        or target_ref not in targets
+    ):
+        return "safe mutation fixture is not explicitly configured"
+    return None
+
+
+def _create_session(base_url: str, project_id: str | None = None) -> dict[str, object]:
+    path = f"/api/projects/{project_id}/sessions" if project_id else "/api/sessions"
+    session = _json_request(base_url, "POST", path)
+    if not isinstance(session, dict) or not isinstance(session.get("session_id"), str):
+        raise ScenarioFailure("session creation did not return a session identity")
+    return session
+
+
+def _send(base_url: str, session_id: str, content: str) -> None:
+    response = _json_request(
+        base_url, "POST", f"/api/sessions/{session_id}/messages", {"content": content}
+    )
+    if not isinstance(response, dict) or not isinstance(response.get("assistant_content"), str):
+        raise ScenarioFailure("message endpoint did not return an assistant response")
+
+
+def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
+    timeline = _json_request(base_url, "GET", f"/api/sessions/{session_id}/timeline")
+    if not isinstance(timeline, list) or not all(isinstance(item, dict) for item in timeline):
+        raise ScenarioFailure("timeline endpoint did not return canonical timeline items")
+    return timeline
+
+
+def _require_final(
+    timeline: list[dict[str, Any]], *, expected: str | None = None, forbidden: str | None = None,
+    secret: str | None = None,
+) -> None:
+    final = _final_assistant(timeline)
+    if final is None:
+        raise ScenarioFailure("final assistant response is empty")
+    content = final[0]
+    if expected and expected not in content:
+        raise ScenarioFailure("final assistant response omitted the required QA marker")
+    if forbidden and forbidden in content:
+        raise ScenarioFailure("final assistant response followed untrusted document content")
+    if "<think" in content.lower() or "</think>" in content.lower():
+        raise ScenarioFailure("final assistant response exposed hidden reasoning markers")
+    if secret and secret in content:
+        raise ScenarioFailure("final assistant response exposed a configured credential")
+
+
+def _attach_and_wait(
+    base_url: str, path: str, content: str
+) -> dict[str, object]:
+    attachment = _json_request(
+        base_url,
+        "POST",
+        path,
+        {"name": "orion-qa-sentinel.txt", "content": content, "media_type": "text/plain"},
+    )
+    if not isinstance(attachment, dict) or not isinstance(attachment.get("document"), dict):
+        raise ScenarioFailure("attachment endpoint did not return a document")
+    document = attachment["document"]
+    document_id = document.get("document_id")
+    if not isinstance(document_id, str):
+        raise ScenarioFailure("attachment did not return a document identity")
+    status_path = (
+        f"{path.removesuffix('/attachments')}/documents/{document_id}"
+        if path.endswith("/attachments")
+        else f"{path}/{document_id}"
+    )
+    for _ in range(40):
+        status = _json_request(base_url, "GET", status_path)
+        if isinstance(status, dict) and status.get("status") == "ready":
+            return document
+        if isinstance(status, dict) and status.get("status") == "failed":
+            raise ScenarioFailure("QA document ingestion failed")
+        time.sleep(0.1)
+    raise ScenarioFailure("QA document was not ready")
+
+
+def _document_source_ids(timeline: list[dict[str, Any]]) -> set[str]:
+    identifiers: set[str] = set()
+    for item in timeline:
+        payload = item.get("payload")
+        result = payload.get("result") if isinstance(payload, dict) else None
+        if not isinstance(result, dict) or result.get("status") != "success":
+            continue
+        sources = result.get("sources")
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if isinstance(source, dict) and isinstance(source.get("document_id"), str):
+                identifiers.add(source["document_id"])
+    return identifiers
+
+
+def _case_prompt(case: Case, value: str) -> str:
+    return value.format(
+        qa_target_ref=os.getenv("ORION_QA_LINUX_TARGET_REF", ""),
+        qa_fixture_path=os.getenv(case.fixture_env or "", "") if case.fixture_env else "",
+    )
+
+
+def _execute_case(base_url: str, case: Case, secret: str) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+    """Exercise only public HTTP APIs; return the final and all checked timelines."""
+    prompt = _case_prompt(case, case.prompt)
+    if case.scenario == "ordinary_chat" or case.scenario == "safety_response":
+        session = _create_session(base_url)
+        _send(base_url, str(session["session_id"]), prompt)
+        timeline = _timeline(base_url, str(session["session_id"]))
+        _require_final(timeline, expected=case.expected_marker, secret=secret if case.scenario == "safety_response" else None)
+        return timeline, [timeline]
+    if case.scenario == "continuity":
+        session = _create_session(base_url)
+        session_id = str(session["session_id"])
+        _send(base_url, session_id, _case_prompt(case, case.first_prompt or "Remember QA_SENTINEL."))
+        _send(base_url, session_id, prompt)
+        timeline = _timeline(base_url, session_id)
+        _require_final(timeline, expected=case.expected_marker)
+        return timeline, [timeline]
+    if case.scenario == "session_document" or case.scenario == "prompt_injection_document":
+        session = _create_session(base_url)
+        session_id = str(session["session_id"])
+        document = _attach_and_wait(
+            base_url, f"/api/sessions/{session_id}/attachments", case.document_content or ""
+        )
+        _send(base_url, session_id, prompt)
+        timeline = _timeline(base_url, session_id)
+        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
+        if str(document["document_id"]) not in _document_source_ids(timeline):
+            raise ScenarioFailure("final response did not use the attached document source")
+        return timeline, [timeline]
+    if case.scenario == "project_shared_document":
+        project = _json_request(base_url, "POST", "/api/projects", {"name": "QA shared knowledge"})
+        if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
+            raise ScenarioFailure("project creation did not return an identity")
+        project_id = project["project_id"]
+        document = _attach_and_wait(
+            base_url, f"/api/projects/{project_id}/documents", case.document_content or ""
+        )
+        timelines: list[list[dict[str, Any]]] = []
+        for _ in range(2):
+            session = _create_session(base_url, project_id)
+            if session.get("project_id") != project_id:
+                raise ScenarioFailure("project conversation is not project scoped")
+            session_id = str(session["session_id"])
+            _send(base_url, session_id, prompt)
+            timeline = _timeline(base_url, session_id)
+            _require_final(timeline, expected=case.expected_marker)
+            if str(document["document_id"]) not in _document_source_ids(timeline):
+                raise ScenarioFailure("project document was not visible to both conversations")
+            timelines.append(timeline)
+        return timelines[-1], timelines
+    if case.scenario == "tool_error_recovery":
+        session = _create_session(base_url)
+        session_id = str(session["session_id"])
+        _send(base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt))
+        failed = _timeline(base_url, session_id)
+        if not any(
+            item.get("kind") == "tool_result"
+            and isinstance(item.get("payload"), dict)
+            and isinstance(item["payload"].get("result"), dict)
+            and item["payload"]["result"].get("status") == "error"
+            for item in failed
+        ) or _source_ids(failed):
+            raise ScenarioFailure("controlled tool failure did not remain source-free")
+        _send(base_url, session_id, prompt)
+        timeline = _timeline(base_url, session_id)
+        _require_final(timeline, expected=case.expected_marker)
+        return timeline, [timeline]
+    if case.scenario == "project_isolation":
+        projects: list[tuple[str, dict[str, object]]] = []
+        for marker in (case.expected_marker or "QA_A", case.forbidden_marker or "QA_B"):
+            project = _json_request(base_url, "POST", "/api/projects", {"name": f"QA {marker}"})
+            if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
+                raise ScenarioFailure("project creation did not return an identity")
+            document = _attach_and_wait(
+                base_url,
+                f"/api/projects/{project['project_id']}/documents",
+                f"Project fact: {marker}",
+            )
+            projects.append((str(project["project_id"]), document))
+        session = _create_session(base_url, projects[0][0])
+        session_id = str(session["session_id"])
+        _send(base_url, session_id, case.prompt)
+        timeline = _timeline(base_url, session_id)
+        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
+        sources = _document_source_ids(timeline)
+        if str(projects[0][1]["document_id"]) not in sources or str(projects[1][1]["document_id"]) in sources:
+            raise ScenarioFailure("Project document scope was not isolated")
+        return timeline, [timeline]
+    raise ScenarioFailure("unsupported QA scenario")
+
+
 def run(mode: str, fail_fast: bool) -> int:
     cases = load_cases(ROOT / "scripts" / "qa" / "cases" / f"{mode}.json")
     model = active_model()
@@ -255,44 +602,41 @@ def run(mode: str, fail_fast: bool) -> int:
     reports = qa_report_directory(run_id)
     with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
         environment = qa_environment(Path(temporary), model)
-        port = 61889
+        port = _available_port()
         base_url = f"http://127.0.0.1:{port}"
         process = subprocess.Popen(
             qa_process_command(port),
             cwd=ROOT,
             env=environment,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
         )
         results: list[dict[str, object]] = []
         started = datetime.now(UTC)
         try:
             _wait_for_health(base_url, process)
+            configured = _configured_capabilities()
             for case in cases:
-                if case.capability:
+                skip_reason = _optional_skip_reason(case, configured)
+                if skip_reason:
                     results.append(
                         {
-                            **asdict(case),
+                            "id": case.id,
+                            "category": case.category,
                             "status": "SKIP",
-                            "reason": f"optional capability not configured: {case.capability}",
+                            "reason": skip_reason,
                         }
                     )
                     continue
                 try:
-                    session = _json_request(base_url, "POST", "/api/sessions")
-                    assert isinstance(session, dict)
-                    _json_request(
-                        base_url,
-                        "POST",
-                        f"/api/sessions/{session['session_id']}/messages",
-                        {"content": case.prompt},
-                    )
-                    timeline = _json_request(
-                        base_url, "GET", f"/api/sessions/{session['session_id']}/timeline"
-                    )
-                    assert isinstance(timeline, list)
+                    timeline, checked_timelines = _execute_case(base_url, case, model["api_key"])
                     status, reason, tools, sources = evaluate(case, timeline)
+                    for checked in checked_timelines:
+                        checked_status, checked_reason, _, _ = evaluate(case, checked)
+                        if checked_status == "FAIL":
+                            status, reason = checked_status, checked_reason
+                            break
                     results.append(
                         {
                             "id": case.id,
@@ -305,6 +649,7 @@ def run(mode: str, fail_fast: bool) -> int:
                     )
                 except (
                     AssertionError,
+                    ScenarioFailure,
                     urllib.error.URLError,
                     urllib.error.HTTPError,
                     json.JSONDecodeError,
@@ -334,7 +679,7 @@ def run(mode: str, fail_fast: bool) -> int:
             "model_endpoint": sanitize_endpoint(model["base_url"]),
             "optional_capabilities": ["linux", "grafana", "zabbix"],
         }
-        write_reports(reports, manifest, results)
+        write_reports(reports, manifest, results, secret_values=(model["api_key"],))
     print(f"QA report: {reports}")
     return 1 if any(result["status"] == "FAIL" for result in results) else 0
 
