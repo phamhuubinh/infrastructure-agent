@@ -71,8 +71,12 @@ def test_qa_case_loading_evaluation_and_report_generation(qa_runner, tmp_path) -
                 "status": status,
                 "reason": reason,
                 "credential": "provider-secret",
+                "citation_diagnostics": {
+                    "visible_source_ref_ids": ["provider-secret-source"],
+                },
             }
         ],
+        secret_values=("provider-secret",),
     )
 
     assert (status, reason, dict(tools), sources) == ("PASS", None, {"calculator.evaluate": 1}, 1)
@@ -159,6 +163,55 @@ def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  #
         "payload": {"content": "answer", "citation_source_ref_ids": ["real"]},
     }
     assert qa_runner.evaluate(case, [source, cited])[:2] == ("PASS", None)
+
+
+def test_qa_citation_diagnostics_are_bounded_and_content_free(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    timeline = [
+        {
+            "kind": "tool_result",
+            "payload": {
+                "result": {
+                    "status": "success",
+                    "sources": [{"source_ref_id": f"source-{index}"} for index in range(10)],
+                    "data": {"text": "tool content must not be reported"},
+                }
+            },
+        },
+        {
+            "kind": "assistant_message",
+            "payload": {
+                "content": "model content must not be reported",
+                "citation_source_ref_ids": [f"citation-{index}" for index in range(10)],
+            },
+        },
+    ]
+
+    diagnostics = qa_runner.citation_diagnostics(timeline)
+
+    assert diagnostics == {
+        "visible_source_count": 10,
+        "visible_source_ref_ids": [
+            "source-0",
+            "source-1",
+            "source-2",
+            "source-3",
+            "source-4",
+            "source-5",
+            "source-6",
+            "source-7",
+        ],
+        "final_citation_count": 10,
+        "final_citation_source_ref_ids": [
+            "citation-0",
+            "citation-1",
+            "citation-2",
+            "citation-3",
+            "citation-4",
+            "citation-5",
+            "citation-6",
+            "citation-7",
+        ],
+    }
 
 
 def test_qa_evaluation_requires_the_expected_canonical_tool_error(qa_runner) -> None:  # type: ignore[no-untyped-def]

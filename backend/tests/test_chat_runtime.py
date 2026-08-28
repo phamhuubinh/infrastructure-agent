@@ -264,6 +264,9 @@ def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
 
     instructions = ContextBuilder(store).build(session_id)[0].content
 
+    assert "Citations are unnecessary for ordinary answers" in instructions
+    assert "explicitly asks for a citation, source, or attribution" in instructions
+    assert "MUST include one or more exact [[source:<source_ref_id>]] markers" in instructions
     assert "exact source_ref_id from a ToolResult.sources entry visible" in instructions
     assert "sources=[], do not emit any [[source:...]] marker" in instructions
     assert "Never invent, guess, transform, or reuse a source_ref_id" in instructions

@@ -24,7 +24,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "2"
+RUNNER_VERSION = "3"
+CITATION_DIAGNOSTIC_LIMIT = 8
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -230,6 +231,18 @@ def _final_assistant(timeline: list[dict[str, Any]]) -> tuple[str, list[str]] | 
 def _final_citation_ids(timeline: list[dict[str, Any]]) -> list[str]:
     final = _final_assistant(timeline)
     return final[1] if final is not None else []
+
+
+def citation_diagnostics(timeline: list[dict[str, Any]]) -> dict[str, object]:
+    """Return bounded canonical citation metadata without raw model or tool content."""
+    visible = sorted(_source_ids(timeline))
+    citations = _final_citation_ids(timeline)
+    return {
+        "visible_source_count": len(visible),
+        "visible_source_ref_ids": visible[:CITATION_DIAGNOSTIC_LIMIT],
+        "final_citation_count": len(citations),
+        "final_citation_source_ref_ids": citations[:CITATION_DIAGNOSTIC_LIMIT],
+    }
 
 
 def _json_request(
@@ -681,16 +694,17 @@ def run(mode: str, fail_fast: bool) -> int:
                         if checked_status == "FAIL":
                             status, reason = checked_status, checked_reason
                             break
-                    results.append(
-                        {
-                            "id": case.id,
-                            "category": case.category,
-                            "status": status,
-                            "reason": reason,
-                            "tools": dict(tools),
-                            "sources": sources,
-                        }
-                    )
+                    result: dict[str, object] = {
+                        "id": case.id,
+                        "category": case.category,
+                        "status": status,
+                        "reason": reason,
+                        "tools": dict(tools),
+                        "sources": sources,
+                    }
+                    if case.requires_citation:
+                        result["citation_diagnostics"] = citation_diagnostics(timeline)
+                    results.append(result)
                 except (
                     AssertionError,
                     ScenarioFailure,
