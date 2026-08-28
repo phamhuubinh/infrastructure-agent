@@ -538,3 +538,247 @@ def test_qa_redacts_secret_values_and_capability_skip_is_conditional(
     monkeypatch.setenv("ORION_QA_LINUX_TARGET_REF", "safe")
     monkeypatch.setenv("FIXTURE", "/tmp/orion-qa-safe/file.txt")
     assert qa_runner._optional_skip_reason(mutation, {"linux": ("safe",)}) is None
+
+
+def test_historical_corpora_have_exact_counts_order_and_comment_parsing(
+    qa_runner, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    suites = qa_runner.load_historical_suites()
+
+    assert [(suite.id, len(suite.questions)) for suite in suites] == [
+        ("historical-default", 193),
+        ("cauhoi_kiemtra_v2", 66),
+        ("cauhoi_phanb", 28),
+        ("cauhoi_v4_adversarial", 61),
+        ("cauhoi_v5_workflow", 38),
+    ]
+    assert sum(len(suite.questions) for suite in suites) == 386
+    source = qa_runner.ROOT / "scripts/qa/cases/historical/historical-default.txt"
+    assert suites[0].questions == qa_runner.load_historical_questions(source)
+    assert qa_runner.select_historical_suites(suites, "cauhoi_phanb") == (suites[2],)
+    with pytest.raises(ValueError, match="Historical QA suite not found: absent"):
+        qa_runner.select_historical_suites(suites, "absent")
+
+    corpus = tmp_path / "historical.txt"
+    corpus.write_text("\n # comment\n first\n\nsecond  \n", encoding="utf-8")
+    assert qa_runner.load_historical_questions(corpus) == ("first", "second")
+
+
+def test_historical_suite_reuses_one_session_and_sends_each_question_once(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    sessions: list[str] = []
+    sent: list[tuple[str, str]] = []
+
+    def create(base_url):  # type: ignore[no-untyped-def]
+        session_id = f"session-{len(sessions) + 1}"
+        sessions.append(session_id)
+        return {"session_id": session_id}
+
+    monkeypatch.setattr(qa_runner, "_create_session", create)
+    monkeypatch.setattr(
+        qa_runner,
+        "_send",
+        lambda base_url, session_id, question: sent.append((session_id, question)),
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "_timeline",
+        lambda base_url, session_id: [
+            {"kind": "assistant_message", "payload": {"content": "safe answer"}}
+        ],
+    )
+
+    first = qa_runner.HistoricalSuite("one", ("first", "second"))
+    second = qa_runner.HistoricalSuite("two", ("third",))
+    results = qa_runner._execute_historical_suite("http://qa", first, "secret")
+    qa_runner._execute_historical_suite("http://qa", second, "secret")
+
+    assert sessions == ["session-1", "session-2"]
+    assert sent == [("session-1", "first"), ("session-1", "second"), ("session-2", "third")]
+    assert [(item["suite_id"], item["question_index"], item["status"]) for item in results] == [
+        ("one", 1, "PASS"),
+        ("one", 2, "PASS"),
+    ]
+
+
+def test_historical_environment_forces_empty_infrastructure_without_fallbacks(
+    qa_runner, tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ORION_TOOL_CREDENTIALS_PATH", "/tmp/credentials.json")
+    monkeypatch.setenv("ORION_SSH_CONFIG_PATH", "/tmp/ssh-config")
+    monkeypatch.setenv("ORION_SSH_TARGET_REFS", "production")
+
+    environment = qa_runner.historical_qa_environment(
+        tmp_path, {"base_url": "http://model", "id": "model", "api_key": "secret"}
+    )
+    config = json.loads(
+        Path(environment["ORION_INFRASTRUCTURE_CONFIG"]).read_text(encoding="utf-8")
+    )
+
+    assert config == {
+        "credentials": {},
+        "targets": {"linux": [], "grafana": [], "zabbix": []},
+    }
+    assert "ORION_TOOL_CREDENTIALS_PATH" not in environment
+    assert "ORION_SSH_CONFIG_PATH" not in environment
+    assert "ORION_SSH_TARGET_REFS" not in environment
+
+    from orion.integrations.infrastructure import TargetCatalog
+
+    with monkeypatch.context() as isolated_environment:
+        isolated_environment.setattr(qa_runner.os, "environ", environment)
+        catalog = TargetCatalog.from_environment()
+    assert all(not catalog.targets(family) for family in ("linux", "grafana", "zabbix"))
+
+
+def test_full_structured_corpus_stays_at_25_cases(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    cases = qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/full.json")
+    assert len(cases) == 25
+
+
+def test_case_id_does_not_run_historical_corpus(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model", "id": "model", "api_key": ""},
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "_run_structured",
+        lambda cases, model, fail_fast: (
+            [
+                {
+                    "phase": "structured",
+                    "id": cases[0].id,
+                    "category": "test",
+                    "status": "PASS",
+                    "reason": None,
+                }
+            ],
+            "http://qa",
+        ),
+    )
+    monkeypatch.setattr(qa_runner, "_run_historical", lambda *args: pytest.fail("historical"))
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+    monkeypatch.setattr(
+        qa_runner.os, "popen", lambda command: type("Pipe", (), {"read": lambda self: "sha\n"})()
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "write_reports",
+        lambda report, manifest, results, **kwargs: captured.update(
+            manifest=manifest, results=results
+        ),
+    )
+
+    assert qa_runner.run("full", fail_fast=False, case_id="vi-direct") == 0
+    assert captured["manifest"]["selected_case_id"] == "vi-direct"  # type: ignore[index]
+    assert [result["id"] for result in captured["results"]] == ["vi-direct"]  # type: ignore[index]
+
+
+def test_full_manifest_records_all_historical_counts(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model", "id": "model", "api_key": ""},
+    )
+    monkeypatch.setattr(qa_runner, "_run_structured", lambda *args: ([], "http://structured"))
+    monkeypatch.setattr(qa_runner, "_run_historical", lambda *args: ([], "http://historical"))
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+    monkeypatch.setattr(
+        qa_runner.os,
+        "popen",
+        lambda command: type("Pipe", (), {"read": lambda self: "sha\n"})(),
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "write_reports",
+        lambda report, manifest, results, **kwargs: captured.update(manifest=manifest),
+    )
+
+    assert qa_runner.run("full", fail_fast=False) == 0
+    manifest = captured["manifest"]  # type: ignore[assignment]
+    assert manifest["historical_source_commit"] == qa_runner.HISTORICAL_SOURCE_COMMIT  # type: ignore[index]
+    assert manifest["historical_prompt_turns"] == 386  # type: ignore[index]
+    assert manifest["historical_suite_counts"] == {  # type: ignore[index]
+        "historical-default": 193,
+        "cauhoi_kiemtra_v2": 66,
+        "cauhoi_phanb": 28,
+        "cauhoi_v4_adversarial": 61,
+        "cauhoi_v5_workflow": 38,
+    }
+
+
+def test_historical_failures_are_bounded_and_content_free(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    secret = "provider-secret"
+    monkeypatch.setattr(qa_runner, "_create_session", lambda base_url: {"session_id": "one"})
+    monkeypatch.setattr(
+        qa_runner,
+        "_send",
+        lambda *args: (_ for _ in ()).throw(
+            qa_runner.urllib.error.HTTPError(
+                "http://qa",
+                502,
+                f"{secret}-" + "x" * 600,
+                None,
+                BytesIO(json.dumps({"detail": f"{secret}-" + "y" * 600}).encode()),
+            )
+        ),
+    )
+
+    result = qa_runner._execute_historical_suite(
+        "http://qa", qa_runner.HistoricalSuite("suite", ("sensitive prompt",)), secret
+    )[0]
+    safe = qa_runner.redact_report(result, (secret,))
+
+    assert result["reason"] == "HTTP/runtime failure"
+    assert "sensitive prompt" not in json.dumps(result)
+    assert len(str(result["http_reason"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert len(str(result["http_detail"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert secret not in json.dumps(safe)
+
+
+def test_qa_reports_aggregate_structured_and_historical_separately(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qa_runner.write_reports(
+        tmp_path,
+        {"mode": "full", "historical_prompt_turns": 2},
+        [
+            {
+                "phase": "structured",
+                "id": "case",
+                "category": "test",
+                "status": "PASS",
+                "reason": None,
+            },
+            {
+                "phase": "historical",
+                "suite_id": "one",
+                "question_index": 1,
+                "category": "historical",
+                "status": "PASS",
+                "reason": None,
+            },
+            {
+                "phase": "historical",
+                "suite_id": "one",
+                "question_index": 2,
+                "category": "historical",
+                "status": "FAIL",
+                "reason": "HTTP/runtime failure",
+            },
+        ],
+    )
+
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["structured"] == {"total": 1, "passed": 1, "failed": 0, "skipped": 0}
+    assert summary["historical"] == {
+        "total": 2,
+        "passed": 1,
+        "failed": 1,
+        "skipped": 0,
+        "suites": 1,
+        "prompt_turns": 2,
+    }
