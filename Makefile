@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck acceptance openapi openapi-check architecture-check operations-check test-backend test-frontend lint-backend lint-frontend
+.PHONY: test lint typecheck acceptance qa-smoke qa-full openapi openapi-check architecture-check operations-check test-backend test-frontend lint-backend lint-frontend
 
 test: test-backend test-frontend
 
@@ -32,3 +32,9 @@ operations-check:
 	cd backend && PYTHONPATH=src ../.venv/bin/python scripts/operations_check.py
 
 acceptance: openapi-check architecture-check operations-check test lint typecheck
+
+qa-smoke:
+	PYTHONPATH=backend/src .venv/bin/python scripts/qa/runner.py --mode smoke --fail-fast
+
+qa-full:
+	PYTHONPATH=backend/src .venv/bin/python scripts/qa/runner.py --mode full

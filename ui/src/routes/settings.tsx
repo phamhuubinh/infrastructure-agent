@@ -1,16 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import {
-  BrainCircuit,
-  Globe2,
-  Loader2,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Save,
-  Server,
-  Trash2,
-} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { BrainCircuit, Loader2, Pencil, Plus, Save, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/ui/badge";
@@ -37,26 +27,8 @@ type ModelConnection = {
   is_active: boolean;
 };
 
-type InternetIntegration = {
-  status: "unconfigured" | "healthy" | "unhealthy";
-  provider: string | null;
-  endpoint: string | null;
-  message: string | null;
-};
-
-type InfrastructureIntegration = {
-  status: "unconfigured" | "healthy" | "unhealthy";
-  message: string | null;
-};
-
 export function SettingsPage() {
   const [models, setModels] = useState<ModelConnection[]>([]);
-  const [internet, setInternet] = useState<InternetIntegration | null>(null);
-  const [infrastructure, setInfrastructure] = useState<Record<string, InfrastructureIntegration>>(
-    {},
-  );
-  const [integrationErrors, setIntegrationErrors] = useState<Record<string, string>>({});
-  const [refreshingIntegrations, setRefreshingIntegrations] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -74,38 +46,9 @@ export function SettingsPage() {
     }
   }, []);
 
-  const loadIntegrations = useCallback(async () => {
-    setRefreshingIntegrations(true);
-    const targets = ["internet", "linux", "grafana", "zabbix"] as const;
-    const results = await Promise.allSettled(
-      targets.map(async (family) => {
-        const path =
-          family === "internet" ? "/api/integrations/internet" : `/api/integrations/${family}`;
-        return [
-          family,
-          await apiJson<InternetIntegration | InfrastructureIntegration>(path),
-        ] as const;
-      }),
-    );
-    const nextErrors: Record<string, string> = {};
-    results.forEach((result, index) => {
-      const family = targets[index];
-      if (result.status === "rejected") {
-        nextErrors[family] = "Không thể tải trạng thái tích hợp.";
-        return;
-      }
-      const [, status] = result.value;
-      if (family === "internet") setInternet(status as InternetIntegration);
-      else setInfrastructure((current) => ({ ...current, [family]: status }));
-    });
-    setIntegrationErrors(nextErrors);
-    setRefreshingIntegrations(false);
-  }, []);
-
   useEffect(() => {
     void loadModels();
-    void loadIntegrations();
-  }, [loadIntegrations, loadModels]);
+  }, [loadModels]);
 
   function resetModelForm() {
     setBaseUrl("");
@@ -352,93 +295,8 @@ export function SettingsPage() {
               </>
             )}
           </Card>
-          <Card className="p-5 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="rounded-lg bg-surface-3 p-2 text-foreground">
-                  <Server className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="font-medium">Tích hợp</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Orion tự sử dụng các công cụ khả dụng khi model cần. Các tích hợp này được cấu
-                    hình trên máy chạy Orion, không bật/tắt theo từng cuộc trò chuyện.
-                  </p>
-                </div>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void loadIntegrations()}
-                disabled={refreshingIntegrations}
-              >
-                {refreshingIntegrations ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-                Làm mới trạng thái
-              </Button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <IntegrationCard
-                label="Internet"
-                icon={<Globe2 className="h-4 w-4" />}
-                item={internet}
-                error={integrationErrors.internet}
-              />
-              {(["linux", "grafana", "zabbix"] as const).map((family) => (
-                <IntegrationCard
-                  key={family}
-                  label={family === "linux" ? "Linux" : family === "grafana" ? "Grafana" : "Zabbix"}
-                  item={infrastructure[family]}
-                  error={integrationErrors[family]}
-                />
-              ))}
-            </div>
-          </Card>
         </div>
       </div>
-    </div>
-  );
-}
-
-function IntegrationCard({
-  label,
-  icon,
-  item,
-  error,
-}: {
-  label: string;
-  icon?: ReactNode;
-  item: InternetIntegration | InfrastructureIntegration | null | undefined;
-  error?: string;
-}) {
-  const status = error ? "unhealthy" : item?.status;
-  const labelForStatus =
-    status === "healthy"
-      ? "Sẵn sàng"
-      : status === "unconfigured"
-        ? "Chưa cấu hình"
-        : status === "unhealthy"
-          ? "Không khả dụng"
-          : "Đang tải";
-  return (
-    <div className="rounded-lg border p-3 text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 font-medium">
-          {icon}
-          {label}
-        </span>
-        <Badge>{labelForStatus}</Badge>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {error ??
-          item?.message ??
-          (status === "healthy"
-            ? "Sẵn sàng để Orion sử dụng tự động khi cần."
-            : "Đang tải trạng thái tích hợp.")}
-      </p>
     </div>
   );
 }

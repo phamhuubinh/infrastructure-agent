@@ -19,21 +19,6 @@ describe("M1 model settings", () => {
   it("loads the active M1 model and posts only the current configuration contract", async () => {
     let modelConfigured = false;
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
-      if (path === "/api/integrations/internet") {
-        return Promise.resolve(
-          jsonResponse({
-            status: "unconfigured",
-            provider: null,
-            endpoint: null,
-            message: "Internet search is not configured.",
-          }),
-        );
-      }
-      if (path.startsWith("/api/integrations/")) {
-        return Promise.resolve(
-          jsonResponse({ status: "unconfigured", message: "Not configured." }),
-        );
-      }
       if (path === "/api/models" && init?.method === "POST") {
         modelConfigured = true;
         return Promise.resolve(
@@ -90,8 +75,7 @@ describe("M1 model settings", () => {
       api_key: "provider-secret",
     });
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
-    await screen.findByText("Internet search is not configured.");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
   it("manages multiple saved models, including switching and editing without sending a blank key", async () => {
@@ -112,14 +96,6 @@ describe("M1 model settings", () => {
       },
     ];
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
-      if (path === "/api/integrations/internet") {
-        return Promise.resolve(
-          jsonResponse({ status: "unconfigured", provider: null, endpoint: null, message: "No" }),
-        );
-      }
-      if (path.startsWith("/api/integrations/")) {
-        return Promise.resolve(jsonResponse({ status: "unconfigured", message: "No" }));
-      }
       if (path === "/api/models/cfg-b/activate" && init?.method === "POST") {
         models = models.map((model) => ({
           ...model,
@@ -174,97 +150,17 @@ describe("M1 model settings", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/models/cfg-a", expect.anything());
   });
 
-  it("does not show a configured-but-unhealthy Internet integration as ready", async () => {
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/integrations/internet") {
-        return Promise.resolve(
-          jsonResponse({
-            status: "unhealthy",
-            provider: "searxng",
-            endpoint: "https://search.test/api",
-            message: "Configured Internet search integration is currently unavailable.",
-          }),
-        );
-      }
-      if (path.startsWith("/api/integrations/")) {
-        return Promise.resolve(
-          jsonResponse({ status: "unconfigured", message: "Not configured." }),
-        );
-      }
-      return Promise.resolve(jsonResponse([]));
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<SettingsPage />);
-
-    await screen.findByText("Không khả dụng");
-    expect(screen.queryByText("Sẵn sàng")).toBeNull();
-    expect(
-      screen.getByText("Configured Internet search integration is currently unavailable."),
-    ).toBeTruthy();
-  });
-
-  it("presents independent read-only integration availability without tool controls", async () => {
+  it("shows only model configuration and makes no integration requests", async () => {
     const fetchMock = vi.fn((path: string) => {
       if (path === "/api/models") return Promise.resolve(jsonResponse([]));
-      if (path === "/api/integrations/internet")
-        return Promise.resolve(
-          jsonResponse({ status: "healthy", provider: "searxng", endpoint: null, message: null }),
-        );
-      if (path === "/api/integrations/linux")
-        return Promise.resolve(
-          jsonResponse({ status: "unconfigured", message: "Linux is not configured." }),
-        );
-      if (path === "/api/integrations/grafana")
-        return Promise.resolve(
-          jsonResponse({ status: "unhealthy", message: "Grafana is unavailable." }),
-        );
-      if (path === "/api/integrations/zabbix")
-        return Promise.resolve(jsonResponse({ status: "healthy", message: null }));
       throw new Error(`unexpected endpoint ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
+
     render(<SettingsPage />);
 
-    await screen.findByText("Tích hợp");
-    expect(screen.getByText(/Orion tự sử dụng các công cụ khả dụng khi model cần/)).toBeTruthy();
-    expect(screen.getByText("Internet")).toBeTruthy();
-    expect(screen.getByText("Linux")).toBeTruthy();
-    expect(screen.getByText("Grafana")).toBeTruthy();
-    expect(screen.getByText("Zabbix")).toBeTruthy();
-    expect(screen.getAllByText("Sẵn sàng")).toHaveLength(2);
-    expect(screen.getByText("Chưa cấu hình")).toBeTruthy();
-    expect(screen.getByText("Không khả dụng")).toBeTruthy();
-    expect(screen.queryByText(/Bật tool|Tắt tool|enabled_tools/i)).toBeNull();
-    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
-  });
-
-  it("refreshes integrations independently without reloading model profiles", async () => {
-    let refresh = false;
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/models") return Promise.resolve(jsonResponse([]));
-      if (path === "/api/integrations/internet")
-        return Promise.resolve(
-          jsonResponse({ status: "healthy", provider: null, endpoint: null, message: null }),
-        );
-      if (path === "/api/integrations/linux")
-        return Promise.resolve(jsonResponse({ status: "healthy", message: null }));
-      if (path === "/api/integrations/grafana") {
-        return refresh
-          ? Promise.reject(new Error("offline"))
-          : Promise.resolve(jsonResponse({ status: "healthy", message: null }));
-      }
-      if (path === "/api/integrations/zabbix")
-        return Promise.resolve(jsonResponse({ status: "unconfigured", message: null }));
-      throw new Error(`unexpected endpoint ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(<SettingsPage />);
-    await screen.findByText("Grafana");
-    refresh = true;
-    fireEvent.click(screen.getByRole("button", { name: "Làm mới trạng thái" }));
-    await screen.findByText("Không thể tải trạng thái tích hợp.");
-    expect(screen.getByText("Internet")).toBeTruthy();
-    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/models")).toHaveLength(1);
+    await screen.findByText(/Đây là thiết lập Orion lần đầu/);
+    expect(screen.queryByText("Tích hợp")).toBeNull();
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/models"]);
   });
 });

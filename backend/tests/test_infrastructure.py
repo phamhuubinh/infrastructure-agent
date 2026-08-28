@@ -13,6 +13,8 @@ from orion.integrations.infrastructure import Target, TargetCatalog
 from orion.tool_runtime.infrastructure import (
     _INFRASTRUCTURE_WORKERS,
     _blocking_handler,
+    _linux_document_read,
+    _linux_file_edit,
     infrastructure_definitions,
     infrastructure_registrations,
 )
@@ -24,6 +26,8 @@ class FakeLinux:
     def __init__(self) -> None:
         self.calls = 0
         self.package = {"installed": False, "version": None}
+        self.files: dict[str, bytes] = {"/etc/hosts": b"bounded text"}
+        self.replacements: list[tuple[str, str]] = []
 
     def inspect(
         self, target: Target, credential: object, sections: tuple[str, ...]
@@ -35,7 +39,22 @@ class FakeLinux:
         self, target: Target, credential: object, path: str, offset: int, length: int
     ) -> bytes:
         self.calls += 1
-        return b"bounded text"
+        return self.files.get(path, b"")[offset : offset + length]
+
+    def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None:
+        self.calls += 1
+        self.files[path] = content
+
+    def replace_file(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None:
+        self.calls += 1
+        self.replacements.append((temporary_path, path))
+        self.files[path] = self.files.pop(temporary_path)
+
+    def remove_file(self, target: Target, credential: object, path: str) -> None:
+        self.calls += 1
+        self.files.pop(path, None)
 
     def service_status(
         self, target: Target, credential: object, service: str
@@ -255,6 +274,8 @@ def test_all_frozen_infrastructure_schemas_are_closed() -> None:
     assert names == {
         "linux.system.inspect",
         "linux.file.read",
+        "linux.document.read",
+        "linux.file.edit",
         "linux.service.status",
         "linux.package.status",
         "linux.service.restart",
@@ -305,6 +326,83 @@ async def test_successful_read_per_family_is_sanitized_and_source_bearing() -> N
     assert all(result.status == "success" and result.sources for result in results)
     assert {result.sources[0].source_kind for result in results} == {"linux", "grafana", "zabbix"}
     assert "private" not in str(results) and "not-printed" not in str(results)
+
+
+def test_linux_document_tools_edit_text_through_verified_same_directory_temporary_file() -> None:
+    linux = FakeLinux()
+    linux.files["/tmp/orion-qa.txt"] = b"before\nafter\n"
+    read = _linux_document_read(
+        ToolCall(
+            call_id="read",
+            tool_name="linux.document.read",
+            arguments={"target_ref": "node", "path": "/tmp/orion-qa.txt", "limit": 10},
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+    changed = _linux_file_edit(
+        ToolCall(
+            call_id="edit",
+            tool_name="linux.file.edit",
+            arguments={
+                "target_ref": "node",
+                "path": "/tmp/orion-qa.txt",
+                "operations": [
+                    {"kind": "replace_text", "old_text": "before", "new_text": "updated"}
+                ],
+            },
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+
+    assert read.status == "success" and read.data["format"] == "text"
+    assert changed.status == "success" and changed.data["changed"] is True
+    assert changed.data["verification"] == {"status": "verified", "format": "text", "operations": 1}
+    assert linux.files["/tmp/orion-qa.txt"] == b"updated\nafter\n"
+    assert linux.replacements and linux.replacements[0][0].startswith("/tmp/.orion-")
+
+
+def test_linux_file_edit_rejects_ambiguous_or_cancelled_text_without_writing() -> None:
+    linux = FakeLinux()
+    linux.files["/tmp/orion-qa.txt"] = b"same same"
+    arguments = {
+        "target_ref": "node",
+        "path": "/tmp/orion-qa.txt",
+        "operations": [{"kind": "replace_text", "old_text": "same", "new_text": "new"}],
+    }
+    ambiguous = _linux_file_edit(
+        ToolCall(
+            call_id="ambiguous",
+            tool_name="linux.file.edit",
+            arguments=arguments,
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        linux,
+    )
+    cancelled = _linux_file_edit(
+        ToolCall(
+            call_id="cancelled",
+            tool_name="linux.file.edit",
+            arguments={
+                **arguments,
+                "operations": [
+                    {"kind": "replace_text", "old_text": "same same", "new_text": "new"}
+                ],
+            },
+            runtime_scope=_scope(),
+            cancellation_requested=lambda: True,
+        ),
+        _catalog(),
+        linux,
+    )
+
+    assert ambiguous.error is not None and ambiguous.error.code == "ambiguous"
+    assert cancelled.error is not None and cancelled.error.code == "cancelled"
+    assert linux.files["/tmp/orion-qa.txt"] == b"same same"
 
 
 @pytest.mark.anyio

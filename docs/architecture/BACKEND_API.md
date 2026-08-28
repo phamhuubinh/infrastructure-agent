@@ -9,7 +9,7 @@ The backend is the application boundary for:
 - document upload/ingestion;
 - model configuration;
 - session state;
-- tool/integration health;
+- cheap application health;
 - streaming runtime events.
 
 ## Resource-oriented target
@@ -27,7 +27,6 @@ Exact routes may evolve, but product resources should remain recognizable:
 /projects/{id}
 /projects/{id}/documents
 /knowledge/...
-/integrations/...
 ```
 
 ## Chat request

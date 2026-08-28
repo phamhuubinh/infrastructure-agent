@@ -66,11 +66,6 @@ The UI should show:
 Settings may configure:
 
 - model endpoint/provider;
-- embeddings/reranker;
-- Internet integration;
-- Linux targets/credentials;
-- Grafana;
-- Zabbix;
-- storage paths.
+- saved model profiles and the active model.
 
-These are application/integration settings, not per-chat tool choices.
+Tools are automatic runtime capabilities. Settings has no tool status, toggle, or per-chat choice UI.

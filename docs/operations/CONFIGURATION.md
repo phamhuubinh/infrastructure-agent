@@ -38,8 +38,7 @@ Internet search works out of the box through Orion's built-in bounded DuckDuckGo
 client. Set `ORION_INTERNET_SEARCH_URL` only to override it with an administrator-chosen,
 SearXNG-compatible JSON search endpoint (for example a locally operated SearXNG service).
 The endpoint is server-side configuration; it is never supplied by the model or persisted in
-chat state. A provider is reported as `healthy` only after its bounded probe succeeds;
-otherwise it is `unhealthy` and local Orion features remain available.
+chat state. Orion application health is a cheap process check and does not probe external tools.
 
 The registered `internet.search` and `internet.fetch` operations have no credential or scope
 arguments and there is no Internet toggle or tool picker. The model decides when Internet search
@@ -76,10 +75,26 @@ Settings state.
 ```
 
 Configured families register their full fixed semantic operation family in the same
-registry used by Chat and Project. Unconfigured families are absent from that registry;
-their sanitized health status is `unconfigured`. Configured families report `healthy`
-only after a bounded probe succeeds, otherwise `unhealthy`; unrelated local tools and
-Chat/Project remain available.
+registry used by Chat and Project. Unconfigured families are absent from that registry.
+Tool execution activity and controlled tool errors are the product-visible evidence of
+availability; Settings does not probe or toggle integrations.
+
+## Remote file and document tools
+
+Configured Linux targets expose bounded semantic reads for UTF-8 text, `.docx`, and `.xlsx`
+through `linux.document.read`, plus structured verified edits through `linux.file.edit`.
+Legacy `.doc`, `.xls`, macro-enabled `.docm`/`.xlsm`, invalid packages, and non-UTF-8 text
+editing are rejected with controlled errors. Edits are applied in memory, uploaded to an
+Orion-generated temporary file in the original directory, verified, atomically replaced, and
+read back for final verification. Remote permissions continue to apply.
+
+## Live QA
+
+`make qa-smoke` and `make qa-full` are manual-only live commands, never dependencies of test,
+lint, acceptance, CI, installation, packaging, or Orion startup. They run the current HTTP API in
+an isolated temporary data directory; they do not use Docker or legacy endpoints. They require a
+local active model profile or the `ORION_QA_MODEL_*` overrides. Reports are written under
+`artifacts/qa/`; unavailable optional Linux, Grafana, and Zabbix suites are reported as `SKIP`.
 
 ### Existing local deployment sources
 

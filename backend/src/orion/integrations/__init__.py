@@ -2,8 +2,6 @@
 
 from orion.integrations.infrastructure import (
     GrafanaClient,
-    InfrastructureIntegrations,
-    IntegrationStatus,
     LinuxExecutor,
     TargetCatalog,
     ZabbixClient,
@@ -29,8 +27,6 @@ __all__ = [
     "SearxngInternetClient",
     "UnavailableInternetClient",
     "GrafanaClient",
-    "InfrastructureIntegrations",
-    "IntegrationStatus",
     "LinuxExecutor",
     "TargetCatalog",
     "ZabbixClient",

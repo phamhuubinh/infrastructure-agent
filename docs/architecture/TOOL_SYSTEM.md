@@ -109,7 +109,9 @@ Global application settings may determine whether an integration can initialize 
 
 This is different from a conversation tool picker.
 
-A tool that cannot initialize because required integration configuration is missing should be reported unavailable through application/health state rather than represented as a manually disabled per-chat choice.
+A tool that cannot initialize because required integration configuration is missing is absent from
+the registry rather than represented as a manually disabled per-chat choice. Application health
+remains a cheap process check and does not probe tools.
 
 ## Tool output
 

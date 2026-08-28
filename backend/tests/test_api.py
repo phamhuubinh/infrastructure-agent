@@ -5,9 +5,7 @@ import pytest
 from conftest import ScriptedBackend
 
 from orion.api.app import create_app
-from orion.bootstrap import build_application
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn
-from orion.integrations import DuckDuckGoInternetClient, SearxngInternetClient
 
 
 async def _configure(client: httpx.AsyncClient) -> None:
@@ -94,31 +92,20 @@ def test_session_summaries_have_a_fixed_server_side_bound(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_api_reports_optional_internet_integration_without_exposing_secrets(
+async def test_health_is_a_cheap_process_check_and_integration_status_routes_are_absent(
     tmp_path,
 ) -> None:  # type: ignore[no-untyped-def]
-    application = build_application(
-        tmp_path / "orion.db",
-        ScriptedBackend([]),
-        internet_client=DuckDuckGoInternetClient(
-            transport=httpx.MockTransport(lambda request: httpx.Response(200, text=""))
-        ),
-    )
+    app = create_app(tmp_path / "orion.db", ScriptedBackend([]))
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(application=application)),
-        base_url="http://test",
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:
-        integration = await client.get("/api/integrations/internet")
         health = await client.get("/api/health")
+        internet = await client.get("/api/integrations/internet")
+        linux = await client.get("/api/integrations/linux")
 
-    assert integration.json() == {
-        "status": "healthy",
-        "provider": "duckduckgo",
-        "endpoint": None,
-        "message": "Sẵn sàng để Orion tìm kiếm Internet tự động khi cần.",
-    }
-    assert health.json()["internet"]["status"] == "healthy"
-    assert "key" not in str(integration.json()).lower()
+    assert health.json() == {"status": "ok", "identity": "orion"}
+    assert internet.status_code == 404
+    assert linux.status_code == 404
 
 
 @pytest.mark.anyio
@@ -154,46 +141,6 @@ async def test_packaged_ui_serves_root_assets_and_client_routes_without_capturin
 
 
 @pytest.mark.anyio
-async def test_api_distinguishes_healthy_and_unhealthy_internet_configuration(
-    tmp_path,
-) -> None:  # type: ignore[no-untyped-def]
-    healthy_application = build_application(
-        tmp_path / "healthy.db",
-        ScriptedBackend([]),
-        internet_client=SearxngInternetClient(
-            "https://search.test/api",
-            transport=httpx.MockTransport(
-                lambda request: httpx.Response(200, json={"results": []})
-            ),
-        ),
-    )
-    unhealthy_application = build_application(
-        tmp_path / "unhealthy.db",
-        ScriptedBackend([]),
-        internet_client=SearxngInternetClient(
-            "https://search.test/api",
-            transport=httpx.MockTransport(lambda request: httpx.Response(503)),
-        ),
-    )
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(application=healthy_application)),
-        base_url="http://test",
-    ) as healthy_client:
-        healthy = await healthy_client.get("/api/integrations/internet")
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(application=unhealthy_application)),
-        base_url="http://test",
-    ) as unhealthy_client:
-        unhealthy = await unhealthy_client.get("/api/integrations/internet")
-
-    assert healthy.json()["status"] == "healthy"
-    assert unhealthy.json()["status"] == "unhealthy"
-    assert (
-        unhealthy.json()["message"]
-        == "Configured Internet search integration is currently unavailable."
-    )
-
-
 @pytest.mark.anyio
 async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(

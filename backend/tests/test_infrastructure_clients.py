@@ -9,7 +9,6 @@ from orion.contracts import ModelToolCall, RuntimeScope
 from orion.integrations.infrastructure import (
     HttpGrafanaClient,
     HttpZabbixClient,
-    InfrastructureIntegrations,
     Target,
     TargetCatalog,
 )
@@ -43,29 +42,6 @@ def test_zabbix_health_uses_unauthenticated_version_then_authenticated_probe() -
     assert "auth" not in payloads[0]
     assert payloads[1]["method"] == "host.get"
     assert payloads[1]["auth"] == "secret-token"
-
-
-@pytest.mark.parametrize("failure", ["bad_credential", "timeout"])
-def test_zabbix_health_is_unhealthy_and_redacts_credentials(failure: str) -> None:
-    def responder(request: httpx.Request) -> httpx.Response:
-        payload = json.loads(request.content)
-        if failure == "timeout":
-            raise httpx.ReadTimeout("secret-token", request=request)
-        if payload["method"] == "host.get":
-            return httpx.Response(
-                200, json={"jsonrpc": "2.0", "id": 1, "error": {"data": "secret-token"}}
-            )
-        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": "7.0"})
-
-    catalog = TargetCatalog((_zabbix_target(),), {"zabbix-token": "secret-token"})
-    integration = InfrastructureIntegrations(
-        catalog, zabbix=HttpZabbixClient(httpx.MockTransport(responder))
-    )
-
-    result = integration.status("zabbix")
-
-    assert result.status == "unhealthy"
-    assert "secret-token" not in str(result)
 
 
 def test_credentials_adapter_normalizes_zabbix_rpc_endpoint_and_keeps_it_private(

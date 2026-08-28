@@ -11,7 +11,6 @@ from orion.chat.runtime import ChatRuntime
 from orion.integrations import (
     DuckDuckGoInternetClient,
     GrafanaClient,
-    InfrastructureIntegrations,
     InternetClient,
     LinuxExecutor,
     SearxngInternetClient,
@@ -44,7 +43,6 @@ class OrionApplication:
     knowledge: KnowledgeService
     projects: ProjectService
     internet: InternetClient
-    infrastructure: InfrastructureIntegrations
     runtime: ChatRuntime
 
 
@@ -76,9 +74,6 @@ def build_application(
     projects = ProjectService(store)
     internet = internet_client or _internet_client_from_environment()
     infrastructure_catalog = infrastructure_catalog or TargetCatalog.from_environment()
-    infrastructure = InfrastructureIntegrations(
-        infrastructure_catalog, linux_executor, grafana_client, zabbix_client
-    )
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
@@ -112,7 +107,6 @@ def build_application(
         knowledge=knowledge,
         projects=projects,
         internet=internet,
-        infrastructure=infrastructure,
         runtime=runtime,
     )
 

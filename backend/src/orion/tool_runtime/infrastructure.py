@@ -16,6 +16,13 @@ from pathlib import PurePosixPath
 from weakref import WeakKeyDictionary
 
 from orion.contracts import SourceRef, ToolCall, ToolDefinition, ToolError, ToolResult
+from orion.integrations.documents import (
+    MAX_DOCUMENT_BYTES,
+    DocumentCodecError,
+    edit_document,
+    read_document,
+    verify_document_edit,
+)
 from orion.integrations.infrastructure import (
     GrafanaClient,
     HttpGrafanaClient,
@@ -36,6 +43,9 @@ UID = {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,40}$"}
 ID = {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"}
 DATE = {"type": "string", "format": "date-time", "maxLength": 40}
 TEXT128 = {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f]+$"}
+PATH = {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/[^\\u0000-\\u001f]*$"}
+DOCUMENT_TEXT = {"type": "string", "maxLength": 16000}
+CELL = {"type": "string", "pattern": "^[A-Z]{1,3}[1-9][0-9]{0,6}$"}
 
 # Infrastructure transports are synchronous but bounded (SSH and HTTP clients have
 # operation timeouts). The shared per-event-loop semaphore bounds active workers at
@@ -140,12 +150,7 @@ def _definitions() -> dict[str, ToolDefinition]:
                 "type": "object",
                 "properties": {
                     "target_ref": TARGET,
-                    "path": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 4096,
-                        "pattern": "^/[^\\u0000-\\u001f]*$",
-                    },
+                    "path": PATH,
                     "offset": {
                         "type": "integer",
                         "minimum": 0,
@@ -155,6 +160,114 @@ def _definitions() -> dict[str, ToolDefinition]:
                     "length": {"type": "integer", "minimum": 1, "maximum": 65536, "default": 16384},
                 },
                 "required": ["target_ref", "path"],
+                **closed,
+            },
+        ),
+        "linux.document.read": ToolDefinition(
+            name="linux.document.read",
+            description="Read bounded structured text, Word DOCX, or Excel XLSX content.",
+            handler_key="linux.document.read",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target_ref": TARGET,
+                    "path": PATH,
+                    "cursor": {"type": "integer", "minimum": 0, "maximum": 100000, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                    "sheet": TEXT128,
+                    "range": {
+                        "type": "string",
+                        "maxLength": 32,
+                        "pattern": "^[A-Z]+[1-9][0-9]*(?::[A-Z]+[1-9][0-9]*)?$",
+                    },
+                },
+                "required": ["target_ref", "path"],
+                **closed,
+            },
+        ),
+        "linux.file.edit": ToolDefinition(
+            name="linux.file.edit",
+            description=(
+                "Apply bounded structured edits to a UTF-8 text, Word DOCX, or Excel XLSX file "
+                "and verify the final result."
+            ),
+            handler_key="linux.file.edit",
+            operation_kind="mutation",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target_ref": TARGET,
+                    "path": PATH,
+                    "operations": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 32,
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"const": "replace_text"},
+                                        "old_text": DOCUMENT_TEXT,
+                                        "new_text": DOCUMENT_TEXT,
+                                    },
+                                    "required": ["kind", "old_text", "new_text"],
+                                    "additionalProperties": False,
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"const": "set_paragraph"},
+                                        "paragraph_index": {"type": "integer", "minimum": 0},
+                                        "text": DOCUMENT_TEXT,
+                                    },
+                                    "required": ["kind", "paragraph_index", "text"],
+                                    "additionalProperties": False,
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"const": "set_table_cell"},
+                                        "table_index": {"type": "integer", "minimum": 0},
+                                        "row": {"type": "integer", "minimum": 0},
+                                        "column": {"type": "integer", "minimum": 0},
+                                        "text": DOCUMENT_TEXT,
+                                    },
+                                    "required": ["kind", "table_index", "row", "column", "text"],
+                                    "additionalProperties": False,
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"const": "set_cell"},
+                                        "sheet": TEXT128,
+                                        "cell": CELL,
+                                        "value": {"type": ["string", "number", "boolean", "null"]},
+                                    },
+                                    "required": ["kind", "sheet", "cell", "value"],
+                                    "additionalProperties": False,
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "kind": {"const": "set_formula"},
+                                        "sheet": TEXT128,
+                                        "cell": CELL,
+                                        "formula": {
+                                            "type": "string",
+                                            "minLength": 2,
+                                            "maxLength": 16000,
+                                            "pattern": "^=",
+                                        },
+                                    },
+                                    "required": ["kind", "sheet", "cell", "formula"],
+                                    "additionalProperties": False,
+                                },
+                            ]
+                        },
+                    },
+                },
+                "required": ["target_ref", "path", "operations"],
                 **closed,
             },
         ),
@@ -445,6 +558,8 @@ def _linux_registrations(catalog: TargetCatalog, executor: LinuxExecutor) -> lis
     handlers = {
         "linux.system.inspect": lambda call: _linux_inspect(call, catalog, executor),
         "linux.file.read": lambda call: _linux_read(call, catalog, executor),
+        "linux.document.read": lambda call: _linux_document_read(call, catalog, executor),
+        "linux.file.edit": lambda call: _linux_file_edit(call, catalog, executor),
         "linux.service.status": lambda call: _linux_service(call, catalog, executor),
         "linux.package.status": lambda call: _linux_package(call, catalog, executor),
         "linux.service.restart": lambda call: _linux_restart(call, catalog, executor),
@@ -572,6 +687,124 @@ def _linux_read(call: ToolCall, catalog: TargetCatalog, executor: LinuxExecutor)
         return _success(call, data, target, "file.read")
 
     return _with_errors(call, operation)
+
+
+def _linux_document_read(
+    call: ToolCall, catalog: TargetCatalog, executor: LinuxExecutor
+) -> ToolResult:
+    def operation() -> ToolResult:
+        path = str(call.arguments["path"])
+        _validate_path(path)
+        target, credential = _target(call, catalog, "linux")
+        payload = _read_document_bytes(executor, target, credential, path)
+        try:
+            document = read_document(
+                path,
+                payload,
+                cursor=int(call.arguments.get("cursor", 0)),
+                limit=int(call.arguments.get("limit", 50)),
+                sheet=str(call.arguments["sheet"]) if "sheet" in call.arguments else None,
+                cell_range=str(call.arguments["range"]) if "range" in call.arguments else None,
+            )
+        except DocumentCodecError as error:
+            raise InfrastructureError(error.code, error.message) from error
+        return _success(
+            call,
+            {"target_ref": target.target_ref, "path": path, **document},
+            target,
+            "document.read",
+        )
+
+    return _with_errors(call, operation)
+
+
+def _linux_file_edit(call: ToolCall, catalog: TargetCatalog, executor: LinuxExecutor) -> ToolResult:
+    def operation() -> ToolResult:
+        path = str(call.arguments["path"])
+        _validate_path(path)
+        target, credential = _target(call, catalog, "linux")
+        payload = _read_document_bytes(executor, target, credential, path)
+        raw_operations = call.arguments["operations"]
+        if not isinstance(raw_operations, list) or not all(
+            isinstance(item, dict) for item in raw_operations
+        ):
+            raise InfrastructureError("invalid_input", "Document edit operations are invalid.")
+        operations = [dict(item) for item in raw_operations]
+        try:
+            edited, summary = edit_document(path, payload, operations)
+        except DocumentCodecError as error:
+            raise InfrastructureError(error.code, error.message) from error
+        if edited == payload:
+            return _success(
+                call,
+                {
+                    "target_ref": target.target_ref,
+                    "path": path,
+                    "changed": False,
+                    **summary,
+                    "verification": {"status": "verified"},
+                },
+                target,
+                "file.edit",
+            )
+        if _cancelled(call):
+            raise InfrastructureError("cancelled", "Operation cancelled before dispatch.")
+        temporary_path = str(PurePosixPath(path).parent / f".orion-{uuid.uuid4().hex}.tmp")
+        try:
+            executor.write_file(target, credential, temporary_path, edited)
+            temporary = _read_document_bytes(executor, target, credential, temporary_path)
+            if temporary != edited:
+                raise InfrastructureError(
+                    "verification_failed", "Temporary file content did not match the edit."
+                )
+            verify_document_edit(path, temporary, operations)
+        except DocumentCodecError as error:
+            _cleanup_temporary(executor, target, credential, temporary_path)
+            raise InfrastructureError(error.code, error.message) from error
+        except InfrastructureError:
+            _cleanup_temporary(executor, target, credential, temporary_path)
+            raise
+        try:
+            executor.replace_file(target, credential, temporary_path, path)
+        except InfrastructureError:
+            return _unknown(call, target, path, None)
+        try:
+            final = _read_document_bytes(executor, target, credential, path)
+            verification = verify_document_edit(path, final, operations)
+        except (InfrastructureError, DocumentCodecError):
+            return _unknown(call, target, path, None)
+        return _success(
+            call,
+            {
+                "target_ref": target.target_ref,
+                "path": path,
+                "changed": True,
+                **summary,
+                "verification": verification,
+            },
+            target,
+            "file.edit",
+        )
+
+    return _with_errors(call, operation)
+
+
+def _read_document_bytes(
+    executor: LinuxExecutor, target: Target, credential: object, path: str
+) -> bytes:
+    payload = executor.read_file(target, credential, path, 0, MAX_DOCUMENT_BYTES + 1)
+    if len(payload) > MAX_DOCUMENT_BYTES:
+        raise InfrastructureError("too_large", "Document exceeds Orion's safe read limit.")
+    return payload
+
+
+def _cleanup_temporary(
+    executor: LinuxExecutor, target: Target, credential: object, temporary_path: str
+) -> None:
+    try:
+        executor.remove_file(target, credential, temporary_path)
+    except InfrastructureError:
+        pass
 
 
 def _linux_service(call: ToolCall, catalog: TargetCatalog, executor: LinuxExecutor) -> ToolResult:

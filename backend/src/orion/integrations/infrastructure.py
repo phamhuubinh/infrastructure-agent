@@ -36,12 +36,6 @@ class Target:
     datasource_types: Mapping[str, str]
 
 
-@dataclass(frozen=True)
-class IntegrationStatus:
-    status: str
-    message: str | None = None
-
-
 class CredentialResolver:
     """Small local configuration boundary; values never leave integration code."""
 
@@ -237,6 +231,11 @@ class LinuxExecutor(Protocol):
     def read_file(
         self, target: Target, credential: object, path: str, offset: int, length: int
     ) -> bytes: ...
+    def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None: ...
+    def replace_file(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None: ...
+    def remove_file(self, target: Target, credential: object, path: str) -> None: ...
     def service_status(
         self, target: Target, credential: object, service: str
     ) -> Mapping[str, object]: ...
@@ -306,6 +305,22 @@ class SshLinuxExecutor:
         except subprocess.CalledProcessError as error:
             raise InfrastructureError("upstream_error", "Linux operation failed.") from error
 
+    def _run_input(
+        self, target: Target, credential: object, command: list[str], content: bytes
+    ) -> None:
+        try:
+            subprocess.run(
+                self._argv(target, credential, command),
+                check=True,
+                input=content,
+                capture_output=True,
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
+        except subprocess.CalledProcessError as error:
+            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
+
     def inspect(
         self, target: Target, credential: object, sections: tuple[str, ...]
     ) -> Mapping[str, object]:
@@ -340,6 +355,22 @@ class SshLinuxExecutor:
             credential,
             ["dd", f"if={path}", "bs=1", f"skip={offset}", f"count={length}", "status=none"],
         )
+
+    def write_file(self, target: Target, credential: object, path: str, content: bytes) -> None:
+        self._run_input(
+            target, credential, ["dd", f"of={path}", "bs=65536", "status=none"], content
+        )
+
+    def replace_file(
+        self, target: Target, credential: object, temporary_path: str, path: str
+    ) -> None:
+        # The temporary path is Orion-generated in the original directory. Preserve mode where
+        # possible before the fixed atomic rename operation.
+        self._run(target, credential, ["chmod", "--reference", path, temporary_path])
+        self._run(target, credential, ["mv", "-f", "--", temporary_path, path])
+
+    def remove_file(self, target: Target, credential: object, path: str) -> None:
+        self._run(target, credential, ["rm", "-f", "--", path])
 
     def service_status(
         self, target: Target, credential: object, service: str
@@ -582,40 +613,3 @@ class HttpZabbixClient:
     def health(self, target: Target, credential: object) -> None:
         self._request(target, credential, "apiinfo.version", {}, auth=False)
         self._request(target, credential, "host.get", {"output": ["hostid"], "limit": 1}, auth=True)
-
-
-class InfrastructureIntegrations:
-    """Sanitized, bounded integration health facade for API and Settings."""
-
-    def __init__(
-        self,
-        catalog: TargetCatalog,
-        linux: LinuxExecutor | None = None,
-        grafana: GrafanaClient | None = None,
-        zabbix: ZabbixClient | None = None,
-    ) -> None:
-        self._catalog = catalog
-        self._linux = linux or SshLinuxExecutor()
-        self._grafana = grafana or HttpGrafanaClient()
-        self._zabbix = zabbix or HttpZabbixClient()
-
-    def status(self, family: str) -> IntegrationStatus:
-        targets = self._catalog.targets(family)
-        if not targets:
-            return IntegrationStatus("unconfigured", "Integration is not configured.")
-        try:
-            for target in targets:
-                credential = self._catalog.credentials.resolve(target.credential_ref)
-                if family == "linux":
-                    self._linux.health(target, credential)
-                elif family == "grafana":
-                    self._grafana.health(target, credential)
-                elif family == "zabbix":
-                    self._zabbix.health(target, credential)
-                else:
-                    raise ValueError(family)
-        except (InfrastructureError, OSError):
-            return IntegrationStatus(
-                "unhealthy", "Configured integration is currently unavailable."
-            )
-        return IntegrationStatus("healthy")

@@ -99,76 +99,6 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
-      "InfrastructureIntegrationView": {
-        "properties": {
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "InfrastructureIntegrationView",
-        "type": "object"
-      },
-      "InternetIntegrationView": {
-        "properties": {
-          "endpoint": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Endpoint"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message"
-          },
-          "provider": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "InternetIntegrationView",
-        "type": "object"
-      },
       "ModelConfigInput": {
         "additionalProperties": false,
         "properties": {
@@ -213,6 +143,10 @@
             "title": "Base Url",
             "type": "string"
           },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
           "model_config_id": {
             "title": "Model Config Id",
             "type": "string"
@@ -230,7 +164,8 @@
           "model_config_id",
           "provider_type",
           "base_url",
-          "model_id"
+          "model_id",
+          "is_active"
         ],
         "title": "ModelConfigView",
         "type": "object"
@@ -346,6 +281,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "custom_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Title"
+          },
           "last_activity_at": {
             "title": "Last Activity At",
             "type": "string"
@@ -379,8 +325,74 @@
         "title": "SessionSummaryView",
         "type": "object"
       },
+      "SessionTitleUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "maxLength": 120,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "SessionTitleUpdate",
+        "type": "object"
+      },
+      "SessionTitleView": {
+        "properties": {
+          "custom_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Title"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "title"
+        ],
+        "title": "SessionTitleView",
+        "type": "object"
+      },
       "SessionView": {
         "properties": {
+          "custom_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Title"
+          },
           "project_id": {
             "anyOf": [
               {
@@ -486,63 +498,6 @@
         "summary": "Health"
       }
     },
-    "/api/integrations/internet": {
-      "get": {
-        "operationId": "internet_integration_api_integrations_internet_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InternetIntegrationView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Internet Integration"
-      }
-    },
-    "/api/integrations/{family}": {
-      "get": {
-        "operationId": "infrastructure_integration_api_integrations__family__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "family",
-            "required": true,
-            "schema": {
-              "title": "Family",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/InfrastructureIntegrationView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Infrastructure Integration"
-      }
-    },
     "/api/models": {
       "get": {
         "operationId": "get_models_api_models_get",
@@ -599,6 +554,124 @@
           }
         },
         "summary": "Configure Model"
+      }
+    },
+    "/api/models/{model_config_id}": {
+      "delete": {
+        "operationId": "delete_model_api_models__model_config_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_config_id",
+            "required": true,
+            "schema": {
+              "title": "Model Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Model"
+      },
+      "put": {
+        "operationId": "update_model_api_models__model_config_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_config_id",
+            "required": true,
+            "schema": {
+              "title": "Model Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelConfigInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConfigView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Model"
+      }
+    },
+    "/api/models/{model_config_id}/activate": {
+      "post": {
+        "operationId": "activate_model_api_models__model_config_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_config_id",
+            "required": true,
+            "schema": {
+              "title": "Model Config Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelConfigView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Model"
       }
     },
     "/api/projects": {
@@ -660,6 +733,36 @@
       }
     },
     "/api/projects/{project_id}": {
+      "delete": {
+        "operationId": "delete_project_api_projects__project_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Project"
+      },
       "get": {
         "operationId": "get_project_api_projects__project_id__get",
         "parameters": [
@@ -1101,6 +1204,36 @@
       }
     },
     "/api/sessions/{session_id}": {
+      "delete": {
+        "operationId": "delete_session_api_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Session"
+      },
       "get": {
         "operationId": "get_session_api_sessions__session_id__get",
         "parameters": [
@@ -1137,6 +1270,53 @@
           }
         },
         "summary": "Get Session"
+      },
+      "patch": {
+        "operationId": "rename_session_api_sessions__session_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTitleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTitleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Session"
       }
     },
     "/api/sessions/{session_id}/attachments": {
