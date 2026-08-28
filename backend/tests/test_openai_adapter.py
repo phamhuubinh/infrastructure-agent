@@ -92,6 +92,31 @@ def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -
     )
 
 
+def test_adapter_rejects_duplicate_tool_call_ids() -> None:
+    calls = {
+        0: _PendingToolCall(call_id="duplicate", tool_name="first.tool", arguments="{}"),
+        1: _PendingToolCall(call_id="duplicate", tool_name="second.tool", arguments="{}"),
+    }
+
+    with pytest.raises(ModelBackendError, match="invalid streaming response"):
+        OpenAICompatibleBackend._build_turn([], calls)
+
+
+def test_provider_schema_cache_cannot_be_corrupted_by_callers() -> None:
+    backend = OpenAICompatibleBackend()
+    tools = (calculator_definition(),)
+
+    first = backend._provider_tools(tools)
+    first[0] = {"replaced": True}
+    second = backend._provider_tools(tools)
+    with pytest.raises(TypeError, match="frozen JSON snapshot"):
+        second[0]["function"]["parameters"]["properties"]["corruption"] = {"type": "string"}
+    third = backend._provider_tools(tools)
+
+    assert "replaced" not in third[0]
+    assert "corruption" not in third[0]["function"]["parameters"]["properties"]
+
+
 @pytest.mark.parametrize(
     "marker",
     (

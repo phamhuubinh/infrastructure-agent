@@ -11,7 +11,7 @@ from jsonschema import SchemaError
 from jsonschema.protocols import Validator
 from jsonschema.validators import validator_for
 
-from orion.contracts import ToolCall, ToolDefinition
+from orion.contracts import ToolCall, ToolDefinition, freeze_json
 from orion.security import redact_public
 
 ToolHandler = Callable[[ToolCall], object]
@@ -56,7 +56,8 @@ class ToolRegistry:
         handlers: dict[str, ToolHandler] = {}
         validators: dict[str, Validator] = {}
         for registration in registrations:
-            definition = registration.definition
+            definition = ToolDefinition.model_validate(registration.definition.model_dump())
+            object.__setattr__(definition, "input_schema", freeze_json(definition.input_schema))
             if definition.name in definitions:
                 raise ValueError(f"duplicate tool name: {definition.name}")
             if definition.handler_key in handlers:
@@ -72,14 +73,30 @@ class ToolRegistry:
         self._definitions: Mapping[str, ToolDefinition] = MappingProxyType(definitions)
         self._handlers: Mapping[str, ToolHandler] = MappingProxyType(handlers)
         self._validators: Mapping[str, Validator] = MappingProxyType(validators)
+        # The registry and its definitions are immutable after bootstrap. Sanitize
+        # and validate the provider snapshot once instead of rebuilding 25 nested
+        # schema models on every initial and resumed model turn.
+        model_definitions: list[ToolDefinition] = []
+        for name in sorted(definitions):
+            definition = ToolDefinition.model_validate(
+                redact_public(definitions[name].model_dump())
+            )
+            object.__setattr__(definition, "input_schema", freeze_json(definition.input_schema))
+            model_definitions.append(definition)
+        self._model_definitions = tuple(model_definitions)
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
         # Definitions cross the model boundary. Internal handler bindings remain in
         # the immutable registry, but descriptions/schema annotations are sanitized.
+        # Preserve the public method's isolation from nested-dict mutation.
         return tuple(
-            ToolDefinition.model_validate(redact_public(self._definitions[name].model_dump()))
-            for name in sorted(self._definitions)
+            ToolDefinition.model_validate(definition.model_dump())
+            for definition in self._model_definitions
         )
+
+    def model_definitions(self) -> tuple[ToolDefinition, ...]:
+        """Return the trusted immutable snapshot for the ChatRuntime/provider path."""
+        return self._model_definitions
 
     def definition(self, name: str) -> ToolDefinition | None:
         return self._definitions.get(name)

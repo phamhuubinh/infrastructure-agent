@@ -7,6 +7,13 @@
 Test:
 
 - context assembly;
+- deterministic model-input byte proxies for initial, resumed, and long-history turns;
+- bounded model-visible ToolResult projection while canonical persistence stays complete;
+- aggregate current-turn budgeting across many tool calls;
+- complete historical user-turn boundaries, including an oversized tool turn;
+- tool-call/result pairing, duplicate-ID rejection, collection counts, and exact
+  `SourceRef` preservation under projection;
+- registry/provider schema cache mutation isolation;
 - tool registry;
 - tool schema conversion;
 - provider adapters;

@@ -4,9 +4,100 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class FrozenJSONDict(dict[str, Any]):
+    """JSON-serializable dictionary whose nested snapshot cannot be mutated."""
+
+    @staticmethod
+    def _immutable() -> NoReturn:
+        raise TypeError("frozen JSON snapshot cannot be mutated")
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._immutable()
+
+    def __delitem__(self, key: str) -> None:
+        self._immutable()
+
+    def clear(self) -> None:
+        self._immutable()
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        self._immutable()
+
+    def popitem(self) -> tuple[str, Any]:
+        self._immutable()
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        self._immutable()
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        self._immutable()
+
+    def __ior__(self, other: object) -> FrozenJSONDict:  # type: ignore[override,misc]
+        self._immutable()
+
+    def __deepcopy__(self, memo: dict[int, object]) -> FrozenJSONDict:
+        return self
+
+
+class FrozenJSONList(list[Any]):
+    """JSON-serializable list whose snapshot cannot be mutated."""
+
+    @staticmethod
+    def _immutable() -> NoReturn:
+        raise TypeError("frozen JSON snapshot cannot be mutated")
+
+    def __setitem__(self, key: int | slice, value: Any) -> None:  # type: ignore[override]
+        self._immutable()
+
+    def __delitem__(self, key: int | slice) -> None:  # type: ignore[override]
+        self._immutable()
+
+    def append(self, value: Any) -> None:
+        self._immutable()
+
+    def clear(self) -> None:
+        self._immutable()
+
+    def extend(self, values: Any) -> None:
+        self._immutable()
+
+    def insert(self, index: int, value: Any) -> None:  # type: ignore[override]
+        self._immutable()
+
+    def pop(self, index: int = -1) -> Any:  # type: ignore[override]
+        self._immutable()
+
+    def remove(self, value: Any) -> None:
+        self._immutable()
+
+    def reverse(self) -> None:
+        self._immutable()
+
+    def sort(self, *args: Any, **kwargs: Any) -> None:
+        self._immutable()
+
+    def __iadd__(self, values: Any) -> FrozenJSONList:  # type: ignore[misc]
+        self._immutable()
+
+    def __imul__(self, value: int) -> FrozenJSONList:  # type: ignore[override,misc]
+        self._immutable()
+
+    def __deepcopy__(self, memo: dict[int, object]) -> FrozenJSONList:
+        return self
+
+
+def freeze_json(value: Any) -> Any:
+    """Recursively freeze JSON-compatible data while retaining JSON serialization."""
+    if isinstance(value, dict):
+        return FrozenJSONDict({key: freeze_json(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return FrozenJSONList(freeze_json(item) for item in value)
+    return value
 
 
 class CanonicalModel(BaseModel):

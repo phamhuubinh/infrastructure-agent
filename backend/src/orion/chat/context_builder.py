@@ -1,8 +1,12 @@
-"""Deterministic context assembly from public persisted state."""
+"""Deterministic, bounded model context assembled from complete persisted state."""
 
 from __future__ import annotations
 
-from orion.contracts import ContextMessage, ModelToolCall, ToolResult
+import json
+from dataclasses import dataclass
+
+from orion.chat.model_context import project_tool_result
+from orion.contracts import ContextMessage, ModelToolCall, SourceRef, TimelineItem, ToolResult
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_public, redact_text
 
@@ -18,6 +22,39 @@ _SYSTEM_INSTRUCTIONS = (
     "or reuse a source_ref_id that is not present in a visible ToolResult.sources entry."
 )
 
+# These are model-context byte proxies, not product quotas. Canonical timeline data
+# remains complete and the current user message is always retained in full.
+MAX_CONVERSATION_BYTES = 12_000
+CURRENT_TOOL_RESULT_BYTES = 6_000
+RECENT_TOOL_RESULT_BYTES = 2_400
+HISTORICAL_TOOL_RESULT_BYTES = 1_200
+
+
+@dataclass(frozen=True)
+class BuiltContext:
+    messages: tuple[ContextMessage, ...]
+    visible_sources: tuple[SourceRef, ...]
+
+
+@dataclass(frozen=True)
+class _Block:
+    messages: tuple[ContextMessage, ...]
+    sources: tuple[SourceRef, ...] = ()
+    starts_user_turn: bool = False
+
+
+@dataclass(frozen=True)
+class _ConversationTurn:
+    blocks: tuple[_Block, ...]
+
+    @property
+    def messages(self) -> tuple[ContextMessage, ...]:
+        return tuple(message for block in self.blocks for message in block.messages)
+
+    @property
+    def sources(self) -> tuple[SourceRef, ...]:
+        return tuple(source for block in self.blocks for source in block.sources)
+
 
 class ContextBuilder:
     def __init__(
@@ -26,7 +63,16 @@ class ContextBuilder:
         self._store = store
         self._infrastructure_targets = infrastructure_targets
 
-    def build(self, session_id: str) -> tuple[ContextMessage, ...]:
+    def build(self, session_id: str, project_id: str | None = None) -> tuple[ContextMessage, ...]:
+        return self.build_with_metadata(session_id, project_id).messages
+
+    def build_with_metadata(
+        self,
+        session_id: str,
+        project_id: str | None = None,
+        *,
+        project_id_is_resolved: bool = False,
+    ) -> BuiltContext:
         messages: list[ContextMessage] = [
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
         ]
@@ -37,8 +83,9 @@ class ContextBuilder:
                 for family, target_ref, display in self._infrastructure_targets
             )
             messages.append(ContextMessage(role="system", content="\n".join(lines)))
-        identity = self._store.session_identity(session_id)
-        project_id = identity["project_id"] if identity is not None else None
+        if not project_id_is_resolved:
+            identity = self._store.session_identity(session_id)
+            project_id = identity["project_id"] if identity is not None else None
         if project_id is not None:
             project = self._store.project(project_id)
             if project is not None:
@@ -60,33 +107,214 @@ class ContextBuilder:
                     "request another project through tool arguments."
                 )
                 messages.append(ContextMessage(role="system", content="\n".join(details)))
-        for item in self._store.timeline(session_id):
+
+        timeline, omitted_timeline_turns = self._store.model_context_timeline(session_id)
+        current_budget = self._fair_current_result_budget(timeline)
+        budgets = self._tool_result_budgets(timeline, current_budget)
+        blocks, invalid_pairings = self._blocks(timeline, budgets)
+        turns, ungrouped_blocks = self._turns(blocks)
+        selected, omitted_turns = self._bounded_turns(turns)
+        omitted_blocks = invalid_pairings + ungrouped_blocks
+        if omitted_turns or omitted_blocks or omitted_timeline_turns:
+            messages.append(
+                ContextMessage(
+                    role="system",
+                    content=(
+                        "Older conversation data was omitted from this model turn to fit the "
+                        "local context window. The canonical session timeline remains complete. "
+                        f"Omitted turns: {omitted_turns}; incomplete/unpaired blocks: "
+                        f"{omitted_blocks}; older timeline turns: {omitted_timeline_turns}."
+                    ),
+                )
+            )
+        messages.extend(message for turn in selected for message in turn.messages)
+        visible_sources = tuple(source for turn in selected for source in turn.sources)
+        return BuiltContext(tuple(messages), visible_sources)
+
+    def _fair_current_result_budget(self, timeline: list[TimelineItem]) -> int:
+        """Find one fair per-result cap whose complete current turn fits the byte proxy.
+
+        Every current result receives the same cap. Small results naturally use less,
+        allowing the deterministic binary search to raise the shared cap for every
+        remaining large result. Protocol messages and irreducible result envelopes are
+        never removed; if those alone exceed the proxy, the zero-data projection is used.
+        """
+        last_user_index = max(
+            (index for index, item in enumerate(timeline) if item.kind == "user_message"),
+            default=-1,
+        )
+        current_timeline = timeline[last_user_index:] if last_user_index >= 0 else timeline
+        if not self._current_result_ids(current_timeline):
+            return CURRENT_TOOL_RESULT_BYTES
+        low, high, selected = 0, CURRENT_TOOL_RESULT_BYTES, 0
+        while low <= high:
+            candidate = (low + high) // 2
+            budgets = self._tool_result_budgets(current_timeline, candidate)
+            blocks, _ = self._blocks(current_timeline, budgets)
+            turns, _ = self._turns(blocks)
+            current_size = _messages_bytes(turns[-1].messages) if turns else 0
+            if current_size <= MAX_CONVERSATION_BYTES:
+                selected = candidate
+                low = candidate + 1
+            else:
+                high = candidate - 1
+        return selected
+
+    @staticmethod
+    def _current_result_ids(timeline: list[TimelineItem]) -> tuple[str, ...]:
+        last_user_index = max(
+            (index for index, item in enumerate(timeline) if item.kind == "user_message"),
+            default=-1,
+        )
+        return tuple(
+            item.item_id
+            for index, item in enumerate(timeline)
+            if item.kind == "tool_result" and index > last_user_index
+        )
+
+    @classmethod
+    def _tool_result_budgets(
+        cls, timeline: list[TimelineItem], current_budget: int
+    ) -> dict[str, int]:
+        current_ids = set(cls._current_result_ids(timeline))
+        result_indices = [
+            index for index, item in enumerate(timeline) if item.kind == "tool_result"
+        ]
+        recent_historical = set(
+            [index for index in result_indices if timeline[index].item_id not in current_ids][-2:]
+        )
+        budgets: dict[str, int] = {}
+        for index in result_indices:
+            if timeline[index].item_id in current_ids:
+                budget = current_budget
+            elif index in recent_historical:
+                budget = RECENT_TOOL_RESULT_BYTES
+            else:
+                budget = HISTORICAL_TOOL_RESULT_BYTES
+            budgets[timeline[index].item_id] = budget
+        return budgets
+
+    @staticmethod
+    def _blocks(timeline: list[TimelineItem], budgets: dict[str, int]) -> tuple[list[_Block], int]:
+        blocks: list[_Block] = []
+        pending_messages: list[ContextMessage] | None = None
+        pending_sources: list[SourceRef] = []
+        pending_calls: dict[str, str] = {}
+        invalid_pairings = 0
+
+        def flush_pending() -> None:
+            nonlocal pending_messages, pending_sources, pending_calls, invalid_pairings
+            if pending_messages is None:
+                return
+            if pending_calls:
+                invalid_pairings += 1
+            else:
+                blocks.append(_Block(tuple(pending_messages), tuple(pending_sources)))
+            pending_messages = None
+            pending_sources = []
+            pending_calls = {}
+
+        for item in timeline:
             if item.kind == "user_message":
-                messages.append(ContextMessage(role="user", content=str(item.payload["content"])))
+                flush_pending()
+                blocks.append(
+                    _Block(
+                        (ContextMessage(role="user", content=str(item.payload["content"])),),
+                        starts_user_turn=True,
+                    )
+                )
             elif item.kind == "assistant_message":
+                flush_pending()
                 tool_calls = tuple(
                     ModelToolCall.model_validate(call)
                     for call in item.payload.get("tool_calls", [])
                 )
-                messages.append(
-                    ContextMessage(
-                        role="assistant",
-                        content=str(item.payload.get("content", "")),
-                        tool_calls=tool_calls,
-                        citation_source_ref_ids=tuple(
-                            str(source_ref_id)
-                            for source_ref_id in item.payload.get("citation_source_ref_ids", [])
-                        ),
-                    )
+                assistant = ContextMessage(
+                    role="assistant",
+                    content=str(item.payload.get("content", "")),
+                    tool_calls=tool_calls,
+                    citation_source_ref_ids=tuple(
+                        str(source_ref_id)
+                        for source_ref_id in item.payload.get("citation_source_ref_ids", [])
+                    ),
                 )
+                if tool_calls:
+                    if len({call.call_id for call in tool_calls}) != len(tool_calls):
+                        invalid_pairings += 1
+                        continue
+                    pending_messages = [assistant]
+                    pending_calls = {call.call_id: call.tool_name for call in tool_calls}
+                else:
+                    blocks.append(_Block((assistant,)))
             elif item.kind == "tool_result":
                 result = ToolResult.model_validate(item.payload["result"])
-                messages.append(
+                if (
+                    pending_messages is None
+                    or pending_calls.get(result.call_id) != result.tool_name
+                ):
+                    invalid_pairings += 1
+                    continue
+                pending_messages.append(
                     ContextMessage(
                         role="tool",
-                        content=result.model_dump_json(),
+                        content=project_tool_result(
+                            result, budgets.get(item.item_id, HISTORICAL_TOOL_RESULT_BYTES)
+                        ),
                         tool_call_id=result.call_id,
                         tool_name=result.tool_name,
                     )
                 )
-        return tuple(messages)
+                pending_sources.extend(result.sources)
+                pending_calls.pop(result.call_id)
+                if not pending_calls:
+                    flush_pending()
+        flush_pending()
+        return blocks, invalid_pairings
+
+    @staticmethod
+    def _turns(blocks: list[_Block]) -> tuple[list[_ConversationTurn], int]:
+        turns: list[_ConversationTurn] = []
+        current: list[_Block] = []
+        ungrouped = 0
+        for block in blocks:
+            if block.starts_user_turn:
+                if current:
+                    turns.append(_ConversationTurn(tuple(current)))
+                current = [block]
+            elif current:
+                current.append(block)
+            else:
+                ungrouped += 1
+        if current:
+            turns.append(_ConversationTurn(tuple(current)))
+        return turns, ungrouped
+
+    @staticmethod
+    def _bounded_turns(
+        turns: list[_ConversationTurn],
+    ) -> tuple[tuple[_ConversationTurn, ...], int]:
+        if not turns:
+            return (), 0
+        selected = [turns[-1]]
+        used = _messages_bytes(turns[-1].messages)
+        for turn in reversed(turns[:-1]):
+            size = _messages_bytes(turn.messages)
+            if used + size > MAX_CONVERSATION_BYTES:
+                continue
+            selected.append(turn)
+            used += size
+        selected.reverse()
+        return tuple(selected), len(turns) - len(selected)
+
+
+def _messages_bytes(messages: tuple[ContextMessage, ...]) -> int:
+    payloads: list[dict[str, object]] = []
+    for message in messages:
+        payload: dict[str, object] = {"role": message.role, "content": message.content}
+        if message.tool_calls:
+            payload["tool_calls"] = [call.model_dump(mode="json") for call in message.tool_calls]
+        if message.role == "tool":
+            payload["tool_call_id"] = message.tool_call_id
+            payload["name"] = message.tool_name
+        payloads.append(payload)
+    return len(json.dumps(payloads, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))

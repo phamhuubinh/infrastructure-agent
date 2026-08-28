@@ -22,6 +22,7 @@ from orion.contracts import (
     ModelUsage,
     ToolCallDelta,
     ToolDefinition,
+    freeze_json,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings, ModelStreamEvent
 
@@ -34,6 +35,10 @@ class _PendingToolCall:
 
 
 class OpenAICompatibleBackend(ModelBackend):
+    def __init__(self) -> None:
+        self._cached_tools: tuple[ToolDefinition, ...] | None = None
+        self._cached_provider_tools: tuple[dict[str, Any], ...] = ()
+
     async def stream(
         self,
         messages: tuple[ContextMessage, ...],
@@ -50,7 +55,7 @@ class OpenAICompatibleBackend(ModelBackend):
         payload = {
             "model": settings.model_id,
             "messages": [self._message_payload(message) for message in messages],
-            "tools": [definition.provider_schema() for definition in tools],
+            "tools": self._provider_tools(tools),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
@@ -201,10 +206,14 @@ class OpenAICompatibleBackend(ModelBackend):
     def _build_turn(content_parts: list[str], calls: dict[int, _PendingToolCall]) -> ModelTurn:
         try:
             tool_calls: list[ModelToolCall] = []
+            call_ids: set[str] = set()
             for index in sorted(calls):
                 pending = calls[index]
                 if not pending.call_id or not pending.tool_name:
                     raise ValueError("streamed tool call is incomplete")
+                if pending.call_id in call_ids:
+                    raise ValueError("streamed tool call ID is duplicated")
+                call_ids.add(pending.call_id)
                 arguments = json.loads(pending.arguments or "{}")
                 if not isinstance(arguments, dict):
                     raise ValueError("tool arguments are not an object")
@@ -232,7 +241,10 @@ class OpenAICompatibleBackend(ModelBackend):
                 {
                     "id": call.call_id,
                     "type": "function",
-                    "function": {"name": call.tool_name, "arguments": json.dumps(call.arguments)},
+                    "function": {
+                        "name": call.tool_name,
+                        "arguments": json.dumps(call.arguments, separators=(",", ":")),
+                    },
                 }
                 for call in message.tool_calls
             ]
@@ -240,3 +252,13 @@ class OpenAICompatibleBackend(ModelBackend):
             payload["tool_call_id"] = message.tool_call_id
             payload["name"] = message.tool_name
         return payload
+
+    def _provider_tools(self, tools: tuple[ToolDefinition, ...]) -> list[dict[str, Any]]:
+        if tools is not self._cached_tools:
+            self._cached_tools = tools
+            self._cached_provider_tools = tuple(
+                freeze_json(definition.provider_schema()) for definition in tools
+            )
+        # Only the outer request list is copied. Every cached nested JSON object is
+        # immutable, so a caller cannot corrupt later model turns.
+        return list(self._cached_provider_tools)

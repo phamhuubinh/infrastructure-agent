@@ -104,3 +104,42 @@ def test_runner_normalizes_invalid_handler_results() -> None:
     assert result.status == "error"
     assert result.error is not None
     assert result.error.code == "upstream_error"
+
+
+def test_registry_reuses_immutable_model_definition_snapshot() -> None:
+    builder = ToolRegistryBuilder()
+    builder.register(
+        _definition({"type": "object", "properties": {}, "additionalProperties": False}),
+        lambda _call: {},
+    )
+    registry = builder.freeze()
+
+    cached = registry.model_definitions()
+    assert cached is registry.model_definitions()
+    with pytest.raises(TypeError, match="frozen JSON snapshot"):
+        cached[0].input_schema["properties"]["corruption"] = {"type": "string"}
+    assert "corruption" not in registry.model_definitions()[0].input_schema["properties"]
+
+    public = registry.definitions()
+    public[0].input_schema["properties"]["mutated"] = {"type": "string"}
+    assert "mutated" not in registry.model_definitions()[0].input_schema["properties"]
+
+    canonical = registry.definition("fake.structured")
+    assert canonical is not None
+    with pytest.raises(TypeError, match="frozen JSON snapshot"):
+        canonical.input_schema["properties"]["validation_corruption"] = {"type": "string"}
+    assert registry.arguments_are_valid("fake.structured", {})
+
+
+def test_provider_schema_preserves_model_visible_defaults() -> None:
+    definition = _definition(
+        {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1, "default": 5}},
+            "additionalProperties": False,
+        }
+    )
+
+    parameters = definition.provider_schema()["function"]["parameters"]
+
+    assert parameters["properties"]["limit"]["default"] == 5

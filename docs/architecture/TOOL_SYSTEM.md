@@ -125,6 +125,13 @@ Tool results should use the canonical `ToolResult` shape and be:
 
 Large payloads should use selective reads, references, reduction, or retrieval rather than blindly flooding the model context.
 
+Canonical tool results remain complete in persistence and public timeline APIs. The
+Chat runtime may create a generic bounded model-visible projection for a model turn.
+That projection preserves valid tool-call/result pairing, exact citation source
+identities, errors, collection counts, and operation outcome metadata, and explicitly
+describes any omitted structure. Duplicate provider tool-call IDs are rejected before
+they can create ambiguous call/result pairing.
+
 ## Non-goals
 
 The current target does not introduce:

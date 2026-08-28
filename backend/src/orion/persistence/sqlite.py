@@ -13,6 +13,7 @@ from typing import Any, cast
 from orion.contracts import TimelineItem, TimelineKind
 
 MAX_SESSION_SUMMARIES = 100
+MODEL_CONTEXT_HISTORY_TURNS = 64
 
 
 def _utc_now() -> str:
@@ -618,6 +619,66 @@ class SQLiteStore:
                 "FROM timeline WHERE session_id = ? ORDER BY created_at, rowid",
                 (session_id,),
             ).fetchall()
+        return self._timeline_items(rows)
+
+    def model_context_timeline(self, session_id: str) -> tuple[list[TimelineItem], int]:
+        """Load complete recent user turns plus every row in the current turn.
+
+        The newest user row starts the unbounded current turn. Before it, Orion
+        selects at most ``MODEL_CONTEXT_HISTORY_TURNS`` newest user boundaries and
+        loads every model-relevant row from the oldest selected boundary forward.
+        The public timeline remains complete.
+        """
+        relevant_kinds = ("user_message", "assistant_message", "tool_result")
+        placeholders = ", ".join("?" for _ in relevant_kinds)
+        with self._lock:
+            latest_user = self._connection.execute(
+                "SELECT MAX(rowid) AS rowid FROM timeline "
+                "WHERE session_id = ? AND kind = 'user_message'",
+                (session_id,),
+            ).fetchone()
+            latest_user_rowid = latest_user["rowid"] if latest_user is not None else None
+            if latest_user_rowid is None:
+                return [], 0
+            boundary = int(latest_user_rowid)
+            historical_user_rows = self._connection.execute(
+                "SELECT rowid FROM timeline WHERE session_id = ? AND kind = 'user_message' "
+                "AND rowid < ? ORDER BY rowid DESC LIMIT ?",
+                (session_id, boundary, MODEL_CONTEXT_HISTORY_TURNS),
+            ).fetchall()
+            oldest_boundary = (
+                int(historical_user_rows[-1]["rowid"]) if historical_user_rows else boundary
+            )
+            historical_rows = (
+                self._connection.execute(
+                    "SELECT item_id, session_id, created_at, kind, payload_json, call_id, "
+                    "tool_name, rowid FROM timeline WHERE session_id = ? "
+                    f"AND kind IN ({placeholders}) AND rowid >= ? AND rowid < ? ORDER BY rowid",
+                    (session_id, *relevant_kinds, oldest_boundary, boundary),
+                ).fetchall()
+                if historical_user_rows
+                else []
+            )
+            current_rows = (
+                self._connection.execute(
+                    "SELECT item_id, session_id, created_at, kind, payload_json, call_id, "
+                    "tool_name, rowid FROM timeline WHERE session_id = ? "
+                    f"AND kind IN ({placeholders}) AND rowid >= ? ORDER BY rowid",
+                    (session_id, *relevant_kinds, boundary),
+                ).fetchall()
+                if latest_user_rowid is not None
+                else []
+            )
+            historical_count = self._connection.execute(
+                "SELECT COUNT(*) AS count FROM timeline WHERE session_id = ? "
+                "AND kind = 'user_message' AND rowid < ?",
+                (session_id, boundary),
+            ).fetchone()
+        omitted = max(0, int(historical_count["count"]) - len(historical_user_rows))
+        return self._timeline_items([*historical_rows, *current_rows]), omitted
+
+    @staticmethod
+    def _timeline_items(rows: list[sqlite3.Row]) -> list[TimelineItem]:
         return [
             TimelineItem(
                 item_id=row["item_id"],

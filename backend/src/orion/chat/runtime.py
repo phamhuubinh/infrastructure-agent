@@ -14,6 +14,7 @@ from orion.contracts import (
     ModelTurnCompleted,
     ModelUsage,
     RuntimeScope,
+    SourceRef,
     TimelineItem,
     ToolResult,
     citations_are_visible,
@@ -112,8 +113,8 @@ class ChatRuntime:
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     self._emit(request_id, "model.started", {})
-                    turn, usage = await self._stream_turn(
-                        session_id, request_id, settings, cancellation
+                    turn, usage, visible_sources = await self._stream_turn(
+                        session_id, request_id, settings, scope, cancellation
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -124,7 +125,7 @@ class ChatRuntime:
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
-                    self._validate_citations(turn, scope)
+                    self._validate_citations(turn, scope, visible_sources)
                     metrics: dict[str, int] | None = None
                     if not turn.tool_calls:
                         metrics = {
@@ -210,13 +211,17 @@ class ChatRuntime:
         session_id: str,
         request_id: str,
         settings: ModelSettings,
+        scope: RuntimeScope,
         cancellation: asyncio.Event,
-    ) -> tuple[ModelTurn, ModelUsage | None]:
+    ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
+        context = self._context_builder.build_with_metadata(
+            session_id, scope.project_id, project_id_is_resolved=True
+        )
         async for event in self._backend.stream(
-            self._context_builder.build(session_id),
-            self._registry.definitions(),
+            context.messages,
+            self._registry.model_definitions(),
             settings,
             cancellation,
         ):
@@ -228,7 +233,7 @@ class ChatRuntime:
                 completed_usage = event.usage
         if completed_turn is None:
             raise ModelBackendError("Model stream ended without a completed turn.")
-        return completed_turn, completed_usage
+        return completed_turn, completed_usage, context.visible_sources
 
     def _runtime_scope(self, session_id: str) -> RuntimeScope:
         identity = self._store.session_identity(session_id)
@@ -345,55 +350,44 @@ class ChatRuntime:
         self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")
         self._emit(request_id, "request.failed", {"message": "Request failed unexpectedly."})
 
-    def _validate_citations(self, turn: ModelTurn, scope: RuntimeScope) -> None:
+    def _validate_citations(
+        self, turn: ModelTurn, scope: RuntimeScope, visible_sources: tuple[SourceRef, ...]
+    ) -> None:
         if turn.assistant is None or not turn.assistant.citation_source_ref_ids:
             return
-        visible_source_ref_ids: set[str] = set()
-        attachment_ids = self._store.session_attachment_ids(scope.session_id)
-        for item in self._store.timeline(scope.session_id):
-            if item.kind != "tool_result":
-                continue
-            result = ToolResult.model_validate(item.payload["result"])
-            for source in result.sources:
-                if source.source_kind == "internet" and source.document_id is None and source.url:
-                    # Internet sources are valid only when their canonical SourceRef was
-                    # actually returned to this same model loop/session.
-                    visible_source_ref_ids.add(source.source_ref_id)
-                    continue
-                if (
-                    source.source_kind in {"linux", "grafana", "zabbix"}
-                    and source.document_id is None
-                ):
-                    # Infrastructure sources are visible only when this canonical ToolResult
-                    # was produced in this same session/model loop.
-                    visible_source_ref_ids.add(source.source_ref_id)
-                    continue
-                if source.document_id is None:
-                    continue
-                document = self._store.document(source.document_id)
-                if (
-                    document is not None
-                    and document["status"] == "ready"
-                    and (
-                        (
-                            document["session_id"] == scope.session_id
-                            and document["attachment_id"] in attachment_ids
-                            and source.source_kind == "session"
-                            and source.source_id == scope.session_id
-                        )
-                        or (
-                            document["project_id"] == scope.project_id
-                            and scope.project_id is not None
-                            and source.source_kind == "project"
-                            and source.source_id == scope.project_id
-                        )
-                    )
-                ):
-                    visible_source_ref_ids.add(source.source_ref_id)
-        if not citations_are_visible(
-            turn.assistant.citation_source_ref_ids, visible_source_ref_ids
-        ):
+        sources_by_id = {source.source_ref_id: source for source in visible_sources}
+        if not citations_are_visible(turn.assistant.citation_source_ref_ids, set(sources_by_id)):
             raise RequestFailed("Assistant cited an unavailable source.")
+        attachment_ids = self._store.session_attachment_ids(scope.session_id)
+        for source_ref_id in turn.assistant.citation_source_ref_ids:
+            source = sources_by_id[source_ref_id]
+            if source.source_kind == "internet" and source.document_id is None and source.url:
+                continue
+            if source.source_kind in {"linux", "grafana", "zabbix"} and source.document_id is None:
+                continue
+            if source.document_id is None:
+                raise RequestFailed("Assistant cited an unavailable source.")
+            document = self._store.document(source.document_id)
+            accessible = (
+                document is not None
+                and document["status"] == "ready"
+                and (
+                    (
+                        document["session_id"] == scope.session_id
+                        and document["attachment_id"] in attachment_ids
+                        and source.source_kind == "session"
+                        and source.source_id == scope.session_id
+                    )
+                    or (
+                        document["project_id"] == scope.project_id
+                        and scope.project_id is not None
+                        and source.source_kind == "project"
+                        and source.source_id == scope.project_id
+                    )
+                )
+            )
+            if not accessible:
+                raise RequestFailed("Assistant cited an unavailable source.")
 
     @staticmethod
     def _ensure_not_cancelled(cancellation: asyncio.Event) -> None:
