@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -113,6 +114,24 @@ def test_qa_loads_expected_tool_errors(qa_runner, tmp_path) -> None:  # type: ig
     case = qa_runner.load_cases(corpus)[0]
 
     assert case.expected_tool_errors == (("linux.system.inspect", "unknown_target"),)
+
+
+def test_qa_unknown_target_case_uses_the_linux_target_schema(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    from orion.tool_runtime.infrastructure import infrastructure_definitions
+
+    cases = qa_runner.load_cases(Path(__file__).parents[2] / "scripts/qa/cases/full.json")
+    case = next(item for item in cases if item.id == "linux-unknown-target")
+    target_match = re.search(r"target_ref ([a-z0-9._-]+)", case.prompt)
+    assert target_match is not None
+    target_schema = next(
+        definition.input_schema["properties"]["target_ref"]
+        for definition in infrastructure_definitions()
+        if definition.name == "linux.system.inspect"
+    )
+
+    assert case.expected_tools == ("linux.system.inspect",)
+    assert case.expected_tool_errors == (("linux.system.inspect", "unknown_target"),)
+    assert re.fullmatch(str(target_schema["pattern"]), target_match.group(1))
 
 
 def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  # type: ignore[no-untyped-def]
