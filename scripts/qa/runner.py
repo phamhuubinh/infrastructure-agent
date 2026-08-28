@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "1"
+RUNNER_VERSION = "2"
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -43,6 +43,7 @@ class Case:
     prompt: str
     category: str
     expected_tools: tuple[str, ...] = ()
+    expected_tool_errors: tuple[tuple[str, str], ...] = ()
     forbidden_tools: tuple[str, ...] = ()
     requires_citation: bool = False
     capability: str | None = None
@@ -73,6 +74,7 @@ def load_cases(path: Path) -> list[Case]:
             raise ValueError(f"Duplicate QA case id: {item['id']}")
         seen.add(item["id"])
         tools = item.get("expected_tools", [])
+        expected_tool_errors = item.get("expected_tool_errors", {})
         forbidden = item.get("forbidden_tools", [])
         if (
             not isinstance(tools, list)
@@ -80,6 +82,17 @@ def load_cases(path: Path) -> list[Case]:
             or not all(isinstance(value, str) for value in [*tools, *forbidden])
         ):
             raise ValueError(f"QA case {item['id']} has invalid tool expectations.")
+        if (
+            not isinstance(expected_tool_errors, dict)
+            or not all(
+                isinstance(tool_name, str)
+                and tool_name
+                and isinstance(error_code, str)
+                and error_code
+                for tool_name, error_code in expected_tool_errors.items()
+            )
+        ):
+            raise ValueError(f"QA case {item['id']} has invalid tool error expectations.")
         capability = item.get("capability")
         if capability is not None and not isinstance(capability, str):
             raise ValueError(f"QA case {item['id']} has an invalid capability.")
@@ -98,6 +111,7 @@ def load_cases(path: Path) -> list[Case]:
                 prompt=item["prompt"],
                 category=item["category"],
                 expected_tools=tuple(tools),
+                expected_tool_errors=tuple(expected_tool_errors.items()),
                 forbidden_tools=tuple(forbidden),
                 requires_citation=bool(item.get("requires_citation", False)),
                 capability=capability,
@@ -135,6 +149,19 @@ def evaluate(
         return "FAIL", f"expected tool not called: {', '.join(missing)}", tools, sources
     if forbidden:
         return "FAIL", f"forbidden tool called: {', '.join(forbidden)}", tools, sources
+    errors = _tool_error_codes(timeline)
+    missing_errors = [
+        f"{tool_name}: {error_code}"
+        for tool_name, error_code in case.expected_tool_errors
+        if error_code not in errors.get(tool_name, set())
+    ]
+    if missing_errors:
+        return (
+            "FAIL",
+            f"expected tool error absent: {', '.join(missing_errors)}",
+            tools,
+            sources,
+        )
     if case.requires_citation:
         citations = _final_citation_ids(timeline)
         if not citations:
@@ -162,6 +189,23 @@ def _source_ids(timeline: list[dict[str, Any]]) -> set[str]:
             if isinstance(source_ref_id, str) and source_ref_id:
                 source_ids.add(source_ref_id)
     return source_ids
+
+
+def _tool_error_codes(timeline: list[dict[str, Any]]) -> dict[str, set[str]]:
+    errors: dict[str, set[str]] = {}
+    for item in timeline:
+        payload = item.get("payload")
+        if item.get("kind") != "tool_result" or not isinstance(payload, dict):
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict) or result.get("status") != "error":
+            continue
+        error = result.get("error")
+        code = error.get("code") if isinstance(error, dict) else None
+        tool_name = item.get("tool_name")
+        if isinstance(tool_name, str) and tool_name and isinstance(code, str) and code:
+            errors.setdefault(tool_name, set()).add(code)
+    return errors
 
 
 def _final_assistant(timeline: list[dict[str, Any]]) -> tuple[str, list[str]] | None:

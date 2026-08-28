@@ -93,6 +93,28 @@ def test_qa_rejects_malformed_cases_and_redacts_endpoint(qa_runner, tmp_path) ->
     )
 
 
+def test_qa_loads_expected_tool_errors(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    corpus = tmp_path / "cases.json"
+    corpus.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "unknown-target",
+                    "prompt": "inspect",
+                    "category": "linux",
+                    "expected_tools": ["linux.system.inspect"],
+                    "expected_tool_errors": {"linux.system.inspect": "unknown_target"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    case = qa_runner.load_cases(corpus)[0]
+
+    assert case.expected_tool_errors == (("linux.system.inspect", "unknown_target"),)
+
+
 def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  # type: ignore[no-untyped-def]
     case = qa_runner.Case(id="citation", prompt="cite", category="test", requires_citation=True)
     source = {
@@ -118,6 +140,33 @@ def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  #
         "payload": {"content": "answer", "citation_source_ref_ids": ["real"]},
     }
     assert qa_runner.evaluate(case, [source, cited])[:2] == ("PASS", None)
+
+
+def test_qa_evaluation_requires_the_expected_canonical_tool_error(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    case = qa_runner.Case(
+        id="unknown-target",
+        prompt="inspect",
+        category="safety",
+        expected_tools=("linux.system.inspect",),
+        expected_tool_errors=(("linux.system.inspect", "unknown_target"),),
+    )
+    tool_call = {"kind": "tool_call", "tool_name": "linux.system.inspect", "payload": {}}
+    wrong_error = {
+        "kind": "tool_result",
+        "tool_name": "linux.system.inspect",
+        "payload": {"result": {"status": "error", "error": {"code": "timeout"}}},
+    }
+    expected_error = {
+        "kind": "tool_result",
+        "tool_name": "linux.system.inspect",
+        "payload": {"result": {"status": "error", "error": {"code": "unknown_target"}}},
+    }
+
+    assert qa_runner.evaluate(case, [tool_call, wrong_error])[:2] == (
+        "FAIL",
+        "expected tool error absent: linux.system.inspect: unknown_target",
+    )
+    assert qa_runner.evaluate(case, [tool_call, expected_error])[:2] == ("PASS", None)
 
 
 def test_qa_citation_parsing_is_nested_defensive_and_handles_multiple_sources(qa_runner) -> None:  # type: ignore[no-untyped-def]
