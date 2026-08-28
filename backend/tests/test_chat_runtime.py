@@ -16,6 +16,7 @@ from orion.contracts import (
     ToolResult,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
+from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.tool_runtime.registry import ToolRegistryBuilder
 
 
@@ -48,6 +49,20 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert executions == 0
     assert len(backend.calls) == 1
     assert [definition.name for definition in backend.calls[0][1]] == ["fake.count"]
+
+
+@pytest.mark.anyio
+async def test_adapter_parsed_whitespace_citation_is_rejected_when_not_visible(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    turn = OpenAICompatibleBackend._build_turn(["Unsupported citation. [[source: none]]"], {})
+    assert turn.assistant is not None
+    assert turn.assistant.citation_source_ref_ids == ("none",)
+    backend = ScriptedBackend([turn])
+    session_id = store.create_session()
+
+    with pytest.raises(RequestFailed, match="unavailable source"):
+        await runtime(store, backend).submit(session_id, "Answer")
 
 
 @pytest.mark.anyio

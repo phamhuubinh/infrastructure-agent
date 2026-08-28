@@ -192,7 +192,7 @@ class OpenAICompatibleBackend(ModelBackend):
                     )
                 )
             content = "".join(content_parts)
-            citations = tuple(re.findall(r"\[\[source:([^\]\s]+)\]\]", content))
+            citations = tuple(re.findall(r"\[\[source:\s*([^\]\s]+)\s*\]\]", content))
             assistant = None
             if content:
                 assistant = AssistantMessage(content=content, citation_source_ref_ids=citations)

@@ -85,6 +85,23 @@ def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -
     )
 
 
+@pytest.mark.parametrize(
+    "marker",
+    (
+        "[[source:abc]]",
+        "[[source: abc]]",
+        "[[source:abc ]]",
+        "[[source: abc ]]",
+    ),
+)
+def test_adapter_normalizes_insignificant_citation_marker_whitespace(marker: str) -> None:
+    turn = OpenAICompatibleBackend._build_turn([f"Answer. {marker}"], {})
+
+    assert turn.assistant is not None
+    assert turn.assistant.content == f"Answer. {marker}"
+    assert turn.assistant.citation_source_ref_ids == ("abc",)
+
+
 @pytest.mark.anyio
 async def test_adapter_cancellation_cleans_up_an_active_provider_read() -> None:
     started = asyncio.Event()
