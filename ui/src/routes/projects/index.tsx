@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { createProject, listProjects, type Project } from "@/lib/api";
+import { invalidateProjectList } from "@/lib/project-list";
 
 export const Route = createFileRoute("/projects/")({ component: ProjectsPage });
 
@@ -38,6 +39,7 @@ function ProjectsPage() {
         instructions: null,
         metadata: {},
       });
+      invalidateProjectList();
       await navigate({ to: "/projects/$projectId", params: { projectId: project.project_id } });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to create project.");

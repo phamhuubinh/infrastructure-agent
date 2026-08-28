@@ -53,15 +53,20 @@ export function ContextPanel({
 
   if (collapsed) {
     return (
-      <button
-        type="button"
-        onClick={togglePanel}
-        className="fixed right-3 top-3 z-40 hidden h-9 w-9 place-items-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground lg:grid"
-        aria-label="Mở bảng chi tiết"
-        title="Mở bảng chi tiết"
+      <aside
+        data-testid="collapsed-context-panel"
+        className="hidden w-12 shrink-0 items-start justify-center border-l border-border bg-surface pt-3 lg:flex"
       >
-        <PanelRightOpen className="h-4 w-4" />
-      </button>
+        <button
+          type="button"
+          onClick={togglePanel}
+          className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+          aria-label="Mở bảng chi tiết"
+          title="Mở bảng chi tiết"
+        >
+          <PanelRightOpen className="h-4 w-4" />
+        </button>
+      </aside>
     );
   }
 

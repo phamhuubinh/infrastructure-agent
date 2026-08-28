@@ -137,13 +137,14 @@ export function ChatPage({ project }: { project?: Project }) {
     const scope = project?.project_id ?? "chat";
     if (!chat.sessionsLoaded || loadedInitialScope.current === scope) return;
     loadedInitialScope.current = scope;
-    const candidate = chat.sessions.find((item) =>
-      project ? item.projectId === project.project_id : item.projectId === null,
-    );
-    if (!candidate) {
-      if (project) void chat.createSession(project.project_id);
-      return;
-    }
+    const current = chat.sessions.find((item) => item.id === chat.currentSessionId);
+    const candidate =
+      current && (project ? current.projectId === project.project_id : current.projectId === null)
+        ? current
+        : chat.sessions.find((item) =>
+            project ? item.projectId === project.project_id : item.projectId === null,
+          );
+    if (!candidate) return;
     void chat.switchSession(candidate.id);
   }, [chat, project]);
 
@@ -499,15 +500,17 @@ function ChatInput({
     if (!content || generation.current) return;
     setError(null);
     let sessionId = session?.id || null;
+    const controller = new AbortController();
+    const current: Generation = { controller, requestId: null, cancelled: false };
+    // Set this before lazily creating a session so a second click/Enter cannot create a
+    // duplicate session while the first creation request is still pending.
+    generation.current = current;
     try {
       if (!sessionId) sessionId = await createSession(projectId);
       addOptimisticMessage(sessionId, content);
       addOptimisticAssistant(sessionId);
       setValue("");
       setSessionGenerating(sessionId, true);
-      const controller = new AbortController();
-      const current: Generation = { controller, requestId: null, cancelled: false };
-      generation.current = current;
       const response = await apiFetch(
         "/api/sessions/" + encodeURIComponent(sessionId) + "/messages/stream",
         {

@@ -24,6 +24,7 @@ import {
   type Project,
 } from "@/lib/api";
 import { useChat } from "@/lib/chat-store";
+import { invalidateProjectList } from "@/lib/project-list";
 
 export const Route = createFileRoute("/projects/$projectId")({ component: ProjectWorkspaceRoute });
 
@@ -107,6 +108,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         metadata: project.metadata,
       });
       setProject(updated);
+      invalidateProjectList();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save project.");
     } finally {
@@ -146,12 +148,8 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
-  async function newConversation() {
-    try {
-      await chat.createSession(projectId);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to create conversation.");
-    }
+  function newConversation() {
+    chat.startNewChat();
   }
 
   if (loading) {
@@ -182,7 +180,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
           <Button size="sm" variant="outline" onClick={() => setDetailsOpen(true)}>
             <Settings2 className="h-4 w-4" /> Chi tiết
           </Button>
-          <Button size="sm" onClick={() => void newConversation()}>
+          <Button size="sm" onClick={newConversation}>
             <Plus className="h-4 w-4" /> Hội thoại mới
           </Button>
         </div>

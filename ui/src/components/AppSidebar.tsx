@@ -10,11 +10,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { listProjects, type Project } from "@/lib/api";
 import { sessionRoute, useChat, type Session } from "@/lib/chat-store";
+import { onProjectListInvalidated } from "@/lib/project-list";
 import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
@@ -43,15 +44,20 @@ export function AppSidebar() {
 
   useEffect(() => {
     let disposed = false;
-    void listProjects()
-      .then((loaded) => {
-        if (!disposed) setProjects(loaded);
-      })
-      .catch(() => {
-        if (!disposed) setProjects([]);
-      });
+    const refreshProjects = () => {
+      void listProjects()
+        .then((loaded) => {
+          if (!disposed) setProjects(loaded);
+        })
+        .catch(() => {
+          if (!disposed) setProjects([]);
+        });
+    };
+    refreshProjects();
+    const unsubscribe = onProjectListInvalidated(refreshProjects);
     return () => {
       disposed = true;
+      unsubscribe();
     };
   }, []);
 

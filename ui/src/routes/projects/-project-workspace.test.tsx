@@ -11,6 +11,12 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
+function sseResponse(events: unknown[]): Response {
+  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
 const project = {
   project_id: "project-a",
   name: "Atlas rollout",
@@ -81,7 +87,19 @@ describe("Project workspace", () => {
       if (path === "/api/sessions/project-session") {
         return jsonResponse({ session_id: "project-session", project_id: "project-a" });
       }
-      if (path === "/api/sessions/project-session/timeline") return jsonResponse([]);
+      if (path === "/api/sessions/project-session/timeline") {
+        return jsonResponse([
+          {
+            item_id: "project-user-1",
+            session_id: "project-session",
+            created_at: "now",
+            kind: "user_message",
+            payload: { content: "Existing Project conversation" },
+            call_id: null,
+            tool_name: null,
+          },
+        ]);
+      }
       if (path === "/api/projects/project-a") {
         if (init?.method === "PUT") {
           const body = JSON.parse(String(init.body)) as {
@@ -89,7 +107,7 @@ describe("Project workspace", () => {
             description: string | null;
             instructions: string | null;
           };
-          Object.assign(project, body);
+          return jsonResponse({ ...project, ...body, name: "Atlas canonical rename" });
         }
         return jsonResponse(project);
       }
@@ -126,6 +144,7 @@ describe("Project workspace", () => {
     renderWorkspace();
 
     await screen.findByRole("heading", { name: "Atlas rollout" });
+    await screen.findByText("Existing Project conversation");
     expect(screen.queryByLabelText("Project name")).toBeNull();
     expect(screen.queryByText("Hidden project description")).toBeNull();
     expect(screen.queryByText("Hidden project instructions")).toBeNull();
@@ -146,14 +165,19 @@ describe("Project workspace", () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-a", expect.anything()),
     );
+    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await screen.findByRole("heading", { name: "Atlas canonical rename" });
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    const reopenedDetails = await screen.findByRole("dialog");
     const file = new File(["shared facts"], "shared.md", { type: "text/markdown" });
     Object.assign(file, { text: async () => "shared facts" });
-    fireEvent.change(within(details).getByLabelText("Add project document"), {
+    fireEvent.change(within(reopenedDetails).getByLabelText("Add project document"), {
       target: { files: [file] },
     });
-    await within(details).findByText("shared.md");
-    fireEvent.click(within(details).getByRole("button", { name: "Delete rollout.md" }));
-    await waitFor(() => expect(within(details).queryByText("rollout.md")).toBeNull());
+    await within(reopenedDetails).findByText("shared.md");
+    fireEvent.click(within(reopenedDetails).getByRole("button", { name: "Delete rollout.md" }));
+    await waitFor(() => expect(within(reopenedDetails).queryByText("rollout.md")).toBeNull());
     expect(
       fetchMock.mock.calls.some(
         ([path, init]) => path === "/api/projects/project-a/documents" && init?.method === "POST",
@@ -166,11 +190,98 @@ describe("Project workspace", () => {
       ),
     ).toBe(true);
 
-    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    fireEvent.click(within(reopenedDetails).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Hội thoại mới" }));
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/projects/project-a/sessions", expect.anything()),
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-a/sessions",
+      expect.anything(),
     );
+    expect(screen.getByRole("heading", { name: "Orion" })).toBeTruthy();
+    expect(screen.queryByText("Existing Project conversation")).toBeNull();
+  });
+
+  it("keeps a new Project conversation as a blank draft until its first message", async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([model]);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
+      if (path === "/api/projects/project-a") return jsonResponse(project);
+      if (path === "/api/projects/project-a/documents" && !init?.method) return jsonResponse([]);
+      if (path === "/api/projects/project-a/sessions" && init?.method === "POST") {
+        return jsonResponse({ session_id: "new-project-session", project_id: "project-a" }, 201);
+      }
+      if (path === "/api/sessions/new-project-session/messages/stream") return sseResponse([]);
+      if (path === "/api/sessions/new-project-session") {
+        return jsonResponse({ session_id: "new-project-session", project_id: "project-a" });
+      }
+      if (path === "/api/sessions/new-project-session/timeline") return jsonResponse([]);
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await screen.findByRole("heading", { name: "Atlas rollout" });
+    expect(screen.getByRole("heading", { name: "Orion" })).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-a/sessions",
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Hội thoại mới" }));
+    expect((screen.getByRole("textbox", { name: "Chat input" }) as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-a/sessions",
+      expect.anything(),
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Chat input" }), {
+      target: { value: "First Project message" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([path, init]) => path === "/api/projects/project-a/sessions" && init?.method === "POST",
+        ),
+      ).toHaveLength(1),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sessions/new-project-session/messages/stream",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ content: "First Project message" }),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([path]) => path === "/api/sessions/new-project-session/messages/stream",
+        ),
+      ).toHaveLength(1),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop generating" })).toBeNull(),
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Chat input" }), {
+      target: { value: "Second Project message" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([path]) => path === "/api/sessions/new-project-session/messages/stream",
+        ),
+      ).toHaveLength(2),
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path, init]) => path === "/api/projects/project-a/sessions" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
   });
 });
