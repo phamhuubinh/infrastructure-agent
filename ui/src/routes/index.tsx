@@ -89,7 +89,7 @@ export function ChatPage({ project }: { project?: Project }) {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const loadedInitialSessionId = useRef<string | null>(null);
+  const loadedInitialScope = useRef<string | null>(null);
   const session = chat.sessions.find(
     (item) =>
       item.id === chat.currentSessionId &&
@@ -134,12 +134,16 @@ export function ChatPage({ project }: { project?: Project }) {
   }, [loadingModels, models, navigate]);
 
   useEffect(() => {
-    if (!chat.sessionsLoaded || loadedInitialSessionId.current !== null) return;
-    loadedInitialSessionId.current = "handled";
+    const scope = project?.project_id ?? "chat";
+    if (!chat.sessionsLoaded || loadedInitialScope.current === scope) return;
+    loadedInitialScope.current = scope;
     const candidate = chat.sessions.find((item) =>
       project ? item.projectId === project.project_id : item.projectId === null,
     );
-    if (!candidate) return;
+    if (!candidate) {
+      if (project) void chat.createSession(project.project_id);
+      return;
+    }
     void chat.switchSession(candidate.id);
   }, [chat, project]);
 
@@ -183,7 +187,6 @@ export function ChatPage({ project }: { project?: Project }) {
           className="flex-1 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-            {project && <ProjectContext project={project} />}
             {!displayedSession || displayedSession.messages.length === 0 ? (
               <EmptyState />
             ) : (
@@ -236,23 +239,6 @@ export function ChatPage({ project }: { project?: Project }) {
         />
       )}
     </>
-  );
-}
-
-function ProjectContext({ project }: { project: Project }) {
-  return (
-    <div className="mb-6 rounded-xl border border-border bg-surface-2/60 px-4 py-3">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">Project</div>
-      <div className="mt-1 font-medium">{project.name}</div>
-      {project.description && (
-        <div className="mt-1 text-sm text-muted-foreground">{project.description}</div>
-      )}
-      {project.instructions && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          Instructions: {project.instructions}
-        </div>
-      )}
-    </div>
   );
 }
 

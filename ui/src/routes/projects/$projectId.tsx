@@ -1,11 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { FileText, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { FileText, FolderKanban, Loader2, Plus, Save, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ChatPage } from "@/routes/index";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
   attachProjectDocument,
@@ -19,10 +25,13 @@ import {
 } from "@/lib/api";
 import { useChat } from "@/lib/chat-store";
 
-export const Route = createFileRoute("/projects/$projectId")({ component: ProjectWorkspace });
+export const Route = createFileRoute("/projects/$projectId")({ component: ProjectWorkspaceRoute });
 
-function ProjectWorkspace() {
-  const { projectId } = Route.useParams();
+function ProjectWorkspaceRoute() {
+  return <ProjectWorkspace projectId={Route.useParams().projectId} />;
+}
+
+export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const chat = useChat();
   const fileInput = useRef<HTMLInputElement>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -33,6 +42,7 @@ function ProjectWorkspace() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -49,8 +59,9 @@ function ProjectWorkspace() {
         setInstructions(loadedProject.instructions || "");
       })
       .catch((reason: unknown) => {
-        if (!disposed)
+        if (!disposed) {
           setError(reason instanceof Error ? reason.message : "Unable to load project.");
+        }
       })
       .finally(() => {
         if (!disposed) setLoading(false);
@@ -61,11 +72,8 @@ function ProjectWorkspace() {
   }, [projectId]);
 
   useEffect(() => {
-    const pending = documents.filter(
-      (document) =>
-        document.status === "uploaded" ||
-        document.status === "parsing" ||
-        document.status === "indexing",
+    const pending = documents.filter((document) =>
+      ["uploaded", "parsing", "indexing"].includes(document.status),
     );
     if (pending.length === 0) return;
     const timer = window.setTimeout(() => {
@@ -138,7 +146,13 @@ function ProjectWorkspace() {
     }
   }
 
-  const conversations = chat.sessions.filter((session) => session.projectId === projectId);
+  async function newConversation() {
+    try {
+      await chat.createSession(projectId);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Unable to create conversation.");
+    }
+  }
 
   if (loading) {
     return (
@@ -157,111 +171,132 @@ function ProjectWorkspace() {
 
   return (
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-b border-border bg-background px-4 py-4 sm:px-6">
-        <div className="mx-auto grid max-w-6xl gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <Card className="p-4">
-            <div className="flex gap-2">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-surface-2">
+            <FolderKanban className="h-4 w-4 text-titanium" />
+          </div>
+          <h1 className="truncate text-base font-semibold">{project.name}</h1>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setDetailsOpen(true)}>
+            <Settings2 className="h-4 w-4" /> Chi tiết
+          </Button>
+          <Button size="sm" onClick={() => void newConversation()}>
+            <Plus className="h-4 w-4" /> Hội thoại mới
+          </Button>
+        </div>
+      </header>
+      {error && (
+        <div role="alert" className="px-4 pt-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1">
+        <ChatPage project={project} />
+      </div>
+      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <SheetContent className="flex w-full flex-col sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Chi tiết Project</SheetTitle>
+            <SheetDescription>
+              Thông tin và tài liệu này được chia sẻ bởi mọi hội thoại trong Project.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-5 flex-1 space-y-5 overflow-y-auto pr-1">
+            <section className="space-y-3">
+              <div className="text-sm font-medium">Thông tin</div>
               <Input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 aria-label="Project name"
               />
+              <Input
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Description"
+                aria-label="Project description"
+              />
+              <Textarea
+                className="min-h-24"
+                value={instructions}
+                onChange={(event) => setInstructions(event.target.value)}
+                placeholder="Project instructions for Orion"
+                aria-label="Project instructions"
+              />
               <Button
+                className="w-full"
                 onClick={() => void saveMetadata()}
                 disabled={!name.trim() || saving}
-                size="sm"
               >
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                Save
+                Lưu thay đổi
               </Button>
-            </div>
-            <Input
-              className="mt-2"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Description"
-              aria-label="Project description"
-            />
-            <Textarea
-              className="mt-2 min-h-16"
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
-              placeholder="Project instructions for Orion"
-              aria-label="Project instructions"
-            />
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-medium">Project documents</div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => fileInput.current?.click()}
-                disabled={uploading}
-              >
-                <Plus className="h-4 w-4" /> Add
-              </Button>
-            </div>
-            <input
-              ref={fileInput}
-              type="file"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void uploadDocument(file);
-              }}
-            />
-            <div className="mt-3 max-h-32 space-y-2 overflow-y-auto text-sm">
-              {documents.length === 0 ? (
-                <div className="text-muted-foreground">No project documents yet.</div>
-              ) : (
-                documents.map((document) => (
-                  <div key={document.document.document_id} className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{document.document.name}</span>
-                    <span className="text-xs text-muted-foreground">{document.status}</span>
-                    <button
-                      type="button"
-                      aria-label={`Delete ${document.document.name}`}
-                      onClick={() => void removeDocument(document.document.document_id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+            </section>
+            <section className="border-t border-border pt-5">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium">Tài liệu Project</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Dùng chung trong Project này.
                   </div>
-                ))
-              )}
-            </div>
-          </Card>
-        </div>
-        <div className="mx-auto mt-3 flex max-w-6xl items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Project conversations:</span>
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              type="button"
-              className="max-w-40 truncate rounded border border-border px-2 py-1 hover:bg-accent"
-              onClick={() => void chat.switchSession(conversation.id)}
-            >
-              {conversation.title}
-            </button>
-          ))}
-          <Button size="sm" variant="outline" onClick={() => void chat.createSession(projectId)}>
-            <Plus className="h-4 w-4" /> New conversation
-          </Button>
-        </div>
-        {error && (
-          <div role="alert" className="mx-auto mt-2 max-w-6xl text-sm text-destructive">
-            {error}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  Thêm
+                </Button>
+              </div>
+              <input
+                ref={fileInput}
+                type="file"
+                className="hidden"
+                aria-label="Add project document"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadDocument(file);
+                }}
+              />
+              <div className="mt-3 space-y-2 text-sm">
+                {documents.length === 0 ? (
+                  <div className="text-muted-foreground">Chưa có tài liệu Project.</div>
+                ) : (
+                  documents.map((document) => (
+                    <div
+                      key={document.document.document_id}
+                      className="flex items-center gap-2 rounded-lg border border-border px-2.5 py-2"
+                    >
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{document.document.name}</span>
+                      <span className="text-xs text-muted-foreground">{document.status}</span>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Delete ${document.document.name}`}
+                        onClick={() => void removeDocument(document.document.document_id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
           </div>
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1">
-        <ChatPage project={project} />
-      </div>
+        </SheetContent>
+      </Sheet>
     </main>
   );
 }

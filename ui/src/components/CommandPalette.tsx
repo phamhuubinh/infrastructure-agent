@@ -28,9 +28,9 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", down);
   }, []);
 
-  const filtered = search
-    ? sessions.filter((s) => s.title.toLowerCase().includes(search.toLowerCase()))
-    : sessions;
+  const filtered = (
+    search ? sessions.filter((s) => s.title.toLowerCase().includes(search.toLowerCase())) : sessions
+  ).filter((session) => session.projectId === null);
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>

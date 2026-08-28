@@ -13,7 +13,8 @@ import {
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { sessionRoute, useChat } from "@/lib/chat-store";
+import { listProjects, type Project } from "@/lib/api";
+import { sessionRoute, useChat, type Session } from "@/lib/chat-store";
 import { OrionIcon } from "@/components/OrionIcon";
 
 const navItems = [
@@ -22,14 +23,36 @@ const navItems = [
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
+export function splitWorkspaceSessions(sessions: Session[]) {
+  return {
+    chatSessions: sessions.filter((session) => session.projectId === null),
+    projectSessions: sessions.filter((session) => session.projectId !== null),
+  };
+}
+
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
   const { sessions, currentSessionId, startNewChat, switchSession, generatingSessions } = useChat();
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("orion-sidebar-collapsed") === "true");
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void listProjects()
+      .then((loaded) => {
+        if (!disposed) setProjects(loaded);
+      })
+      .catch(() => {
+        if (!disposed) setProjects([]);
+      });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   function toggleSidebar() {
@@ -44,6 +67,8 @@ export function AppSidebar() {
     const session = await switchSession(sessionId);
     if (session) await navigate(sessionRoute(session));
   }
+
+  const { chatSessions, projectSessions } = splitWorkspaceSessions(sessions);
 
   if (collapsed) {
     return (
@@ -115,14 +140,17 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* Conversations */}
+      {/* Ordinary Chat conversations stay separate from Project workspaces. */}
       <div className="flex-1 overflow-y-auto px-2 pb-2 mt-2 space-y-0.5">
-        {sessions.length === 0 && (
+        <div className="px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Trò chuyện
+        </div>
+        {chatSessions.length === 0 && (
           <div className="px-2.5 py-4 text-[11px] text-muted-foreground text-center">
             Chưa có hội thoại nào. Hãy bắt đầu một cuộc trò chuyện mới.
           </div>
         )}
-        {sessions.map((s) => (
+        {chatSessions.map((s) => (
           <ChatRow
             key={s.id}
             id={s.id}
@@ -132,6 +160,51 @@ export function AppSidebar() {
             onSelect={() => selectConversation(s.id)}
           />
         ))}
+        <div className="mt-4 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Projects
+        </div>
+        {projects.length === 0 && (
+          <div className="px-2.5 py-2 text-[11px] text-muted-foreground">Chưa có Project nào.</div>
+        )}
+        {projects.map((project) => {
+          const active = pathname === `/projects/${project.project_id}`;
+          const conversations = projectSessions.filter(
+            (session) => session.projectId === project.project_id,
+          );
+          return (
+            <div key={project.project_id} className="mb-1">
+              <button
+                type="button"
+                onClick={() =>
+                  void navigate({
+                    to: "/projects/$projectId",
+                    params: { projectId: project.project_id },
+                  })
+                }
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
+                )}
+              >
+                <FolderKanban className="h-4 w-4 shrink-0" />
+                <span className="truncate">{project.name}</span>
+              </button>
+              {conversations.map((conversation) => (
+                <ChatRow
+                  key={conversation.id}
+                  id={conversation.id}
+                  title={conversation.title}
+                  active={conversation.id === currentSessionId}
+                  isGenerating={generatingSessions.has(conversation.id)}
+                  nested
+                  onSelect={() => selectConversation(conversation.id)}
+                />
+              ))}
+            </div>
+          );
+        })}
       </div>
 
       {/* Theme toggle */}
@@ -173,18 +246,21 @@ function ChatRow({
   title,
   active,
   isGenerating,
+  nested = false,
   onSelect,
 }: {
   id: string;
   title: string;
   active: boolean;
   isGenerating: boolean;
+  nested?: boolean;
   onSelect: () => void;
 }) {
   return (
     <div
       className={cn(
         "group w-full flex items-center gap-1 rounded-md px-1 text-sm transition-colors",
+        nested && "ml-3 w-[calc(100%-0.75rem)] text-xs",
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
