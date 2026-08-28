@@ -203,4 +203,68 @@ describe("M1 model settings", () => {
       screen.getByText("Configured Internet search integration is currently unavailable."),
     ).toBeTruthy();
   });
+
+  it("presents independent read-only integration availability without tool controls", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/models") return Promise.resolve(jsonResponse([]));
+      if (path === "/api/integrations/internet")
+        return Promise.resolve(
+          jsonResponse({ status: "healthy", provider: "searxng", endpoint: null, message: null }),
+        );
+      if (path === "/api/integrations/linux")
+        return Promise.resolve(
+          jsonResponse({ status: "unconfigured", message: "Linux is not configured." }),
+        );
+      if (path === "/api/integrations/grafana")
+        return Promise.resolve(
+          jsonResponse({ status: "unhealthy", message: "Grafana is unavailable." }),
+        );
+      if (path === "/api/integrations/zabbix")
+        return Promise.resolve(jsonResponse({ status: "healthy", message: null }));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SettingsPage />);
+
+    await screen.findByText("Tích hợp");
+    expect(screen.getByText(/Orion tự sử dụng các công cụ khả dụng khi model cần/)).toBeTruthy();
+    expect(screen.getByText("Internet")).toBeTruthy();
+    expect(screen.getByText("Linux")).toBeTruthy();
+    expect(screen.getByText("Grafana")).toBeTruthy();
+    expect(screen.getByText("Zabbix")).toBeTruthy();
+    expect(screen.getAllByText("Sẵn sàng")).toHaveLength(2);
+    expect(screen.getByText("Chưa cấu hình")).toBeTruthy();
+    expect(screen.getByText("Không khả dụng")).toBeTruthy();
+    expect(screen.queryByText(/Bật tool|Tắt tool|enabled_tools/i)).toBeNull();
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  });
+
+  it("refreshes integrations independently without reloading model profiles", async () => {
+    let refresh = false;
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/models") return Promise.resolve(jsonResponse([]));
+      if (path === "/api/integrations/internet")
+        return Promise.resolve(
+          jsonResponse({ status: "healthy", provider: null, endpoint: null, message: null }),
+        );
+      if (path === "/api/integrations/linux")
+        return Promise.resolve(jsonResponse({ status: "healthy", message: null }));
+      if (path === "/api/integrations/grafana") {
+        return refresh
+          ? Promise.reject(new Error("offline"))
+          : Promise.resolve(jsonResponse({ status: "healthy", message: null }));
+      }
+      if (path === "/api/integrations/zabbix")
+        return Promise.resolve(jsonResponse({ status: "unconfigured", message: null }));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SettingsPage />);
+    await screen.findByText("Grafana");
+    refresh = true;
+    fireEvent.click(screen.getByRole("button", { name: "Làm mới trạng thái" }));
+    await screen.findByText("Không thể tải trạng thái tích hợp.");
+    expect(screen.getByText("Internet")).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([path]) => path === "/api/models")).toHaveLength(1);
+  });
 });
