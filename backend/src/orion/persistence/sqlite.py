@@ -141,7 +141,43 @@ class SQLiteStore:
                 )
             if "project_id" not in columns:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+            model_columns = {
+                row["name"] for row in self._connection.execute("PRAGMA table_info(model_configs)")
+            }
+            if "is_active" not in model_columns:
+                self._connection.execute(
+                    "ALTER TABLE model_configs ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+                )
+            self._normalize_active_model_config()
+            self._connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS model_configs_one_active "
+                "ON model_configs(is_active) WHERE is_active = 1"
+            )
         self._migrate_document_owners_if_needed()
+
+    def _normalize_active_model_config(self) -> None:
+        """Make legacy saved configurations conform to the one-active-profile invariant."""
+        rows = self._connection.execute(
+            "SELECT model_config_id FROM model_configs WHERE is_active = 1 "
+            "ORDER BY created_at DESC, rowid DESC"
+        ).fetchall()
+        if len(rows) == 1:
+            return
+        candidate = (
+            rows[0]
+            if rows
+            else self._connection.execute(
+                "SELECT model_config_id FROM model_configs "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        )
+        if candidate is None:
+            return
+        self._connection.execute("UPDATE model_configs SET is_active = 0")
+        self._connection.execute(
+            "UPDATE model_configs SET is_active = 1 WHERE model_config_id = ?",
+            (candidate["model_config_id"],),
+        )
 
     def _migrate_document_owners_if_needed(self) -> None:
         """Allow the existing document pipeline to persist either session or project owners."""
@@ -470,30 +506,100 @@ class SQLiteStore:
             for row in rows
         ]
 
-    def upsert_model_config(
+    def create_model_config(
         self, provider_type: str, base_url: str, model_id: str, api_key: str | None
     ) -> str:
         model_config_id = str(uuid.uuid4())
         with self._lock, self._connection:
-            self._connection.execute("UPDATE model_configs SET is_active = 0")
+            active_exists = self._connection.execute(
+                "SELECT 1 FROM model_configs WHERE is_active = 1 LIMIT 1"
+            ).fetchone()
             self._connection.execute(
                 """INSERT INTO model_configs(model_config_id, provider_type, base_url, model_id,
-                   api_key, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)""",
+                   api_key, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     model_config_id,
                     provider_type,
                     base_url.rstrip("/"),
                     model_id,
                     api_key,
+                    0 if active_exists else 1,
                     _utc_now(),
                 ),
             )
         return model_config_id
 
-    def active_model_config(self) -> dict[str, str | None] | None:
+    def upsert_model_config(
+        self, provider_type: str, base_url: str, model_id: str, api_key: str | None
+    ) -> str:
+        """Compatibility name for callers that previously created the one active configuration."""
+        return self.create_model_config(provider_type, base_url, model_id, api_key)
+
+    def model_configs(self) -> list[dict[str, str | int | None]]:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
+                "FROM model_configs ORDER BY is_active DESC, created_at DESC, rowid DESC"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def model_config(self, model_config_id: str) -> dict[str, str | int | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT model_config_id, provider_type, base_url, model_id, api_key "
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
+                "FROM model_configs WHERE model_config_id = ?",
+                (model_config_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_model_config(
+        self,
+        model_config_id: str,
+        provider_type: str,
+        base_url: str,
+        model_id: str,
+        api_key: str | None,
+    ) -> bool:
+        with self._lock, self._connection:
+            updated = self._connection.execute(
+                "UPDATE model_configs SET provider_type = ?, base_url = ?, model_id = ?, "
+                "api_key = COALESCE(?, api_key) WHERE model_config_id = ?",
+                (provider_type, base_url.rstrip("/"), model_id, api_key, model_config_id),
+            )
+        return updated.rowcount == 1
+
+    def activate_model_config(self, model_config_id: str) -> bool:
+        with self._lock, self._connection:
+            exists = self._connection.execute(
+                "SELECT 1 FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+            ).fetchone()
+            if exists is None:
+                return False
+            self._connection.execute("UPDATE model_configs SET is_active = 0 WHERE is_active = 1")
+            self._connection.execute(
+                "UPDATE model_configs SET is_active = 1 WHERE model_config_id = ?",
+                (model_config_id,),
+            )
+        return True
+
+    def delete_model_config(self, model_config_id: str) -> str:
+        with self._lock, self._connection:
+            row = self._connection.execute(
+                "SELECT is_active FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+            ).fetchone()
+            if row is None:
+                return "missing"
+            if row["is_active"]:
+                return "active"
+            self._connection.execute(
+                "DELETE FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+            )
+        return "deleted"
+
+    def active_model_config(self) -> dict[str, str | int | None] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
                 "FROM model_configs "
                 "WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1"
             ).fetchone()

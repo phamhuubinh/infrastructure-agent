@@ -52,6 +52,7 @@ type ModelInfo = {
   provider_type: string;
   base_url: string;
   model_id: string;
+  is_active: boolean;
 };
 
 type Generation = {
@@ -127,10 +128,10 @@ export function ChatPage({ project }: { project?: Project }) {
   }, []);
 
   useEffect(() => {
-    if (!loadingModels && models.length === 0) {
+    if (!loadingModels && !models.some((model) => model.is_active)) {
       void navigate({ to: "/settings", replace: true });
     }
-  }, [loadingModels, models.length, navigate]);
+  }, [loadingModels, models, navigate]);
 
   useEffect(() => {
     if (!chat.sessionsLoaded || loadedInitialSessionId.current !== null) return;
@@ -394,12 +395,12 @@ export function SourceLocation({ source }: { source: SourceReference }) {
 
 function ModelStatus({ models, loading }: { models: ModelInfo[]; loading: boolean }) {
   const navigate = useNavigate();
-  const model = models[0];
+  const model = models.find((item) => item.is_active);
   return (
     <button
       type="button"
       onClick={() => {
-        if (!model) void navigate({ to: "/settings" });
+        void navigate({ to: "/settings" });
       }}
       className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-foreground"
       title={model ? model.model_id + " (" + model.provider_type + ")" : "Chưa cấu hình model"}

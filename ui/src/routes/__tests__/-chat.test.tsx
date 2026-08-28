@@ -17,6 +17,7 @@ const configuredModels = [
     provider_type: "openai_compatible",
     base_url: "https://model.test/v1",
     model_id: "test-model",
+    is_active: true,
   },
 ];
 
@@ -47,6 +48,35 @@ describe("M1 Chat integration", () => {
     expect(parsed.events).toHaveLength(1);
     expect(parsed.events[0].type).toBe("tool.started");
     expect(parsed.remainder).toContain("tool.completed");
+  });
+
+  it("shows the explicitly active model in the Chat badge", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/models") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              ...configuredModels[0],
+              model_config_id: "older",
+              model_id: "older-model",
+              is_active: false,
+            },
+            {
+              ...configuredModels[0],
+              model_config_id: "active",
+              model_id: "active-model",
+              is_active: true,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(jsonResponse([]));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChat();
+
+    expect(await screen.findByRole("button", { name: "active-model" })).toBeTruthy();
   });
 
   it("creates a session, submits a direct message over SSE, and renders the reloaded final assistant answer", async () => {

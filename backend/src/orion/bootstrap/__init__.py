@@ -118,11 +118,11 @@ def build_application(
 
 
 def _configure_model_from_environment(store: SQLiteStore) -> None:
-    if store.active_model_config() is not None:
+    if store.model_configs():
         return
     base_url, model_id = os.getenv("ORION_MODEL_BASE_URL"), os.getenv("ORION_MODEL_ID")
     if base_url and model_id:
-        store.upsert_model_config(
+        store.create_model_config(
             "openai_compatible", base_url, model_id, os.getenv("ORION_MODEL_API_KEY")
         )
 

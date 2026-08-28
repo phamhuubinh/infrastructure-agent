@@ -39,6 +39,7 @@ class ModelConfigView(BaseModel):
     provider_type: str
     base_url: str
     model_id: str
+    is_active: bool
 
 
 class InternetIntegrationView(BaseModel):
@@ -111,6 +112,15 @@ def create_app(
     app = FastAPI(title="Orion", version="0.1.0")
     app.state.application = assembled
 
+    def model_config_view(config: dict[str, str | int | None]) -> ModelConfigView:
+        return ModelConfigView(
+            model_config_id=str(config["model_config_id"]),
+            provider_type=str(config["provider_type"]),
+            base_url=safe_endpoint(str(config["base_url"])),
+            model_id=redact_text(str(config["model_id"])),
+            is_active=bool(config["is_active"]),
+        )
+
     @app.get("/api/health")
     async def health() -> dict[str, object]:
         internet_status = assembled.internet.status()
@@ -139,29 +149,54 @@ def create_app(
 
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:
-        active = store.active_model_config()
-        if active is None:
-            return []
-        return [
-            ModelConfigView(
-                model_config_id=str(active["model_config_id"]),
-                provider_type=str(active["provider_type"]),
-                base_url=safe_endpoint(str(active["base_url"])),
-                model_id=redact_text(str(active["model_id"])),
-            )
-        ]
+        return [model_config_view(config) for config in store.model_configs()]
 
     @app.post("/api/models", response_model=ModelConfigView, status_code=201)
     async def configure_model(config: ModelConfigInput) -> ModelConfigView:
-        config_id = store.upsert_model_config(
-            config.provider_type, config.base_url, config.model_id, config.api_key
+        config_id = store.create_model_config(
+            config.provider_type,
+            config.base_url,
+            config.model_id,
+            config.api_key.strip() if config.api_key and config.api_key.strip() else None,
         )
-        return ModelConfigView(
-            model_config_id=config_id,
-            provider_type=config.provider_type,
-            base_url=safe_endpoint(config.base_url.rstrip("/")),
-            model_id=redact_text(config.model_id),
+        created = store.model_config(config_id)
+        assert created is not None
+        return model_config_view(created)
+
+    @app.put("/api/models/{model_config_id}", response_model=ModelConfigView)
+    async def update_model(model_config_id: str, config: ModelConfigInput) -> ModelConfigView:
+        updated = store.update_model_config(
+            model_config_id,
+            config.provider_type,
+            config.base_url,
+            config.model_id,
+            config.api_key.strip() if config.api_key and config.api_key.strip() else None,
         )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Model configuration not found.")
+        stored = store.model_config(model_config_id)
+        assert stored is not None
+        return model_config_view(stored)
+
+    @app.post("/api/models/{model_config_id}/activate", response_model=ModelConfigView)
+    async def activate_model(model_config_id: str) -> ModelConfigView:
+        if not store.activate_model_config(model_config_id):
+            raise HTTPException(status_code=404, detail="Model configuration not found.")
+        stored = store.model_config(model_config_id)
+        assert stored is not None
+        return model_config_view(stored)
+
+    @app.delete("/api/models/{model_config_id}", status_code=204)
+    async def delete_model(model_config_id: str) -> Response:
+        result = store.delete_model_config(model_config_id)
+        if result == "missing":
+            raise HTTPException(status_code=404, detail="Model configuration not found.")
+        if result == "active":
+            raise HTTPException(
+                status_code=409,
+                detail="Select another model before deleting the active configuration.",
+            )
+        return Response(status_code=204)
 
     @app.post("/api/sessions", response_model=SessionView, status_code=201)
     async def create_session() -> SessionView:

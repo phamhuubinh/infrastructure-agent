@@ -21,11 +21,16 @@ The primary M1 adapter is OpenAI-compatible. Configure it by either:
 
 - setting `ORION_MODEL_BASE_URL`, `ORION_MODEL_ID`, and optionally
   `ORION_MODEL_API_KEY` before starting Orion; or
-- creating one active model configuration through `POST /api/models`.
+- creating saved model configurations through `POST /api/models` and selecting one active
+  configuration through `POST /api/models/{model_config_id}/activate`.
 
 The API accepts only connection information: `provider_type` (currently
 `openai_compatible`), `base_url`, `model_id`, and an optional `api_key`. The key is
 write-only in API responses.
+
+The first saved model becomes active automatically. Adding later profiles preserves the existing
+active model until it is explicitly changed. Orion blocks deletion of the active model; select a
+different saved profile first.
 
 ## Internet integration
 
