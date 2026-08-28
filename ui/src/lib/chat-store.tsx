@@ -161,7 +161,9 @@ function publicActivity(
 export function assistantMessageFromTimelineItem(item: TimelineItem): Message | null {
   if (item.kind !== "assistant_message") return null;
   const content = typeof item.payload.content === "string" ? item.payload.content : "";
-  if (!content) return null;
+  // Tool-call-only turns remain in the canonical timeline, but whitespace is not visible
+  // assistant content and must not produce a chat message in the presentation projection.
+  if (!content.trim()) return null;
   return {
     itemId: item.item_id,
     role: "assistant",

@@ -34,6 +34,18 @@ function jsonResponse(value: unknown): Response {
   });
 }
 
+function assistantTimelineItem(content: string, toolCalls: unknown[] = []): TimelineItem {
+  return {
+    item_id: "assistant-1",
+    session_id: "session-1",
+    created_at: "2026-08-28T00:00:01Z",
+    kind: "assistant_message",
+    payload: { content, tool_calls: toolCalls },
+    call_id: null,
+    tool_name: null,
+  };
+}
+
 describe("M1 session store", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -100,6 +112,43 @@ describe("M1 session store", () => {
     await screen.findByText("Hello|Hi");
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-1", expect.anything());
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-1/timeline", expect.anything());
+  });
+
+  it("does not project an empty assistant tool-call turn as a chat message", () => {
+    const item = assistantTimelineItem("", [{ id: "call-1", name: "calculator.evaluate" }]);
+
+    expect(assistantMessageFromTimelineItem(item)).toBeNull();
+    expect(sessionFromTimeline("session-1", [item]).messages).toEqual([]);
+    expect(sessionFromTimeline("session-1", [item]).timeline).toEqual([item]);
+  });
+
+  it("does not project a whitespace-only assistant tool-call turn as a chat message", () => {
+    const item = assistantTimelineItem("\n\n", [{ id: "call-1", name: "calculator.evaluate" }]);
+
+    expect(assistantMessageFromTimelineItem(item)).toBeNull();
+    expect(sessionFromTimeline("session-1", [item]).messages).toEqual([]);
+  });
+
+  it("preserves visible assistant text when the turn also contains tool calls", () => {
+    const item = assistantTimelineItem("I will check that.", [
+      { id: "call-1", name: "calculator.evaluate" },
+    ]);
+
+    expect(assistantMessageFromTimelineItem(item)).toMatchObject({
+      itemId: "assistant-1",
+      role: "assistant",
+      content: "I will check that.",
+    });
+  });
+
+  it("keeps ordinary assistant text unchanged", () => {
+    const item = assistantTimelineItem("Ordinary assistant response.");
+
+    expect(assistantMessageFromTimelineItem(item)).toMatchObject({
+      itemId: "assistant-1",
+      role: "assistant",
+      content: "Ordinary assistant response.",
+    });
   });
 
   it("hydrates the canonical project identity and reopens the existing Project session", async () => {

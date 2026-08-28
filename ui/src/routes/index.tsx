@@ -307,7 +307,7 @@ function Conversation({
             <UserMessage content={message.content} askedAt={message.askedAt}>
               {message.content}
             </UserMessage>
-          ) : message.content ? (
+          ) : message.content.trim() ? (
             <AssistantMessage agent="Orion" content={message.content}>
               <Card className="p-4 border-border/50">
                 <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
@@ -327,7 +327,7 @@ function Conversation({
           )}
         </div>
       ))}
-      {generating && messages.at(-1)?.content !== "" && <ThinkingDots />}
+      {generating && messages.at(-1)?.content.trim() !== "" && <ThinkingDots />}
       <div ref={bottomRef} />
     </div>
   );

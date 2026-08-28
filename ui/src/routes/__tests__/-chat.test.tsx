@@ -213,6 +213,104 @@ describe("M1 Chat integration", () => {
     expect(screen.queryByText(/enabled_tools/)).toBeNull();
   });
 
+  it("shows tool activity and the final answer without rendering a whitespace-only tool-call turn", async () => {
+    const timeline = [
+      {
+        item_id: "u1",
+        session_id: "chat-1",
+        created_at: "2026-08-28T00:00:00Z",
+        kind: "user_message",
+        payload: { content: "What is 2 + 2?" },
+        call_id: null,
+        tool_name: null,
+      },
+      {
+        item_id: "tool-turn",
+        session_id: "chat-1",
+        created_at: "2026-08-28T00:00:01Z",
+        kind: "assistant_message",
+        payload: {
+          content: "\n\n",
+          tool_calls: [{ id: "calc-1", name: "calculator.evaluate" }],
+        },
+        call_id: null,
+        tool_name: null,
+      },
+      {
+        item_id: "t1",
+        session_id: "chat-1",
+        created_at: "2026-08-28T00:00:02Z",
+        kind: "tool_call",
+        payload: { arguments: { expression: "2 + 2" } },
+        call_id: "calc-1",
+        tool_name: "calculator.evaluate",
+      },
+      {
+        item_id: "t2",
+        session_id: "chat-1",
+        created_at: "2026-08-28T00:00:03Z",
+        kind: "tool_result",
+        payload: { result: { status: "success", data: { value: 4 } } },
+        call_id: "calc-1",
+        tool_name: "calculator.evaluate",
+      },
+      {
+        item_id: "answer-1",
+        session_id: "chat-1",
+        created_at: "2026-08-28T00:00:04Z",
+        kind: "assistant_message",
+        payload: { content: "The answer is 4." },
+        call_id: null,
+        tool_name: null,
+      },
+    ];
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
+      if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
+      if (path === "/api/sessions/chat-1/messages/stream") {
+        return sseResponse([
+          {
+            type: "assistant.message",
+            created_at: "now",
+            payload: { item: timeline[1] },
+          },
+          {
+            type: "tool.started",
+            created_at: "now",
+            payload: { call_id: "calc-1", tool_name: "calculator.evaluate" },
+          },
+          {
+            type: "tool.completed",
+            created_at: "now",
+            payload: { call_id: "calc-1", tool_name: "calculator.evaluate", status: "success" },
+          },
+          { type: "assistant.delta", created_at: "now", payload: { content: "The answer is 4." } },
+          {
+            type: "assistant.message",
+            created_at: "now",
+            payload: { item: timeline[4] },
+          },
+        ]);
+      }
+      if (path === "/api/sessions/chat-1")
+        return jsonResponse({ session_id: "chat-1", project_id: null });
+      if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChat();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Chat input" }), {
+      target: { value: "What is 2 + 2?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await screen.findByText("The answer is 4.");
+    expect(screen.getAllByText("Orion")).toHaveLength(1);
+    expect(screen.getAllByText("calculator.evaluate").length).toBeGreaterThan(0);
+  });
+
   it("presents a failed request returned by the M1 endpoint", async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === "/api/models") return jsonResponse(configuredModels);
