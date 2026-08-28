@@ -11,6 +11,8 @@ from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
     ModelTurn,
+    ModelTurnCompleted,
+    ModelUsage,
     ToolCall,
     ToolDefinition,
     ToolResult,
@@ -18,6 +20,17 @@ from orion.contracts import (
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.tool_runtime.registry import ToolRegistryBuilder
+
+
+class UsageScriptedBackend(ModelBackend):
+    def __init__(self, turns: list[tuple[ModelTurn, ModelUsage | None]]) -> None:
+        self.turns = turns
+        self.calls: list[tuple] = []
+
+    async def stream(self, messages, tools, settings: ModelSettings, cancellation):  # type: ignore[no-untyped-def]
+        self.calls.append((messages, tools))
+        turn, usage = self.turns.pop(0)
+        yield ModelTurnCompleted(turn=turn, usage=usage)
 
 
 @pytest.mark.anyio
@@ -49,6 +62,104 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert executions == 0
     assert len(backend.calls) == 1
     assert [definition.name for definition in backend.calls[0][1]] == ["fake.count"]
+
+
+@pytest.mark.anyio
+async def test_final_assistant_metrics_include_response_time_and_single_turn_usage(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = UsageScriptedBackend(
+        [
+            (
+                ModelTurn(assistant=AssistantMessage(content="Direct answer.")),
+                ModelUsage(input_tokens=100, output_tokens=20),
+            )
+        ]
+    )
+    session_id = store.create_session()
+
+    await runtime(store, backend).submit(session_id, "Hello")
+
+    final = store.timeline(session_id)[-1]
+    assert final.payload["metrics"]["response_time_ms"] >= 0
+    assert final.payload["metrics"] == {
+        "response_time_ms": final.payload["metrics"]["response_time_ms"],
+        "input_tokens": 100,
+        "output_tokens": 20,
+    }
+    context = ContextBuilder(store).build(session_id)
+    assert "response_time_ms" not in "".join(message.content for message in context)
+
+
+@pytest.mark.anyio
+async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = UsageScriptedBackend(
+        [
+            (
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id="calc-1",
+                            tool_name="calculator.evaluate",
+                            arguments={"expression": "2 + 3"},
+                        ),
+                    )
+                ),
+                ModelUsage(input_tokens=100, output_tokens=20),
+            ),
+            (
+                ModelTurn(assistant=AssistantMessage(content="The result is 5.")),
+                ModelUsage(input_tokens=150, output_tokens=30),
+            ),
+        ]
+    )
+    session_id = store.create_session()
+
+    await runtime(store, backend).submit(session_id, "Calculate")
+
+    assistant_items = [
+        item for item in store.timeline(session_id) if item.kind == "assistant_message"
+    ]
+    assert "metrics" not in assistant_items[0].payload
+    assert assistant_items[-1].payload["metrics"] == {
+        "response_time_ms": assistant_items[-1].payload["metrics"]["response_time_ms"],
+        "input_tokens": 250,
+        "output_tokens": 50,
+    }
+
+
+@pytest.mark.anyio
+async def test_missing_usage_omits_partial_token_totals(store) -> None:  # type: ignore[no-untyped-def]
+    backend = UsageScriptedBackend(
+        [
+            (
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id="calc-1",
+                            tool_name="calculator.evaluate",
+                            arguments={"expression": "2 + 3"},
+                        ),
+                    )
+                ),
+                ModelUsage(input_tokens=100, output_tokens=20),
+            ),
+            (
+                ModelTurn(assistant=AssistantMessage(content="No token total.")),
+                None,
+            ),
+        ]
+    )
+    session_id = store.create_session()
+
+    await runtime(store, backend).submit(session_id, "Hello")
+
+    metrics = store.timeline(session_id)[-1].payload["metrics"]
+    assert metrics["response_time_ms"] >= 0
+    assert "input_tokens" not in metrics
+    assert "output_tokens" not in metrics
 
 
 @pytest.mark.anyio

@@ -41,6 +41,13 @@ class ModelTurn(CanonicalModel):
         return self
 
 
+class ModelUsage(CanonicalModel):
+    """Provider-reported token usage for one normalized model turn."""
+
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+
+
 class RuntimeScope(CanonicalModel):
     session_id: str = Field(min_length=1)
     project_id: str | None = None
@@ -194,6 +201,7 @@ class ModelTurnCompleted(CanonicalModel):
     """The one reconstructed canonical model turn emitted at stream completion."""
 
     turn: ModelTurn
+    usage: ModelUsage | None = None
 
 
 TimelineKind = Literal[

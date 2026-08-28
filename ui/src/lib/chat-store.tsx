@@ -62,6 +62,9 @@ export type Message = {
   content: string;
   askedAt?: string;
   citationSourceRefIds?: string[];
+  responseTimeMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 };
 
 export type SessionDocument = {
@@ -169,11 +172,23 @@ export function assistantMessageFromTimelineItem(item: TimelineItem): Message | 
   // Tool-call-only turns remain in the canonical timeline, but whitespace is not visible
   // assistant content and must not produce a chat message in the presentation projection.
   if (!content.trim()) return null;
+  const metrics = item.payload.metrics;
+  const numeric = (key: string) =>
+    metrics &&
+    typeof metrics === "object" &&
+    typeof (metrics as Record<string, unknown>)[key] === "number" &&
+    Number.isFinite((metrics as Record<string, number>)[key]) &&
+    (metrics as Record<string, number>)[key] >= 0
+      ? (metrics as Record<string, number>)[key]
+      : undefined;
   return {
     itemId: item.item_id,
     role: "assistant",
     content,
     citationSourceRefIds: stringArray(item.payload.citation_source_ref_ids),
+    responseTimeMs: numeric("response_time_ms"),
+    inputTokens: numeric("input_tokens"),
+    outputTokens: numeric("output_tokens"),
   };
 }
 
@@ -341,10 +356,12 @@ export function sessionFromTimeline(
       });
     }
   }
-  const activity = timeline.flatMap((item): ToolActivity[] => {
+  const activityByCallId = new Map<string, ToolActivity>();
+  for (const item of timeline) {
     if (item.kind === "tool_call" && item.call_id && item.tool_name) {
       const metadata = callMetadata.get(item.call_id);
-      return [
+      activityByCallId.set(
+        item.call_id,
         publicActivity(
           item.call_id,
           item.tool_name,
@@ -355,7 +372,7 @@ export function sessionFromTimeline(
           },
           metadata?.targetRef,
         ),
-      ];
+      );
     }
     if (item.kind === "tool_result" && item.call_id && item.tool_name) {
       const result = item.payload.result as
@@ -368,7 +385,8 @@ export function sessionFromTimeline(
         result?.error && typeof result.error === "object"
           ? (result.error as Record<string, unknown>)
           : {};
-      return [
+      activityByCallId.set(
+        item.call_id,
         publicActivity(
           item.call_id,
           item.tool_name,
@@ -385,10 +403,10 @@ export function sessionFromTimeline(
           },
           callMetadata.get(item.call_id)?.targetRef,
         ),
-      ];
+      );
     }
-    return [];
-  });
+  }
+  const activity = [...activityByCallId.values()];
   return {
     id,
     projectId,
@@ -629,7 +647,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const reconcileAssistantMessage = useCallback((sessionId: string, item: TimelineItem) => {
     const canonical = assistantMessageFromTimelineItem(item);
-    if (canonical === null) return;
+    if (canonical === null) {
+      setSessions((previous) =>
+        previous.map((session) => {
+          if (session.id !== sessionId) return session;
+          const last = session.messages.at(-1);
+          if (
+            last?.role === "assistant" &&
+            last.itemId.startsWith("optimistic-assistant-") &&
+            !last.content.trim()
+          ) {
+            return { ...session, messages: session.messages.slice(0, -1) };
+          }
+          return session;
+        }),
+      );
+      return;
+    }
     setSessions((previous) =>
       previous.map((session) => {
         if (session.id !== sessionId) return session;
@@ -660,15 +694,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           : "failed";
     setSessions((previous) =>
       previous.map((session) =>
-        session.id === sessionId
-          ? {
-              ...session,
-              activity: [
-                ...session.activity,
-                publicActivity(callId, toolName, status, event.payload),
-              ],
-            }
-          : session,
+        session.id !== sessionId
+          ? session
+          : (() => {
+              const existing = session.activity.find((activity) => activity.callId === callId);
+              const next = publicActivity(callId, toolName, status, event.payload);
+              return {
+                ...session,
+                activity: [
+                  ...session.activity.filter((activity) => activity.callId !== callId),
+                  { ...existing, ...next },
+                ],
+              };
+            })(),
       ),
     );
   }, []);

@@ -4,7 +4,14 @@ import asyncio
 
 import pytest
 
-from orion.contracts import AssistantDelta, ContextMessage, ModelToolCall, ToolCallDelta
+from orion.contracts import (
+    AssistantDelta,
+    ContextMessage,
+    ModelToolCall,
+    ModelTurnCompleted,
+    ToolCallDelta,
+)
+from orion.models.backend import ModelBackendError, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend, _PendingToolCall
 from orion.tool_runtime.calculator import calculator_definition
 
@@ -100,6 +107,114 @@ def test_adapter_normalizes_insignificant_citation_marker_whitespace(marker: str
     assert turn.assistant is not None
     assert turn.assistant.content == f"Answer. {marker}"
     assert turn.assistant.citation_source_ref_ids == ("abc",)
+
+
+@pytest.mark.anyio
+async def test_adapter_requests_and_normalizes_stream_usage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield 'data: {"choices":[{"delta":{"content":"Answer."}}]}'
+            yield 'data: {"choices":[],"usage":{"prompt_tokens":1824,"completion_tokens":216}}'
+            yield "data: [DONE]"
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, method: str, url: str, **kwargs: object) -> Stream:
+            captured.update({"method": method, "url": url, **kwargs})
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+    events = [
+        event
+        async for event in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        )
+    ]
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://model.test/v1/chat/completions"
+    assert captured["json"] == {
+        "model": "fake",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "tools": [],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    completed = events[-1]
+    assert isinstance(completed, ModelTurnCompleted)
+    assert completed.usage is not None
+    assert completed.usage.input_tokens == 1824
+    assert completed.usage.output_tokens == 216
+
+
+@pytest.mark.anyio
+async def test_adapter_rejects_malformed_stream_usage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield 'data: {"choices":[],"usage":{"prompt_tokens":-1,"completion_tokens":216}}'
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+
+    with pytest.raises(ModelBackendError, match="OpenAI-compatible model stream failed"):
+        async for _ in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        ):
+            pass
 
 
 @pytest.mark.anyio

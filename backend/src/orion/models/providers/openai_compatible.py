@@ -19,6 +19,7 @@ from orion.contracts import (
     ModelToolCall,
     ModelTurn,
     ModelTurnCompleted,
+    ModelUsage,
     ToolCallDelta,
     ToolDefinition,
 )
@@ -51,10 +52,12 @@ class OpenAICompatibleBackend(ModelBackend):
             "messages": [self._message_payload(message) for message in messages],
             "tools": [definition.provider_schema() for definition in tools],
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         url = f"{settings.base_url.rstrip('/')}/chat/completions"
         content_parts: list[str] = []
         calls: dict[int, _PendingToolCall] = {}
+        usage: ModelUsage | None = None
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
@@ -72,6 +75,9 @@ class OpenAICompatibleBackend(ModelBackend):
                         if not raw_chunk:
                             continue
                         chunk = self._parse_chunk(raw_chunk)
+                        chunk_usage = self._usage_from_chunk(chunk)
+                        if chunk_usage is not None:
+                            usage = chunk_usage
                         for event in self._normalize_chunk(chunk, content_parts, calls):
                             yield event
         except asyncio.CancelledError:
@@ -79,7 +85,7 @@ class OpenAICompatibleBackend(ModelBackend):
         except (httpx.HTTPError, ValueError, json.JSONDecodeError) as error:
             raise ModelBackendError("OpenAI-compatible model stream failed.") from error
 
-        yield ModelTurnCompleted(turn=self._build_turn(content_parts, calls))
+        yield ModelTurnCompleted(turn=self._build_turn(content_parts, calls), usage=usage)
 
     async def _next_line_or_cancel(
         self, lines: AsyncIterator[str], cancellation: asyncio.Event
@@ -172,6 +178,24 @@ class OpenAICompatibleBackend(ModelBackend):
             return tuple(events)
         except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
             raise ModelBackendError("Model returned an invalid streaming response.") from error
+
+    @staticmethod
+    def _usage_from_chunk(chunk: dict[str, Any]) -> ModelUsage | None:
+        raw_usage = chunk.get("usage")
+        if raw_usage is None:
+            return None
+        if not isinstance(raw_usage, dict):
+            raise ValueError("provider usage is not an object")
+        input_tokens = raw_usage.get("prompt_tokens")
+        output_tokens = raw_usage.get("completion_tokens")
+        if (
+            type(input_tokens) is not int
+            or input_tokens < 0
+            or type(output_tokens) is not int
+            or output_tokens < 0
+        ):
+            raise ValueError("provider usage is invalid")
+        return ModelUsage(input_tokens=input_tokens, output_tokens=output_tokens)
 
     @staticmethod
     def _build_turn(content_parts: list[str], calls: dict[int, _PendingToolCall]) -> ModelTurn:

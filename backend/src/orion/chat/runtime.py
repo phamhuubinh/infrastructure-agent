@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 
 from orion.access import LocalAccessAdapter
@@ -11,6 +12,7 @@ from orion.contracts import (
     AssistantDelta,
     ModelTurn,
     ModelTurnCompleted,
+    ModelUsage,
     RuntimeScope,
     TimelineItem,
     ToolResult,
@@ -90,6 +92,10 @@ class ChatRuntime:
             if request is not None and request["status"] in {"queued", "running"}:
                 self._fail_unexpected(request_id)
             raise RequestFailed("Request is unavailable.")
+        started_at = time.monotonic()
+        input_tokens = 0
+        output_tokens = 0
+        has_complete_usage = True
         try:
             async with self._session_locks.setdefault(session_id, asyncio.Lock()):
                 self._store.start_request(request_id)
@@ -106,13 +112,32 @@ class ChatRuntime:
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     self._emit(request_id, "model.started", {})
-                    turn = await self._stream_turn(session_id, request_id, settings, cancellation)
+                    turn, usage = await self._stream_turn(
+                        session_id, request_id, settings, cancellation
+                    )
+                    if usage is None:
+                        has_complete_usage = False
+                    else:
+                        input_tokens += usage.input_tokens
+                        output_tokens += usage.output_tokens
                     self._ensure_not_cancelled(cancellation)
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
                     self._validate_citations(turn, scope)
-                    assistant_item = self._persist_assistant_turn(session_id, request_id, turn)
+                    metrics: dict[str, int] | None = None
+                    if not turn.tool_calls:
+                        metrics = {
+                            "response_time_ms": max(
+                                0, round((time.monotonic() - started_at) * 1000)
+                            )
+                        }
+                        if has_complete_usage:
+                            metrics["input_tokens"] = input_tokens
+                            metrics["output_tokens"] = output_tokens
+                    assistant_item = self._persist_assistant_turn(
+                        session_id, request_id, turn, metrics
+                    )
                     if turn.assistant is not None:
                         self._emit(
                             request_id,
@@ -186,8 +211,9 @@ class ChatRuntime:
         request_id: str,
         settings: ModelSettings,
         cancellation: asyncio.Event,
-    ) -> ModelTurn:
+    ) -> tuple[ModelTurn, ModelUsage | None]:
         completed_turn: ModelTurn | None = None
+        completed_usage: ModelUsage | None = None
         async for event in self._backend.stream(
             self._context_builder.build(session_id),
             self._registry.definitions(),
@@ -199,9 +225,10 @@ class ChatRuntime:
                 self._emit(request_id, "assistant.delta", {"content": event.content})
             elif isinstance(event, ModelTurnCompleted):
                 completed_turn = event.turn
+                completed_usage = event.usage
         if completed_turn is None:
             raise ModelBackendError("Model stream ended without a completed turn.")
-        return completed_turn
+        return completed_turn, completed_usage
 
     def _runtime_scope(self, session_id: str) -> RuntimeScope:
         identity = self._store.session_identity(session_id)
@@ -232,23 +259,28 @@ class ChatRuntime:
         )
 
     def _persist_assistant_turn(
-        self, session_id: str, request_id: str, turn: ModelTurn
+        self,
+        session_id: str,
+        request_id: str,
+        turn: ModelTurn,
+        metrics: dict[str, int] | None = None,
     ) -> TimelineItem:
+        payload: dict[str, object] = {
+            "content": redact_public(turn.assistant.content) if turn.assistant is not None else "",
+            "citation_source_ref_ids": (
+                list(redact_public(turn.assistant.citation_source_ref_ids))
+                if turn.assistant is not None
+                else []
+            ),
+            "tool_calls": [call.model_dump(mode="json") for call in turn.tool_calls],
+        }
+        if metrics is not None:
+            payload["metrics"] = metrics
         return self._store.append_timeline(
             session_id,
             request_id,
             "assistant_message",
-            {
-                "content": redact_public(turn.assistant.content)
-                if turn.assistant is not None
-                else "",
-                "citation_source_ref_ids": (
-                    list(redact_public(turn.assistant.citation_source_ref_ids))
-                    if turn.assistant is not None
-                    else []
-                ),
-                "tool_calls": [call.model_dump(mode="json") for call in turn.tool_calls],
-            },
+            payload,
         )
 
     def _persist_tool_result(self, session_id: str, request_id: str, result: ToolResult) -> None:

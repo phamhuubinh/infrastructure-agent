@@ -17,11 +17,9 @@ import { cn } from "@/lib/utils";
 import type { Session, SourceReference, ToolActivity } from "@/lib/chat-store";
 
 function activityLabel(activity: ToolActivity) {
-  if (activity.status === "started") return "Đang chạy";
   if (activity.status === "completed") return "Hoàn tất";
-  return activity.toolName.startsWith("knowledge.")
-    ? "Tra cứu tài liệu thất bại"
-    : "Công cụ thất bại";
+  if (activity.status === "failed") return "Lỗi";
+  return "Đang chạy";
 }
 
 export function ContextPanel({
@@ -38,6 +36,7 @@ export function ContextPanel({
   const selectedSource = session.sources.find(
     (source) => source.sourceRefId === selectedSourceRefId,
   );
+  const visibleActivity = session.activity.filter((activity) => activity.status !== "started");
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("orion-context-panel-collapsed") === "true");
@@ -76,7 +75,7 @@ export function ContextPanel({
         <div>
           <div className="text-xs font-semibold">Hoạt động runtime</div>
           <div className="mt-0.5 text-[11px] text-muted-foreground">
-            {session.activity.length ? "Công cụ do model gọi" : "Chưa có hoạt động công cụ"}
+            {visibleActivity.length ? "Công cụ do model gọi" : "Chưa có hoạt động công cụ"}
           </div>
         </div>
         <Button
@@ -138,7 +137,7 @@ export function ContextPanel({
         </div>
       )}
 
-      {session.activity.length === 0 ? (
+      {visibleActivity.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-4">
           <div className="text-center">
             <div className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-xl border border-border bg-surface-2">
@@ -152,18 +151,18 @@ export function ContextPanel({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {session.activity.map((activity, index) => {
-            const open = openCallId === activity.callId + "-" + index;
+          {visibleActivity.map((activity) => {
+            const open = openCallId === activity.callId;
             const failed = activity.status === "failed";
             const completed = activity.status === "completed";
             return (
               <div
-                key={activity.callId + "-" + index}
+                key={activity.callId}
                 className="overflow-hidden rounded-lg border border-border bg-surface-2/40"
               >
                 <button
                   type="button"
-                  onClick={() => setOpenCallId(open ? null : activity.callId + "-" + index)}
+                  onClick={() => setOpenCallId(open ? null : activity.callId)}
                   className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
                 >
                   <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3">

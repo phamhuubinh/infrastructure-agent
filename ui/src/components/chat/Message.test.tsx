@@ -1,44 +1,40 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { AssistantMessage } from "@/components/chat/Message";
 
-describe("AssistantMessage regenerate action", () => {
-  it("calls the regenerate handler", () => {
-    const onRegenerate = vi.fn();
-    render(
-      <AssistantMessage content="answer" onRegenerate={onRegenerate}>
-        answer
-      </AssistantMessage>,
-    );
+describe("AssistantMessage", () => {
+  it("keeps Copy and removes the unavailable regenerate action", () => {
+    render(<AssistantMessage content="answer">answer</AssistantMessage>);
 
-    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
-
-    expect(onRegenerate).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Regenerate" })).toBeNull();
   });
 
-  it("disables regenerate while the session is generating", () => {
-    const onRegenerate = vi.fn();
+  it("renders provider-backed response and token metrics", () => {
     render(
-      <AssistantMessage content="answer" onRegenerate={onRegenerate} regenerateDisabled>
+      <AssistantMessage
+        content="answer"
+        responseTimeMs={2400}
+        inputTokens={1824}
+        outputTokens={216}
+      >
         answer
       </AssistantMessage>,
     );
 
-    const button = screen.getByRole("button", { name: "Regenerate" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(button);
-    expect(onRegenerate).not.toHaveBeenCalled();
+    expect(screen.getByText(/Trả lời trong 2,4 giây/)).toBeTruthy();
+    expect(screen.getByText(/1.824 token vào · 216 token ra/)).toBeTruthy();
   });
 
-  it("disables regenerate when onRegenerate is undefined (older message)", () => {
+  it("omits historical timing and incomplete token usage", () => {
     render(
-      <AssistantMessage content="answer" onRegenerate={undefined}>
+      <AssistantMessage content="answer" inputTokens={1824}>
         answer
       </AssistantMessage>,
     );
 
-    const button = screen.getByRole("button", { name: "Regenerate" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Chưa ghi nhận thời gian")).toBeNull();
+    expect(screen.queryByText(/token vào/)).toBeNull();
   });
 });

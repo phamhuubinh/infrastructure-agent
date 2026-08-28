@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Copy, RefreshCw, Check, Clock3, type LucideIcon } from "lucide-react";
+import { Copy, Check, Clock3, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OrionIcon } from "@/components/OrionIcon";
@@ -43,15 +43,15 @@ export function AssistantMessage({
   agent = "Orion",
   content,
   responseTimeMs,
-  onRegenerate,
-  regenerateDisabled = false,
+  inputTokens,
+  outputTokens,
 }: {
   children: React.ReactNode;
   agent?: string;
   content?: string;
   responseTimeMs?: number;
-  onRegenerate?: () => void;
-  regenerateDisabled?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
 }) {
   const textContent = content ?? (typeof children === "string" ? children : "");
   return (
@@ -65,19 +65,24 @@ export function AssistantMessage({
         <div className="mt-2 flex items-center gap-2">
           <div className="flex items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
             <IconBtn icon={Copy} label="Copy" content={textContent} />
-            <IconBtn
-              icon={RefreshCw}
-              label="Regenerate"
-              onClick={onRegenerate}
-              disabled={!onRegenerate || regenerateDisabled}
-            />
           </div>
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            <Clock3 className="h-3 w-3" />
-            {responseTimeMs === undefined
-              ? "Chưa ghi nhận thời gian"
-              : `Trả lời trong ${formatResponseTime(responseTimeMs)}`}
-          </span>
+          {(responseTimeMs !== undefined ||
+            (inputTokens !== undefined && outputTokens !== undefined)) && (
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              {responseTimeMs !== undefined && (
+                <>
+                  <Clock3 className="h-3 w-3" /> Trả lời trong {formatResponseTime(responseTimeMs)}
+                </>
+              )}
+              {inputTokens !== undefined && outputTokens !== undefined && (
+                <>
+                  {responseTimeMs !== undefined && " · "}
+                  {new Intl.NumberFormat("vi-VN").format(inputTokens)} token vào ·{" "}
+                  {new Intl.NumberFormat("vi-VN").format(outputTokens)} token ra
+                </>
+              )}
+            </span>
+          )}
         </div>
       </div>
     </div>

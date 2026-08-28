@@ -19,15 +19,55 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
       <button onClick={() => void chat.switchSession(sessionId)}>load</button>
       <button onClick={() => void chat.renameSession(sessionId, "My custom title")}>rename</button>
       <button onClick={() => chat.addOptimisticMessage(sessionId, "First message")}>message</button>
+      <button onClick={() => chat.addOptimisticAssistant(sessionId)}>assistant-pending</button>
+      <button
+        onClick={() =>
+          chat.reconcileAssistantMessage(
+            sessionId,
+            assistantTimelineItem("\n\n", [{ id: "call-1", name: "calculator.evaluate" }]),
+          )
+        }
+      >
+        tool-only-assistant
+      </button>
+      <button
+        onClick={() =>
+          chat.recordEvent(sessionId, {
+            type: "tool.started",
+            created_at: "now",
+            payload: {
+              call_id: "call-1",
+              tool_name: "linux.system.inspect",
+              target_ref: "monitor-a",
+              operation_kind: "read",
+            },
+          })
+        }
+      >
+        tool-start
+      </button>
+      <button
+        onClick={() =>
+          chat.recordEvent(sessionId, {
+            type: "tool.completed",
+            created_at: "now",
+            payload: { call_id: "call-1", tool_name: "linux.system.inspect", status: "success" },
+          })
+        }
+      >
+        tool-complete
+      </button>
       <span>{chat.sessions[0]?.messages.map((message) => message.content).join("|")}</span>
       <span data-testid="project-id">{chat.sessions[0]?.projectId || "none"}</span>
       <span data-testid="session-count">{chat.sessions.length}</span>
+      <span data-testid="message-count">{chat.sessions[0]?.messages.length || 0}</span>
       <span data-testid="title">
         {chat.sessions.find((session) => session.id === sessionId)?.title}
       </span>
       <span data-testid="citations">
         {chat.sessions[0]?.messages.at(-1)?.citationSourceRefIds?.join("|") || "none"}
       </span>
+      <span data-testid="activity">{JSON.stringify(chat.sessions[0]?.activity || [])}</span>
     </div>
   );
 }
@@ -48,6 +88,25 @@ function assistantTimelineItem(content: string, toolCalls: unknown[] = []): Time
     payload: { content, tool_calls: toolCalls },
     call_id: null,
     tool_name: null,
+  };
+}
+
+function toolTimelineItem(
+  kind: "tool_call" | "tool_result",
+  callId: string,
+  status: "success" | "error" = "success",
+): TimelineItem {
+  return {
+    item_id: `${kind}-${callId}`,
+    session_id: "session-1",
+    created_at: "2026-08-28T00:00:02Z",
+    kind,
+    payload:
+      kind === "tool_call"
+        ? { arguments: { target_ref: "monitor-a" }, operation_kind: "read" }
+        : { result: { status, data: { target_ref: "monitor-a" } } },
+    call_id: callId,
+    tool_name: "linux.system.inspect",
   };
 }
 
@@ -304,6 +363,114 @@ describe("M1 session store", () => {
       role: "assistant",
       content: "Ordinary assistant response.",
     });
+  });
+
+  it("hydrates assistant response and token metrics from the canonical timeline", () => {
+    const item = {
+      ...assistantTimelineItem("Measured answer."),
+      payload: {
+        content: "Measured answer.",
+        metrics: { response_time_ms: 2400, input_tokens: 1824, output_tokens: 216 },
+      },
+    };
+
+    expect(assistantMessageFromTimelineItem(item)).toMatchObject({
+      responseTimeMs: 2400,
+      inputTokens: 1824,
+      outputTokens: 216,
+    });
+    expect(sessionFromTimeline("session-1", [item]).messages[0]).toMatchObject({
+      responseTimeMs: 2400,
+      inputTokens: 1824,
+      outputTokens: 216,
+    });
+  });
+
+  it("hydrates one final activity per call ID", () => {
+    const activity = sessionFromTimeline("session-1", [
+      toolTimelineItem("tool_call", "one"),
+      toolTimelineItem("tool_result", "one"),
+      toolTimelineItem("tool_call", "two"),
+      toolTimelineItem("tool_result", "two", "error"),
+    ]).activity;
+
+    expect(activity).toEqual([
+      expect.objectContaining({ callId: "one", status: "completed", targetRef: "monitor-a" }),
+      expect.objectContaining({ callId: "two", status: "failed", targetRef: "monitor-a" }),
+    ]);
+  });
+
+  it("upserts live tool lifecycle events by call ID while retaining start metadata", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("New chat");
+    fireEvent.click(screen.getByRole("button", { name: "tool-start" }));
+    fireEvent.click(screen.getByRole("button", { name: "tool-complete" }));
+
+    await waitFor(() => {
+      expect(JSON.parse(screen.getByTestId("activity").textContent || "[]")).toEqual([
+        expect.objectContaining({
+          callId: "call-1",
+          status: "completed",
+          targetRef: "monitor-a",
+          operationKind: "read",
+        }),
+      ]);
+    });
+  });
+
+  it("removes a pending empty assistant projection when the live turn is tool-only", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("New chat");
+    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
+    expect(screen.getByTestId("message-count").textContent).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "tool-only-assistant" }));
+    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
   });
 
   it("hydrates the canonical project identity and reopens the existing Project session", async () => {
@@ -714,13 +881,6 @@ describe("M1 session store", () => {
     expect(session.activity).toContainEqual({
       callId: "infra-1",
       toolName: "linux.system.inspect",
-      status: "started",
-      targetRef: "monitor",
-      operationKind: "read",
-    });
-    expect(session.activity).toContainEqual({
-      callId: "infra-1",
-      toolName: "linux.system.inspect",
       status: "failed",
       targetRef: "monitor",
       operationKind: "read",
@@ -731,19 +891,13 @@ describe("M1 session store", () => {
     expect(session.activity).toContainEqual({
       callId: "restart-1",
       toolName: "linux.service.restart",
-      status: "started",
-      targetRef: "monitor",
-      operationKind: "mutation",
-    });
-    expect(session.activity).toContainEqual({
-      callId: "restart-1",
-      toolName: "linux.service.restart",
       status: "completed",
       targetRef: "monitor",
       operationKind: "mutation",
       changed: true,
       verification: "verified",
     });
+    expect(session.activity).toHaveLength(3);
     expect(session.sources).toContainEqual({
       sourceRefId: "linux-source",
       sourceKind: "linux",

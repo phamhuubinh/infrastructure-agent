@@ -239,7 +239,9 @@ describe("M1 Chat integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await screen.findByText("The answer is 4.");
-    expect(screen.getAllByText("calculator.evaluate").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("calculator.evaluate")).toHaveLength(1);
+    expect(screen.getByText("Hoàn tất")).toBeTruthy();
+    expect(screen.queryByText("Đang chạy")).toBeNull();
     expect(screen.queryByText(/enabled_tools/)).toBeNull();
   });
 
@@ -289,7 +291,10 @@ describe("M1 Chat integration", () => {
         session_id: "chat-1",
         created_at: "2026-08-28T00:00:04Z",
         kind: "assistant_message",
-        payload: { content: "The answer is 4." },
+        payload: {
+          content: "The answer is 4.",
+          metrics: { response_time_ms: 2400, input_tokens: 1824, output_tokens: 216 },
+        },
         call_id: null,
         tool_name: null,
       },
@@ -339,6 +344,8 @@ describe("M1 Chat integration", () => {
     await screen.findByText("The answer is 4.");
     expect(screen.getAllByText("Orion")).toHaveLength(1);
     expect(screen.getAllByText("calculator.evaluate").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Trả lời trong 2,4 giây/)).toBeTruthy();
+    expect(screen.getByText(/1.824 token vào · 216 token ra/)).toBeTruthy();
   });
 
   it("presents a failed request returned by the M1 endpoint", async () => {
