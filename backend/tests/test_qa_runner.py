@@ -120,6 +120,28 @@ def test_qa_loads_expected_tool_errors(qa_runner, tmp_path) -> None:  # type: ig
     assert case.expected_tool_errors == (("linux.system.inspect", "unknown_target"),)
 
 
+def test_qa_loads_and_validates_expected_any_tools(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    corpus = tmp_path / "cases.json"
+    valid = {
+        "id": "document",
+        "prompt": "read",
+        "category": "knowledge",
+        "expected_any_tools": ["knowledge.search", "knowledge.read"],
+    }
+    corpus.write_text(json.dumps([valid]), encoding="utf-8")
+
+    assert qa_runner.load_cases(corpus)[0].expected_any_tools == (
+        "knowledge.search",
+        "knowledge.read",
+    )
+
+    for value in ([], ["knowledge.search", ""], [" "], "knowledge.search", None):
+        invalid = {**valid, "expected_any_tools": value}
+        corpus.write_text(json.dumps([invalid]), encoding="utf-8")
+        with pytest.raises(ValueError, match="invalid alternative tool expectations"):
+            qa_runner.load_cases(corpus)
+
+
 def test_qa_unknown_target_case_uses_the_linux_target_schema(qa_runner) -> None:  # type: ignore[no-untyped-def]
     from orion.tool_runtime.infrastructure import infrastructure_definitions
 
@@ -163,6 +185,45 @@ def test_qa_evaluation_requires_final_canonical_citations(qa_runner) -> None:  #
         "payload": {"content": "answer", "citation_source_ref_ids": ["real"]},
     }
     assert qa_runner.evaluate(case, [source, cited])[:2] == ("PASS", None)
+
+
+def test_qa_evaluation_accepts_alternative_tools_without_weakening_mandatory_tools(
+    qa_runner,
+) -> None:  # type: ignore[no-untyped-def]
+    alternatives = qa_runner.Case(
+        id="document",
+        prompt="read",
+        category="knowledge",
+        expected_any_tools=("knowledge.search", "knowledge.read"),
+    )
+    mandatory_and_alternative = qa_runner.Case(
+        id="combined",
+        prompt="read and calculate",
+        category="knowledge",
+        expected_tools=("calculator.evaluate",),
+        expected_any_tools=("knowledge.search", "knowledge.read"),
+    )
+
+    def timeline(*tool_names: str) -> list[dict[str, object]]:
+        return [{"kind": "tool_call", "tool_name": name, "payload": {}} for name in tool_names]
+
+    assert qa_runner.evaluate(alternatives, timeline("knowledge.search"))[:2] == ("PASS", None)
+    assert qa_runner.evaluate(alternatives, timeline("knowledge.read"))[:2] == ("PASS", None)
+    assert qa_runner.evaluate(alternatives, timeline("knowledge.list_documents"))[:2] == (
+        "FAIL",
+        "none of the acceptable tools were called: knowledge.search, knowledge.read",
+    )
+    assert qa_runner.evaluate(mandatory_and_alternative, timeline("knowledge.search"))[:2] == (
+        "FAIL",
+        "expected tool not called: calculator.evaluate",
+    )
+    assert qa_runner.evaluate(mandatory_and_alternative, timeline("calculator.evaluate"))[:2] == (
+        "FAIL",
+        "none of the acceptable tools were called: knowledge.search, knowledge.read",
+    )
+    assert qa_runner.evaluate(
+        mandatory_and_alternative, timeline("calculator.evaluate", "knowledge.read")
+    )[:2] == ("PASS", None)
 
 
 def test_qa_citation_diagnostics_are_bounded_and_content_free(qa_runner) -> None:  # type: ignore[no-untyped-def]

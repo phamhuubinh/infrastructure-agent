@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "3"
+RUNNER_VERSION = "4"
 CITATION_DIAGNOSTIC_LIMIT = 8
 SCENARIOS = {
     "ordinary_chat",
@@ -44,6 +44,7 @@ class Case:
     prompt: str
     category: str
     expected_tools: tuple[str, ...] = ()
+    expected_any_tools: tuple[str, ...] = ()
     expected_tool_errors: tuple[tuple[str, str], ...] = ()
     forbidden_tools: tuple[str, ...] = ()
     requires_citation: bool = False
@@ -75,6 +76,7 @@ def load_cases(path: Path) -> list[Case]:
             raise ValueError(f"Duplicate QA case id: {item['id']}")
         seen.add(item["id"])
         tools = item.get("expected_tools", [])
+        expected_any_tools = item.get("expected_any_tools")
         expected_tool_errors = item.get("expected_tool_errors", {})
         forbidden = item.get("forbidden_tools", [])
         if (
@@ -83,6 +85,16 @@ def load_cases(path: Path) -> list[Case]:
             or not all(isinstance(value, str) for value in [*tools, *forbidden])
         ):
             raise ValueError(f"QA case {item['id']} has invalid tool expectations.")
+        if "expected_any_tools" not in item:
+            any_tools: tuple[str, ...] = ()
+        elif (
+            not isinstance(expected_any_tools, list)
+            or not expected_any_tools
+            or not all(isinstance(value, str) and value.strip() for value in expected_any_tools)
+        ):
+            raise ValueError(f"QA case {item['id']} has invalid alternative tool expectations.")
+        else:
+            any_tools = tuple(expected_any_tools)
         if (
             not isinstance(expected_tool_errors, dict)
             or not all(
@@ -112,6 +124,7 @@ def load_cases(path: Path) -> list[Case]:
                 prompt=item["prompt"],
                 category=item["category"],
                 expected_tools=tuple(tools),
+                expected_any_tools=any_tools,
                 expected_tool_errors=tuple(expected_tool_errors.items()),
                 forbidden_tools=tuple(forbidden),
                 requires_citation=bool(item.get("requires_citation", False)),
@@ -145,9 +158,19 @@ def evaluate(
     source_ids = _source_ids(timeline)
     sources = len(source_ids)
     missing = [tool for tool in case.expected_tools if not tools[tool]]
+    missing_any = case.expected_any_tools and not any(
+        tools[tool] for tool in case.expected_any_tools
+    )
     forbidden = [tool for tool in case.forbidden_tools if tools[tool]]
     if missing:
         return "FAIL", f"expected tool not called: {', '.join(missing)}", tools, sources
+    if missing_any:
+        return (
+            "FAIL",
+            f"none of the acceptable tools were called: {', '.join(case.expected_any_tools)}",
+            tools,
+            sources,
+        )
     if forbidden:
         return "FAIL", f"forbidden tool called: {', '.join(forbidden)}", tools, sources
     errors = _tool_error_codes(timeline)
