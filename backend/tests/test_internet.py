@@ -614,8 +614,11 @@ def test_duckduckgo_default_search_parses_organic_results_and_normalises_redirec
         <div class="result__snippet">Second summary</div>
       </div>
     """
+    requests: list[httpx.Request] = []
     client = DuckDuckGoInternetClient(
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=html))
+        transport=httpx.MockTransport(
+            lambda request: (requests.append(request), httpx.Response(200, text=html))[1]
+        )
     )
 
     results = client.search("orion", 1)
@@ -632,6 +635,11 @@ def test_duckduckgo_default_search_parses_organic_results_and_normalises_redirec
         "https://example.test/guide"
     )
     assert _duckduckgo_destination("javascript:alert(1)") is None
+    assert requests[0].method == "POST"
+    assert requests[0].url == httpx.URL("https://html.duckduckgo.com/html/")
+    assert requests[0].content == b"q=orion&b="
+    assert requests[0].headers["user-agent"].startswith("Mozilla/5.0")
+    assert requests[0].headers["referer"] == "https://html.duckduckgo.com/html/"
 
 
 def test_duckduckgo_default_search_has_bounded_zero_result_and_failure_behavior() -> None:
@@ -649,6 +657,26 @@ def test_duckduckgo_default_search_has_bounded_zero_result_and_failure_behavior(
         failing.search("timeout", 1)
     assert error.value.code == "timeout"
     assert error.value.retryable
+
+
+@pytest.mark.parametrize(
+    "challenge_html",
+    [
+        '<form id="challenge-form" action="/anomaly.js"></form>',
+        '<div id="anomaly-modal"></div>',
+    ],
+)
+def test_duckduckgo_challenge_response_is_retryable_and_unhealthy(challenge_html: str) -> None:
+    client = DuckDuckGoInternetClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=challenge_html))
+    )
+
+    with pytest.raises(InternetClientError) as error:
+        client.search("orion", 1)
+
+    assert error.value.code == "provider_blocked"
+    assert error.value.retryable
+    assert client.status().status == "unhealthy"
 
 
 def test_duckduckgo_default_client_reuses_secure_fetch() -> None:

@@ -27,6 +27,13 @@ REQUEST_TIMEOUT_SECONDS = 10.0
 HEALTH_TIMEOUT_SECONDS = 3.0
 MAX_HEALTH_RESPONSE_BYTES = 32_000
 DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/"
+DUCKDUCKGO_SEARCH_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Referer": DUCKDUCKGO_SEARCH_URL,
+}
 
 
 class InternetClientError(RuntimeError):
@@ -133,6 +140,7 @@ class _DuckDuckGoResultParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._results: list[tuple[str, str, str]] = []
+        self._challenge_detected = False
         self._depth = 0
         self._ad = False
         self._url: str | None = None
@@ -143,6 +151,12 @@ class _DuckDuckGoResultParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
         classes = set((attributes.get("class") or "").split())
+        if (
+            attributes.get("id") in {"challenge-form", "anomaly-modal"}
+            or "anomaly-modal" in classes
+            or (tag == "form" and "anomaly.js" in (attributes.get("action") or ""))
+        ):
+            self._challenge_detected = True
         if self._depth:
             self._depth += 1
         elif tag == "div" and "result" in classes:
@@ -177,6 +191,10 @@ class _DuckDuckGoResultParser(HTMLParser):
     @property
     def results(self) -> tuple[tuple[str, str, str], ...]:
         return tuple(self._results)
+
+    @property
+    def challenge_detected(self) -> bool:
+        return self._challenge_detected
 
 
 Resolver = Callable[[str, int], Sequence[str]]
@@ -576,7 +594,12 @@ class DuckDuckGoInternetClient(SearxngInternetClient):
     def search(self, query: str, limit: int) -> tuple[InternetSearchResult, ...]:
         try:
             with self._http_client() as client:
-                with client.stream("GET", DUCKDUCKGO_SEARCH_URL, params={"q": query}) as response:
+                with client.stream(
+                    "POST",
+                    DUCKDUCKGO_SEARCH_URL,
+                    data={"q": query, "b": ""},
+                    headers=DUCKDUCKGO_SEARCH_HEADERS,
+                ) as response:
                     self._raise_for_search_status(response)
                     body = _read_bounded_body(response)
         except InternetClientError:
@@ -595,6 +618,10 @@ class DuckDuckGoInternetClient(SearxngInternetClient):
             raise InternetClientError(
                 "invalid_response", "Internet search returned an invalid response."
             ) from error
+        if parser.challenge_detected:
+            raise InternetClientError(
+                "provider_blocked", "Internet search provider blocked this request.", True
+            )
         retrieved_at = datetime.now(UTC)
         results: list[InternetSearchResult] = []
         for raw_url, raw_title, raw_snippet in parser.results:
