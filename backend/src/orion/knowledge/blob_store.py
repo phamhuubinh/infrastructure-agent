@@ -23,6 +23,13 @@ class LocalBlobStore:
         except FileNotFoundError as error:
             raise ValueError("Document blob is unavailable") from error
 
+    def delete(self, blob_id: str) -> None:
+        """Remove an opaque blob if it still exists."""
+        try:
+            self._path(blob_id).unlink()
+        except FileNotFoundError:
+            pass
+
     def _path(self, blob_id: str) -> Path:
         if not re_full_uuid(blob_id):
             raise ValueError("Invalid blob identity")

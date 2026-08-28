@@ -13,6 +13,8 @@ import {
   getSessionIdentity,
   listSessions,
   projectDocuments,
+  deleteSession as deletePersistedSession,
+  renameSession as renamePersistedSession,
   type DocumentRef,
   type DocumentStatus,
   apiJson,
@@ -108,6 +110,8 @@ type ChatContextValue = {
   generatingSessions: Set<string>;
   createSession: (projectId?: string) => Promise<string>;
   startNewChat: () => void;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   switchSession: (id: string) => Promise<Session | null>;
   loadSession: (id: string) => Promise<Session>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
@@ -501,6 +505,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const startNewChat = useCallback(() => setCurrentSessionId(null), []);
 
+  const renameSession = useCallback(async (sessionId: string, title: string) => {
+    const updated = await renamePersistedSession(sessionId, title);
+    setSessions((previous) =>
+      previous.map((session) =>
+        session.id === sessionId ? { ...session, title: updated.title } : session,
+      ),
+    );
+  }, []);
+
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      const deleted = sessions.find((session) => session.id === sessionId);
+      await deletePersistedSession(sessionId);
+      const remaining = sessions.filter((session) => session.id !== sessionId);
+      const replacement =
+        deleted?.projectId === null
+          ? null
+          : (remaining.find((session) => session.projectId === deleted?.projectId) ?? null);
+      setSessions(remaining);
+      setGeneratingSessions((previous) => {
+        const next = new Set(previous);
+        next.delete(sessionId);
+        return next;
+      });
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(replacement?.id ?? null);
+        if (replacement) void loadSession(replacement.id);
+      }
+    },
+    [currentSessionId, loadSession, sessions],
+  );
+
   const switchSession = useCallback(
     async (id: string) => {
       setCurrentSessionId(id);
@@ -754,6 +790,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       generatingSessions,
       createSession,
       startNewChat,
+      renameSession,
+      deleteSession,
       switchSession,
       loadSession,
       addOptimisticMessage,
@@ -772,6 +810,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       generatingSessions,
       createSession,
       startNewChat,
+      renameSession,
+      deleteSession,
       switchSession,
       loadSession,
       addOptimisticMessage,

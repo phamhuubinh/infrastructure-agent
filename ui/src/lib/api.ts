@@ -57,6 +57,8 @@ export type SessionSummary = SessionIdentity & {
   last_activity_at: string;
 };
 
+export type SessionTitle = SessionIdentity & { title: string };
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   return fetch(`${API_URL}${path}`, { ...init, headers });
@@ -122,6 +124,21 @@ export async function getSessionIdentity(sessionId: string): Promise<SessionIden
 
 export async function listSessions(): Promise<SessionSummary[]> {
   return apiJson<SessionSummary[]>("/api/sessions");
+}
+
+export async function renameSession(sessionId: string, title: string): Promise<SessionTitle> {
+  return apiJson<SessionTitle>(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
 }
 
 export async function listProjects(): Promise<Project[]> {

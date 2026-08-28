@@ -155,6 +155,16 @@ class KnowledgeService:
             raise PermissionError("Document is outside the current knowledge scope")
         return self._store.delete_document(document_id)
 
+    def delete_blobs(self, blob_ids: tuple[str, ...]) -> None:
+        """Best-effort cleanup after metadata has been transactionally removed."""
+        for blob_id in blob_ids:
+            try:
+                self._blobs.delete(blob_id)
+            except OSError:
+                # The deleted database metadata remains authoritative; a failed filesystem cleanup
+                # can only leave an unreachable local blob.
+                pass
+
     def list_documents(self, scope: RuntimeScope) -> list[DocumentRef]:
         return [self._document_ref(row) for row in self._visible_documents(scope)]
 

@@ -69,6 +69,14 @@ class SessionSummaryView(SessionView):
     last_activity_at: str
 
 
+class SessionTitleUpdate(StrictRequest):
+    title: str = Field(max_length=120)
+
+
+class SessionTitleView(SessionView):
+    title: str
+
+
 class ProjectInput(StrictRequest):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=4000)
@@ -217,6 +225,38 @@ def create_app(
     async def get_session(session_id: str) -> SessionView:
         identity = _require_session(store, assembled.access, session_id)
         return SessionView(session_id=session_id, project_id=identity["project_id"])
+
+    @app.patch("/api/sessions/{session_id}", response_model=SessionTitleView)
+    async def rename_session(session_id: str, update: SessionTitleUpdate) -> SessionTitleView:
+        identity = _require_session(store, assembled.access, session_id)
+        title = update.title.strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="Conversation title cannot be empty.")
+        if not store.rename_session(session_id, title):
+            raise HTTPException(status_code=404, detail="Session not found.")
+        return SessionTitleView(
+            session_id=session_id, project_id=identity["project_id"], title=title
+        )
+
+    @app.delete("/api/sessions/{session_id}", status_code=204)
+    async def delete_session(session_id: str) -> Response:
+        _require_session(store, assembled.access, session_id)
+        try:
+            blob_ids = store.delete_session(session_id)
+        except RuntimeError as error:
+            if str(error) == "active_request":
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The active request must finish or be cancelled before deleting this "
+                        "conversation."
+                    ),
+                ) from error
+            raise
+        if blob_ids is None:
+            raise HTTPException(status_code=404, detail="Session not found.")
+        assembled.knowledge.delete_blobs(blob_ids)
+        return Response(status_code=204)
 
     @app.get("/api/projects", response_model=list[ProjectView])
     async def list_projects() -> list[ProjectView]:

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AnchorHTMLAttributes } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -87,6 +87,86 @@ describe("Project workspace navigation", () => {
     invalidateProjectList();
     await screen.findByText("Atlas canonical rename");
     expect(projectListCalls).toBe(2);
+  });
+
+  it("manages persisted ordinary and Project conversation rows through one menu", async () => {
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/sessions" && !init?.method)
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "chat-1",
+              project_id: null,
+              title: "Ordinary conversation",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+            {
+              session_id: "project-1",
+              project_id: "project-a",
+              title: "Project conversation",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      if (path === "/api/projects")
+        return Promise.resolve(
+          jsonResponse([
+            {
+              project_id: "project-a",
+              name: "Atlas",
+              description: null,
+              instructions: null,
+              metadata: {},
+              created_at: "now",
+              updated_at: "now",
+            },
+          ]),
+        );
+      if (path === "/api/sessions/chat-1" && init?.method === "PATCH")
+        return Promise.resolve(
+          jsonResponse({ session_id: "chat-1", project_id: null, title: "Renamed" }),
+        );
+      if (path === "/api/sessions/chat-1" && init?.method === "DELETE")
+        return Promise.resolve(new Response(null, { status: 204 }));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <AppSidebar />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("Ordinary conversation");
+    expect(screen.getByRole("button", { name: "Quản lý Project conversation" })).toBeTruthy();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Quản lý Ordinary conversation" }));
+    await screen.findByText("Đổi tên");
+    expect(screen.getByText("Xóa")).toBeTruthy();
+    fireEvent.click(screen.getByText("Đổi tên"));
+    fireEvent.change(await screen.findByLabelText("Conversation title"), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu" }));
+    await screen.findByText("Renamed");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sessions/chat-1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ title: "Renamed" }) }),
+    );
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Quản lý Renamed" }));
+    fireEvent.click(await screen.findByText("Xóa"));
+    expect(screen.getByRole("heading", { name: "Xóa hội thoại?" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/sessions/chat-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Quản lý Renamed" }));
+    fireEvent.click(await screen.findByText("Xóa"));
+    fireEvent.click(screen.getByRole("button", { name: "Xóa" }));
+    await waitFor(() => expect(screen.queryByText("Renamed")).toBeNull());
   });
 });
 

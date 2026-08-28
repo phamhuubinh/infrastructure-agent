@@ -9,6 +9,9 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -17,6 +20,21 @@ import { listProjects, type Project } from "@/lib/api";
 import { sessionRoute, useChat, type Session } from "@/lib/chat-store";
 import { onProjectListInvalidated } from "@/lib/project-list";
 import { OrionIcon } from "@/components/OrionIcon";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 
 const navItems = [
   { to: "/", label: "Trò chuyện", icon: MessageSquare },
@@ -36,7 +54,19 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const { sessions, currentSessionId, startNewChat, switchSession, generatingSessions } = useChat();
+  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [managementError, setManagementError] = useState<string | null>(null);
+  const {
+    sessions,
+    currentSessionId,
+    startNewChat,
+    switchSession,
+    generatingSessions,
+    renameSession,
+    deleteSession,
+  } = useChat();
 
   useEffect(() => {
     setCollapsed(localStorage.getItem("orion-sidebar-collapsed") === "true");
@@ -72,6 +102,39 @@ export function AppSidebar() {
   async function selectConversation(sessionId: string) {
     const session = await switchSession(sessionId);
     if (session) await navigate(sessionRoute(session));
+  }
+
+  async function saveRename() {
+    if (!renameTarget || !renameTitle.trim()) return;
+    setManagementError(null);
+    try {
+      await renameSession(renameTarget.id, renameTitle.trim());
+      setRenameTarget(null);
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : "Không thể đổi tên hội thoại.");
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setManagementError(null);
+    try {
+      await deleteSession(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch (reason) {
+      setManagementError(reason instanceof Error ? reason.message : "Không thể xóa hội thoại.");
+    }
+  }
+
+  function openRename(session: Session) {
+    setManagementError(null);
+    setRenameTitle(session.title);
+    setRenameTarget(session);
+  }
+
+  function openDelete(session: Session) {
+    setManagementError(null);
+    setDeleteTarget(session);
   }
 
   const { chatSessions, projectSessions } = splitWorkspaceSessions(sessions);
@@ -164,6 +227,8 @@ export function AppSidebar() {
             active={s.id === currentSessionId}
             isGenerating={generatingSessions.has(s.id)}
             onSelect={() => selectConversation(s.id)}
+            onRename={() => openRename(s)}
+            onDelete={() => openDelete(s)}
           />
         ))}
         <div className="mt-4 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -206,6 +271,8 @@ export function AppSidebar() {
                   isGenerating={generatingSessions.has(conversation.id)}
                   nested
                   onSelect={() => selectConversation(conversation.id)}
+                  onRename={() => openRename(conversation)}
+                  onDelete={() => openDelete(conversation)}
                 />
               ))}
             </div>
@@ -217,6 +284,69 @@ export function AppSidebar() {
       <div className="p-2 border-t border-sidebar-border">
         <ThemeToggle />
       </div>
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Đổi tên hội thoại</DialogTitle>
+            <DialogDescription>Đặt tên hiển thị cho hội thoại này.</DialogDescription>
+          </DialogHeader>
+          <Input
+            aria-label="Conversation title"
+            value={renameTitle}
+            onChange={(event) => setRenameTitle(event.target.value)}
+            maxLength={120}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void saveRename();
+            }}
+          />
+          {managementError && (
+            <p role="alert" className="text-sm text-destructive">
+              {managementError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameTarget(null)}>
+              Hủy
+            </Button>
+            <Button onClick={() => void saveRename()} disabled={!renameTitle.trim()}>
+              Lưu
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Xóa hội thoại?</DialogTitle>
+            <DialogDescription>
+              Hội thoại và tài liệu chỉ thuộc hội thoại này sẽ bị xóa vĩnh viễn.
+            </DialogDescription>
+          </DialogHeader>
+          {managementError && (
+            <p role="alert" className="text-sm text-destructive">
+              {managementError}
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Hủy
+            </Button>
+            <Button variant="destructive" onClick={() => void confirmDelete()}>
+              Xóa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
@@ -254,6 +384,8 @@ function ChatRow({
   isGenerating,
   nested = false,
   onSelect,
+  onRename,
+  onDelete,
 }: {
   id: string;
   title: string;
@@ -261,6 +393,8 @@ function ChatRow({
   isGenerating: boolean;
   nested?: boolean;
   onSelect: () => void;
+  onRename: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -280,6 +414,27 @@ function ChatRow({
       >
         {title}
       </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            aria-label={`Quản lý ${title}`}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={onRename}>
+            <Pencil /> Đổi tên
+          </DropdownMenuItem>
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
+            <Trash2 /> Xóa
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

@@ -50,6 +50,7 @@ class SQLiteStore:
                     principal_id TEXT NOT NULL DEFAULT 'local',
                     workspace_id TEXT NOT NULL DEFAULT 'local',
                     project_id TEXT REFERENCES projects(project_id),
+                    custom_title TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS projects (
@@ -141,6 +142,8 @@ class SQLiteStore:
                 )
             if "project_id" not in columns:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+            if "custom_title" not in columns:
+                self._connection.execute("ALTER TABLE sessions ADD COLUMN custom_title TEXT")
             model_columns = {
                 row["name"] for row in self._connection.execute("PRAGMA table_info(model_configs)")
             }
@@ -301,7 +304,8 @@ class SQLiteStore:
         with self._lock:
             rows = self._connection.execute(
                 """
-                SELECT sessions.session_id, sessions.project_id, sessions.created_at,
+                SELECT sessions.session_id, sessions.project_id, sessions.custom_title,
+                       sessions.created_at,
                        COALESCE(MAX(timeline.created_at), sessions.created_at) AS last_activity_at
                 FROM sessions
                 LEFT JOIN timeline ON timeline.session_id = sessions.session_id
@@ -322,12 +326,13 @@ class SQLiteStore:
                     """,
                     (row["session_id"],),
                 ).fetchall()
-                title = "New chat"
-                for title_candidate in title_row:
-                    content = json.loads(title_candidate["payload_json"]).get("content")
-                    if isinstance(content, str) and (normalized := " ".join(content.split())):
-                        title = normalized[:120]
-                        break
+                title = str(row["custom_title"]) if row["custom_title"] is not None else "New chat"
+                if row["custom_title"] is None:
+                    for title_candidate in title_row:
+                        content = json.loads(title_candidate["payload_json"]).get("content")
+                        if isinstance(content, str) and (normalized := " ".join(content.split())):
+                            title = normalized[:120]
+                            break
                 summaries.append(
                     {
                         "session_id": str(row["session_id"]),
@@ -338,6 +343,63 @@ class SQLiteStore:
                     }
                 )
         return summaries
+
+    def rename_session(self, session_id: str, title: str) -> bool:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE sessions SET custom_title = ? WHERE session_id = ?", (title, session_id)
+            )
+        return cursor.rowcount == 1
+
+    def delete_session(self, session_id: str) -> tuple[str, ...] | None:
+        """Delete session-owned rows atomically and return blobs for post-commit cleanup.
+
+        A running or queued request is deliberately retained and reported to the caller as an
+        active session, rather than allowing a runtime request to lose its persistence scope.
+        """
+        with self._lock, self._connection:
+            exists = self._connection.execute(
+                "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+            if exists is None:
+                return None
+            active = self._connection.execute(
+                "SELECT 1 FROM requests WHERE session_id = ? AND status IN ('queued', 'running')",
+                (session_id,),
+            ).fetchone()
+            if active is not None:
+                raise RuntimeError("active_request")
+            blob_rows = self._connection.execute(
+                "SELECT blob_id FROM documents WHERE session_id = ?", (session_id,)
+            ).fetchall()
+            document_rows = self._connection.execute(
+                "SELECT document_id FROM documents WHERE session_id = ?", (session_id,)
+            ).fetchall()
+            request_rows = self._connection.execute(
+                "SELECT request_id FROM requests WHERE session_id = ?", (session_id,)
+            ).fetchall()
+            document_ids = tuple(str(row["document_id"]) for row in document_rows)
+            request_ids = tuple(str(row["request_id"]) for row in request_rows)
+            if document_ids:
+                placeholders = ", ".join("?" for _ in document_ids)
+                self._connection.execute(
+                    f"DELETE FROM document_ingestion_events WHERE document_id IN ({placeholders})",
+                    document_ids,
+                )
+                self._connection.execute(
+                    f"DELETE FROM document_segments WHERE document_id IN ({placeholders})",
+                    document_ids,
+                )
+            if request_ids:
+                placeholders = ", ".join("?" for _ in request_ids)
+                self._connection.execute(
+                    f"DELETE FROM request_events WHERE request_id IN ({placeholders})", request_ids
+                )
+            self._connection.execute("DELETE FROM documents WHERE session_id = ?", (session_id,))
+            self._connection.execute("DELETE FROM timeline WHERE session_id = ?", (session_id,))
+            self._connection.execute("DELETE FROM requests WHERE session_id = ?", (session_id,))
+            self._connection.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+        return tuple(str(row["blob_id"]) for row in blob_rows)
 
     def create_project(
         self,
