@@ -47,6 +47,7 @@ async def test_session_title_is_migrated_persisted_and_scope_safe(tmp_path) -> N
     assert renamed.json() == {
         "session_id": project_session,
         "project_id": project["project_id"],
+        "custom_title": "Tiêu đề dự án",
         "title": "Tiêu đề dự án",
     }
     assert (

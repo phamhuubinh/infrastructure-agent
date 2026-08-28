@@ -61,6 +61,7 @@ class SubmitMessage(StrictRequest):
 class SessionView(BaseModel):
     session_id: str
     project_id: str | None = None
+    custom_title: str | None = None
 
 
 class SessionSummaryView(SessionView):
@@ -224,7 +225,11 @@ def create_app(
     @app.get("/api/sessions/{session_id}", response_model=SessionView)
     async def get_session(session_id: str) -> SessionView:
         identity = _require_session(store, assembled.access, session_id)
-        return SessionView(session_id=session_id, project_id=identity["project_id"])
+        return SessionView(
+            session_id=session_id,
+            project_id=identity["project_id"],
+            custom_title=identity["custom_title"],
+        )
 
     @app.patch("/api/sessions/{session_id}", response_model=SessionTitleView)
     async def rename_session(session_id: str, update: SessionTitleUpdate) -> SessionTitleView:
@@ -235,7 +240,10 @@ def create_app(
         if not store.rename_session(session_id, title):
             raise HTTPException(status_code=404, detail="Session not found.")
         return SessionTitleView(
-            session_id=session_id, project_id=identity["project_id"], title=title
+            session_id=session_id,
+            project_id=identity["project_id"],
+            custom_title=title,
+            title=title,
         )
 
     @app.delete("/api/sessions/{session_id}", status_code=204)

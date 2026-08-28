@@ -17,9 +17,14 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
     <div>
       <button onClick={() => void chat.createSession()}>create</button>
       <button onClick={() => void chat.switchSession(sessionId)}>load</button>
+      <button onClick={() => void chat.renameSession(sessionId, "My custom title")}>rename</button>
+      <button onClick={() => chat.addOptimisticMessage(sessionId, "First message")}>message</button>
       <span>{chat.sessions[0]?.messages.map((message) => message.content).join("|")}</span>
       <span data-testid="project-id">{chat.sessions[0]?.projectId || "none"}</span>
       <span data-testid="session-count">{chat.sessions.length}</span>
+      <span data-testid="title">
+        {chat.sessions.find((session) => session.id === sessionId)?.title}
+      </span>
       <span data-testid="citations">
         {chat.sessions[0]?.messages.at(-1)?.citationSourceRefIds?.join("|") || "none"}
       </span>
@@ -112,6 +117,156 @@ describe("M1 session store", () => {
     await screen.findByText("Hello|Hi");
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-1", expect.anything());
     expect(fetchMock).toHaveBeenCalledWith("/api/sessions/session-1/timeline", expect.anything());
+  });
+
+  it("keeps a canonical custom title through rename and timeline hydration", async () => {
+    const timeline: TimelineItem[] = [
+      {
+        item_id: "u1",
+        session_id: "session-1",
+        created_at: "now",
+        kind: "user_message",
+        payload: { content: "Original question" },
+        call_id: null,
+        tool_name: null,
+      },
+    ];
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === "/api/sessions" && !init?.method)
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: null,
+              title: "Original question",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      if (path === "/api/sessions/session-1" && init?.method === "PATCH")
+        return Promise.resolve(
+          jsonResponse({
+            session_id: "session-1",
+            project_id: null,
+            custom_title: "My custom title",
+            title: "My custom title",
+          }),
+        );
+      if (path === "/api/sessions/session-1")
+        return Promise.resolve(
+          jsonResponse({
+            session_id: "session-1",
+            project_id: null,
+            custom_title: "My custom title",
+          }),
+        );
+      if (path === "/api/sessions/session-1/timeline")
+        return Promise.resolve(jsonResponse(timeline));
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("Original question");
+    fireEvent.click(screen.getByRole("button", { name: "rename" }));
+    await waitFor(() => expect(screen.getByTestId("title").textContent).toBe("My custom title"));
+    fireEvent.click(screen.getByRole("button", { name: "load" }));
+    await waitFor(() => expect(screen.getByTestId("title").textContent).toBe("My custom title"));
+  });
+
+  it("preserves a custom title for an empty session's first message", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions")
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: "Pinned",
+              title: "Pinned",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+            {
+              session_id: "automatic",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+    await screen.findByText("Pinned");
+    fireEvent.click(screen.getByRole("button", { name: "message" }));
+    await waitFor(() => expect(screen.getByTestId("title").textContent).toBe("Pinned"));
+  });
+
+  it("updates an unrenamed empty session title from its first message", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions")
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "automatic",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness sessionId="automatic" />
+      </ChatProvider>,
+    );
+    await screen.findByText("New chat");
+    fireEvent.click(screen.getByRole("button", { name: "message" }));
+    await waitFor(() => expect(screen.getByTestId("title").textContent).toBe("First message"));
+  });
+
+  it("keeps a Project conversation custom title during timeline hydration", () => {
+    const hydrated = sessionFromTimeline(
+      "project-session",
+      [
+        {
+          item_id: "u1",
+          session_id: "project-session",
+          created_at: "now",
+          kind: "user_message",
+          payload: { content: "Derived Project title" },
+          call_id: null,
+          tool_name: null,
+        },
+      ],
+      [],
+      "project-a",
+      "Pinned Project title",
+    );
+    expect(hydrated).toMatchObject({
+      projectId: "project-a",
+      title: "Pinned Project title",
+      customTitle: "Pinned Project title",
+    });
   });
 
   it("does not project an empty assistant tool-call turn as a chat message", () => {

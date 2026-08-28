@@ -49,6 +49,7 @@ export type ProjectInput = Pick<Project, "name" | "description" | "instructions"
 export type SessionIdentity = {
   session_id: string;
   project_id: string | null;
+  custom_title: string | null;
 };
 
 export type SessionSummary = SessionIdentity & {

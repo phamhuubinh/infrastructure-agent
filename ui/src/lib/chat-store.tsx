@@ -88,6 +88,7 @@ export type Session = {
   id: string;
   projectId: string | null;
   title: string;
+  customTitle?: string | null;
   timeline: TimelineItem[];
   messages: Message[];
   activity: ToolActivity[];
@@ -296,6 +297,7 @@ export function sessionFromTimeline(
   timeline: TimelineItem[],
   documents: SessionDocument[] = attachmentCandidates(timeline),
   projectId: string | null = null,
+  customTitle: string | null = null,
 ): Session {
   const sources = sourceReferences(timeline, documents);
   const availableSourceIds = new Set(sources.map((source) => source.sourceRefId));
@@ -390,7 +392,8 @@ export function sessionFromTimeline(
   return {
     id,
     projectId,
-    title: firstUser ? firstUser.content.slice(0, 60) : "New chat",
+    title: customTitle ?? (firstUser ? firstUser.content.slice(0, 60) : "New chat"),
+    customTitle,
     timeline,
     messages,
     activity,
@@ -457,7 +460,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     ]);
     const projectId = identity.project_id ?? null;
     const documents = await reconcileSessionDocuments(id, timeline, projectId);
-    const session = sessionFromTimeline(id, timeline, documents, projectId);
+    const session = sessionFromTimeline(
+      id,
+      timeline,
+      documents,
+      projectId,
+      identity.custom_title ?? null,
+    );
     setSessions((previous) => upsertSession(previous, session));
     return session;
   }, []);
@@ -472,6 +481,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             id: summary.session_id,
             projectId: summary.project_id,
             title: summary.title,
+            customTitle: summary.custom_title ?? null,
             timeline: [],
             messages: [],
             activity: [],
@@ -497,7 +507,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       projectId ? `/api/projects/${encodeURIComponent(projectId)}/sessions` : "/api/sessions",
       { method: "POST" },
     );
-    const session = sessionFromTimeline(data.session_id, [], [], data.project_id ?? null);
+    const session = sessionFromTimeline(data.session_id, [], [], data.project_id ?? null, null);
     setSessions((previous) => upsertSession(previous, session));
     setCurrentSessionId(data.session_id);
     return data.session_id;
@@ -509,7 +519,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const updated = await renamePersistedSession(sessionId, title);
     setSessions((previous) =>
       previous.map((session) =>
-        session.id === sessionId ? { ...session, title: updated.title } : session,
+        session.id === sessionId
+          ? { ...session, title: updated.title, customTitle: updated.custom_title }
+          : session,
       ),
     );
   }, []);
@@ -562,7 +574,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       };
       return upsertSession(previous, {
         ...current,
-        title: current.messages.length === 0 ? content.slice(0, 60) : current.title,
+        title:
+          current.customTitle == null && current.messages.length === 0
+            ? content.slice(0, 60)
+            : current.title,
         messages: [...current.messages, message],
       });
     });

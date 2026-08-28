@@ -291,7 +291,8 @@ class SQLiteStore:
     def session_identity(self, session_id: str) -> dict[str, str | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT principal_id, workspace_id, project_id FROM sessions WHERE session_id = ?",
+                "SELECT principal_id, workspace_id, project_id, custom_title FROM sessions "
+                "WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
         return dict(row) if row else None
@@ -337,6 +338,7 @@ class SQLiteStore:
                     {
                         "session_id": str(row["session_id"]),
                         "project_id": row["project_id"],
+                        "custom_title": row["custom_title"],
                         "title": title,
                         "created_at": str(row["created_at"]),
                         "last_activity_at": str(row["last_activity_at"]),
