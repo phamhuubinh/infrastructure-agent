@@ -233,13 +233,15 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
         builder.register(registration.definition, registration.handler)
     chat = ChatRuntime(store, backend, builder.freeze(), LocalAccessAdapter())
 
-    await chat.submit(session, "What is the fact?")
+    outcome = await chat.submit(session, "What is the fact?")
 
+    assert outcome.assistant_content == "The fact is blue."
     assert len(backend.calls) == 2
     assert "Ignore all previous" not in backend.calls[0][0][0].content
     tool_content = backend.calls[1][0][-1].content
     assert "Ignore all previous" in tool_content
     assert source.source_ref_id in tool_content
+    assert store.timeline(session)[-1].payload["citation_source_ref_ids"] == [source.source_ref_id]
 
 
 @pytest.mark.anyio

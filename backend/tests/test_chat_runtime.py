@@ -5,6 +5,7 @@ import asyncio
 import pytest
 from conftest import ScriptedBackend, runtime
 
+from orion.chat.context_builder import ContextBuilder
 from orion.chat.runtime import RequestCancelled, RequestFailed
 from orion.contracts import (
     AssistantMessage,
@@ -102,13 +103,9 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
     continuation = backend.calls[1][0]
     assert continuation[-1].role == "tool"
     assert '"value":5' in continuation[-1].content
-    assert [item.kind for item in store.timeline(session_id)] == [
-        "user_message",
-        "assistant_message",
-        "tool_call",
-        "tool_result",
-        "assistant_message",
-    ]
+    assert '"sources":[]' in continuation[-1].content
+    calculator_result = ToolResult.model_validate_json(continuation[-1].content)
+    assert calculator_result.sources == ()
     assert [event["type"] for event in store.events(outcome.request_id)] == [
         "request.accepted",
         "model.started",
@@ -125,6 +122,25 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
         "assistant.message",
         "request.completed",
     ]
+    assert [item.kind for item in store.timeline(session_id)] == [
+        "user_message",
+        "assistant_message",
+        "tool_call",
+        "tool_result",
+        "assistant_message",
+    ]
+
+
+def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    session_id = store.create_session()
+
+    instructions = ContextBuilder(store).build(session_id)[0].content
+
+    assert "exact source_ref_id from a ToolResult.sources entry visible" in instructions
+    assert "sources=[], do not emit any [[source:...]] marker" in instructions
+    assert "Never invent, guess, transform, or reuse a source_ref_id" in instructions
 
 
 @pytest.mark.anyio
