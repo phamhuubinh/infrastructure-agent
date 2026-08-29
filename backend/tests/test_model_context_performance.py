@@ -29,15 +29,15 @@ from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
-EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 9_467
-EXPECTED_SIMPLE_PROXY_BYTES = 11_117
-EXPECTED_CATALOG_BYTES = 508
-EXPECTED_EXPANSION_SCHEMA_BYTES = 237
-EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_680
-EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 1_948
-EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 2_777
-EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 2_684
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 8_874
+EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 9_762
+EXPECTED_SIMPLE_PROXY_BYTES = 11_412
+EXPECTED_CATALOG_BYTES = 617
+EXPECTED_EXPANSION_SCHEMA_BYTES = 301
+EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_853
+EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_121
+EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 2_950
+EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 2_857
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 9_047
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -183,7 +183,10 @@ def test_progressive_model_view_size_regressions(store) -> None:  # type: ignore
     model_messages = (*messages, ContextMessage(role="system", content=exposure.catalog))
 
     assert exposure.catalog.splitlines() == [
-        "Tools:",
+        (
+            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
+            "expansion is additive and repeatable):"
+        ),
         *(definition.name for definition in definitions),
     ]
     assert len(exposure.catalog.encode()) == EXPECTED_CATALOG_BYTES
@@ -191,7 +194,7 @@ def test_progressive_model_view_size_regressions(store) -> None:  # type: ignore
         len(json.dumps(exposure.model_tools[0].provider_schema(), separators=(",", ":")).encode())
         == EXPECTED_EXPANSION_SCHEMA_BYTES
     )
-    assert _compact_provider_proxy(messages, definitions) == 10_344
+    assert _compact_provider_proxy(messages, definitions) == 10_639
     assert _compact_provider_proxy(model_messages, exposure.model_tools) == (
         EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES
     )
@@ -229,7 +232,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 17_335
+    assert resumed_proxy == 17_630
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert resumed_proxy <= 23_000
     assert len(context[-1].content.encode()) <= 6_000
@@ -295,7 +298,7 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
     assert _messages_bytes(current_messages) == 10_508
-    assert _provider_proxy(context) == 22_080
+    assert _provider_proxy(context) == 22_375
 
 
 def test_projection_preserves_collection_counts_when_large_details_precede_records() -> None:
@@ -394,7 +397,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 22_628
+    assert history_proxy == 22_923
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)

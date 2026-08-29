@@ -71,11 +71,16 @@ def test_catalog_is_deterministic_sanitized_and_derived_from_the_registry() -> N
 
     assert first.catalog == second.catalog
     assert first.catalog.splitlines() == [
-        "Tools:",
+        (
+            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
+            "expansion is additive and repeatable):"
+        ),
         "fake.alpha",
         "fake.beta",
         "fake.newly_registered",
     ]
+    assert "Use fake.alpha for its registered operation." not in first.catalog
+    assert "Use fake.beta for its registered operation." not in first.catalog
     assert [definition.name for definition in first.model_tools] == [EXPAND_TOOL_NAME]
     with pytest.raises(TypeError, match="frozen JSON snapshot"):
         first.model_tools[0].input_schema["properties"]["corruption"] = {"type": "string"}
@@ -88,6 +93,11 @@ def test_catalog_is_deterministic_sanitized_and_derived_from_the_registry() -> N
 
 def test_expanded_tool_keeps_its_provider_description_and_schema() -> None:
     exposure = _registry().new_tool_exposure()
+
+    assert exposure.model_tools[0].description == (
+        "Expand exact ordinary catalog names before execution. "
+        "Expansion is additive and may be repeated."
+    )
 
     exposure.expand(
         ModelToolCall(
@@ -271,6 +281,9 @@ async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None: 
         if item.kind == "tool_result" and item.tool_name == "fake.alpha"
     ]
     assert [result["error"]["code"] for result in results] == ["not_exposed", "invalid_input"]
+    assert results[0]["error"]["message"] == (
+        "Tool is not exposed. Call orion.tools.expand with this exact catalog name, then retry."
+    )
 
 
 @pytest.mark.anyio

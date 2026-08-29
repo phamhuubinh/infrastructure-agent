@@ -33,7 +33,13 @@ def compact_tool_catalog(definitions: tuple[ToolDefinition, ...]) -> str:
     initial catalog only needs stable exact names.  Keeping this projection
     generic preserves automatic discoverability for every registered tool.
     """
-    return "\n".join(("Tools:", *(definition.name for definition in definitions)))
+    return "\n".join(
+        (
+            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
+            "expansion is additive and repeatable):",
+            *(definition.name for definition in definitions),
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -51,7 +57,10 @@ class ToolExposure:
         self._catalog = compact_tool_catalog(definitions)
         expand_definition = ToolDefinition(
             name=EXPAND_TOOL_NAME,
-            description="Expand exact catalog tool names.",
+            description=(
+                "Expand exact ordinary catalog names before execution. "
+                "Expansion is additive and may be repeated."
+            ),
             input_schema={
                 "type": "object",
                 "properties": {"tool_names": {"type": "array", "items": {"type": "string"}}},

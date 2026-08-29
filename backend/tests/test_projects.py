@@ -171,6 +171,123 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
 
 
 @pytest.mark.anyio
+async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
+    store, project_knowledge
+) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project = projects.create("Recovery")
+    session = projects.create_session(project["project_id"], "local", "local")
+    document = knowledge.attach_project(
+        project["project_id"], "recovery.txt", b"The Project marker is cedar."
+    )
+    source = knowledge.source_for_segment(
+        knowledge.search(_scope(session, project["project_id"]), "Project marker", 1)[0]
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-before-expand",
+                        tool_name="knowledge.list_documents",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-list",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.list_documents"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-project-documents",
+                        tool_name="knowledge.list_documents",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="search-before-expand",
+                        tool_name="knowledge.search",
+                        arguments={"query": "Project marker"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-search",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.search"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="search-project-document",
+                        tool_name="knowledge.search",
+                        arguments={"query": "Project marker"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="The Project marker is cedar.",
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+
+    outcome = await ChatRuntime(store, backend, _registry(knowledge), LocalAccessAdapter()).submit(
+        session, "What is the Project marker?"
+    )
+
+    assert outcome.assistant_content == "The Project marker is cedar."
+    assert document.document.source.kind == "project"
+    assert len(backend.calls) == 7
+    assert [tool.name for tool in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
+    assert [tool.name for tool in backend.calls[2][1]] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.list_documents",
+    ]
+    assert [tool.name for tool in backend.calls[5][1]] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.list_documents",
+        "knowledge.search",
+    ]
+    results = [
+        item.payload["result"] for item in store.timeline(session) if item.kind == "tool_result"
+    ]
+    not_exposed = [
+        result for result in results if result["error"] and result["error"]["code"] == "not_exposed"
+    ]
+    assert [result["tool_name"] for result in not_exposed] == [
+        "knowledge.list_documents",
+        "knowledge.search",
+    ]
+    assert all(
+        result["error"]["message"]
+        == "Tool is not exposed. Call orion.tools.expand with this exact catalog name, then retry."
+        for result in not_exposed
+    )
+    search_result = next(
+        result for result in results if result["call_id"] == "search-project-document"
+    )
+    assert [item["source_kind"] for item in search_result["sources"]] == ["project"]
+    assert source.source_ref_id in [item["source_ref_id"] for item in search_result["sources"]]
+
+
+@pytest.mark.anyio
 async def test_project_runtime_rejects_cross_project_citations(store, project_knowledge) -> None:  # type: ignore[no-untyped-def]
     projects, knowledge = project_knowledge
     project_a, project_b = projects.create("A"), projects.create("B")

@@ -74,7 +74,10 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert executions == 0
     assert len(backend.calls) == 1
     assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert backend.calls[0][0][-1].content == "Tools:\nfake.count"
+    assert backend.calls[0][0][-1].content == (
+        "Tools (expand exact ordinary names with orion.tools.expand before execution; "
+        "expansion is additive and repeatable):\nfake.count"
+    )
 
 
 @pytest.mark.anyio

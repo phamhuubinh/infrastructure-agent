@@ -24,7 +24,10 @@ def knowledge_registrations(service: KnowledgeService) -> tuple[ToolRegistration
 def list_documents_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.list_documents",
-        description="List ready document attachments visible in the current session scope.",
+        description=(
+            "List ready documents visible in the current knowledge scope, including "
+            "session attachments and active Project documents."
+        ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         handler_key="knowledge.list_documents",
     )
@@ -34,7 +37,8 @@ def search_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.search",
         description=(
-            "Search visible session documents for relevant passages. "
+            "Search documents visible in the current knowledge scope, including session "
+            "attachments and active Project documents. "
             "Use exact read for full documents."
         ),
         input_schema={
@@ -59,7 +63,8 @@ def read_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.read",
         description=(
-            "Read a bounded window from one exact visible document or named section. "
+            "Read a bounded window from one exact document visible in the current knowledge "
+            "scope, including session attachments and active Project documents, or named section. "
             "Continue with next_cursor until complete for whole-document work."
         ),
         input_schema={
@@ -80,7 +85,10 @@ def read_definition() -> ToolDefinition:
 def source_metadata_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.source_metadata",
-        description="Get structure and provenance metadata for visible documents.",
+        description=(
+            "Get structure and provenance metadata for documents visible in the current "
+            "knowledge scope, including session attachments and active Project documents."
+        ),
         input_schema={
             "type": "object",
             "properties": {"document_id": {"type": "string", "minLength": 1}},

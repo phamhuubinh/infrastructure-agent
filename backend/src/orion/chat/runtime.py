@@ -207,7 +207,8 @@ class ChatRuntime:
                                 model_call.call_id,
                                 model_call.tool_name,
                                 "not_exposed",
-                                "Tool must be expanded before it can execute.",
+                                "Tool is not exposed. Call orion.tools.expand with this exact "
+                                "catalog name, then retry.",
                             )
                         else:
                             result = await self._runner.run_async(

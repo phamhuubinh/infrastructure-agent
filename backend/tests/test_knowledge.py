@@ -8,7 +8,13 @@ from orion.chat.runtime import ChatRuntime, RequestFailed
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolResult
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.service import KnowledgeService
-from orion.knowledge.tools import knowledge_registrations
+from orion.knowledge.tools import (
+    knowledge_registrations,
+    list_documents_definition,
+    read_definition,
+    search_definition,
+    source_metadata_definition,
+)
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
@@ -36,6 +42,20 @@ def _registry(knowledge: KnowledgeService):  # type: ignore[no-untyped-def]
 
 def _runner(knowledge: KnowledgeService) -> ToolRunner:
     return ToolRunner(_registry(knowledge))
+
+
+def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
+    definitions = (
+        list_documents_definition(),
+        search_definition(),
+        read_definition(),
+        source_metadata_definition(),
+    )
+
+    for definition in definitions:
+        assert "current knowledge scope" in definition.description
+        assert "session attachments" in definition.description
+        assert "active Project documents" in definition.description
 
 
 def test_upload_lifecycle_is_explicit_and_preserves_opaque_blob(knowledge, store) -> None:  # type: ignore[no-untyped-def]
