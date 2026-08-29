@@ -448,6 +448,127 @@ async def test_schema_invalid_call_that_model_immediately_corrects_uses_no_force
 
 
 @pytest.mark.anyio
+async def test_successful_expansion_preserves_recovery_until_an_ordinary_tool_succeeds(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="unexposed",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry"},
+                    ),
+                )
+            ),
+            _expand("fake.alpha"),
+            ModelTurn(assistant=AssistantMessage(content="The project value is unavailable.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="retry",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "Recovered."
+    assert [call.call_id for call in calls] == ["retry"]
+    assert len(backend.calls) == 5
+    assert any("model recovery as required" in message.content for message in backend.calls[3][0])
+    assert [
+        item.payload["content"]
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message" and item.payload["content"]
+    ] == ["The project value is unavailable.", "Recovered."]
+
+
+@pytest.mark.anyio
+async def test_natural_retry_after_successful_expansion_clears_recovery_without_a_forced_turn(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="unexposed",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry"},
+                    ),
+                )
+            ),
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="retry",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "Recovered."
+    assert [call.call_id for call in calls] == ["retry"]
+    assert len(backend.calls) == 4
+    assert not any(
+        "model recovery as required" in message.content
+        for messages, _ in backend.calls
+        for message in messages
+    )
+
+
+@pytest.mark.anyio
+async def test_repeated_successful_expansion_still_stops_after_two_forced_decisions(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="unexposed",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry"},
+                    ),
+                )
+            ),
+            _expand("fake.alpha", call_id="expand-one"),
+            ModelTurn(assistant=AssistantMessage(content="Try fake.alpha.")),
+            _expand("fake.alpha", call_id="expand-two"),
+            ModelTurn(assistant=AssistantMessage(content="Try fake.alpha again.")),
+            _expand("fake.alpha", call_id="expand-three"),
+            ModelTurn(assistant=AssistantMessage(content="Please clarify.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "Please clarify."
+    assert len(backend.calls) == 7
+    assert any("model recovery as required" in message.content for message in backend.calls[3][0])
+    assert any("model recovery as required" in message.content for message in backend.calls[5][0])
+
+
+@pytest.mark.anyio
 async def test_recovery_decisions_stop_after_the_second_marked_failure(
     store,
 ) -> None:  # type: ignore[no-untyped-def]

@@ -169,6 +169,7 @@ class ChatRuntime:
                     recovery_abandoned = (
                         not turn.tool_calls
                         and recovery_pending
+                        and not recovery_decision
                         and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
                     )
                     metrics: dict[str, int] | None = None
@@ -207,8 +208,12 @@ class ChatRuntime:
                         return RequestOutcome(
                             request_id=request_id, assistant_content=turn.assistant.content
                         )
+                    if recovery_decision:
+                        # A forced decision that emits tools continues the unresolved
+                        # obligation into result accounting. A terminal forced decision is
+                        # itself the model's permitted final clarification/refusal.
+                        recovery_pending = True
                     exposed_before_turn = tool_exposure.exposed_names
-                    recovery_pending = False
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         definition = self._registry.definition(model_call.tool_name)
@@ -255,9 +260,13 @@ class ChatRuntime:
                                 model_call, scope, cancellation.is_set
                             )
                         self._persist_tool_result(session_id, request_id, result)
-                        recovery_pending = recovery_pending or bool(
-                            result.error and result.error.model_recovery_required
-                        )
+                        if model_call.tool_name != EXPAND_TOOL_NAME and result.status == "success":
+                            # Expansion only changes the model's tool projection. A successful
+                            # ordinary tool call is the generic evidence that the model acted on
+                            # the outstanding recovery obligation.
+                            recovery_pending = False
+                        elif result.error and result.error.model_recovery_required:
+                            recovery_pending = True
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
             self._store.complete_request(request_id, "cancelled")
