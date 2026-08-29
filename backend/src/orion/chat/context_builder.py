@@ -19,7 +19,9 @@ _SYSTEM_INSTRUCTIONS = (
     "more exact [[source:<source_ref_id>]] markers. A marker must use the exact source_ref_id "
     "from a ToolResult.sources entry visible in this conversation. If the relevant ToolResult has "
     "sources=[], do not emit any [[source:...]] marker for it. Never invent, guess, transform, "
-    "or reuse a source_ref_id that is not present in a visible ToolResult.sources entry."
+    "or reuse a source_ref_id that is not present in a visible ToolResult.sources entry. For "
+    "unresolved requests, use safe, actionable tool-error recovery with catalog tools; expand "
+    "exact unexposed names, not user-directed Orion calls."
 )
 
 # These are model-context byte proxies, not product quotas. Canonical timeline data

@@ -287,6 +287,80 @@ async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None: 
 
 
 @pytest.mark.anyio
+async def test_actionable_tool_error_keeps_generic_recovery_choices_visible(store) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    builder = ToolRegistryBuilder()
+
+    def alpha_handler(call: ToolCall) -> ToolResult:
+        return ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "not_found",
+            "The requested value is unavailable. Recover with another available tool.",
+        )
+
+    def beta_handler(call: ToolCall) -> ToolResult:
+        calls.append(call)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"value": call.arguments["value"]},
+        )
+
+    builder.register(_definition("fake.alpha"), alpha_handler)
+    builder.register(_definition("fake.beta"), beta_handler)
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alpha", tool_name="fake.alpha", arguments={"value": "missing"}
+                    ),
+                )
+            ),
+            _expand("fake.beta", call_id="expand-beta"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="beta", tool_name="fake.beta", arguments={"value": "recovered"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        session_id, "Recover the value"
+    )
+
+    assert outcome.assistant_content == "Recovered."
+    resumed_messages, resumed_tools = backend.calls[2]
+    assert "safe, actionable tool-error recovery" in resumed_messages[0].content
+    assert any(
+        "Recover with another available tool." in message.content for message in resumed_messages
+    )
+    assert resumed_messages[-1].content.splitlines() == [
+        (
+            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
+            "expansion is additive and repeatable):"
+        ),
+        "fake.alpha",
+        "fake.beta",
+    ]
+    assert [definition.name for definition in resumed_tools] == [EXPAND_TOOL_NAME, "fake.alpha"]
+    assert [definition.name for definition in backend.calls[3][1]] == [
+        EXPAND_TOOL_NAME,
+        "fake.alpha",
+        "fake.beta",
+    ]
+    assert [call.tool_name for call in calls] == ["fake.beta"]
+
+
+@pytest.mark.anyio
 async def test_exposure_is_additive_within_a_request_and_resets_for_the_next_one(store) -> None:  # type: ignore[no-untyped-def]
     calls: list[ToolCall] = []
     backend = ScriptedBackend(

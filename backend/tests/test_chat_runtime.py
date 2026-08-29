@@ -305,6 +305,11 @@ def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
     assert "exact source_ref_id from a ToolResult.sources entry visible" in instructions
     assert "sources=[], do not emit any [[source:...]] marker" in instructions
     assert "Never invent, guess, transform, or reuse a source_ref_id" in instructions
+    assert "For unresolved requests" in instructions
+    assert "safe, actionable tool-error recovery" in instructions
+    assert "with catalog tools" in instructions
+    assert "expand exact unexposed names" in instructions
+    assert "not user-directed Orion calls" in instructions
 
 
 @pytest.mark.anyio
