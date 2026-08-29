@@ -44,19 +44,43 @@ class RequestOutcome:
 
 
 _RECOVERY_DECISION_INSTRUCTIONS = (
-    "The preceding ToolResult marked model recovery as required and the request is unresolved. "
+    "The preceding ToolResult marked model recovery as required or expanded capability without "
+    "an ordinary follow-up, and the request is unresolved. "
     "Either emit the next safe, in-scope tool calls, expanding an unexposed exact catalog name "
     "when needed, or give a final clarification/refusal if recovery is not appropriate. Do not "
     "merely repeat a tool procedure in prose."
 )
 
 
-# A recovery decision is only forced after terminal prose abandons a ToolResult
-# that explicitly requested model recovery. Two decisions cover a semantic
-# recovery followed by one independently recoverable control-plane barrier
-# (for example, progressive tool exposure), while keeping the model loop
-# strictly bounded.
+# A recovery decision is only forced after terminal prose abandons an unresolved
+# recovery or capability-action obligation. Two decisions cover a semantic
+# recovery followed by one independently recoverable control-plane barrier,
+# while keeping the model loop strictly bounded.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
+
+
+def _next_recovery_state(
+    recovery_pending: bool,
+    capability_action_pending: bool,
+    results: list[tuple[str, ToolResult]],
+) -> tuple[bool, bool]:
+    """Apply one order-independent recovery transition for a model tool-call turn."""
+    ordinary_succeeded = any(
+        tool_name != EXPAND_TOOL_NAME and result.status == "success"
+        for tool_name, result in results
+    )
+    ordinary_called = any(tool_name != EXPAND_TOOL_NAME for tool_name, _ in results)
+    recoverable_error = any(
+        result.error is not None and result.error.model_recovery_required for _, result in results
+    )
+    expansion_succeeded = any(
+        tool_name == EXPAND_TOOL_NAME and result.status == "success"
+        for tool_name, result in results
+    )
+    return (
+        recoverable_error or (recovery_pending and not ordinary_succeeded),
+        (capability_action_pending or expansion_succeeded) and not ordinary_called,
+    )
 
 
 class ChatRuntime:
@@ -140,6 +164,7 @@ class ChatRuntime:
                         output_tokens += state_preparation.usage.output_tokens
                 tool_exposure = self._registry.new_tool_exposure()
                 recovery_pending = False
+                capability_action_pending = False
                 forced_recovery_decisions_used = 0
                 recovery_decision_next = False
                 while True:
@@ -168,7 +193,7 @@ class ChatRuntime:
                     self._validate_citations(turn, scope, visible_sources)
                     recovery_abandoned = (
                         not turn.tool_calls
-                        and recovery_pending
+                        and (recovery_pending or capability_action_pending)
                         and not recovery_decision
                         and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
                     )
@@ -199,6 +224,7 @@ class ChatRuntime:
                             raise RuntimeError("Model returned an invalid terminal turn.")
                         if recovery_abandoned:
                             recovery_pending = False
+                            capability_action_pending = False
                             forced_recovery_decisions_used += 1
                             recovery_decision_next = True
                             self._emit(request_id, "model.resumed", {})
@@ -214,6 +240,7 @@ class ChatRuntime:
                         # itself the model's permitted final clarification/refusal.
                         recovery_pending = True
                     exposed_before_turn = tool_exposure.exposed_names
+                    results: list[tuple[str, ToolResult]] = []
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         definition = self._registry.definition(model_call.tool_name)
@@ -260,13 +287,10 @@ class ChatRuntime:
                                 model_call, scope, cancellation.is_set
                             )
                         self._persist_tool_result(session_id, request_id, result)
-                        if model_call.tool_name != EXPAND_TOOL_NAME and result.status == "success":
-                            # Expansion only changes the model's tool projection. A successful
-                            # ordinary tool call is the generic evidence that the model acted on
-                            # the outstanding recovery obligation.
-                            recovery_pending = False
-                        elif result.error and result.error.model_recovery_required:
-                            recovery_pending = True
+                        results.append((model_call.tool_name, result))
+                    recovery_pending, capability_action_pending = _next_recovery_state(
+                        recovery_pending, capability_action_pending, results
+                    )
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
             self._store.complete_request(request_id, "cancelled")
