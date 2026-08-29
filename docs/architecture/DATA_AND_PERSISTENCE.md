@@ -20,6 +20,10 @@ ToolCall/ToolResult metadata
 
 A Session owns a conversation and session-scoped attachments.
 
+It may also own one derived rolling conversation-state checkpoint. This cache records
+a bounded state text and the stable canonical timeline boundary it covers; it is not
+a timeline message and cannot replace or rewrite canonical history.
+
 ## Project
 
 A Project owns durable metadata and project documents.

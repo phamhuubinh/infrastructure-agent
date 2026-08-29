@@ -52,13 +52,14 @@ class OpenAICompatibleBackend(ModelBackend):
         headers = {"Content-Type": "application/json"}
         if settings.api_key:
             headers["Authorization"] = f"Bearer {settings.api_key}"
-        payload = {
+        payload: dict[str, Any] = {
             "model": settings.model_id,
             "messages": [self._message_payload(message) for message in messages],
-            "tools": self._provider_tools(tools),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if tools:
+            payload["tools"] = self._provider_tools(tools)
         url = f"{settings.base_url.rstrip('/')}/chat/completions"
         content_parts: list[str] = []
         calls: dict[int, _PendingToolCall] = {}

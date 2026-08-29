@@ -135,7 +135,7 @@ def test_adapter_normalizes_insignificant_citation_marker_whitespace(marker: str
 
 
 @pytest.mark.anyio
-async def test_adapter_requests_and_normalizes_stream_usage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+async def test_adapter_omits_empty_tools_and_normalizes_stream_usage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     captured: dict[str, object] = {}
 
     class Response:
@@ -187,7 +187,6 @@ async def test_adapter_requests_and_normalizes_stream_usage(monkeypatch) -> None
     assert captured["json"] == {
         "model": "fake",
         "messages": [{"role": "user", "content": "Hello"}],
-        "tools": [],
         "stream": True,
         "stream_options": {"include_usage": True},
     }

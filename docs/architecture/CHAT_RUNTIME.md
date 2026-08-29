@@ -25,6 +25,8 @@ user message
    ↓
 persist user item
    ↓
+optionally refresh bounded rolling conversation state (no tools)
+   ↓
 assemble context
    ↓
 call model with catalog + expansion control + request-exposed tools

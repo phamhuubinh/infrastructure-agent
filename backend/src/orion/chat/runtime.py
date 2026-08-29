@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import ContextBuilder
+from orion.chat.conversation_state import ConversationStateManager
 from orion.contracts import (
     AssistantDelta,
     ContextMessage,
@@ -58,6 +59,7 @@ class ChatRuntime:
         self._access = access
         self._runner = ToolRunner(registry)
         self._context_builder = ContextBuilder(store, infrastructure_targets)
+        self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
@@ -111,6 +113,15 @@ class ChatRuntime:
                 )
                 settings = self._settings()
                 scope = self._runtime_scope(session_id)
+                state_preparation = await self._conversation_state.prepare(
+                    session_id, settings, cancellation
+                )
+                if state_preparation.attempted:
+                    if state_preparation.usage is None:
+                        has_complete_usage = False
+                    else:
+                        input_tokens += state_preparation.usage.input_tokens
+                        output_tokens += state_preparation.usage.output_tokens
                 tool_exposure = self._registry.new_tool_exposure()
                 while True:
                     self._ensure_not_cancelled(cancellation)

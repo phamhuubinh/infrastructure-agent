@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +15,17 @@ from orion.contracts import TimelineItem, TimelineKind
 
 MAX_SESSION_SUMMARIES = 100
 MODEL_CONTEXT_HISTORY_TURNS = 64
+
+
+@dataclass(frozen=True)
+class ConversationStateCheckpoint:
+    """Derived, session-scoped state for model context; never canonical history."""
+
+    session_id: str
+    state: str
+    covered_item_id: str
+    updated_at: datetime
+    version: int
 
 
 def _utc_now() -> str:
@@ -88,6 +100,13 @@ class SQLiteStore:
                     created_at TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS conversation_state_checkpoints (
+                    session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
+                    state TEXT NOT NULL,
+                    covered_item_id TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    version INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS documents (
                     document_id TEXT PRIMARY KEY,
@@ -399,6 +418,9 @@ class SQLiteStore:
                     f"DELETE FROM request_events WHERE request_id IN ({placeholders})", request_ids
                 )
             self._connection.execute("DELETE FROM documents WHERE session_id = ?", (session_id,))
+            self._connection.execute(
+                "DELETE FROM conversation_state_checkpoints WHERE session_id = ?", (session_id,)
+            )
             self._connection.execute("DELETE FROM timeline WHERE session_id = ?", (session_id,))
             self._connection.execute("DELETE FROM requests WHERE session_id = ?", (session_id,))
             self._connection.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
@@ -523,6 +545,11 @@ class SQLiteStore:
             if session_ids:
                 session_placeholders = ", ".join("?" for _ in session_ids)
                 self._connection.execute(
+                    "DELETE FROM conversation_state_checkpoints "
+                    f"WHERE session_id IN ({session_placeholders})",
+                    session_ids,
+                )
+                self._connection.execute(
                     f"DELETE FROM timeline WHERE session_id IN ({session_placeholders})",
                     session_ids,
                 )
@@ -621,7 +648,82 @@ class SQLiteStore:
             ).fetchall()
         return self._timeline_items(rows)
 
-    def model_context_timeline(self, session_id: str) -> tuple[list[TimelineItem], int]:
+    def conversation_state_checkpoint(self, session_id: str) -> ConversationStateCheckpoint | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT session_id, state, covered_item_id, updated_at, version "
+                "FROM conversation_state_checkpoints WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return ConversationStateCheckpoint(
+            session_id=str(row["session_id"]),
+            state=str(row["state"]),
+            covered_item_id=str(row["covered_item_id"]),
+            updated_at=datetime.fromisoformat(str(row["updated_at"])),
+            version=int(row["version"]),
+        )
+
+    def save_conversation_state_checkpoint(
+        self, session_id: str, state: str, covered_item_id: str
+    ) -> ConversationStateCheckpoint:
+        """Atomically replace state only when its canonical boundary advances."""
+        now = _utc_now()
+        with self._lock, self._connection:
+            boundary = self._connection.execute(
+                "SELECT rowid FROM timeline WHERE session_id = ? AND item_id = ?",
+                (session_id, covered_item_id),
+            ).fetchone()
+            if boundary is None:
+                raise KeyError(covered_item_id)
+            previous = self._connection.execute(
+                "SELECT checkpoint.rowid AS boundary_rowid, state.version "
+                "FROM conversation_state_checkpoints AS state "
+                "JOIN timeline AS checkpoint ON checkpoint.item_id = state.covered_item_id "
+                "WHERE state.session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if previous is not None and int(boundary["rowid"]) <= int(previous["boundary_rowid"]):
+                raise ValueError("conversation state boundary must advance")
+            version = 1 if previous is None else int(previous["version"]) + 1
+            self._connection.execute(
+                "INSERT INTO conversation_state_checkpoints "
+                "(session_id, state, covered_item_id, updated_at, version) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(session_id) DO UPDATE SET state = excluded.state, "
+                "covered_item_id = excluded.covered_item_id, updated_at = excluded.updated_at, "
+                "version = excluded.version",
+                (session_id, state, covered_item_id, now, version),
+            )
+        checkpoint = self.conversation_state_checkpoint(session_id)
+        if checkpoint is None:
+            raise RuntimeError("Conversation state checkpoint was not persisted")
+        return checkpoint
+
+    def conversation_state_timeline(
+        self, session_id: str, after_item_id: str | None = None
+    ) -> list[TimelineItem]:
+        """Load canonical model-relevant rows after a checkpoint for bounded maintenance."""
+        with self._lock:
+            after_rowid = 0
+            if after_item_id is not None:
+                covered = self._connection.execute(
+                    "SELECT rowid FROM timeline WHERE session_id = ? AND item_id = ?",
+                    (session_id, after_item_id),
+                ).fetchone()
+                if covered is not None:
+                    after_rowid = int(covered["rowid"])
+            rows = self._connection.execute(
+                "SELECT item_id, session_id, created_at, kind, payload_json, call_id, tool_name "
+                "FROM timeline WHERE session_id = ? AND rowid > ? "
+                "AND kind IN ('user_message', 'assistant_message', 'tool_result') ORDER BY rowid",
+                (session_id, after_rowid),
+            ).fetchall()
+        return self._timeline_items(rows)
+
+    def model_context_timeline(
+        self, session_id: str, after_item_id: str | None = None
+    ) -> tuple[list[TimelineItem], int]:
         """Load complete recent user turns plus every row in the current turn.
 
         The newest user row starts the unbounded current turn. Before it, Orion
@@ -632,6 +734,14 @@ class SQLiteStore:
         relevant_kinds = ("user_message", "assistant_message", "tool_result")
         placeholders = ", ".join("?" for _ in relevant_kinds)
         with self._lock:
+            after_rowid = 0
+            if after_item_id is not None:
+                covered = self._connection.execute(
+                    "SELECT rowid FROM timeline WHERE session_id = ? AND item_id = ?",
+                    (session_id, after_item_id),
+                ).fetchone()
+                if covered is not None:
+                    after_rowid = int(covered["rowid"])
             latest_user = self._connection.execute(
                 "SELECT MAX(rowid) AS rowid FROM timeline "
                 "WHERE session_id = ? AND kind = 'user_message'",
@@ -643,8 +753,8 @@ class SQLiteStore:
             boundary = int(latest_user_rowid)
             historical_user_rows = self._connection.execute(
                 "SELECT rowid FROM timeline WHERE session_id = ? AND kind = 'user_message' "
-                "AND rowid < ? ORDER BY rowid DESC LIMIT ?",
-                (session_id, boundary, MODEL_CONTEXT_HISTORY_TURNS),
+                "AND rowid < ? AND rowid > ? ORDER BY rowid DESC LIMIT ?",
+                (session_id, boundary, after_rowid, MODEL_CONTEXT_HISTORY_TURNS),
             ).fetchall()
             oldest_boundary = (
                 int(historical_user_rows[-1]["rowid"]) if historical_user_rows else boundary
@@ -653,8 +763,9 @@ class SQLiteStore:
                 self._connection.execute(
                     "SELECT item_id, session_id, created_at, kind, payload_json, call_id, "
                     "tool_name, rowid FROM timeline WHERE session_id = ? "
-                    f"AND kind IN ({placeholders}) AND rowid >= ? AND rowid < ? ORDER BY rowid",
-                    (session_id, *relevant_kinds, oldest_boundary, boundary),
+                    f"AND kind IN ({placeholders}) AND rowid >= ? AND rowid < ? "
+                    "AND rowid > ? ORDER BY rowid",
+                    (session_id, *relevant_kinds, oldest_boundary, boundary, after_rowid),
                 ).fetchall()
                 if historical_user_rows
                 else []
@@ -663,16 +774,16 @@ class SQLiteStore:
                 self._connection.execute(
                     "SELECT item_id, session_id, created_at, kind, payload_json, call_id, "
                     "tool_name, rowid FROM timeline WHERE session_id = ? "
-                    f"AND kind IN ({placeholders}) AND rowid >= ? ORDER BY rowid",
-                    (session_id, *relevant_kinds, boundary),
+                    f"AND kind IN ({placeholders}) AND rowid >= ? AND rowid > ? ORDER BY rowid",
+                    (session_id, *relevant_kinds, boundary, after_rowid),
                 ).fetchall()
                 if latest_user_rowid is not None
                 else []
             )
             historical_count = self._connection.execute(
                 "SELECT COUNT(*) AS count FROM timeline WHERE session_id = ? "
-                "AND kind = 'user_message' AND rowid < ?",
-                (session_id, boundary),
+                "AND kind = 'user_message' AND rowid < ? AND rowid > ?",
+                (session_id, boundary, after_rowid),
             ).fetchone()
         omitted = max(0, int(historical_count["count"]) - len(historical_user_rows))
         return self._timeline_items([*historical_rows, *current_rows]), omitted
