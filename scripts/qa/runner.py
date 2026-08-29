@@ -205,6 +205,15 @@ def _bounded_text(value: str) -> str:
     return value[:DIAGNOSTIC_TEXT_LIMIT]
 
 
+def safe_exception_message(
+    error: ScenarioFailure | QARequestTimeout, secret_values: tuple[str, ...]
+) -> str:
+    """Return bounded, redacted text from a locally-authored QA exception only."""
+    redacted = redact_report(str(error), secret_values)
+    assert isinstance(redacted, str)
+    return _bounded_text(redacted)
+
+
 class QARequestTimeout(TimeoutError):
     """A transport timeout normalized for the isolated QA harness only."""
 
@@ -1080,18 +1089,23 @@ def _run_structured(
                     urllib.error.URLError,
                     json.JSONDecodeError,
                 ) as error:
-                    results.append(
-                        {
-                            "phase": "canonical",
-                            "tier": "smoke" if "smoke" in case.tiers else "full",
-                            "id": case.id,
-                            "category": case.category,
-                            "manual_quality": case.manual_quality,
-                            "status": "FAIL",
-                            "reason": "HTTP/runtime failure",
-                            "detail": type(error).__name__,
-                        }
-                    )
+                    result: dict[str, object] = {
+                        "phase": "canonical",
+                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "id": case.id,
+                        "category": case.category,
+                        "manual_quality": case.manual_quality,
+                        "status": "FAIL",
+                        "reason": "HTTP/runtime failure",
+                        "detail": type(error).__name__,
+                    }
+                    if isinstance(error, (QARequestTimeout, ScenarioFailure)):
+                        message = safe_exception_message(
+                            error, (model["api_key"],)
+                        )
+                        if message:
+                            result["message"] = message
+                    results.append(result)
                 if checkpoint is not None:
                     checkpoint.record_case(results[-1])
                 if fail_fast and results[-1]["status"] == "FAIL":

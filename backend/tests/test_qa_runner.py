@@ -728,6 +728,95 @@ def test_manual_quality_and_timeout_are_contained_and_journaled(
     assert [json.loads(line)["id"] for line in persisted.splitlines()] == ["manual", "timed"]
 
 
+def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    secret = "provider-secret"
+    cases = [
+        qa_runner.Case(id="marker", prompt="one", category="qa"),
+        qa_runner.Case(id="secret", prompt="two", category="qa"),
+        qa_runner.Case(id="long", prompt="three", category="qa"),
+        qa_runner.Case(id="timeout", prompt="four", category="qa"),
+    ]
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
+    checkpoint.start()
+
+    def execute(_, case, __):  # type: ignore[no-untyped-def]
+        if case.id == "marker":
+            raise qa_runner.ScenarioFailure(
+                "final assistant response omitted the required QA marker"
+            )
+        if case.id == "secret":
+            raise qa_runner.ScenarioFailure(f"configured API key is {secret}")
+        if case.id == "long":
+            raise qa_runner.ScenarioFailure("x" * (qa_runner.DIAGNOSTIC_TEXT_LIMIT + 1))
+        raise qa_runner.QARequestTimeout(f"QA request timed out for {secret}")
+
+    monkeypatch.setattr(qa_runner, "_execute_case", execute)
+    results, _ = qa_runner._run_structured(
+        cases,
+        {"base_url": "http://model", "id": "model", "api_key": secret},
+        False,
+        checkpoint,
+    )
+    qa_runner.write_reports(tmp_path, {"mode": "full"}, results, secret_values=(secret,))
+
+    assert [item["detail"] for item in results] == [
+        "ScenarioFailure",
+        "ScenarioFailure",
+        "ScenarioFailure",
+        "QARequestTimeout",
+    ]
+    assert [item["reason"] for item in results] == ["HTTP/runtime failure"] * 4
+    assert results[0]["message"] == "final assistant response omitted the required QA marker"
+    assert results[1]["message"] == "configured API key is <redacted>"
+    assert results[2]["message"] == "x" * qa_runner.DIAGNOSTIC_TEXT_LIMIT
+    assert results[3]["message"] == "QA request timed out for <redacted>"
+    partial = (tmp_path / "cases.partial.jsonl").read_text(encoding="utf-8")
+    final = (tmp_path / "cases.jsonl").read_text(encoding="utf-8")
+    assert partial == final
+    assert secret not in partial and "tool_result" not in partial
+    assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["failed"] == 4
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        AssertionError("untrusted assertion text"),
+        urllib.error.URLError("untrusted URL error text"),
+        json.JSONDecodeError("untrusted JSON error text", "document", 0),
+    ),
+)
+def test_existing_untrusted_exception_categories_keep_prior_report_shape(
+    qa_runner, monkeypatch, tmp_path, error
+) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    case = qa_runner.Case(id="failure", prompt="one", category="qa")
+    monkeypatch.setattr(
+        qa_runner,
+        "_execute_case",
+        lambda *_: (_ for _ in ()).throw(error),
+    )
+
+    results, _ = qa_runner._run_structured(
+        [case], {"base_url": "http://model", "id": "model", "api_key": "secret"}, False
+    )
+
+    assert results == [
+        {
+            "phase": "canonical",
+            "tier": "full",
+            "id": "failure",
+            "category": "qa",
+            "manual_quality": False,
+            "status": "FAIL",
+            "reason": "HTTP/runtime failure",
+            "detail": type(error).__name__,
+        }
+    ]
+
+
 def test_mapping_accounts_for_386_rows_and_references_canonical_ids(qa_runner) -> None:  # type: ignore[no-untyped-def]
     mapping = (qa_runner.ROOT / "docs/qa/HISTORICAL_CORPUS_MIGRATION.md").read_text()
     expected = {
