@@ -245,9 +245,7 @@ def failure_trace(
     trace: list[dict[str, object]] = []
     selected_timelines = timelines[-1:] if len(timelines) > 1 else timelines
     for timeline in selected_timelines:
-        for item in timeline:
-            if len(trace) == FAILURE_TRACE_EVENT_LIMIT:
-                return trace
+        for item in timeline[-FAILURE_TRACE_EVENT_LIMIT:]:
             kind = item.get("kind")
             payload = item.get("payload")
             if not isinstance(payload, dict):

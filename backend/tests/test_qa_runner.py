@@ -786,6 +786,15 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
     _runner_mocks(qa_runner, monkeypatch)
     secret = "provider-secret"
     timeline = [
+        *[
+            {
+                "kind": "tool_call",
+                "tool_name": "fake.prefix",
+                "call_id": f"prefix-{index}",
+                "payload": {"arguments": {"value": index}},
+            }
+            for index in range(4)
+        ],
         {
             "kind": "tool_call",
             "tool_name": "orion.tools.expand",
@@ -827,7 +836,7 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
                 "call_id": f"extra-{index}",
                 "payload": {"arguments": {"value": f"raw-{index}"}},
             }
-            for index in range(qa_runner.FAILURE_TRACE_EVENT_LIMIT)
+            for index in range(qa_runner.FAILURE_TRACE_EVENT_LIMIT - 4)
         ],
     ]
     case = qa_runner.Case(
