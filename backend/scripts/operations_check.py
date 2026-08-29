@@ -83,10 +83,19 @@ def _asset_reference(shell: str, suffix: str) -> str:
 
 
 def _assert_marker(marker: Path, count: int) -> None:
-    if not _wait_for_file(marker):
+    deadline = time.monotonic() + 3
+    expected = "opened" * count
+    while time.monotonic() < deadline:
+        if marker.is_file():
+            actual = marker.read_text(encoding="utf-8")
+            if actual == expected:
+                return
+            if len(actual) > len(expected):
+                break
+        time.sleep(0.05)
+    if not marker.is_file():
         raise SystemExit("Orion did not request the operating-system URL opener")
-    if marker.read_text(encoding="utf-8") != "opened" * count:
-        raise SystemExit("Orion requested the URL opener an unexpected number of times")
+    raise SystemExit("Orion requested the URL opener an unexpected number of times")
 
 
 def _terminate(process: subprocess.Popen[str]) -> None:
