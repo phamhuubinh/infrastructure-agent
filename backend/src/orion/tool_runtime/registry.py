@@ -124,7 +124,9 @@ class ToolExposureRequest:
                 model_call.call_id,
                 model_call.tool_name,
                 "invalid_input",
-                "Expansion arguments must contain non-empty tool_names only.",
+                "Tool arguments do not match the registered input schema. Re-check the "
+                "currently exposed schema and retry with valid arguments.",
+                model_recovery_required=True,
             )
         names = frozenset(request.tool_names)
         if not all(self._exposure.definition(name) is not None for name in names):

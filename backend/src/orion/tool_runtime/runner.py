@@ -76,7 +76,9 @@ class ToolRunner:
                 model_call.call_id,
                 model_call.tool_name,
                 "invalid_input",
-                "Tool arguments do not match the registered input schema.",
+                "Tool arguments do not match the registered input schema. Re-check the "
+                "currently exposed schema and retry with valid arguments.",
+                model_recovery_required=True,
             )
         handler = self._registry.handler(definition.handler_key)
         if handler is None:

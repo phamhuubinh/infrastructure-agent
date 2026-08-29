@@ -15,6 +15,7 @@ from orion.contracts import (
     ToolResult,
 )
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistry, ToolRegistryBuilder
+from orion.tool_runtime.runner import ToolRunner
 
 
 def _definition(name: str, handler_key: str | None = None) -> ToolDefinition:
@@ -165,8 +166,82 @@ def test_invalid_expansion_names_or_arguments_do_not_expose_anything() -> None:
 
     assert invalid_name.error is not None and invalid_name.error.code == "invalid_input"
     assert invalid_arguments.error is not None and invalid_arguments.error.code == "invalid_input"
+    assert not invalid_name.error.model_recovery_required
+    assert invalid_arguments.error.model_recovery_required
     assert exposure.exposed_names == frozenset()
     assert [definition.name for definition in exposure.model_tools] == [EXPAND_TOOL_NAME]
+
+
+@pytest.mark.parametrize(
+    ("definition", "arguments"),
+    (
+        (
+            ToolDefinition(
+                name="fake.empty",
+                description="Take no arguments.",
+                input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                handler_key="internal.fake.empty",
+            ),
+            {"project_id": "wrong"},
+        ),
+        (_definition("fake.required"), {}),
+        (_definition("fake.type"), {"value": 1}),
+        (
+            ToolDefinition(
+                name="fake.bounded",
+                description="Take a bounded integer.",
+                input_schema={
+                    "type": "object",
+                    "properties": {"value": {"type": "integer", "minimum": 1}},
+                    "required": ["value"],
+                    "additionalProperties": False,
+                },
+                handler_key="internal.fake.bounded",
+            ),
+            {"value": 0},
+        ),
+    ),
+)
+def test_schema_rejected_arguments_are_generic_model_recovery_errors(
+    definition: ToolDefinition, arguments: dict[str, object]
+) -> None:
+    dispatched: list[ToolCall] = []
+    builder = ToolRegistryBuilder()
+    builder.register(definition, lambda call: dispatched.append(call))
+    result = ToolRunner(builder.freeze()).run(
+        ModelToolCall(call_id="invalid", tool_name=definition.name, arguments=arguments),
+        RuntimeScope(session_id="session", principal_id="local", workspace_id="local"),
+    )
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "invalid_input"
+    assert result.error.model_recovery_required
+    assert result.error.message == (
+        "Tool arguments do not match the registered input schema. Re-check the currently "
+        "exposed schema and retry with valid arguments."
+    )
+    assert dispatched == []
+
+
+def test_handler_level_errors_keep_their_existing_recovery_metadata() -> None:
+    definition = _definition("fake.semantic")
+    builder = ToolRegistryBuilder()
+    builder.register(
+        definition,
+        lambda call: ToolResult.failure(
+            call.call_id, call.tool_name, "scope_violation", "Access is denied."
+        ),
+    )
+
+    result = ToolRunner(builder.freeze()).run(
+        ModelToolCall(call_id="semantic", tool_name=definition.name, arguments={"value": "ok"}),
+        RuntimeScope(session_id="session", principal_id="local", workspace_id="local"),
+    )
+
+    assert result.error is not None
+    assert result.error.code == "scope_violation"
+    assert not result.error.model_recovery_required
 
 
 @pytest.mark.anyio
@@ -268,13 +343,17 @@ async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None: 
                 )
             ),
             ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+            ModelTurn(assistant=AssistantMessage(content="Final recovery answer.")),
         ]
     )
     session_id = store.create_session()
 
-    await runtime(store, backend, _registry(calls=calls)).submit(session_id, "Try the tool")
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(
+        session_id, "Try the tool"
+    )
 
     assert calls == []
+    assert outcome.assistant_content == "Final recovery answer."
     results = [
         item.payload["result"]
         for item in store.timeline(session_id)
@@ -284,6 +363,125 @@ async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None: 
     assert results[0]["error"]["message"] == (
         "Tool is not exposed. Call orion.tools.expand with this exact catalog name, then retry."
     )
+    assert results[1]["error"]["model_recovery_required"] is True
+
+
+@pytest.mark.anyio
+async def test_schema_invalid_call_then_terminal_prose_gets_one_model_chosen_retry(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="invalid",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry", "project_id": "wrong"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Project scope may not be bound.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="valid", tool_name="fake.alpha", arguments={"value": "retry"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(session_id, "Retry tool")
+
+    assert outcome.assistant_content == "Recovered."
+    assert [call.call_id for call in calls] == ["valid"]
+    assert len(backend.calls) == 5
+    assert any("model recovery as required" in message.content for message in backend.calls[3][0])
+    results = [
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == "fake.alpha"
+    ]
+    assert results[0]["error"]["model_recovery_required"] is True
+    assert results[1]["status"] == "success"
+
+
+@pytest.mark.anyio
+async def test_schema_invalid_call_that_model_immediately_corrects_uses_no_forced_turn(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="invalid",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry", "project_id": "wrong"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="valid", tool_name="fake.alpha", arguments={"value": "retry"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(session_id, "Retry tool")
+
+    assert outcome.assistant_content == "Recovered."
+    assert [call.call_id for call in calls] == ["valid"]
+    assert len(backend.calls) == 4
+
+
+@pytest.mark.anyio
+async def test_schema_recovery_decision_remains_one_shot_after_another_invalid_call(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="invalid-one",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry", "project_id": "wrong"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Use the tool again.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="invalid-two",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry", "project_id": "wrong"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Please clarify.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session_id, "Retry tool")
+
+    assert outcome.assistant_content == "Please clarify."
+    assert len(backend.calls) == 5
 
 
 @pytest.mark.anyio

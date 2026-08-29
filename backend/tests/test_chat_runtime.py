@@ -450,6 +450,7 @@ async def test_unknown_or_invalid_tools_never_dispatch(
     ]
     if tool_name == "calculator.evaluate":
         turns.insert(0, _expand(tool_name))
+        turns.append(ModelTurn(assistant=AssistantMessage(content="Final recovery response.")))
     backend = ScriptedBackend(turns)
     session_id = store.create_session()
 
