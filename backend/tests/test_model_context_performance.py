@@ -10,7 +10,6 @@ from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _
 from orion.chat.model_context import project_tool_result
 from orion.contracts import (
     AssistantMessage,
-    ContextMessage,
     ModelToolCall,
     ModelTurn,
     SourceRef,
@@ -31,13 +30,12 @@ from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 10_628
 EXPECTED_SIMPLE_PROXY_BYTES = 12_501
-EXPECTED_CATALOG_BYTES = 617
-EXPECTED_EXPANSION_SCHEMA_BYTES = 301
-EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 2_000
-EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_268
-EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_147
-EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 3_030
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 9_220
+EXPECTED_EXPANSION_SCHEMA_BYTES = 865
+EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_891
+EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_159
+EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_038
+EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 2_921
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 9_111
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -180,16 +178,11 @@ def test_progressive_model_view_size_regressions(store) -> None:  # type: ignore
     session_id = store.create_session()
     store.append_timeline(session_id, None, "user_message", {"content": "Hello"})
     messages = ContextBuilder(store).build(session_id)
-    model_messages = (*messages, ContextMessage(role="system", content=exposure.catalog))
-
-    assert exposure.catalog.splitlines() == [
-        (
-            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
-            "expansion is additive and repeatable):"
-        ),
-        *(definition.name for definition in definitions),
-    ]
-    assert len(exposure.catalog.encode()) == EXPECTED_CATALOG_BYTES
+    model_messages = messages
+    assert all("Tools (expand exact ordinary names" not in message.content for message in messages)
+    assert exposure.model_tools[0].provider_schema()["function"]["parameters"]["properties"][
+        "tool_names"
+    ]["items"]["enum"] == [definition.name for definition in definitions]
     assert (
         len(json.dumps(exposure.model_tools[0].provider_schema(), separators=(",", ":")).encode())
         == EXPECTED_EXPANSION_SCHEMA_BYTES

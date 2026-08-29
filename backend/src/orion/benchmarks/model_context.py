@@ -462,7 +462,7 @@ async def _initial_model_call(
     context = ContextBuilder(app.store).build_with_metadata(session_id)
     before = len(backend.calls)
     async for _ in backend.stream(
-        (*context.messages, ContextMessage(role="system", content=exposure.catalog)),
+        context.messages,
         exposure.model_tools,
         _settings(app.store),
         asyncio.Event(),
@@ -511,7 +511,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                 _measurement(
                     "fresh_hello",
                     fresh_calls,
-                    catalog_bytes=len(app.registry.new_tool_exposure().catalog.encode("utf-8")),
+                    catalog_bytes=0,
                     budgets=(
                         {"payload_bytes": OFFLINE_BUDGETS["fresh_payload_bytes"]}
                         if not live
@@ -591,10 +591,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                 exposure_session, None, "user_message", {"content": SCENARIOS[0].prompt}
             )
             exposure = app.registry.new_tool_exposure()
-            exposure_messages = (
-                *ContextBuilder(app.store).build(exposure_session),
-                ContextMessage(role="system", content=exposure.catalog),
-            )
+            exposure_messages = ContextBuilder(app.store).build(exposure_session)
             initial_bytes = provider_payload_bytes(exposure_messages, exposure.model_tools)
             exposure.expand(
                 ModelToolCall(
@@ -616,7 +613,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                 BenchmarkMeasurement(
                     scenario="progressive_exposure_projections",
                     payload_bytes=three_bytes,
-                    catalog_bytes=len(exposure.catalog.encode("utf-8")),
+                    catalog_bytes=0,
                     message_count=len(exposure_messages),
                     main_calls=0,
                     summary_calls=0,
@@ -632,6 +629,12 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                         "fresh_payload_bytes": initial_bytes,
                         "one_expanded_payload_bytes": one_bytes,
                         "three_expanded_payload_bytes": three_bytes,
+                        "expansion_schema_bytes": len(
+                            json.dumps(
+                                exposure.model_tools[0].provider_schema(),
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+                        ),
                     },
                     budgets=(
                         {
@@ -730,12 +733,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
             )
             if not live:
                 ambiguous_call = RecordedCall(
-                    messages=(
-                        *ContextBuilder(app.store).build(ambiguous_session),
-                        ContextMessage(
-                            role="system", content=app.registry.new_tool_exposure().catalog
-                        ),
-                    ),
+                    messages=ContextBuilder(app.store).build(ambiguous_session),
                     tools=app.registry.new_tool_exposure().model_tools,
                 )
                 ambiguous_elapsed = None
@@ -917,7 +915,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                             "utf-8"
                         )
                     ),
-                    catalog_bytes=None,
+                    catalog_bytes=0,
                     message_count=1,
                     main_calls=0,
                     summary_calls=0,

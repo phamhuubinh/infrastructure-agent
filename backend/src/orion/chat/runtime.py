@@ -343,7 +343,6 @@ class ChatRuntime:
             (
                 *context.messages,
                 *recovery_message,
-                ContextMessage(role="system", content=tool_exposure.catalog),
             ),
             tool_exposure.model_tools,
             settings,

@@ -2,9 +2,9 @@
 
 ## Core contract
 
-The model is called with conversation context, a compact registry-derived catalog,
-and one generic expansion control. Full ordinary schemas appear only after the model
-requests their exact catalog names.
+The model is called with conversation context and one generic expansion control whose
+provider schema structurally lists exact registered ordinary names. Full ordinary
+schemas appear only after the model requests names from that discovery enum.
 
 The model may return:
 
@@ -37,7 +37,7 @@ This is a model-native tool loop, not a model-visible Orion workflow state machi
 ```text
 Model owns:
 - whether a tool is useful;
-- which catalog names to expand and which exposed tool to call;
+- which registered names to expand and which exposed tool to call;
 - semantic arguments such as query, expression, host operation parameters;
 - whether another call is useful after seeing ToolResult;
 - when to answer.
@@ -82,14 +82,14 @@ For the current architecture:
 ```text
 registered/configured ordinary tool
         ↓
-compact deterministic catalog
+structural deterministic discovery enum
         ↓
 model-controlled exact-name expansion
         ↓
 request-local full schema exposure
 ```
 
-The catalog is not a semantic router, user tool picker, or integration-specific
+The discovery enum is not a semantic router, user tool picker, or integration-specific
 protocol. It is a generic registry projection. Exposure resets for the next user
 request and never authorizes a hidden ordinary tool to dispatch.
 

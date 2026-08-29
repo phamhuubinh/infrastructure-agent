@@ -26,22 +26,6 @@ ToolHandler = Callable[[ToolCall], object]
 EXPAND_TOOL_NAME = "orion.tools.expand"
 
 
-def compact_tool_catalog(definitions: tuple[ToolDefinition, ...]) -> str:
-    """Project the canonical registry into exact names for model discovery.
-
-    Descriptions belong to the provider schemas shown after expansion, so the
-    initial catalog only needs stable exact names.  Keeping this projection
-    generic preserves automatic discoverability for every registered tool.
-    """
-    return "\n".join(
-        (
-            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
-            "expansion is additive and repeatable):",
-            *(definition.name for definition in definitions),
-        )
-    )
-
-
 @dataclass(frozen=True)
 class ToolRegistration:
     definition: ToolDefinition
@@ -49,21 +33,28 @@ class ToolRegistration:
 
 
 class ToolExposure:
-    """Registry-derived catalog and request-local ordinary-tool exposure factory."""
+    """Registry-derived structural discovery and request-local ordinary-tool exposure."""
 
     def __init__(self, definitions: tuple[ToolDefinition, ...]) -> None:
         self._definitions = definitions
         self._definitions_by_name = {definition.name: definition for definition in definitions}
-        self._catalog = compact_tool_catalog(definitions)
         expand_definition = ToolDefinition(
             name=EXPAND_TOOL_NAME,
             description=(
-                "Expand exact ordinary catalog names before execution. "
+                "Expand exact registered ordinary names before execution. "
                 "Expansion is additive and may be repeated."
             ),
             input_schema={
                 "type": "object",
-                "properties": {"tool_names": {"type": "array", "items": {"type": "string"}}},
+                "properties": {
+                    "tool_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [definition.name for definition in definitions],
+                        },
+                    }
+                },
                 "required": ["tool_names"],
                 "additionalProperties": False,
             },
@@ -73,10 +64,6 @@ class ToolExposure:
             expand_definition, "input_schema", freeze_json(expand_definition.input_schema)
         )
         self._expand_definition = expand_definition
-
-    @property
-    def catalog(self) -> str:
-        return self._catalog
 
     def request(self) -> ToolExposureRequest:
         return ToolExposureRequest(self)
@@ -102,10 +89,6 @@ class ToolExposureRequest:
         self._exposure = exposure
         self._exposed_names: frozenset[str] = frozenset()
         self._model_tools: tuple[ToolDefinition, ...] = (exposure.expand_definition,)
-
-    @property
-    def catalog(self) -> str:
-        return self._exposure.catalog
 
     @property
     def model_tools(self) -> tuple[ToolDefinition, ...]:

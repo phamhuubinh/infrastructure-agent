@@ -74,9 +74,10 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert executions == 0
     assert len(backend.calls) == 1
     assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert backend.calls[0][0][-1].content == (
-        "Tools (expand exact ordinary names with orion.tools.expand before execution; "
-        "expansion is additive and repeatable):\nfake.count"
+    assert all(
+        "Tools (expand exact ordinary names" not in message.content
+        and "fake.count" not in message.content
+        for message in backend.calls[0][0]
     )
 
 
@@ -320,10 +321,18 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
         EXPAND_TOOL_NAME,
         "calculator.evaluate",
     ]
-    expansion_result = ToolResult.model_validate_json(continuation[-2].content)
+    expansion_result = ToolResult.model_validate_json(
+        next(message.content for message in continuation if message.role == "tool")
+    )
     assert expansion_result.data == {"exposed_tools": ["calculator.evaluate"]}
     calculator_continuation = backend.calls[2][0]
-    calculator_result = ToolResult.model_validate_json(calculator_continuation[-2].content)
+    calculator_result = ToolResult.model_validate_json(
+        next(
+            message.content
+            for message in reversed(calculator_continuation)
+            if message.role == "tool"
+        )
+    )
     assert calculator_result.data == {"value": 5}
     assert calculator_result.sources == ()
     assert [event["type"] for event in store.events(outcome.request_id)] == [
@@ -442,8 +451,14 @@ async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) 
     )
     assert first_assistant.payload["content"] == "I will calculate that."
     assert first_assistant.payload["tool_calls"][0]["call_id"] == "one"
-    assert backend.calls[2][0][-3].content == "I will calculate that."
-    assert backend.calls[2][0][-3].tool_calls[0].tool_name == "calculator.evaluate"
+    combined_assistant = next(
+        message
+        for message in backend.calls[2][0]
+        if message.role == "assistant"
+        and message.content == "I will calculate that."
+        and message.tool_calls
+    )
+    assert combined_assistant.tool_calls[0].tool_name == "calculator.evaluate"
 
 
 @pytest.mark.anyio

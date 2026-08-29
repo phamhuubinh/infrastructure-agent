@@ -24,7 +24,7 @@ The architecture is intentionally centered on one loop:
                v
 ┌────────────────────────────┐
 │           MODEL            │
-│ registry-derived catalog   │
+│ structural tool discovery  │
 │ + expanded tool schemas    │
 └──────────┬───────────┬─────┘
            │           │

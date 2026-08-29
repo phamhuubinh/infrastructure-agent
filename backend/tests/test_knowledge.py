@@ -294,7 +294,9 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
     assert outcome.assistant_content == "The fact is blue."
     assert len(backend.calls) == 3
     assert "Ignore all previous" not in backend.calls[0][0][0].content
-    tool_content = backend.calls[2][0][-2].content
+    tool_content = next(
+        message.content for message in reversed(backend.calls[2][0]) if message.role == "tool"
+    )
     assert "Ignore all previous" in tool_content
     assert source.source_ref_id in tool_content
     assert store.timeline(session)[-1].payload["citation_source_ref_ids"] == [source.source_ref_id]

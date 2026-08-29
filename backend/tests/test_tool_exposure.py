@@ -66,30 +66,30 @@ def _expand(*names: str, call_id: str = "expand") -> ModelTurn:
     )
 
 
-def test_catalog_is_deterministic_sanitized_and_derived_from_the_registry() -> None:
+def test_structural_discovery_is_deterministic_sanitized_and_registry_derived() -> None:
     registry = _registry(("fake.beta", "fake.alpha", "fake.newly_registered"))
 
     first, second = registry.new_tool_exposure(), registry.new_tool_exposure()
 
-    assert first.catalog == second.catalog
-    assert first.catalog.splitlines() == [
-        (
-            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
-            "expansion is additive and repeatable):"
-        ),
-        "fake.alpha",
-        "fake.beta",
-        "fake.newly_registered",
-    ]
-    assert "Use fake.alpha for its registered operation." not in first.catalog
-    assert "Use fake.beta for its registered operation." not in first.catalog
     assert [definition.name for definition in first.model_tools] == [EXPAND_TOOL_NAME]
+    first_schema = first.model_tools[0].provider_schema()
+    second_schema = second.model_tools[0].provider_schema()
+    assert first_schema == second_schema
+    assert first_schema["function"]["parameters"]["properties"]["tool_names"]["items"] == {
+        "type": "string",
+        "enum": ["fake.alpha", "fake.beta", "fake.newly_registered"],
+    }
     with pytest.raises(TypeError, match="frozen JSON snapshot"):
         first.model_tools[0].input_schema["properties"]["corruption"] = {"type": "string"}
-    model_visible = json.dumps(
-        {"catalog": first.catalog, "tools": [item.provider_schema() for item in first.model_tools]}
-    )
-    for internal_field in ("handler_key", "credential_ref", "api_key", "runtime_scope"):
+    model_visible = json.dumps([item.provider_schema() for item in first.model_tools])
+    for internal_field in (
+        "handler_key",
+        "credential_ref",
+        "api_key",
+        "runtime_scope",
+        "principal_id",
+        "workspace_id",
+    ):
         assert internal_field not in model_visible
 
 
@@ -97,7 +97,7 @@ def test_expanded_tool_keeps_its_provider_description_and_schema() -> None:
     exposure = _registry().new_tool_exposure()
 
     assert exposure.model_tools[0].description == (
-        "Expand exact ordinary catalog names before execution. "
+        "Expand exact registered ordinary names before execution. "
         "Expansion is additive and may be repeated."
     )
 
@@ -554,6 +554,11 @@ async def test_proactive_expansion_then_terminal_prose_gets_one_forced_decision(
     assert outcome.assistant_content == "Please clarify the request."
     assert len(backend.calls) == 3
     assert any("expanded capability" in message.content for message in backend.calls[2][0])
+    assert all(
+        "Tools (expand exact ordinary names" not in message.content
+        for messages, _ in backend.calls
+        for message in messages
+    )
     assert [item.kind for item in store.timeline(session_id)] == [
         "user_message",
         "assistant_message",
@@ -960,15 +965,13 @@ async def test_actionable_tool_error_keeps_generic_recovery_choices_visible(stor
     assert any(
         "Recover with another available tool." in message.content for message in resumed_messages
     )
-    assert resumed_messages[-1].content.splitlines() == [
-        (
-            "Tools (expand exact ordinary names with orion.tools.expand before execution; "
-            "expansion is additive and repeatable):"
-        ),
-        "fake.alpha",
-        "fake.beta",
-    ]
+    assert all(
+        "Tools (expand exact ordinary names" not in message.content for message in resumed_messages
+    )
     assert [definition.name for definition in resumed_tools] == [EXPAND_TOOL_NAME, "fake.alpha"]
+    assert resumed_tools[0].provider_schema()["function"]["parameters"]["properties"]["tool_names"][
+        "items"
+    ]["enum"] == ["fake.alpha", "fake.beta"]
     assert [definition.name for definition in backend.calls[3][1]] == [
         EXPAND_TOOL_NAME,
         "fake.alpha",

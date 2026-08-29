@@ -11,10 +11,12 @@ from orion.contracts import (
     ModelToolCall,
     ModelTurnCompleted,
     ToolCallDelta,
+    ToolDefinition,
 )
 from orion.models.backend import ModelBackendError, ModelBackendErrorKind, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend, _PendingToolCall
 from orion.tool_runtime.calculator import calculator_definition
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 
 def test_adapter_serializes_tool_result_continuation_without_handler_binding() -> None:
@@ -117,6 +119,29 @@ def test_provider_schema_cache_cannot_be_corrupted_by_callers() -> None:
 
     assert "replaced" not in third[0]
     assert "corruption" not in third[0]["function"]["parameters"]["properties"]
+
+
+def test_adapter_preserves_structural_tool_discovery_enum() -> None:
+    builder = ToolRegistryBuilder()
+    for name in ("fake.beta", "fake.alpha"):
+        builder.register(
+            ToolDefinition(
+                name=name,
+                description=f"Use {name}.",
+                input_schema={"type": "object", "properties": {}},
+                handler_key=f"internal.{name}",
+            ),
+            lambda call: None,
+        )
+
+    tools = builder.freeze().new_tool_exposure().model_tools
+    projected = OpenAICompatibleBackend()._provider_tools(tools)
+
+    assert [item["function"]["name"] for item in projected] == [EXPAND_TOOL_NAME]
+    assert projected[0]["function"]["parameters"]["properties"]["tool_names"]["items"]["enum"] == [
+        "fake.alpha",
+        "fake.beta",
+    ]
 
 
 @pytest.mark.parametrize(

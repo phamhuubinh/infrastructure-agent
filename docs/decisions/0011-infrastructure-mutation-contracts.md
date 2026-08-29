@@ -8,7 +8,7 @@ Accepted target decision.
 
 Linux, Grafana, and Zabbix join the existing `ToolRegistry` and `ToolRunner` as
 explicit semantic operations with closed schemas. The model discovers an operation
-from the registry-derived catalog and expands it before use; Orion deterministically validates it, binds `RuntimeScope`,
+from the registry-derived structural discovery enum and expands it before use; Orion deterministically validates it, binds `RuntimeScope`,
 resolves a configured target, and executes it. Chat and Project continue to use the
 same model/tool loop.
 

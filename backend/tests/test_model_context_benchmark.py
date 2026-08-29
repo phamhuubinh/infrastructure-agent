@@ -35,7 +35,10 @@ async def test_offline_model_context_benchmark_uses_canonical_runtime_shapes() -
     ]
     assert all(item.status == "PASS" for item in report.measurements)
     assert measurements["fresh_hello"].payload_bytes <= OFFLINE_BUDGETS["fresh_payload_bytes"]
+    assert measurements["fresh_hello"].catalog_bytes == 0
     progressive = measurements["progressive_exposure_projections"]
+    assert progressive.catalog_bytes == 0
+    assert progressive.metrics["expansion_schema_bytes"] > 0
     assert (
         progressive.metrics["one_expanded_payload_bytes"]
         <= OFFLINE_BUDGETS["one_expanded_payload_bytes"]

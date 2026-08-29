@@ -76,7 +76,7 @@ Schema constraints such as closed objects, bounds, regexes, defaults, and collec
 limits remain server-side and are enforced before dispatch. The projection does not
 create another semantic selector or validation contract.
 
-The registry also derives a compact deterministic exact-name catalog and one generic
+The registry also derives one deterministic exact-name discovery enum on the generic
 expansion control from those same canonical definitions. The model may expand exact
 ordinary tool names for the current request; their useful provider descriptions and
 schemas then appear. This affects only model schema visibility, never the canonical

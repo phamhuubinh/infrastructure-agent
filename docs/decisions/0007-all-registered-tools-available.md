@@ -3,10 +3,11 @@
 ## Decision
 
 Every successfully registered/configured ordinary tool is discoverable in Chat and
-Project through one deterministic exact-name catalog derived from the canonical
-registry. Its full description and provider schema appear only after expansion.
+Project through one deterministic exact-name discovery enum on the generic
+expansion control, derived from the canonical registry. Its full description and
+provider schema appear only after expansion.
 
-The model uses one generic expansion control to request one or more exact catalog
+The model uses one generic expansion control to request one or more exact registered
 names. Full schemas are then exposed only for that request's selected subset. The
 model remains the semantic chooser; Orion does not pre-route prompts or provide a
 user tool picker. An unexposed ordinary tool cannot execute.
