@@ -167,8 +167,9 @@ class ToolDefinition(CanonicalModel):
 
         ``input_schema`` remains the complete canonical JSON Schema used by the
         ToolRegistry to validate every model call.  Providers receive only the
-        structural cues needed to choose a tool and form its arguments; bounds,
-        regexes, defaults, and closed-object enforcement stay server-side.
+        structural cues needed to choose a tool and form valid arguments;
+        numeric bounds are included, while regexes, defaults, and closed-object
+        enforcement stay server-side.
         """
         return {
             "type": "function",
@@ -181,9 +182,9 @@ class ToolDefinition(CanonicalModel):
 
 
 def _provider_schema_projection(schema: Mapping[str, Any]) -> dict[str, Any]:
-    """Keep model-useful JSON Schema structure without duplicating validation rules."""
+    """Keep generic argument-forming cues without duplicating all validation rules."""
     projection: dict[str, Any] = {}
-    for key in ("type", "description", "format", "enum", "const"):
+    for key in ("type", "description", "format", "enum", "const", "minimum", "maximum"):
         if key in schema:
             projection[key] = _json_snapshot(schema[key])
     if "properties" in schema:

@@ -98,6 +98,60 @@ def test_provider_schema_projection_is_deterministic_and_does_not_alias_canonica
     assert definition.operation_kind == "mutation"
 
 
+def test_provider_schema_projection_keeps_recursive_numeric_bounds_only() -> None:
+    definition = ToolDefinition(
+        name="test.generic",
+        description="Exercise the generic provider schema projection.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "range": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8,
+                    "default": 5,
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "integer",
+                                "minimum": 2,
+                                "maximum": 4,
+                                "default": 3,
+                            }
+                        ]
+                    },
+                },
+            },
+            "required": ["range"],
+            "additionalProperties": False,
+        },
+        handler_key="test.generic",
+    )
+
+    parameters = definition.provider_schema()["function"]["parameters"]
+
+    assert parameters == {
+        "type": "object",
+        "properties": {
+            "range": {"type": "integer", "minimum": 1, "maximum": 8},
+            "groups": {
+                "type": "array",
+                "items": {"oneOf": [{"type": "integer", "minimum": 2, "maximum": 4}]},
+            },
+        },
+        "required": ["range"],
+    }
+    assert definition.input_schema["properties"]["range"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8,
+        "default": 5,
+    }
+
+
 def test_contract_validation_rejects_invalid_runtime_data() -> None:
     with pytest.raises(ValidationError, match="ModelTurn requires"):
         ModelTurn()

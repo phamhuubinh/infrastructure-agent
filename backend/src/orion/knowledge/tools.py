@@ -8,6 +8,11 @@ from orion.contracts import ToolCall, ToolDefinition, ToolResult
 from orion.knowledge.service import KnowledgeService
 from orion.tool_runtime.registry import ToolRegistration
 
+_EXACT_DOCUMENT_ID_DESCRIPTION = (
+    "Exact visible document_id from knowledge.list_documents or knowledge.search; "
+    "do not use a document name or title."
+)
+
 
 def knowledge_registrations(service: KnowledgeService) -> tuple[ToolRegistration, ...]:
     return tuple(
@@ -48,6 +53,10 @@ def search_definition() -> ToolDefinition:
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
                 "document_ids": {
                     "type": "array",
+                    "description": (
+                        "Optional exact visible document_ids from knowledge.list_documents or "
+                        "knowledge.search; do not use document names or titles."
+                    ),
                     "items": {"type": "string", "minLength": 1},
                     "uniqueItems": True,
                 },
@@ -70,7 +79,11 @@ def read_definition() -> ToolDefinition:
         input_schema={
             "type": "object",
             "properties": {
-                "document_id": {"type": "string", "minLength": 1},
+                "document_id": {
+                    "type": "string",
+                    "description": _EXACT_DOCUMENT_ID_DESCRIPTION,
+                    "minLength": 1,
+                },
                 "section": {"type": "string", "minLength": 1},
                 "cursor": {"type": "integer", "minimum": 0, "default": 0},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
@@ -91,7 +104,13 @@ def source_metadata_definition() -> ToolDefinition:
         ),
         input_schema={
             "type": "object",
-            "properties": {"document_id": {"type": "string", "minLength": 1}},
+            "properties": {
+                "document_id": {
+                    "type": "string",
+                    "description": _EXACT_DOCUMENT_ID_DESCRIPTION,
+                    "minLength": 1,
+                }
+            },
             "additionalProperties": False,
         },
         handler_key="knowledge.source_metadata",
@@ -147,6 +166,15 @@ def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
         except PermissionError as error:
             return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
         except LookupError as error:
+            if str(error) == "Document was not found":
+                return ToolResult.failure(
+                    call.call_id,
+                    call.tool_name,
+                    "not_found",
+                    "Document was not found. Obtain an exact visible document_id with "
+                    "knowledge.list_documents or knowledge.search, then retry; do not use "
+                    "a name or title as document_id.",
+                )
             return ToolResult.failure(call.call_id, call.tool_name, "not_found", str(error))
         sources = tuple(service.source_for_segment(segment) for segment in window.segments)
         return ToolResult(

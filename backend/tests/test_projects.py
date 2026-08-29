@@ -288,6 +288,138 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
 
 
 @pytest.mark.anyio
+async def test_project_runtime_recovers_from_invalid_read_arguments_with_document_discovery(
+    store, project_knowledge
+) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project = projects.create("Read recovery")
+    session = projects.create_session(project["project_id"], "local", "local")
+    document = knowledge.attach_project(
+        project["project_id"], "shared-fact.txt", b"The Project marker is cedar."
+    )
+    source = knowledge.source_for_segment(
+        knowledge.search(_scope(session, project["project_id"]), "Project marker", 1)[0]
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-before-expand",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": "shared Project document fact"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-read",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.read"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-invalid-limit",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": "shared Project document fact", "limit": 1000},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-document-name",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": "shared Project document fact"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-before-expand",
+                        tool_name="knowledge.list_documents",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-list",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.list_documents"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-project-documents",
+                        tool_name="knowledge.list_documents",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-project-document",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": document.document.document_id},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="The Project marker is cedar.",
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+
+    outcome = await ChatRuntime(store, backend, _registry(knowledge), LocalAccessAdapter()).submit(
+        session, "What is the shared Project document fact?"
+    )
+
+    assert outcome.assistant_content == "The Project marker is cedar."
+    assert len(backend.calls) == 9
+    assert [tool.name for tool in backend.calls[2][1]] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.read",
+    ]
+    assert [tool.name for tool in backend.calls[6][1]] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.list_documents",
+        "knowledge.read",
+    ]
+    results = {
+        item.payload["result"]["call_id"]: item.payload["result"]
+        for item in store.timeline(session)
+        if item.kind == "tool_result"
+    }
+    assert results["read-before-expand"]["error"]["code"] == "not_exposed"
+    assert results["read-invalid-limit"]["error"]["code"] == "invalid_input"
+    assert results["read-document-name"]["error"]["code"] == "not_found"
+    assert results["read-document-name"]["error"]["message"] == (
+        "Document was not found. Obtain an exact visible document_id with "
+        "knowledge.list_documents or knowledge.search, then retry; do not use a name or "
+        "title as document_id."
+    )
+    assert results["list-before-expand"]["error"]["code"] == "not_exposed"
+    assert results["list-project-documents"]["data"]["documents"][0]["document_id"] == (
+        document.document.document_id
+    )
+    assert results["read-project-document"]["sources"][0]["source_kind"] == "project"
+    assert results["read-project-document"]["sources"][0]["source_ref_id"] == source.source_ref_id
+
+
+@pytest.mark.anyio
 async def test_project_runtime_rejects_cross_project_citations(store, project_knowledge) -> None:  # type: ignore[no-untyped-def]
     projects, knowledge = project_knowledge
     project_a, project_b = projects.create("A"), projects.create("B")

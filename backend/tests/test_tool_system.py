@@ -149,11 +149,12 @@ def test_provider_projection_keeps_argument_shape_while_canonical_schema_stays_c
     assert parameters == {
         "type": "object",
         "properties": {
-            "limit": {"type": "integer"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             "mode": {"type": "string", "enum": ["safe", "fast"]},
         },
         "required": ["mode"],
     }
+    assert "default" not in parameters["properties"]["limit"]
     assert definition.input_schema["properties"]["limit"]["default"] == 5
     assert definition.input_schema["additionalProperties"] is False
 

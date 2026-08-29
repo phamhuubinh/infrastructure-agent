@@ -58,6 +58,33 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
         assert "active Project documents" in definition.description
 
 
+def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -> None:
+    read_parameters = read_definition().provider_schema()["function"]["parameters"]
+    search_parameters = search_definition().provider_schema()["function"]["parameters"]
+    metadata_parameters = source_metadata_definition().provider_schema()["function"]["parameters"]
+
+    assert read_parameters["properties"]["document_id"] == {
+        "type": "string",
+        "description": (
+            "Exact visible document_id from knowledge.list_documents or knowledge.search; "
+            "do not use a document name or title."
+        ),
+    }
+    assert read_parameters["properties"]["limit"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8,
+    }
+    assert search_parameters["properties"]["document_ids"]["description"] == (
+        "Optional exact visible document_ids from knowledge.list_documents or knowledge.search; "
+        "do not use document names or titles."
+    )
+    assert metadata_parameters["properties"]["document_id"]["description"] == (
+        "Exact visible document_id from knowledge.list_documents or knowledge.search; "
+        "do not use a document name or title."
+    )
+
+
 def test_upload_lifecycle_is_explicit_and_preserves_opaque_blob(knowledge, store) -> None:  # type: ignore[no-untyped-def]
     session = store.create_session()
     ready = knowledge.attach(session, "notes.md", b"# Notes\n\nUseful material", "text/markdown")
