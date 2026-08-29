@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import socket
 import sys
+import urllib.error
 from io import BytesIO
 from pathlib import Path
 
@@ -739,6 +741,294 @@ def test_historical_failures_are_bounded_and_content_free(qa_runner, monkeypatch
     assert len(str(result["http_reason"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
     assert len(str(result["http_detail"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
     assert secret not in json.dumps(safe)
+
+
+@pytest.mark.parametrize(
+    "error",
+    (
+        TimeoutError(),
+        socket.timeout(),  # noqa: UP041 - explicitly exercise the socket alias.
+        urllib.error.URLError(TimeoutError()),
+        urllib.error.URLError(
+            socket.timeout()  # noqa: UP041 - explicitly exercise the socket alias.
+        ),
+    ),
+)
+def test_qa_request_timeouts_are_normalized(qa_runner, monkeypatch, error) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(
+        qa_runner.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(error),
+    )
+
+    with pytest.raises(qa_runner.QARequestTimeout):
+        qa_runner._json_request("http://qa", "GET", "/api/health")
+
+
+def test_qa_request_timeout_is_qa_only_configurable_and_health_waits(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+
+    def urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        captured["timeout"] = timeout
+        raise TimeoutError()
+
+    class Process:
+        def poll(self):  # type: ignore[no-untyped-def]
+            return None
+
+    monkeypatch.setenv("ORION_QA_REQUEST_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setattr(qa_runner.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(qa_runner.time, "sleep", lambda _: None)
+
+    with pytest.raises(RuntimeError, match="did not become healthy"):
+        qa_runner._wait_for_health("http://qa", Process())
+
+    assert captured["timeout"] == 12.5
+
+
+def test_historical_session_creation_timeout_records_failure_and_skips_unsent_questions(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    sent: list[str] = []
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, ())
+    checkpoint.start()
+    monkeypatch.setattr(
+        qa_runner,
+        "_create_session",
+        lambda base_url: (_ for _ in ()).throw(qa_runner.QARequestTimeout()),
+    )
+    monkeypatch.setattr(qa_runner, "_send", lambda *args: sent.append(args[2]))
+
+    results = qa_runner._execute_historical_suite(
+        "http://qa",
+        qa_runner.HistoricalSuite("one", ("first prompt", "second prompt")),
+        "secret",
+        checkpoint,
+    )
+
+    assert [(item["status"], item["reason"]) for item in results] == [
+        ("FAIL", "session creation timeout"),
+        ("SKIP", "not executed: suite session was not created"),
+    ]
+    assert sent == []
+    journal = (tmp_path / "cases.partial.jsonl").read_text().splitlines()
+    assert [json.loads(line) for line in journal] == results
+
+
+def test_historical_message_timeout_stops_only_ambiguous_suite_and_next_suite_runs(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    sessions: list[str] = []
+    sent: list[tuple[str, str]] = []
+
+    def create(base_url):  # type: ignore[no-untyped-def]
+        session_id = f"session-{len(sessions) + 1}"
+        sessions.append(session_id)
+        return {"session_id": session_id}
+
+    def send(base_url, session_id, question):  # type: ignore[no-untyped-def]
+        sent.append((session_id, question))
+        if question == "first":
+            raise qa_runner.QARequestTimeout()
+
+    monkeypatch.setattr(qa_runner, "_create_session", create)
+    monkeypatch.setattr(qa_runner, "_send", send)
+    monkeypatch.setattr(
+        qa_runner,
+        "_timeline",
+        lambda *args: [{"kind": "assistant_message", "payload": {"content": "safe"}}],
+    )
+
+    timed_out = qa_runner._execute_historical_suite(
+        "http://qa", qa_runner.HistoricalSuite("one", ("first", "later")), "secret"
+    )
+    next_suite = qa_runner._execute_historical_suite(
+        "http://qa", qa_runner.HistoricalSuite("two", ("next",)), "secret"
+    )
+
+    assert sent == [("session-1", "first"), ("session-2", "next")]
+    assert [(item["status"], item["reason"]) for item in timed_out] == [
+        ("FAIL", "message send timeout"),
+        ("SKIP", "suite session state uncertain after timed-out message send"),
+    ]
+    assert next_suite[0]["status"] == "PASS"
+    assert sessions == ["session-1", "session-2"]
+
+
+def test_historical_timeline_timeout_fails_case_and_keeps_shared_session_usable(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    sent: list[tuple[str, str]] = []
+    timelines = iter(
+        (
+            qa_runner.QARequestTimeout(),
+            [{"kind": "assistant_message", "payload": {"content": "safe"}}],
+        )
+    )
+    monkeypatch.setattr(qa_runner, "_create_session", lambda base_url: {"session_id": "one"})
+    monkeypatch.setattr(qa_runner, "_send", lambda *args: sent.append((args[1], args[2])))
+
+    def timeline(*args):  # type: ignore[no-untyped-def]
+        outcome = next(timelines)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(qa_runner, "_timeline", timeline)
+
+    results = qa_runner._execute_historical_suite(
+        "http://qa", qa_runner.HistoricalSuite("one", ("first", "second")), "secret"
+    )
+
+    assert [(item["status"], item["reason"]) for item in results] == [
+        ("FAIL", "timeline retrieval timeout"),
+        ("PASS", None),
+    ]
+    assert sent == [("one", "first"), ("one", "second")]
+
+
+def test_structured_timeout_is_an_ordinary_case_failure(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Process:
+        def poll(self):  # type: ignore[no-untyped-def]
+            return None
+
+        def send_signal(self, value):  # type: ignore[no-untyped-def]
+            return None
+
+        def wait(self, timeout):  # type: ignore[no-untyped-def]
+            return None
+
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "_configured_capabilities", lambda: {})
+    monkeypatch.setattr(
+        qa_runner,
+        "_execute_case",
+        lambda *args: (_ for _ in ()).throw(qa_runner.QARequestTimeout()),
+    )
+
+    results, _ = qa_runner._run_structured(
+        [qa_runner.Case(id="case", prompt="prompt", category="test")],
+        {"base_url": "http://model", "id": "model", "api_key": "secret"},
+        False,
+    )
+
+    assert results == [
+        {
+            "phase": "structured",
+            "id": "case",
+            "category": "test",
+            "status": "FAIL",
+            "reason": "HTTP/runtime failure",
+            "detail": "QARequestTimeout",
+        }
+    ]
+
+
+def test_checkpoint_preserves_redacted_rows_and_interrupted_last_in_progress_case(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    secret = "provider-secret"
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model", "id": "model", "api_key": secret},
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "load_historical_suites",
+        lambda: (qa_runner.HistoricalSuite("suite", ("historical prompt", "later prompt")),),
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "_run_structured",
+        lambda *args: (
+            [
+                {
+                    "phase": "structured",
+                    "id": "case",
+                    "category": "test",
+                    "status": "PASS",
+                    "reason": None,
+                }
+            ],
+            "http://structured",
+        ),
+    )
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+
+    def interrupt(suites, model, checkpoint):  # type: ignore[no-untyped-def]
+        partial = checkpoint.report_directory / "cases.partial.jsonl"
+        assert json.loads(partial.read_text(encoding="utf-8").splitlines()[0])["id"] == "case"
+        checkpoint.mark_historical_in_progress("suite", 1)
+        checkpoint.record_historical_result(qa_runner._historical_result("suite", 1, status="PASS"))
+        checkpoint.mark_historical_in_progress("suite", 2)
+        raise RuntimeError("injected interruption")
+
+    monkeypatch.setattr(qa_runner, "_run_historical", interrupt)
+
+    with pytest.raises(RuntimeError, match="injected interruption"):
+        qa_runner.run("full", fail_fast=False)
+
+    report = next(tmp_path.iterdir())
+    lines = (report / "cases.partial.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in lines][1]["question_index"] == 1
+    assert all(json.loads(line) for line in lines)
+    progress = json.loads((report / "progress.json").read_text(encoding="utf-8"))
+    assert progress == {
+        "status": "interrupted",
+        "phase": "historical",
+        "suite_id": "suite",
+        "question_index": 2,
+    }
+    persisted = "".join(path.read_text(encoding="utf-8") for path in report.iterdir())
+    assert secret not in persisted
+    assert "historical prompt" not in persisted and "assistant raw answer" not in persisted
+
+
+def test_successful_run_keeps_canonical_reports_and_marks_progress_completed(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model", "id": "model", "api_key": "secret"},
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "_run_structured",
+        lambda *args: (
+            [
+                {
+                    "phase": "structured",
+                    "id": "case",
+                    "category": "test",
+                    "status": "PASS",
+                    "reason": None,
+                }
+            ],
+            "http://structured",
+        ),
+    )
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+
+    assert qa_runner.run("smoke", fail_fast=False) == 0
+
+    report = next(tmp_path.iterdir())
+    assert {
+        "manifest.json",
+        "cases.jsonl",
+        "summary.json",
+        "summary.md",
+        "progress.json",
+        "cases.partial.jsonl",
+    } <= {path.name for path in report.iterdir()}
+    assert json.loads((report / "progress.json").read_text(encoding="utf-8")) == {
+        "status": "completed",
+        "phase": "completed",
+    }
 
 
 def test_qa_reports_aggregate_structured_and_historical_separately(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]

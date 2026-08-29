@@ -24,7 +24,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "6"
+RUNNER_VERSION = "7"
+QA_REQUEST_TIMEOUT_SECONDS = 90
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
 DIAGNOSTIC_TEXT_LIMIT = 512
@@ -217,6 +218,35 @@ def _bounded_text(value: str) -> str:
     return value[:DIAGNOSTIC_TEXT_LIMIT]
 
 
+class QARequestTimeout(TimeoutError):
+    """A transport timeout normalized for the isolated QA harness only."""
+
+
+def _is_timeout_error(error: BaseException) -> bool:
+    """Recognize the timeout shapes exposed by urllib and socket across Python versions."""
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(error, urllib.error.URLError):
+        reason = error.reason
+        return isinstance(reason, BaseException) and _is_timeout_error(reason)
+    return False
+
+
+def qa_request_timeout_seconds() -> float:
+    value = os.getenv("ORION_QA_REQUEST_TIMEOUT_SECONDS")
+    if value is None:
+        return QA_REQUEST_TIMEOUT_SECONDS
+    try:
+        timeout = float(value)
+    except ValueError as error:
+        raise ValueError(
+            "ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number."
+        ) from error
+    if timeout <= 0:
+        raise ValueError("ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number.")
+    return timeout
+
+
 def http_error_diagnostics(error: urllib.error.HTTPError) -> dict[str, object]:
     """Extract bounded safe HTTP metadata without retaining arbitrary response bodies."""
     diagnostics: dict[str, object] = {"http_status": error.code}
@@ -380,8 +410,15 @@ def _json_request(
         method=method,
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=90) as response:  # noqa: S310 - fixed loopback URL.
-        return json.loads(response.read())
+    try:
+        with urllib.request.urlopen(
+            request, timeout=qa_request_timeout_seconds()
+        ) as response:
+            return json.loads(response.read())
+    except (TimeoutError, urllib.error.URLError) as error:
+        if _is_timeout_error(error):
+            raise QARequestTimeout("QA request timed out") from error
+        raise
 
 
 def active_model() -> dict[str, str] | None:
@@ -520,6 +557,80 @@ def redact_report(value: object, secret_values: tuple[str, ...] = ()) -> object:
                 redacted = redacted.replace(secret, "<redacted>")
         return redacted
     return value
+
+
+def _write_json_atomic(path: Path, value: object) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+class ReportCheckpoint:
+    """Durably journal redacted QA results without attempting session recovery."""
+
+    def __init__(self, report_directory: Path, secret_values: tuple[str, ...]) -> None:
+        self.report_directory = report_directory
+        self.secret_values = secret_values
+        self.progress: dict[str, object] = {"status": "running", "phase": "structured"}
+        self.report_directory.mkdir(parents=True, exist_ok=True)
+
+    def start(self) -> None:
+        self._write_progress()
+
+    def _write_progress(self) -> None:
+        safe = redact_report(self.progress, self.secret_values)
+        assert isinstance(safe, dict)
+        _write_json_atomic(self.report_directory / "progress.json", safe)
+
+    def record_result(self, result: dict[str, object]) -> None:
+        safe = redact_report(result, self.secret_values)
+        assert isinstance(safe, dict)
+        with (self.report_directory / "cases.partial.jsonl").open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write(json.dumps(safe) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def record_structured(self, results: list[dict[str, object]]) -> None:
+        for result in results:
+            self.record_result(result)
+        self.progress = {
+            "status": "running",
+            "phase": "structured",
+            "completed_structured_cases": len(results),
+        }
+        self._write_progress()
+
+    def mark_historical_in_progress(self, suite_id: str, question_index: int) -> None:
+        self.progress = {
+            "status": "in_progress",
+            "phase": "historical",
+            "suite_id": suite_id,
+            "question_index": question_index,
+        }
+        self._write_progress()
+
+    def record_historical_result(self, result: dict[str, object]) -> None:
+        self.record_result(result)
+        self.progress = {
+            "status": "running",
+            "phase": "historical",
+            "suite_id": result["suite_id"],
+            "question_index": result["question_index"],
+        }
+        self._write_progress()
+
+    def complete(self) -> None:
+        self.progress = {"status": "completed", "phase": "completed"}
+        self._write_progress()
+
+    def interrupt(self) -> None:
+        self.progress["status"] = "interrupted"
+        self._write_progress()
 
 
 def write_reports(
@@ -940,49 +1051,146 @@ def _historical_result(
 
 
 def _execute_historical_suite(
-    base_url: str, suite: HistoricalSuite, secret: str
+    base_url: str,
+    suite: HistoricalSuite,
+    secret: str,
+    checkpoint: ReportCheckpoint | None = None,
 ) -> list[dict[str, object]]:
     """Send every historical prompt once, in order, through one current session."""
     results: list[dict[str, object]] = []
+
+    def complete(result: dict[str, object]) -> None:
+        results.append(result)
+        if checkpoint is not None:
+            checkpoint.record_historical_result(result)
+
+    if checkpoint is not None and suite.questions:
+        checkpoint.mark_historical_in_progress(suite.id, 1)
     session_id: str | None = None
-    session_error: tuple[str, dict[str, object]] | None = None
     try:
         session_id = str(_create_session(base_url)["session_id"])
+    except QARequestTimeout as error:
+        session_failure = _historical_result(
+            suite.id,
+            1,
+            status="FAIL",
+            reason="session creation timeout",
+            detail=type(error).__name__,
+        )
     except urllib.error.HTTPError as error:
-        session_error = (type(error).__name__, http_error_diagnostics(error))
+        session_failure = _historical_result(
+            suite.id,
+            1,
+            status="FAIL",
+            reason="HTTP/runtime failure",
+            detail=type(error).__name__,
+            diagnostics=http_error_diagnostics(error),
+        )
     except (
         AssertionError,
         ScenarioFailure,
         urllib.error.URLError,
         json.JSONDecodeError,
     ) as error:
-        session_error = (type(error).__name__, {})
+        session_failure = _historical_result(
+            suite.id,
+            1,
+            status="FAIL",
+            reason="HTTP/runtime failure",
+            detail=type(error).__name__,
+        )
+    else:
+        session_failure = None
+
+    if session_failure is not None:
+        if suite.questions:
+            complete(session_failure)
+        for question_index in range(2, len(suite.questions) + 1):
+            complete(
+                _historical_result(
+                    suite.id,
+                    question_index,
+                    status="SKIP",
+                    reason="not executed: suite session was not created",
+                )
+            )
+        return results
+
+    assert session_id is not None
     for question_index, question in enumerate(suite.questions, start=1):
-        if session_error is not None:
-            detail, diagnostics = session_error
-            results.append(
+        if checkpoint is not None:
+            checkpoint.mark_historical_in_progress(suite.id, question_index)
+        try:
+            _send(base_url, session_id, question)
+        except QARequestTimeout as error:
+            complete(
+                _historical_result(
+                    suite.id,
+                    question_index,
+                    status="FAIL",
+                    reason="message send timeout",
+                    detail=type(error).__name__,
+                )
+            )
+            for remaining_index in range(question_index + 1, len(suite.questions) + 1):
+                complete(
+                    _historical_result(
+                        suite.id,
+                        remaining_index,
+                        status="SKIP",
+                        reason="suite session state uncertain after timed-out message send",
+                    )
+                )
+            return results
+        except urllib.error.HTTPError as error:
+            complete(
                 _historical_result(
                     suite.id,
                     question_index,
                     status="FAIL",
                     reason="HTTP/runtime failure",
-                    detail=detail,
-                    diagnostics=diagnostics,
+                    detail=type(error).__name__,
+                    diagnostics=http_error_diagnostics(error),
                 )
             )
             continue
-        assert session_id is not None
+        except (
+            AssertionError,
+            ScenarioFailure,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ) as error:
+            complete(
+                _historical_result(
+                    suite.id,
+                    question_index,
+                    status="FAIL",
+                    reason="HTTP/runtime failure",
+                    detail=type(error).__name__,
+                )
+            )
+            continue
+
         try:
-            _send(base_url, session_id, question)
             timeline = _timeline(base_url, session_id)
             _require_final(timeline, secret=secret)
-            results.append(
+            complete(
                 _historical_result(
                     suite.id, question_index, status="PASS", timeline=timeline
                 )
             )
+        except QARequestTimeout as error:
+            complete(
+                _historical_result(
+                    suite.id,
+                    question_index,
+                    status="FAIL",
+                    reason="timeline retrieval timeout",
+                    detail=type(error).__name__,
+                )
+            )
         except urllib.error.HTTPError as error:
-            results.append(
+            complete(
                 _historical_result(
                     suite.id,
                     question_index,
@@ -998,7 +1206,7 @@ def _execute_historical_suite(
             urllib.error.URLError,
             json.JSONDecodeError,
         ) as error:
-            results.append(
+            complete(
                 _historical_result(
                     suite.id,
                     question_index,
@@ -1078,6 +1286,7 @@ def _run_structured(
                     )
                 except (
                     AssertionError,
+                    QARequestTimeout,
                     ScenarioFailure,
                     urllib.error.URLError,
                     json.JSONDecodeError,
@@ -1100,7 +1309,9 @@ def _run_structured(
 
 
 def _run_historical(
-    suites: tuple[HistoricalSuite, ...], model: dict[str, str]
+    suites: tuple[HistoricalSuite, ...],
+    model: dict[str, str],
+    checkpoint: ReportCheckpoint | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     """Run all selected historical suites in a separately composed empty-infra API."""
     with tempfile.TemporaryDirectory(prefix="orion-qa-historical-") as temporary:
@@ -1121,7 +1332,7 @@ def _run_historical(
                 result
                 for suite in suites
                 for result in _execute_historical_suite(
-                    base_url, suite, model["api_key"]
+                    base_url, suite, model["api_key"], checkpoint
                 )
             ]
         finally:
@@ -1167,45 +1378,53 @@ def run(
         return 2
     run_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     reports = qa_report_directory(run_id)
+    checkpoint = ReportCheckpoint(reports, (model["api_key"],))
+    checkpoint.start()
     started = datetime.now(UTC)
     structured_results: list[dict[str, object]] = []
     historical_results: list[dict[str, object]] = []
     structured_base_url: str | None = None
     historical_base_url: str | None = None
-    if historical_suite is None:
-        structured_results, structured_base_url = _run_structured(
-            cases, model, fail_fast
-        )
-    if historical_suites:
-        historical_results, historical_base_url = _run_historical(
-            historical_suites, model
-        )
-    manifest = {
-        "git_sha": os.popen("git rev-parse HEAD").read().strip(),
-        "dirty": bool(os.popen("git status --porcelain").read().strip()),
-        "runner_version": RUNNER_VERSION,
-        "mode": mode,
-        "started_at": started.isoformat(),
-        "ended_at": datetime.now(UTC).isoformat(),
-        "qa_api_base_url": structured_base_url,
-        "historical_qa_api_base_url": historical_base_url,
-        "model_id": model["id"],
-        "model_endpoint": sanitize_endpoint(model["base_url"]),
-        "optional_capabilities": ["linux", "grafana", "zabbix"],
-        "historical_source_commit": HISTORICAL_SOURCE_COMMIT,
-        "historical_suite_counts": {
-            suite.id: len(suite.questions) for suite in historical_suites
-        },
-        "historical_prompt_turns": sum(
-            len(suite.questions) for suite in historical_suites
-        ),
-    }
-    if case_id is not None:
-        manifest["selected_case_id"] = case_id
-    if historical_suite is not None:
-        manifest["selected_historical_suite"] = historical_suite
-    results = [*structured_results, *historical_results]
-    write_reports(reports, manifest, results, secret_values=(model["api_key"],))
+    try:
+        if historical_suite is None:
+            structured_results, structured_base_url = _run_structured(
+                cases, model, fail_fast
+            )
+            checkpoint.record_structured(structured_results)
+        if historical_suites:
+            historical_results, historical_base_url = _run_historical(
+                historical_suites, model, checkpoint
+            )
+        manifest = {
+            "git_sha": os.popen("git rev-parse HEAD").read().strip(),
+            "dirty": bool(os.popen("git status --porcelain").read().strip()),
+            "runner_version": RUNNER_VERSION,
+            "mode": mode,
+            "started_at": started.isoformat(),
+            "ended_at": datetime.now(UTC).isoformat(),
+            "qa_api_base_url": structured_base_url,
+            "historical_qa_api_base_url": historical_base_url,
+            "model_id": model["id"],
+            "model_endpoint": sanitize_endpoint(model["base_url"]),
+            "optional_capabilities": ["linux", "grafana", "zabbix"],
+            "historical_source_commit": HISTORICAL_SOURCE_COMMIT,
+            "historical_suite_counts": {
+                suite.id: len(suite.questions) for suite in historical_suites
+            },
+            "historical_prompt_turns": sum(
+                len(suite.questions) for suite in historical_suites
+            ),
+        }
+        if case_id is not None:
+            manifest["selected_case_id"] = case_id
+        if historical_suite is not None:
+            manifest["selected_historical_suite"] = historical_suite
+        results = [*structured_results, *historical_results]
+        write_reports(reports, manifest, results, secret_values=(model["api_key"],))
+        checkpoint.complete()
+    except BaseException:
+        checkpoint.interrupt()
+        raise
     print(f"QA report: {reports}")
     return 1 if any(result["status"] == "FAIL" for result in results) else 0
 
