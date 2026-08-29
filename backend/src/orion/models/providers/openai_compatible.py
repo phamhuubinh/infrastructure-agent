@@ -24,7 +24,13 @@ from orion.contracts import (
     ToolDefinition,
     freeze_json,
 )
-from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings, ModelStreamEvent
+from orion.models.backend import (
+    ModelBackend,
+    ModelBackendError,
+    ModelBackendErrorKind,
+    ModelSettings,
+    ModelStreamEvent,
+)
 
 
 @dataclass
@@ -64,6 +70,7 @@ class OpenAICompatibleBackend(ModelBackend):
         content_parts: list[str] = []
         calls: dict[int, _PendingToolCall] = {}
         usage: ModelUsage | None = None
+        stream_finished = False
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
@@ -77,19 +84,33 @@ class OpenAICompatibleBackend(ModelBackend):
                             continue
                         raw_chunk = line[5:].strip()
                         if raw_chunk == "[DONE]":
+                            stream_finished = True
                             break
                         if not raw_chunk:
                             continue
                         chunk = self._parse_chunk(raw_chunk)
+                        stream_finished = self._chunk_has_finish_reason(chunk) or stream_finished
                         chunk_usage = self._usage_from_chunk(chunk)
                         if chunk_usage is not None:
                             usage = chunk_usage
                         for event in self._normalize_chunk(chunk, content_parts, calls):
                             yield event
+            if not stream_finished:
+                raise ModelBackendError(
+                    "OpenAI-compatible model stream ended before completion.",
+                    kind=ModelBackendErrorKind.INCOMPLETE_STREAM,
+                )
         except asyncio.CancelledError:
             raise
-        except (httpx.HTTPError, ValueError, json.JSONDecodeError) as error:
-            raise ModelBackendError("OpenAI-compatible model stream failed.") from error
+        except ModelBackendError:
+            raise
+        except httpx.HTTPError as error:
+            raise self._transport_error(error) from error
+        except ValueError as error:
+            raise ModelBackendError(
+                "OpenAI-compatible model stream was malformed.",
+                kind=ModelBackendErrorKind.MALFORMED_STREAM,
+            ) from error
 
         yield ModelTurnCompleted(turn=self._build_turn(content_parts, calls), usage=usage)
 
@@ -123,6 +144,47 @@ class OpenAICompatibleBackend(ModelBackend):
         if not isinstance(chunk, dict):
             raise ValueError("provider stream chunk is not an object")
         return chunk
+
+    @staticmethod
+    def _chunk_has_finish_reason(chunk: dict[str, Any]) -> bool:
+        choices = chunk.get("choices", [])
+        if not isinstance(choices, list):
+            raise ValueError("provider stream choices are not a list")
+        if not choices:
+            return False
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            raise ValueError("provider stream choice is not an object")
+        finish_reason = choice.get("finish_reason")
+        if finish_reason is None:
+            return False
+        if not isinstance(finish_reason, str):
+            raise ValueError("provider stream finish reason is invalid")
+        return True
+
+    @staticmethod
+    def _transport_error(error: httpx.HTTPError) -> ModelBackendError:
+        if isinstance(error, httpx.TimeoutException):
+            return ModelBackendError(
+                "OpenAI-compatible model stream timed out.",
+                kind=ModelBackendErrorKind.TIMEOUT,
+            )
+        if isinstance(error, httpx.HTTPStatusError):
+            return ModelBackendError(
+                "OpenAI-compatible model returned an HTTP error.",
+                kind=ModelBackendErrorKind.UPSTREAM_HTTP,
+            )
+        if isinstance(error, httpx.ProtocolError):
+            return ModelBackendError(
+                "OpenAI-compatible model stream encountered a protocol error.",
+                kind=ModelBackendErrorKind.PROTOCOL,
+            )
+        if isinstance(error, httpx.NetworkError):
+            return ModelBackendError(
+                "OpenAI-compatible model connection failed.",
+                kind=ModelBackendErrorKind.CONNECTION,
+            )
+        return ModelBackendError("OpenAI-compatible model stream failed.")
 
     def _normalize_chunk(
         self,
@@ -183,7 +245,10 @@ class OpenAICompatibleBackend(ModelBackend):
                 )
             return tuple(events)
         except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
-            raise ModelBackendError("Model returned an invalid streaming response.") from error
+            raise ModelBackendError(
+                "OpenAI-compatible model stream was malformed.",
+                kind=ModelBackendErrorKind.MALFORMED_STREAM,
+            ) from error
 
     @staticmethod
     def _usage_from_chunk(chunk: dict[str, Any]) -> ModelUsage | None:
@@ -232,7 +297,10 @@ class OpenAICompatibleBackend(ModelBackend):
                 assistant = AssistantMessage(content=content, citation_source_ref_ids=citations)
             return ModelTurn(assistant=assistant, tool_calls=tuple(tool_calls))
         except (TypeError, ValueError, json.JSONDecodeError) as error:
-            raise ModelBackendError("Model returned an invalid streaming response.") from error
+            raise ModelBackendError(
+                "OpenAI-compatible model stream was malformed.",
+                kind=ModelBackendErrorKind.MALFORMED_STREAM,
+            ) from error
 
     @staticmethod
     def _message_payload(message: ContextMessage) -> dict[str, Any]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 
 from orion.contracts import (
@@ -11,7 +12,7 @@ from orion.contracts import (
     ModelTurnCompleted,
     ToolCallDelta,
 )
-from orion.models.backend import ModelBackendError, ModelSettings
+from orion.models.backend import ModelBackendError, ModelBackendErrorKind, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend, _PendingToolCall
 from orion.tool_runtime.calculator import calculator_definition
 
@@ -98,8 +99,9 @@ def test_adapter_rejects_duplicate_tool_call_ids() -> None:
         1: _PendingToolCall(call_id="duplicate", tool_name="second.tool", arguments="{}"),
     }
 
-    with pytest.raises(ModelBackendError, match="invalid streaming response"):
+    with pytest.raises(ModelBackendError, match="stream was malformed") as error:
         OpenAICompatibleBackend._build_turn([], calls)
+    assert error.value.kind is ModelBackendErrorKind.MALFORMED_STREAM
 
 
 def test_provider_schema_cache_cannot_be_corrupted_by_callers() -> None:
@@ -227,7 +229,7 @@ async def test_adapter_rejects_malformed_stream_usage(monkeypatch) -> None:  # t
         "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
     )
 
-    with pytest.raises(ModelBackendError, match="OpenAI-compatible model stream failed"):
+    with pytest.raises(ModelBackendError, match="stream was malformed") as error:
         async for _ in OpenAICompatibleBackend().stream(
             (ContextMessage(role="user", content="Hello"),),
             (),
@@ -239,6 +241,260 @@ async def test_adapter_rejects_malformed_stream_usage(monkeypatch) -> None:  # t
             asyncio.Event(),
         ):
             pass
+    assert error.value.kind is ModelBackendErrorKind.MALFORMED_STREAM
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("transport_error", "kind", "message"),
+    (
+        (
+            httpx.ReadTimeout("slow", request=httpx.Request("POST", "http://model.test")),
+            ModelBackendErrorKind.TIMEOUT,
+            "stream timed out",
+        ),
+        (
+            httpx.ConnectError("offline", request=httpx.Request("POST", "http://model.test")),
+            ModelBackendErrorKind.CONNECTION,
+            "connection failed",
+        ),
+        (
+            httpx.RemoteProtocolError(
+                "incomplete chunked read", request=httpx.Request("POST", "http://model.test")
+            ),
+            ModelBackendErrorKind.PROTOCOL,
+            "protocol error",
+        ),
+    ),
+)
+async def test_adapter_classifies_httpx_stream_failures(
+    monkeypatch, transport_error: httpx.HTTPError, kind: ModelBackendErrorKind, message: str
+) -> None:  # type: ignore[no-untyped-def]
+    class Stream:
+        async def __aenter__(self) -> object:
+            raise transport_error
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+
+    with pytest.raises(ModelBackendError, match=message) as error:
+        async for _ in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        ):
+            pass
+
+    assert error.value.kind is kind
+
+
+@pytest.mark.anyio
+async def test_adapter_classifies_non_success_response_without_exposing_body(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Stream:
+        async def __aenter__(self) -> httpx.Response:
+            return httpx.Response(
+                503,
+                content="upstream private response",
+                request=httpx.Request("POST", "http://model.test/v1/chat/completions"),
+            )
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+
+    with pytest.raises(ModelBackendError, match="returned an HTTP error") as error:
+        async for _ in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        ):
+            pass
+
+    assert error.value.kind is ModelBackendErrorKind.UPSTREAM_HTTP
+    assert "private" not in str(error.value)
+
+
+@pytest.mark.anyio
+async def test_adapter_rejects_stream_ending_without_finish_signal(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield 'data: {"choices":[{"delta":{"content":"partial"}}]}'
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+
+    with pytest.raises(ModelBackendError, match="ended before completion") as error:
+        async for _ in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        ):
+            pass
+
+    assert error.value.kind is ModelBackendErrorKind.INCOMPLETE_STREAM
+
+
+@pytest.mark.anyio
+async def test_adapter_classifies_malformed_sse_json(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield "data: {not-json}"
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+
+    with pytest.raises(ModelBackendError, match="stream was malformed") as error:
+        async for _ in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        ):
+            pass
+
+    assert error.value.kind is ModelBackendErrorKind.MALFORMED_STREAM
+
+
+@pytest.mark.anyio
+async def test_adapter_keeps_reasoning_deltas_opaque_while_stream_remains_live(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            for _ in range(64):
+                yield 'data: {"choices":[{"delta":{"reasoning":"private chain of thought"}}]}'
+            yield 'data: {"choices":[{"delta":{"reasoning_content":"also private"}}]}'
+            yield 'data: {"choices":[{"delta":{"content":"Answer."},"finish_reason":"stop"}]}'
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+    events = [
+        event
+        async for event in OpenAICompatibleBackend().stream(
+            (ContextMessage(role="user", content="Hello"),),
+            (),
+            ModelSettings(
+                provider_type="openai_compatible",
+                base_url="http://model.test/v1",
+                model_id="fake",
+            ),
+            asyncio.Event(),
+        )
+    ]
+
+    assert [event.content for event in events if isinstance(event, AssistantDelta)] == ["Answer."]
+    completed = events[-1]
+    assert isinstance(completed, ModelTurnCompleted)
+    assert completed.turn.assistant is not None
+    assert completed.turn.assistant.content == "Answer."
+    assert "private" not in str(events)
 
 
 @pytest.mark.anyio

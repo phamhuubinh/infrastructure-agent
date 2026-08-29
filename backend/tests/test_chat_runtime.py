@@ -587,9 +587,19 @@ async def test_runtime_cancellation_stops_the_extra_recovery_decision(store) -> 
 @pytest.mark.anyio
 async def test_runtime_model_failure_is_persisted(store) -> None:  # type: ignore[no-untyped-def]
     session_id = store.create_session()
+    chat = runtime(store, FailingBackend())
+    request_id = chat.begin(session_id, "Hello")
+
     with pytest.raises(RequestFailed, match="Model unavailable"):
-        await runtime(store, FailingBackend()).submit(session_id, "Hello")
+        await chat.run(session_id, request_id)
+
     assert [item.kind for item in store.timeline(session_id)] == ["user_message"]
+    events = store.events(request_id)
+    assert events[-1]["type"] == "request.failed"
+    assert events[-1]["payload"] == {
+        "message": "Model unavailable.",
+        "model_error_kind": "unknown",
+    }
 
 
 @pytest.mark.anyio

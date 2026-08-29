@@ -255,7 +255,11 @@ class ChatRuntime:
             raise RequestCancelled("Request cancelled.") from error
         except ModelBackendError as error:
             self._store.complete_request(request_id, "failed", str(error))
-            self._emit(request_id, "request.failed", {"message": str(error)})
+            self._emit(
+                request_id,
+                "request.failed",
+                {"message": str(error), "model_error_kind": error.kind.value},
+            )
             raise RequestFailed(str(error)) from error
         except RequestFailed as error:
             self._store.complete_request(request_id, "failed", str(error))

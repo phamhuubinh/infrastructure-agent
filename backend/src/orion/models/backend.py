@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,8 +30,29 @@ class ModelSettings(BaseModel):
     api_key: str | None = None
 
 
+class ModelBackendErrorKind(StrEnum):
+    """Safe, provider-neutral categories for model backend failures."""
+
+    CONNECTION = "connection"
+    INCOMPLETE_STREAM = "incomplete_stream"
+    MALFORMED_STREAM = "malformed_stream"
+    PROTOCOL = "protocol"
+    TIMEOUT = "timeout"
+    UNKNOWN = "unknown"
+    UPSTREAM_HTTP = "upstream_http"
+
+
 class ModelBackendError(RuntimeError):
-    """A clear provider/transport error at the adapter boundary."""
+    """A clear, safely classified provider error at the adapter boundary."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ModelBackendErrorKind = ModelBackendErrorKind.UNKNOWN,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 class ModelBackend(ABC):
