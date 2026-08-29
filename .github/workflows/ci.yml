@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.23.2"
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - name: Install UI dependencies
@@ -41,5 +41,5 @@ jobs:
           npm run lint
           npx tsc --noEmit
           npm test -- --run
-          npm run build
+          npm run test:packaged-ui
         working-directory: ui

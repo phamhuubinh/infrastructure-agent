@@ -6,7 +6,7 @@ test-backend:
 	cd backend && PYTHONPATH=src ../.venv/bin/python -m pytest
 
 test-frontend:
-	cd ui && npm test -- --run
+	cd ui && npm test -- --run && npm run test:packaged-ui
 
 lint: lint-backend lint-frontend
 
