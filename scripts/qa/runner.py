@@ -30,6 +30,10 @@ CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
 DIAGNOSTIC_TEXT_LIMIT = 512
 MANUAL_REVIEW_ANSWER_LIMIT = 512
+FAILURE_TRACE_EVENT_LIMIT = 24
+FAILURE_TRACE_ASSISTANT_TEXT_LIMIT = 256
+FAILURE_TRACE_IDENTIFIER_LIMIT = 128
+FAILURE_TRACE_ARGUMENT_NAME_LIMIT = 8
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -212,6 +216,136 @@ def safe_exception_message(
     redacted = redact_report(str(error), secret_values)
     assert isinstance(redacted, str)
     return _bounded_text(redacted)
+
+
+def _safe_trace_text(
+    value: str, secret_values: tuple[str, ...], limit: int
+) -> str:
+    redacted = redact_report(value, secret_values)
+    assert isinstance(redacted, str)
+    return redacted[:limit]
+
+
+def _trace_identifiers(
+    values: object, secret_values: tuple[str, ...]
+) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [
+        _safe_trace_text(value, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT)
+        for value in values
+        if isinstance(value, str) and value
+    ][:CITATION_DIAGNOSTIC_LIMIT]
+
+
+def failure_trace(
+    timelines: list[list[dict[str, Any]]], secret_values: tuple[str, ...]
+) -> list[dict[str, object]]:
+    """Project observed timelines into bounded report-safe failure diagnostics."""
+    trace: list[dict[str, object]] = []
+    for timeline in timelines:
+        for item in timeline:
+            if len(trace) == FAILURE_TRACE_EVENT_LIMIT:
+                return trace
+            kind = item.get("kind")
+            payload = item.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            tool_name = item.get("tool_name")
+            call_id = item.get("call_id")
+            if kind == "assistant_message":
+                content = payload.get("content")
+                citations = payload.get("citation_source_ref_ids")
+                excerpt = (
+                    "<hidden reasoning omitted>"
+                    if isinstance(content, str)
+                    and ("<think" in content.lower() or "</think>" in content.lower())
+                    else _safe_trace_text(
+                        content if isinstance(content, str) else "",
+                        secret_values,
+                        FAILURE_TRACE_ASSISTANT_TEXT_LIMIT,
+                    )
+                )
+                trace.append(
+                    {
+                        "kind": "assistant_message",
+                        "content_excerpt": excerpt,
+                        "citation_count": len(citations) if isinstance(citations, list) else 0,
+                        "citation_source_ref_ids": _trace_identifiers(
+                            citations, secret_values
+                        ),
+                    }
+                )
+            elif kind == "tool_call":
+                arguments = payload.get("arguments")
+                names = (
+                    sorted(str(name) for name in arguments)[:FAILURE_TRACE_ARGUMENT_NAME_LIMIT]
+                    if isinstance(arguments, dict)
+                    else []
+                )
+                trace.append(
+                    {
+                        "kind": "tool_call",
+                        "tool_name": _safe_trace_text(
+                            tool_name if isinstance(tool_name, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "call_id": _safe_trace_text(
+                            call_id if isinstance(call_id, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "argument_names": [
+                            _safe_trace_text(name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT)
+                            for name in names
+                        ],
+                    }
+                )
+            elif kind == "tool_result":
+                result = payload.get("result")
+                if not isinstance(result, dict):
+                    continue
+                error = result.get("error")
+                sources = result.get("sources")
+                error_code = error.get("code") if isinstance(error, dict) else None
+                source_ids = [
+                    source.get("source_ref_id")
+                    for source in sources
+                    if isinstance(source, dict) and isinstance(source.get("source_ref_id"), str)
+                ] if isinstance(sources, list) else []
+                trace.append(
+                    {
+                        "kind": "tool_result",
+                        "tool_name": _safe_trace_text(
+                            tool_name if isinstance(tool_name, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "call_id": _safe_trace_text(
+                            call_id if isinstance(call_id, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "status": _safe_trace_text(
+                            result["status"] if isinstance(result.get("status"), str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "error_code": _safe_trace_text(
+                            error_code if isinstance(error_code, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "model_recovery_required": error.get("model_recovery_required")
+                        if isinstance(error, dict)
+                        and isinstance(error.get("model_recovery_required"), bool)
+                        else False,
+                        "source_count": len(sources) if isinstance(sources, list) else 0,
+                        "source_ref_ids": _trace_identifiers(source_ids, secret_values),
+                    }
+                )
+    return trace
 
 
 class QARequestTimeout(TimeoutError):
@@ -682,7 +816,12 @@ def write_reports(
 
 
 class ScenarioFailure(RuntimeError):
-    pass
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.observed_timelines: list[list[dict[str, Any]]] = []
+
+    def retain_timelines(self, timelines: list[list[dict[str, Any]]]) -> None:
+        self.observed_timelines = timelines
 
 
 def _available_port() -> int:
@@ -771,6 +910,14 @@ def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
         raise ScenarioFailure(
             "timeline endpoint did not return canonical timeline items"
         )
+    return timeline
+
+
+def _observed_timeline(
+    base_url: str, session_id: str, observed: list[list[dict[str, Any]]]
+) -> list[dict[str, Any]]:
+    timeline = _timeline(base_url, session_id)
+    observed.append(timeline)
     return timeline
 
 
@@ -864,11 +1011,25 @@ def _execute_case(
     base_url: str, case: Case, secret: str
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     """Exercise only public HTTP APIs; return the final and all checked timelines."""
+    observed: list[list[dict[str, Any]]] = []
+    try:
+        return _execute_case_inner(base_url, case, secret, observed)
+    except ScenarioFailure as error:
+        error.retain_timelines(observed)
+        raise
+
+
+def _execute_case_inner(
+    base_url: str,
+    case: Case,
+    secret: str,
+    observed: list[list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     prompt = _case_prompt(case, case.prompt)
     if case.scenario == "ordinary_chat" or case.scenario == "safety_response":
         session = _create_session(base_url)
         _send(base_url, str(session["session_id"]), prompt)
-        timeline = _timeline(base_url, str(session["session_id"]))
+        timeline = _observed_timeline(base_url, str(session["session_id"]), observed)
         _require_final(
             timeline,
             expected=case.expected_marker,
@@ -884,7 +1045,7 @@ def _execute_case(
             _case_prompt(case, case.first_prompt or "Remember QA_SENTINEL."),
         )
         _send(base_url, session_id, prompt)
-        timeline = _timeline(base_url, session_id)
+        timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker)
         return timeline, [timeline]
     if case.scenario == "multi_turn":
@@ -892,7 +1053,7 @@ def _execute_case(
         session_id = str(session["session_id"])
         for turn in (case.prompt, *case.turns):
             _send(base_url, session_id, _case_prompt(case, turn))
-        timeline = _timeline(base_url, session_id)
+        timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker, secret=secret)
         return timeline, [timeline]
     if (
@@ -907,7 +1068,7 @@ def _execute_case(
             case.document_content or "",
         )
         _send(base_url, session_id, prompt)
-        timeline = _timeline(base_url, session_id)
+        timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(
             timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
         )
@@ -937,7 +1098,7 @@ def _execute_case(
                 raise ScenarioFailure("project conversation is not project scoped")
             session_id = str(session["session_id"])
             _send(base_url, session_id, prompt)
-            timeline = _timeline(base_url, session_id)
+            timeline = _observed_timeline(base_url, session_id, observed)
             _require_final(timeline, expected=case.expected_marker)
             if str(document["document_id"]) not in _document_source_ids(timeline):
                 raise ScenarioFailure(
@@ -951,7 +1112,7 @@ def _execute_case(
         _send(
             base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt)
         )
-        failed = _timeline(base_url, session_id)
+        failed = _observed_timeline(base_url, session_id, observed)
         if not any(
             item.get("kind") == "tool_result"
             and isinstance(item.get("payload"), dict)
@@ -961,7 +1122,7 @@ def _execute_case(
         ) or _source_ids(failed):
             raise ScenarioFailure("controlled tool failure did not remain source-free")
         _send(base_url, session_id, prompt)
-        timeline = _timeline(base_url, session_id)
+        timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker)
         return timeline, [timeline]
     if case.scenario == "project_isolation":
@@ -983,7 +1144,7 @@ def _execute_case(
         session = _create_session(base_url, projects[0][0])
         session_id = str(session["session_id"])
         _send(base_url, session_id, case.prompt)
-        timeline = _timeline(base_url, session_id)
+        timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(
             timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
         )
@@ -1060,6 +1221,10 @@ def _run_structured(
                     }
                     if case.requires_citation:
                         result["citation_diagnostics"] = citation_diagnostics(timeline)
+                    if status == "FAIL":
+                        trace = failure_trace(checked_timelines, (model["api_key"],))
+                        if trace:
+                            result["failure_trace"] = trace
                     if status == "PASS" and case.manual_quality:
                         final = _final_assistant(timeline)
                         if final is not None:
@@ -1105,6 +1270,12 @@ def _run_structured(
                         )
                         if message:
                             result["message"] = message
+                    if isinstance(error, ScenarioFailure):
+                        trace = failure_trace(
+                            error.observed_timelines, (model["api_key"],)
+                        )
+                        if trace:
+                            result["failure_trace"] = trace
                     results.append(result)
                 if checkpoint is not None:
                     checkpoint.record_case(results[-1])

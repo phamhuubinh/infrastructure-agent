@@ -780,6 +780,122 @@ def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
     assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["failed"] == 4
 
 
+def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    secret = "provider-secret"
+    timeline = [
+        {
+            "kind": "tool_call",
+            "tool_name": "orion.tools.expand",
+            "call_id": "expand",
+            "payload": {
+                "arguments": {
+                    "tool_names": ["knowledge.read"],
+                    "document_id": "raw-argument-value",
+                }
+            },
+        },
+        {
+            "kind": "tool_result",
+            "tool_name": "orion.tools.expand",
+            "call_id": "expand",
+            "payload": {
+                "result": {
+                    "status": "success",
+                    "data": {"raw": f"raw-tool-result-data-{secret}"},
+                    "sources": [{"source_ref_id": f"source-{secret}"}],
+                }
+            },
+        },
+        {
+            "kind": "assistant_message",
+            "payload": {
+                "content": f"I need a document id. {secret} " + "x" * 300,
+                "citation_source_ref_ids": [f"source-{secret}"],
+            },
+        },
+        {
+            "kind": "assistant_message",
+            "payload": {"content": "<think>hidden reasoning</think>"},
+        },
+        *[
+            {
+                "kind": "tool_call",
+                "tool_name": "fake.tool",
+                "call_id": f"extra-{index}",
+                "payload": {"arguments": {"value": f"raw-{index}"}},
+            }
+            for index in range(qa_runner.FAILURE_TRACE_EVENT_LIMIT)
+        ],
+    ]
+    case = qa_runner.Case(
+        id="trace", prompt="one", category="qa", expected_marker="REQUIRED_MARKER"
+    )
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
+    checkpoint.start()
+    monkeypatch.setattr(qa_runner, "_create_session", lambda _: {"session_id": "session"})
+    monkeypatch.setattr(qa_runner, "_send", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "_timeline", lambda *args: timeline)
+
+    results, _ = qa_runner._run_structured(
+        [case],
+        {"base_url": "http://model", "id": "model", "api_key": secret},
+        False,
+        checkpoint,
+    )
+    qa_runner.write_reports(tmp_path, {"mode": "full"}, results, secret_values=(secret,))
+
+    assert results[0]["message"] == "final assistant response omitted the required QA marker"
+    trace = results[0]["failure_trace"]
+    assert isinstance(trace, list) and len(trace) == qa_runner.FAILURE_TRACE_EVENT_LIMIT
+    assert trace[0] == {
+        "kind": "tool_call",
+        "tool_name": "orion.tools.expand",
+        "call_id": "expand",
+        "argument_names": ["document_id", "tool_names"],
+    }
+    assert trace[1] == {
+        "kind": "tool_result",
+        "tool_name": "orion.tools.expand",
+        "call_id": "expand",
+        "status": "success",
+        "error_code": "",
+        "model_recovery_required": False,
+        "source_count": 1,
+        "source_ref_ids": ["source-<redacted>"],
+    }
+    assert trace[2]["kind"] == "assistant_message"
+    assert str(trace[2]["content_excerpt"]).startswith("I need a document id. <redacted>")
+    assert len(str(trace[2]["content_excerpt"])) == qa_runner.FAILURE_TRACE_ASSISTANT_TEXT_LIMIT
+    assert trace[2]["citation_count"] == 1
+    assert trace[2]["citation_source_ref_ids"] == ["source-<redacted>"]
+    assert trace[3]["content_excerpt"] == "<hidden reasoning omitted>"
+    partial = (tmp_path / "cases.partial.jsonl").read_text(encoding="utf-8")
+    final = (tmp_path / "cases.jsonl").read_text(encoding="utf-8")
+    assert partial == final
+    assert all(
+        value not in partial
+        for value in (secret, "raw-tool-result-data", "raw-argument-value", "<think>")
+    )
+    assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["failed"] == 1
+
+
+def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    case = qa_runner.Case(id="success", prompt="one", category="qa")
+    timeline = [{"kind": "assistant_message", "payload": {"content": "Done."}}]
+    monkeypatch.setattr(qa_runner, "_execute_case", lambda *args: (timeline, [timeline]))
+
+    results, _ = qa_runner._run_structured(
+        [case], {"base_url": "http://model", "id": "model", "api_key": "secret"}, False
+    )
+
+    assert results[0]["status"] == "PASS"
+    assert "failure_trace" not in results[0]
+
+
 @pytest.mark.parametrize(
     "error",
     (
