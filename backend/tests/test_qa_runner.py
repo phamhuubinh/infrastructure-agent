@@ -247,7 +247,7 @@ def test_qa_loads_and_validates_expected_any_tools(qa_runner, tmp_path) -> None:
 def test_qa_unknown_target_case_uses_the_linux_target_schema(qa_runner) -> None:  # type: ignore[no-untyped-def]
     from orion.tool_runtime.infrastructure import infrastructure_definitions
 
-    cases = qa_runner.load_cases(Path(__file__).parents[2] / "scripts/qa/cases/full.json")
+    cases = qa_runner.load_cases(Path(__file__).parents[2] / "scripts/qa/cases/canonical.json")
     case = next(item for item in cases if item.id == "linux-unknown-target")
     target_match = re.search(r"target_ref ([a-z0-9._-]+)", case.prompt)
     assert target_match is not None
@@ -542,295 +542,305 @@ def test_qa_redacts_secret_values_and_capability_skip_is_conditional(
     assert qa_runner._optional_skip_reason(mutation, {"linux": ("safe",)}) is None
 
 
-def test_historical_corpora_have_exact_counts_order_and_comment_parsing(
-    qa_runner, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
-    suites = qa_runner.load_historical_suites()
-
-    assert [(suite.id, len(suite.questions)) for suite in suites] == [
-        ("historical-default", 193),
-        ("cauhoi_kiemtra_v2", 66),
-        ("cauhoi_phanb", 28),
-        ("cauhoi_v4_adversarial", 61),
-        ("cauhoi_v5_workflow", 38),
-    ]
-    assert sum(len(suite.questions) for suite in suites) == 386
-    source = qa_runner.ROOT / "scripts/qa/cases/historical/historical-default.txt"
-    assert suites[0].questions == qa_runner.load_historical_questions(source)
-    assert qa_runner.select_historical_suites(suites, "cauhoi_phanb") == (suites[2],)
-    with pytest.raises(ValueError, match="Historical QA suite not found: absent"):
-        qa_runner.select_historical_suites(suites, "absent")
-
-    corpus = tmp_path / "historical.txt"
-    corpus.write_text("\n # comment\n first\n\nsecond  \n", encoding="utf-8")
-    assert qa_runner.load_historical_questions(corpus) == ("first", "second")
+def cases(qa_runner):  # type: ignore[no-untyped-def]
+    return qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/canonical.json")
 
 
-def test_historical_suite_reuses_one_session_and_sends_each_question_once(
-    qa_runner, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
+def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    corpus = cases(qa_runner)
+    smoke = qa_runner.select_tier(corpus, "smoke")
+    full = qa_runner.select_tier(corpus, "full")
+    assert len(corpus) == 88 and 84 <= len(corpus) <= 92
+    assert 0 < len(smoke) < len(full) == len(corpus)
+    assert {case.id for case in smoke} < {case.id for case in full}
+    assert len({case.id for case in corpus}) == 88
+    assert all(case.category and case.scenario and case.tiers for case in corpus)
+    assert not (qa_runner.ROOT / "scripts/qa/cases/full.json").exists()
+    assert not (qa_runner.ROOT / "scripts/qa/cases/smoke.json").exists()
+    assert not list((qa_runner.ROOT / "scripts/qa/cases/historical").glob("*.txt"))
+
+
+def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    corpus = {case.id: case for case in cases(qa_runner)}
+    required = {
+        "vi-direct",
+        "en-direct",
+        "identity",
+        "writing",
+        "continuity",
+        "continuity-vietnamese",
+        "calculation",
+        "calculation-percent-vietnamese",
+        "internet-search-citation",
+        "url-fetch-citation",
+        "session-document",
+        "project-shared-document",
+        "tool-error-recovery",
+        "project-isolation",
+        "prompt-injection-document",
+        "secret-hidden-reasoning-safety",
+        "linux-system-inspection",
+        "linux-unknown-target",
+        "linux-read",
+        "linux-document-read",
+        "linux-document-edit",
+        "linux-docx-edit",
+        "linux-xlsx-edit",
+        "grafana-read",
+        "zabbix-read",
+    }
+    multiturn = {
+        "continuity",
+        "continuity-vietnamese",
+        "correction-not-cpu-ram",
+        "referent-follow-up-ram",
+        "operator-action-follow-up",
+        "operational-workflow-follow-up",
+    }
+    assert required <= corpus.keys()
+    assert all(corpus[item].scenario == "multi_turn" and corpus[item].turns for item in multiturn)
+    assert corpus["linux-unknown-target"].expected_tool_errors == (
+        ("linux.system.inspect", "unknown_target"),
+    )
+    assert corpus["unsupported-container-boundary"].manual_quality
+    assert (
+        corpus["grafana-read"].capability == "grafana"
+        and corpus["zabbix-read"].capability == "zabbix"
+    )
+
+
+def test_parser_validates_tiers_and_turns(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "cases.json"
+    path.write_text(
+        json.dumps([{"id": "bad", "category": "x", "prompt": "x", "tiers": ["nightly"]}])
+    )
+    with pytest.raises(ValueError, match="invalid tiers"):
+        qa_runner.load_cases(path)
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "bad",
+                    "category": "x",
+                    "prompt": "x",
+                    "tiers": ["full"],
+                    "scenario": "multi_turn",
+                }
+            ]
+        )
+    )
+    with pytest.raises(ValueError, match="requires explicit turns"):
+        qa_runner.load_cases(path)
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "bad",
+                    "category": "x",
+                    "prompt": "x",
+                    "tiers": ["full"],
+                    "manual_quality": "yes",
+                }
+            ]
+        )
+    )
+    with pytest.raises(ValueError, match="invalid manual_quality"):
+        qa_runner.load_cases(path)
+
+
+def test_multiturn_reuses_one_session_but_cases_are_isolated(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     sessions: list[str] = []
     sent: list[tuple[str, str]] = []
 
-    def create(base_url):  # type: ignore[no-untyped-def]
-        session_id = f"session-{len(sessions) + 1}"
-        sessions.append(session_id)
-        return {"session_id": session_id}
+    def create(_):  # type: ignore[no-untyped-def]
+        session = f"s{len(sessions) + 1}"
+        sessions.append(session)
+        return {"session_id": session}
 
     monkeypatch.setattr(qa_runner, "_create_session", create)
-    monkeypatch.setattr(
-        qa_runner,
-        "_send",
-        lambda base_url, session_id, question: sent.append((session_id, question)),
-    )
+    monkeypatch.setattr(qa_runner, "_send", lambda _, sid, prompt: sent.append((sid, prompt)))
     monkeypatch.setattr(
         qa_runner,
         "_timeline",
-        lambda base_url, session_id: [
-            {"kind": "assistant_message", "payload": {"content": "safe answer"}}
+        lambda *_: [
+            {"kind": "assistant_message", "payload": {"content": "ORION_QA_CONTINUITY_7391"}}
         ],
     )
-
-    first = qa_runner.HistoricalSuite("one", ("first", "second"))
-    second = qa_runner.HistoricalSuite("two", ("third",))
-    results = qa_runner._execute_historical_suite("http://qa", first, "secret")
-    qa_runner._execute_historical_suite("http://qa", second, "secret")
-
-    assert sessions == ["session-1", "session-2"]
-    assert sent == [("session-1", "first"), ("session-1", "second"), ("session-2", "third")]
-    assert [(item["suite_id"], item["question_index"], item["status"]) for item in results] == [
-        ("one", 1, "PASS"),
-        ("one", 2, "PASS"),
+    corpus = {case.id: case for case in cases(qa_runner)}
+    qa_runner._execute_case("http://qa", corpus["continuity"], "secret")
+    qa_runner._execute_case("http://qa", corpus["vi-direct"], "secret")
+    qa_runner._execute_case("http://qa", corpus["en-direct"], "secret")
+    assert [sid for sid, _ in sent] == ["s1", "s1", "s2", "s3"]
+    assert [prompt for _, prompt in sent[:2]] == [
+        corpus["continuity"].prompt,
+        corpus["continuity"].turns[0],
     ]
 
 
-def test_historical_environment_forces_empty_infrastructure_without_fallbacks(
-    qa_runner, tmp_path, monkeypatch
+class Process:
+    def poll(self):
+        return None
+
+    def send_signal(self, value):
+        return None
+
+    def wait(self, timeout):
+        return None
+
+
+def _runner_mocks(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *args, **kwargs: Process())
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "_configured_capabilities", lambda: {})
+
+
+def test_manual_quality_and_timeout_are_contained_and_journaled(
+    qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setenv("ORION_TOOL_CREDENTIALS_PATH", "/tmp/credentials.json")
-    monkeypatch.setenv("ORION_SSH_CONFIG_PATH", "/tmp/ssh-config")
-    monkeypatch.setenv("ORION_SSH_TARGET_REFS", "production")
+    _runner_mocks(qa_runner, monkeypatch)
+    manual = qa_runner.Case(id="manual", prompt="one", category="quality", manual_quality=True)
+    timed = qa_runner.Case(id="timed", prompt="two", category="quality")
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, ("provider-secret",))
+    checkpoint.start()
+    calls: list[str] = []
 
-    environment = qa_runner.historical_qa_environment(
-        tmp_path, {"base_url": "http://model", "id": "model", "api_key": "secret"}
-    )
-    config = json.loads(
-        Path(environment["ORION_INFRASTRUCTURE_CONFIG"]).read_text(encoding="utf-8")
-    )
+    def execute(_, case, __):  # type: ignore[no-untyped-def]
+        calls.append(case.id)
+        if case.id == "timed":
+            raise qa_runner.QARequestTimeout()
+        return (
+            [{"kind": "assistant_message", "payload": {"content": "provider-secret " + "x" * 600}}],
+            [[]],
+        )
 
-    assert config == {
-        "credentials": {},
-        "targets": {"linux": [], "grafana": [], "zabbix": []},
+    monkeypatch.setattr(qa_runner, "_execute_case", execute)
+    results, _ = qa_runner._run_structured(
+        [manual, timed],
+        {"base_url": "http://model", "id": "model", "api_key": "provider-secret"},
+        False,
+        checkpoint,
+    )
+    assert calls == ["manual", "timed"]
+    assert [item["status"] for item in results] == ["MANUAL_REVIEW", "FAIL"]
+    assert len(str(results[0]["manual_review_answer"])) == qa_runner.MANUAL_REVIEW_ANSWER_LIMIT
+    persisted = (tmp_path / "cases.partial.jsonl").read_text()
+    assert "provider-secret" not in persisted and "tool_result" not in persisted
+    assert [json.loads(line)["id"] for line in persisted.splitlines()] == ["manual", "timed"]
+
+
+def test_mapping_accounts_for_386_rows_and_references_canonical_ids(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    mapping = (qa_runner.ROOT / "docs/qa/HISTORICAL_CORPUS_MIGRATION.md").read_text()
+    expected = {
+        "historical-default.txt": 193,
+        "cauhoi_kiemtra_v2.txt": 66,
+        "cauhoi_phanb.txt": 28,
+        "cauhoi_v4_adversarial.txt": 61,
+        "cauhoi_v5_workflow.txt": 38,
     }
-    assert "ORION_TOOL_CREDENTIALS_PATH" not in environment
-    assert "ORION_SSH_CONFIG_PATH" not in environment
-    assert "ORION_SSH_TARGET_REFS" not in environment
-
-    from orion.integrations.infrastructure import TargetCatalog
-
-    with monkeypatch.context() as isolated_environment:
-        isolated_environment.setattr(qa_runner.os, "environ", environment)
-        catalog = TargetCatalog.from_environment()
-    assert all(not catalog.targets(family) for family in ("linux", "grafana", "zabbix"))
-
-
-def test_full_structured_corpus_stays_at_25_cases(qa_runner) -> None:  # type: ignore[no-untyped-def]
-    cases = qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/full.json")
-    assert len(cases) == 25
-
-
-def test_case_id_does_not_run_historical_corpus(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        qa_runner,
-        "active_model",
-        lambda: {"base_url": "http://model", "id": "model", "api_key": ""},
-    )
-    monkeypatch.setattr(
-        qa_runner,
-        "_run_structured",
-        lambda cases, model, fail_fast: (
-            [
-                {
-                    "phase": "structured",
-                    "id": cases[0].id,
-                    "category": "test",
-                    "status": "PASS",
-                    "reason": None,
-                }
-            ],
-            "http://qa",
-        ),
-    )
-    monkeypatch.setattr(qa_runner, "_run_historical", lambda *args: pytest.fail("historical"))
-    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
-    monkeypatch.setattr(
-        qa_runner.os, "popen", lambda command: type("Pipe", (), {"read": lambda self: "sha\n"})()
-    )
-    monkeypatch.setattr(
-        qa_runner,
-        "write_reports",
-        lambda report, manifest, results, **kwargs: captured.update(
-            manifest=manifest, results=results
-        ),
-    )
-
-    assert qa_runner.run("full", fail_fast=False, case_id="vi-direct") == 0
-    assert captured["manifest"]["selected_case_id"] == "vi-direct"  # type: ignore[index]
-    assert [result["id"] for result in captured["results"]] == ["vi-direct"]  # type: ignore[index]
-
-
-def test_full_manifest_records_all_historical_counts(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        qa_runner,
-        "active_model",
-        lambda: {"base_url": "http://model", "id": "model", "api_key": ""},
-    )
-    monkeypatch.setattr(qa_runner, "_run_structured", lambda *args: ([], "http://structured"))
-    monkeypatch.setattr(qa_runner, "_run_historical", lambda *args: ([], "http://historical"))
-    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
-    monkeypatch.setattr(
-        qa_runner.os,
-        "popen",
-        lambda command: type("Pipe", (), {"read": lambda self: "sha\n"})(),
-    )
-    monkeypatch.setattr(
-        qa_runner,
-        "write_reports",
-        lambda report, manifest, results, **kwargs: captured.update(manifest=manifest),
-    )
-
-    assert qa_runner.run("full", fail_fast=False) == 0
-    manifest = captured["manifest"]  # type: ignore[assignment]
-    assert manifest["historical_source_commit"] == qa_runner.HISTORICAL_SOURCE_COMMIT  # type: ignore[index]
-    assert manifest["historical_prompt_turns"] == 386  # type: ignore[index]
-    assert manifest["historical_suite_counts"] == {  # type: ignore[index]
-        "historical-default": 193,
-        "cauhoi_kiemtra_v2": 66,
-        "cauhoi_phanb": 28,
-        "cauhoi_v4_adversarial": 61,
-        "cauhoi_v5_workflow": 38,
+    approved = {
+        "retained",
+        "rewritten",
+        "merged_duplicate",
+        "converted_multi_turn",
+        "manual_quality",
+        "removed_obsolete",
+        "removed_low_value",
     }
+    seen: set[tuple[str, int]] = set()
+    counts = {name: 0 for name in expected}
+    ids = {case.id for case in cases(qa_runner)}
+    for line in mapping.splitlines():
+        if not line.startswith("| ") or ".txt |" not in line:
+            continue
+        source, index, excerpt, disposition, targets, reason = [
+            part.strip() for part in line.strip("|").split("|")
+        ]
+        pair = (source, int(index))
+        assert pair not in seen and excerpt and len(excerpt) <= 128 and reason
+        assert disposition in approved
+        seen.add(pair)
+        counts[source] += 1
+        if targets != "—":
+            assert set(targets.split(",")) <= ids
+    assert len(seen) == 386 and counts == expected
 
 
-def test_historical_failures_are_bounded_and_content_free(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    secret = "provider-secret"
-    monkeypatch.setattr(qa_runner, "_create_session", lambda base_url: {"session_id": "one"})
-    monkeypatch.setattr(
-        qa_runner,
-        "_send",
-        lambda *args: (_ for _ in ()).throw(
-            qa_runner.urllib.error.HTTPError(
-                "http://qa",
-                502,
-                f"{secret}-" + "x" * 600,
-                None,
-                BytesIO(json.dumps({"detail": f"{secret}-" + "y" * 600}).encode()),
-            )
-        ),
+def test_reports_and_ci_policy(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qa_runner.write_reports(
+        tmp_path,
+        {"mode": "full"},
+        [
+            {
+                "phase": "canonical",
+                "tier": "full",
+                "id": "manual",
+                "category": "quality",
+                "manual_quality": True,
+                "status": "MANUAL_REVIEW",
+                "reason": None,
+            }
+        ],
     )
-
-    result = qa_runner._execute_historical_suite(
-        "http://qa", qa_runner.HistoricalSuite("suite", ("sensitive prompt",)), secret
-    )[0]
-    safe = qa_runner.redact_report(result, (secret,))
-
-    assert result["reason"] == "HTTP/runtime failure"
-    assert "sensitive prompt" not in json.dumps(result)
-    assert len(str(result["http_reason"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
-    assert len(str(result["http_detail"])) == qa_runner.DIAGNOSTIC_TEXT_LIMIT
-    assert secret not in json.dumps(safe)
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["canonical"]["manual_review"] == 1 and summary["manual_quality_cases"] == 1
+    ci = (qa_runner.ROOT / ".github/workflows/ci.yml").read_text()
+    assert "qa-smoke" not in ci and "qa-full" not in ci
 
 
 @pytest.mark.parametrize(
     "error",
     (
         TimeoutError(),
-        socket.timeout(),  # noqa: UP041 - explicitly exercise the socket alias.
+        socket.timeout(),  # noqa: UP041 - exercise the socket alias.
         urllib.error.URLError(TimeoutError()),
-        urllib.error.URLError(
-            socket.timeout()  # noqa: UP041 - explicitly exercise the socket alias.
-        ),
     ),
 )
-def test_qa_request_timeouts_are_normalized(qa_runner, monkeypatch, error) -> None:  # type: ignore[no-untyped-def]
+def test_107_timeout_normalization_remains(qa_runner, monkeypatch, error) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setattr(
         qa_runner.urllib.request,
         "urlopen",
         lambda *args, **kwargs: (_ for _ in ()).throw(error),
     )
-
     with pytest.raises(qa_runner.QARequestTimeout):
         qa_runner._json_request("http://qa", "GET", "/api/health")
 
 
-def test_qa_request_timeout_is_qa_only_configurable_and_health_waits(
-    qa_runner, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
-    captured: dict[str, object] = {}
+def test_107_timeout_override_and_health_wait_are_contained(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    captured: list[float] = []
 
-    def urlopen(request, timeout):  # type: ignore[no-untyped-def]
-        captured["timeout"] = timeout
-        raise TimeoutError()
-
-    class Process:
+    class WaitingProcess:
         def poll(self):  # type: ignore[no-untyped-def]
             return None
+
+    def urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        captured.append(timeout)
+        raise TimeoutError()
 
     monkeypatch.setenv("ORION_QA_REQUEST_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setattr(qa_runner.urllib.request, "urlopen", urlopen)
     monkeypatch.setattr(qa_runner.time, "sleep", lambda _: None)
-
     with pytest.raises(RuntimeError, match="did not become healthy"):
-        qa_runner._wait_for_health("http://qa", Process())
+        qa_runner._wait_for_health("http://qa", WaitingProcess())
+    assert captured == [12.5] * 60
 
-    assert captured["timeout"] == 12.5
 
-
-def test_historical_session_creation_timeout_records_failure_and_skips_unsent_questions(
+def test_actual_isolated_and_multiturn_post_timeouts_never_retry(
     qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
-    sent: list[str] = []
-    checkpoint = qa_runner.ReportCheckpoint(tmp_path, ())
+    _runner_mocks(qa_runner, monkeypatch)
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, ("secret",))
     checkpoint.start()
-    monkeypatch.setattr(
-        qa_runner,
-        "_create_session",
-        lambda base_url: (_ for _ in ()).throw(qa_runner.QARequestTimeout()),
-    )
-    monkeypatch.setattr(qa_runner, "_send", lambda *args: sent.append(args[2]))
-
-    results = qa_runner._execute_historical_suite(
-        "http://qa",
-        qa_runner.HistoricalSuite("one", ("first prompt", "second prompt")),
-        "secret",
-        checkpoint,
-    )
-
-    assert [(item["status"], item["reason"]) for item in results] == [
-        ("FAIL", "session creation timeout"),
-        ("SKIP", "not executed: suite session was not created"),
-    ]
-    assert sent == []
-    journal = (tmp_path / "cases.partial.jsonl").read_text().splitlines()
-    assert [json.loads(line) for line in journal] == results
-
-
-def test_historical_message_timeout_stops_only_ambiguous_suite_and_next_suite_runs(
-    qa_runner, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
     sessions: list[str] = []
     sent: list[tuple[str, str]] = []
 
-    def create(base_url):  # type: ignore[no-untyped-def]
-        session_id = f"session-{len(sessions) + 1}"
-        sessions.append(session_id)
-        return {"session_id": session_id}
+    def create(_):  # type: ignore[no-untyped-def]
+        value = f"s{len(sessions) + 1}"
+        sessions.append(value)
+        return {"session_id": value}
 
-    def send(base_url, session_id, question):  # type: ignore[no-untyped-def]
-        sent.append((session_id, question))
-        if question == "first":
+    def send(_, session, prompt):  # type: ignore[no-untyped-def]
+        sent.append((session, prompt))
+        if prompt in {"single", "turn-two"}:
             raise qa_runner.QARequestTimeout()
 
     monkeypatch.setattr(qa_runner, "_create_session", create)
@@ -838,96 +848,33 @@ def test_historical_message_timeout_stops_only_ambiguous_suite_and_next_suite_ru
     monkeypatch.setattr(
         qa_runner,
         "_timeline",
-        lambda *args: [{"kind": "assistant_message", "payload": {"content": "safe"}}],
+        lambda *_: [{"kind": "assistant_message", "payload": {"content": "answer"}}],
     )
-
-    timed_out = qa_runner._execute_historical_suite(
-        "http://qa", qa_runner.HistoricalSuite("one", ("first", "later")), "secret"
+    isolated = qa_runner.Case(id="isolated", prompt="single", category="x")
+    multi = qa_runner.Case(
+        id="multi",
+        prompt="turn-one",
+        turns=("turn-two", "never"),
+        scenario="multi_turn",
+        category="x",
     )
-    next_suite = qa_runner._execute_historical_suite(
-        "http://qa", qa_runner.HistoricalSuite("two", ("next",)), "secret"
-    )
-
-    assert sent == [("session-1", "first"), ("session-2", "next")]
-    assert [(item["status"], item["reason"]) for item in timed_out] == [
-        ("FAIL", "message send timeout"),
-        ("SKIP", "suite session state uncertain after timed-out message send"),
-    ]
-    assert next_suite[0]["status"] == "PASS"
-    assert sessions == ["session-1", "session-2"]
-
-
-def test_historical_timeline_timeout_fails_case_and_keeps_shared_session_usable(
-    qa_runner, monkeypatch
-) -> None:  # type: ignore[no-untyped-def]
-    sent: list[tuple[str, str]] = []
-    timelines = iter(
-        (
-            qa_runner.QARequestTimeout(),
-            [{"kind": "assistant_message", "payload": {"content": "safe"}}],
-        )
-    )
-    monkeypatch.setattr(qa_runner, "_create_session", lambda base_url: {"session_id": "one"})
-    monkeypatch.setattr(qa_runner, "_send", lambda *args: sent.append((args[1], args[2])))
-
-    def timeline(*args):  # type: ignore[no-untyped-def]
-        outcome = next(timelines)
-        if isinstance(outcome, BaseException):
-            raise outcome
-        return outcome
-
-    monkeypatch.setattr(qa_runner, "_timeline", timeline)
-
-    results = qa_runner._execute_historical_suite(
-        "http://qa", qa_runner.HistoricalSuite("one", ("first", "second")), "secret"
-    )
-
-    assert [(item["status"], item["reason"]) for item in results] == [
-        ("FAIL", "timeline retrieval timeout"),
-        ("PASS", None),
-    ]
-    assert sent == [("one", "first"), ("one", "second")]
-
-
-def test_structured_timeout_is_an_ordinary_case_failure(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    class Process:
-        def poll(self):  # type: ignore[no-untyped-def]
-            return None
-
-        def send_signal(self, value):  # type: ignore[no-untyped-def]
-            return None
-
-        def wait(self, timeout):  # type: ignore[no-untyped-def]
-            return None
-
-    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *args, **kwargs: Process())
-    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
-    monkeypatch.setattr(qa_runner, "_configured_capabilities", lambda: {})
-    monkeypatch.setattr(
-        qa_runner,
-        "_execute_case",
-        lambda *args: (_ for _ in ()).throw(qa_runner.QARequestTimeout()),
-    )
-
+    next_case = qa_runner.Case(id="next", prompt="next", category="x")
     results, _ = qa_runner._run_structured(
-        [qa_runner.Case(id="case", prompt="prompt", category="test")],
+        [isolated, multi, next_case],
         {"base_url": "http://model", "id": "model", "api_key": "secret"},
         False,
+        checkpoint,
     )
-
-    assert results == [
-        {
-            "phase": "structured",
-            "id": "case",
-            "category": "test",
-            "status": "FAIL",
-            "reason": "HTTP/runtime failure",
-            "detail": "QARequestTimeout",
-        }
-    ]
+    assert [item["status"] for item in results] == ["FAIL", "FAIL", "PASS"]
+    assert sessions == ["s1", "s2", "s3"]
+    assert sent == [("s1", "single"), ("s2", "turn-one"), ("s2", "turn-two"), ("s3", "next")]
+    assert [
+        json.loads(line)["id"]
+        for line in (tmp_path / "cases.partial.jsonl").read_text().splitlines()
+    ] == ["isolated", "multi", "next"]
 
 
-def test_checkpoint_preserves_redacted_rows_and_interrupted_last_in_progress_case(
+def test_run_interrupts_with_last_in_progress_and_normal_completion_is_canonical(
     qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
     secret = "provider-secret"
@@ -936,87 +883,49 @@ def test_checkpoint_preserves_redacted_rows_and_interrupted_last_in_progress_cas
         "active_model",
         lambda: {"base_url": "http://model", "id": "model", "api_key": secret},
     )
-    monkeypatch.setattr(
-        qa_runner,
-        "load_historical_suites",
-        lambda: (qa_runner.HistoricalSuite("suite", ("historical prompt", "later prompt")),),
-    )
-    monkeypatch.setattr(
-        qa_runner,
-        "_run_structured",
-        lambda *args: (
-            [
-                {
-                    "phase": "structured",
-                    "id": "case",
-                    "category": "test",
-                    "status": "PASS",
-                    "reason": None,
-                }
-            ],
-            "http://structured",
-        ),
-    )
     monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
 
-    def interrupt(suites, model, checkpoint):  # type: ignore[no-untyped-def]
-        partial = checkpoint.report_directory / "cases.partial.jsonl"
-        assert json.loads(partial.read_text(encoding="utf-8").splitlines()[0])["id"] == "case"
-        checkpoint.mark_historical_in_progress("suite", 1)
-        checkpoint.record_historical_result(qa_runner._historical_result("suite", 1, status="PASS"))
-        checkpoint.mark_historical_in_progress("suite", 2)
-        raise RuntimeError("injected interruption")
+    def interrupted(cases, model, fail_fast, checkpoint):  # type: ignore[no-untyped-def]
+        checkpoint.mark_case_in_progress("one")
+        checkpoint.record_case(
+            {
+                "phase": "canonical",
+                "tier": "full",
+                "id": "one",
+                "category": "x",
+                "manual_quality": False,
+                "status": "PASS",
+                "reason": None,
+            }
+        )
+        checkpoint.mark_case_in_progress("two")
+        raise RuntimeError("injected")
 
-    monkeypatch.setattr(qa_runner, "_run_historical", interrupt)
-
-    with pytest.raises(RuntimeError, match="injected interruption"):
-        qa_runner.run("full", fail_fast=False)
-
+    monkeypatch.setattr(qa_runner, "_run_structured", interrupted)
+    with pytest.raises(RuntimeError, match="injected"):
+        qa_runner.run("full", False, "identity")
     report = next(tmp_path.iterdir())
-    lines = (report / "cases.partial.jsonl").read_text(encoding="utf-8").splitlines()
-    assert [json.loads(line) for line in lines][1]["question_index"] == 1
-    assert all(json.loads(line) for line in lines)
-    progress = json.loads((report / "progress.json").read_text(encoding="utf-8"))
-    assert progress == {
-        "status": "interrupted",
-        "phase": "historical",
-        "suite_id": "suite",
-        "question_index": 2,
-    }
-    persisted = "".join(path.read_text(encoding="utf-8") for path in report.iterdir())
-    assert secret not in persisted
-    assert "historical prompt" not in persisted and "assistant raw answer" not in persisted
+    progress = json.loads((report / "progress.json").read_text())
+    assert progress == {"status": "interrupted", "phase": "canonical", "case_id": "two"}
+    assert "provider-secret" not in "".join(path.read_text() for path in report.iterdir())
 
+    def completed(cases, model, fail_fast, checkpoint):  # type: ignore[no-untyped-def]
+        result = {
+            "phase": "canonical",
+            "tier": "full",
+            "id": "identity",
+            "category": "x",
+            "manual_quality": False,
+            "status": "PASS",
+            "reason": None,
+        }
+        checkpoint.mark_case_in_progress("identity")
+        checkpoint.record_case(result)
+        return [result], "http://qa"
 
-def test_successful_run_keeps_canonical_reports_and_marks_progress_completed(
-    qa_runner, monkeypatch, tmp_path
-) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(
-        qa_runner,
-        "active_model",
-        lambda: {"base_url": "http://model", "id": "model", "api_key": "secret"},
-    )
-    monkeypatch.setattr(
-        qa_runner,
-        "_run_structured",
-        lambda *args: (
-            [
-                {
-                    "phase": "structured",
-                    "id": "case",
-                    "category": "test",
-                    "status": "PASS",
-                    "reason": None,
-                }
-            ],
-            "http://structured",
-        ),
-    )
-    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
-
-    assert qa_runner.run("smoke", fail_fast=False) == 0
-
-    report = next(tmp_path.iterdir())
+    monkeypatch.setattr(qa_runner, "_run_structured", completed)
+    assert qa_runner.run("full", False, "identity") == 0
+    complete = next(path for path in tmp_path.iterdir() if (path / "manifest.json").exists())
     assert {
         "manifest.json",
         "cases.jsonl",
@@ -1024,51 +933,72 @@ def test_successful_run_keeps_canonical_reports_and_marks_progress_completed(
         "summary.md",
         "progress.json",
         "cases.partial.jsonl",
-    } <= {path.name for path in report.iterdir()}
-    assert json.loads((report / "progress.json").read_text(encoding="utf-8")) == {
-        "status": "completed",
-        "phase": "completed",
+    } <= {p.name for p in complete.iterdir()}
+    assert json.loads((complete / "progress.json").read_text())["status"] == "completed"
+    assert (complete / "cases.partial.jsonl").read_text() == (complete / "cases.jsonl").read_text()
+
+
+def test_canonical_safety_allows_mutation_only_for_safe_fixture_cases(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    corpus = cases(qa_runner)
+    mutations = [case for case in corpus if case.mutation]
+    assert {case.id for case in mutations} == {
+        "linux-document-edit",
+        "linux-docx-edit",
+        "linux-xlsx-edit",
     }
-
-
-def test_qa_reports_aggregate_structured_and_historical_separately(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    qa_runner.write_reports(
-        tmp_path,
-        {"mode": "full", "historical_prompt_turns": 2},
-        [
-            {
-                "phase": "structured",
-                "id": "case",
-                "category": "test",
-                "status": "PASS",
-                "reason": None,
-            },
-            {
-                "phase": "historical",
-                "suite_id": "one",
-                "question_index": 1,
-                "category": "historical",
-                "status": "PASS",
-                "reason": None,
-            },
-            {
-                "phase": "historical",
-                "suite_id": "one",
-                "question_index": 2,
-                "category": "historical",
-                "status": "FAIL",
-                "reason": "HTTP/runtime failure",
-            },
-        ],
+    assert all(
+        case.fixture_env in {"ORION_QA_TEXT_PATH", "ORION_QA_DOCX_PATH", "ORION_QA_XLSX_PATH"}
+        for case in mutations
+    )
+    assert all(
+        not case.mutation
+        for case in corpus
+        if case.id.startswith(("dangerous-", "service-restart", "package-update"))
     )
 
-    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
-    assert summary["structured"] == {"total": 1, "passed": 1, "failed": 0, "skipped": 0}
-    assert summary["historical"] == {
-        "total": 2,
-        "passed": 1,
-        "failed": 1,
-        "skipped": 0,
-        "suites": 1,
-        "prompt_turns": 2,
+
+def test_canonical_boundaries_do_not_invent_inputs_or_execute_dangerous_requests(
+    qa_runner,
+) -> None:  # type: ignore[no-untyped-def]
+    corpus = {case.id: case for case in cases(qa_runner)}
+    mutation_tools = {
+        "linux.file.edit",
+        "linux.service.restart",
+        "linux.package.install",
+        "grafana.annotation.create",
+        "zabbix.event.acknowledge",
+    }
+    dangerous = {
+        "dangerous-firewall-boundary",
+        "dangerous-ssh-boundary",
+        "service-restart-boundary",
+        "package-update-boundary",
+    }
+    for case_id in dangerous:
+        case = corpus[case_id]
+        assert "Do not" in case.prompt and "change infrastructure" in case.prompt
+        assert set(case.forbidden_tools) & mutation_tools
+    for case_id in {
+        "grafana-dashboard-read",
+        "grafana-network-representative",
+        "grafana-history-boundary",
+    }:
+        case = corpus[case_id]
+        assert not (
+            {"grafana.dashboard.get", "grafana.datasource.query"} & set(case.expected_tools)
+        )
+        assert not (
+            {"grafana.dashboard.get", "grafana.datasource.query"} & set(case.expected_any_tools)
+        )
+    assert "zabbix.history.get" not in corpus["zabbix-history-boundary"].expected_tools
+    assert corpus["linux-unknown-target"].expected_tool_errors == (
+        ("linux.system.inspect", "unknown_target"),
+    )
+    assert not corpus["linux-hostile-target"].expected_tool_errors
+    assert corpus["grafana-explicit-source"].requires_citation
+    assert "linux.system.inspect" in corpus["grafana-explicit-source"].forbidden_tools
+    assert corpus["zabbix-explicit-source"].requires_citation
+    assert set(corpus["zabbix-explicit-source"].forbidden_tools) & {
+        "grafana.alert.list",
+        "grafana.datasource.query",
     }

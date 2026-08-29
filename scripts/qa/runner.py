@@ -24,19 +24,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "7"
+RUNNER_VERSION = "8"
 QA_REQUEST_TIMEOUT_SECONDS = 90
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
 DIAGNOSTIC_TEXT_LIMIT = 512
-HISTORICAL_SOURCE_COMMIT = "535f94979414cacf37961ede1d2c0b03874fd271"
-HISTORICAL_SUITES = {
-    "historical-default": ("historical-default.txt", 193),
-    "cauhoi_kiemtra_v2": ("cauhoi_kiemtra_v2.txt", 66),
-    "cauhoi_phanb": ("cauhoi_phanb.txt", 28),
-    "cauhoi_v4_adversarial": ("cauhoi_v4_adversarial.txt", 61),
-    "cauhoi_v5_workflow": ("cauhoi_v5_workflow.txt", 38),
-}
+MANUAL_REVIEW_ANSWER_LIMIT = 512
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -46,6 +39,7 @@ SCENARIOS = {
     "project_isolation",
     "prompt_injection_document",
     "safety_response",
+    "multi_turn",
 }
 
 
@@ -67,12 +61,9 @@ class Case:
     forbidden_marker: str | None = None
     mutation: bool = False
     fixture_env: str | None = None
-
-
-@dataclass(frozen=True)
-class HistoricalSuite:
-    id: str
-    questions: tuple[str, ...]
+    tiers: tuple[str, ...] = ("full",)
+    turns: tuple[str, ...] = ()
+    manual_quality: bool = False
 
 
 def load_cases(path: Path) -> list[Case]:
@@ -150,6 +141,21 @@ def load_cases(path: Path) -> list[Case]:
             for value in optional_strings.values()
         ):
             raise ValueError(f"QA case {item['id']} has invalid scenario data.")
+        tiers = item.get("tiers", ["full"])
+        if (
+            not isinstance(tiers, list)
+            or not tiers
+            or not all(tier in {"smoke", "full"} for tier in tiers)
+            or "full" not in tiers
+        ):
+            raise ValueError(f"QA case {item['id']} has invalid tiers.")
+        turns = item.get("turns", [])
+        if not isinstance(turns, list) or not all(
+            isinstance(turn, str) and turn.strip() for turn in turns
+        ):
+            raise ValueError(f"QA case {item['id']} has invalid turns.")
+        if scenario == "multi_turn" and not turns:
+            raise ValueError(f"QA case {item['id']} requires explicit turns.")
         cases.append(
             Case(
                 id=item["id"],
@@ -168,42 +174,23 @@ def load_cases(path: Path) -> list[Case]:
                 forbidden_marker=optional_strings["forbidden_marker"],
                 mutation=bool(item.get("mutation", False)),
                 fixture_env=optional_strings["fixture_env"],
+                tiers=tuple(tiers),
+                turns=tuple(turns),
+                manual_quality=_manual_quality(item, item["id"]),
             )
         )
     return cases
 
 
-def load_historical_suites() -> tuple[HistoricalSuite, ...]:
-    directory = ROOT / "scripts" / "qa" / "cases" / "historical"
-    suites: list[HistoricalSuite] = []
-    for suite_id, (filename, expected_count) in HISTORICAL_SUITES.items():
-        try:
-            questions = load_historical_questions(directory / filename)
-        except OSError as error:
-            raise ValueError(f"Cannot load historical QA corpus: {filename}") from error
-        if len(questions) != expected_count:
-            raise ValueError(f"Historical QA corpus has unexpected count: {suite_id}")
-        suites.append(HistoricalSuite(suite_id, questions))
-    return tuple(suites)
+def select_tier(cases: list[Case], tier: str) -> list[Case]:
+    return [case for case in cases if tier in case.tiers]
 
 
-def load_historical_questions(path: Path) -> tuple[str, ...]:
-    return tuple(
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
-
-
-def select_historical_suites(
-    suites: tuple[HistoricalSuite, ...], suite_id: str | None
-) -> tuple[HistoricalSuite, ...]:
-    if suite_id is None:
-        return suites
-    selected = tuple(suite for suite in suites if suite.id == suite_id)
-    if not selected:
-        raise ValueError(f"Historical QA suite not found: {suite_id}")
-    return selected
+def _manual_quality(item: dict[str, object], case_id: str) -> bool:
+    value = item.get("manual_quality", False)
+    if not isinstance(value, bool):
+        raise ValueError(f"QA case {case_id} has invalid manual_quality.")
+    return value
 
 
 def sanitize_endpoint(value: str) -> str:
@@ -460,29 +447,6 @@ def qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
     return environment
 
 
-def historical_qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
-    """Build a separate QA composition with no infrastructure targets to mutate."""
-    environment = qa_environment(temporary, model)
-    infrastructure_config = temporary / "empty-infrastructure.json"
-    infrastructure_config.write_text(
-        json.dumps(
-            {
-                "credentials": {},
-                "targets": {"linux": [], "grafana": [], "zabbix": []},
-            }
-        ),
-        encoding="utf-8",
-    )
-    environment["ORION_INFRASTRUCTURE_CONFIG"] = str(infrastructure_config)
-    for name in (
-        "ORION_TOOL_CREDENTIALS_PATH",
-        "ORION_SSH_CONFIG_PATH",
-        "ORION_SSH_TARGET_REFS",
-    ):
-        environment.pop(name, None)
-    return environment
-
-
 def qa_process_command(port: int) -> list[str]:
     return [
         sys.executable,
@@ -605,22 +569,20 @@ class ReportCheckpoint:
         }
         self._write_progress()
 
-    def mark_historical_in_progress(self, suite_id: str, question_index: int) -> None:
+    def mark_case_in_progress(self, case_id: str) -> None:
         self.progress = {
             "status": "in_progress",
-            "phase": "historical",
-            "suite_id": suite_id,
-            "question_index": question_index,
+            "phase": "canonical",
+            "case_id": case_id,
         }
         self._write_progress()
 
-    def record_historical_result(self, result: dict[str, object]) -> None:
+    def record_case(self, result: dict[str, object]) -> None:
         self.record_result(result)
         self.progress = {
             "status": "running",
-            "phase": "historical",
-            "suite_id": result["suite_id"],
-            "question_index": result["question_index"],
+            "phase": "canonical",
+            "case_id": result["id"],
         }
         self._write_progress()
 
@@ -662,18 +624,15 @@ def write_reports(
             "passed": counts["PASS"],
             "failed": counts["FAIL"],
             "skipped": counts["SKIP"],
+            "manual_review": counts["MANUAL_REVIEW"],
         }
 
-    structured = phase_summary("structured")
-    historical = phase_summary("historical")
-    historical["suites"] = len(
-        {
-            str(result["suite_id"])
-            for result in safe_results
-            if result.get("phase") == "historical"
-        }
-    )
-    historical["prompt_turns"] = historical["total"]
+    canonical = phase_summary("canonical")
+    tiers: dict[str, Counter[str]] = {}
+    for result in safe_results:
+        tiers.setdefault(str(result.get("tier", "full")), Counter())[
+            str(result["status"])
+        ] += 1
     data = {
         "total": len(safe_results),
         "passed": summary["PASS"],
@@ -681,11 +640,17 @@ def write_reports(
         "skipped": summary["SKIP"],
         "manual_review": summary["MANUAL_REVIEW"],
         "categories": categories,
+        "tiers": tiers,
+        "deterministic_cases": sum(
+            not bool(result.get("manual_quality")) for result in safe_results
+        ),
+        "manual_quality_cases": sum(
+            bool(result.get("manual_quality")) for result in safe_results
+        ),
         "first_failures": [item for item in safe_results if item["status"] == "FAIL"][
             :5
         ],
-        "structured": structured,
-        "historical": historical,
+        "canonical": canonical,
     }
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
@@ -700,10 +665,9 @@ def write_reports(
     (report_directory / "summary.md").write_text(
         "# Orion QA "
         f"{manifest['mode']}\n\n"
-        f"Structured: total {structured['total']} · PASS: {structured['passed']} · "
-        f"FAIL: {structured['failed']} · SKIP: {structured['skipped']}\n\n"
-        f"Historical: suites {historical['suites']} · prompt turns {historical['prompt_turns']} · "
-        f"PASS: {historical['passed']} · FAIL: {historical['failed']}\n",
+        f"Canonical: total {canonical['total']} · PASS: {canonical['passed']} · "
+        f"FAIL: {canonical['failed']} · SKIP: {canonical['skipped']} · "
+        f"MANUAL_REVIEW: {canonical['manual_review']}\n",
         encoding="utf-8",
     )
 
@@ -914,6 +878,14 @@ def _execute_case(
         timeline = _timeline(base_url, session_id)
         _require_final(timeline, expected=case.expected_marker)
         return timeline, [timeline]
+    if case.scenario == "multi_turn":
+        session = _create_session(base_url)
+        session_id = str(session["session_id"])
+        for turn in (case.prompt, *case.turns):
+            _send(base_url, session_id, _case_prompt(case, turn))
+        timeline = _timeline(base_url, session_id)
+        _require_final(timeline, expected=case.expected_marker, secret=secret)
+        return timeline, [timeline]
     if (
         case.scenario == "session_document"
         or case.scenario == "prompt_injection_document"
@@ -1016,210 +988,11 @@ def _execute_case(
     raise ScenarioFailure("unsupported QA scenario")
 
 
-def _historical_result(
-    suite_id: str,
-    question_index: int,
-    *,
-    status: str,
-    reason: str | None = None,
-    detail: str | None = None,
-    timeline: list[dict[str, Any]] | None = None,
-    diagnostics: dict[str, object] | None = None,
-) -> dict[str, object]:
-    """Produce content-free, bounded reporting for one historical prompt turn."""
-    result: dict[str, object] = {
-        "phase": "historical",
-        "suite_id": suite_id,
-        "question_index": question_index,
-        "category": "historical",
-        "status": status,
-        "reason": reason,
-    }
-    if detail:
-        result["detail"] = _bounded_text(detail)
-    if diagnostics:
-        result.update(diagnostics)
-    if timeline is not None:
-        tools = Counter(
-            str(item.get("tool_name"))
-            for item in timeline
-            if item.get("kind") == "tool_call"
-        )
-        result["tools"] = dict(tools)
-        result["sources"] = len(_source_ids(timeline))
-    return result
-
-
-def _execute_historical_suite(
-    base_url: str,
-    suite: HistoricalSuite,
-    secret: str,
-    checkpoint: ReportCheckpoint | None = None,
-) -> list[dict[str, object]]:
-    """Send every historical prompt once, in order, through one current session."""
-    results: list[dict[str, object]] = []
-
-    def complete(result: dict[str, object]) -> None:
-        results.append(result)
-        if checkpoint is not None:
-            checkpoint.record_historical_result(result)
-
-    if checkpoint is not None and suite.questions:
-        checkpoint.mark_historical_in_progress(suite.id, 1)
-    session_id: str | None = None
-    try:
-        session_id = str(_create_session(base_url)["session_id"])
-    except QARequestTimeout as error:
-        session_failure = _historical_result(
-            suite.id,
-            1,
-            status="FAIL",
-            reason="session creation timeout",
-            detail=type(error).__name__,
-        )
-    except urllib.error.HTTPError as error:
-        session_failure = _historical_result(
-            suite.id,
-            1,
-            status="FAIL",
-            reason="HTTP/runtime failure",
-            detail=type(error).__name__,
-            diagnostics=http_error_diagnostics(error),
-        )
-    except (
-        AssertionError,
-        ScenarioFailure,
-        urllib.error.URLError,
-        json.JSONDecodeError,
-    ) as error:
-        session_failure = _historical_result(
-            suite.id,
-            1,
-            status="FAIL",
-            reason="HTTP/runtime failure",
-            detail=type(error).__name__,
-        )
-    else:
-        session_failure = None
-
-    if session_failure is not None:
-        if suite.questions:
-            complete(session_failure)
-        for question_index in range(2, len(suite.questions) + 1):
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="SKIP",
-                    reason="not executed: suite session was not created",
-                )
-            )
-        return results
-
-    assert session_id is not None
-    for question_index, question in enumerate(suite.questions, start=1):
-        if checkpoint is not None:
-            checkpoint.mark_historical_in_progress(suite.id, question_index)
-        try:
-            _send(base_url, session_id, question)
-        except QARequestTimeout as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="message send timeout",
-                    detail=type(error).__name__,
-                )
-            )
-            for remaining_index in range(question_index + 1, len(suite.questions) + 1):
-                complete(
-                    _historical_result(
-                        suite.id,
-                        remaining_index,
-                        status="SKIP",
-                        reason="suite session state uncertain after timed-out message send",
-                    )
-                )
-            return results
-        except urllib.error.HTTPError as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="HTTP/runtime failure",
-                    detail=type(error).__name__,
-                    diagnostics=http_error_diagnostics(error),
-                )
-            )
-            continue
-        except (
-            AssertionError,
-            ScenarioFailure,
-            urllib.error.URLError,
-            json.JSONDecodeError,
-        ) as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="HTTP/runtime failure",
-                    detail=type(error).__name__,
-                )
-            )
-            continue
-
-        try:
-            timeline = _timeline(base_url, session_id)
-            _require_final(timeline, secret=secret)
-            complete(
-                _historical_result(
-                    suite.id, question_index, status="PASS", timeline=timeline
-                )
-            )
-        except QARequestTimeout as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="timeline retrieval timeout",
-                    detail=type(error).__name__,
-                )
-            )
-        except urllib.error.HTTPError as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="HTTP/runtime failure",
-                    detail=type(error).__name__,
-                    diagnostics=http_error_diagnostics(error),
-                )
-            )
-        except (
-            AssertionError,
-            ScenarioFailure,
-            urllib.error.URLError,
-            json.JSONDecodeError,
-        ) as error:
-            complete(
-                _historical_result(
-                    suite.id,
-                    question_index,
-                    status="FAIL",
-                    reason="HTTP/runtime failure",
-                    detail=type(error).__name__,
-                )
-            )
-    return results
-
-
 def _run_structured(
-    cases: list[Case], model: dict[str, str], fail_fast: bool
+    cases: list[Case],
+    model: dict[str, str],
+    fail_fast: bool,
+    checkpoint: ReportCheckpoint | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
         environment = qa_environment(Path(temporary), model)
@@ -1238,17 +1011,22 @@ def _run_structured(
             _wait_for_health(base_url, process)
             configured = _configured_capabilities()
             for case in cases:
+                if checkpoint is not None:
+                    checkpoint.mark_case_in_progress(case.id)
                 skip_reason = _optional_skip_reason(case, configured)
                 if skip_reason:
-                    results.append(
-                        {
-                            "phase": "structured",
-                            "id": case.id,
-                            "category": case.category,
-                            "status": "SKIP",
-                            "reason": skip_reason,
-                        }
-                    )
+                    result = {
+                        "phase": "canonical",
+                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "id": case.id,
+                        "category": case.category,
+                        "manual_quality": case.manual_quality,
+                        "status": "SKIP",
+                        "reason": skip_reason,
+                    }
+                    results.append(result)
+                    if checkpoint is not None:
+                        checkpoint.record_case(result)
                     continue
                 try:
                     timeline, checked_timelines = _execute_case(
@@ -1261,9 +1039,11 @@ def _run_structured(
                             status, reason = checked_status, checked_reason
                             break
                     result: dict[str, object] = {
-                        "phase": "structured",
+                        "phase": "canonical",
+                        "tier": "smoke" if "smoke" in case.tiers else "full",
                         "id": case.id,
                         "category": case.category,
+                        "manual_quality": case.manual_quality,
                         "status": status,
                         "reason": reason,
                         "tools": dict(tools),
@@ -1271,13 +1051,22 @@ def _run_structured(
                     }
                     if case.requires_citation:
                         result["citation_diagnostics"] = citation_diagnostics(timeline)
+                    if status == "PASS" and case.manual_quality:
+                        final = _final_assistant(timeline)
+                        if final is not None:
+                            result["manual_review_answer"] = final[0][
+                                :MANUAL_REVIEW_ANSWER_LIMIT
+                            ]
+                        result["status"] = "MANUAL_REVIEW"
                     results.append(result)
                 except urllib.error.HTTPError as error:
                     results.append(
                         {
-                            "phase": "structured",
+                            "phase": "canonical",
+                            "tier": "smoke" if "smoke" in case.tiers else "full",
                             "id": case.id,
                             "category": case.category,
+                            "manual_quality": case.manual_quality,
                             "status": "FAIL",
                             "reason": "HTTP/runtime failure",
                             "detail": type(error).__name__,
@@ -1293,48 +1082,20 @@ def _run_structured(
                 ) as error:
                     results.append(
                         {
-                            "phase": "structured",
+                            "phase": "canonical",
+                            "tier": "smoke" if "smoke" in case.tiers else "full",
                             "id": case.id,
                             "category": case.category,
+                            "manual_quality": case.manual_quality,
                             "status": "FAIL",
                             "reason": "HTTP/runtime failure",
                             "detail": type(error).__name__,
                         }
                     )
+                if checkpoint is not None:
+                    checkpoint.record_case(results[-1])
                 if fail_fast and results[-1]["status"] == "FAIL":
                     break
-        finally:
-            stop_qa_process(process)
-    return results, base_url
-
-
-def _run_historical(
-    suites: tuple[HistoricalSuite, ...],
-    model: dict[str, str],
-    checkpoint: ReportCheckpoint | None = None,
-) -> tuple[list[dict[str, object]], str]:
-    """Run all selected historical suites in a separately composed empty-infra API."""
-    with tempfile.TemporaryDirectory(prefix="orion-qa-historical-") as temporary:
-        environment = historical_qa_environment(Path(temporary), model)
-        port = _available_port()
-        base_url = f"http://127.0.0.1:{port}"
-        process = subprocess.Popen(
-            qa_process_command(port),
-            cwd=ROOT,
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        try:
-            _wait_for_health(base_url, process)
-            results = [
-                result
-                for suite in suites
-                for result in _execute_historical_suite(
-                    base_url, suite, model["api_key"], checkpoint
-                )
-            ]
         finally:
             stop_qa_process(process)
     return results, base_url
@@ -1344,28 +1105,10 @@ def run(
     mode: str,
     fail_fast: bool,
     case_id: str | None = None,
-    historical_suite: str | None = None,
 ) -> int:
-    if case_id is not None and historical_suite is not None:
-        print(
-            "QA preflight failed: --case-id and --historical-suite cannot be combined.",
-            file=sys.stderr,
-        )
-        return 2
-    if historical_suite is not None and mode != "full":
-        print(
-            "QA preflight failed: --historical-suite requires --mode full.",
-            file=sys.stderr,
-        )
-        return 2
-    cases = load_cases(ROOT / "scripts" / "qa" / "cases" / f"{mode}.json")
+    cases = load_cases(ROOT / "scripts" / "qa" / "cases" / "canonical.json")
     try:
-        cases = select_cases(cases, case_id)
-        historical_suites = (
-            select_historical_suites(load_historical_suites(), historical_suite)
-            if mode == "full" and case_id is None
-            else ()
-        )
+        cases = select_cases(select_tier(cases, mode), case_id)
     except ValueError as error:
         print(f"QA preflight failed: {error}", file=sys.stderr)
         return 2
@@ -1381,20 +1124,10 @@ def run(
     checkpoint = ReportCheckpoint(reports, (model["api_key"],))
     checkpoint.start()
     started = datetime.now(UTC)
-    structured_results: list[dict[str, object]] = []
-    historical_results: list[dict[str, object]] = []
-    structured_base_url: str | None = None
-    historical_base_url: str | None = None
+    results: list[dict[str, object]] = []
+    qa_base_url: str | None = None
     try:
-        if historical_suite is None:
-            structured_results, structured_base_url = _run_structured(
-                cases, model, fail_fast
-            )
-            checkpoint.record_structured(structured_results)
-        if historical_suites:
-            historical_results, historical_base_url = _run_historical(
-                historical_suites, model, checkpoint
-            )
+        results, qa_base_url = _run_structured(cases, model, fail_fast, checkpoint)
         manifest = {
             "git_sha": os.popen("git rev-parse HEAD").read().strip(),
             "dirty": bool(os.popen("git status --porcelain").read().strip()),
@@ -1402,24 +1135,15 @@ def run(
             "mode": mode,
             "started_at": started.isoformat(),
             "ended_at": datetime.now(UTC).isoformat(),
-            "qa_api_base_url": structured_base_url,
-            "historical_qa_api_base_url": historical_base_url,
+            "qa_api_base_url": qa_base_url,
             "model_id": model["id"],
             "model_endpoint": sanitize_endpoint(model["base_url"]),
             "optional_capabilities": ["linux", "grafana", "zabbix"],
-            "historical_source_commit": HISTORICAL_SOURCE_COMMIT,
-            "historical_suite_counts": {
-                suite.id: len(suite.questions) for suite in historical_suites
-            },
-            "historical_prompt_turns": sum(
-                len(suite.questions) for suite in historical_suites
-            ),
+            "canonical_case_count": len(cases),
+            "manual_quality_case_count": sum(case.manual_quality for case in cases),
         }
         if case_id is not None:
             manifest["selected_case_id"] = case_id
-        if historical_suite is not None:
-            manifest["selected_historical_suite"] = historical_suite
-        results = [*structured_results, *historical_results]
         write_reports(reports, manifest, results, secret_values=(model["api_key"],))
         checkpoint.complete()
     except BaseException:
@@ -1434,13 +1158,11 @@ if __name__ == "__main__":
     parser.add_argument("--mode", choices=("smoke", "full"), required=True)
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--case-id")
-    parser.add_argument("--historical-suite")
     arguments = parser.parse_args()
     raise SystemExit(
         run(
             arguments.mode,
             arguments.fail_fast,
             arguments.case_id,
-            arguments.historical_suite,
         )
     )
