@@ -361,6 +361,145 @@ async def test_actionable_tool_error_keeps_generic_recovery_choices_visible(stor
 
 
 @pytest.mark.anyio
+async def test_terminal_after_marked_error_gets_one_model_chosen_recovery_decision(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    builder = ToolRegistryBuilder()
+
+    def alpha_handler(call: ToolCall) -> ToolResult:
+        return ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "not_found",
+            "The requested value is unavailable. Recover with another available tool.",
+            model_recovery_required=True,
+        )
+
+    def beta_handler(call: ToolCall) -> ToolResult:
+        calls.append(call)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"value": call.arguments["value"]},
+        )
+
+    builder.register(_definition("fake.alpha"), alpha_handler)
+    builder.register(_definition("fake.beta"), beta_handler)
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alpha", tool_name="fake.alpha", arguments={"value": "missing"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Call fake.beta to recover.")),
+            _expand("fake.beta", call_id="expand-beta"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="beta", tool_name="fake.beta", arguments={"value": "recovered"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        session_id, "Recover the value"
+    )
+
+    assert outcome.assistant_content == "Recovered."
+    assert len(backend.calls) == 6
+    recovery_messages, recovery_tools = backend.calls[3]
+    assert any("model recovery as required" in message.content for message in recovery_messages)
+    assert any("Call fake.beta to recover." in message.content for message in recovery_messages)
+    assert [definition.name for definition in recovery_tools] == [EXPAND_TOOL_NAME, "fake.alpha"]
+    assert [definition.name for definition in backend.calls[4][1]] == [
+        EXPAND_TOOL_NAME,
+        "fake.alpha",
+        "fake.beta",
+    ]
+    assert [call.tool_name for call in calls] == ["fake.beta"]
+    assert [
+        item.payload["content"]
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message" and item.payload["content"]
+    ] == ["Call fake.beta to recover.", "Recovered."]
+
+
+@pytest.mark.anyio
+async def test_non_recoverable_tool_error_can_end_without_an_extra_model_decision(store) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        _definition("fake.alpha"),
+        lambda call: ToolResult.failure(
+            call.call_id, call.tool_name, "unavailable", "The tool is unavailable."
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alpha", tool_name="fake.alpha", arguments={"value": "missing"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="I cannot complete that.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "I cannot complete that."
+    assert len(backend.calls) == 3
+
+
+@pytest.mark.anyio
+async def test_marked_error_continuation_is_bounded_when_terminal_prose_repeats(store) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        _definition("fake.alpha"),
+        lambda call: ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "not_found",
+            "Recoverable failure.",
+            model_recovery_required=True,
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alpha", tool_name="fake.alpha", arguments={"value": "missing"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Call a tool.")),
+            ModelTurn(assistant=AssistantMessage(content="Please clarify the request.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "Please clarify the request."
+    assert len(backend.calls) == 4
+
+
+@pytest.mark.anyio
 async def test_exposure_is_additive_within_a_request_and_resets_for_the_next_one(store) -> None:  # type: ignore[no-untyped-def]
     calls: list[ToolCall] = []
     backend = ScriptedBackend(

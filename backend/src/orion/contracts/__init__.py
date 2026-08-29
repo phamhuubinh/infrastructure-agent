@@ -235,6 +235,9 @@ class ToolCall(CanonicalModel):
 class ToolError(CanonicalModel):
     code: str = Field(min_length=1)
     message: str = Field(min_length=1)
+    # Distinct from transport/execution retryability: this means the model can
+    # safely choose a different in-scope recovery action for the user request.
+    model_recovery_required: bool = False
     retryable: bool = False
 
 
@@ -304,12 +307,24 @@ class ToolResult(CanonicalModel):
         return value
 
     @classmethod
-    def failure(cls, call_id: str, tool_name: str, code: str, message: str) -> ToolResult:
+    def failure(
+        cls,
+        call_id: str,
+        tool_name: str,
+        code: str,
+        message: str,
+        *,
+        model_recovery_required: bool = False,
+    ) -> ToolResult:
         return cls(
             call_id=call_id,
             tool_name=tool_name,
             status="error",
-            error=ToolError(code=code, message=message),
+            error=ToolError(
+                code=code,
+                message=message,
+                model_recovery_required=model_recovery_required,
+            ),
         )
 
 

@@ -199,6 +199,7 @@ async def test_tool_results_events_context_and_logs_redact_configured_markers(
                 tool_calls=(ModelToolCall(call_id="secret", tool_name="fake.secret", arguments={}),)
             ),
             ModelTurn(assistant=AssistantMessage(content="Done.")),
+            ModelTurn(assistant=AssistantMessage(content="Done.")),
         ]
     )
     app = build_application(

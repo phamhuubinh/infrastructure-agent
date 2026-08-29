@@ -43,6 +43,14 @@ class RequestOutcome:
     assistant_content: str
 
 
+_RECOVERY_DECISION_INSTRUCTIONS = (
+    "The preceding ToolResult marked model recovery as required and the request is unresolved. "
+    "Either emit the next safe, in-scope tool calls, expanding an unexposed exact catalog name "
+    "when needed, or give a final clarification/refusal if recovery is not appropriate. Do not "
+    "merely repeat a tool procedure in prose."
+)
+
+
 class ChatRuntime:
     def __init__(
         self,
@@ -123,11 +131,22 @@ class ChatRuntime:
                         input_tokens += state_preparation.usage.input_tokens
                         output_tokens += state_preparation.usage.output_tokens
                 tool_exposure = self._registry.new_tool_exposure()
+                recovery_pending = False
+                recovery_decision_used = False
+                recovery_decision_next = False
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     self._emit(request_id, "model.started", {})
+                    recovery_decision = recovery_decision_next
+                    recovery_decision_next = False
                     turn, usage, visible_sources = await self._stream_turn(
-                        session_id, request_id, settings, scope, cancellation, tool_exposure
+                        session_id,
+                        request_id,
+                        settings,
+                        scope,
+                        cancellation,
+                        tool_exposure,
+                        recovery_decision=recovery_decision,
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -139,8 +158,11 @@ class ChatRuntime:
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
                     self._validate_citations(turn, scope, visible_sources)
+                    recovery_abandoned = (
+                        not turn.tool_calls and recovery_pending and not recovery_decision_used
+                    )
                     metrics: dict[str, int] | None = None
-                    if not turn.tool_calls:
+                    if not turn.tool_calls and not recovery_abandoned:
                         metrics = {
                             "response_time_ms": max(
                                 0, round((time.monotonic() - started_at) * 1000)
@@ -164,12 +186,19 @@ class ChatRuntime:
                     if not turn.tool_calls:
                         if turn.assistant is None:
                             raise RuntimeError("Model returned an invalid terminal turn.")
+                        if recovery_abandoned:
+                            recovery_pending = False
+                            recovery_decision_used = True
+                            recovery_decision_next = True
+                            self._emit(request_id, "model.resumed", {})
+                            continue
                         self._store.complete_request(request_id, "completed")
                         self._emit(request_id, "request.completed", {})
                         return RequestOutcome(
                             request_id=request_id, assistant_content=turn.assistant.content
                         )
                     exposed_before_turn = tool_exposure.exposed_names
+                    recovery_pending = False
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         definition = self._registry.definition(model_call.tool_name)
@@ -209,12 +238,16 @@ class ChatRuntime:
                                 "not_exposed",
                                 "Tool is not exposed. Call orion.tools.expand with this exact "
                                 "catalog name, then retry.",
+                                model_recovery_required=True,
                             )
                         else:
                             result = await self._runner.run_async(
                                 model_call, scope, cancellation.is_set
                             )
                         self._persist_tool_result(session_id, request_id, result)
+                        recovery_pending = recovery_pending or bool(
+                            result.error and result.error.model_recovery_required
+                        )
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
             self._store.complete_request(request_id, "cancelled")
@@ -246,14 +279,25 @@ class ChatRuntime:
         scope: RuntimeScope,
         cancellation: asyncio.Event,
         tool_exposure: ToolExposureRequest,
+        *,
+        recovery_decision: bool = False,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
         context = self._context_builder.build_with_metadata(
             session_id, scope.project_id, project_id_is_resolved=True
         )
+        recovery_message = (
+            (ContextMessage(role="system", content=_RECOVERY_DECISION_INSTRUCTIONS),)
+            if recovery_decision
+            else ()
+        )
         async for event in self._backend.stream(
-            (*context.messages, ContextMessage(role="system", content=tool_exposure.catalog)),
+            (
+                *context.messages,
+                *recovery_message,
+                ContextMessage(role="system", content=tool_exposure.catalog),
+            ),
             tool_exposure.model_tools,
             settings,
             cancellation,

@@ -174,6 +174,7 @@ def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
                     "Document was not found. Obtain an exact visible document_id with "
                     "knowledge.list_documents or knowledge.search, then retry; do not use "
                     "a name or title as document_id.",
+                    model_recovery_required=True,
                 )
             return ToolResult.failure(call.call_id, call.tool_name, "not_found", str(error))
         sources = tuple(service.source_for_segment(segment) for segment in window.segments)
