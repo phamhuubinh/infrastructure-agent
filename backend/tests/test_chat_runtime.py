@@ -266,6 +266,37 @@ async def test_adapter_parsed_whitespace_citation_is_rejected_when_not_visible(
 
 
 @pytest.mark.anyio
+async def test_invalid_intermediate_citation_does_not_block_tool_execution(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand("calculator.evaluate"),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Calculating. [[source: unavailable]]",
+                    citation_source_ref_ids=("unavailable",),
+                ),
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="calc-1",
+                        tool_name="calculator.evaluate",
+                        arguments={"expression": "2 + 3"},
+                    ),
+                ),
+            ),
+            ModelTurn(assistant=AssistantMessage(content="The result is 5.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend).submit(session_id, "Calculate 2 + 3")
+
+    assert outcome.assistant_content == "The result is 5."
+    assert len(backend.calls) == 3
+
+
+@pytest.mark.anyio
 async def test_assistant_deltas_are_public_but_persist_one_final_message(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [ModelTurn(assistant=AssistantMessage(content="Streamed answer."))],

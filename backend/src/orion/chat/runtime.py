@@ -190,7 +190,8 @@ class ChatRuntime:
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
-                    self._validate_citations(turn, scope, visible_sources)
+                    if not turn.tool_calls:
+                        self._validate_citations(turn, scope, visible_sources)
                     recovery_abandoned = (
                         not turn.tool_calls
                         and (recovery_pending or capability_action_pending)
