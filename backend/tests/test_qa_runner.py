@@ -937,6 +937,26 @@ def test_http_error_after_message_send_persists_failure_trace(qa_runner, monkeyp
     assert "raw-document-id" not in json.dumps(results[0])
 
 
+def test_failure_trace_prioritizes_latest_observed_timeline(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    earlier = [
+        {
+            "kind": "assistant_message",
+            "payload": {"content": f"earlier-{index}"},
+        }
+        for index in range(qa_runner.FAILURE_TRACE_EVENT_LIMIT)
+    ]
+    latest = [
+        {
+            "kind": "assistant_message",
+            "payload": {"content": "latest-failing-conversation"},
+        }
+    ]
+
+    trace = qa_runner.failure_trace([earlier, latest], ())
+
+    assert [item["content_excerpt"] for item in trace] == ["latest-failing-conversation"]
+
+
 def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     _runner_mocks(qa_runner, monkeypatch)
     case = qa_runner.Case(id="success", prompt="one", category="qa")

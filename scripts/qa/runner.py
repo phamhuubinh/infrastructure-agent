@@ -243,7 +243,8 @@ def failure_trace(
 ) -> list[dict[str, object]]:
     """Project observed timelines into bounded report-safe failure diagnostics."""
     trace: list[dict[str, object]] = []
-    for timeline in timelines:
+    selected_timelines = timelines[-1:] if len(timelines) > 1 else timelines
+    for timeline in selected_timelines:
         for item in timeline:
             if len(trace) == FAILURE_TRACE_EVENT_LIMIT:
                 return trace
