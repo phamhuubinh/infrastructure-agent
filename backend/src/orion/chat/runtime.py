@@ -332,7 +332,10 @@ class ChatRuntime:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
         context = self._context_builder.build_with_metadata(
-            session_id, scope.project_id, project_id_is_resolved=True
+            session_id,
+            scope.project_id,
+            project_id_is_resolved=True,
+            attachment_ids=scope.attachment_ids,
         )
         recovery_message = (
             (ContextMessage(role="system", content=_RECOVERY_DECISION_INSTRUCTIONS),)
