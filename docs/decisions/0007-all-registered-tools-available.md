@@ -3,7 +3,8 @@
 ## Decision
 
 Every successfully registered/configured ordinary tool is discoverable in Chat and
-Project through one deterministic catalog derived from the canonical registry.
+Project through one deterministic exact-name catalog derived from the canonical
+registry. Its full description and provider schema appear only after expansion.
 
 The model uses one generic expansion control to request one or more exact catalog
 names. Full schemas are then exposed only for that request's selected subset. The

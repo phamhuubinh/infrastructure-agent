@@ -26,6 +26,16 @@ ToolHandler = Callable[[ToolCall], object]
 EXPAND_TOOL_NAME = "orion.tools.expand"
 
 
+def compact_tool_catalog(definitions: tuple[ToolDefinition, ...]) -> str:
+    """Project the canonical registry into exact names for model discovery.
+
+    Descriptions belong to the provider schemas shown after expansion, so the
+    initial catalog only needs stable exact names.  Keeping this projection
+    generic preserves automatic discoverability for every registered tool.
+    """
+    return "\n".join(("Tools:", *(definition.name for definition in definitions)))
+
+
 @dataclass(frozen=True)
 class ToolRegistration:
     definition: ToolDefinition
@@ -38,16 +48,10 @@ class ToolExposure:
     def __init__(self, definitions: tuple[ToolDefinition, ...]) -> None:
         self._definitions = definitions
         self._definitions_by_name = {definition.name: definition for definition in definitions}
-        self._catalog = "\n".join(
-            (
-                "Available ordinary tools. To use one, first call orion.tools.expand with its "
-                "exact name in tool_names:",
-                *(f"- {definition.name}: {definition.description}" for definition in definitions),
-            )
-        )
+        self._catalog = compact_tool_catalog(definitions)
         expand_definition = ToolDefinition(
             name=EXPAND_TOOL_NAME,
-            description="Expose one or more exact catalog tool names before calling them.",
+            description="Expand exact catalog tool names.",
             input_schema={
                 "type": "object",
                 "properties": {"tool_names": {"type": "array", "items": {"type": "string"}}},

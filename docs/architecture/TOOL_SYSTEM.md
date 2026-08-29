@@ -32,7 +32,7 @@ discover/register configured tools
        ↓
 validate ToolDefinition contracts
        ↓
-build registry-derived catalog and expansion control
+build registry-derived exact-name catalog and expansion control
        ↓
 all registered ordinary tools discoverable on every Chat/Project model turn
        ↓

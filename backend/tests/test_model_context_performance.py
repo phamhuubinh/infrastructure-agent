@@ -31,13 +31,13 @@ from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 9_467
 EXPECTED_SIMPLE_PROXY_BYTES = 11_117
-EXPECTED_CATALOG_BYTES = 2_188
-EXPECTED_EXPANSION_SCHEMA_BYTES = 269
-EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 3_392
-EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 3_660
-EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 4_489
-EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 4_396
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 10_586
+EXPECTED_CATALOG_BYTES = 508
+EXPECTED_EXPANSION_SCHEMA_BYTES = 237
+EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_680
+EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 1_948
+EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 2_777
+EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 2_684
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 8_874
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -182,6 +182,10 @@ def test_progressive_model_view_size_regressions(store) -> None:  # type: ignore
     messages = ContextBuilder(store).build(session_id)
     model_messages = (*messages, ContextMessage(role="system", content=exposure.catalog))
 
+    assert exposure.catalog.splitlines() == [
+        "Tools:",
+        *(definition.name for definition in definitions),
+    ]
     assert len(exposure.catalog.encode()) == EXPECTED_CATALOG_BYTES
     assert (
         len(json.dumps(exposure.model_tools[0].provider_schema(), separators=(",", ":")).encode())

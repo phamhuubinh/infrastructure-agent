@@ -71,11 +71,10 @@ def test_catalog_is_deterministic_sanitized_and_derived_from_the_registry() -> N
 
     assert first.catalog == second.catalog
     assert first.catalog.splitlines() == [
-        "Available ordinary tools. To use one, first call orion.tools.expand with its "
-        "exact name in tool_names:",
-        "- fake.alpha: Use fake.alpha for its registered operation.",
-        "- fake.beta: Use fake.beta for its registered operation.",
-        "- fake.newly_registered: Use fake.newly_registered for its registered operation.",
+        "Tools:",
+        "fake.alpha",
+        "fake.beta",
+        "fake.newly_registered",
     ]
     assert [definition.name for definition in first.model_tools] == [EXPAND_TOOL_NAME]
     with pytest.raises(TypeError, match="frozen JSON snapshot"):
@@ -85,6 +84,27 @@ def test_catalog_is_deterministic_sanitized_and_derived_from_the_registry() -> N
     )
     for internal_field in ("handler_key", "credential_ref", "api_key", "runtime_scope"):
         assert internal_field not in model_visible
+
+
+def test_expanded_tool_keeps_its_provider_description_and_schema() -> None:
+    exposure = _registry().new_tool_exposure()
+
+    exposure.expand(
+        ModelToolCall(
+            call_id="expand",
+            tool_name=EXPAND_TOOL_NAME,
+            arguments={"tool_names": ["fake.alpha"]},
+        )
+    )
+
+    expanded = exposure.model_tools[1].provider_schema()["function"]
+    assert expanded["name"] == "fake.alpha"
+    assert expanded["description"] == "Use fake.alpha for its registered operation."
+    assert expanded["parameters"] == {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
 
 
 def test_expansion_is_generic_additive_and_accepts_multiple_exact_names() -> None:

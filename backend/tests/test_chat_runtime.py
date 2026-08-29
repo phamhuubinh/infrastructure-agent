@@ -74,7 +74,7 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert executions == 0
     assert len(backend.calls) == 1
     assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert "fake.count: Counter." in backend.calls[0][0][-1].content
+    assert backend.calls[0][0][-1].content == "Tools:\nfake.count"
 
 
 @pytest.mark.anyio
