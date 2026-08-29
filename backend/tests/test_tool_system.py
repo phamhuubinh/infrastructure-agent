@@ -131,15 +131,34 @@ def test_registry_reuses_immutable_model_definition_snapshot() -> None:
     assert registry.arguments_are_valid("fake.structured", {})
 
 
-def test_provider_schema_preserves_model_visible_defaults() -> None:
+def test_provider_projection_keeps_argument_shape_while_canonical_schema_stays_closed() -> None:
     definition = _definition(
         {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "default": 5}},
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+                "mode": {"type": "string", "enum": ["safe", "fast"]},
+            },
+            "required": ["mode"],
             "additionalProperties": False,
         }
     )
 
     parameters = definition.provider_schema()["function"]["parameters"]
 
-    assert parameters["properties"]["limit"]["default"] == 5
+    assert parameters == {
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer"},
+            "mode": {"type": "string", "enum": ["safe", "fast"]},
+        },
+        "required": ["mode"],
+    }
+    assert definition.input_schema["properties"]["limit"]["default"] == 5
+    assert definition.input_schema["additionalProperties"] is False
+
+    registry = ToolRegistryBuilder()
+    registry.register(definition, lambda _call: {})
+    frozen = registry.freeze()
+    assert frozen.arguments_are_valid("fake.structured", {"mode": "safe", "limit": 5})
+    assert not frozen.arguments_are_valid("fake.structured", {"mode": "safe", "extra": True})

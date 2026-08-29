@@ -28,8 +28,8 @@ from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
 from orion.tool_runtime.registry import ToolRegistryBuilder
 
-BASELINE_TOOL_SCHEMA_BYTES = 15_365
-BASELINE_SIMPLE_PROXY_BYTES = 16_252
+EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 9_467
+EXPECTED_SIMPLE_PROXY_BYTES = 11_117
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -125,14 +125,29 @@ def _append_zabbix_exchange(store, session_id: str, result: ToolResult) -> None:
 
 def test_provider_tool_schema_size_and_simple_context_regressions(store) -> None:  # type: ignore[no-untyped-def]
     definitions = _all_definitions()
-    schema_bytes = len(json.dumps([item.provider_schema() for item in definitions]).encode())
+    provider_schemas = [item.provider_schema() for item in definitions]
+    schema_bytes = len(json.dumps(provider_schemas, separators=(",", ":")).encode())
     assert len(definitions) == 25
-    assert schema_bytes == BASELINE_TOOL_SCHEMA_BYTES
+    assert schema_bytes == EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES
+    assert {schema["function"]["name"] for schema in provider_schemas} == {
+        definition.name for definition in definitions
+    }
+    model_visible = json.dumps(provider_schemas)
+    for internal_field in (
+        "handler_key",
+        "credential_ref",
+        "api_key",
+        "password",
+        "runtime_scope",
+        "principal_id",
+        "workspace_id",
+    ):
+        assert internal_field not in model_visible
 
     session_id = store.create_session()
     store.append_timeline(session_id, None, "user_message", {"content": "Hello"})
     simple_proxy = _provider_proxy(ContextBuilder(store).build(session_id))
-    assert simple_proxy == BASELINE_SIMPLE_PROXY_BYTES
+    assert simple_proxy == EXPECTED_SIMPLE_PROXY_BYTES
 
 
 def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store) -> None:  # type: ignore[no-untyped-def]
@@ -146,7 +161,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 22_470
+    assert resumed_proxy == 17_335
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert resumed_proxy <= 23_000
     assert len(context[-1].content.encode()) <= 6_000
@@ -212,7 +227,7 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
     assert _messages_bytes(current_messages) == 10_508
-    assert _provider_proxy(context) == 27_215
+    assert _provider_proxy(context) == 22_080
 
 
 def test_projection_preserves_collection_counts_when_large_details_precede_records() -> None:
@@ -311,7 +326,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 27_763
+    assert history_proxy == 22_628
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)

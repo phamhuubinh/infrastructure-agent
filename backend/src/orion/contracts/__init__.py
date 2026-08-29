@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Literal, NoReturn
 
@@ -163,15 +163,57 @@ class ToolDefinition(CanonicalModel):
         return value
 
     def provider_schema(self) -> dict[str, Any]:
-        """The only tool shape that crosses into a model provider."""
+        """Return the compact, deterministic provider projection of this tool.
+
+        ``input_schema`` remains the complete canonical JSON Schema used by the
+        ToolRegistry to validate every model call.  Providers receive only the
+        structural cues needed to choose a tool and form its arguments; bounds,
+        regexes, defaults, and closed-object enforcement stay server-side.
+        """
         return {
             "type": "function",
             "function": {
                 "name": self.name,
                 "description": self.description,
-                "parameters": self.input_schema,
+                "parameters": _provider_schema_projection(self.input_schema),
             },
         }
+
+
+def _provider_schema_projection(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep model-useful JSON Schema structure without duplicating validation rules."""
+    projection: dict[str, Any] = {}
+    for key in ("type", "description", "format", "enum", "const"):
+        if key in schema:
+            projection[key] = _json_snapshot(schema[key])
+    if "properties" in schema:
+        properties = schema["properties"]
+        if isinstance(properties, Mapping):
+            projection["properties"] = {
+                str(name): _provider_schema_projection(value)
+                for name, value in properties.items()
+                if isinstance(value, Mapping)
+            }
+    if "items" in schema and isinstance(schema["items"], Mapping):
+        projection["items"] = _provider_schema_projection(schema["items"])
+    if "oneOf" in schema and isinstance(schema["oneOf"], (list, tuple)):
+        projection["oneOf"] = [
+            _provider_schema_projection(option)
+            for option in schema["oneOf"]
+            if isinstance(option, Mapping)
+        ]
+    if "required" in schema:
+        projection["required"] = _json_snapshot(schema["required"])
+    return projection
+
+
+def _json_snapshot(value: Any) -> Any:
+    """Copy JSON-compatible values so provider projections cannot alias inputs."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_snapshot(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_snapshot(item) for item in value]
+    return value
 
 
 class ToolCall(CanonicalModel):

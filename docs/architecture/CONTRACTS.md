@@ -50,7 +50,7 @@ Provider adapters may receive native tool-call IDs. Orion may preserve them for 
 
 ## ToolDefinition
 
-A `ToolDefinition` is the single model-facing definition of one callable tool operation.
+A `ToolDefinition` is the single canonical definition of one callable tool operation.
 
 ```python
 @dataclass
@@ -68,6 +68,13 @@ Required properties:
 - `input_schema` is explicit and machine-validatable;
 - `handler_key` resolves to one registered implementation;
 - credentials are not model arguments unless they are genuinely part of the user's requested data.
+
+Provider adapters derive a compact model-facing projection from the canonical
+`input_schema`. That projection retains tool identity, intent, argument names,
+types, required fields, enums/discriminators, and useful formats. Canonical JSON
+Schema constraints such as closed objects, bounds, regexes, defaults, and collection
+limits remain server-side and are enforced before dispatch. The projection does not
+create another semantic selector or validation contract.
 
 Do not duplicate tool identity/schema in a separate semantic selector.
 

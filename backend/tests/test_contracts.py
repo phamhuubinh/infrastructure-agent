@@ -34,6 +34,70 @@ def test_contracts_serialize_and_hide_handler_binding_from_provider() -> None:
     assert scope.project_id is None
 
 
+def test_provider_schema_projection_is_deterministic_and_does_not_alias_canonical_schema() -> None:
+    definition = ToolDefinition(
+        name="document.edit",
+        description="Apply a structured document edit.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "operation": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"const": "replace"},
+                                "text": {"type": "string", "minLength": 1},
+                            },
+                            "required": ["kind", "text"],
+                            "additionalProperties": False,
+                        }
+                    ]
+                },
+                "at": {"type": "string", "format": "date-time", "pattern": "secret"},
+            },
+            "required": ["operation"],
+            "additionalProperties": False,
+        },
+        handler_key="internal.document.edit",
+        operation_kind="mutation",
+    )
+
+    first = definition.provider_schema()
+    second = definition.provider_schema()
+
+    assert first == second
+    parameters = first["function"]["parameters"]
+    assert parameters == {
+        "type": "object",
+        "properties": {
+            "operation": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"const": "replace"},
+                            "text": {"type": "string"},
+                        },
+                        "required": ["kind", "text"],
+                    }
+                ]
+            },
+            "at": {"type": "string", "format": "date-time"},
+        },
+        "required": ["operation"],
+    }
+    parameters["properties"]["operation"]["oneOf"][0]["properties"]["kind"]["const"] = "bad"
+    assert (
+        definition.input_schema["properties"]["operation"]["oneOf"][0]["properties"]["kind"][
+            "const"
+        ]
+        == "replace"
+    )
+    assert definition.input_schema["additionalProperties"] is False
+    assert definition.operation_kind == "mutation"
+
+
 def test_contract_validation_rejects_invalid_runtime_data() -> None:
     with pytest.raises(ValidationError, match="ModelTurn requires"):
         ModelTurn()
