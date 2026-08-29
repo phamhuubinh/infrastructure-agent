@@ -893,9 +893,24 @@ def _create_session(base_url: str, project_id: str | None = None) -> dict[str, o
 
 
 def _send(base_url: str, session_id: str, content: str) -> None:
-    response = _json_request(
-        base_url, "POST", f"/api/sessions/{session_id}/messages", {"content": content}
-    )
+    try:
+        response = _json_request(
+            base_url, "POST", f"/api/sessions/{session_id}/messages", {"content": content}
+        )
+    except urllib.error.HTTPError as error:
+        try:
+            timeline = _timeline(base_url, session_id)
+        except (
+            QARequestTimeout,
+            ScenarioFailure,
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ):
+            timeline = None
+        if timeline is not None:
+            setattr(error, "observed_timelines", [timeline])
+        raise
     if not isinstance(response, dict) or not isinstance(
         response.get("assistant_content"), str
     ):
@@ -1016,6 +1031,11 @@ def _execute_case(
         return _execute_case_inner(base_url, case, secret, observed)
     except ScenarioFailure as error:
         error.retain_timelines(observed)
+        raise
+    except urllib.error.HTTPError as error:
+        captured = list(observed)
+        captured.extend(getattr(error, "observed_timelines", []))
+        setattr(error, "observed_timelines", captured)
         raise
 
 
@@ -1234,19 +1254,24 @@ def _run_structured(
                         result["status"] = "MANUAL_REVIEW"
                     results.append(result)
                 except urllib.error.HTTPError as error:
-                    results.append(
-                        {
-                            "phase": "canonical",
-                            "tier": "smoke" if "smoke" in case.tiers else "full",
-                            "id": case.id,
-                            "category": case.category,
-                            "manual_quality": case.manual_quality,
-                            "status": "FAIL",
-                            "reason": "HTTP/runtime failure",
-                            "detail": type(error).__name__,
-                            **http_error_diagnostics(error),
-                        }
+                    result = {
+                        "phase": "canonical",
+                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "id": case.id,
+                        "category": case.category,
+                        "manual_quality": case.manual_quality,
+                        "status": "FAIL",
+                        "reason": "HTTP/runtime failure",
+                        "detail": type(error).__name__,
+                        **http_error_diagnostics(error),
+                    }
+                    trace = failure_trace(
+                        getattr(error, "observed_timelines", []),
+                        (model["api_key"],),
                     )
+                    if trace:
+                        result["failure_trace"] = trace
+                    results.append(result)
                 except (
                     AssertionError,
                     QARequestTimeout,

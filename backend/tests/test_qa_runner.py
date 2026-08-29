@@ -882,6 +882,61 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
     assert json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))["failed"] == 1
 
 
+def test_http_error_after_message_send_persists_failure_trace(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    timeline = [
+        {
+            "kind": "tool_call",
+            "tool_name": "knowledge.read",
+            "call_id": "read",
+            "payload": {"arguments": {"document_id": "raw-document-id"}},
+        },
+        {
+            "kind": "tool_result",
+            "tool_name": "knowledge.read",
+            "call_id": "read",
+            "payload": {
+                "result": {
+                    "status": "success",
+                    "sources": [{"source_ref_id": "source-1"}],
+                }
+            },
+        },
+    ]
+
+    def request(_, method, path, body=None):  # type: ignore[no-untyped-def]
+        if method == "POST" and path == "/api/sessions":
+            return {"session_id": "session"}
+        if method == "POST" and path == "/api/sessions/session/messages":
+            raise urllib.error.HTTPError(
+                "http://qa/api/sessions/session/messages",
+                502,
+                "Bad Gateway",
+                None,
+                BytesIO(b'{"detail":"Assistant cited an unavailable source."}'),
+            )
+        if method == "GET" and path == "/api/sessions/session/timeline":
+            return timeline
+        pytest.fail(f"unexpected request: {method} {path}")
+
+    monkeypatch.setattr(qa_runner, "_json_request", request)
+    case = qa_runner.Case(id="http-trace", prompt="read", category="qa")
+
+    results, _ = qa_runner._run_structured(
+        [case],
+        {"base_url": "http://model", "id": "model", "api_key": "secret"},
+        False,
+    )
+
+    assert results[0]["status"] == "FAIL"
+    assert results[0]["http_status"] == 502
+    assert results[0]["http_detail"] == "Assistant cited an unavailable source."
+    trace = results[0]["failure_trace"]
+    assert trace[0]["argument_names"] == ["document_id"]
+    assert trace[1]["source_ref_ids"] == ["source-1"]
+    assert "raw-document-id" not in json.dumps(results[0])
+
+
 def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     _runner_mocks(qa_runner, monkeypatch)
     case = qa_runner.Case(id="success", prompt="one", category="qa")
