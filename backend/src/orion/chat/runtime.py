@@ -51,6 +51,14 @@ _RECOVERY_DECISION_INSTRUCTIONS = (
 )
 
 
+# A recovery decision is only forced after terminal prose abandons a ToolResult
+# that explicitly requested model recovery. Two decisions cover a semantic
+# recovery followed by one independently recoverable control-plane barrier
+# (for example, progressive tool exposure), while keeping the model loop
+# strictly bounded.
+_MAX_FORCED_RECOVERY_DECISIONS = 2
+
+
 class ChatRuntime:
     def __init__(
         self,
@@ -132,7 +140,7 @@ class ChatRuntime:
                         output_tokens += state_preparation.usage.output_tokens
                 tool_exposure = self._registry.new_tool_exposure()
                 recovery_pending = False
-                recovery_decision_used = False
+                forced_recovery_decisions_used = 0
                 recovery_decision_next = False
                 while True:
                     self._ensure_not_cancelled(cancellation)
@@ -159,7 +167,9 @@ class ChatRuntime:
                     )
                     self._validate_citations(turn, scope, visible_sources)
                     recovery_abandoned = (
-                        not turn.tool_calls and recovery_pending and not recovery_decision_used
+                        not turn.tool_calls
+                        and recovery_pending
+                        and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
                     )
                     metrics: dict[str, int] | None = None
                     if not turn.tool_calls and not recovery_abandoned:
@@ -188,7 +198,7 @@ class ChatRuntime:
                             raise RuntimeError("Model returned an invalid terminal turn.")
                         if recovery_abandoned:
                             recovery_pending = False
-                            recovery_decision_used = True
+                            forced_recovery_decisions_used += 1
                             recovery_decision_next = True
                             self._emit(request_id, "model.resumed", {})
                             continue

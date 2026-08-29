@@ -448,7 +448,7 @@ async def test_schema_invalid_call_that_model_immediately_corrects_uses_no_force
 
 
 @pytest.mark.anyio
-async def test_schema_recovery_decision_remains_one_shot_after_another_invalid_call(
+async def test_recovery_decisions_stop_after_the_second_marked_failure(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
@@ -473,6 +473,16 @@ async def test_schema_recovery_decision_remains_one_shot_after_another_invalid_c
                     ),
                 )
             ),
+            ModelTurn(assistant=AssistantMessage(content="Use the tool again.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="invalid-three",
+                        tool_name="fake.alpha",
+                        arguments={"value": "retry", "project_id": "wrong"},
+                    ),
+                )
+            ),
             ModelTurn(assistant=AssistantMessage(content="Please clarify.")),
         ]
     )
@@ -481,7 +491,98 @@ async def test_schema_recovery_decision_remains_one_shot_after_another_invalid_c
     outcome = await runtime(store, backend, _registry()).submit(session_id, "Retry tool")
 
     assert outcome.assistant_content == "Please clarify."
-    assert len(backend.calls) == 5
+    assert len(backend.calls) == 7
+    assert any("model recovery as required" in message.content for message in backend.calls[3][0])
+    assert any("model recovery as required" in message.content for message in backend.calls[5][0])
+
+
+@pytest.mark.anyio
+async def test_two_stage_generic_recovery_chain_preserves_model_tool_choice(store) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    builder = ToolRegistryBuilder()
+
+    def read_handler(call: ToolCall) -> ToolResult:
+        calls.append(call)
+        return ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "not_found",
+            "The requested value is unavailable. Obtain an exact value with another tool.",
+            model_recovery_required=True,
+        )
+
+    def list_handler(call: ToolCall) -> ToolResult:
+        calls.append(call)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"values": ["visible-value"]},
+        )
+
+    builder.register(_definition("fake.read"), read_handler)
+    builder.register(
+        ToolDefinition(
+            name="fake.list",
+            description="List visible values.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="internal.fake.list",
+        ),
+        list_handler,
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-unexposed",
+                        tool_name="fake.read",
+                        arguments={"value": "requested"},
+                    ),
+                )
+            ),
+            _expand("fake.read", call_id="expand-read"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-semantic",
+                        tool_name="fake.read",
+                        arguments={"value": "requested"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Call fake.list to recover.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(call_id="list-unexposed", tool_name="fake.list", arguments={}),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Expand fake.list first.")),
+            _expand("fake.list", call_id="expand-list"),
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="list", tool_name="fake.list", arguments={}),)
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered visible value.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Recover")
+
+    assert outcome.assistant_content == "Recovered visible value."
+    assert len(backend.calls) == 9
+    assert any("model recovery as required" in message.content for message in backend.calls[4][0])
+    assert any("model recovery as required" in message.content for message in backend.calls[6][0])
+    assert [call.tool_name for call in calls] == ["fake.read", "fake.list"]
+    assert [
+        item.payload["content"]
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message" and item.payload["content"]
+    ] == [
+        "Call fake.list to recover.",
+        "Expand fake.list first.",
+        "Recovered visible value.",
+    ]
 
 
 @pytest.mark.anyio

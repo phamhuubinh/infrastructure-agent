@@ -184,8 +184,22 @@ async def test_recovery_decision_usage_is_counted_once_on_the_final_answer(store
                 ModelUsage(input_tokens=30, output_tokens=3),
             ),
             (
-                ModelTurn(assistant=AssistantMessage(content="Final answer.")),
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id="recover-again", tool_name="fake.recover", arguments={}
+                        ),
+                    )
+                ),
                 ModelUsage(input_tokens=40, output_tokens=4),
+            ),
+            (
+                ModelTurn(assistant=AssistantMessage(content="Use recovery again.")),
+                ModelUsage(input_tokens=50, output_tokens=5),
+            ),
+            (
+                ModelTurn(assistant=AssistantMessage(content="Final answer.")),
+                ModelUsage(input_tokens=60, output_tokens=6),
             ),
         ]
     )
@@ -197,9 +211,10 @@ async def test_recovery_decision_usage_is_counted_once_on_the_final_answer(store
     assert "metrics" not in assistants[-2].payload
     assert assistants[-1].payload["metrics"] == {
         "response_time_ms": assistants[-1].payload["metrics"]["response_time_ms"],
-        "input_tokens": 100,
-        "output_tokens": 10,
+        "input_tokens": 210,
+        "output_tokens": 21,
     }
+    assert len(backend.calls) == 6
 
 
 @pytest.mark.anyio
@@ -498,6 +513,35 @@ class RecoveryBlockingBackend(ModelBackend):
             raise asyncio.CancelledError
 
 
+class SecondRecoveryBlockingBackend(ModelBackend):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.recovery_started = asyncio.Event()
+
+    async def stream(self, messages, tools, settings: ModelSettings, cancellation):  # type: ignore[no-untyped-def]
+        self.calls += 1
+        if self.calls == 1:
+            yield ModelTurnCompleted(turn=_expand("fake.recover"))
+        elif self.calls in {2, 4}:
+            yield ModelTurnCompleted(
+                turn=ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id=f"recover-{self.calls}",
+                            tool_name="fake.recover",
+                            arguments={},
+                        ),
+                    )
+                )
+            )
+        elif self.calls in {3, 5}:
+            yield ModelTurnCompleted(turn=ModelTurn(assistant=AssistantMessage(content="Recover.")))
+        else:
+            self.recovery_started.set()
+            await cancellation.wait()
+            raise asyncio.CancelledError
+
+
 class FailingBackend(ModelBackend):
     async def stream(self, messages, tools, settings: ModelSettings, cancellation):  # type: ignore[no-untyped-def]
         raise ModelBackendError("Model unavailable.")
@@ -582,6 +626,39 @@ async def test_runtime_cancellation_stops_the_extra_recovery_decision(store) -> 
     with pytest.raises(RequestCancelled):
         await task
     assert backend.calls == 4
+    assert store.request(request_id)["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_runtime_cancellation_stops_the_second_recovery_decision(store) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.recover",
+            description="Return a recoverable error.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.recover",
+        ),
+        lambda call: ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "not_found",
+            "Recoverable failure.",
+            model_recovery_required=True,
+        ),
+    )
+    backend = SecondRecoveryBlockingBackend()
+    chat = runtime(store, backend, builder.freeze())
+    session_id = store.create_session()
+    request_id = chat.begin(session_id, "Recover")
+    task = asyncio.create_task(chat.run(session_id, request_id))
+
+    await backend.recovery_started.wait()
+    assert chat.cancel(request_id)
+
+    with pytest.raises(RequestCancelled):
+        await task
+    assert backend.calls == 6
     assert store.request(request_id)["status"] == "cancelled"
 
 
