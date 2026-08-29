@@ -2,7 +2,9 @@
 
 ## Core contract
 
-The model is called with conversation context and the complete set of currently registered tool definitions.
+The model is called with conversation context, a compact registry-derived catalog,
+and one generic expansion control. Full ordinary schemas appear only after the model
+requests their exact catalog names.
 
 The model may return:
 
@@ -15,7 +17,7 @@ Provider adapters normalize provider-native output into Orion's canonical runtim
 
 ```text
 while model has not produced a final answer:
-    model_turn = model(context, registered_tools)
+    model_turn = model(context, expansion_control + exposed_tools)
 
     if model_turn contains tool calls:
         normalize ModelToolCall
@@ -35,7 +37,7 @@ This is a model-native tool loop, not a model-visible Orion workflow state machi
 ```text
 Model owns:
 - whether a tool is useful;
-- which registered tool to call;
+- which catalog names to expand and which exposed tool to call;
 - semantic arguments such as query, expression, host operation parameters;
 - whether another call is useful after seeing ToolResult;
 - when to answer.
@@ -78,14 +80,18 @@ A tool call is simply a tool call. A tool result is simply a tool result.
 For the current architecture:
 
 ```text
-registered/configured tool
-        =
-available to the model
+registered/configured ordinary tool
+        ↓
+compact deterministic catalog
+        ↓
+model-controlled exact-name expansion
+        ↓
+request-local full schema exposure
 ```
 
-There is no `capability.search`, deferred tool exposure, namespace-loading protocol, or per-request tool picker in the target.
-
-If the catalog becomes too large in the future, changing this is a new architecture decision rather than an implicit optimization.
+The catalog is not a semantic router, user tool picker, or integration-specific
+protocol. It is a generic registry projection. Exposure resets for the next user
+request and never authorizes a hidden ordinary tool to dispatch.
 
 ## Sequential and multiple calls
 

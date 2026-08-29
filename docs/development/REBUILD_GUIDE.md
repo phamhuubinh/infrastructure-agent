@@ -73,7 +73,7 @@ After reachability proves the new runtime owns all user requests, remove superse
 
 - semantic tool selector;
 - old agent decision FSM;
-- dynamic exposure/discovery stages;
+- legacy dynamic exposure/discovery stages not derived from the canonical registry;
 - duplicated authority/evidence abstractions not needed by the current product;
 - stale tests/fixtures for the old protocol.
 

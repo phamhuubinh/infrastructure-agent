@@ -216,6 +216,12 @@ def _json_snapshot(value: Any) -> Any:
     return value
 
 
+class ToolExpansionRequest(CanonicalModel):
+    """Model-requested expansion of exact ordinary tool names."""
+
+    tool_names: tuple[str, ...] = Field(min_length=1)
+
+
 class ToolCall(CanonicalModel):
     call_id: str = Field(min_length=1)
     tool_name: str = Field(min_length=1)

@@ -15,7 +15,8 @@ A model turn may receive:
 - recent conversation history;
 - a bounded older conversation summary;
 - metadata/content for explicitly attached/current documents when appropriate;
-- model-visible definitions for every registered tool.
+- a compact catalog of every registered ordinary tool and generic expansion control;
+- full schemas only for ordinary tools expanded during this request.
 
 ## Flow
 
@@ -26,7 +27,7 @@ persist user item
    ↓
 assemble context
    ↓
-call model with all registered tools
+call model with catalog + expansion control + request-exposed tools
    ↓
 ┌──────────────────────┬──────────────────────┐
 │ direct/final response│ tool call            │
@@ -68,4 +69,5 @@ if prompt contains "Grafana"  → Grafana
 if prompt contains "CPU"      → Linux
 ```
 
-The model sees the request and chooses its own tools.
+The model sees the request, catalog, and expansion control, then chooses its own
+tools. Orion does not decide which catalog name to expand.

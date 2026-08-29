@@ -24,8 +24,8 @@ The architecture is intentionally centered on one loop:
                v
 ┌────────────────────────────┐
 │           MODEL            │
-│ all registered tools       │
-│ are available automatically│
+│ registry-derived catalog   │
+│ + expanded tool schemas    │
 └──────────┬───────────┬─────┘
            │           │
      final answer      │ tool call

@@ -8,7 +8,7 @@ When implementation migration is explicitly requested and complete, remove code 
 - semantic pre-routing/tool selection before the model;
 - keyword/alias intent maps used to choose tools;
 - per-chat manual tool selection;
-- dynamic capability search/exposure;
+- integration-specific capability search/exposure or semantic routing;
 - artificial per-request tool-call quota/budget orchestration;
 - duplicate Chat and Project runtimes;
 - provider-specific types inside core runtime;

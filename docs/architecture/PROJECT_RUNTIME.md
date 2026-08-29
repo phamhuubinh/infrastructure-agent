@@ -16,7 +16,8 @@ When a chat is associated with an active project, Orion deterministically includ
 - project instructions/description when configured;
 - references to the project's documents/knowledge source.
 
-The model still receives the same registered tool set as ordinary Chat.
+The model receives the same registry-derived catalog and generic expansion control
+as ordinary Chat; Project does not own a separate tool protocol.
 
 ## Scope ownership
 
@@ -84,7 +85,7 @@ Orion assembles deterministic context:
 - active Project A metadata
 - current attachments
         ↓
-Model sees all registered tools
+Model sees the registry-derived catalog
         ↓
 Model may:
 - answer directly

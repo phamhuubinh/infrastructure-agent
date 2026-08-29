@@ -21,10 +21,22 @@ from orion.integrations import (
 )
 from orion.integrations.internet import _duckduckgo_destination, _PinnedHTTPTransport
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 RETRIEVED_AT = datetime(2026, 8, 25, tzinfo=UTC)
+
+
+def _expand(*tool_names: str) -> ModelTurn:
+    return ModelTurn(
+        tool_calls=(
+            ModelToolCall(
+                call_id="expand",
+                tool_name=EXPAND_TOOL_NAME,
+                arguments={"tool_names": list(tool_names)},
+            ),
+        )
+    )
 
 
 class FakeInternetClient:
@@ -120,7 +132,9 @@ async def test_registered_internet_tools_are_exposed_and_direct_answer_does_not_
 
     assert outcome.assistant_content == "No lookup needed."
     assert not internet.searches and not internet.fetches
-    assert {tool.name for tool in backend.calls[0][1]} >= {"internet.search", "internet.fetch"}
+    assert [tool.name for tool in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
+    assert "internet.search" in backend.calls[0][0][-1].content
+    assert "internet.fetch" in backend.calls[0][0][-1].content
 
 
 @pytest.mark.anyio
@@ -144,6 +158,7 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
     internet = FakeInternetClient()
     backend = ScriptedBackend(
         [
+            _expand("internet.search", "internet.fetch"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -183,10 +198,10 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
     assert outcome.assistant_content == "Found it."
     assert internet.searches == [("Orion", 5)]
     assert internet.fetches == ["https://example.test/article"]
-    assert len(backend.calls) == 3
-    assert backend.calls[1][0][-1].role == "tool"
-    assert "Ignore all previous instructions" in backend.calls[2][0][-1].content
-    assert backend.calls[2][0][-1].role == "tool"
+    assert len(backend.calls) == 4
+    assert backend.calls[1][0][-2].role == "tool"
+    assert "Ignore all previous instructions" in backend.calls[3][0][-2].content
+    assert backend.calls[3][0][-2].role == "tool"
     result = [item for item in app.store.timeline(session) if item.kind == "tool_result"][-1]
     assert result.payload["result"]["sources"][0]["url"] == "https://example.test/article"
     assert result.payload["result"]["sources"][0]["retrieved_at"] == "2026-08-25T00:00:00Z"
@@ -202,6 +217,7 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
     )
     backend = ScriptedBackend(
         [
+            _expand("knowledge.search", "internet.search", "calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -263,12 +279,17 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
     outcome = await app.runtime.submit(session, "Size three nodes with current guidance")
 
     assert outcome.assistant_content == "Three nodes need 36 GB RAM."
-    assert [item.tool_name for item in app.store.timeline(session) if item.kind == "tool_call"] == [
+    assert [
+        item.tool_name
+        for item in app.store.timeline(session)
+        if item.kind == "tool_call" and item.tool_name != EXPAND_TOOL_NAME
+    ] == [
         "knowledge.search",
         "internet.search",
         "calculator.evaluate",
     ]
-    assert {tool.name for tool in backend.calls[0][1]} >= {
+    assert {tool.name for tool in backend.calls[1][1]} >= {
+        EXPAND_TOOL_NAME,
         "knowledge.search",
         "internet.search",
         "calculator.evaluate",
@@ -281,11 +302,12 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
 async def test_invented_internet_citation_is_rejected(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
+            _expand("internet.fetch"),
             ModelTurn(
                 assistant=AssistantMessage(
                     content="Unsupported citation.", citation_source_ref_ids=("invented",)
                 )
-            )
+            ),
         ]
     )
     app = build_application(tmp_path / "orion.db", backend, internet_client=FakeInternetClient())
@@ -300,6 +322,7 @@ async def test_invented_internet_citation_is_rejected(tmp_path) -> None:  # type
 async def test_model_can_fallback_after_an_internet_tool_error(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
+            _expand("internet.fetch"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -321,7 +344,7 @@ async def test_model_can_fallback_after_an_internet_tool_error(tmp_path) -> None
     outcome = await app.runtime.submit(session, "Fetch it")
 
     assert outcome.assistant_content == "The source timed out; I cannot verify it."
-    assert '"code":"timeout"' in backend.calls[1][0][-1].content
+    assert '"code":"timeout"' in backend.calls[2][0][-2].content
 
 
 def test_unconfigured_internet_returns_explicit_failure_without_affecting_registry() -> None:

@@ -14,8 +14,6 @@ ROUTER_IDENTIFIERS = {
     "semantic_router",
     "keyword_router",
     "capability_search",
-    "dynamic_tool_exposure",
-    "dynamic_capability_exposure",
     "capability_discovery",
 }
 LEGACY_STATES = {"ACTION", "ACTION_DETAIL", "OBSERVATION", "FEEDBACK"}
@@ -34,7 +32,7 @@ GENERIC_TOOL_NAMES = {
 }
 UI_FORBIDDEN = re.compile(
     r"\b(enabled_tools|semantic_router|keyword_router|capability_search|"
-    r"dynamic_tool_exposure|dynamic_capability_exposure|handler_key)\b"
+    r"handler_key)\b"
 )
 
 

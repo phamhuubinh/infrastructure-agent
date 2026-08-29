@@ -31,8 +31,6 @@ def test_architecture_check_rejects_executable_forbidden_patterns(tmp_path: Path
         "semantic_router = object()\n"
         "keyword_router = object()\n"
         "capability_search = object()\n"
-        "dynamic_tool_exposure = object()\n"
-        "dynamic_capability_exposure = object()\n"
         "capability_discovery = object()\n"
         "ACTION = 'ACTION'\n"
         "ACTION_DETAIL = 'ACTION_DETAIL'\n"
@@ -47,8 +45,7 @@ def test_architecture_check_rejects_executable_forbidden_patterns(tmp_path: Path
     )
     ui.mkdir()
     (ui / "bad.ts").write_text(
-        "const enabled_tools = semantic_router + keyword_router + capability_search + "
-        "dynamic_tool_exposure + dynamic_capability_exposure + handler_key;",
+        "const enabled_tools = semantic_router + keyword_router + capability_search + handler_key;",
         encoding="utf-8",
     )
 
@@ -82,4 +79,16 @@ def test_architecture_check_ignores_docs_and_test_prose(tmp_path: Path) -> None:
     (ui / "__tests__" / "notes.test.ts").write_text(
         "const note = 'enabled_tools';", encoding="utf-8"
     )
+    assert checker.check(root, ui) == []
+
+
+def test_architecture_check_allows_registry_derived_model_exposure(tmp_path: Path) -> None:
+    checker = _checker()
+    root, ui = tmp_path / "orion", tmp_path / "ui"
+    _runtime(root)
+    (root / "tool_exposure.py").write_text(
+        "class ToolExposure:\n    def catalog(self):\n        return 'registry-derived catalog'\n",
+        encoding="utf-8",
+    )
+
     assert checker.check(root, ui) == []

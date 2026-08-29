@@ -76,6 +76,12 @@ Schema constraints such as closed objects, bounds, regexes, defaults, and collec
 limits remain server-side and are enforced before dispatch. The projection does not
 create another semantic selector or validation contract.
 
+The registry also derives a compact deterministic catalog and one generic expansion
+control from those same canonical definitions. The model may expand exact ordinary
+tool names for the current request; this affects only model schema visibility, never
+the canonical registry or validation authority. Hidden ordinary names are not
+dispatch-authorized.
+
 Do not duplicate tool identity/schema in a separate semantic selector.
 
 ## ToolCall

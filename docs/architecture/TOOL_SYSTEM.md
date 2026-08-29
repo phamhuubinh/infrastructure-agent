@@ -32,9 +32,11 @@ discover/register configured tools
        ↓
 validate ToolDefinition contracts
        ↓
-build model-facing tool schemas
+build registry-derived catalog and expansion control
        ↓
-all registered tools available to every Chat/Project model turn
+all registered ordinary tools discoverable on every Chat/Project model turn
+       ↓
+model-controlled request-local schema exposure
 ```
 
 ## Runtime
@@ -139,5 +141,5 @@ The current target does not introduce:
 - manual tool selection;
 - semantic pre-routing;
 - `capability.search`;
-- dynamic/deferred tool exposure;
+- user-selected or integration-routed tool exposure;
 - product-level per-request tool-call quotas.

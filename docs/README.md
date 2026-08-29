@@ -10,7 +10,7 @@ Orion is a local-first AI technical workbench centered on conversation:
 Chat
   → general conversation
   → session attachments
-  → all registered tools available automatically to the model
+  → registry-derived tools catalog available automatically to the model
 
 Project
   → same Chat runtime

@@ -19,7 +19,19 @@ from orion.contracts import (
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+
+
+def _expand(*tool_names: str, call_id: str = "expand") -> ModelTurn:
+    return ModelTurn(
+        tool_calls=(
+            ModelToolCall(
+                call_id=call_id,
+                tool_name=EXPAND_TOOL_NAME,
+                arguments={"tool_names": list(tool_names)},
+            ),
+        )
+    )
 
 
 class UsageScriptedBackend(ModelBackend):
@@ -61,7 +73,8 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert outcome.assistant_content == "Direct answer."
     assert executions == 0
     assert len(backend.calls) == 1
-    assert [definition.name for definition in backend.calls[0][1]] == ["fake.count"]
+    assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
+    assert "fake.count: Counter." in backend.calls[0][0][-1].content
 
 
 @pytest.mark.anyio
@@ -98,6 +111,10 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
     backend = UsageScriptedBackend(
         [
             (
+                _expand("calculator.evaluate"),
+                ModelUsage(input_tokens=50, output_tokens=10),
+            ),
+            (
                 ModelTurn(
                     tool_calls=(
                         ModelToolCall(
@@ -125,8 +142,8 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
     assert "metrics" not in assistant_items[0].payload
     assert assistant_items[-1].payload["metrics"] == {
         "response_time_ms": assistant_items[-1].payload["metrics"]["response_time_ms"],
-        "input_tokens": 250,
-        "output_tokens": 50,
+        "input_tokens": 300,
+        "output_tokens": 60,
     }
 
 
@@ -134,6 +151,7 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
 async def test_missing_usage_omits_partial_token_totals(store) -> None:  # type: ignore[no-untyped-def]
     backend = UsageScriptedBackend(
         [
+            (_expand("calculator.evaluate"), ModelUsage(input_tokens=50, output_tokens=10)),
             (
                 ModelTurn(
                     tool_calls=(
@@ -206,6 +224,7 @@ async def test_assistant_deltas_are_public_but_persist_one_final_message(store) 
 async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
+            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(content="Calculating. "),
                 tool_calls=(
@@ -218,22 +237,32 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
             ),
             ModelTurn(assistant=AssistantMessage(content="The result is 5.")),
         ],
-        deltas=[["Calculating. "], ["The result ", "is 5."]],
+        deltas=[[], ["Calculating. "], ["The result ", "is 5."]],
     )
     session_id = store.create_session()
 
     outcome = await runtime(store, backend).submit(session_id, "What is 2 + 3?")
 
     assert outcome.assistant_content == "The result is 5."
-    assert len(backend.calls) == 2
+    assert len(backend.calls) == 3
     continuation = backend.calls[1][0]
-    assert continuation[-1].role == "tool"
-    assert '"value":5' in continuation[-1].content
-    assert '"sources":[]' in continuation[-1].content
-    calculator_result = ToolResult.model_validate_json(continuation[-1].content)
+    assert [definition.name for definition in backend.calls[1][1]] == [
+        EXPAND_TOOL_NAME,
+        "calculator.evaluate",
+    ]
+    expansion_result = ToolResult.model_validate_json(continuation[-2].content)
+    assert expansion_result.data == {"exposed_tools": ["calculator.evaluate"]}
+    calculator_continuation = backend.calls[2][0]
+    calculator_result = ToolResult.model_validate_json(calculator_continuation[-2].content)
+    assert calculator_result.data == {"value": 5}
     assert calculator_result.sources == ()
     assert [event["type"] for event in store.events(outcome.request_id)] == [
         "request.accepted",
+        "model.started",
+        "model.completed",
+        "tool.started",
+        "tool.completed",
+        "model.resumed",
         "model.started",
         "assistant.delta",
         "model.completed",
@@ -250,6 +279,9 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
     ]
     assert [item.kind for item in store.timeline(session_id)] == [
         "user_message",
+        "assistant_message",
+        "tool_call",
+        "tool_result",
         "assistant_message",
         "tool_call",
         "tool_result",
@@ -276,6 +308,7 @@ def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
 async def test_sequential_calculator_calls_have_no_orion_call_quota(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
+            _expand("calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -302,13 +335,14 @@ async def test_sequential_calculator_calls_have_no_orion_call_quota(store) -> No
     outcome = await runtime(store, backend).submit(session_id, "Use two calculations")
 
     assert outcome.assistant_content == "2 and 6"
-    assert len(backend.calls) == 3
+    assert len(backend.calls) == 4
 
 
 @pytest.mark.anyio
 async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
+            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(content="I will calculate that."),
                 tool_calls=(
@@ -326,11 +360,15 @@ async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) 
 
     await runtime(store, backend).submit(session_id, "Calculate")
 
-    first_assistant = store.timeline(session_id)[1]
+    first_assistant = next(
+        item
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message" and item.payload["content"] == "I will calculate that."
+    )
     assert first_assistant.payload["content"] == "I will calculate that."
     assert first_assistant.payload["tool_calls"][0]["call_id"] == "one"
-    assert backend.calls[1][0][-2].content == "I will calculate that."
-    assert backend.calls[1][0][-2].tool_calls[0].tool_name == "calculator.evaluate"
+    assert backend.calls[2][0][-3].content == "I will calculate that."
+    assert backend.calls[2][0][-3].tool_calls[0].tool_name == "calculator.evaluate"
 
 
 @pytest.mark.anyio
@@ -344,19 +382,24 @@ async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) 
 async def test_unknown_or_invalid_tools_never_dispatch(
     store, tool_name, arguments, error_code
 ) -> None:  # type: ignore[no-untyped-def]
-    backend = ScriptedBackend(
-        [
-            ModelTurn(
-                tool_calls=(ModelToolCall(call_id="bad", tool_name=tool_name, arguments=arguments),)
-            ),
-            ModelTurn(assistant=AssistantMessage(content="I could not run that tool.")),
-        ]
-    )
+    turns = [
+        ModelTurn(
+            tool_calls=(ModelToolCall(call_id="bad", tool_name=tool_name, arguments=arguments),)
+        ),
+        ModelTurn(assistant=AssistantMessage(content="I could not run that tool.")),
+    ]
+    if tool_name == "calculator.evaluate":
+        turns.insert(0, _expand(tool_name))
+    backend = ScriptedBackend(turns)
     session_id = store.create_session()
 
     await runtime(store, backend).submit(session_id, "Try it")
 
-    tool_result = store.timeline(session_id)[3].payload["result"]
+    tool_result = next(
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == tool_name
+    )
     assert tool_result["status"] == "error"
     assert tool_result["error"]["code"] == error_code
 

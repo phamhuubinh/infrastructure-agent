@@ -1,11 +1,16 @@
-# ADR 0007 — All registered tools are available
+# ADR 0007 — Registry-derived progressive tool exposure
 
 ## Decision
 
-Every successfully registered/configured tool is model-visible in Chat and Project model calls.
+Every successfully registered/configured ordinary tool is discoverable in Chat and
+Project through one deterministic catalog derived from the canonical registry.
 
-The current architecture does not use capability search, dynamic tool exposure, or per-request tool allowlists.
+The model uses one generic expansion control to request one or more exact catalog
+names. Full schemas are then exposed only for that request's selected subset. The
+model remains the semantic chooser; Orion does not pre-route prompts or provide a
+user tool picker. An unexposed ordinary tool cannot execute.
 
 ## Future
 
-If tool-schema scale becomes a measured problem, revisit through a new ADR.
+The canonical registry, ToolRunner validation, RuntimeScope binding, and ToolResult
+loop remain complete and unchanged by the model-facing projection.

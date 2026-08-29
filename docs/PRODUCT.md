@@ -31,7 +31,7 @@ It contains:
 - current user message;
 - session attachments;
 - model configuration;
-- every registered tool.
+- a registry-derived tool catalog and model-controlled expansion.
 
 ### Project
 
@@ -53,13 +53,16 @@ All ordinary tools remain available in Project.
 
 There is no tool picker.
 
-The model receives the registered tool definitions and autonomously decides:
+The model receives a catalog of registered tool definitions and autonomously decides:
 
 - whether a tool is needed;
 - which tool is appropriate;
 - what arguments to provide;
 - whether another tool call is useful after receiving a result;
 - when enough information exists to answer.
+
+When a tool is useful, the model first requests one or more exact catalog names
+through the generic expansion control, then calls from that request-local subset.
 
 Orion itself does not infer semantic intent before the model with keyword rules, regex lists, bilingual aliases, or a separate tool-selection classifier.
 

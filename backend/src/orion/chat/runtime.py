@@ -10,6 +10,7 @@ from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import ContextBuilder
 from orion.contracts import (
     AssistantDelta,
+    ContextMessage,
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
@@ -23,7 +24,7 @@ from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_public
-from orion.tool_runtime.registry import ToolRegistry
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolExposureRequest, ToolRegistry
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -110,11 +111,12 @@ class ChatRuntime:
                 )
                 settings = self._settings()
                 scope = self._runtime_scope(session_id)
+                tool_exposure = self._registry.new_tool_exposure()
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     self._emit(request_id, "model.started", {})
                     turn, usage, visible_sources = await self._stream_turn(
-                        session_id, request_id, settings, scope, cancellation
+                        session_id, request_id, settings, scope, cancellation, tool_exposure
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -156,6 +158,7 @@ class ChatRuntime:
                         return RequestOutcome(
                             request_id=request_id, assistant_content=turn.assistant.content
                         )
+                    exposed_before_turn = tool_exposure.exposed_names
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         definition = self._registry.definition(model_call.tool_name)
@@ -179,9 +182,26 @@ class ChatRuntime:
                                 model_call.tool_name, model_call.call_id, model_call.arguments
                             ),
                         )
-                        result = await self._runner.run_async(
-                            model_call, scope, cancellation.is_set
-                        )
+                        if model_call.tool_name == EXPAND_TOOL_NAME:
+                            result = tool_exposure.expand(model_call)
+                        elif definition is None:
+                            result = ToolResult.failure(
+                                model_call.call_id,
+                                model_call.tool_name,
+                                "not_found",
+                                "Unknown registered tool.",
+                            )
+                        elif model_call.tool_name not in exposed_before_turn:
+                            result = ToolResult.failure(
+                                model_call.call_id,
+                                model_call.tool_name,
+                                "not_exposed",
+                                "Tool must be expanded before it can execute.",
+                            )
+                        else:
+                            result = await self._runner.run_async(
+                                model_call, scope, cancellation.is_set
+                            )
                         self._persist_tool_result(session_id, request_id, result)
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
@@ -213,6 +233,7 @@ class ChatRuntime:
         settings: ModelSettings,
         scope: RuntimeScope,
         cancellation: asyncio.Event,
+        tool_exposure: ToolExposureRequest,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
@@ -220,8 +241,8 @@ class ChatRuntime:
             session_id, scope.project_id, project_id_is_resolved=True
         )
         async for event in self._backend.stream(
-            context.messages,
-            self._registry.model_definitions(),
+            (*context.messages, ContextMessage(role="system", content=tool_exposure.catalog)),
+            tool_exposure.model_tools,
             settings,
             cancellation,
         ):

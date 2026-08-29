@@ -7,8 +7,8 @@ Accepted target decision.
 ## Decision
 
 Linux, Grafana, and Zabbix join the existing `ToolRegistry` and `ToolRunner` as
-explicit semantic operations with closed schemas. The model chooses an operation from
-all registered tools; Orion deterministically validates it, binds `RuntimeScope`,
+explicit semantic operations with closed schemas. The model discovers an operation
+from the registry-derived catalog and expands it before use; Orion deterministically validates it, binds `RuntimeScope`,
 resolves a configured target, and executes it. Chat and Project continue to use the
 same model/tool loop.
 
@@ -24,8 +24,8 @@ the operation contracts in `docs/tools/`.
 ## Consequences
 
 - no semantic pre-router, tool picker, enabled-tools field, infrastructure mode,
-  approval engine, separate infrastructure runtime, or dynamic capability protocol is
-  introduced;
+  approval engine, separate infrastructure runtime, or integration-specific capability
+  protocol is introduced;
 - no model-facing generic shell, SSH command execution, generic Grafana HTTP request,
   or generic Zabbix JSON-RPC invocation is introduced;
 - mutations use one ordinary ToolRunner dispatch and are never transparently replayed

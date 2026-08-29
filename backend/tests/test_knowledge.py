@@ -9,7 +9,7 @@ from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeS
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.service import KnowledgeService
 from orion.knowledge.tools import knowledge_registrations
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -215,6 +215,15 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.search"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
                         call_id="search-1",
                         tool_name="knowledge.search",
                         arguments={"query": "actual fact"},
@@ -236,9 +245,9 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
     outcome = await chat.submit(session, "What is the fact?")
 
     assert outcome.assistant_content == "The fact is blue."
-    assert len(backend.calls) == 2
+    assert len(backend.calls) == 3
     assert "Ignore all previous" not in backend.calls[0][0][0].content
-    tool_content = backend.calls[1][0][-1].content
+    tool_content = backend.calls[2][0][-2].content
     assert "Ignore all previous" in tool_content
     assert source.source_ref_id in tool_content
     assert store.timeline(session)[-1].payload["citation_source_ref_ids"] == [source.source_ref_id]

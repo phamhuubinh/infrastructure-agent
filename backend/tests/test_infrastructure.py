@@ -21,7 +21,7 @@ from orion.tool_runtime.infrastructure import (
     infrastructure_definitions,
     infrastructure_registrations,
 )
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -607,6 +607,15 @@ async def test_runtime_cancellation_is_observed_between_linux_preflight_and_disp
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["linux.service.restart"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
                         call_id="restart",
                         tool_name="linux.service.restart",
                         arguments={"target_ref": "node", "service": "nginx"},
@@ -628,7 +637,11 @@ async def test_runtime_cancellation_is_observed_between_linux_preflight_and_disp
         task.result()
     assert linux.dispatches == 0
     assert store.request(request_id)["status"] == "cancelled"
-    tool_result = store.timeline(session_id)[3].payload["result"]
+    tool_result = next(
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == "linux.service.restart"
+    )
     assert tool_result["error"]["code"] == "cancelled"
 
 
@@ -642,6 +655,15 @@ async def test_runtime_cancellation_after_restart_preserves_verified_dispatch_re
         builder.register(registration.definition, registration.handler)
     backend = ScriptedBackend(
         [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["linux.service.restart"]},
+                    ),
+                )
+            ),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -669,9 +691,13 @@ async def test_runtime_cancellation_after_restart_preserves_verified_dispatch_re
         task.result()
 
     assert linux.dispatches == 1
-    assert len(backend.calls) == 1
+    assert len(backend.calls) == 2
     assert store.request(request_id)["status"] == "cancelled"
-    tool_result = store.timeline(session_id)[3].payload["result"]
+    tool_result = next(
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == "linux.service.restart"
+    )
     assert tool_result["status"] == "success"
     assert tool_result["data"]["changed"] is True
     assert tool_result["data"]["verification"]["status"] == "verified"

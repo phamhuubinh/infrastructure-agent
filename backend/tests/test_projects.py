@@ -19,7 +19,7 @@ from orion.knowledge.service import KnowledgeService
 from orion.knowledge.tools import knowledge_registrations
 from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -114,6 +114,15 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.search", "calculator.evaluate"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
                         call_id="project-search",
                         tool_name="knowledge.search",
                         arguments={"query": "node RAM"},
@@ -142,14 +151,19 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
     outcome = await runtime.submit(session, "Size three nodes")
 
     assert outcome.assistant_content == "Three nodes need 36 GB RAM."
-    assert len(backend.calls) == 3
-    assert {tool.name for tool in backend.calls[0][1]} >= {
+    assert len(backend.calls) == 4
+    assert {tool.name for tool in backend.calls[1][1]} >= {
+        EXPAND_TOOL_NAME,
         "knowledge.search",
         "calculator.evaluate",
     }
     assert any("Active Project" in message.content for message in backend.calls[0][0])
     assert any("Capacity" in message.content for message in backend.calls[0][0])
-    assert [item.tool_name for item in store.timeline(session) if item.kind == "tool_call"] == [
+    assert [
+        item.tool_name
+        for item in store.timeline(session)
+        if item.kind == "tool_call" and item.tool_name != EXPAND_TOOL_NAME
+    ] == [
         "knowledge.search",
         "calculator.evaluate",
     ]
@@ -193,7 +207,7 @@ async def test_project_runtime_rejects_cross_project_citations(store, project_kn
                 assistant=AssistantMessage(
                     content="Forged citation.", citation_source_ref_ids=(source_b.source_ref_id,)
                 )
-            )
+            ),
         ]
     )
 
@@ -232,6 +246,15 @@ async def test_request_scope_snapshots_project_id_for_every_tool_call(
     builder.register(definition, capture)
     backend = ScriptedBackend(
         [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["test.capture"]},
+                    ),
+                )
+            ),
             ModelTurn(
                 tool_calls=(ModelToolCall(call_id="one", tool_name="test.capture", arguments={}),)
             ),

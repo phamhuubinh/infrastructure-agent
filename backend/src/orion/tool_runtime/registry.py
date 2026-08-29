@@ -10,17 +10,127 @@ from typing import Any, cast
 from jsonschema import SchemaError
 from jsonschema.protocols import Validator
 from jsonschema.validators import validator_for
+from pydantic import ValidationError
 
-from orion.contracts import ToolCall, ToolDefinition, freeze_json
+from orion.contracts import (
+    ModelToolCall,
+    ToolCall,
+    ToolDefinition,
+    ToolExpansionRequest,
+    ToolResult,
+    freeze_json,
+)
 from orion.security import redact_public
 
 ToolHandler = Callable[[ToolCall], object]
+EXPAND_TOOL_NAME = "orion.tools.expand"
 
 
 @dataclass(frozen=True)
 class ToolRegistration:
     definition: ToolDefinition
     handler: ToolHandler
+
+
+class ToolExposure:
+    """Registry-derived catalog and request-local ordinary-tool exposure factory."""
+
+    def __init__(self, definitions: tuple[ToolDefinition, ...]) -> None:
+        self._definitions = definitions
+        self._definitions_by_name = {definition.name: definition for definition in definitions}
+        self._catalog = "\n".join(
+            (
+                "Available ordinary tools. To use one, first call orion.tools.expand with its "
+                "exact name in tool_names:",
+                *(f"- {definition.name}: {definition.description}" for definition in definitions),
+            )
+        )
+        expand_definition = ToolDefinition(
+            name=EXPAND_TOOL_NAME,
+            description="Expose one or more exact catalog tool names before calling them.",
+            input_schema={
+                "type": "object",
+                "properties": {"tool_names": {"type": "array", "items": {"type": "string"}}},
+                "required": ["tool_names"],
+                "additionalProperties": False,
+            },
+            handler_key=EXPAND_TOOL_NAME,
+        )
+        object.__setattr__(
+            expand_definition, "input_schema", freeze_json(expand_definition.input_schema)
+        )
+        self._expand_definition = expand_definition
+
+    @property
+    def catalog(self) -> str:
+        return self._catalog
+
+    def request(self) -> ToolExposureRequest:
+        return ToolExposureRequest(self)
+
+    def definition(self, name: str) -> ToolDefinition | None:
+        return self._definitions_by_name.get(name)
+
+    @property
+    def expand_definition(self) -> ToolDefinition:
+        return self._expand_definition
+
+    def tools_for(self, names: frozenset[str]) -> tuple[ToolDefinition, ...]:
+        return (
+            self._expand_definition,
+            *(definition for definition in self._definitions if definition.name in names),
+        )
+
+
+class ToolExposureRequest:
+    """Mutable, request-scoped authorization to expose ordinary tool schemas."""
+
+    def __init__(self, exposure: ToolExposure) -> None:
+        self._exposure = exposure
+        self._exposed_names: frozenset[str] = frozenset()
+        self._model_tools: tuple[ToolDefinition, ...] = (exposure.expand_definition,)
+
+    @property
+    def catalog(self) -> str:
+        return self._exposure.catalog
+
+    @property
+    def model_tools(self) -> tuple[ToolDefinition, ...]:
+        return self._model_tools
+
+    @property
+    def exposed_names(self) -> frozenset[str]:
+        return self._exposed_names
+
+    def expand(self, model_call: ModelToolCall) -> ToolResult:
+        """Validate one generic control call and add its names atomically."""
+        try:
+            request = ToolExpansionRequest.model_validate(model_call.arguments)
+        except ValidationError:
+            return ToolResult.failure(
+                model_call.call_id,
+                model_call.tool_name,
+                "invalid_input",
+                "Expansion arguments must contain non-empty tool_names only.",
+            )
+        names = frozenset(request.tool_names)
+        if not all(self._exposure.definition(name) is not None for name in names):
+            return ToolResult.failure(
+                model_call.call_id,
+                model_call.tool_name,
+                "invalid_input",
+                "Expansion requested an unknown registered tool.",
+            )
+        expanded = self._exposed_names | names
+        if expanded != self._exposed_names:
+            self._exposed_names = expanded
+            self._model_tools = self._exposure.tools_for(expanded)
+        return ToolResult(
+            call_id=model_call.call_id,
+            tool_name=model_call.tool_name,
+            status="success",
+            data={"exposed_tools": sorted(names)},
+        )
 
 
 class ToolRegistryBuilder:
@@ -32,6 +142,8 @@ class ToolRegistryBuilder:
         self._handler_keys: set[str] = set()
 
     def register(self, definition: ToolDefinition, handler: ToolHandler) -> None:
+        if definition.name == EXPAND_TOOL_NAME:
+            raise ValueError(f"reserved control tool name: {definition.name}")
         if definition.name in self._names:
             raise ValueError(f"duplicate tool name: {definition.name}")
         if definition.handler_key in self._handler_keys:
@@ -84,6 +196,7 @@ class ToolRegistry:
             object.__setattr__(definition, "input_schema", freeze_json(definition.input_schema))
             model_definitions.append(definition)
         self._model_definitions = tuple(model_definitions)
+        self._exposure = ToolExposure(self._model_definitions)
 
     def definitions(self) -> tuple[ToolDefinition, ...]:
         # Definitions cross the model boundary. Internal handler bindings remain in
@@ -97,6 +210,10 @@ class ToolRegistry:
     def model_definitions(self) -> tuple[ToolDefinition, ...]:
         """Return the trusted immutable snapshot for the ChatRuntime/provider path."""
         return self._model_definitions
+
+    def new_tool_exposure(self) -> ToolExposureRequest:
+        """Start a fresh request-local model view over this canonical registry."""
+        return self._exposure.request()
 
     def definition(self, name: str) -> ToolDefinition | None:
         return self._definitions.get(name)
