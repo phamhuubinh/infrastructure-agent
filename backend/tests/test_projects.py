@@ -195,6 +195,12 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
                 )
             ),
             ModelTurn(
+                assistant=AssistantMessage(
+                    content="I need a document list first.",
+                    citation_source_ref_ids=("stale-provider-citation",),
+                )
+            ),
+            ModelTurn(
                 tool_calls=(
                     ModelToolCall(
                         call_id="expand-list",
@@ -254,13 +260,14 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
 
     assert outcome.assistant_content == "The Project marker is cedar."
     assert document.document.source.kind == "project"
-    assert len(backend.calls) == 7
+    assert len(backend.calls) == 8
     assert [tool.name for tool in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert [tool.name for tool in backend.calls[2][1]] == [
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
+    assert [tool.name for tool in backend.calls[3][1]] == [
         EXPAND_TOOL_NAME,
         "knowledge.list_documents",
     ]
-    assert [tool.name for tool in backend.calls[5][1]] == [
+    assert [tool.name for tool in backend.calls[6][1]] == [
         EXPAND_TOOL_NAME,
         "knowledge.list_documents",
         "knowledge.search",

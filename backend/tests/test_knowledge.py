@@ -351,6 +351,11 @@ async def test_invented_citation_is_rejected(knowledge, store) -> None:  # type:
                     content="Unsupported citation.", citation_source_ref_ids=("source:invented",)
                 )
             ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Unsupported citation.", citation_source_ref_ids=("source:invented",)
+                )
+            ),
         ]
     )
     builder = ToolRegistryBuilder()

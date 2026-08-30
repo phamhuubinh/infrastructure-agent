@@ -735,6 +735,57 @@ def test_recovery_transition_is_order_independent_for_mixed_tool_results() -> No
         ],
     ) == (True, False)
     assert _next_recovery_state(False, True, [("fake.alpha", ordinary_failure)]) == (False, False)
+    assert _next_recovery_state(True, False, [("fake.alpha", ordinary_failure)]) == (
+        False,
+        False,
+    )
+
+
+@pytest.mark.anyio
+async def test_nonrecoverable_retry_result_closes_pending_recovery_without_forced_turn(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        _definition("fake.alpha"),
+        lambda call: ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "unsafe_input",
+            "The requested value is unsafe.",
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="unexposed", tool_name="fake.alpha", arguments={"value": "bad"}
+                    ),
+                )
+            ),
+            _expand("fake.alpha"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="rejected", tool_name="fake.alpha", arguments={"value": "bad"}
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="That value cannot be used.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Use bad value")
+
+    assert outcome.assistant_content == "That value cannot be used."
+    assert len(backend.calls) == 4
+    assert not any(
+        "model recovery as required" in message.content
+        for messages, _ in backend.calls
+        for message in messages
+    )
 
 
 @pytest.mark.anyio

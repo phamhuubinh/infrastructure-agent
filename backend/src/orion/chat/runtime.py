@@ -37,6 +37,10 @@ class RequestFailed(RuntimeError):
     """A model failure exposed at the request boundary."""
 
 
+class CitationValidationFailed(RequestFailed):
+    """A terminal response cited a source that is not available to the session."""
+
+
 @dataclass(frozen=True)
 class RequestOutcome:
     request_id: str
@@ -51,6 +55,11 @@ _RECOVERY_DECISION_INSTRUCTIONS = (
     "merely repeat a tool procedure in prose."
 )
 
+_CITATION_CORRECTION_INSTRUCTIONS = (
+    "The immediately preceding terminal draft included a citation that was not returned by a "
+    "visible ToolResult. Regenerate the answer without that citation, or use only exact visible "
+    "source_ref_id values. Do not claim or invent unavailable sources."
+)
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
 # recovery or capability-action obligation. Two decisions cover a semantic
@@ -65,10 +74,6 @@ def _next_recovery_state(
     results: list[tuple[str, ToolResult]],
 ) -> tuple[bool, bool]:
     """Apply one order-independent recovery transition for a model tool-call turn."""
-    ordinary_succeeded = any(
-        tool_name != EXPAND_TOOL_NAME and result.status == "success"
-        for tool_name, result in results
-    )
     ordinary_called = any(tool_name != EXPAND_TOOL_NAME for tool_name, _ in results)
     recoverable_error = any(
         result.error is not None and result.error.model_recovery_required for _, result in results
@@ -78,7 +83,11 @@ def _next_recovery_state(
         for tool_name, result in results
     )
     return (
-        recoverable_error or (recovery_pending and not ordinary_succeeded),
+        # An ordinary tool result resolves a prior recovery obligation unless that
+        # result explicitly asks the model to recover again. In particular, a
+        # terminal, non-recoverable rejection (for example an unsafe URL) is a
+        # complete safe outcome, not a reason to force more model decisions.
+        recoverable_error or (recovery_pending and not ordinary_called),
         (capability_action_pending or expansion_succeeded) and not ordinary_called,
     )
 
@@ -167,11 +176,15 @@ class ChatRuntime:
                 capability_action_pending = False
                 forced_recovery_decisions_used = 0
                 recovery_decision_next = False
+                citation_correction_attempted = False
+                citation_correction_next = False
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     self._emit(request_id, "model.started", {})
                     recovery_decision = recovery_decision_next
                     recovery_decision_next = False
+                    citation_correction = citation_correction_next
+                    citation_correction_next = False
                     turn, usage, visible_sources = await self._stream_turn(
                         session_id,
                         request_id,
@@ -180,6 +193,7 @@ class ChatRuntime:
                         cancellation,
                         tool_exposure,
                         recovery_decision=recovery_decision,
+                        citation_correction=citation_correction,
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -190,14 +204,38 @@ class ChatRuntime:
                     self._emit(
                         request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
                     )
-                    if not turn.tool_calls:
-                        self._validate_citations(turn, scope, visible_sources)
                     recovery_abandoned = (
                         not turn.tool_calls
                         and (recovery_pending or capability_action_pending)
                         and not recovery_decision
                         and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
                     )
+                    citation_correction_required = False
+                    # A terminal draft that will be replaced by the bounded recovery
+                    # decision is not final. Validate only the answer that could be
+                    # returned to the caller.
+                    if not turn.tool_calls and not recovery_abandoned:
+                        try:
+                            self._validate_citations(turn, scope, visible_sources)
+                        except CitationValidationFailed:
+                            assert turn.assistant is not None
+                            # A terminal draft with no visible sources can carry stale
+                            # provider citation metadata. Give unknown metadata one generic
+                            # chance to regenerate only before the current request has tool
+                            # evidence. A reference previously returned in the session, or any
+                            # rejected citation after tool activity, remains a strict integrity
+                            # failure if it is no longer visible or accessible.
+                            if (
+                                citation_correction_attempted
+                                or visible_sources
+                                or self._current_request_has_tool_result(session_id)
+                                or self._citation_references_were_observed(
+                                    session_id, turn.assistant.citation_source_ref_ids
+                                )
+                            ):
+                                raise
+                            citation_correction_attempted = True
+                            citation_correction_required = True
                     metrics: dict[str, int] | None = None
                     if not turn.tool_calls and not recovery_abandoned:
                         metrics = {
@@ -208,6 +246,12 @@ class ChatRuntime:
                         if has_complete_usage:
                             metrics["input_tokens"] = input_tokens
                             metrics["output_tokens"] = output_tokens
+                    if citation_correction_required:
+                        # Do not persist or return a terminal answer until its
+                        # citation metadata validates against visible sources.
+                        citation_correction_next = True
+                        self._emit(request_id, "model.resumed", {})
+                        continue
                     assistant_item = self._persist_assistant_turn(
                         session_id, request_id, turn, metrics
                     )
@@ -298,6 +342,16 @@ class ChatRuntime:
             self._emit(request_id, "request.cancelled", {})
             raise RequestCancelled("Request cancelled.") from error
         except ModelBackendError as error:
+            self._store.append_timeline(
+                session_id,
+                request_id,
+                "runtime_notice",
+                {
+                    "stage": "model",
+                    "status": "failed",
+                    "error_kind": error.kind.value,
+                },
+            )
             self._store.complete_request(request_id, "failed", str(error))
             self._emit(
                 request_id,
@@ -305,6 +359,20 @@ class ChatRuntime:
                 {"message": str(error), "model_error_kind": error.kind.value},
             )
             raise RequestFailed(str(error)) from error
+        except CitationValidationFailed as error:
+            self._store.append_timeline(
+                session_id,
+                request_id,
+                "runtime_notice",
+                {
+                    "stage": "citation_validation",
+                    "status": "failed",
+                    "error_kind": "unavailable_source",
+                },
+            )
+            self._store.complete_request(request_id, "failed", str(error))
+            self._emit(request_id, "request.failed", {"message": str(error)})
+            raise
         except RequestFailed as error:
             self._store.complete_request(request_id, "failed", str(error))
             self._emit(request_id, "request.failed", {"message": str(error)})
@@ -329,6 +397,7 @@ class ChatRuntime:
         tool_exposure: ToolExposureRequest,
         *,
         recovery_decision: bool = False,
+        citation_correction: bool = False,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
@@ -343,10 +412,16 @@ class ChatRuntime:
             if recovery_decision
             else ()
         )
+        citation_correction_message = (
+            (ContextMessage(role="system", content=_CITATION_CORRECTION_INSTRUCTIONS),)
+            if citation_correction
+            else ()
+        )
         async for event in self._backend.stream(
             (
                 *context.messages,
                 *recovery_message,
+                *citation_correction_message,
             ),
             tool_exposure.model_tools,
             settings,
@@ -484,7 +559,7 @@ class ChatRuntime:
             return
         sources_by_id = {source.source_ref_id: source for source in visible_sources}
         if not citations_are_visible(turn.assistant.citation_source_ref_ids, set(sources_by_id)):
-            raise RequestFailed("Assistant cited an unavailable source.")
+            raise CitationValidationFailed("Assistant cited an unavailable source.")
         attachment_ids = self._store.session_attachment_ids(scope.session_id)
         for source_ref_id in turn.assistant.citation_source_ref_ids:
             source = sources_by_id[source_ref_id]
@@ -493,7 +568,7 @@ class ChatRuntime:
             if source.source_kind in {"linux", "grafana", "zabbix"} and source.document_id is None:
                 continue
             if source.document_id is None:
-                raise RequestFailed("Assistant cited an unavailable source.")
+                raise CitationValidationFailed("Assistant cited an unavailable source.")
             document = self._store.document(source.document_id)
             accessible = (
                 document is not None
@@ -514,7 +589,34 @@ class ChatRuntime:
                 )
             )
             if not accessible:
-                raise RequestFailed("Assistant cited an unavailable source.")
+                raise CitationValidationFailed("Assistant cited an unavailable source.")
+
+    def _citation_references_were_observed(
+        self, session_id: str, citation_source_ref_ids: tuple[str, ...]
+    ) -> bool:
+        """Return whether a rejected citation reuses any session-observed source reference."""
+        rejected = set(citation_source_ref_ids)
+        if not rejected:
+            return False
+        for item in self._store.timeline(session_id):
+            if item.kind != "tool_result":
+                continue
+            try:
+                result = ToolResult.model_validate(item.payload["result"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if any(source.source_ref_id in rejected for source in result.sources):
+                return True
+        return False
+
+    def _current_request_has_tool_result(self, session_id: str) -> bool:
+        """Return whether the current user request already produced tool evidence."""
+        for item in reversed(self._store.timeline(session_id)):
+            if item.kind == "user_message":
+                return False
+            if item.kind == "tool_result":
+                return True
+        return False
 
     @staticmethod
     def _ensure_not_cancelled(cancellation: asyncio.Event) -> None:

@@ -344,6 +344,30 @@ def failure_trace(
                         "source_ref_ids": _trace_identifiers(source_ids, secret_values),
                     }
                 )
+            elif kind == "runtime_notice":
+                stage = payload.get("stage")
+                status = payload.get("status")
+                error_kind = payload.get("error_kind")
+                trace.append(
+                    {
+                        "kind": "runtime_notice",
+                        "stage": _safe_trace_text(
+                            stage if isinstance(stage, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "status": _safe_trace_text(
+                            status if isinstance(status, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                        "error_kind": _safe_trace_text(
+                            error_kind if isinstance(error_kind, str) else "",
+                            secret_values,
+                            FAILURE_TRACE_IDENTIFIER_LIMIT,
+                        ),
+                    }
+                )
     return trace
 
 

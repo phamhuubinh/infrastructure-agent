@@ -316,6 +316,11 @@ async def test_invented_internet_citation_is_rejected(tmp_path) -> None:  # type
                     content="Unsupported citation.", citation_source_ref_ids=("invented",)
                 )
             ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Unsupported citation.", citation_source_ref_ids=("invented",)
+                )
+            ),
         ]
     )
     app = build_application(tmp_path / "orion.db", backend, internet_client=FakeInternetClient())
