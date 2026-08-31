@@ -11,7 +11,25 @@ from orion.contracts import (
     ToolDefinition,
     ToolError,
     ToolResult,
+    citation_source_ref_ids_from_content,
+    strip_source_citation_markers,
 )
+
+
+@pytest.mark.parametrize(
+    "marker",
+    (
+        "[[source:abc]]",
+        "[[source: abc]]",
+        "[[source:abc ]]",
+        "[[source: abc ]]",
+    ),
+)
+def test_citation_marker_parser_and_stripper_share_the_same_syntax(marker: str) -> None:
+    content = f"Evidence {marker} remains prose."
+
+    assert citation_source_ref_ids_from_content(content) == ("abc",)
+    assert strip_source_citation_markers(content) == "Evidence  remains prose."
 
 
 def test_contracts_serialize_and_hide_handler_binding_from_provider() -> None:
@@ -80,12 +98,14 @@ def test_provider_schema_projection_is_deterministic_and_does_not_alias_canonica
                             "text": {"type": "string"},
                         },
                         "required": ["kind", "text"],
+                        "additionalProperties": False,
                     }
                 ]
             },
             "at": {"type": "string", "format": "date-time"},
         },
         "required": ["operation"],
+        "additionalProperties": False,
     }
     parameters["properties"]["operation"]["oneOf"][0]["properties"]["kind"]["const"] = "bad"
     assert (
@@ -98,7 +118,7 @@ def test_provider_schema_projection_is_deterministic_and_does_not_alias_canonica
     assert definition.operation_kind == "mutation"
 
 
-def test_provider_schema_projection_keeps_recursive_numeric_bounds_only() -> None:
+def test_provider_schema_projection_keeps_bounds_and_closed_objects() -> None:
     definition = ToolDefinition(
         name="test.generic",
         description="Exercise the generic provider schema projection.",
@@ -143,6 +163,7 @@ def test_provider_schema_projection_keeps_recursive_numeric_bounds_only() -> Non
             },
         },
         "required": ["range"],
+        "additionalProperties": False,
     }
     assert definition.input_schema["properties"]["range"] == {
         "type": "integer",

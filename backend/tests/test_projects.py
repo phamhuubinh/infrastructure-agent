@@ -275,17 +275,23 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
     results = [
         item.payload["result"] for item in store.timeline(session) if item.kind == "tool_result"
     ]
-    not_exposed = [
-        result for result in results if result["error"] and result["error"]["code"] == "not_exposed"
+    exposed_for_retry = [
+        result
+        for result in results
+        if result["error"] and result["error"]["code"] == "exposed_for_retry"
     ]
-    assert [result["tool_name"] for result in not_exposed] == [
+    assert [result["tool_name"] for result in exposed_for_retry] == [
         "knowledge.list_documents",
         "knowledge.search",
     ]
     assert all(
         result["error"]["message"]
-        == "Tool is not exposed. Call orion.tools.expand with this exact catalog name, then retry."
-        for result in not_exposed
+        == (
+            "This call was not executed because its tool schema was hidden. The exact registered "
+            "schema is now visible; reconsider the arguments and retry the tool directly without "
+            "calling orion.tools.expand for it."
+        )
+        for result in exposed_for_retry
     )
     search_result = next(
         result for result in results if result["call_id"] == "search-project-document"
@@ -410,7 +416,7 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
         for item in store.timeline(session)
         if item.kind == "tool_result"
     }
-    assert results["read-before-expand"]["error"]["code"] == "not_exposed"
+    assert results["read-before-expand"]["error"]["code"] == "exposed_for_retry"
     assert results["read-invalid-limit"]["error"]["code"] == "invalid_input"
     assert results["read-document-name"]["error"]["code"] == "not_found"
     assert results["read-document-name"]["error"]["message"] == (
@@ -418,7 +424,7 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
         "knowledge.list_documents or knowledge.search, then retry; do not use a name or "
         "title as document_id."
     )
-    assert results["list-before-expand"]["error"]["code"] == "not_exposed"
+    assert results["list-before-expand"]["error"]["code"] == "exposed_for_retry"
     assert results["list-project-documents"]["data"]["documents"][0]["document_id"] == (
         document.document.document_id
     )

@@ -57,6 +57,40 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
         assert "session attachments" in definition.description
         assert "active Project documents" in definition.description
 
+    listing = list_documents_definition().description
+    assert "does not read document contents" in listing
+    assert "returns no citation sources" in listing
+    assert "knowledge.read or knowledge.search" in listing
+    assert "takes no parameters" in listing
+    assert "model arguments cannot override" in listing
+    assert "return citable ToolResult sources" in read_definition().description
+    assert "return citable ToolResult sources" in search_definition().description
+    metadata = source_metadata_definition().description
+    assert "metadata only" in metadata
+    assert "returns no citable ToolResult sources" in metadata
+    assert "cannot support quoting or citing document contents" in metadata
+
+
+def test_source_metadata_result_is_not_serialized_as_citable_sources(knowledge, store) -> None:  # type: ignore[no-untyped-def]
+    session = store.create_session()
+    upload = knowledge.attach(session, "facts.txt", b"A citable fact.")
+
+    result = _runner(knowledge).run(
+        ModelToolCall(
+            call_id="metadata",
+            tool_name="knowledge.source_metadata",
+            arguments={"document_id": upload.document.document_id},
+        ),
+        _scope(session, upload.attachment_id),
+    )
+
+    assert result.status == "success"
+    assert result.sources == ()
+    assert set(result.data) == {"document_metadata"}
+    assert result.data["document_metadata"][0]["document"]["document_id"] == (
+        upload.document.document_id
+    )
+
 
 def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -> None:
     read_parameters = read_definition().provider_schema()["function"]["parameters"]
@@ -66,8 +100,10 @@ def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -
     assert read_parameters["properties"]["document_id"] == {
         "type": "string",
         "description": (
-            "Exact visible document_id from knowledge.list_documents or knowledge.search; "
-            "do not use a document name or title."
+            "Exact visible document_id already returned by knowledge.list_documents or "
+            "knowledge.search earlier in this session; never invent, guess, or infer one from "
+            "the request text, a document name, or a title. If no document_id is yet visible, "
+            "call knowledge.list_documents or knowledge.search first."
         ),
     }
     assert read_parameters["properties"]["limit"] == {
@@ -80,8 +116,10 @@ def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -
         "do not use document names or titles."
     )
     assert metadata_parameters["properties"]["document_id"]["description"] == (
-        "Exact visible document_id from knowledge.list_documents or knowledge.search; "
-        "do not use a document name or title."
+        "Exact visible document_id already returned by knowledge.list_documents or "
+        "knowledge.search earlier in this session; never invent, guess, or infer one from the "
+        "request text, a document name, or a title. If no document_id is yet visible, call "
+        "knowledge.list_documents or knowledge.search first."
     )
 
 
@@ -303,6 +341,150 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
 
 
 @pytest.mark.anyio
+async def test_project_discovery_citation_correction_can_continue_to_exact_read(
+    knowledge, store
+) -> None:  # type: ignore[no-untyped-def]
+    project = store.create_project("QA isolated project")
+    upload = knowledge.attach_project(
+        str(project["project_id"]),
+        "orion-qa-sentinel.txt",
+        b"Project fact: ORION_QA_PROJECT_A_7711",
+    )
+    session = store.create_session(project_id=str(project["project_id"]))
+    scope = RuntimeScope(
+        session_id=session,
+        project_id=str(project["project_id"]),
+        principal_id="local",
+        workspace_id="local",
+    )
+    source = knowledge.source_for_segment(
+        knowledge.read(scope, upload.document.document_id).segments[0]
+    )
+    invalid_draft = "Unverified project answer. [[source:forged-listing-source]]"
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-unexposed",
+                        tool_name="knowledge.list_documents",
+                        arguments={"project_id": str(project["project_id"])},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-list",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.list_documents"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-invalid",
+                        tool_name="knowledge.list_documents",
+                        arguments={"project_id": str(project["project_id"])},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="list-valid",
+                        tool_name="knowledge.list_documents",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=invalid_draft,
+                    citation_source_ref_ids=("forged-listing-source",),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-read",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["knowledge.read"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-exact",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": upload.document.document_id},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=(
+                        f"Project fact: ORION_QA_PROJECT_A_7711 [[source:{source.source_ref_id}]]"
+                    ),
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+    chat = ChatRuntime(store, backend, _registry(knowledge), LocalAccessAdapter())
+
+    outcome = await chat.submit(
+        session, "State the fact from this Project only, verbatim, and cite it."
+    )
+
+    assert "ORION_QA_PROJECT_A_7711" in outcome.assistant_content
+    assert len(backend.calls) == 8
+    correction_messages, correction_tools = backend.calls[5]
+    correction_drafts = [
+        message
+        for message in correction_messages
+        if message.role == "assistant" and "Unverified project answer." in message.content
+    ]
+    assert len(correction_drafts) == 1
+    assert correction_drafts[0].content == "Unverified project answer. "
+    assert correction_drafts[0].citation_source_ref_ids == ()
+    assert any(
+        message.role == "system" and "continue with safe model-chosen tool calls" in message.content
+        for message in correction_messages
+    )
+    assert [tool.name for tool in correction_tools] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.list_documents",
+    ]
+    assert [tool.name for tool in backend.calls[6][1]] == [
+        EXPAND_TOOL_NAME,
+        "knowledge.list_documents",
+        "knowledge.read",
+    ]
+    assert invalid_draft not in [
+        str(item.payload.get("content", ""))
+        for item in store.timeline(session)
+        if item.kind == "assistant_message"
+    ]
+    results = [
+        ToolResult.model_validate(item.payload["result"])
+        for item in store.timeline(session)
+        if item.kind == "tool_result"
+    ]
+    assert [result.error.code if result.error is not None else None for result in results] == [
+        "exposed_for_retry",
+        None,
+        "invalid_input",
+        None,
+        None,
+        None,
+    ]
+    assert results[-1].sources == (source,)
+
+
+@pytest.mark.anyio
 async def test_attachment_does_not_trigger_pre_model_retrieval(knowledge, store) -> None:  # type: ignore[no-untyped-def]
     session = store.create_session()
     upload = knowledge.attach(
@@ -344,6 +526,11 @@ async def test_invented_citation_is_rejected(knowledge, store) -> None:  # type:
                         tool_name="knowledge.search",
                         arguments={"query": "fact"},
                     ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Unsupported citation.", citation_source_ref_ids=("source:invented",)
                 )
             ),
             ModelTurn(

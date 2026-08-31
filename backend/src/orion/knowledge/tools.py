@@ -9,8 +9,10 @@ from orion.knowledge.service import KnowledgeService
 from orion.tool_runtime.registry import ToolRegistration
 
 _EXACT_DOCUMENT_ID_DESCRIPTION = (
-    "Exact visible document_id from knowledge.list_documents or knowledge.search; "
-    "do not use a document name or title."
+    "Exact visible document_id already returned by knowledge.list_documents or "
+    "knowledge.search earlier in this session; never invent, guess, or infer one from the "
+    "request text, a document name, or a title. If no document_id is yet visible, call "
+    "knowledge.list_documents or knowledge.search first."
 )
 
 
@@ -30,8 +32,12 @@ def list_documents_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.list_documents",
         description=(
-            "List ready documents visible in the current knowledge scope, including "
-            "session attachments and active Project documents."
+            "List metadata for ready documents visible in the current knowledge scope, including "
+            "session attachments and active Project documents. This does not read document "
+            "contents and returns no citation sources. To answer from or cite document contents, "
+            "expand and call knowledge.read or knowledge.search using an exact returned "
+            "document_id. This tool takes no parameters; Orion binds session and Project scope "
+            "from the current runtime context and model arguments cannot override it."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         handler_key="knowledge.list_documents",
@@ -44,7 +50,8 @@ def search_definition() -> ToolDefinition:
         description=(
             "Search documents visible in the current knowledge scope, including session "
             "attachments and active Project documents. "
-            "Use exact read for full documents."
+            "Successful matches return citable ToolResult sources. Use exact read for full "
+            "documents."
         ),
         input_schema={
             "type": "object",
@@ -74,7 +81,8 @@ def read_definition() -> ToolDefinition:
         description=(
             "Read a bounded window from one exact document visible in the current knowledge "
             "scope, including session attachments and active Project documents, or named section. "
-            "Continue with next_cursor until complete for whole-document work."
+            "Successful reads return citable ToolResult sources. Continue with next_cursor until "
+            "complete for whole-document work."
         ),
         input_schema={
             "type": "object",
@@ -99,8 +107,11 @@ def source_metadata_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.source_metadata",
         description=(
-            "Get structure and provenance metadata for documents visible in the current "
-            "knowledge scope, including session attachments and active Project documents."
+            "Get structure and provenance metadata only for documents visible in the current "
+            "knowledge scope, including session attachments and active Project documents. This "
+            "does not read document contents and returns no citable ToolResult sources. It cannot "
+            "support quoting or citing document contents; use knowledge.read or knowledge.search "
+            "for that purpose."
         ),
         input_schema={
             "type": "object",
@@ -210,7 +221,7 @@ def _source_metadata(service: KnowledgeService) -> Callable[[ToolCall], ToolResu
             call_id=call.call_id,
             tool_name=call.tool_name,
             status="success",
-            data={"sources": metadata},
+            data={"document_metadata": metadata},
         )
 
     return handler

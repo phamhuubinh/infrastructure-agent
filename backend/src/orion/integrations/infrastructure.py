@@ -348,7 +348,10 @@ class SshLinuxExecutor:
             }
         if "disk" in sections:
             data["disk"] = {
-                "filesystems": self._run(target, credential, ["df", "-P", "-B1"])[:8192]
+                "unit": "bytes",
+                "filesystems": _normalize_df_bytes(
+                    self._run(target, credential, ["df", "-P", "-B1"])[:8192]
+                ),
             }
         if "network" in sections:
             data["network"] = {
@@ -457,6 +460,46 @@ def _key_values(value: str, service: str) -> Mapping[str, object]:
         "sub_state": fields.get("SubState"),
         "enabled_state": fields.get("UnitFileState"),
     }
+
+
+def _normalize_df_bytes(output: str) -> list[dict[str, object]]:
+    """Turn the bounded ``df -P -B1`` table into unambiguous byte-based evidence."""
+    filesystems: list[dict[str, object]] = []
+    for line in output.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) < 6:
+            continue
+        try:
+            total_bytes, used_bytes, available_bytes = (int(value) for value in fields[1:4])
+            usage_percent = int(fields[4].removesuffix("%"))
+        except ValueError:
+            continue
+        if min(total_bytes, used_bytes, available_bytes, usage_percent) < 0:
+            continue
+        filesystems.append(
+            {
+                "filesystem": fields[0],
+                "mount_point": " ".join(fields[5:]),
+                "total_bytes": total_bytes,
+                "used_bytes": used_bytes,
+                "available_bytes": available_bytes,
+                "usage_percent": usage_percent,
+                "total_human": _human_bytes(total_bytes),
+                "used_human": _human_bytes(used_bytes),
+                "available_human": _human_bytes(available_bytes),
+            }
+        )
+    return filesystems
+
+
+def _human_bytes(value: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    quantity = float(value)
+    for unit in units[:-1]:
+        if quantity < 1000:
+            return f"{quantity:.2f} {unit}"
+        quantity /= 1000
+    return f"{quantity:.2f} {units[-1]}"
 
 
 class GrafanaClient(Protocol):

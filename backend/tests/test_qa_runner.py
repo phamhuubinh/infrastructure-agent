@@ -783,6 +783,16 @@ def test_manual_quality_and_timeout_are_contained_and_journaled(
     assert [json.loads(line)["id"] for line in persisted.splitlines()] == ["manual", "timed"]
 
 
+def test_project_isolation_fixture_names_do_not_contain_document_markers(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    expected = "ORION_QA_PROJECT_A_7711"
+    forbidden = "ORION_QA_PROJECT_B_8822"
+
+    names = [qa_runner._project_isolation_fixture_name(index) for index in range(2)]
+
+    assert names == ["QA isolated project 1", "QA isolated project 2"]
+    assert all(marker not in name for marker in (expected, forbidden) for name in names)
+
+
 def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
     qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
@@ -1001,6 +1011,56 @@ def test_http_error_after_message_send_persists_failure_trace(qa_runner, monkeyp
     assert "raw-document-id" not in json.dumps(results[0])
 
 
+def test_timeout_after_message_send_persists_failure_trace(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    timeline = [
+        {
+            "kind": "tool_result",
+            "tool_name": "linux.system.inspect",
+            "call_id": "inspect",
+            "payload": {
+                "result": {
+                    "status": "error",
+                    "error": {"code": "timeout", "model_recovery_required": False},
+                    "sources": [],
+                }
+            },
+        }
+    ]
+
+    def request(_, method, path, body=None):  # type: ignore[no-untyped-def]
+        if method == "POST" and path == "/api/sessions":
+            return {"session_id": "session"}
+        if method == "POST" and path == "/api/sessions/session/messages":
+            raise qa_runner.QARequestTimeout()
+        if method == "GET" and path == "/api/sessions/session/timeline":
+            return timeline
+        pytest.fail(f"unexpected request: {method} {path}")
+
+    monkeypatch.setattr(qa_runner, "_json_request", request)
+    case = qa_runner.Case(id="timeout-trace", prompt="inspect", category="qa")
+
+    results, _ = qa_runner._run_structured(
+        [case],
+        {"base_url": "http://model", "id": "model", "api_key": "secret"},
+        False,
+    )
+
+    assert results[0]["detail"] == "QARequestTimeout"
+    assert results[0]["failure_trace"] == [
+        {
+            "kind": "tool_result",
+            "tool_name": "linux.system.inspect",
+            "call_id": "inspect",
+            "status": "error",
+            "error_code": "timeout",
+            "model_recovery_required": False,
+            "source_count": 0,
+            "source_ref_ids": [],
+        }
+    ]
+
+
 def test_citation_http_error_persists_redacted_validation_notice(
     qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
@@ -1014,6 +1074,7 @@ def test_citation_http_error_persists_redacted_validation_notice(
                 "stage": "citation_validation",
                 "status": "failed",
                 "error_kind": "unavailable_source",
+                "citation_correction_attempted": True,
                 "unreported_source_ref_id": secret,
             },
         },
@@ -1051,6 +1112,7 @@ def test_citation_http_error_persists_redacted_validation_notice(
             "stage": "citation_validation",
             "status": "failed",
             "error_kind": "unavailable_source",
+            "citation_correction_attempted": True,
         }
     ]
     cases_json = (tmp_path / "cases.jsonl").read_text(encoding="utf-8")
@@ -1132,6 +1194,44 @@ def test_failure_trace_prioritizes_latest_observed_timeline(qa_runner) -> None: 
     trace = qa_runner.failure_trace([earlier, latest], ())
 
     assert [item["content_excerpt"] for item in trace] == ["latest-failing-conversation"]
+
+
+def test_failure_trace_preserves_implicit_exposure_recovery_code(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    trace = qa_runner.failure_trace(
+        [
+            [
+                {
+                    "kind": "tool_result",
+                    "tool_name": "fake.alpha",
+                    "call_id": "hidden",
+                    "payload": {
+                        "result": {
+                            "status": "error",
+                            "error": {
+                                "code": "exposed_for_retry",
+                                "model_recovery_required": True,
+                            },
+                            "sources": [],
+                        },
+                    },
+                }
+            ]
+        ],
+        (),
+    )
+
+    assert trace == [
+        {
+            "kind": "tool_result",
+            "tool_name": "fake.alpha",
+            "call_id": "hidden",
+            "status": "error",
+            "error_code": "exposed_for_retry",
+            "model_recovery_required": True,
+            "source_count": 0,
+            "source_ref_ids": [],
+        }
+    ]
 
 
 def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]

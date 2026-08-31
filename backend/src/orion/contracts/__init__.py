@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any, Literal, NoReturn
@@ -168,8 +169,8 @@ class ToolDefinition(CanonicalModel):
         ``input_schema`` remains the complete canonical JSON Schema used by the
         ToolRegistry to validate every model call.  Providers receive only the
         structural cues needed to choose a tool and form valid arguments;
-        numeric bounds are included, while regexes, defaults, and closed-object
-        enforcement stay server-side.
+        numeric bounds and closed-object enforcement are included, while regexes
+        and defaults stay server-side.
         """
         return {
             "type": "function",
@@ -184,7 +185,16 @@ class ToolDefinition(CanonicalModel):
 def _provider_schema_projection(schema: Mapping[str, Any]) -> dict[str, Any]:
     """Keep generic argument-forming cues without duplicating all validation rules."""
     projection: dict[str, Any] = {}
-    for key in ("type", "description", "format", "enum", "const", "minimum", "maximum"):
+    for key in (
+        "type",
+        "description",
+        "format",
+        "enum",
+        "const",
+        "minimum",
+        "maximum",
+        "additionalProperties",
+    ):
         if key in schema:
             projection[key] = _json_snapshot(schema[key])
     if "properties" in schema:
@@ -279,6 +289,19 @@ class SourceRef(CanonicalModel):
 
 class Citation(CanonicalModel):
     source_ref_ids: tuple[str, ...] = Field(min_length=1)
+
+
+_SOURCE_CITATION_PATTERN = re.compile(r"\[\[source:\s*([^\]\s]+)\s*\]\]")
+
+
+def citation_source_ref_ids_from_content(content: str) -> tuple[str, ...]:
+    """Extract source reference IDs from the citation markers accepted by Orion."""
+    return tuple(_SOURCE_CITATION_PATTERN.findall(content))
+
+
+def strip_source_citation_markers(content: str) -> str:
+    """Remove only citation markers recognized by Orion, preserving the surrounding draft."""
+    return _SOURCE_CITATION_PATTERN.sub("", content)
 
 
 def citations_are_visible(

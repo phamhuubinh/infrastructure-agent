@@ -130,6 +130,30 @@ class ToolExposureRequest:
             data={"exposed_tools": sorted(names)},
         )
 
+    def expose_for_retry(self, model_call: ModelToolCall) -> ToolResult:
+        """Expose one exact model-selected ordinary tool without executing its call."""
+        name = model_call.tool_name
+        if self._exposure.definition(name) is None:
+            return ToolResult.failure(
+                model_call.call_id,
+                name,
+                "not_exposed",
+                "Tool is not available for exposure.",
+            )
+        expanded = self._exposed_names | {name}
+        if expanded != self._exposed_names:
+            self._exposed_names = frozenset(expanded)
+            self._model_tools = self._exposure.tools_for(self._exposed_names)
+        return ToolResult.failure(
+            model_call.call_id,
+            name,
+            "exposed_for_retry",
+            "This call was not executed because its tool schema was hidden. The exact registered "
+            "schema is now visible; reconsider the arguments and retry the tool directly without "
+            "calling orion.tools.expand for it.",
+            model_recovery_required=True,
+        )
+
 
 class ToolRegistryBuilder:
     """Bootstrap-only mutable registry construction with eager validation."""

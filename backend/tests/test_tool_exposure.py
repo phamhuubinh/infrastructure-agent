@@ -5,7 +5,7 @@ import json
 import pytest
 from conftest import ScriptedBackend, runtime
 
-from orion.chat.runtime import _next_recovery_state
+from orion.chat.runtime import RequestFailed, _next_recovery_state
 from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
@@ -116,6 +116,7 @@ def test_expanded_tool_keeps_its_provider_description_and_schema() -> None:
         "type": "object",
         "properties": {"value": {"type": "string"}},
         "required": ["value"],
+        "additionalProperties": False,
     }
 
 
@@ -144,6 +145,32 @@ def test_expansion_is_generic_additive_and_accepts_multiple_exact_names() -> Non
         EXPAND_TOOL_NAME,
         "fake.alpha",
         "fake.beta",
+    ]
+
+
+def test_exact_hidden_tool_call_exposes_only_that_tool_for_retry() -> None:
+    exposure = _registry().new_tool_exposure()
+    model_call = ModelToolCall(
+        call_id="hidden",
+        tool_name="fake.alpha",
+        arguments={"value": "untrusted-before-schema"},
+    )
+
+    result = exposure.expose_for_retry(model_call)
+
+    assert result.status == "error"
+    assert result.error is not None
+    assert result.error.code == "exposed_for_retry"
+    assert result.error.model_recovery_required
+    assert result.error.message == (
+        "This call was not executed because its tool schema was hidden. The exact registered "
+        "schema is now visible; reconsider the arguments and retry the tool directly without "
+        "calling orion.tools.expand for it."
+    )
+    assert exposure.exposed_names == frozenset({"fake.alpha"})
+    assert [definition.name for definition in exposure.model_tools] == [
+        EXPAND_TOOL_NAME,
+        "fake.alpha",
     ]
 
 
@@ -288,6 +315,60 @@ async def test_expanded_tool_uses_existing_runner_scope_and_result_loop(store) -
 
 
 @pytest.mark.anyio
+async def test_exact_hidden_tool_is_exposed_then_model_retry_executes_once(store) -> None:  # type: ignore[no-untyped-def]
+    calls: list[ToolCall] = []
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="hidden",
+                        tool_name="fake.alpha",
+                        arguments={"value": "must-not-execute"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="retry",
+                        tool_name="fake.alpha",
+                        arguments={"value": "execute-after-schema"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Done.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, _registry(calls=calls)).submit(
+        session_id, "Use the exact tool"
+    )
+
+    assert outcome.assistant_content == "Done."
+    assert [call.call_id for call in calls] == ["retry"]
+    assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
+    assert [definition.name for definition in backend.calls[1][1]] == [
+        EXPAND_TOOL_NAME,
+        "fake.alpha",
+    ]
+    results = [
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == "fake.alpha"
+    ]
+    assert results[0]["error"]["code"] == "exposed_for_retry"
+    assert results[0]["error"]["model_recovery_required"] is True
+    assert results[1]["status"] == "success"
+    assert any(
+        "now-visible tool directly; do not expand it" in message.content
+        for message in backend.calls[1][0]
+        if message.role == "system"
+    )
+
+
+@pytest.mark.anyio
 async def test_one_expansion_can_expose_multiple_plausible_tools_without_routing(store) -> None:  # type: ignore[no-untyped-def]
     calls: list[ToolCall] = []
     backend = ScriptedBackend(
@@ -360,9 +441,14 @@ async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None: 
         for item in store.timeline(session_id)
         if item.kind == "tool_result" and item.tool_name == "fake.alpha"
     ]
-    assert [result["error"]["code"] for result in results] == ["not_exposed", "invalid_input"]
+    assert [result["error"]["code"] for result in results] == [
+        "exposed_for_retry",
+        "invalid_input",
+    ]
     assert results[0]["error"]["message"] == (
-        "Tool is not exposed. Call orion.tools.expand with this exact catalog name, then retry."
+        "This call was not executed because its tool schema was hidden. The exact registered "
+        "schema is now visible; reconsider the arguments and retry the tool directly without "
+        "calling orion.tools.expand for it."
     )
     assert results[1]["error"]["model_recovery_required"] is True
 
@@ -402,6 +488,7 @@ async def test_schema_invalid_call_then_terminal_prose_gets_one_model_chosen_ret
     assert outcome.assistant_content == "Recovered."
     assert [call.call_id for call in calls] == ["valid"]
     assert len(backend.calls) == 5
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
     assert any("model recovery as required" in message.content for message in backend.calls[3][0])
     results = [
         item.payload["result"]
@@ -446,6 +533,7 @@ async def test_schema_invalid_call_that_model_immediately_corrects_uses_no_force
     assert outcome.assistant_content == "Recovered."
     assert [call.call_id for call in calls] == ["valid"]
     assert len(backend.calls) == 4
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
 
 
 @pytest.mark.anyio
@@ -485,7 +573,11 @@ async def test_successful_expansion_preserves_recovery_until_an_ordinary_tool_su
     assert outcome.assistant_content == "Recovered."
     assert [call.call_id for call in calls] == ["retry"]
     assert len(backend.calls) == 5
-    assert any("model recovery as required" in message.content for message in backend.calls[3][0])
+    recovery_instructions = [
+        message.content for message in backend.calls[3][0] if message.role == "system"
+    ]
+    assert any("model recovery as required" in content for content in recovery_instructions)
+    assert any("same exact failed tool name" in content for content in recovery_instructions)
     assert [
         item.payload["content"]
         for item in store.timeline(session_id)
@@ -529,15 +621,12 @@ async def test_natural_retry_after_successful_expansion_clears_recovery_without_
     assert outcome.assistant_content == "Recovered."
     assert [call.call_id for call in calls] == ["retry"]
     assert len(backend.calls) == 4
-    assert not any(
-        "model recovery as required" in message.content
-        for messages, _ in backend.calls
-        for message in messages
-    )
+    assert any("model recovery as required" in message.content for message in backend.calls[1][0])
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
 
 
 @pytest.mark.anyio
-async def test_proactive_expansion_then_terminal_prose_gets_one_forced_decision(
+async def test_proactive_expansion_does_not_allow_terminal_prose_to_escape(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
@@ -545,28 +634,27 @@ async def test_proactive_expansion_then_terminal_prose_gets_one_forced_decision(
             _expand("fake.alpha"),
             ModelTurn(assistant=AssistantMessage(content="Please provide a value.")),
             ModelTurn(assistant=AssistantMessage(content="Please clarify the request.")),
+            ModelTurn(assistant=AssistantMessage(content="Please clarify again.")),
         ]
     )
     session_id = store.create_session()
 
-    outcome = await runtime(store, backend, _registry()).submit(session_id, "Recover")
+    with pytest.raises(RequestFailed, match="ordinary tool decision"):
+        await runtime(store, backend, _registry()).submit(session_id, "Recover")
 
-    assert outcome.assistant_content == "Please clarify the request."
-    assert len(backend.calls) == 3
+    assert len(backend.calls) == 4
     assert any("expanded capability" in message.content for message in backend.calls[2][0])
+    assert any("expanded capability" in message.content for message in backend.calls[3][0])
+    assert any(
+        "ordinary capability was successfully expanded" in message.content
+        for message in backend.calls[2][0]
+    )
     assert all(
         "Tools (expand exact ordinary names" not in message.content
         for messages, _ in backend.calls
         for message in messages
     )
-    assert [item.kind for item in store.timeline(session_id)] == [
-        "user_message",
-        "assistant_message",
-        "tool_call",
-        "tool_result",
-        "assistant_message",
-        "assistant_message",
-    ]
+    assert [item.kind for item in store.timeline(session_id)][-1] == "assistant_message"
 
 
 @pytest.mark.anyio
@@ -594,10 +682,9 @@ async def test_proactive_expansion_then_ordinary_success_needs_no_forced_decisio
     assert outcome.assistant_content == "Done."
     assert [call.call_id for call in calls] == ["alpha"]
     assert len(backend.calls) == 3
-    assert not any(
-        "expanded capability" in message.content
-        for messages, _ in backend.calls
-        for message in messages
+    assert any(
+        "ordinary capability was successfully expanded" in message.content
+        for message in backend.calls[1][0]
     )
 
 
@@ -631,7 +718,7 @@ async def test_forced_recovery_ordinary_success_closes_proactive_obligation(
 
 
 @pytest.mark.anyio
-async def test_repeated_proactive_expansion_stops_after_two_forced_decisions(
+async def test_repeated_proactive_expansion_fails_closed_after_two_forced_decisions(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
@@ -646,9 +733,9 @@ async def test_repeated_proactive_expansion_stops_after_two_forced_decisions(
     )
     session_id = store.create_session()
 
-    outcome = await runtime(store, backend, _registry()).submit(session_id, "Recover")
+    with pytest.raises(RequestFailed, match="ordinary tool decision"):
+        await runtime(store, backend, _registry()).submit(session_id, "Recover")
 
-    assert outcome.assistant_content == "Please clarify."
     assert len(backend.calls) == 6
     assert any("expanded capability" in message.content for message in backend.calls[2][0])
     assert any("expanded capability" in message.content for message in backend.calls[4][0])
@@ -781,15 +868,15 @@ async def test_nonrecoverable_retry_result_closes_pending_recovery_without_force
 
     assert outcome.assistant_content == "That value cannot be used."
     assert len(backend.calls) == 4
+    assert any("model recovery as required" in message.content for message in backend.calls[1][0])
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
     assert not any(
-        "model recovery as required" in message.content
-        for messages, _ in backend.calls
-        for message in messages
+        "model recovery as required" in message.content for message in backend.calls[3][0]
     )
 
 
 @pytest.mark.anyio
-async def test_repeated_successful_expansion_still_stops_after_two_forced_decisions(
+async def test_repeated_successful_expansion_fails_closed_after_two_forced_decisions(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
@@ -813,9 +900,9 @@ async def test_repeated_successful_expansion_still_stops_after_two_forced_decisi
     )
     session_id = store.create_session()
 
-    outcome = await runtime(store, backend, _registry()).submit(session_id, "Recover")
+    with pytest.raises(RequestFailed, match="ordinary tool decision"):
+        await runtime(store, backend, _registry()).submit(session_id, "Recover")
 
-    assert outcome.assistant_content == "Please clarify."
     assert len(backend.calls) == 7
     assert any("model recovery as required" in message.content for message in backend.calls[3][0])
     assert any("model recovery as required" in message.content for message in backend.calls[5][0])
@@ -1012,7 +1099,7 @@ async def test_actionable_tool_error_keeps_generic_recovery_choices_visible(stor
 
     assert outcome.assistant_content == "Recovered."
     resumed_messages, resumed_tools = backend.calls[2]
-    assert "safe, actionable tool-error recovery" in resumed_messages[0].content
+    assert "recover safely with catalog tools" in resumed_messages[0].content
     assert any(
         "Recover with another available tool." in message.content for message in resumed_messages
     )
@@ -1088,6 +1175,7 @@ async def test_terminal_after_marked_error_gets_one_model_chosen_recovery_decisi
 
     assert outcome.assistant_content == "Recovered."
     assert len(backend.calls) == 6
+    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
     recovery_messages, recovery_tools = backend.calls[3]
     assert any("model recovery as required" in message.content for message in recovery_messages)
     assert any("Call fake.beta to recover." in message.content for message in recovery_messages)

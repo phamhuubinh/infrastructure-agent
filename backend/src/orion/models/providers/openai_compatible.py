@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +21,7 @@ from orion.contracts import (
     ModelUsage,
     ToolCallDelta,
     ToolDefinition,
+    citation_source_ref_ids_from_content,
     freeze_json,
 )
 from orion.models.backend import (
@@ -291,7 +291,7 @@ class OpenAICompatibleBackend(ModelBackend):
                     )
                 )
             content = "".join(content_parts)
-            citations = tuple(re.findall(r"\[\[source:\s*([^\]\s]+)\s*\]\]", content))
+            citations = citation_source_ref_ids_from_content(content)
             assistant = None
             if content:
                 assistant = AssistantMessage(content=content, citation_source_ref_ids=citations)

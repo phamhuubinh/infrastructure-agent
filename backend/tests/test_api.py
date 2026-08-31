@@ -40,6 +40,32 @@ async def test_api_direct_chat_has_no_tool_selector(tmp_path) -> None:  # type: 
 
 
 @pytest.mark.anyio
+async def test_api_hides_unverified_citation_details_from_the_user(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    invalid = ModelTurn(
+        assistant=AssistantMessage(
+            content="Answer [[source:provider-secret-citation]]",
+            citation_source_ref_ids=("provider-secret-citation",),
+        )
+    )
+    backend = ScriptedBackend([invalid, invalid])
+    app = create_app(tmp_path / "orion.db", backend)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await _configure(client)
+        session = (await client.post("/api/sessions")).json()["session_id"]
+        response = await client.post(f"/api/sessions/{session}/messages", json={"content": "Hello"})
+        timeline = (await client.get(f"/api/sessions/{session}/timeline")).json()
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Orion could not verify the response against available sources."
+    )
+    assert "provider-secret-citation" not in response.text
+    assert timeline[-1]["payload"]["error_kind"] == "unavailable_source"
+
+
+@pytest.mark.anyio
 async def test_session_summaries_are_scope_safe_durable_and_sidebar_ready(tmp_path) -> None:  # type: ignore[no-untyped-def]
     database = tmp_path / "sessions.db"
     app = create_app(database, ScriptedBackend([]))

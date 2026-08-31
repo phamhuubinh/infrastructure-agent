@@ -12,7 +12,12 @@ from openpyxl import Workbook
 
 from orion.chat.runtime import RequestCancelled
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolCall
-from orion.integrations.infrastructure import LinuxFileMetadata, Target, TargetCatalog
+from orion.integrations.infrastructure import (
+    LinuxFileMetadata,
+    Target,
+    TargetCatalog,
+    _normalize_df_bytes,
+)
 from orion.tool_runtime.infrastructure import (
     _INFRASTRUCTURE_WORKERS,
     _blocking_handler,
@@ -312,6 +317,27 @@ def test_all_frozen_infrastructure_schemas_are_closed() -> None:
         definition.input_schema["additionalProperties"] is False
         for definition in infrastructure_definitions()
     )
+
+
+def test_df_byte_output_is_normalized_with_unambiguous_human_units() -> None:
+    filesystems = _normalize_df_bytes(
+        "Filesystem 1B-blocks Used Available Use% Mounted on\n"
+        "/dev/sda4 1956167766016 58685032832 1897482733184 3% /\n"
+    )
+
+    assert filesystems == [
+        {
+            "filesystem": "/dev/sda4",
+            "mount_point": "/",
+            "total_bytes": 1956167766016,
+            "used_bytes": 58685032832,
+            "available_bytes": 1897482733184,
+            "usage_percent": 3,
+            "total_human": "1.96 TB",
+            "used_human": "58.69 GB",
+            "available_human": "1.90 TB",
+        }
+    ]
 
 
 @pytest.mark.anyio

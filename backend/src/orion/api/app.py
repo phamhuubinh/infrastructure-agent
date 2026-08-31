@@ -15,7 +15,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from orion.access import LocalAccessAdapter
 from orion.bootstrap import OrionApplication, build_application
-from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
+from orion.chat.runtime import (
+    ChatRuntime,
+    CitationValidationFailed,
+    RequestCancelled,
+    RequestFailed,
+)
 from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
 from orion.paths import ORION_HEALTH_IDENTITY, PACKAGED_UI_SHELL, packaged_ui_directory
@@ -386,6 +391,10 @@ def create_app(
             outcome = await runtime.submit(session_id, message.content)
         except RequestCancelled as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except CitationValidationFailed as error:
+            raise HTTPException(
+                status_code=502, detail=CitationValidationFailed.public_message
+            ) from error
         except RequestFailed as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
         return AssistantResponse(

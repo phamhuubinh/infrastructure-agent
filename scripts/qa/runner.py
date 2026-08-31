@@ -81,12 +81,9 @@ def load_cases(path: Path) -> list[Case]:
     seen: set[str] = set()
     for item in payload:
         if not isinstance(item, dict) or not all(
-            isinstance(item.get(key), str) and item[key]
-            for key in ("id", "prompt", "category")
+            isinstance(item.get(key), str) and item[key] for key in ("id", "prompt", "category")
         ):
-            raise ValueError(
-                "Every QA case requires non-empty id, prompt, and category."
-            )
+            raise ValueError("Every QA case requires non-empty id, prompt, and category.")
         if item["id"] in seen:
             raise ValueError(f"Duplicate QA case id: {item['id']}")
         seen.add(item["id"])
@@ -105,25 +102,16 @@ def load_cases(path: Path) -> list[Case]:
         elif (
             not isinstance(expected_any_tools, list)
             or not expected_any_tools
-            or not all(
-                isinstance(value, str) and value.strip() for value in expected_any_tools
-            )
+            or not all(isinstance(value, str) and value.strip() for value in expected_any_tools)
         ):
-            raise ValueError(
-                f"QA case {item['id']} has invalid alternative tool expectations."
-            )
+            raise ValueError(f"QA case {item['id']} has invalid alternative tool expectations.")
         else:
             any_tools = tuple(expected_any_tools)
         if not isinstance(expected_tool_errors, dict) or not all(
-            isinstance(tool_name, str)
-            and tool_name
-            and isinstance(error_code, str)
-            and error_code
+            isinstance(tool_name, str) and tool_name and isinstance(error_code, str) and error_code
             for tool_name, error_code in expected_tool_errors.items()
         ):
-            raise ValueError(
-                f"QA case {item['id']} has invalid tool error expectations."
-            )
+            raise ValueError(f"QA case {item['id']} has invalid tool error expectations.")
         capability = item.get("capability")
         if capability is not None and not isinstance(capability, str):
             raise ValueError(f"QA case {item['id']} has an invalid capability.")
@@ -141,8 +129,7 @@ def load_cases(path: Path) -> list[Case]:
             )
         }
         if any(
-            value is not None and not isinstance(value, str)
-            for value in optional_strings.values()
+            value is not None and not isinstance(value, str) for value in optional_strings.values()
         ):
             raise ValueError(f"QA case {item['id']} has invalid scenario data.")
         tiers = item.get("tiers", ["full"])
@@ -218,17 +205,13 @@ def safe_exception_message(
     return _bounded_text(redacted)
 
 
-def _safe_trace_text(
-    value: str, secret_values: tuple[str, ...], limit: int
-) -> str:
+def _safe_trace_text(value: str, secret_values: tuple[str, ...], limit: int) -> str:
     redacted = redact_report(value, secret_values)
     assert isinstance(redacted, str)
     return redacted[:limit]
 
 
-def _trace_identifiers(
-    values: object, secret_values: tuple[str, ...]
-) -> list[str]:
+def _trace_identifiers(values: object, secret_values: tuple[str, ...]) -> list[str]:
     if not isinstance(values, list):
         return []
     return [
@@ -270,9 +253,7 @@ def failure_trace(
                         "kind": "assistant_message",
                         "content_excerpt": excerpt,
                         "citation_count": len(citations) if isinstance(citations, list) else 0,
-                        "citation_source_ref_ids": _trace_identifiers(
-                            citations, secret_values
-                        ),
+                        "citation_source_ref_ids": _trace_identifiers(citations, secret_values),
                     }
                 )
             elif kind == "tool_call":
@@ -308,11 +289,15 @@ def failure_trace(
                 error = result.get("error")
                 sources = result.get("sources")
                 error_code = error.get("code") if isinstance(error, dict) else None
-                source_ids = [
-                    source.get("source_ref_id")
-                    for source in sources
-                    if isinstance(source, dict) and isinstance(source.get("source_ref_id"), str)
-                ] if isinstance(sources, list) else []
+                source_ids = (
+                    [
+                        source.get("source_ref_id")
+                        for source in sources
+                        if isinstance(source, dict) and isinstance(source.get("source_ref_id"), str)
+                    ]
+                    if isinstance(sources, list)
+                    else []
+                )
                 trace.append(
                     {
                         "kind": "tool_result",
@@ -348,26 +333,29 @@ def failure_trace(
                 stage = payload.get("stage")
                 status = payload.get("status")
                 error_kind = payload.get("error_kind")
-                trace.append(
-                    {
-                        "kind": "runtime_notice",
-                        "stage": _safe_trace_text(
-                            stage if isinstance(stage, str) else "",
-                            secret_values,
-                            FAILURE_TRACE_IDENTIFIER_LIMIT,
-                        ),
-                        "status": _safe_trace_text(
-                            status if isinstance(status, str) else "",
-                            secret_values,
-                            FAILURE_TRACE_IDENTIFIER_LIMIT,
-                        ),
-                        "error_kind": _safe_trace_text(
-                            error_kind if isinstance(error_kind, str) else "",
-                            secret_values,
-                            FAILURE_TRACE_IDENTIFIER_LIMIT,
-                        ),
-                    }
-                )
+                notice: dict[str, object] = {
+                    "kind": "runtime_notice",
+                    "stage": _safe_trace_text(
+                        stage if isinstance(stage, str) else "",
+                        secret_values,
+                        FAILURE_TRACE_IDENTIFIER_LIMIT,
+                    ),
+                    "status": _safe_trace_text(
+                        status if isinstance(status, str) else "",
+                        secret_values,
+                        FAILURE_TRACE_IDENTIFIER_LIMIT,
+                    ),
+                    "error_kind": _safe_trace_text(
+                        error_kind if isinstance(error_kind, str) else "",
+                        secret_values,
+                        FAILURE_TRACE_IDENTIFIER_LIMIT,
+                    ),
+                }
+                if isinstance(payload.get("citation_correction_attempted"), bool):
+                    notice["citation_correction_attempted"] = payload[
+                        "citation_correction_attempted"
+                    ]
+                trace.append(notice)
     return trace
 
 
@@ -392,9 +380,7 @@ def qa_request_timeout_seconds() -> float:
     try:
         timeout = float(value)
     except ValueError as error:
-        raise ValueError(
-            "ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number."
-        ) from error
+        raise ValueError("ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number.") from error
     if timeout <= 0:
         raise ValueError("ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number.")
     return timeout
@@ -434,9 +420,7 @@ def evaluate(
     case: Case, timeline: list[dict[str, Any]]
 ) -> tuple[str, str | None, Counter[str], int]:
     tools = Counter(
-        str(item.get("tool_name"))
-        for item in timeline
-        if item.get("kind") == "tool_call"
+        str(item.get("tool_name")) for item in timeline if item.get("kind") == "tool_call"
     )
     source_ids = _source_ids(timeline)
     sources = len(source_ids)
@@ -492,9 +476,7 @@ def _source_ids(timeline: list[dict[str, Any]]) -> set[str]:
         if not isinstance(sources, list):
             continue
         for source in sources:
-            source_ref_id = (
-                source.get("source_ref_id") if isinstance(source, dict) else None
-            )
+            source_ref_id = source.get("source_ref_id") if isinstance(source, dict) else None
             if isinstance(source_ref_id, str) and source_ref_id:
                 source_ids.add(source_ref_id)
     return source_ids
@@ -564,9 +546,7 @@ def _json_request(
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(
-            request, timeout=qa_request_timeout_seconds()
-        ) as response:
+        with urllib.request.urlopen(request, timeout=qa_request_timeout_seconds()) as response:
             return json.loads(response.read())
     except (TimeoutError, urllib.error.URLError) as error:
         if _is_timeout_error(error):
@@ -575,14 +555,10 @@ def _json_request(
 
 
 def active_model() -> dict[str, str] | None:
-    overrides = {
-        key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")
-    }
+    overrides = {key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")}
     if overrides["BASE_URL"] and overrides["ID"]:
         return {key.lower(): value or "" for key, value in overrides.items()}
-    database = Path(
-        os.getenv("ORION_DATABASE_PATH", Path.home() / ".local/share/orion/orion.db")
-    )
+    database = Path(os.getenv("ORION_DATABASE_PATH", Path.home() / ".local/share/orion/orion.db"))
     if not database.exists():
         return None
     try:
@@ -718,9 +694,7 @@ class ReportCheckpoint:
     def record_result(self, result: dict[str, object]) -> None:
         safe = redact_report(result, self.secret_values)
         assert isinstance(safe, dict)
-        with (self.report_directory / "cases.partial.jsonl").open(
-            "a", encoding="utf-8"
-        ) as handle:
+        with (self.report_directory / "cases.partial.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(safe) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -774,15 +748,11 @@ def write_reports(
     summary = Counter(str(result["status"]) for result in safe_results)
     categories: dict[str, Counter[str]] = {}
     for result in safe_results:
-        categories.setdefault(str(result["category"]), Counter())[
-            str(result["status"])
-        ] += 1
+        categories.setdefault(str(result["category"]), Counter())[str(result["status"])] += 1
 
     def phase_summary(phase: str) -> dict[str, int]:
         phase_results = [
-            result
-            for result in safe_results
-            if result.get("phase", "structured") == phase
+            result for result in safe_results if result.get("phase", "structured") == phase
         ]
         counts = Counter(str(result["status"]) for result in phase_results)
         return {
@@ -796,9 +766,7 @@ def write_reports(
     canonical = phase_summary("canonical")
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
-        tiers.setdefault(str(result.get("tier", "full")), Counter())[
-            str(result["status"])
-        ] += 1
+        tiers.setdefault(str(result.get("tier", "full")), Counter())[str(result["status"])] += 1
     data = {
         "total": len(safe_results),
         "passed": summary["PASS"],
@@ -810,12 +778,8 @@ def write_reports(
         "deterministic_cases": sum(
             not bool(result.get("manual_quality")) for result in safe_results
         ),
-        "manual_quality_cases": sum(
-            bool(result.get("manual_quality")) for result in safe_results
-        ),
-        "first_failures": [item for item in safe_results if item["status"] == "FAIL"][
-            :5
-        ],
+        "manual_quality_cases": sum(bool(result.get("manual_quality")) for result in safe_results),
+        "first_failures": [item for item in safe_results if item["status"] == "FAIL"][:5],
         "canonical": canonical,
     }
     report_directory.mkdir(parents=True, exist_ok=True)
@@ -825,9 +789,7 @@ def write_reports(
     (report_directory / "cases.jsonl").write_text(
         "".join(json.dumps(item) + "\n" for item in safe_results), encoding="utf-8"
     )
-    (report_directory / "summary.json").write_text(
-        json.dumps(data, indent=2), encoding="utf-8"
-    )
+    (report_directory / "summary.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     (report_directory / "summary.md").write_text(
         "# Orion QA "
         f"{manifest['mode']}\n\n"
@@ -873,9 +835,7 @@ def _configured_capabilities() -> dict[str, tuple[str, ...]]:
     }
 
 
-def _optional_skip_reason(
-    case: Case, configured: dict[str, tuple[str, ...]]
-) -> str | None:
+def _optional_skip_reason(case: Case, configured: dict[str, tuple[str, ...]]) -> str | None:
     if case.capability is None:
         return None
     targets = configured.get(case.capability, ())
@@ -920,7 +880,7 @@ def _send(base_url: str, session_id: str, content: str) -> None:
         response = _json_request(
             base_url, "POST", f"/api/sessions/{session_id}/messages", {"content": content}
         )
-    except urllib.error.HTTPError as error:
+    except (urllib.error.HTTPError, QARequestTimeout) as error:
         try:
             timeline = _timeline(base_url, session_id)
         except (
@@ -934,20 +894,14 @@ def _send(base_url: str, session_id: str, content: str) -> None:
         if timeline is not None:
             setattr(error, "observed_timelines", [timeline])
         raise
-    if not isinstance(response, dict) or not isinstance(
-        response.get("assistant_content"), str
-    ):
+    if not isinstance(response, dict) or not isinstance(response.get("assistant_content"), str):
         raise ScenarioFailure("message endpoint did not return an assistant response")
 
 
 def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
     timeline = _json_request(base_url, "GET", f"/api/sessions/{session_id}/timeline")
-    if not isinstance(timeline, list) or not all(
-        isinstance(item, dict) for item in timeline
-    ):
-        raise ScenarioFailure(
-            "timeline endpoint did not return canonical timeline items"
-        )
+    if not isinstance(timeline, list) or not all(isinstance(item, dict) for item in timeline):
+        raise ScenarioFailure("timeline endpoint did not return canonical timeline items")
     return timeline
 
 
@@ -973,17 +927,11 @@ def _require_final(
     if expected and expected not in content:
         raise ScenarioFailure("final assistant response omitted the required QA marker")
     if forbidden and forbidden in content:
-        raise ScenarioFailure(
-            "final assistant response followed untrusted document content"
-        )
+        raise ScenarioFailure("final assistant response followed untrusted document content")
     if "<think" in content.lower() or "</think>" in content.lower():
-        raise ScenarioFailure(
-            "final assistant response exposed hidden reasoning markers"
-        )
+        raise ScenarioFailure("final assistant response exposed hidden reasoning markers")
     if secret and secret in content:
-        raise ScenarioFailure(
-            "final assistant response exposed a configured credential"
-        )
+        raise ScenarioFailure("final assistant response exposed a configured credential")
 
 
 def _attach_and_wait(base_url: str, path: str, content: str) -> dict[str, object]:
@@ -997,9 +945,7 @@ def _attach_and_wait(base_url: str, path: str, content: str) -> dict[str, object
             "media_type": "text/plain",
         },
     )
-    if not isinstance(attachment, dict) or not isinstance(
-        attachment.get("document"), dict
-    ):
+    if not isinstance(attachment, dict) or not isinstance(attachment.get("document"), dict):
         raise ScenarioFailure("attachment endpoint did not return a document")
     document = attachment["document"]
     document_id = document.get("document_id")
@@ -1039,10 +985,13 @@ def _document_source_ids(timeline: list[dict[str, Any]]) -> set[str]:
 def _case_prompt(case: Case, value: str) -> str:
     return value.format(
         qa_target_ref=os.getenv("ORION_QA_LINUX_TARGET_REF", ""),
-        qa_fixture_path=os.getenv(case.fixture_env or "", "")
-        if case.fixture_env
-        else "",
+        qa_fixture_path=os.getenv(case.fixture_env or "", "") if case.fixture_env else "",
     )
+
+
+def _project_isolation_fixture_name(index: int) -> str:
+    """Return neutral Project metadata so only the attached document carries the sentinel."""
+    return f"QA isolated project {index + 1}"
 
 
 def _execute_case(
@@ -1099,10 +1048,7 @@ def _execute_case_inner(
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker, secret=secret)
         return timeline, [timeline]
-    if (
-        case.scenario == "session_document"
-        or case.scenario == "prompt_injection_document"
-    ):
+    if case.scenario == "session_document" or case.scenario == "prompt_injection_document":
         session = _create_session(base_url)
         session_id = str(session["session_id"])
         document = _attach_and_wait(
@@ -1112,21 +1058,13 @@ def _execute_case_inner(
         )
         _send(base_url, session_id, prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
-        _require_final(
-            timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
-        )
+        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
         if str(document["document_id"]) not in _document_source_ids(timeline):
-            raise ScenarioFailure(
-                "final response did not use the attached document source"
-            )
+            raise ScenarioFailure("final response did not use the attached document source")
         return timeline, [timeline]
     if case.scenario == "project_shared_document":
-        project = _json_request(
-            base_url, "POST", "/api/projects", {"name": "QA shared knowledge"}
-        )
-        if not isinstance(project, dict) or not isinstance(
-            project.get("project_id"), str
-        ):
+        project = _json_request(base_url, "POST", "/api/projects", {"name": "QA shared knowledge"})
+        if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
             raise ScenarioFailure("project creation did not return an identity")
         project_id = project["project_id"]
         document = _attach_and_wait(
@@ -1144,17 +1082,13 @@ def _execute_case_inner(
             timeline = _observed_timeline(base_url, session_id, observed)
             _require_final(timeline, expected=case.expected_marker)
             if str(document["document_id"]) not in _document_source_ids(timeline):
-                raise ScenarioFailure(
-                    "project document was not visible to both conversations"
-                )
+                raise ScenarioFailure("project document was not visible to both conversations")
             timelines.append(timeline)
         return timelines[-1], timelines
     if case.scenario == "tool_error_recovery":
         session = _create_session(base_url)
         session_id = str(session["session_id"])
-        _send(
-            base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt)
-        )
+        _send(base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt))
         failed = _observed_timeline(base_url, session_id, observed)
         if not any(
             item.get("kind") == "tool_result"
@@ -1170,13 +1104,16 @@ def _execute_case_inner(
         return timeline, [timeline]
     if case.scenario == "project_isolation":
         projects: list[tuple[str, dict[str, object]]] = []
-        for marker in (case.expected_marker or "QA_A", case.forbidden_marker or "QA_B"):
+        for index, marker in enumerate(
+            (case.expected_marker or "QA_A", case.forbidden_marker or "QA_B")
+        ):
             project = _json_request(
-                base_url, "POST", "/api/projects", {"name": f"QA {marker}"}
+                base_url,
+                "POST",
+                "/api/projects",
+                {"name": _project_isolation_fixture_name(index)},
             )
-            if not isinstance(project, dict) or not isinstance(
-                project.get("project_id"), str
-            ):
+            if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
                 raise ScenarioFailure("project creation did not return an identity")
             document = _attach_and_wait(
                 base_url,
@@ -1188,9 +1125,7 @@ def _execute_case_inner(
         session_id = str(session["session_id"])
         _send(base_url, session_id, case.prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
-        _require_final(
-            timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
-        )
+        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
         sources = _document_source_ids(timeline)
         if (
             str(projects[0][1]["document_id"]) not in sources
@@ -1242,9 +1177,7 @@ def _run_structured(
                         checkpoint.record_case(result)
                     continue
                 try:
-                    timeline, checked_timelines = _execute_case(
-                        base_url, case, model["api_key"]
-                    )
+                    timeline, checked_timelines = _execute_case(base_url, case, model["api_key"])
                     status, reason, tools, sources = evaluate(case, timeline)
                     for checked in checked_timelines:
                         checked_status, checked_reason, _, _ = evaluate(case, checked)
@@ -1271,9 +1204,7 @@ def _run_structured(
                     if status == "PASS" and case.manual_quality:
                         final = _final_assistant(timeline)
                         if final is not None:
-                            result["manual_review_answer"] = final[0][
-                                :MANUAL_REVIEW_ANSWER_LIMIT
-                            ]
+                            result["manual_review_answer"] = final[0][:MANUAL_REVIEW_ANSWER_LIMIT]
                         result["status"] = "MANUAL_REVIEW"
                     results.append(result)
                 except urllib.error.HTTPError as error:
@@ -1313,14 +1244,12 @@ def _run_structured(
                         "detail": type(error).__name__,
                     }
                     if isinstance(error, (QARequestTimeout, ScenarioFailure)):
-                        message = safe_exception_message(
-                            error, (model["api_key"],)
-                        )
+                        message = safe_exception_message(error, (model["api_key"],))
                         if message:
                             result["message"] = message
-                    if isinstance(error, ScenarioFailure):
+                    if isinstance(error, (QARequestTimeout, ScenarioFailure)):
                         trace = failure_trace(
-                            error.observed_timelines, (model["api_key"],)
+                            getattr(error, "observed_timelines", []), (model["api_key"],)
                         )
                         if trace:
                             result["failure_trace"] = trace

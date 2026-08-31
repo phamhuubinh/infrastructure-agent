@@ -153,6 +153,7 @@ def test_provider_projection_keeps_argument_shape_while_canonical_schema_stays_c
             "mode": {"type": "string", "enum": ["safe", "fast"]},
         },
         "required": ["mode"],
+        "additionalProperties": False,
     }
     assert "default" not in parameters["properties"]["limit"]
     assert definition.input_schema["properties"]["limit"]["default"] == 5
