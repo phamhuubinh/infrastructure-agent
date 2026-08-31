@@ -84,7 +84,6 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 # while keeping the model loop strictly bounded.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
 
-MAX_MODEL_REQUEST_PROXY_BYTES = 12_000
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
 
 
@@ -110,17 +109,12 @@ def _model_request_proxy_bytes(
 
 
 def _context_budget_for_turn(
-    tools: tuple[ToolDefinition, ...], extra_messages: tuple[ContextMessage, ...]
+    extra_messages: tuple[ContextMessage, ...],
 ) -> int:
-    remaining = (
-        MAX_MODEL_REQUEST_PROXY_BYTES
-        - _tool_definitions_bytes(tools)
-        - _messages_bytes(extra_messages)
-        - _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES
-    )
+    remaining = MAX_CONVERSATION_BYTES - _messages_bytes(extra_messages)
     if remaining <= 0:
         raise RequestFailed("Model context exceeds the local safety budget.")
-    return min(MAX_CONVERSATION_BYTES, remaining)
+    return remaining
 
 
 def _next_recovery_state(
@@ -165,6 +159,15 @@ class ChatRuntime:
         self._context_builder = ContextBuilder(store, infrastructure_targets)
         self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
+        initial_model_tools = registry.new_tool_exposure().model_tools
+        self._maximum_model_tool_bytes = _tool_definitions_bytes(
+            (*initial_model_tools, *registry.model_definitions())
+        )
+        self._maximum_model_request_proxy_bytes = (
+            MAX_CONVERSATION_BYTES
+            + self._maximum_model_tool_bytes
+            + _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES
+        )
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -509,10 +512,15 @@ class ChatRuntime:
             scope.project_id,
             project_id_is_resolved=True,
             attachment_ids=scope.attachment_ids,
-            maximum_bytes=_context_budget_for_turn(model_tools, extra_messages),
+            maximum_bytes=_context_budget_for_turn(extra_messages),
         )
         model_messages = (*context.messages, *extra_messages)
-        if _model_request_proxy_bytes(model_messages, model_tools) > MAX_MODEL_REQUEST_PROXY_BYTES:
+        if _messages_bytes(model_messages) > MAX_CONVERSATION_BYTES:
+            raise RequestFailed("Model context exceeds the local safety budget.")
+        if (
+            _model_request_proxy_bytes(model_messages, model_tools)
+            > self._maximum_model_request_proxy_bytes
+        ):
             raise RequestFailed("Model context exceeds the local safety budget.")
 
         async for event in self._backend.stream(
