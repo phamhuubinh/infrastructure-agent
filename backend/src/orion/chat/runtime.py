@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 
 from orion.access import LocalAccessAdapter
-from orion.chat.context_builder import ContextBuilder
+from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.conversation_state import ConversationStateManager
 from orion.contracts import (
     AssistantDelta,
@@ -19,6 +20,7 @@ from orion.contracts import (
     RuntimeScope,
     SourceRef,
     TimelineItem,
+    ToolDefinition,
     ToolResult,
     citations_are_visible,
     strip_source_citation_markers,
@@ -81,6 +83,44 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 # recovery followed by one independently recoverable control-plane barrier,
 # while keeping the model loop strictly bounded.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
+
+MAX_MODEL_REQUEST_PROXY_BYTES = 12_000
+_MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
+
+
+def _tool_definitions_bytes(tools: tuple[ToolDefinition, ...]) -> int:
+    return len(
+        json.dumps(
+            [definition.provider_schema() for definition in tools],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+
+
+def _model_request_proxy_bytes(
+    messages: tuple[ContextMessage, ...], tools: tuple[ToolDefinition, ...]
+) -> int:
+    return (
+        _messages_bytes(messages)
+        + _tool_definitions_bytes(tools)
+        + _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES
+    )
+
+
+def _context_budget_for_turn(
+    tools: tuple[ToolDefinition, ...], extra_messages: tuple[ContextMessage, ...]
+) -> int:
+    remaining = (
+        MAX_MODEL_REQUEST_PROXY_BYTES
+        - _tool_definitions_bytes(tools)
+        - _messages_bytes(extra_messages)
+        - _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES
+    )
+    if remaining <= 0:
+        raise RequestFailed("Model context exceeds the local safety budget.")
+    return min(MAX_CONVERSATION_BYTES, remaining)
 
 
 def _next_recovery_state(
@@ -432,12 +472,6 @@ class ChatRuntime:
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
-        context = self._context_builder.build_with_metadata(
-            session_id,
-            scope.project_id,
-            project_id_is_resolved=True,
-            attachment_ids=scope.attachment_ids,
-        )
         recovery_message = (
             (ContextMessage(role="system", content=_RECOVERY_DECISION_INSTRUCTIONS),)
             if recovery_decision or recovery_guidance
@@ -463,14 +497,27 @@ class ChatRuntime:
             if citation_correction is not None
             else ()
         )
+
+        model_tools = tool_exposure.model_tools
+        extra_messages = (
+            *recovery_message,
+            *capability_action_message,
+            *citation_correction_messages,
+        )
+        context = self._context_builder.build_with_metadata(
+            session_id,
+            scope.project_id,
+            project_id_is_resolved=True,
+            attachment_ids=scope.attachment_ids,
+            maximum_bytes=_context_budget_for_turn(model_tools, extra_messages),
+        )
+        model_messages = (*context.messages, *extra_messages)
+        if _model_request_proxy_bytes(model_messages, model_tools) > MAX_MODEL_REQUEST_PROXY_BYTES:
+            raise RequestFailed("Model context exceeds the local safety budget.")
+
         async for event in self._backend.stream(
-            (
-                *context.messages,
-                *recovery_message,
-                *capability_action_message,
-                *citation_correction_messages,
-            ),
-            tool_exposure.model_tools,
+            model_messages,
+            model_tools,
             settings,
             cancellation,
         ):

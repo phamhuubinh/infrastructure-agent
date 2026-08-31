@@ -87,6 +87,7 @@ class ContextBuilder:
         *,
         project_id_is_resolved: bool = False,
         attachment_ids: tuple[str, ...] = (),
+        maximum_bytes: int = MAX_CONVERSATION_BYTES,
     ) -> BuiltContext:
         messages: list[ContextMessage] = [
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
@@ -156,17 +157,31 @@ class ContextBuilder:
         timeline, omitted_timeline_turns = self._store.model_context_timeline(
             session_id, checkpoint.covered_item_id if checkpoint is not None else None
         )
-        current_budget = self._fair_current_result_budget(timeline)
-        budgets = self._tool_result_budgets(timeline, current_budget)
-        blocks, invalid_pairings = self._blocks(timeline, budgets)
-        turns, ungrouped_blocks = self._turns(blocks)
-        raw_budget = MAX_CONVERSATION_BYTES
-        if state_message is not None:
-            raw_budget = min(
-                RECENT_RAW_HISTORY_BYTES,
-                max(0, MAX_CONVERSATION_BYTES - _messages_bytes((state_message,))),
-            )
-        selected, omitted_turns = self._bounded_turns(turns, raw_budget)
+
+        if maximum_bytes >= MAX_CONVERSATION_BYTES:
+            current_budget = self._fair_current_result_budget(timeline)
+            budgets = self._tool_result_budgets(timeline, current_budget)
+            blocks, invalid_pairings = self._blocks(timeline, budgets)
+            turns, ungrouped_blocks = self._turns(blocks)
+            raw_budget = MAX_CONVERSATION_BYTES
+            if state_message is not None:
+                raw_budget = min(
+                    RECENT_RAW_HISTORY_BYTES,
+                    max(0, MAX_CONVERSATION_BYTES - _messages_bytes((state_message,))),
+                )
+            selected, omitted_turns = self._bounded_turns(turns, raw_budget)
+        else:
+            prefix_bytes = _messages_bytes(tuple(messages))
+            raw_budget = max(0, maximum_bytes - prefix_bytes)
+            if state_message is not None:
+                raw_budget = min(RECENT_RAW_HISTORY_BYTES, raw_budget)
+
+            current_budget = self._fair_current_result_budget(timeline, raw_budget)
+            budgets = self._tool_result_budgets(timeline, current_budget)
+            blocks, invalid_pairings = self._blocks(timeline, budgets)
+            turns, ungrouped_blocks = self._turns(blocks)
+            selected, omitted_turns = self._bounded_turns(turns, raw_budget)
+
         omitted_blocks = invalid_pairings + ungrouped_blocks
         if omitted_turns or omitted_blocks or omitted_timeline_turns:
             messages.append(
@@ -184,7 +199,9 @@ class ContextBuilder:
         visible_sources = tuple(source for turn in selected for source in turn.sources)
         return BuiltContext(tuple(messages), visible_sources)
 
-    def _fair_current_result_budget(self, timeline: list[TimelineItem]) -> int:
+    def _fair_current_result_budget(
+        self, timeline: list[TimelineItem], maximum_bytes: int = MAX_CONVERSATION_BYTES
+    ) -> int:
         """Find one fair per-result cap whose complete current turn fits the byte proxy.
 
         Every current result receives the same cap. Small results naturally use less,
@@ -206,7 +223,7 @@ class ContextBuilder:
             blocks, _ = self._blocks(current_timeline, budgets)
             turns, _ = self._turns(blocks)
             current_size = _messages_bytes(turns[-1].messages) if turns else 0
-            if current_size <= MAX_CONVERSATION_BYTES:
+            if current_size <= maximum_bytes:
                 selected = candidate
                 low = candidate + 1
             else:
