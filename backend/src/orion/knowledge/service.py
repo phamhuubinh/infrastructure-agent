@@ -14,9 +14,20 @@ from orion.contracts import (
     SourceRef,
 )
 from orion.knowledge.blob_store import LocalBlobStore
-from orion.knowledge.local import HashingEmbedding, LocalLexicalIndex, LocalVectorIndex, ParagraphChunker
+from orion.knowledge.local import (
+    HashingEmbedding,
+    LocalLexicalIndex,
+    LocalVectorIndex,
+    ParagraphChunker,
+)
 from orion.knowledge.parsers import CompositeDocumentParser
-from orion.knowledge.ports import Chunker, DocumentParser, IndexedSegment, LexicalIndex, VectorIndex
+from orion.knowledge.ports import (
+    Chunker,
+    DocumentParser,
+    IndexedSegment,
+    LexicalIndex,
+    VectorIndex,
+)
 from orion.persistence.sqlite import SQLiteStore
 
 _READ_WINDOW_MAX_SEGMENTS = 8
