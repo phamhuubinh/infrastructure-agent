@@ -4,7 +4,14 @@ import pytest
 from conftest import ScriptedBackend, runtime
 
 from orion.chat.runtime import _recoverable_failure_fingerprint
-from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, ToolCall, ToolDefinition, ToolResult
+from orion.contracts import (
+    AssistantMessage,
+    ModelToolCall,
+    ModelTurn,
+    ToolCall,
+    ToolDefinition,
+    ToolResult,
+)
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 _TOOL_NAME = "test.recover"
@@ -96,7 +103,9 @@ async def test_changed_recoverable_arguments_continue_beyond_old_turn_count(stor
     )
     session = store.create_session()
 
-    outcome = await runtime(store, backend, _registry()).submit(session, "Keep correcting the input")
+    outcome = await runtime(store, backend, _registry()).submit(
+        session, "Keep correcting the input"
+    )
 
     assert outcome.assistant_content == "Recovered."
     for model_call_index in (2, 3, 4, 5):
