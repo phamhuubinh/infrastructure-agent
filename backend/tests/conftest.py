@@ -14,6 +14,8 @@ from orion.contracts import (
     ModelTurnCompleted,
     ToolDefinition,
 )
+from orion.knowledge.blob_store import LocalBlobStore
+from orion.knowledge.service import KnowledgeService
 from orion.models.backend import ModelBackend, ModelSettings
 from orion.persistence.sqlite import SQLiteStore
 from orion.tool_runtime.calculator import calculate, calculator_definition
@@ -53,6 +55,11 @@ def store(tmp_path: Path) -> SQLiteStore:
     instance.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
     yield instance
     instance.close()
+
+
+@pytest.fixture
+def knowledge(store: SQLiteStore, tmp_path: Path) -> KnowledgeService:
+    return KnowledgeService(store, LocalBlobStore(tmp_path / "blobs"))
 
 
 def runtime(
