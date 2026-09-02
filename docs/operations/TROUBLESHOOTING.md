@@ -15,11 +15,14 @@ Check the active OpenAI-compatible model configuration's base URL, model ID,
 authentication, and reachability from the local process. A model failure becomes an
 explicit request failure.
 
-## Model never calls the calculator
+## Model never calls a registered tool
 
 Check that the configured model supports OpenAI-compatible tool calls and continuation
-after tool-result messages. The model receives the calculator schema on every call.
-Do not add keyword routing as a workaround.
+after tool-result messages. Orion initially sends the registry-derived generic
+`orion.tools.expand` control; the model requests exact registered tool names and then
+receives those full schemas request-locally. The canonical registry remains the source
+of validation and execution authority. Do not add keyword routing or a user tool picker
+as a workaround.
 
 ## Inspecting a request
 
