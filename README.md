@@ -2,7 +2,7 @@
 
 Orion is a **local-first AI technical workbench** for technical work.
 
-The primary interface is conversation. Users chat normally; Orion gives the configured model access to every registered tool automatically. There is no per-chat tool picker and no requirement for the user to decide whether RAG, Internet, Linux, Grafana, Zabbix, calculator, or another registered tool should be used.
+The primary interface is conversation. Users chat normally; Orion gives the configured model access to every registered/configured tool automatically. There is no per-chat tool picker and no requirement for the user to decide whether RAG, Internet, Linux, Grafana, Zabbix, calculator, or another registered tool should be used.
 
 A **Project** uses the same Chat/runtime and the same automatic tool system, while adding persistent project metadata and a project-scoped knowledge/RAG source.
 
@@ -39,8 +39,8 @@ Orion owns deterministic application behavior:
 ```text
 assemble context
 → bind session/project runtime scope
-→ provide all registered tool definitions
-→ validate/dispatch model tool calls
+→ expose the registry-derived discovery control plus request-local selected schemas
+→ validate/dispatch model tool calls against the canonical registry
 → normalize ToolResult
 → return results to the same model
 → persist public conversation state
@@ -48,12 +48,11 @@ assemble context
 
 There is intentionally **no semantic pre-router** that classifies the user's prompt into "RAG", "Internet", "Linux", or another intent before the model sees it.
 
-## Current M1 tool family
+## Current tool families
 
-The current executable slice provides deterministic calculation. Knowledge/RAG,
-Internet, Linux, Grafana, and Zabbix are planned milestones and are not registered yet.
+The current executable registry includes calculator, Knowledge/RAG, and Internet tools. Linux, Grafana, and Zabbix tool families are registered when their infrastructure targets are configured.
 
-The target architecture keeps configured/registered tools available automatically to the model. A tool is configured at the application/integration level, not manually selected for each message.
+Tool availability is registry-derived. To avoid resending every full tool schema on every model turn, Orion uses the ADR 0007 progressive model-facing exposure protocol: `orion.tools.expand` accepts exact registered names from the canonical catalog and exposes those full schemas for the current request. This does not create a second registry, semantic tool picker, or authorization path; validation, runtime scope, and execution still use the canonical registry.
 
 ## Start here
 
@@ -74,8 +73,7 @@ Read:
 orion
 ```
 
-This starts the packaged UI and API at `http://127.0.0.1:61888/`; the browser opens once
-Orion is ready.
+This starts the packaged UI and API at `http://127.0.0.1:61888/`; the browser opens once Orion is ready.
 
 Useful commands:
 
@@ -90,8 +88,8 @@ See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) and [`docs/operations/`](docs/ope
 
 ## Documentation authority
 
-The architecture/product `docs/` tree describes the **target product and architecture**. Existing source code is implementation state, not architectural authority.
+The architecture/product `docs/` tree describes the **target product and architecture**. Accepted ADRs in `docs/decisions/` have the highest documentation authority. Existing source code and tests are implementation evidence and should remain aligned with those decisions.
 
-Operations pages that describe current commands, ports, Compose services, or installer behavior must match the current repository implementation.
+Operations pages that describe current commands, ports, services, or installer behavior must match the current repository implementation.
 
 Reading these docs does not itself authorize code changes, migrations, commits, or repository operations.
