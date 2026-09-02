@@ -129,7 +129,9 @@ def test_documentation_check_rejects_stale_tool_exposure_claims(tmp_path: Path) 
 def test_documentation_check_accepts_current_tool_exposure_contract(tmp_path: Path) -> None:
     checker = _checker()
     files = {
-        "AGENTS.md": "registry-derived progressive tool exposure orion.tools.expand canonical registry",
+        "AGENTS.md": (
+            "registry-derived progressive tool exposure orion.tools.expand canonical registry"
+        ),
         "README.md": (
             "registry-derived progressive model-facing exposure protocol orion.tools.expand "
             "Knowledge/RAG Internet"
