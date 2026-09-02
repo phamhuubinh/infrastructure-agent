@@ -1362,6 +1362,106 @@ def test_107_timeout_normalization_remains(qa_runner, monkeypatch, error) -> Non
         qa_runner._json_request("http://qa", "GET", "/api/health")
 
 
+def test_qa_multipart_upload_includes_file_name_bytes_and_content_type(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self):  # type: ignore[no-untyped-def]
+            return self
+
+        def __exit__(self, *args):  # type: ignore[no-untyped-def]
+            return None
+
+        def read(self) -> bytes:
+            return b'{"status":"ready"}'
+
+    def urlopen(request, timeout):  # type: ignore[no-untyped-def]
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(qa_runner.urllib.request, "urlopen", urlopen)
+
+    assert qa_runner._multipart_file_request(
+        "http://qa",
+        "POST",
+        "/api/sessions/session/attachments",
+        filename="sentinel.txt",
+        content=b"document bytes\x00",
+        media_type="text/plain",
+    ) == {"status": "ready"}
+
+    request = captured["request"]
+    assert request.full_url == "http://qa/api/sessions/session/attachments"
+    content_type = request.get_header("Content-type")
+    assert isinstance(content_type, str)
+    boundary = content_type.removeprefix("multipart/form-data; boundary=")
+    assert boundary and boundary != content_type
+    assert request.data == b"".join(
+        (
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="file"; filename="sentinel.txt"\r\n',
+            b"Content-Type: text/plain\r\n\r\n",
+            b"document bytes\x00",
+            f"\r\n--{boundary}--\r\n".encode(),
+        )
+    )
+
+
+def test_qa_attachments_use_the_same_multipart_contract_for_sessions_and_projects(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    uploads: list[tuple[str, str, str, str, bytes, str]] = []
+    statuses: list[str] = []
+
+    def upload(base_url, method, path, *, filename, content, media_type):  # type: ignore[no-untyped-def]
+        uploads.append((base_url, method, path, filename, content, media_type))
+        document_id = "session-document" if "/sessions/" in path else "project-document"
+        return {"document": {"document_id": document_id}}
+
+    def request(_, method, path, body=None):  # type: ignore[no-untyped-def]
+        assert method == "GET" and body is None
+        statuses.append(path)
+        return {"status": "ready"}
+
+    monkeypatch.setattr(qa_runner, "_multipart_file_request", upload)
+    monkeypatch.setattr(qa_runner, "_json_request", request)
+
+    session_document = qa_runner._attach_and_wait(
+        "http://qa", "/api/sessions/session/attachments", "session fact"
+    )
+    project_document = qa_runner._attach_and_wait(
+        "http://qa", "/api/projects/project/documents", "project fact"
+    )
+
+    assert session_document == {"document_id": "session-document"}
+    assert project_document == {"document_id": "project-document"}
+    assert uploads == [
+        (
+            "http://qa",
+            "POST",
+            "/api/sessions/session/attachments",
+            "orion-qa-sentinel.txt",
+            b"session fact",
+            "text/plain",
+        ),
+        (
+            "http://qa",
+            "POST",
+            "/api/projects/project/documents",
+            "orion-qa-sentinel.txt",
+            b"project fact",
+            "text/plain",
+        ),
+    ]
+    assert statuses == [
+        "/api/sessions/session/documents/session-document",
+        "/api/projects/project/documents/project-document",
+    ]
+
+
 def test_107_timeout_override_and_health_wait_are_contained(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     captured: list[float] = []
 

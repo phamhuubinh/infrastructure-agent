@@ -554,6 +554,41 @@ def _json_request(
         raise
 
 
+def _multipart_file_request(
+    base_url: str,
+    method: str,
+    path: str,
+    *,
+    filename: str,
+    content: bytes,
+    media_type: str,
+) -> object:
+    """Send the file upload contract used by session and Project document APIs."""
+    boundary = f"----OrionQA{uuid.uuid4().hex}"
+    body = b"".join(
+        (
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+            f"Content-Type: {media_type}\r\n\r\n".encode(),
+            content,
+            f"\r\n--{boundary}--\r\n".encode(),
+        )
+    )
+    request = urllib.request.Request(
+        f"{base_url}{path}",
+        data=body,
+        method=method,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=qa_request_timeout_seconds()) as response:
+            return json.loads(response.read())
+    except (TimeoutError, urllib.error.URLError) as error:
+        if _is_timeout_error(error):
+            raise QARequestTimeout("QA request timed out") from error
+        raise
+
+
 def active_model() -> dict[str, str] | None:
     overrides = {key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")}
     if overrides["BASE_URL"] and overrides["ID"]:
@@ -937,15 +972,13 @@ def _require_final(
 
 
 def _attach_and_wait(base_url: str, path: str, content: str) -> dict[str, object]:
-    attachment = _json_request(
+    attachment = _multipart_file_request(
         base_url,
         "POST",
         path,
-        {
-            "name": "orion-qa-sentinel.txt",
-            "content": content,
-            "media_type": "text/plain",
-        },
+        filename="orion-qa-sentinel.txt",
+        content=content.encode("utf-8"),
+        media_type="text/plain",
     )
     if not isinstance(attachment, dict) or not isinstance(attachment.get("document"), dict):
         raise ScenarioFailure("attachment endpoint did not return a document")
