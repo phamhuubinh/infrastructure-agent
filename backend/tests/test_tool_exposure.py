@@ -201,7 +201,7 @@ def test_invalid_expansion_names_or_arguments_do_not_expose_anything() -> None:
 
 
 @pytest.mark.parametrize(
-    ("definition", "arguments"),
+    ("definition", "arguments", "validation_issue"),
     (
         (
             ToolDefinition(
@@ -211,9 +211,10 @@ def test_invalid_expansion_names_or_arguments_do_not_expose_anything() -> None:
                 handler_key="internal.fake.empty",
             ),
             {"project_id": "wrong"},
+            "$: additionalProperties",
         ),
-        (_definition("fake.required"), {}),
-        (_definition("fake.type"), {"value": 1}),
+        (_definition("fake.required"), {}, "$: required"),
+        (_definition("fake.type"), {"value": 1}, "$.value: type"),
         (
             ToolDefinition(
                 name="fake.bounded",
@@ -227,11 +228,12 @@ def test_invalid_expansion_names_or_arguments_do_not_expose_anything() -> None:
                 handler_key="internal.fake.bounded",
             ),
             {"value": 0},
+            "$.value: minimum",
         ),
     ),
 )
-def test_schema_rejected_arguments_are_generic_model_recovery_errors(
-    definition: ToolDefinition, arguments: dict[str, object]
+def test_schema_rejected_arguments_include_structured_model_recovery_diagnostics(
+    definition: ToolDefinition, arguments: dict[str, object], validation_issue: str
 ) -> None:
     dispatched: list[ToolCall] = []
     builder = ToolRegistryBuilder()
@@ -246,8 +248,9 @@ def test_schema_rejected_arguments_are_generic_model_recovery_errors(
     assert result.error.code == "invalid_input"
     assert result.error.model_recovery_required
     assert result.error.message == (
-        "Tool arguments do not match the registered input schema. Re-check the currently "
-        "exposed schema and retry with valid arguments."
+        "Tool arguments do not match the registered input schema. "
+        f"Validation issue: {validation_issue}. "
+        "Retry using only values allowed by the currently exposed schema."
     )
     assert dispatched == []
 
@@ -626,7 +629,7 @@ async def test_natural_retry_after_successful_expansion_clears_recovery_without_
 
 
 @pytest.mark.anyio
-async def test_proactive_expansion_does_not_allow_terminal_prose_to_escape(
+async def test_proactive_expansion_allows_terminal_clarification_after_forced_decision(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
@@ -639,12 +642,11 @@ async def test_proactive_expansion_does_not_allow_terminal_prose_to_escape(
     )
     session_id = store.create_session()
 
-    with pytest.raises(RequestFailed, match="ordinary tool decision"):
-        await runtime(store, backend, _registry()).submit(session_id, "Recover")
+    outcome = await runtime(store, backend, _registry()).submit(session_id, "Recover")
 
-    assert len(backend.calls) == 4
+    assert outcome.assistant_content == "Please clarify the request."
+    assert len(backend.calls) == 3
     assert any("expanded capability" in message.content for message in backend.calls[2][0])
-    assert any("expanded capability" in message.content for message in backend.calls[3][0])
     assert any(
         "ordinary capability was successfully expanded" in message.content
         for message in backend.calls[2][0]
