@@ -294,6 +294,74 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
     assert _provider_proxy(context) == 25_474
 
 
+def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(store) -> None:  # type: ignore[no-untyped-def]
+    session_id = store.create_session()
+    current_user_message = "Synthesize only the current infrastructure evidence."
+    store.append_timeline(session_id, None, "user_message", {"content": current_user_message})
+
+    for index in range(24):
+        source = SourceRef(
+            source_ref_id=f"current-source-{index}",
+            source_kind="test",
+            source_id=f"target-{index}",
+            section="result",
+            label=f"Current source {index}",
+            retrieved_at=datetime(2026, 8, 28, tzinfo=UTC),
+        )
+        _append_zabbix_exchange(
+            store,
+            session_id,
+            ToolResult(
+                call_id=f"current-call-{index}",
+                tool_name="fake.current",
+                status="success",
+                data={"detail": f"current result {index}: " + "x" * 1_000},
+                sources=(source,),
+            ),
+        )
+
+    maximum_bytes = 7_000
+    strict_context = ContextBuilder(store).build_with_metadata(
+        session_id,
+        maximum_bytes=maximum_bytes,
+        strict_total_budget=True,
+    )
+    default_context = ContextBuilder(store).build_with_metadata(session_id)
+
+    assert _messages_bytes(strict_context.messages) <= maximum_bytes
+    assert current_user_message in [message.content for message in strict_context.messages]
+    assert any(
+        "Older conversation data was omitted" in message.content
+        for message in strict_context.messages
+    )
+
+    strict_call_ids = {
+        call.call_id for message in strict_context.messages for call in message.tool_calls
+    }
+    strict_result_ids = {
+        message.tool_call_id for message in strict_context.messages if message.role == "tool"
+    }
+    assert strict_call_ids == strict_result_ids
+    assert "current-call-23" in strict_call_ids
+    assert "current-call-0" not in strict_call_ids
+
+    retained_source_ids = {source.source_ref_id for source in strict_context.visible_sources}
+    assert retained_source_ids == {
+        f"current-source-{index}"
+        for index in range(24)
+        if f"current-call-{index}" in strict_call_ids
+    }
+
+    # The default path continues to retain every valid current pair as before.
+    assert {
+        call.call_id for message in default_context.messages for call in message.tool_calls
+    } == {f"current-call-{index}" for index in range(24)}
+    assert not any(
+        "Older conversation data was omitted" in message.content
+        for message in default_context.messages
+    )
+
+
 def test_projection_preserves_collection_counts_when_large_details_precede_records() -> None:
     result = ToolResult(
         call_id="records-1",
@@ -390,7 +458,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 26_022
+    assert history_proxy == 26_021
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
@@ -558,4 +626,4 @@ def test_incomplete_tool_pair_is_not_sent_to_provider(store) -> None:  # type: i
         "Old request",
         "Current request",
     ]
-    assert any("incomplete/unpaired blocks: 1" in message.content for message in context)
+    assert any("omitted or invalid blocks: 1" in message.content for message in context)

@@ -159,6 +159,8 @@ class ContextBuilder:
             session_id, checkpoint.covered_item_id if checkpoint is not None else None
         )
 
+        compacted_current_blocks = 0
+
         if maximum_bytes >= MAX_CONVERSATION_BYTES and not strict_total_budget:
             current_budget = self._fair_current_result_budget(timeline)
             budgets = self._tool_result_budgets(timeline, current_budget)
@@ -177,7 +179,7 @@ class ContextBuilder:
             # The omission notice is appended after selection, so reserve an
             # exact upper-bound representation before choosing result/history
             # bytes. Counts cannot exceed this ceiling.
-            omission_count_ceiling = max(len(timeline), omitted_timeline_turns)
+            omission_count_ceiling = max(len(timeline) * 3, omitted_timeline_turns)
             omission_reserve = _messages_bytes(
                 (
                     _omission_message(
@@ -199,9 +201,11 @@ class ContextBuilder:
             budgets = self._tool_result_budgets(timeline, current_budget)
             blocks, invalid_pairings = self._blocks(timeline, budgets)
             turns, ungrouped_blocks = self._turns(blocks)
+            if strict_total_budget:
+                turns, compacted_current_blocks = self._compact_current_turn(turns, raw_budget)
             selected, omitted_turns = self._bounded_turns(turns, raw_budget)
 
-        omitted_blocks = invalid_pairings + ungrouped_blocks
+        omitted_blocks = invalid_pairings + ungrouped_blocks + compacted_current_blocks
         if omitted_turns or omitted_blocks or omitted_timeline_turns:
             messages.append(
                 _omission_message(
@@ -395,6 +399,43 @@ class ContextBuilder:
         return turns, ungrouped
 
     @staticmethod
+    def _compact_current_turn(
+        turns: list[_ConversationTurn], maximum_bytes: int
+    ) -> tuple[list[_ConversationTurn], int]:
+        """Bound an oversized current turn without breaking protocol pairings.
+
+        The current user message is always retained in full. When complete
+        tool/recovery blocks make that turn irreducibly too large, retain the
+        newest contiguous suffix of complete blocks that still fits.
+        """
+        if not turns:
+            return turns, 0
+
+        current = turns[-1]
+        if _messages_bytes(current.messages) <= maximum_bytes:
+            return turns, 0
+
+        if not current.blocks or not current.blocks[0].starts_user_turn:
+            return turns, 0
+
+        user_block = current.blocks[0]
+        kept_tail: list[_Block] = []
+
+        for block in reversed(current.blocks[1:]):
+            candidate_tail = [block, *kept_tail]
+            candidate = _ConversationTurn((user_block, *candidate_tail))
+            if _messages_bytes(candidate.messages) > maximum_bytes:
+                break
+            kept_tail = candidate_tail
+
+        compacted = _ConversationTurn((user_block, *kept_tail))
+        omitted = len(current.blocks) - len(compacted.blocks)
+        if omitted <= 0:
+            return turns, 0
+
+        return [*turns[:-1], compacted], omitted
+
+    @staticmethod
     def _bounded_turns(
         turns: list[_ConversationTurn], maximum_bytes: int = MAX_CONVERSATION_BYTES
     ) -> tuple[tuple[_ConversationTurn, ...], int]:
@@ -422,7 +463,7 @@ def _omission_message(
         content=(
             "Older conversation data was omitted from this model turn to fit the "
             "local context window. The canonical session timeline remains complete. "
-            f"Omitted turns: {omitted_turns}; incomplete/unpaired blocks: "
+            f"Omitted turns: {omitted_turns}; omitted or invalid blocks: "
             f"{omitted_blocks}; older timeline turns: {omitted_timeline_turns}."
         ),
     )
