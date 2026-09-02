@@ -502,10 +502,7 @@ describe("M1 Chat integration", () => {
     expect((uploaded as File).name).toBe("runbook.md");
     expect((uploaded as File).type).toBe("text/markdown");
     expect(Array.from(new Uint8Array(await (uploaded as File).arrayBuffer()))).toEqual([
-      0x23,
-      0x20,
-      0xff,
-      0x0a,
+      0x23, 0x20, 0xff, 0x0a,
     ]);
   });
 
