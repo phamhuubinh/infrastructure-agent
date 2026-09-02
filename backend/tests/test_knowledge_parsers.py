@@ -43,10 +43,9 @@ def _pdf_bytes(text: str) -> bytes:
     for offset in offsets[1:]:
         payload.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
     payload.extend(
-        (
-            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
-            f"startxref\n{xref}\n%%EOF\n"
-        ).encode("ascii")
+        (f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").encode(
+            "ascii"
+        )
     )
     return bytes(payload)
 
@@ -102,8 +101,7 @@ def test_composite_parser_supports_docx_heading_paragraph_and_table_provenance()
     assert "Peak requirement is forty workers." in parsed.text
     assert any(section.section == "Capacity" for section in parsed.sections)
     assert any(
-        section.section and "Capacity · paragraph" in section.section
-        for section in parsed.sections
+        section.section and "Capacity · paragraph" in section.section for section in parsed.sections
     )
     assert any(section.section == "Table 1 · row 1" for section in parsed.sections)
 
