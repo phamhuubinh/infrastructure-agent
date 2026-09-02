@@ -23,6 +23,7 @@ import {
   apiErrorMessage,
   apiFetch,
   attachProjectDocument,
+  attachSessionDocument,
   deleteProjectDocument,
   projectDocuments,
   type Project,
@@ -328,8 +329,6 @@ function Conversation({
 }
 
 function displayAssistantContent(content: string) {
-  // Citation IDs are runtime provenance, not user-facing document text. Source cards below are
-  // rendered only after the IDs resolve against canonical, currently available SourceRefs.
   return content.replace(/\s*\[\[source:[^\]\s]+\]\]/g, "");
 }
 
@@ -442,7 +441,6 @@ function ChatInput({
     loadSession,
     recordEvent,
     setSessionGenerating,
-    attachDocument,
     deleteDocument,
   } = useChat();
   const session = sessions.find(
@@ -456,11 +454,7 @@ function ChatInput({
       setUploading(true);
       try {
         if (projectId) {
-          const uploaded = await attachProjectDocument(projectId, {
-            name: file.name,
-            content: await file.text(),
-            media_type: file.type || "text/plain",
-          });
+          const uploaded = await attachProjectDocument(projectId, file);
           setProjectDocuments([
             ...activeProjectDocuments,
             {
@@ -474,11 +468,8 @@ function ChatInput({
         } else {
           let sessionId = currentSessionId;
           if (!sessionId) sessionId = await createSession();
-          await attachDocument(sessionId, {
-            name: file.name,
-            content: await file.text(),
-            mediaType: file.type || "text/plain",
-          });
+          await attachSessionDocument(sessionId, file);
+          await loadSession(sessionId);
         }
       } catch (attachmentFailure) {
         setAttachmentError(
@@ -493,9 +484,9 @@ function ChatInput({
     },
     [
       activeProjectDocuments,
-      attachDocument,
       createSession,
       currentSessionId,
+      loadSession,
       projectId,
       setProjectDocuments,
     ],
@@ -508,8 +499,6 @@ function ChatInput({
     let sessionId = session?.id || null;
     const controller = new AbortController();
     const current: Generation = { controller, requestId: null, cancelled: false };
-    // Set this before lazily creating a session so a second click/Enter cannot create a
-    // duplicate session while the first creation request is still pending.
     generation.current = current;
     try {
       if (!sessionId) sessionId = await createSession(projectId);
@@ -668,6 +657,7 @@ function ChatInput({
       <input
         ref={fileInput}
         type="file"
+        accept=".txt,.md,.pdf,.docx,.xlsx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="sr-only"
         aria-label="Attach document"
         onChange={(event) => {
