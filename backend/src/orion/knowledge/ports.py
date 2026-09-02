@@ -7,9 +7,18 @@ from typing import Protocol
 
 
 @dataclass(frozen=True)
+class ParsedSection:
+    """One parser-produced text unit with stable source-location metadata."""
+
+    text: str
+    section: str | None = None
+    page: int | None = None
+
+
+@dataclass(frozen=True)
 class ParsedDocument:
     text: str
-    sections: tuple[tuple[str | None, str], ...]
+    sections: tuple[ParsedSection, ...]
 
 
 @dataclass(frozen=True)
