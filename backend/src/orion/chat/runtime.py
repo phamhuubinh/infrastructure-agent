@@ -142,11 +142,7 @@ def _recoverable_failure_fingerprint(
     model_call: ModelToolCall, result: ToolResult
 ) -> _RecoveryFingerprint | None:
     error = result.error
-    if (
-        error is None
-        or not error.model_recovery_required
-        or error.code == "exposed_for_retry"
-    ):
+    if error is None or not error.model_recovery_required or error.code == "exposed_for_retry":
         return None
     normalized_arguments = json.dumps(
         model_call.arguments,
