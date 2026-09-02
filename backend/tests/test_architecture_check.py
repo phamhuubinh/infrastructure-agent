@@ -92,3 +92,54 @@ def test_architecture_check_allows_registry_derived_model_exposure(tmp_path: Pat
     )
 
     assert checker.check(root, ui) == []
+
+
+def test_documentation_check_rejects_stale_tool_exposure_claims(tmp_path: Path) -> None:
+    checker = _checker()
+    files = {
+        "AGENTS.md": (
+            "registry-derived progressive tool exposure orion.tools.expand canonical registry "
+            "The current architecture has no dynamic tool discovery/exposure protocol."
+        ),
+        "README.md": (
+            "registry-derived progressive model-facing exposure protocol orion.tools.expand "
+            "Knowledge/RAG Internet provide all registered tool definitions"
+        ),
+        "CHANGELOG.md": (
+            "progressive model-facing schema exposure orion.tools.expand "
+            "removed dynamic tool exposure/discovery from the target architecture"
+        ),
+        "docs/operations/TROUBLESHOOTING.md": (
+            "orion.tools.expand canonical registry receives the calculator schema on every call"
+        ),
+    }
+    for relative, text in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    violations = "\n".join(checker.check_documentation(tmp_path))
+
+    assert "AGENTS.md: stale tool-exposure claim" in violations
+    assert "README.md: stale tool-exposure claim" in violations
+    assert "CHANGELOG.md: stale tool-exposure claim" in violations
+    assert "TROUBLESHOOTING.md: stale tool-exposure claim" in violations
+
+
+def test_documentation_check_accepts_current_tool_exposure_contract(tmp_path: Path) -> None:
+    checker = _checker()
+    files = {
+        "AGENTS.md": "registry-derived progressive tool exposure orion.tools.expand canonical registry",
+        "README.md": (
+            "registry-derived progressive model-facing exposure protocol orion.tools.expand "
+            "Knowledge/RAG Internet"
+        ),
+        "CHANGELOG.md": "progressive model-facing schema exposure orion.tools.expand",
+        "docs/operations/TROUBLESHOOTING.md": "orion.tools.expand canonical registry",
+    }
+    for relative, text in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    assert checker.check_documentation(tmp_path) == []
