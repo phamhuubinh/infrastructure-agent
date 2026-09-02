@@ -21,7 +21,13 @@ def _pdf_bytes(text: str) -> bytes:
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
             b"/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
         ),
-        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+        (
+            b"<< /Length "
+            + str(len(stream)).encode("ascii")
+            + b" >>\nstream\n"
+            + stream
+            + b"\nendstream"
+        ),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
     ]
     payload = bytearray(b"%PDF-1.4\n")
@@ -140,7 +146,12 @@ def test_malformed_pdf_and_unsafe_office_archive_fail_closed() -> None:
 
 def test_pdf_provenance_reaches_knowledge_source_ref(knowledge, store) -> None:  # type: ignore[no-untyped-def]
     session = store.create_session()
-    upload = knowledge.attach(session, "facts.pdf", _pdf_bytes("Citation page sentinel"), "application/pdf")
+    upload = knowledge.attach(
+        session,
+        "facts.pdf",
+        _pdf_bytes("Citation page sentinel"),
+        "application/pdf",
+    )
     assert upload.status == "ready"
 
     read = knowledge.read(_scope(session, upload.attachment_id), upload.document.document_id)
@@ -175,6 +186,7 @@ def test_docx_and_xlsx_project_documents_remain_project_scoped(knowledge, store)
     )
 
     assert docx.status == "ready" and xlsx.status == "ready"
-    assert knowledge.search(scope_a, "forty workers", 5)[0].document.document_id == docx.document.document_id
+    result = knowledge.search(scope_a, "forty workers", 5)[0]
+    assert result.document.document_id == docx.document.document_id
     with pytest.raises(PermissionError):
         knowledge.search(scope_a, "workers", 5, (xlsx.document.document_id,))
