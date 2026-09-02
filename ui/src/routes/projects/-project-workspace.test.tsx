@@ -121,13 +121,16 @@ describe("Project workspace", () => {
         return jsonResponse(documents);
       }
       if (path === "/api/projects/project-a/documents" && init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { name: string; content: string };
+        expect(init.body).toBeInstanceOf(FormData);
+        const file = (init.body as FormData).get("file");
+        expect(file).toBeInstanceOf(File);
+        const uploadedFile = file as File;
         const uploaded = {
           document: {
             document_id: "doc-2",
             source: { kind: "project", source_id: "project-a" },
-            name: body.name,
-            media_type: "text/plain",
+            name: uploadedFile.name,
+            media_type: uploadedFile.type,
           },
           attachment_id: "attachment-2",
           status: "uploaded",
@@ -177,7 +180,6 @@ describe("Project workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
     const reopenedDetails = await screen.findByRole("dialog");
     const file = new File(["shared facts"], "shared.md", { type: "text/markdown" });
-    Object.assign(file, { text: async () => "shared facts" });
     fireEvent.change(within(reopenedDetails).getByLabelText("Add project document"), {
       target: { files: [file] },
     });
