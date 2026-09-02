@@ -70,12 +70,8 @@ def _expand() -> ModelTurn:
 
 
 def test_recovery_fingerprint_normalizes_argument_key_order() -> None:
-    first = ModelToolCall(
-        call_id="one", tool_name="test.tool", arguments={"b": 2, "a": {"z": 1}}
-    )
-    second = ModelToolCall(
-        call_id="two", tool_name="test.tool", arguments={"a": {"z": 1}, "b": 2}
-    )
+    first = ModelToolCall(call_id="one", tool_name="test.tool", arguments={"b": 2, "a": {"z": 1}})
+    second = ModelToolCall(call_id="two", tool_name="test.tool", arguments={"a": {"z": 1}, "b": 2})
     first_result = ToolResult.failure(
         "one", "test.tool", "recover", "retry", model_recovery_required=True
     )
