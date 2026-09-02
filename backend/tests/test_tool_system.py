@@ -84,6 +84,9 @@ def test_runner_uses_complete_json_schema_before_dispatch() -> None:
     assert invalid.status == "error"
     assert invalid.error is not None
     assert invalid.error.code == "invalid_input"
+    assert "$.payload" in invalid.error.message
+    assert "additionalProperties" in invalid.error.message or "enum" in invalid.error.message
+    assert "unsafe" not in invalid.error.message
     assert executions == 1
     assert valid.status == "success"
     assert valid.data == {"accepted": True}

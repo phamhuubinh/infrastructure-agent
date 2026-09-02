@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -64,6 +65,9 @@ class OpenAICompatibleBackend(ModelBackend):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        configured_temperature = os.getenv("ORION_MODEL_TEMPERATURE")
+        if configured_temperature is not None:
+            payload["temperature"] = float(configured_temperature)
         if tools:
             payload["tools"] = self._provider_tools(tools)
         url = f"{settings.base_url.rstrip('/')}/chat/completions"
@@ -72,7 +76,8 @@ class OpenAICompatibleBackend(ModelBackend):
         usage: ModelUsage | None = None
         stream_finished = False
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            stream_timeout = float(os.getenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", "30"))
+            async with httpx.AsyncClient(timeout=stream_timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     lines = response.aiter_lines().__aiter__()

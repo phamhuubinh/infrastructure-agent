@@ -53,6 +53,13 @@ class RequestOutcome:
     assistant_content: str
 
 
+_SESSION_CONTINUITY_INSTRUCTIONS = (
+    "Visible earlier user messages in this same session are conversation context. "
+    "Answer from them directly when relevant. If asked to repeat exact text from a visible "
+    "earlier user message, reproduce it verbatim. Do not claim that visible session context "
+    "is unavailable merely because no memory or knowledge tool was used."
+)
+
 _RECOVERY_DECISION_INSTRUCTIONS = (
     "The preceding ToolResult marked model recovery as required or expanded capability without "
     "an ordinary follow-up, and the request is unresolved. If exposed_for_retry, call that "
@@ -70,6 +77,13 @@ _CAPABILITY_ACTION_INSTRUCTIONS = (
     "terminal prose. The model chooses the exact exposed tool and arguments."
 )
 
+_RECOVERY_EXHAUSTED_INSTRUCTIONS = (
+    "Repeated tool attempts in this request returned recoverable errors and the bounded recovery "
+    "budget is exhausted. Do not call tools. Give a concise terminal answer stating what could "
+    "not be verified and what input or evidence is missing. Do not invent readings, identifiers, "
+    "targets, or credentials."
+)
+
 _CITATION_CORRECTION_INSTRUCTIONS = (
     "The assistant draft immediately above included a citation that was not returned by a "
     "visible ToolResult. Reconsider the request from the available evidence. If sourced evidence "
@@ -83,6 +97,7 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 # recovery followed by one independently recoverable control-plane barrier,
 # while keeping the model loop strictly bounded.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
+_MAX_RECOVERABLE_TOOL_TURNS = 3
 
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
 
@@ -234,8 +249,10 @@ class ChatRuntime:
                 recovery_pending = False
                 capability_action_pending = False
                 forced_recovery_decisions_used = 0
+                recoverable_tool_turns = 0
                 recovery_decision_next = False
                 recovery_guidance_next = False
+                recovery_exhausted_next = False
                 citation_correction_next: AssistantMessage | None = None
                 while True:
                     self._ensure_not_cancelled(cancellation)
@@ -246,6 +263,8 @@ class ChatRuntime:
                     recovery_guidance_next = False
                     citation_correction = citation_correction_next
                     citation_correction_next = None
+                    recovery_exhausted = recovery_exhausted_next
+                    recovery_exhausted_next = False
                     turn, usage, visible_sources = await self._stream_turn(
                         session_id,
                         request_id,
@@ -257,6 +276,7 @@ class ChatRuntime:
                         recovery_guidance=recovery_guidance,
                         capability_action_pending=capability_action_pending,
                         citation_correction=citation_correction,
+                        recovery_exhausted=recovery_exhausted,
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -271,7 +291,7 @@ class ChatRuntime:
                         not turn.tool_calls
                         and (recovery_pending or capability_action_pending)
                         and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
-                        and (not recovery_decision or capability_action_pending)
+                        and not recovery_decision
                     )
                     citation_correction_required = False
                     # A terminal draft that will be replaced by the bounded recovery
@@ -282,16 +302,12 @@ class ChatRuntime:
                             self._validate_citations(turn, scope, visible_sources)
                         except CitationValidationFailed:
                             assert turn.assistant is not None
-                            # A terminal draft with no visible sources can carry stale
-                            # provider citation metadata. Give unknown metadata one generic
-                            # chance to regenerate while no ToolResult has supplied citation
-                            # evidence. Source-free successes and errors do not make an arbitrary
-                            # provider identifier a real source. A reference previously returned
-                            # in the session, or any currently visible source, remains a strict
-                            # integrity failure if it is no longer visible or accessible.
+                            # Unknown provider citation metadata gets one correction attempt,
+                            # including when legitimate ToolResult sources are currently visible.
+                            # A citation reference that was actually observed in this session
+                            # remains strict if it is no longer visible or accessible.
                             if (
                                 citation_correction_attempted
-                                or visible_sources
                                 or self._citation_references_were_observed(
                                     session_id, turn.assistant.citation_source_ref_ids
                                 )
@@ -398,10 +414,29 @@ class ChatRuntime:
                             )
                         self._persist_tool_result(session_id, request_id, result)
                         results.append((model_call.tool_name, result))
+                    semantic_recoverable_error = any(
+                        result.error is not None
+                        and result.error.model_recovery_required
+                        and result.error.code != "exposed_for_retry"
+                        for _, result in results
+                    )
+                    ordinary_success = any(
+                        tool_name != EXPAND_TOOL_NAME and result.status == "success"
+                        for tool_name, result in results
+                    )
+                    if semantic_recoverable_error:
+                        recoverable_tool_turns += 1
+                    elif ordinary_success:
+                        recoverable_tool_turns = 0
                     recovery_pending, capability_action_pending = _next_recovery_state(
                         recovery_pending, capability_action_pending, results
                     )
-                    if recovery_pending or capability_action_pending:
+                    if recoverable_tool_turns >= _MAX_RECOVERABLE_TOOL_TURNS:
+                        recovery_pending = False
+                        capability_action_pending = False
+                        recovery_guidance_next = False
+                        recovery_exhausted_next = True
+                    elif recovery_pending or capability_action_pending:
                         recovery_guidance_next = True
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
@@ -472,6 +507,7 @@ class ChatRuntime:
         recovery_guidance: bool = False,
         capability_action_pending: bool = False,
         citation_correction: AssistantMessage | None = None,
+        recovery_exhausted: bool = False,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
@@ -501,10 +537,31 @@ class ChatRuntime:
             else ()
         )
 
-        model_tools = tool_exposure.model_tools
+        recovery_exhausted_message = (
+            (ContextMessage(role="system", content=_RECOVERY_EXHAUSTED_INSTRUCTIONS),)
+            if recovery_exhausted
+            else ()
+        )
+        prior_user_turn_exists = (
+            sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
+        )
+        session_continuity_message = (
+            (
+                ContextMessage(
+                    role="system",
+                    content=_SESSION_CONTINUITY_INSTRUCTIONS,
+                ),
+            )
+            if prior_user_turn_exists
+            else ()
+        )
+
+        model_tools = () if recovery_exhausted else tool_exposure.model_tools
         extra_messages = (
+            *session_continuity_message,
             *recovery_message,
             *capability_action_message,
+            *recovery_exhausted_message,
             *citation_correction_messages,
         )
         context = self._context_builder.build_with_metadata(
@@ -513,6 +570,7 @@ class ChatRuntime:
             project_id_is_resolved=True,
             attachment_ids=scope.attachment_ids,
             maximum_bytes=_context_budget_for_turn(extra_messages),
+            strict_total_budget=True,
         )
         model_messages = (*context.messages, *extra_messages)
         if _messages_bytes(model_messages) > MAX_CONVERSATION_BYTES:

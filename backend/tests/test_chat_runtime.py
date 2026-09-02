@@ -13,6 +13,7 @@ from orion.contracts import (
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
+    SourceRef,
     ToolCall,
     ToolDefinition,
     ToolResult,
@@ -797,6 +798,283 @@ class BlockingBackend(ModelBackend):
         raise asyncio.CancelledError
         if False:
             yield None
+
+
+@pytest.mark.anyio
+async def test_recoverable_tool_loop_finishes_with_bounded_no_tool_turn(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.recover",
+            description="Return a recoverable error.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.recover",
+        ),
+        lambda call: ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "invalid_input",
+            "Recoverable failure.",
+            model_recovery_required=True,
+        ),
+    )
+
+    backend = ScriptedBackend(
+        [
+            _expand("fake.recover"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="recover-1",
+                        tool_name="fake.recover",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="recover-2",
+                        tool_name="fake.recover",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="recover-3",
+                        tool_name="fake.recover",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="I could not verify the request with the available inputs."
+                )
+            ),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Inspect safely.")
+
+    assert "could not verify" in outcome.assistant_content
+    assert len(backend.calls) == 5
+    assert backend.calls[-1][1] == ()
+    assert any(
+        message.role == "system" and "bounded recovery budget is exhausted" in message.content
+        for message in backend.calls[-1][0]
+    )
+
+
+@pytest.mark.anyio
+async def test_structural_tool_exposure_does_not_spend_recovery_budget(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.first",
+            description="Return one semantic recoverable error.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            handler_key="fake.first",
+        ),
+        lambda call: ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "invalid_input",
+            "Semantic recoverable failure.",
+            model_recovery_required=True,
+        ),
+    )
+    builder.register(
+        ToolDefinition(
+            name="fake.second",
+            description="Return success.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            handler_key="fake.second",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"ok": True},
+        ),
+    )
+
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="first-hidden",
+                        tool_name="fake.first",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="first-retry",
+                        tool_name="fake.first",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="second-hidden",
+                        tool_name="fake.second",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="second-retry",
+                        tool_name="fake.second",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Recovered after successful evidence.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Recover safely.")
+
+    assert outcome.assistant_content == "Recovered after successful evidence."
+    assert len(backend.calls) == 5
+    assert backend.calls[3][1]
+    assert any(definition.name == "fake.second" for definition in backend.calls[3][1])
+
+
+@pytest.mark.anyio
+async def test_unobserved_bad_citation_with_visible_source_gets_one_correction(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    source = SourceRef(
+        source_ref_id="qa-visible-source",
+        source_kind="grafana",
+        source_id="qa-grafana",
+    )
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.source",
+            description="Return one observable source.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.source",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"value": "observed"},
+            sources=(source,),
+        ),
+    )
+
+    backend = ScriptedBackend(
+        [
+            _expand("fake.source"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="source-call",
+                        tool_name="fake.source",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Draft. [[source:invented-source]]",
+                    citation_source_ref_ids=("invented-source",),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Observed. [[source:qa-visible-source]]",
+                    citation_source_ref_ids=("qa-visible-source",),
+                )
+            ),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        session_id, "Summarize the returned evidence."
+    )
+
+    assert outcome.assistant_content == "Observed. [[source:qa-visible-source]]"
+    assert len(backend.calls) == 4
+    assert any(
+        message.role == "system" and "included a citation" in message.content
+        for message in backend.calls[-1][0]
+    )
+    assert all(
+        "invented-source" not in str(item.payload)
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message"
+    )
+
+
+@pytest.mark.anyio
+async def test_second_session_turn_receives_continuity_guidance(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    marker = "ORION_QA_CONTINUITY_TEST_7391"
+    backend = ScriptedBackend(
+        [
+            ModelTurn(assistant=AssistantMessage(content="Acknowledged within this conversation.")),
+            ModelTurn(assistant=AssistantMessage(content=marker)),
+        ]
+    )
+    chat = runtime(store, backend)
+    session_id = store.create_session()
+
+    await chat.submit(
+        session_id,
+        f"Remember this exact QA fact: {marker}.",
+    )
+    outcome = await chat.submit(
+        session_id,
+        "What exact QA fact did I ask you to remember? Include it verbatim.",
+    )
+
+    assert outcome.assistant_content == marker
+    assert len(backend.calls) == 2
+
+    first_messages = backend.calls[0][0]
+    second_messages = backend.calls[1][0]
+
+    assert not any(
+        message.role == "system" and "Visible earlier user messages" in message.content
+        for message in first_messages
+    )
+    assert any(
+        message.role == "system" and "Visible earlier user messages" in message.content
+        for message in second_messages
+    )
+    assert any(message.role == "user" and marker in message.content for message in second_messages)
 
 
 class RecoveryBlockingBackend(ModelBackend):

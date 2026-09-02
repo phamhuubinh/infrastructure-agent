@@ -582,6 +582,8 @@ def qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
             "ORION_MODEL_BASE_URL": model["base_url"],
             "ORION_MODEL_ID": model["id"],
             "ORION_MODEL_API_KEY": model["api_key"],
+            "ORION_MODEL_STREAM_TIMEOUT_SECONDS": str(qa_request_timeout_seconds()),
+            "ORION_MODEL_TEMPERATURE": "0",
             "ORION_LOG_PATH": str(temporary / "orion.log"),
             "PYTHONPATH": str(ROOT / "backend/src"),
         }

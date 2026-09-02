@@ -243,6 +243,34 @@ class ToolRegistry:
     def handler(self, handler_key: str) -> ToolHandler | None:
         return self._handlers.get(handler_key)
 
-    def arguments_are_valid(self, tool_name: str, arguments: object) -> bool:
+    def argument_validation_issue(self, tool_name: str, arguments: object) -> str | None:
         validator = self._validators.get(tool_name)
-        return validator is not None and not any(validator.iter_errors(cast(Any, arguments)))
+        if validator is None:
+            return "$: schema_unavailable"
+
+        errors = list(validator.iter_errors(cast(Any, arguments)))
+        if not errors:
+            return None
+
+        def path_for(error) -> str:  # type: ignore[no-untyped-def]
+            path = "$"
+            for part in error.absolute_path:
+                if isinstance(part, int):
+                    path += f"[{part}]"
+                else:
+                    path += f".{part}"
+            return path
+
+        ordered = sorted(
+            errors,
+            key=lambda error: (
+                path_for(error),
+                str(error.validator or "schema"),
+            ),
+        )
+        return "; ".join(
+            f"{path_for(error)}: {error.validator or 'schema'}" for error in ordered[:3]
+        )
+
+    def arguments_are_valid(self, tool_name: str, arguments: object) -> bool:
+        return self.argument_validation_issue(tool_name, arguments) is None

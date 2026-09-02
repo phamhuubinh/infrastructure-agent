@@ -88,6 +88,7 @@ class ContextBuilder:
         project_id_is_resolved: bool = False,
         attachment_ids: tuple[str, ...] = (),
         maximum_bytes: int = MAX_CONVERSATION_BYTES,
+        strict_total_budget: bool = False,
     ) -> BuiltContext:
         messages: list[ContextMessage] = [
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
@@ -158,7 +159,7 @@ class ContextBuilder:
             session_id, checkpoint.covered_item_id if checkpoint is not None else None
         )
 
-        if maximum_bytes >= MAX_CONVERSATION_BYTES:
+        if maximum_bytes >= MAX_CONVERSATION_BYTES and not strict_total_budget:
             current_budget = self._fair_current_result_budget(timeline)
             budgets = self._tool_result_budgets(timeline, current_budget)
             blocks, invalid_pairings = self._blocks(timeline, budgets)
@@ -172,7 +173,25 @@ class ContextBuilder:
             selected, omitted_turns = self._bounded_turns(turns, raw_budget)
         else:
             prefix_bytes = _messages_bytes(tuple(messages))
-            raw_budget = max(0, maximum_bytes - prefix_bytes)
+
+            # The omission notice is appended after selection, so reserve an
+            # exact upper-bound representation before choosing result/history
+            # bytes. Counts cannot exceed this ceiling.
+            omission_count_ceiling = max(len(timeline), omitted_timeline_turns)
+            omission_reserve = _messages_bytes(
+                (
+                    _omission_message(
+                        omission_count_ceiling,
+                        omission_count_ceiling,
+                        omission_count_ceiling,
+                    ),
+                )
+            )
+
+            raw_budget = max(
+                0,
+                maximum_bytes - prefix_bytes - omission_reserve,
+            )
             if state_message is not None:
                 raw_budget = min(RECENT_RAW_HISTORY_BYTES, raw_budget)
 
@@ -185,14 +204,10 @@ class ContextBuilder:
         omitted_blocks = invalid_pairings + ungrouped_blocks
         if omitted_turns or omitted_blocks or omitted_timeline_turns:
             messages.append(
-                ContextMessage(
-                    role="system",
-                    content=(
-                        "Older conversation data was omitted from this model turn to fit the "
-                        "local context window. The canonical session timeline remains complete. "
-                        f"Omitted turns: {omitted_turns}; incomplete/unpaired blocks: "
-                        f"{omitted_blocks}; older timeline turns: {omitted_timeline_turns}."
-                    ),
+                _omission_message(
+                    omitted_turns,
+                    omitted_blocks,
+                    omitted_timeline_turns,
                 )
             )
         messages.extend(message for turn in selected for message in turn.messages)
@@ -395,6 +410,22 @@ class ContextBuilder:
             used += size
         selected.reverse()
         return tuple(selected), len(turns) - len(selected)
+
+
+def _omission_message(
+    omitted_turns: int,
+    omitted_blocks: int,
+    omitted_timeline_turns: int,
+) -> ContextMessage:
+    return ContextMessage(
+        role="system",
+        content=(
+            "Older conversation data was omitted from this model turn to fit the "
+            "local context window. The canonical session timeline remains complete. "
+            f"Omitted turns: {omitted_turns}; incomplete/unpaired blocks: "
+            f"{omitted_blocks}; older timeline turns: {omitted_timeline_turns}."
+        ),
+    )
 
 
 def _messages_bytes(messages: tuple[ContextMessage, ...]) -> int:

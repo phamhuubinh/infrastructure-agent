@@ -71,13 +71,17 @@ class ToolRunner:
             return ToolResult.failure(
                 model_call.call_id, model_call.tool_name, "not_found", "Unknown registered tool."
             )
-        if not self._registry.arguments_are_valid(model_call.tool_name, model_call.arguments):
+        validation_issue = self._registry.argument_validation_issue(
+            model_call.tool_name, model_call.arguments
+        )
+        if validation_issue is not None:
             return ToolResult.failure(
                 model_call.call_id,
                 model_call.tool_name,
                 "invalid_input",
-                "Tool arguments do not match the registered input schema. Re-check the "
-                "currently exposed schema and retry with valid arguments.",
+                "Tool arguments do not match the registered input schema. "
+                f"Validation issue: {validation_issue}. "
+                "Retry using only values allowed by the currently exposed schema.",
                 model_recovery_required=True,
             )
         handler = self._registry.handler(definition.handler_key)
