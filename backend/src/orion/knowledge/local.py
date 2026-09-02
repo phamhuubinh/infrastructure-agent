@@ -6,7 +6,7 @@ import hashlib
 import math
 import re
 
-from orion.knowledge.ports import Chunk, IndexedSegment, ParsedDocument
+from orion.knowledge.ports import Chunk, IndexedSegment, ParsedDocument, ParsedSection
 
 _WORD = re.compile(r"[a-z0-9]+")
 _SYNONYMS = {
@@ -25,7 +25,7 @@ def _terms(text: str) -> list[str]:
 
 
 class PlainTextParser:
-    """Parses safe local text/Markdown; format-specific parsers can replace this port."""
+    """Parses safe local text/Markdown."""
 
     _supported = {"text/plain", "text/markdown", "text/x-markdown", None}
 
@@ -39,22 +39,26 @@ class PlainTextParser:
         text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
         if not text:
             raise ValueError("Document has no readable text")
-        sections: list[tuple[str | None, str]] = []
+        sections: list[ParsedSection] = []
         current_title: str | None = None
         current_lines: list[str] = []
         for line in text.splitlines():
             if line.startswith("#") and line.lstrip("#").startswith(" "):
                 if current_lines:
-                    sections.append((current_title, "\n".join(current_lines).strip()))
+                    section_text = "\n".join(current_lines).strip()
+                    if section_text:
+                        sections.append(ParsedSection(section_text, current_title))
                 current_title = line.lstrip("#").strip()
                 current_lines = []
             else:
                 current_lines.append(line)
         if current_lines:
-            sections.append((current_title, "\n".join(current_lines).strip()))
-        return ParsedDocument(
-            text=text, sections=tuple(section for section in sections if section[1])
-        )
+            section_text = "\n".join(current_lines).strip()
+            if section_text:
+                sections.append(ParsedSection(section_text, current_title))
+        if not sections:
+            sections.append(ParsedSection(text, current_title))
+        return ParsedDocument(text=text, sections=tuple(sections))
 
 
 class ParagraphChunker:
@@ -64,26 +68,37 @@ class ParagraphChunker:
     def chunk(self, parsed: ParsedDocument) -> tuple[Chunk, ...]:
         chunks: list[Chunk] = []
         ordinal = 0
-        for section, text in parsed.sections:
+        for source in parsed.sections:
             current = ""
-            for paragraph in (part.strip() for part in text.split("\n\n") if part.strip()):
+            for paragraph in (
+                part.strip() for part in source.text.split("\n\n") if part.strip()
+            ):
                 if current and len(current) + len(paragraph) + 2 > self._maximum_characters:
-                    chunks.append(Chunk(ordinal, current, None, section))
+                    chunks.append(
+                        Chunk(ordinal, current, source.page, source.section)
+                    )
                     ordinal += 1
                     current = ""
                 while len(paragraph) > self._maximum_characters:
                     if current:
-                        chunks.append(Chunk(ordinal, current, None, section))
+                        chunks.append(
+                            Chunk(ordinal, current, source.page, source.section)
+                        )
                         ordinal += 1
                         current = ""
                     chunks.append(
-                        Chunk(ordinal, paragraph[: self._maximum_characters], None, section)
+                        Chunk(
+                            ordinal,
+                            paragraph[: self._maximum_characters],
+                            source.page,
+                            source.section,
+                        )
                     )
                     ordinal += 1
                     paragraph = paragraph[self._maximum_characters :]
                 current = f"{current}\n\n{paragraph}".strip() if current else paragraph
             if current:
-                chunks.append(Chunk(ordinal, current, None, section))
+                chunks.append(Chunk(ordinal, current, source.page, source.section))
                 ordinal += 1
         return tuple(chunks)
 
