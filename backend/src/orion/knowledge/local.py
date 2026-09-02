@@ -70,20 +70,14 @@ class ParagraphChunker:
         ordinal = 0
         for source in parsed.sections:
             current = ""
-            for paragraph in (
-                part.strip() for part in source.text.split("\n\n") if part.strip()
-            ):
+            for paragraph in (part.strip() for part in source.text.split("\n\n") if part.strip()):
                 if current and len(current) + len(paragraph) + 2 > self._maximum_characters:
-                    chunks.append(
-                        Chunk(ordinal, current, source.page, source.section)
-                    )
+                    chunks.append(Chunk(ordinal, current, source.page, source.section))
                     ordinal += 1
                     current = ""
                 while len(paragraph) > self._maximum_characters:
                     if current:
-                        chunks.append(
-                            Chunk(ordinal, current, source.page, source.section)
-                        )
+                        chunks.append(Chunk(ordinal, current, source.page, source.section))
                         ordinal += 1
                         current = ""
                     chunks.append(
