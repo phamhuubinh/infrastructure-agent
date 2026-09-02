@@ -14,13 +14,8 @@ from orion.contracts import (
     SourceRef,
 )
 from orion.knowledge.blob_store import LocalBlobStore
-from orion.knowledge.local import (
-    HashingEmbedding,
-    LocalLexicalIndex,
-    LocalVectorIndex,
-    ParagraphChunker,
-    PlainTextParser,
-)
+from orion.knowledge.local import HashingEmbedding, LocalLexicalIndex, LocalVectorIndex, ParagraphChunker
+from orion.knowledge.parsers import CompositeDocumentParser
 from orion.knowledge.ports import Chunker, DocumentParser, IndexedSegment, LexicalIndex, VectorIndex
 from orion.persistence.sqlite import SQLiteStore
 
@@ -61,7 +56,7 @@ class KnowledgeService:
     ) -> None:
         self._store = store
         self._blobs = blobs
-        self._parser = parser or PlainTextParser()
+        self._parser = parser or CompositeDocumentParser()
         self._chunker = chunker or ParagraphChunker()
         self._lexical_index = lexical_index or LocalLexicalIndex()
         self._vector_index = vector_index or LocalVectorIndex(HashingEmbedding())
