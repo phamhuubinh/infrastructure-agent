@@ -303,9 +303,7 @@ async def test_document_upload_limit_is_enforced_before_ingestion(tmp_path, monk
 
     assert response.status_code == 413
     assert "8-byte upload limit" in response.json()["detail"]
-    assert app.state.application.knowledge.list_documents(
-        app.state.application.runtime._scope(session)  # type: ignore[attr-defined]
-    ) == []
+    assert app.state.application.store.session_attachment_ids(session) == ()
 
 
 @pytest.mark.anyio
