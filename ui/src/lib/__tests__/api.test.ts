@@ -50,7 +50,7 @@ describe("M1 API client", () => {
     expect(message).not.toContain("/private/test/key");
   });
 
-  it("uses only the M2 session-scoped attachment, status, and tombstone routes", async () => {
+  it("uses multipart bytes on the session attachment route", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -59,8 +59,8 @@ describe("M1 API client", () => {
             document: {
               document_id: "doc-1",
               source: { kind: "session", source_id: "session-1" },
-              name: "notes.txt",
-              media_type: "text/plain",
+              name: "scan.pdf",
+              media_type: "application/pdf",
             },
             attachment_id: "attachment-1",
             status: "uploaded",
@@ -72,12 +72,12 @@ describe("M1 API client", () => {
       .mockResolvedValueOnce(new Response('{"detail":"Document not found."}', { status: 404 }))
       .mockResolvedValueOnce(new Response('{"status":"deleted"}', { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+    const bytes = new Uint8Array([0, 255, 1, 2]);
 
-    await attachSessionDocument("session-1", {
-      name: "notes.txt",
-      content: "local text",
-      media_type: "text/plain",
-    });
+    await attachSessionDocument(
+      "session-1",
+      new File([bytes], "scan.pdf", { type: "application/pdf" }),
+    );
     await expect(sessionDocumentStatus("session-1", "doc-1")).resolves.toBeNull();
     await deleteSessionDocument("session-1", "doc-1");
 
@@ -86,15 +86,17 @@ describe("M1 API client", () => {
       "/api/sessions/session-1/documents/doc-1",
       "/api/sessions/session-1/documents/doc-1",
     ]);
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
-      name: "notes.txt",
-      content: "local text",
-      media_type: "text/plain",
-    });
+    const form = fetchMock.mock.calls[0][1]?.body as FormData;
+    const uploaded = form.get("file") as File;
+    expect(form).toBeInstanceOf(FormData);
+    expect(uploaded.name).toBe("scan.pdf");
+    expect(uploaded.type).toBe("application/pdf");
+    expect(new Uint8Array(await uploaded.arrayBuffer())).toEqual(bytes);
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has("Content-Type")).toBe(false);
     expect(fetchMock.mock.calls[2][1]?.method).toBe("DELETE");
   });
 
-  it("uses Project-owned creation and document routes without a message project_id", async () => {
+  it("uses Project-owned creation and multipart document routes without project_id fields", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -120,11 +122,10 @@ describe("M1 API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await createProject({ name: "A", description: null, instructions: null, metadata: {} });
-    await attachProjectDocument("project-a", {
-      name: "requirements.txt",
-      content: "durable fact",
-      media_type: "text/plain",
-    });
+    await attachProjectDocument(
+      "project-a",
+      new File(["durable fact"], "requirements.txt", { type: "text/plain" }),
+    );
     await deleteProjectDocument("project-a", "project-doc");
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
@@ -133,7 +134,9 @@ describe("M1 API client", () => {
       "/api/projects/project-a/documents/project-doc",
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).not.toHaveProperty("project_id");
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).not.toHaveProperty("project_id");
+    const form = fetchMock.mock.calls[1][1]?.body as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    expect((form.get("file") as File).name).toBe("requirements.txt");
   });
 
   it("uses the canonical Project deletion route", async () => {
