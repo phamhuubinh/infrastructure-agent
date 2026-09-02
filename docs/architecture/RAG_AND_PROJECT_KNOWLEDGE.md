@@ -72,25 +72,50 @@ It must not receive documents from unrelated projects.
 
 ## Ingestion
 
-Target ingestion:
+Current local Knowledge ingestion accepts binary-safe multipart uploads and supports:
+
+- UTF-8 text;
+- Markdown;
+- PDF;
+- DOCX;
+- XLSX.
+
+The configured raw upload bound defaults to 4 MiB. Office containers additionally pass
+archive-entry, expanded-size, encryption/macro, path-traversal, and compression-ratio safety
+checks. PDF and spreadsheet parsing also have bounded extracted-content/page/cell safety limits.
+Upload size and archive expansion limits are separate controls.
+
+The ingestion pipeline is:
 
 ```text
-file
+file bytes
  ↓
-identify format
+validate upload bound and identify format
  ↓
 parse text/structure
  ↓
-normalize
+normalize source-location units
  ↓
 chunk with document/page/section metadata
  ↓
-embedding
+lexical/vector index
  ↓
-lexical/vector index as configured
- ↓
-ready
+ready (or explicit failed state)
 ```
+
+PDF page numbers, DOCX heading/paragraph/table locations, and XLSX sheet/row locations are
+preserved through chunks into `SourceRef` where available.
+
+The persisted lifecycle remains explicit:
+
+```text
+uploaded → parsing → indexing → ready
+                         └────→ failed
+```
+
+Current ingestion executes synchronously inside the local application request path; persisted
+intermediate states and blob identity remain restart-reconcilable. A future worker may move the
+same state machine off-request without changing the parser/index/source contracts.
 
 Parser, embedding, lexical, and vector implementations are replaceable components.
 
