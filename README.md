@@ -52,7 +52,7 @@ There is intentionally **no semantic pre-router** that classifies the user's pro
 
 The current executable registry includes calculator, Knowledge/RAG, and Internet tools. Linux, Grafana, and Zabbix tool families are registered when their infrastructure targets are configured.
 
-Tool availability is registry-derived. To avoid resending every full tool schema on every model turn, Orion uses the ADR 0007 progressive model-facing exposure protocol: `orion.tools.expand` accepts exact registered names from the canonical catalog and exposes those full schemas for the current request. This does not create a second registry, semantic tool picker, or authorization path; validation, runtime scope, and execution still use the canonical registry.
+Tool availability is registry-derived. To avoid resending every full tool schema on every model turn, Orion uses the ADR 0007 registry-derived progressive model-facing exposure protocol: `orion.tools.expand` accepts exact registered names from the canonical catalog and exposes those full schemas for the current request. This does not create a second registry, semantic tool picker, or authorization path; validation, runtime scope, and execution still use the canonical registry.
 
 ## Start here
 
