@@ -87,14 +87,19 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   return (await response.json()) as T;
 }
 
+function documentForm(file: File): FormData {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return form;
+}
+
 export async function attachSessionDocument(
   sessionId: string,
-  attachment: { name: string; content: string; media_type: string | null },
+  file: File,
 ): Promise<AttachmentResponse> {
   return apiJson<AttachmentResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/attachments`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(attachment),
+    body: documentForm(file),
   });
 }
 
@@ -192,12 +197,11 @@ export async function projectDocumentStatus(
 
 export async function attachProjectDocument(
   projectId: string,
-  attachment: { name: string; content: string; media_type: string | null },
+  file: File,
 ): Promise<AttachmentResponse> {
   return apiJson<AttachmentResponse>(`/api/projects/${encodeURIComponent(projectId)}/documents`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(attachment),
+    body: documentForm(file),
   });
 }
 
