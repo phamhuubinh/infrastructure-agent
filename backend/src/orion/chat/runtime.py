@@ -79,10 +79,10 @@ _CAPABILITY_ACTION_INSTRUCTIONS = (
 )
 
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
-    "The same recoverable tool failure state has repeated without argument or error progress. "
-    "Do not call tools again for that state. Give a concise terminal answer stating what could "
-    "not be verified and what input or evidence is missing. Do not invent readings, identifiers, "
-    "targets, or credentials."
+    "The same recoverable tool failure state has repeated without argument or error progress, "
+    "so its bounded recovery budget is exhausted. Do not call tools again for that state. Give "
+    "a concise terminal answer stating what could not be verified and what input or evidence is "
+    "missing. Do not invent readings, identifiers, targets, or credentials."
 )
 
 _CITATION_CORRECTION_INSTRUCTIONS = (
