@@ -1,4 +1,4 @@
-"""AST/source checks for executable forbidden architecture regressions only."""
+"""AST/source checks for executable architecture and documentation regressions."""
 
 from __future__ import annotations
 
@@ -7,8 +7,9 @@ import ast
 import re
 from pathlib import Path
 
+DEFAULT_REPO_ROOT = Path(__file__).parents[2]
 DEFAULT_ROOT = Path(__file__).parents[1] / "src" / "orion"
-DEFAULT_UI_ROOT = Path(__file__).parents[2] / "ui" / "src"
+DEFAULT_UI_ROOT = DEFAULT_REPO_ROOT / "ui" / "src"
 PUBLIC_BOUNDARIES = ("api", "chat", "models")
 ROUTER_IDENTIFIERS = {
     "semantic_router",
@@ -34,6 +35,38 @@ UI_FORBIDDEN = re.compile(
     r"\b(enabled_tools|semantic_router|keyword_router|capability_search|"
     r"handler_key)\b"
 )
+
+
+_DOCUMENTATION_REQUIRED = {
+    "AGENTS.md": (
+        "registry-derived progressive tool exposure",
+        "orion.tools.expand",
+        "canonical registry",
+    ),
+    "README.md": (
+        "registry-derived progressive model-facing exposure protocol",
+        "orion.tools.expand",
+        "Knowledge/RAG",
+        "Internet",
+    ),
+    "CHANGELOG.md": (
+        "progressive model-facing schema exposure",
+        "orion.tools.expand",
+    ),
+    "docs/operations/TROUBLESHOOTING.md": (
+        "orion.tools.expand",
+        "canonical registry",
+    ),
+}
+_DOCUMENTATION_FORBIDDEN = {
+    "AGENTS.md": ("The current architecture has no dynamic tool discovery/exposure protocol.",),
+    "README.md": (
+        "Knowledge/RAG,\nInternet, Linux, Grafana, and Zabbix are planned milestones and are not registered yet.",
+        "provide all registered tool definitions",
+    ),
+    "CHANGELOG.md": ("removed dynamic tool exposure/discovery from the target architecture",),
+    "docs/operations/TROUBLESHOOTING.md": ("receives the calculator schema on every call",),
+}
 
 
 def _tree(path: Path) -> ast.Module:
@@ -88,6 +121,24 @@ def _is_public_boundary(root: Path, path: Path) -> bool:
     return any(part in PUBLIC_BOUNDARIES for part in path.relative_to(root).parts)
 
 
+def check_documentation(repo_root: Path) -> list[str]:
+    """Keep a few high-authority current-state claims synchronized with ADR 0007."""
+    violations: list[str] = []
+    for relative, required in _DOCUMENTATION_REQUIRED.items():
+        path = repo_root / relative
+        if not path.is_file():
+            violations.append(f"{relative}: required architecture document is missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for phrase in required:
+            if phrase not in text:
+                violations.append(f"{relative}: missing tool-exposure invariant: {phrase!r}")
+        for phrase in _DOCUMENTATION_FORBIDDEN.get(relative, ()):
+            if phrase in text:
+                violations.append(f"{relative}: stale tool-exposure claim present: {phrase!r}")
+    return violations
+
+
 def check(root: Path, ui_root: Path | None = None) -> list[str]:
     files = tuple(root.rglob("*.py"))
     violations: list[str] = []
@@ -136,8 +187,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--ui-root", type=Path, default=DEFAULT_UI_ROOT)
+    parser.add_argument("--repo-root", type=Path, default=DEFAULT_REPO_ROOT)
     arguments = parser.parse_args()
     violations = check(arguments.root, arguments.ui_root)
+    violations.extend(check_documentation(arguments.repo_root))
     if violations:
         raise SystemExit("\n".join(violations))
 
