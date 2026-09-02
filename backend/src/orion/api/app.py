@@ -7,7 +7,7 @@ import json
 import mimetypes
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -304,7 +304,7 @@ def create_app(
         "/api/projects/{project_id}/documents", response_model=AttachmentView, status_code=201
     )
     async def attach_project_document(
-        project_id: str, file: UploadFile = File(...)
+        project_id: str, file: Annotated[UploadFile, File()]
     ) -> AttachmentView:
         if assembled.projects.get(project_id) is None:
             raise HTTPException(status_code=404, detail="Project not found.")
@@ -354,7 +354,9 @@ def create_app(
     @app.post(
         "/api/sessions/{session_id}/attachments", response_model=AttachmentView, status_code=201
     )
-    async def attach_document(session_id: str, file: UploadFile = File(...)) -> AttachmentView:
+    async def attach_document(
+        session_id: str, file: Annotated[UploadFile, File()]
+    ) -> AttachmentView:
         _require_session(store, assembled.access, session_id)
         name, content, media_type = await _read_document_upload(file, max_upload_bytes)
         uploaded = assembled.knowledge.attach(session_id, name, content, media_type)
