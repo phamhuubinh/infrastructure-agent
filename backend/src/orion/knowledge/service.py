@@ -19,9 +19,15 @@ from orion.knowledge.local import (
     LocalLexicalIndex,
     LocalVectorIndex,
     ParagraphChunker,
-    PlainTextParser,
 )
-from orion.knowledge.ports import Chunker, DocumentParser, IndexedSegment, LexicalIndex, VectorIndex
+from orion.knowledge.parsers import CompositeDocumentParser
+from orion.knowledge.ports import (
+    Chunker,
+    DocumentParser,
+    IndexedSegment,
+    LexicalIndex,
+    VectorIndex,
+)
 from orion.persistence.sqlite import SQLiteStore
 
 _READ_WINDOW_MAX_SEGMENTS = 8
@@ -61,7 +67,7 @@ class KnowledgeService:
     ) -> None:
         self._store = store
         self._blobs = blobs
-        self._parser = parser or PlainTextParser()
+        self._parser = parser or CompositeDocumentParser()
         self._chunker = chunker or ParagraphChunker()
         self._lexical_index = lexical_index or LocalLexicalIndex()
         self._vector_index = vector_index or LocalVectorIndex(HashingEmbedding())

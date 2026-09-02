@@ -15,6 +15,17 @@ public timeline items, projects, document metadata, and indexed segments. Origin
 document blobs live beside it in `blobs/`; `orion.log` is a sanitized local diagnostic
 log. Back up the whole data directory while Orion is stopped (or use SQLite's backup API).
 
+## Project and session document uploads
+
+`ORION_MAX_DOCUMENT_UPLOAD_BYTES` controls the maximum raw document upload size accepted by
+the local API. The default is `4194304` bytes (4 MiB). The value must be a positive integer.
+This raw upload bound is separate from Office archive member/expanded-size/compression-ratio
+checks and from parser-specific PDF page/XLSX cell/extracted-text safety limits.
+
+Supported local Knowledge upload formats are UTF-8 text/Markdown, PDF, DOCX, and XLSX.
+Browser uploads use `multipart/form-data`; binary files are never decoded through `File.text()`
+before transport.
+
 ## Model configuration
 
 The primary M1 adapter is OpenAI-compatible. Configure it by either:

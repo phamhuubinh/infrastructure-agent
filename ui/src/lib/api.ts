@@ -60,6 +60,14 @@ export type SessionSummary = SessionIdentity & {
 
 export type SessionTitle = SessionIdentity & { title: string };
 
+type TextAttachment = {
+  name: string;
+  content: string;
+  media_type: string | null;
+};
+
+type DocumentUpload = File | TextAttachment;
+
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   return fetch(`${API_URL}${path}`, { ...init, headers });
@@ -87,14 +95,25 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   return (await response.json()) as T;
 }
 
+function documentForm(upload: DocumentUpload): FormData {
+  const file =
+    upload instanceof File
+      ? upload
+      : new File([upload.content], upload.name, {
+          type: upload.media_type || "text/plain",
+        });
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return form;
+}
+
 export async function attachSessionDocument(
   sessionId: string,
-  attachment: { name: string; content: string; media_type: string | null },
+  upload: DocumentUpload,
 ): Promise<AttachmentResponse> {
   return apiJson<AttachmentResponse>(`/api/sessions/${encodeURIComponent(sessionId)}/attachments`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(attachment),
+    body: documentForm(upload),
   });
 }
 
@@ -192,12 +211,11 @@ export async function projectDocumentStatus(
 
 export async function attachProjectDocument(
   projectId: string,
-  attachment: { name: string; content: string; media_type: string | null },
+  upload: DocumentUpload,
 ): Promise<AttachmentResponse> {
   return apiJson<AttachmentResponse>(`/api/projects/${encodeURIComponent(projectId)}/documents`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(attachment),
+    body: documentForm(upload),
   });
 }
 

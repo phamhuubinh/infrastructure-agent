@@ -14,6 +14,7 @@ from orion.contracts import (
     AssistantDelta,
     AssistantMessage,
     ContextMessage,
+    ModelToolCall,
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
@@ -78,10 +79,10 @@ _CAPABILITY_ACTION_INSTRUCTIONS = (
 )
 
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
-    "Repeated tool attempts in this request returned recoverable errors and the bounded recovery "
-    "budget is exhausted. Do not call tools. Give a concise terminal answer stating what could "
-    "not be verified and what input or evidence is missing. Do not invent readings, identifiers, "
-    "targets, or credentials."
+    "The same recoverable tool failure state has repeated without argument or error progress, "
+    "so its bounded recovery budget is exhausted. Do not call tools again for that state. Give "
+    "a concise terminal answer stating what could not be verified and what input or evidence is "
+    "missing. Do not invent readings, identifiers, targets, or credentials."
 )
 
 _CITATION_CORRECTION_INSTRUCTIONS = (
@@ -93,13 +94,15 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 )
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
-# recovery or capability-action obligation. Two decisions cover a semantic
-# recovery followed by one independently recoverable control-plane barrier,
-# while keeping the model loop strictly bounded.
+# recovery or capability-action obligation. This bound is not a tool-call quota;
+# successful tool chains remain unrestricted by a fixed call count.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
-_MAX_RECOVERABLE_TOOL_TURNS = 3
+# Stop only after the same normalized recoverable failure state repeats. A new
+# tool name, argument set, or error code is progress and resets this streak.
+_MAX_REPEATED_RECOVERABLE_FAILURE_STATES = 3
 
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
+_RecoveryFingerprint = tuple[str, str, str]
 
 
 def _tool_definitions_bytes(tools: tuple[ToolDefinition, ...]) -> int:
@@ -128,8 +131,26 @@ def _context_budget_for_turn(
 ) -> int:
     remaining = MAX_CONVERSATION_BYTES - _messages_bytes(extra_messages)
     if remaining <= 0:
-        raise RequestFailed("Model context exceeds the local safety budget.")
+        raise RequestFailed(
+            "Model context exceeds Orion's local safety bound; the current user message was not "
+            "silently truncated."
+        )
     return remaining
+
+
+def _recoverable_failure_fingerprint(
+    model_call: ModelToolCall, result: ToolResult
+) -> _RecoveryFingerprint | None:
+    error = result.error
+    if error is None or not error.model_recovery_required or error.code == "exposed_for_retry":
+        return None
+    normalized_arguments = json.dumps(
+        model_call.arguments,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return model_call.tool_name, normalized_arguments, error.code
 
 
 def _next_recovery_state(
@@ -147,10 +168,6 @@ def _next_recovery_state(
         for tool_name, result in results
     )
     return (
-        # An ordinary tool result resolves a prior recovery obligation unless that
-        # result explicitly asks the model to recover again. In particular, a
-        # terminal, non-recoverable rejection (for example an unsafe URL) is a
-        # complete safe outcome, not a reason to force more model decisions.
         recoverable_error or (recovery_pending and not ordinary_called),
         (capability_action_pending or expansion_succeeded) and not ordinary_called,
     )
@@ -249,7 +266,8 @@ class ChatRuntime:
                 recovery_pending = False
                 capability_action_pending = False
                 forced_recovery_decisions_used = 0
-                recoverable_tool_turns = 0
+                last_recoverable_failure_state: tuple[_RecoveryFingerprint, ...] = ()
+                repeated_recoverable_failure_states = 0
                 recovery_decision_next = False
                 recovery_guidance_next = False
                 recovery_exhausted_next = False
@@ -294,18 +312,11 @@ class ChatRuntime:
                         and not recovery_decision
                     )
                     citation_correction_required = False
-                    # A terminal draft that will be replaced by the bounded recovery
-                    # decision is not final. Validate only the answer that could be
-                    # returned to the caller.
                     if not turn.tool_calls and not recovery_abandoned:
                         try:
                             self._validate_citations(turn, scope, visible_sources)
                         except CitationValidationFailed:
                             assert turn.assistant is not None
-                            # Unknown provider citation metadata gets one correction attempt,
-                            # including when legitimate ToolResult sources are currently visible.
-                            # A citation reference that was actually observed in this session
-                            # remains strict if it is no longer visible or accessible.
                             if (
                                 citation_correction_attempted
                                 or self._citation_references_were_observed(
@@ -326,8 +337,6 @@ class ChatRuntime:
                             metrics["input_tokens"] = input_tokens
                             metrics["output_tokens"] = output_tokens
                     if citation_correction_required:
-                        # Do not persist or return a terminal answer until its
-                        # citation metadata validates against visible sources.
                         assert turn.assistant is not None
                         citation_correction_next = turn.assistant
                         self._emit(request_id, "model.resumed", {})
@@ -368,12 +377,10 @@ class ChatRuntime:
                             request_id=request_id, assistant_content=turn.assistant.content
                         )
                     if recovery_decision:
-                        # A forced decision that emits tools continues the unresolved
-                        # obligation into result accounting. A terminal forced decision is
-                        # itself the model's permitted final clarification/refusal.
                         recovery_pending = True
                     exposed_before_turn = tool_exposure.exposed_names
                     results: list[tuple[str, ToolResult]] = []
+                    recoverable_fingerprints: list[_RecoveryFingerprint] = []
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         definition = self._registry.definition(model_call.tool_name)
@@ -414,24 +421,33 @@ class ChatRuntime:
                             )
                         self._persist_tool_result(session_id, request_id, result)
                         results.append((model_call.tool_name, result))
-                    semantic_recoverable_error = any(
-                        result.error is not None
-                        and result.error.model_recovery_required
-                        and result.error.code != "exposed_for_retry"
-                        for _, result in results
-                    )
+                        fingerprint = _recoverable_failure_fingerprint(model_call, result)
+                        if fingerprint is not None:
+                            recoverable_fingerprints.append(fingerprint)
                     ordinary_success = any(
                         tool_name != EXPAND_TOOL_NAME and result.status == "success"
                         for tool_name, result in results
                     )
-                    if semantic_recoverable_error:
-                        recoverable_tool_turns += 1
-                    elif ordinary_success:
-                        recoverable_tool_turns = 0
+                    recoverable_failure_state = tuple(sorted(recoverable_fingerprints))
+                    if ordinary_success:
+                        last_recoverable_failure_state = ()
+                        repeated_recoverable_failure_states = 0
+                    elif recoverable_failure_state:
+                        if recoverable_failure_state == last_recoverable_failure_state:
+                            repeated_recoverable_failure_states += 1
+                        else:
+                            last_recoverable_failure_state = recoverable_failure_state
+                            repeated_recoverable_failure_states = 1
+                    else:
+                        last_recoverable_failure_state = ()
+                        repeated_recoverable_failure_states = 0
                     recovery_pending, capability_action_pending = _next_recovery_state(
                         recovery_pending, capability_action_pending, results
                     )
-                    if recoverable_tool_turns >= _MAX_RECOVERABLE_TOOL_TURNS:
+                    if (
+                        repeated_recoverable_failure_states
+                        >= _MAX_REPEATED_RECOVERABLE_FAILURE_STATES
+                    ):
                         recovery_pending = False
                         capability_action_pending = False
                         recovery_guidance_next = False
@@ -525,9 +541,6 @@ class ChatRuntime:
             (
                 ContextMessage(
                     role="assistant",
-                    # The provider derives citation metadata from literal markers in text.
-                    # Keep the rejected draft's prose for correction, but do not prime the
-                    # next turn by echoing evidence markers that validation already rejected.
                     content=strip_source_citation_markers(citation_correction.content),
                     citation_source_ref_ids=(),
                 ),
@@ -574,12 +587,18 @@ class ChatRuntime:
         )
         model_messages = (*context.messages, *extra_messages)
         if _messages_bytes(model_messages) > MAX_CONVERSATION_BYTES:
-            raise RequestFailed("Model context exceeds the local safety budget.")
+            raise RequestFailed(
+                "Model context exceeds Orion's local safety bound; the current user message was "
+                "not silently truncated."
+            )
         if (
             _model_request_proxy_bytes(model_messages, model_tools)
             > self._maximum_model_request_proxy_bytes
         ):
-            raise RequestFailed("Model context exceeds the local safety budget.")
+            raise RequestFailed(
+                "Model context exceeds Orion's local safety bound; the current user message was "
+                "not silently truncated."
+            )
 
         async for event in self._backend.stream(
             model_messages,

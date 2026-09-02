@@ -1,4 +1,4 @@
-"""Deterministic local paths shared by the CLI and application bootstrap."""
+"""Deterministic local paths and process configuration shared by Orion."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ PACKAGED_UI_SHELL = "_shell.html"
 ORION_HOST = "127.0.0.1"
 ORION_PORT = 61888
 ORION_HEALTH_IDENTITY = "orion"
+DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES = 4 * 1024 * 1024
 
 
 def data_directory() -> Path:
@@ -31,6 +32,20 @@ def database_path() -> Path:
 def log_path() -> Path:
     configured = os.getenv("ORION_LOG_PATH")
     return Path(configured).expanduser() if configured else data_directory() / "orion.log"
+
+
+def document_upload_limit() -> int:
+    """Return the configured raw document upload bound in bytes."""
+    configured = os.getenv("ORION_MAX_DOCUMENT_UPLOAD_BYTES")
+    if configured is None:
+        return DEFAULT_MAX_DOCUMENT_UPLOAD_BYTES
+    try:
+        value = int(configured)
+    except ValueError as error:
+        raise ValueError("ORION_MAX_DOCUMENT_UPLOAD_BYTES must be an integer") from error
+    if value < 1:
+        raise ValueError("ORION_MAX_DOCUMENT_UPLOAD_BYTES must be positive")
+    return value
 
 
 def packaged_ui_directory() -> Path:

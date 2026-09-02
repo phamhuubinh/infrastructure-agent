@@ -7,9 +7,9 @@ import json
 import mimetypes
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,9 +23,16 @@ from orion.chat.runtime import (
 )
 from orion.contracts import RuntimeScope
 from orion.models.backend import ModelBackend
-from orion.paths import ORION_HEALTH_IDENTITY, PACKAGED_UI_SHELL, packaged_ui_directory
+from orion.paths import (
+    ORION_HEALTH_IDENTITY,
+    PACKAGED_UI_SHELL,
+    document_upload_limit,
+    packaged_ui_directory,
+)
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_text, safe_endpoint
+
+_UPLOAD_CHUNK_BYTES = 64 * 1024
 
 
 class StrictRequest(BaseModel):
@@ -89,12 +96,6 @@ class AssistantResponse(BaseModel):
     assistant_content: str
 
 
-class AttachmentInput(StrictRequest):
-    name: str = Field(min_length=1)
-    content: str
-    media_type: str | None = "text/plain"
-
-
 class AttachmentView(BaseModel):
     document: dict[str, object]
     attachment_id: str
@@ -111,6 +112,7 @@ def create_app(
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     assembled = application or build_application(database_path, backend)
     store, runtime = assembled.store, assembled.runtime
+    max_upload_bytes = document_upload_limit()
     app = FastAPI(title="Orion", version="0.1.0")
     app.state.application = assembled
 
@@ -302,13 +304,12 @@ def create_app(
         "/api/projects/{project_id}/documents", response_model=AttachmentView, status_code=201
     )
     async def attach_project_document(
-        project_id: str, attachment: AttachmentInput
+        project_id: str, file: Annotated[UploadFile, File()]
     ) -> AttachmentView:
         if assembled.projects.get(project_id) is None:
             raise HTTPException(status_code=404, detail="Project not found.")
-        uploaded = assembled.knowledge.attach_project(
-            project_id, attachment.name, attachment.content.encode(), attachment.media_type
-        )
+        name, content, media_type = await _read_document_upload(file, max_upload_bytes)
+        uploaded = assembled.knowledge.attach_project(project_id, name, content, media_type)
         return AttachmentView(
             document=uploaded.document.model_dump(mode="json"),
             attachment_id=uploaded.attachment_id,
@@ -353,11 +354,12 @@ def create_app(
     @app.post(
         "/api/sessions/{session_id}/attachments", response_model=AttachmentView, status_code=201
     )
-    async def attach_document(session_id: str, attachment: AttachmentInput) -> AttachmentView:
+    async def attach_document(
+        session_id: str, file: Annotated[UploadFile, File()]
+    ) -> AttachmentView:
         _require_session(store, assembled.access, session_id)
-        uploaded = assembled.knowledge.attach(
-            session_id, attachment.name, attachment.content.encode(), attachment.media_type
-        )
+        name, content, media_type = await _read_document_upload(file, max_upload_bytes)
+        uploaded = assembled.knowledge.attach(session_id, name, content, media_type)
         return AttachmentView(
             document=uploaded.document.model_dump(mode="json"),
             attachment_id=uploaded.attachment_id,
@@ -451,6 +453,28 @@ def create_app(
         return _static_file_response(shell)
 
     return app
+
+
+async def _read_document_upload(
+    upload: UploadFile, maximum_bytes: int
+) -> tuple[str, bytes, str | None]:
+    raw_name = (upload.filename or "").replace("\\", "/")
+    name = raw_name.rsplit("/", 1)[-1].strip()
+    if not name:
+        await upload.close()
+        raise HTTPException(status_code=422, detail="Document filename is required.")
+    content = bytearray()
+    try:
+        while chunk := await upload.read(_UPLOAD_CHUNK_BYTES):
+            if len(content) + len(chunk) > maximum_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Document exceeds the configured {maximum_bytes}-byte upload limit.",
+                )
+            content.extend(chunk)
+    finally:
+        await upload.close()
+    return name, bytes(content), upload.content_type
 
 
 def _static_file_response(path: Path) -> StreamingResponse:

@@ -476,8 +476,9 @@ describe("M1 Chat integration", () => {
       throw new Error("unexpected endpoint " + path);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const file = new File(["# Runbook"], "runbook.md", { type: "text/markdown" });
-    Object.assign(file, { text: async () => "# Runbook" });
+    const file = new File([new Uint8Array([0x23, 0x20, 0xff, 0x0a])], "runbook.md", {
+      type: "text/markdown",
+    });
 
     renderChat();
     const attachmentInput = (await screen.findAllByLabelText("Attach document")).find(
@@ -495,11 +496,14 @@ describe("M1 Chat integration", () => {
     const request = fetchMock.mock.calls.find(
       ([path]) => path === "/api/sessions/chat-1/attachments",
     );
-    expect(JSON.parse(String(request?.[1]?.body))).toEqual({
-      name: "runbook.md",
-      content: "# Runbook",
-      media_type: "text/markdown",
-    });
+    expect(request?.[1]?.body).toBeInstanceOf(FormData);
+    const uploaded = (request?.[1]?.body as FormData).get("file");
+    expect(uploaded).toBeInstanceOf(File);
+    expect((uploaded as File).name).toBe("runbook.md");
+    expect((uploaded as File).type).toBe("text/markdown");
+    expect(Array.from(new Uint8Array(await (uploaded as File).arrayBuffer()))).toEqual([
+      0x23, 0x20, 0xff, 0x0a,
+    ]);
   });
 
   it("reconnects a failed ingestion state separately from model and tool failures", async () => {

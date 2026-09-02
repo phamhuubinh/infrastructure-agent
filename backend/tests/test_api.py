@@ -168,7 +168,6 @@ async def test_packaged_ui_serves_root_assets_and_client_routes_without_capturin
 
 
 @pytest.mark.anyio
-@pytest.mark.anyio
 async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
@@ -260,7 +259,7 @@ async def test_document_status_and_delete_are_session_scoped(tmp_path) -> None: 
         second_session = (await client.post("/api/sessions")).json()["session_id"]
         attachment = await client.post(
             f"/api/sessions/{first_session}/attachments",
-            json={"name": "private.txt", "content": "private document"},
+            files={"file": ("private.txt", b"private document", "text/plain")},
         )
         document_id = attachment.json()["document"]["document_id"]
 
@@ -280,12 +279,31 @@ async def test_document_status_and_delete_are_session_scoped(tmp_path) -> None: 
         )
 
     assert attachment.status_code == 201
+    assert attachment.json()["status"] == "ready"
     assert own_status.status_code == 200
     assert foreign_status.status_code == 404
     assert foreign_delete.status_code == 404
     assert unscoped_status.status_code == 404
     assert own_delete.status_code == 200
     assert remote_status.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_document_upload_limit_is_enforced_before_ingestion(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ORION_MAX_DOCUMENT_UPLOAD_BYTES", "8")
+    app = create_app(tmp_path / "orion.db", ScriptedBackend([]))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        session = (await client.post("/api/sessions")).json()["session_id"]
+        response = await client.post(
+            f"/api/sessions/{session}/attachments",
+            files={"file": ("too-large.txt", b"123456789", "text/plain")},
+        )
+
+    assert response.status_code == 413
+    assert "8-byte upload limit" in response.json()["detail"]
+    assert app.state.application.store.session_attachment_ids(session) == ()
 
 
 @pytest.mark.anyio
@@ -310,7 +328,7 @@ async def test_project_api_binds_sessions_and_documents_without_message_project_
         session = await client.post(f"/api/projects/{project_id}/sessions")
         document = await client.post(
             f"/api/projects/{project_id}/documents",
-            json={"name": "requirements.txt", "content": "A-only fact"},
+            files={"file": ("requirements.txt", b"A-only fact", "text/plain")},
         )
         document_id = document.json()["document"]["document_id"]
         status = await client.get(f"/api/projects/{project_id}/documents/{document_id}")

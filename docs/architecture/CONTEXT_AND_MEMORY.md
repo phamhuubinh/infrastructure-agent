@@ -54,7 +54,7 @@ The current user request must never be silently truncated into a different reque
 The persisted/API timeline is the complete audit and UI record. Model input is a
 separate byte-proxy-bounded projection of that record:
 
-- the complete current user turn is retained;
+- the complete current user turn is retained when the request can fit the local model-context safety bound;
 - history reads begin only at user-turn boundaries and load at most the 64 newest
   complete prior turns plus the complete current turn;
 - prior turns are considered newest-first, and any complete turn that does not fit is
@@ -69,15 +69,17 @@ separate byte-proxy-bounded projection of that record:
 - status, errors, correlation fields, infrastructure target/change/verification
   metadata, collection counts, and exact `SourceRef` objects remain visible;
 - explicit projection metadata reports omitted keys, items, string characters, and
-  the number of omission records hidden by the metadata cap.
+  the number of omission records hidden by the metadata cap;
 - checkpoint state plus its recent raw history share the same conversation byte
   budget; a checkpoint never creates an additional unbounded history allowance.
 
-Projection never mutates the canonical `ToolResult`. The complete current user message,
-assistant/tool protocol envelopes, errors, and exact sources are irreducible; if those
-alone exceed the proxy, Orion retains them and treats the byte bound as soft rather than
-creating malformed history. The byte proxy is deterministic context engineering, not
-an exact tokenizer count or a guarantee that a particular model context window fits.
+Projection never mutates the canonical `ToolResult`. Assistant/tool protocol envelopes,
+errors, and exact sources remain structurally valid. Orion does not silently truncate the
+current user message: if the complete current request plus irreducible protocol/system
+context cannot fit Orion's local safety bound, the request fails explicitly before the
+provider call with a context-safety error. This local byte proxy is deterministic context
+engineering, not an exact tokenizer count or a guarantee that a particular provider window
+is large enough.
 
 ## Project memory
 

@@ -37,11 +37,25 @@ The model may:
 
 Do not convert a failed tool call into fake successful data.
 
+For errors that explicitly set `model_recovery_required`, Orion detects an actual
+non-progress loop from a normalized failure fingerprint:
+
+```text
+(tool_name, normalized_arguments, error_code)
+```
+
+Changing the arguments, tool, or error code is progress and starts a new recovery state.
+A fixed number of successful tool calls is never used as termination logic. Orion only
+removes model-facing tools after the same recoverable failure state repeats enough times
+to demonstrate no progress, then asks the model for a terminal explanation or needed input.
+
 ## RAG failures
 
 Preserve document ingestion state and error details.
 
 If parsing succeeds but indexing fails, the document must not be marked fully ready.
+Malformed, encrypted, oversized, unsafe-archive, or unsupported document content fails
+closed and remains visible as a failed ingestion rather than crashing the runtime.
 
 ## Cancellation
 

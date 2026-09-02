@@ -31,13 +31,14 @@ When evaluating architecture, use this order:
 - Chat is the base interaction runtime.
 - Project uses the same runtime as Chat and adds project-scoped knowledge/RAG.
 - Chat and Project have **no manual tool picker**.
-- Every registered/configured tool is available to the model automatically.
+- Every registered/configured ordinary tool is available to the model automatically through the registry-derived progressive tool exposure protocol accepted by ADR 0007.
+- `orion.tools.expand` exposes exact registered tool schemas request-locally; it is a model-facing context/latency optimization, not a semantic router or a second tool registry.
+- The canonical registry, authorization/validation, `ToolRunner`, `RuntimeScope`, and execution permissions remain complete regardless of which schemas are currently exposed to the model.
 - The model decides semantically when and which tools to use.
 - Orion must not add a keyword/intent/regex pre-router before the model.
 - RAG is a knowledge tool/source used by the model, not a mandatory pre-model pipeline.
 - Explicit current attachments/project identity may be injected as deterministic context.
 - Tool results return to the same model loop; the model may call more tools or answer.
-- The current architecture has no dynamic tool discovery/exposure protocol.
 - The current architecture has no product-level per-request tool-call quota or rate-limit layer.
 - Local/transport timeouts may exist to prevent hung processes; they are not semantic tool restrictions.
 - Provider-specific response objects must not leak through the core model/runtime contracts.
