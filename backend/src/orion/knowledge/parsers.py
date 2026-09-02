@@ -110,9 +110,9 @@ class CompositeDocumentParser:
         except ValueError:
             raise
         except (PdfReadError, OSError, EOFError) as error:
-            raise ValueError("Unsupported malformed PDF input: document is invalid or corrupt") from error
+            raise ValueError("Unsupported malformed PDF: invalid or corrupt") from error
         except Exception as error:  # pypdf normalizes malformed stream/XML-like internals variably.
-            raise ValueError("Unsupported malformed PDF input: document is invalid or corrupt") from error
+            raise ValueError("Unsupported malformed PDF: invalid or corrupt") from error
         return _parsed_document(sections)
 
     @staticmethod
