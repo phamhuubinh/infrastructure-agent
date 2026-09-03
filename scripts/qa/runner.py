@@ -608,7 +608,12 @@ def active_model() -> dict[str, str] | None:
     return {"base_url": str(row[0]), "id": str(row[1]), "api_key": str(row[2] or "")}
 
 
-def qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
+def qa_environment(
+    temporary: Path,
+    model: dict[str, str],
+    *,
+    mutation_case: bool = False,
+) -> dict[str, str]:
     """Build the explicit QA process environment without mutating the source database."""
     environment = os.environ.copy()
     environment.update(
@@ -619,6 +624,7 @@ def qa_environment(temporary: Path, model: dict[str, str]) -> dict[str, str]:
             "ORION_MODEL_API_KEY": model["api_key"],
             "ORION_MODEL_STREAM_TIMEOUT_SECONDS": str(qa_request_timeout_seconds()),
             "ORION_MODEL_TEMPERATURE": "0",
+            "ORION_QA_CASE_MUTATION": "1" if mutation_case else "0",
             "ORION_LOG_PATH": str(temporary / "orion.log"),
             "PYTHONPATH": str(ROOT / "backend/src"),
         }
@@ -631,7 +637,7 @@ def qa_process_command(port: int) -> list[str]:
         sys.executable,
         "-m",
         "uvicorn",
-        "orion.api.app:create_app",
+        "scripts.qa.app:create_app",
         "--factory",
         "--host",
         "127.0.0.1",
@@ -1178,20 +1184,36 @@ def _run_structured(
     checkpoint: ReportCheckpoint | None = None,
 ) -> tuple[list[dict[str, object]], str]:
     with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
-        environment = qa_environment(Path(temporary), model)
-        port = _available_port()
-        base_url = f"http://127.0.0.1:{port}"
-        process = subprocess.Popen(
-            qa_process_command(port),
-            cwd=ROOT,
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
+        runtimes: dict[bool, tuple[str, subprocess.Popen[str]]] = {}
         results: list[dict[str, object]] = []
+        base_url = ""
+
+        def runtime_for(case: Case) -> str:
+            existing = runtimes.get(case.mutation)
+            if existing is not None:
+                return existing[0]
+            runtime_directory = Path(temporary) / ("mutation" if case.mutation else "read-only")
+            runtime_directory.mkdir()
+            environment = qa_environment(
+                runtime_directory,
+                model,
+                mutation_case=case.mutation,
+            )
+            port = _available_port()
+            runtime_base_url = f"http://127.0.0.1:{port}"
+            process = subprocess.Popen(
+                qa_process_command(port),
+                cwd=ROOT,
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            runtimes[case.mutation] = (runtime_base_url, process)
+            _wait_for_health(runtime_base_url, process)
+            return runtime_base_url
+
         try:
-            _wait_for_health(base_url, process)
             configured = _configured_capabilities()
             for case in cases:
                 if checkpoint is not None:
@@ -1211,6 +1233,7 @@ def _run_structured(
                     if checkpoint is not None:
                         checkpoint.record_case(result)
                     continue
+                base_url = runtime_for(case)
                 try:
                     timeline, checked_timelines = _execute_case(base_url, case, model["api_key"])
                     status, reason, tools, sources = evaluate(case, timeline)
@@ -1294,7 +1317,8 @@ def _run_structured(
                 if fail_fast and results[-1]["status"] == "FAIL":
                     break
         finally:
-            stop_qa_process(process)
+            for _, process in runtimes.values():
+                stop_qa_process(process)
     return results, base_url
 
 

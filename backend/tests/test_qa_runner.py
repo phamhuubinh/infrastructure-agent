@@ -530,6 +530,7 @@ def test_qa_import_and_make_targets_are_manual_only(monkeypatch) -> None:  # typ
 def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
     model = {"base_url": "https://user:secret@example.test/v1", "id": "model", "api_key": "secret"}
     environment = qa_runner.qa_environment(tmp_path, model)
+    mutation_environment = qa_runner.qa_environment(tmp_path, model, mutation_case=True)
     command = qa_runner.qa_process_command(61889)
     report = qa_runner.qa_report_directory("run-id")
 
@@ -556,10 +557,83 @@ def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_
     assert environment["ORION_DATABASE_PATH"] == str(tmp_path / "orion.db")
     assert environment["ORION_LOG_PATH"] == str(tmp_path / "orion.log")
     assert environment["ORION_MODEL_API_KEY"] == "secret"
+    assert environment["ORION_QA_CASE_MUTATION"] == "0"
+    assert mutation_environment["ORION_QA_CASE_MUTATION"] == "1"
     assert command[-2:] == ["--port", "61889"]
     assert "127.0.0.1" in command and "uvicorn" in command
+    assert "scripts.qa.app:create_app" in command
     assert report == qa_runner.ROOT / "artifacts" / "qa" / "run-id"
     assert process.stopped and not process.killed
+
+
+def test_qa_app_enables_mutations_only_with_case_and_operator_opt_in(monkeypatch) -> None:
+    path = Path(__file__).parents[2] / "scripts" / "qa" / "app.py"
+    specification = importlib.util.spec_from_file_location("orion_qa_app", path)
+    assert specification and specification.loader
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = module
+    specification.loader.exec_module(module)
+    blocked: list[frozenset[str]] = []
+    application = object()
+
+    def build_application(*, blocked_tool_operation_kinds):  # type: ignore[no-untyped-def]
+        blocked.append(blocked_tool_operation_kinds)
+        return application
+
+    monkeypatch.setattr(module, "build_application", build_application)
+    monkeypatch.setattr(module, "create_http_app", lambda *, application: application)
+    monkeypatch.delenv("ORION_QA_CASE_MUTATION", raising=False)
+    monkeypatch.delenv("ORION_QA_ALLOW_MUTATION", raising=False)
+
+    assert module.create_app() is application
+    monkeypatch.setenv("ORION_QA_CASE_MUTATION", "1")
+    assert module.create_app() is application
+    monkeypatch.setenv("ORION_QA_ALLOW_MUTATION", "1")
+    assert module.create_app() is application
+
+    assert blocked == [frozenset({"mutation"}), frozenset({"mutation"}), frozenset()]
+
+
+def test_qa_routes_read_only_and_mutation_cases_to_separate_guarded_processes(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    environments: list[dict[str, str]] = []
+    executed: list[tuple[str, str]] = []
+
+    def popen(*args, **kwargs):  # type: ignore[no-untyped-def]
+        environments.append(kwargs["env"])
+        return Process()
+
+    def execute(base_url, case, secret):  # type: ignore[no-untyped-def]
+        executed.append((base_url, case.id))
+        timeline = [{"kind": "assistant_message", "payload": {"content": "done"}}]
+        return timeline, [timeline]
+
+    ports = iter((61001, 61002))
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", popen)
+    monkeypatch.setattr(qa_runner, "_available_port", lambda: next(ports))
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "_configured_capabilities", lambda: {})
+    monkeypatch.setattr(qa_runner, "_execute_case", execute)
+
+    results, _ = qa_runner._run_structured(
+        [
+            qa_runner.Case(id="read", prompt="inspect", category="qa"),
+            qa_runner.Case(id="write", prompt="change", category="qa", mutation=True),
+        ],
+        {"base_url": "http://model", "id": "model", "api_key": "secret"},
+        False,
+    )
+
+    assert [result["status"] for result in results] == ["PASS", "PASS"]
+    assert [environment["ORION_QA_CASE_MUTATION"] for environment in environments] == [
+        "0",
+        "1",
+    ]
+    assert executed == [
+        ("http://127.0.0.1:61001", "read"),
+        ("http://127.0.0.1:61002", "write"),
+    ]
 
 
 def test_qa_redacts_secret_values_and_capability_skip_is_conditional(
@@ -662,6 +736,15 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
         corpus["grafana-read"].capability == "grafana"
         and corpus["zabbix-read"].capability == "zabbix"
     )
+    operator_follow_up = corpus["operator-action-follow-up"]
+    assert "linux.service.status" in operator_follow_up.turns[0]
+    assert "Do not restart" in operator_follow_up.turns[0]
+    assert set(operator_follow_up.forbidden_tools) == {
+        "linux.service.restart",
+        "linux.package.status",
+        "linux.package.install",
+        "linux.file.edit",
+    }
 
 
 def test_parser_validates_tiers_and_turns(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
