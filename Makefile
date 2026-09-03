@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck acceptance qa-smoke qa-full openapi openapi-check architecture-check operations-check test-backend test-frontend lint-backend lint-frontend
+.PHONY: test lint typecheck acceptance qa-smoke qa-full qa-stability openapi openapi-check architecture-check operations-check test-backend test-frontend lint-backend lint-frontend
 
 test: test-backend test-frontend
 
@@ -38,3 +38,6 @@ qa-smoke:
 
 qa-full:
 	PYTHONPATH=backend/src .venv/bin/python scripts/qa/runner.py --mode full
+
+qa-stability:
+	PYTHONPATH=backend/src .venv/bin/python scripts/qa/runner.py --mode stability

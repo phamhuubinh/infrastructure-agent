@@ -675,6 +675,10 @@ def cases(qa_runner):  # type: ignore[no-untyped-def]
     return qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/canonical.json")
 
 
+def stability_cases(qa_runner):  # type: ignore[no-untyped-def]
+    return qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/stability.json")
+
+
 def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ignore[no-untyped-def]
     corpus = cases(qa_runner)
     smoke = qa_runner.select_tier(corpus, "smoke")
@@ -686,6 +690,7 @@ def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ig
     assert all(case.category and case.scenario and case.tiers for case in corpus)
     assert not (qa_runner.ROOT / "scripts/qa/cases/full.json").exists()
     assert not (qa_runner.ROOT / "scripts/qa/cases/smoke.json").exists()
+    assert (qa_runner.ROOT / "scripts/qa/cases/stability.json").is_file()
     assert not list((qa_runner.ROOT / "scripts/qa/cases/historical").glob("*.txt"))
 
 
@@ -747,10 +752,75 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
     }
 
 
+def test_broad_synthesis_cases_bound_read_only_evidence_collection(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    from orion.tool_runtime.infrastructure import infrastructure_definitions
+
+    corpus = {case.id: case for case in cases(qa_runner)}
+    infrastructure_tools = {definition.name for definition in infrastructure_definitions()}
+    enterprise = corpus["enterprise-readiness"]
+    weekly = corpus["weekly-synthesis"]
+
+    assert enterprise.capability == "linux"
+    assert enterprise.expected_tools == ("linux.system.inspect",)
+    assert "{qa_target_ref}" in enterprise.prompt
+    assert "stop calling tools" in enterprise.prompt
+    assert set(enterprise.forbidden_tools) == infrastructure_tools - {"linux.system.inspect"}
+
+    weekly_tools = {"linux.system.inspect", "grafana.alert.list", "zabbix.event.list"}
+    assert set(weekly.expected_any_tools) == weekly_tools
+    assert "{qa_target_ref}" in weekly.prompt
+    assert "at most one successful observation per family" in weekly.prompt
+    assert "without retrying it" in weekly.prompt
+    assert set(weekly.forbidden_tools) == infrastructure_tools - weekly_tools
+    assert not enterprise.mutation and not weekly.mutation
+
+
+def test_original_broad_prompts_remain_in_read_only_stability_suite(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    from orion.tool_runtime.infrastructure import infrastructure_definitions
+
+    stability = {case.id: case for case in stability_cases(qa_runner)}
+    assert set(stability) == {"enterprise-readiness", "weekly-synthesis"}
+    assert stability["enterprise-readiness"].prompt == (
+        "Give a bounded enterprise-readiness assessment based only on evidence you can obtain, "
+        "and label assumptions."
+    )
+    assert stability["weekly-synthesis"].prompt == (
+        "Prepare a weekly infrastructure synthesis only from available Linux, Grafana, or "
+        "Zabbix evidence; identify gaps."
+    )
+    mutating_tools = {
+        definition.name
+        for definition in infrastructure_definitions()
+        if definition.operation_kind == "mutation"
+    }
+    assert mutating_tools
+    assert all(case.tiers == ("stability",) for case in stability.values())
+    assert all(not case.mutation for case in stability.values())
+    assert all(set(case.forbidden_tools) == mutating_tools for case in stability.values())
+
+
 def test_parser_validates_tiers_and_turns(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
     path = tmp_path / "cases.json"
     path.write_text(
         json.dumps([{"id": "bad", "category": "x", "prompt": "x", "tiers": ["nightly"]}])
+    )
+    with pytest.raises(ValueError, match="invalid tiers"):
+        qa_runner.load_cases(path)
+    path.write_text(
+        json.dumps([{"id": "stable", "category": "x", "prompt": "x", "tiers": ["stability"]}])
+    )
+    assert qa_runner.load_cases(path)[0].tiers == ("stability",)
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "mixed",
+                    "category": "x",
+                    "prompt": "x",
+                    "tiers": ["full", "stability"],
+                }
+            ]
+        )
     )
     with pytest.raises(ValueError, match="invalid tiers"):
         qa_runner.load_cases(path)
@@ -1331,6 +1401,25 @@ def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_
     assert "failure_trace" not in results[0]
 
 
+def test_stability_cases_keep_separate_runtime_phase(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    case = qa_runner.Case(
+        id="stability",
+        prompt="one",
+        category="qa",
+        tiers=("stability",),
+    )
+    timeline = [{"kind": "assistant_message", "payload": {"content": "Done."}}]
+    monkeypatch.setattr(qa_runner, "_execute_case", lambda *args: (timeline, [timeline]))
+
+    results, _ = qa_runner._run_structured(
+        [case], {"base_url": "http://model", "id": "model", "api_key": "secret"}, False
+    )
+
+    assert results[0]["phase"] == "stability"
+    assert results[0]["tier"] == "stability"
+
+
 @pytest.mark.parametrize(
     "error",
     (
@@ -1423,8 +1512,31 @@ def test_reports_and_ci_policy(qa_runner, tmp_path) -> None:  # type: ignore[no-
     )
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["canonical"]["manual_review"] == 1 and summary["manual_quality_cases"] == 1
+    assert summary["stability"]["total"] == 0
     ci = (qa_runner.ROOT / ".github/workflows/ci.yml").read_text()
     assert "qa-smoke" not in ci and "qa-full" not in ci
+
+
+def test_stability_results_are_reported_separately(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qa_runner.write_reports(
+        tmp_path,
+        {"mode": "stability"},
+        [
+            {
+                "phase": "stability",
+                "tier": "stability",
+                "id": "enterprise-readiness",
+                "category": "workflow",
+                "manual_quality": True,
+                "status": "FAIL",
+                "reason": "HTTP/runtime failure",
+            }
+        ],
+    )
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["canonical"]["total"] == 0
+    assert summary["stability"]["failed"] == 1
+    assert "Stability: total 1" in (tmp_path / "summary.md").read_text()
 
 
 @pytest.mark.parametrize(
