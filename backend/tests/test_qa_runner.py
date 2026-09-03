@@ -747,6 +747,29 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
     }
 
 
+def test_broad_synthesis_cases_bound_read_only_evidence_collection(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    from orion.tool_runtime.infrastructure import infrastructure_definitions
+
+    corpus = {case.id: case for case in cases(qa_runner)}
+    infrastructure_tools = {definition.name for definition in infrastructure_definitions()}
+    enterprise = corpus["enterprise-readiness"]
+    weekly = corpus["weekly-synthesis"]
+
+    assert enterprise.capability == "linux"
+    assert enterprise.expected_tools == ("linux.system.inspect",)
+    assert "{qa_target_ref}" in enterprise.prompt
+    assert "stop calling tools" in enterprise.prompt
+    assert set(enterprise.forbidden_tools) == infrastructure_tools - {"linux.system.inspect"}
+
+    weekly_tools = {"linux.system.inspect", "grafana.alert.list", "zabbix.event.list"}
+    assert set(weekly.expected_any_tools) == weekly_tools
+    assert "{qa_target_ref}" in weekly.prompt
+    assert "at most one successful observation per family" in weekly.prompt
+    assert "without retrying it" in weekly.prompt
+    assert set(weekly.forbidden_tools) == infrastructure_tools - weekly_tools
+    assert not enterprise.mutation and not weekly.mutation
+
+
 def test_parser_validates_tiers_and_turns(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
     path = tmp_path / "cases.json"
     path.write_text(
