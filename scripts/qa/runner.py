@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "8"
+RUNNER_VERSION = "9"
 QA_REQUEST_TIMEOUT_SECONDS = 90
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
@@ -133,11 +133,16 @@ def load_cases(path: Path) -> list[Case]:
         ):
             raise ValueError(f"QA case {item['id']} has invalid scenario data.")
         tiers = item.get("tiers", ["full"])
+        tiers_valid = isinstance(tiers, list) and all(
+            isinstance(tier, str) and tier in {"smoke", "full", "stability"}
+            for tier in tiers
+        )
+        tier_set = set(tiers) if tiers_valid else set()
         if (
-            not isinstance(tiers, list)
+            not tiers_valid
             or not tiers
-            or not all(tier in {"smoke", "full"} for tier in tiers)
-            or "full" not in tiers
+            or not ("full" in tier_set or tier_set == {"stability"})
+            or ("stability" in tier_set and tier_set != {"stability"})
         ):
             raise ValueError(f"QA case {item['id']} has invalid tiers.")
         turns = item.get("turns", [])
@@ -175,6 +180,16 @@ def load_cases(path: Path) -> list[Case]:
 
 def select_tier(cases: list[Case], tier: str) -> list[Case]:
     return [case for case in cases if tier in case.tiers]
+
+
+def _case_phase(case: Case) -> str:
+    return "stability" if "stability" in case.tiers else "canonical"
+
+
+def _case_tier(case: Case) -> str:
+    if "stability" in case.tiers:
+        return "stability"
+    return "smoke" if "smoke" in case.tiers else "full"
 
 
 def _manual_quality(item: dict[str, object], case_id: str) -> bool:
@@ -752,10 +767,10 @@ class ReportCheckpoint:
         }
         self._write_progress()
 
-    def mark_case_in_progress(self, case_id: str) -> None:
+    def mark_case_in_progress(self, case_id: str, phase: str = "canonical") -> None:
         self.progress = {
             "status": "in_progress",
-            "phase": "canonical",
+            "phase": phase,
             "case_id": case_id,
         }
         self._write_progress()
@@ -764,7 +779,7 @@ class ReportCheckpoint:
         self.record_result(result)
         self.progress = {
             "status": "running",
-            "phase": "canonical",
+            "phase": result.get("phase", "canonical"),
             "case_id": result["id"],
         }
         self._write_progress()
@@ -807,6 +822,7 @@ def write_reports(
         }
 
     canonical = phase_summary("canonical")
+    stability = phase_summary("stability")
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
         tiers.setdefault(str(result.get("tier", "full")), Counter())[str(result["status"])] += 1
@@ -824,6 +840,7 @@ def write_reports(
         "manual_quality_cases": sum(bool(result.get("manual_quality")) for result in safe_results),
         "first_failures": [item for item in safe_results if item["status"] == "FAIL"][:5],
         "canonical": canonical,
+        "stability": stability,
     }
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
@@ -833,12 +850,20 @@ def write_reports(
         "".join(json.dumps(item) + "\n" for item in safe_results), encoding="utf-8"
     )
     (report_directory / "summary.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    stability_line = (
+        f"\nStability: total {stability['total']} · PASS: {stability['passed']} · "
+        f"FAIL: {stability['failed']} · SKIP: {stability['skipped']} · "
+        f"MANUAL_REVIEW: {stability['manual_review']}\n"
+        if stability["total"]
+        else ""
+    )
     (report_directory / "summary.md").write_text(
         "# Orion QA "
         f"{manifest['mode']}\n\n"
         f"Canonical: total {canonical['total']} · PASS: {canonical['passed']} · "
         f"FAIL: {canonical['failed']} · SKIP: {canonical['skipped']} · "
-        f"MANUAL_REVIEW: {canonical['manual_review']}\n",
+        f"MANUAL_REVIEW: {canonical['manual_review']}\n"
+        f"{stability_line}",
         encoding="utf-8",
     )
 
@@ -1216,13 +1241,15 @@ def _run_structured(
         try:
             configured = _configured_capabilities()
             for case in cases:
+                phase = _case_phase(case)
+                tier = _case_tier(case)
                 if checkpoint is not None:
-                    checkpoint.mark_case_in_progress(case.id)
+                    checkpoint.mark_case_in_progress(case.id, phase)
                 skip_reason = _optional_skip_reason(case, configured)
                 if skip_reason:
                     result = {
-                        "phase": "canonical",
-                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "phase": phase,
+                        "tier": tier,
                         "id": case.id,
                         "category": case.category,
                         "manual_quality": case.manual_quality,
@@ -1243,8 +1270,8 @@ def _run_structured(
                             status, reason = checked_status, checked_reason
                             break
                     result: dict[str, object] = {
-                        "phase": "canonical",
-                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "phase": phase,
+                        "tier": tier,
                         "id": case.id,
                         "category": case.category,
                         "manual_quality": case.manual_quality,
@@ -1267,8 +1294,8 @@ def _run_structured(
                     results.append(result)
                 except urllib.error.HTTPError as error:
                     result = {
-                        "phase": "canonical",
-                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "phase": phase,
+                        "tier": tier,
                         "id": case.id,
                         "category": case.category,
                         "manual_quality": case.manual_quality,
@@ -1292,8 +1319,8 @@ def _run_structured(
                     json.JSONDecodeError,
                 ) as error:
                     result: dict[str, object] = {
-                        "phase": "canonical",
-                        "tier": "smoke" if "smoke" in case.tiers else "full",
+                        "phase": phase,
+                        "tier": tier,
                         "id": case.id,
                         "category": case.category,
                         "manual_quality": case.manual_quality,
@@ -1327,7 +1354,8 @@ def run(
     fail_fast: bool,
     case_id: str | None = None,
 ) -> int:
-    cases = load_cases(ROOT / "scripts" / "qa" / "cases" / "canonical.json")
+    corpus_name = "stability.json" if mode == "stability" else "canonical.json"
+    cases = load_cases(ROOT / "scripts" / "qa" / "cases" / corpus_name)
     try:
         cases = select_cases(select_tier(cases, mode), case_id)
     except ValueError as error:
@@ -1360,7 +1388,8 @@ def run(
             "model_id": model["id"],
             "model_endpoint": sanitize_endpoint(model["base_url"]),
             "optional_capabilities": ["linux", "grafana", "zabbix"],
-            "canonical_case_count": len(cases),
+            "canonical_case_count": sum(_case_phase(case) == "canonical" for case in cases),
+            "stability_case_count": sum(_case_phase(case) == "stability" for case in cases),
             "manual_quality_case_count": sum(case.manual_quality for case in cases),
         }
         if case_id is not None:
@@ -1376,7 +1405,7 @@ def run(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("smoke", "full"), required=True)
+    parser.add_argument("--mode", choices=("smoke", "full", "stability"), required=True)
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--case-id")
     arguments = parser.parse_args()
