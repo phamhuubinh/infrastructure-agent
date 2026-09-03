@@ -109,6 +109,35 @@ def test_runner_normalizes_invalid_handler_results() -> None:
     assert result.error.code == "upstream_error"
 
 
+def test_runner_execution_guard_blocks_mutation_before_handler_dispatch() -> None:
+    executions = 0
+
+    def handler(call: ToolCall) -> dict[str, object]:
+        nonlocal executions
+        executions += 1
+        return {
+            "call_id": call.call_id,
+            "tool_name": call.tool_name,
+            "status": "success",
+            "data": {"mutated": True},
+        }
+
+    registry = ToolRegistryBuilder()
+    definition = _definition(
+        {"type": "object", "properties": {}, "additionalProperties": False}
+    ).model_copy(update={"operation_kind": "mutation"})
+    registry.register(definition, handler)
+    call = ModelToolCall(call_id="mutation", tool_name="fake.structured", arguments={})
+    scope = RuntimeScope(session_id="session-1", principal_id="local", workspace_id="local")
+
+    blocked = ToolRunner(registry.freeze(), {"mutation"}).run(call, scope)
+
+    assert blocked.status == "error"
+    assert blocked.error is not None
+    assert blocked.error.code == "operation_blocked"
+    assert executions == 0
+
+
 def test_registry_reuses_immutable_model_definition_snapshot() -> None:
     builder = ToolRegistryBuilder()
     builder.register(

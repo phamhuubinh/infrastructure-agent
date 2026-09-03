@@ -182,12 +182,13 @@ class ChatRuntime:
         access: LocalAccessAdapter,
         infrastructure_targets: tuple[tuple[str, str, str], ...] = (),
         application_log: ApplicationLog | None = None,
+        blocked_tool_operation_kinds: frozenset[str] = frozenset(),
     ) -> None:
         self._store = store
         self._backend = backend
         self._registry = registry
         self._access = access
-        self._runner = ToolRunner(registry)
+        self._runner = ToolRunner(registry, blocked_tool_operation_kinds)
         self._context_builder = ContextBuilder(store, infrastructure_targets)
         self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log

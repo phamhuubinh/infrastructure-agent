@@ -57,6 +57,7 @@ def build_application(
     zabbix_client: ZabbixClient | None = None,
     knowledge_parser: DocumentParser | None = None,
     knowledge_chunker: Chunker | None = None,
+    blocked_tool_operation_kinds: frozenset[str] = frozenset(),
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     resolved_path = database_path or default_database_path()
@@ -98,6 +99,7 @@ def build_application(
         access,
         infrastructure_catalog.model_context(),
         ApplicationLog(Path(os.environ["ORION_LOG_PATH"])) if os.getenv("ORION_LOG_PATH") else None,
+        blocked_tool_operation_kinds,
     )
     return OrionApplication(
         store=store,

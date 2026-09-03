@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from pydantic import ValidationError
 
@@ -13,8 +13,13 @@ from orion.tool_runtime.registry import ToolHandler, ToolRegistry
 
 
 class ToolRunner:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        blocked_operation_kinds: Collection[str] = (),
+    ) -> None:
         self._registry = registry
+        self._blocked_operation_kinds = frozenset(blocked_operation_kinds)
 
     def run(
         self,
@@ -70,6 +75,13 @@ class ToolRunner:
         if definition is None:
             return ToolResult.failure(
                 model_call.call_id, model_call.tool_name, "not_found", "Unknown registered tool."
+            )
+        if definition.operation_kind in self._blocked_operation_kinds:
+            return ToolResult.failure(
+                model_call.call_id,
+                model_call.tool_name,
+                "operation_blocked",
+                "This tool operation is blocked by the current execution guard.",
             )
         validation_issue = self._registry.argument_validation_issue(
             model_call.tool_name, model_call.arguments
