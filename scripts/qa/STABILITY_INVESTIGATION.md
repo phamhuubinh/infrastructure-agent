@@ -105,3 +105,21 @@ weekly answer correctly limits Linux capacity conclusions and recognizes the old
 but still draws an unsupported absence-of-events conclusion. These results demonstrate why
 MANUAL_REVIEW must remain distinct from PASS, and why prompt/metadata improvements alone
 are insufficient to close this issue. The follow-up is draft/not ready for merge as a fix.
+
+## Post-hardening acceptance
+
+Issues #123–#136 separate provenance, diagnostics, quality review, runtime lifecycle,
+temporal evidence, context preservation, mutation authorization and delivery governance into
+offline-reviewable units. Their offline success is intentionally **not** evidence that the
+live model/provider path is stable or grounded.
+
+The final live decision is tracked by
+[issue #137](https://github.com/phamhuubinh/infrastructure-agent/issues/137) and documented in
+[LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md). It must run only after the hardening dependencies
+have a clear outcome. The candidate, corpus, model/config, timeout, data/fixture policy,
+repetition count and quality rubric are frozen before the first live call. A code/config
+change after observing a failure starts a new batch rather than continuing the old benchmark.
+
+That gate reports deterministic correctness, completion reliability and grounding/answer
+quality separately. Passing offline tests, CI or only one of those live dimensions must not
+be presented as closing the other two.
