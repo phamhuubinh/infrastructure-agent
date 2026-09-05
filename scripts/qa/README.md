@@ -45,3 +45,16 @@ the request times out before one is persisted. `MANUAL_REVIEW` is never an autom
 
 See [the synthesis investigation](STABILITY_INVESTIGATION.md) for report locations,
 source-backed quality reviews and unresolved runtime evidence after PR #121.
+
+## Post-hardening live acceptance
+
+Implementation issues #124–#136 are intentionally validated offline and must not use live QA
+as their completion gate. After those hardening dependencies have a clear outcome, issue
+[#137](https://github.com/phamhuubinh/infrastructure-agent/issues/137) runs a separate frozen
+live acceptance batch.
+
+See [LIVE_ACCEPTANCE.md](LIVE_ACCEPTANCE.md) for the protocol. The candidate commit/tree,
+corpus, model/config, timeout, fixture/data policy, repetition counts and review rubric are
+declared before the first live call and remain fixed for the batch. Results are reported
+separately for deterministic correctness, completion reliability and grounding/answer
+quality; CI or offline PASS does not substitute for those live verdicts.
