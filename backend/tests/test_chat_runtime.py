@@ -28,6 +28,35 @@ from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 
+def test_infrastructure_context_separates_identity_and_supplies_current_time(
+    store, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    import json
+    from datetime import UTC, datetime
+
+    import orion.chat.context_builder as context_builder
+
+    class FixedClock:
+        @staticmethod
+        def now(tz):  # type: ignore[no-untyped-def]
+            return datetime(2026, 9, 5, 10, 0, tzinfo=UTC)
+
+    monkeypatch.setattr(context_builder, "datetime", FixedClock)
+    session_id = store.create_session()
+    messages = ContextBuilder(store, (("linux", "monitor", "Monitor"),)).build(session_id)
+    identities = next(
+        message.content for message in messages if "Configured infrastructure" in message.content
+    )
+    record = next(line for line in identities.splitlines() if line.startswith("{"))
+    assert json.loads(record) == {
+        "family": "linux",
+        "target_ref": "monitor",
+        "display_name": "Monitor",
+    }
+    assert "2026-09-05T10:00:00+00:00" in identities
+    assert "unspecified query window is not a weekly window" in identities
+
+
 def _expand(*tool_names: str, call_id: str = "expand") -> ModelTurn:
     return ModelTurn(
         tool_calls=(
@@ -154,6 +183,71 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
         "response_time_ms": assistant_items[-1].payload["metrics"]["response_time_ms"],
         "input_tokens": 300,
         "output_tokens": 60,
+    }
+
+
+@pytest.mark.anyio
+async def test_post_observation_guidance_limits_inference_without_disabling_tools(store) -> None:  # type: ignore[no-untyped-def]
+    executions: list[str] = []
+    builder = ToolRegistryBuilder()
+    for name in ("fake.observe", "fake.follow_up"):
+        builder.register(
+            ToolDefinition(
+                name=name,
+                description="Return test evidence.",
+                input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                handler_key=name,
+            ),
+            lambda call: (
+                executions.append(call.tool_name)
+                or ToolResult(
+                    call_id=call.call_id,
+                    tool_name=call.tool_name,
+                    status="success",
+                    data={"missing_sections": ["memory"]},
+                )
+            ),
+        )
+    backend = ScriptedBackend(
+        [
+            _expand("fake.observe", "fake.follow_up"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="observe",
+                        tool_name="fake.observe",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="follow-up",
+                        tool_name="fake.follow_up",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Bounded answer.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Assess it")
+
+    assert outcome.assistant_content == "Bounded answer."
+    assert executions == ["fake.observe", "fake.follow_up"]
+    review_messages = [
+        message.content for message in backend.calls[2][0] if message.role == "system"
+    ]
+    assert any("do not infer health" in message for message in review_messages)
+    assert any("swap-in/swap-out" in message for message in review_messages)
+    assert any("earliest/latest timestamps" in message for message in review_messages)
+    assert {definition.name for definition in backend.calls[2][1]} == {
+        EXPAND_TOOL_NAME,
+        "fake.observe",
+        "fake.follow_up",
     }
 
 

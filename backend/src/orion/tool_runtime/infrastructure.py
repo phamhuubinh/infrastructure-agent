@@ -644,11 +644,32 @@ def _linux_inspect(call: ToolCall, catalog: TargetCatalog, executor: LinuxExecut
     def operation() -> ToolResult:
         target, credential = _target(call, catalog, "linux")
         sections = tuple(call.arguments.get("sections", ["cpu", "memory", "disk", "network"]))
+        observed = _bound(executor.inspect(target, credential, sections))
+        returned_sections = (
+            sorted(str(section) for section in observed if str(section) in sections)
+            if isinstance(observed, dict)
+            else []
+        )
         return _success(
             call,
             {
                 "target_ref": target.target_ref,
-                "sections": _bound(executor.inspect(target, credential, sections)),
+                "sections": observed,
+                "evidence_scope": {
+                    "kind": "point_in_time_snapshot",
+                    "requested_sections": list(sections),
+                    "returned_sections": returned_sections,
+                    "missing_sections": [
+                        section for section in sections if section not in returned_sections
+                    ],
+                    "limitations": [
+                        "No history, baseline, workload requirements, or thresholds/SLOs were "
+                        "collected; this snapshot cannot establish health, sustained utilization, "
+                        "or workload capacity.",
+                        "Memory totals and SwapFree do not measure current swap-in/swap-out "
+                        "activity.",
+                    ],
+                },
             },
             target,
             "system.inspect",
@@ -1108,12 +1129,26 @@ def _zabbix_read(
             except InfrastructureError as error:
                 if not error.retryable or attempt == 2:
                     raise
-        return _success(
-            call,
-            {"target_ref": target.target_ref, "results": _normalize_zabbix(call.tool_name, result)},
-            target,
-            call.tool_name.rsplit(".", 1)[-1],
-        )
+        normalized = _normalize_zabbix(call.tool_name, result)
+        data: dict[str, object] = {"target_ref": target.target_ref, "results": normalized}
+        if call.tool_name == "zabbix.event.list":
+            occurred_at = (
+                [
+                    item["occurred_at"]
+                    for item in normalized
+                    if isinstance(item, dict) and isinstance(item.get("occurred_at"), str)
+                ]
+                if isinstance(normalized, list)
+                else []
+            )
+            data["time_coverage"] = {
+                "query_window_explicit": "from" in args,
+                "query_from": args.get("from"),
+                "query_to": args.get("to"),
+                "earliest_event_at": min(occurred_at) if occurred_at else None,
+                "latest_event_at": max(occurred_at) if occurred_at else None,
+            }
+        return _success(call, data, target, call.tool_name.rsplit(".", 1)[-1])
 
     return _with_errors(call, operation)
 
@@ -1382,6 +1417,17 @@ def _parse_time(value: object) -> datetime:
     return parsed
 
 
+def _zabbix_occurred_at(value: object) -> str | None:
+    clock = str(value)
+    if not re.fullmatch(r"[0-9]{1,12}", clock):
+        return None
+    try:
+        occurred = datetime.fromtimestamp(int(clock), UTC)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return occurred.isoformat().replace("+00:00", "Z")
+
+
 def _normalize_zabbix(name: str, value: object) -> object:
     records = value if isinstance(value, list) else []
     if name == "zabbix.event.list":
@@ -1393,17 +1439,23 @@ def _normalize_zabbix(name: str, value: object) -> object:
             4: "high",
             5: "disaster",
         }
-        return [
-            {
+        normalized: list[dict[str, object]] = []
+        for item in records:
+            if not isinstance(item, dict):
+                continue
+            clock = str(item.get("clock", ""))[:64]
+            event: dict[str, object] = {
                 "event_id": str(item.get("eventid", ""))[:128],
                 "name": str(item.get("name", ""))[:4000],
                 "severity": severity.get(int(item.get("severity", -1)), "not_classified"),
                 "acknowledged": str(item.get("acknowledged", "0")).lower() in {"1", "true"},
-                "clock": str(item.get("clock", ""))[:64],
+                "clock": clock,
             }
-            for item in records
-            if isinstance(item, dict)
-        ]
+            occurred_at = _zabbix_occurred_at(clock)
+            if occurred_at is not None:
+                event["occurred_at"] = occurred_at
+            normalized.append(event)
+        return normalized
     if name == "zabbix.trigger.get":
         severity = {
             0: "not_classified",

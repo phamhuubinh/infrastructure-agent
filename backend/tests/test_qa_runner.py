@@ -1418,6 +1418,163 @@ def test_stability_cases_keep_separate_runtime_phase(qa_runner, monkeypatch) -> 
 
     assert results[0]["phase"] == "stability"
     assert results[0]["tier"] == "stability"
+    assert results[0]["stability_diagnostic"]["events"][0] == {
+        "kind": "assistant_message",
+        "content": "Done.",
+        "content_truncated": False,
+        "content_characters": 5,
+        "hidden_reasoning_omitted": False,
+        "has_tool_calls": False,
+        "terminal_response": False,
+    }
+
+
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_synthesis_transcript_is_checkpointed_on_success_and_timeout(
+    qa_runner, monkeypatch, tmp_path, timed_out
+) -> None:  # type: ignore[no-untyped-def]
+    _runner_mocks(qa_runner, monkeypatch)
+    secret = "configured-secret"
+    case = qa_runner.Case(
+        id="weekly-synthesis", prompt="original", category="workflow", manual_quality=True
+    )
+    timeline = [
+        {
+            "kind": "tool_result",
+            "tool_name": "zabbix.event.list",
+            "call_id": "events",
+            "payload": {
+                "result": {
+                    "status": "success",
+                    "data": {"clock": "1776067292", "password": "never-persist"},
+                    "sources": [
+                        {"source_ref_id": "old-event", "retrieved_at": "2026-09-05T00:00:00Z"}
+                    ],
+                }
+            },
+        },
+        {
+            "kind": "assistant_message",
+            "payload": {"content": secret + " answer " * 100, "metrics": {"response_time_ms": 123}},
+        },
+    ]
+
+    def execute(*args):  # type: ignore[no-untyped-def]
+        if timed_out:
+            error = qa_runner.QARequestTimeout("timed out")
+            error.observed_timelines = [timeline]
+            raise error
+        return timeline, [timeline]
+
+    monkeypatch.setattr(qa_runner, "_execute_case", execute)
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
+    results, _ = qa_runner._run_structured(
+        [case], {"base_url": "http://model", "id": "model", "api_key": secret}, False, checkpoint
+    )
+    persisted = (tmp_path / "cases.partial.jsonl").read_text()
+    assert secret not in persisted and "never-persist" not in persisted
+    result = json.loads(persisted)
+    assert result["status"] == ("FAIL" if timed_out else "MANUAL_REVIEW")
+    events = result["stability_diagnostic"]["events"]
+    assert events[0]["data"]["clock"] == "1776067292"
+    assert events[0]["sources"][0]["source_ref_id"] == "old-event"
+    assert events[1]["content"].endswith(" answer " * 100)
+    assert events[1]["content_truncated"] is False
+    assert events[1]["terminal_response"] is True
+    if not timed_out:
+        assert results[0]["manual_review_answer_truncated"] is True
+
+
+def test_diagnostic_marks_text_event_bounds_and_omitted_reasoning(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(qa_runner, "STABILITY_DIAGNOSTIC_EVENT_LIMIT", 2)
+    monkeypatch.setattr(qa_runner, "STABILITY_DIAGNOSTIC_TEXT_LIMIT", 8)
+    diagnostic = qa_runner.stability_diagnostic_transcript(
+        [
+            [
+                {"kind": "assistant_message", "payload": {"content": "long-answer"}},
+                {
+                    "kind": "assistant_message",
+                    "payload": {"content": "<think>hidden</think>answer"},
+                },
+                {"kind": "assistant_message", "payload": {"content": "not captured"}},
+            ]
+        ],
+        (),
+    )
+    assert diagnostic["events_truncated"] is True
+    assert diagnostic["timeline_events"] == 3
+    assert diagnostic["events"][0]["content_truncated"] is True
+    assert diagnostic["events"][0]["content_characters"] == 11
+    assert diagnostic["events"][1]["hidden_reasoning_omitted"] is True
+    assert "hidden</think>" not in json.dumps(diagnostic)
+
+
+def test_stability_diagnostic_keeps_full_redacted_evidence_and_marks_bounds(
+    qa_runner, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ORION_QA_DIAGNOSTIC_SECRET", "environment-secret")
+    long_answer = "provider-secret " + "x" * 600
+    oversized = "y" * (qa_runner.STABILITY_DIAGNOSTIC_VALUE_LIMIT + 1)
+    diagnostic = qa_runner.stability_diagnostic_transcript(
+        [
+            [
+                {
+                    "kind": "assistant_message",
+                    "payload": {"content": long_answer},
+                },
+                {
+                    "kind": "tool_result",
+                    "tool_name": "zabbix.event.list",
+                    "call_id": "call-1",
+                    "payload": {
+                        "result": {
+                            "status": "success",
+                            "data": {
+                                "events": [
+                                    {
+                                        "clock": "1776067292",
+                                        "note": "environment-secret",
+                                    }
+                                ]
+                            },
+                            "sources": [{"source_ref_id": "source-1"}],
+                            "error": None,
+                        }
+                    },
+                },
+                {
+                    "kind": "tool_result",
+                    "tool_name": "test.large",
+                    "call_id": "call-2",
+                    "payload": {
+                        "result": {
+                            "status": "success",
+                            "data": {"value": oversized},
+                            "sources": [],
+                            "error": None,
+                        }
+                    },
+                },
+            ]
+        ],
+        ("provider-secret",),
+    )
+
+    assert diagnostic is not None
+    answer = diagnostic["events"][0]
+    assert answer["content"] == "<redacted> " + "x" * 600
+    assert answer["content_truncated"] is False
+    evidence = diagnostic["events"][1]
+    assert evidence["data"]["events"][0] == {
+        "clock": "1776067292",
+        "note": "[REDACTED]",
+    }
+    assert evidence["sources"] == [{"source_ref_id": "source-1"}]
+    assert evidence["data_truncated"] is False
+    assert diagnostic["events"][2]["data_truncated"] is True
+    persisted = json.dumps(diagnostic)
+    assert "provider-secret" not in persisted
+    assert "environment-secret" not in persisted
 
 
 @pytest.mark.parametrize(

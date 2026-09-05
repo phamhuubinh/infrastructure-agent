@@ -24,6 +24,8 @@ _PRIORITY_KEYS = {
     "result_count",
     "segment_count",
     "total_segments",
+    "evidence_scope",
+    "time_coverage",
 }
 
 

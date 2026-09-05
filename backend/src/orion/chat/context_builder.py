@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from orion.chat.model_context import project_tool_result
 from orion.contracts import ContextMessage, ModelToolCall, SourceRef, TimelineItem, ToolResult
@@ -94,10 +95,25 @@ class ContextBuilder:
             ContextMessage(role="system", content=_SYSTEM_INSTRUCTIONS)
         ]
         if self._infrastructure_targets:
-            lines = ["Configured infrastructure targets (safe identities only):"]
+            lines = [
+                "Configured infrastructure targets (safe identities only). Use the exact "
+                "target_ref value, without the family prefix:"
+            ]
             lines.extend(
-                f"- {family}: {target_ref}" + (f" ({display})" if display != target_ref else "")
+                json.dumps({"family": family, "target_ref": target_ref, "display_name": display})
                 for family, target_ref, display in self._infrastructure_targets
+            )
+            lines.append(
+                "Current application time (UTC): "
+                + datetime.now(UTC).isoformat()
+                + ". Resolve relative reporting periods against this time and state the chosen "
+                "interval. Distinguish event occurrence from retrieval time; an unspecified "
+                "query window is not a weekly window. For a requested assessment, perform "
+                "relevant authorized reads and return findings in this response; do not merely "
+                "offer a tool procedure or ask permission to begin read-only checks. Select "
+                "proportionate evidence queries. Batch independent reads with known inputs in "
+                "one model turn. Do not invent package/service names or dashboard identifiers "
+                "to fill a checklist; record those unknowns as gaps."
             )
             messages.append(ContextMessage(role="system", content="\n".join(lines)))
         attachments = self._store.visible_documents(session_id, attachment_ids)

@@ -28,5 +28,20 @@ tool before its handler, and forbidden-tool checks also report attempted mutatio
 
 Reports are written under `artifacts/qa/`. Linux, Grafana, and Zabbix cases are explicitly
 reported as `SKIP` unless a safe QA capability is configured; they never target production files.
-Full reports distinguish structured results from historical suite/prompt-turn results and retain
-only bounded safe diagnostics, never raw prompts, answers, tool payloads, or timelines.
+Stability cases and the two corresponding bounded synthesis cases retain a
+`stability_diagnostic` transcript in both checkpoint and final reports: assistant text,
+tool-call arguments, result data, source references, and errors. Known API/environment secrets
+and credential-shaped fields are redacted. Reports are local operational evidence; inspect
+them before sharing because infrastructure readings and identities are intentionally retained.
+
+Each text/payload includes its redacted character count and an explicit `*_truncated` flag.
+Assistant text is capped at 65,536 characters, each structured value at 131,072 serialized
+characters, and capture at 256 timeline entries. An oversized structured value becomes a JSON
+excerpt string with its truncation flag set. Hidden-reasoning-tagged assistant text is omitted
+and marked `hidden_reasoning_omitted`. `terminal_response` distinguishes persisted terminal
+answers from intermediate tool-call turns. The short `manual_review_answer` preview remains
+512 characters and now explicitly marks truncation. No terminal answer exists to review when
+the request times out before one is persisted. `MANUAL_REVIEW` is never an automatic PASS.
+
+See [the synthesis investigation](STABILITY_INVESTIGATION.md) for report locations,
+source-backed quality reviews and unresolved runtime evidence after PR #121.
