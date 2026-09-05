@@ -35,7 +35,8 @@ EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_984
 EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_281
 EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_218
 EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 3_975
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 9_233
+# Includes post-observation grounding guidance; the context budget is unchanged.
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 10_603
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -385,6 +386,35 @@ def test_projection_preserves_collection_counts_when_large_details_precede_recor
     assert projected["data"]["verification"]["status"] == "verified"
     assert record_omission["original_items"] == 37
     assert record_omission["included_items"] + record_omission["omitted_items"] == 37
+
+
+def test_projection_preserves_evidence_scope_and_time_coverage_before_large_results() -> None:
+    result = ToolResult(
+        call_id="old-events",
+        tool_name="zabbix.event.list",
+        status="success",
+        data={
+            "target_ref": "monitoring",
+            "results": [{"name": "event", "details": "x" * 1_000} for _ in range(50)],
+            "evidence_scope": {
+                "kind": "point_in_time_snapshot",
+                "missing_sections": ["memory"],
+            },
+            "time_coverage": {
+                "query_window_explicit": False,
+                "query_from": None,
+                "query_to": None,
+                "earliest_event_at": "2026-04-13T08:01:32Z",
+                "latest_event_at": "2026-04-13T08:01:32Z",
+            },
+        },
+    )
+
+    projected = json.loads(project_tool_result(result, 1_500))
+
+    assert projected["data"]["evidence_scope"]["missing_sections"] == ["memory"]
+    assert projected["data"]["time_coverage"] == result.data["time_coverage"]
+    assert projected["_orion_projection"]["applied"] is True
 
 
 def test_projection_reports_when_omission_metadata_is_itself_bounded() -> None:

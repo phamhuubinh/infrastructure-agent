@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from orion.security import redact_public
+
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "9"
+RUNNER_VERSION = "10"
 QA_REQUEST_TIMEOUT_SECONDS = 90
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
@@ -34,6 +36,9 @@ FAILURE_TRACE_EVENT_LIMIT = 24
 FAILURE_TRACE_ASSISTANT_TEXT_LIMIT = 256
 FAILURE_TRACE_IDENTIFIER_LIMIT = 128
 FAILURE_TRACE_ARGUMENT_NAME_LIMIT = 8
+STABILITY_DIAGNOSTIC_EVENT_LIMIT = 256
+STABILITY_DIAGNOSTIC_TEXT_LIMIT = 65_536
+STABILITY_DIAGNOSTIC_VALUE_LIMIT = 131_072
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -134,8 +139,7 @@ def load_cases(path: Path) -> list[Case]:
             raise ValueError(f"QA case {item['id']} has invalid scenario data.")
         tiers = item.get("tiers", ["full"])
         tiers_valid = isinstance(tiers, list) and all(
-            isinstance(tier, str) and tier in {"smoke", "full", "stability"}
-            for tier in tiers
+            isinstance(tier, str) and tier in {"smoke", "full", "stability"} for tier in tiers
         )
         tier_set = set(tiers) if tiers_valid else set()
         if (
@@ -372,6 +376,121 @@ def failure_trace(
                     ]
                 trace.append(notice)
     return trace
+
+
+def _diagnostic_text(value: object, secret_values: tuple[str, ...]) -> tuple[str, bool, int]:
+    content = value if isinstance(value, str) else ""
+    redacted = redact_public(redact_report(content, secret_values))
+    assert isinstance(redacted, str)
+    if "<think" in redacted.lower() or "</think>" in redacted.lower():
+        return "<hidden reasoning omitted>", True, len(redacted)
+    return (
+        redacted[:STABILITY_DIAGNOSTIC_TEXT_LIMIT],
+        (len(redacted) > STABILITY_DIAGNOSTIC_TEXT_LIMIT),
+        len(redacted),
+    )
+
+
+def _diagnostic_value(value: object, secret_values: tuple[str, ...]) -> tuple[object, bool, int]:
+    safe = redact_public(redact_report(value, secret_values))
+    serialized = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
+    if len(serialized) <= STABILITY_DIAGNOSTIC_VALUE_LIMIT:
+        return safe, False, len(serialized)
+    return serialized[:STABILITY_DIAGNOSTIC_VALUE_LIMIT], True, len(serialized)
+
+
+def stability_diagnostic_transcript(
+    timelines: list[list[dict[str, Any]]], secret_values: tuple[str, ...]
+) -> dict[str, object] | None:
+    """Capture redacted stability evidence while making every report bound explicit."""
+    if not timelines:
+        return None
+    timeline = timelines[-1]
+    selected = timeline[:STABILITY_DIAGNOSTIC_EVENT_LIMIT]
+    events: list[dict[str, object]] = []
+    for item in selected:
+        kind = item.get("kind")
+        payload = item.get("payload")
+        if not isinstance(payload, dict) or kind not in {
+            "assistant_message",
+            "tool_call",
+            "tool_result",
+            "runtime_notice",
+        }:
+            continue
+        event: dict[str, object] = {"kind": str(kind)}
+        for name in ("tool_name", "call_id"):
+            value = item.get(name)
+            if isinstance(value, str):
+                safe = redact_public(redact_report(value, secret_values))
+                assert isinstance(safe, str)
+                event[name] = safe
+        if kind == "assistant_message":
+            content, truncated, characters = _diagnostic_text(payload.get("content"), secret_values)
+            event.update(
+                {
+                    "content": content,
+                    "content_truncated": truncated,
+                    "content_characters": characters,
+                    "hidden_reasoning_omitted": content == "<hidden reasoning omitted>",
+                    "has_tool_calls": bool(payload.get("tool_calls")),
+                    "terminal_response": isinstance(payload.get("metrics"), dict),
+                }
+            )
+        elif kind == "tool_call":
+            arguments, truncated, characters = _diagnostic_value(
+                payload.get("arguments", {}), secret_values
+            )
+            event.update(
+                {
+                    "arguments": arguments,
+                    "arguments_truncated": truncated,
+                    "arguments_characters": characters,
+                }
+            )
+        elif kind == "tool_result":
+            result = payload.get("result")
+            if not isinstance(result, dict):
+                continue
+            for name in ("data", "sources", "error"):
+                captured, truncated, characters = _diagnostic_value(result.get(name), secret_values)
+                event[name] = captured
+                event[f"{name}_truncated"] = truncated
+                event[f"{name}_characters"] = characters
+            status = result.get("status")
+            event["status"] = status if isinstance(status, str) else ""
+        else:
+            notice, truncated, characters = _diagnostic_value(payload, secret_values)
+            event.update(
+                {
+                    "payload": notice,
+                    "payload_truncated": truncated,
+                    "payload_characters": characters,
+                }
+            )
+        events.append(event)
+    return {
+        "timeline_events": len(timeline),
+        "captured_timeline_events": len(selected),
+        "events_truncated": len(timeline) > len(selected),
+        "events": events,
+    }
+
+
+def _attach_stability_diagnostics(
+    result: dict[str, object],
+    phase: str,
+    timelines: list[list[dict[str, Any]]],
+    secret_values: tuple[str, ...],
+) -> None:
+    if phase != "stability" and result.get("id") not in {
+        "enterprise-readiness",
+        "weekly-synthesis",
+    }:
+        return
+    diagnostic = stability_diagnostic_transcript(timelines, secret_values)
+    if diagnostic is not None:
+        result["stability_diagnostic"] = diagnostic
 
 
 class QARequestTimeout(TimeoutError):
@@ -706,7 +825,14 @@ def redact_report(value: object, secret_values: tuple[str, ...] = ()) -> object:
                 "<redacted>"
                 if any(
                     marker in str(key).lower()
-                    for marker in ("key", "token", "secret", "credential")
+                    for marker in (
+                        "key",
+                        "token",
+                        "secret",
+                        "credential",
+                        "password",
+                        "authorization",
+                    )
                 )
                 else redact_report(item, secret_values)
             )
@@ -960,7 +1086,7 @@ def _send(base_url: str, session_id: str, content: str) -> None:
         ):
             timeline = None
         if timeline is not None:
-            setattr(error, "observed_timelines", [timeline])
+            error.observed_timelines = [timeline]
         raise
     if not isinstance(response, dict) or not isinstance(response.get("assistant_content"), str):
         raise ScenarioFailure("message endpoint did not return an assistant response")
@@ -1073,7 +1199,7 @@ def _execute_case(
     except urllib.error.HTTPError as error:
         captured = list(observed)
         captured.extend(getattr(error, "observed_timelines", []))
-        setattr(error, "observed_timelines", captured)
+        error.observed_timelines = captured
         raise
 
 
@@ -1282,6 +1408,9 @@ def _run_structured(
                     }
                     if case.requires_citation:
                         result["citation_diagnostics"] = citation_diagnostics(timeline)
+                    _attach_stability_diagnostics(
+                        result, phase, checked_timelines, (model["api_key"],)
+                    )
                     if status == "FAIL":
                         trace = failure_trace(checked_timelines, (model["api_key"],))
                         if trace:
@@ -1289,6 +1418,9 @@ def _run_structured(
                     if status == "PASS" and case.manual_quality:
                         final = _final_assistant(timeline)
                         if final is not None:
+                            result["manual_review_answer_truncated"] = (
+                                len(final[0]) > MANUAL_REVIEW_ANSWER_LIMIT
+                            )
                             result["manual_review_answer"] = final[0][:MANUAL_REVIEW_ANSWER_LIMIT]
                         result["status"] = "MANUAL_REVIEW"
                     results.append(result)
@@ -1304,12 +1436,13 @@ def _run_structured(
                         "detail": type(error).__name__,
                         **http_error_diagnostics(error),
                     }
-                    trace = failure_trace(
-                        getattr(error, "observed_timelines", []),
-                        (model["api_key"],),
-                    )
+                    observed_timelines = getattr(error, "observed_timelines", [])
+                    trace = failure_trace(observed_timelines, (model["api_key"],))
                     if trace:
                         result["failure_trace"] = trace
+                    _attach_stability_diagnostics(
+                        result, phase, observed_timelines, (model["api_key"],)
+                    )
                     results.append(result)
                 except (
                     AssertionError,
@@ -1333,11 +1466,13 @@ def _run_structured(
                         if message:
                             result["message"] = message
                     if isinstance(error, (QARequestTimeout, ScenarioFailure)):
-                        trace = failure_trace(
-                            getattr(error, "observed_timelines", []), (model["api_key"],)
-                        )
+                        observed_timelines = getattr(error, "observed_timelines", [])
+                        trace = failure_trace(observed_timelines, (model["api_key"],))
                         if trace:
                             result["failure_trace"] = trace
+                        _attach_stability_diagnostics(
+                            result, phase, observed_timelines, (model["api_key"],)
+                        )
                     results.append(result)
                 if checkpoint is not None:
                     checkpoint.record_case(results[-1])

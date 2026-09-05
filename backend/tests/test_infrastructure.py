@@ -351,6 +351,67 @@ async def test_unknown_target_is_rejected_before_credentials_or_executor() -> No
 
 
 @pytest.mark.anyio
+async def test_linux_snapshot_reports_missing_sections_and_inference_limits() -> None:
+    class MissingMemoryLinux(FakeLinux):
+        def inspect(
+            self, target: Target, credential: object, sections: tuple[str, ...]
+        ) -> Mapping[str, object]:
+            return {"cpu": {"loadavg": ["0.10", "0.20", "0.30"]}}
+
+    result = await _runner(MissingMemoryLinux(), FakeGrafana(), FakeZabbix()).run_async(
+        _call(
+            "linux.system.inspect",
+            {"target_ref": "node", "sections": ["cpu", "memory"]},
+        ),
+        _scope(),
+    )
+    await asyncio.sleep(0)
+
+    assert result.status == "success"
+    assert result.data["evidence_scope"]["kind"] == "point_in_time_snapshot"
+    assert result.data["evidence_scope"]["returned_sections"] == ["cpu"]
+    assert result.data["evidence_scope"]["missing_sections"] == ["memory"]
+    limitations = " ".join(result.data["evidence_scope"]["limitations"])
+    assert "cannot establish health" in limitations
+    assert "do not measure current swap-in/swap-out activity" in limitations
+
+
+@pytest.mark.anyio
+async def test_old_zabbix_event_has_iso_timestamp_and_explicit_time_coverage() -> None:
+    class OldEventZabbix(FakeZabbix):
+        def call(
+            self, target: Target, credential: object, method: str, params: Mapping[str, object]
+        ) -> object:
+            if method == "event.get" and "eventids" not in params:
+                return [
+                    {
+                        "eventid": "173",
+                        "name": "Old link down",
+                        "severity": "3",
+                        "acknowledged": "0",
+                        "clock": "1776067292",
+                    }
+                ]
+            return super().call(target, credential, method, params)
+
+    result = await _runner(FakeLinux(), FakeGrafana(), OldEventZabbix()).run_async(
+        _call("zabbix.event.list", {"target_ref": "monitoring", "limit": 20}),
+        _scope(),
+    )
+    await asyncio.sleep(0)
+
+    assert result.status == "success"
+    assert result.data["results"][0]["occurred_at"] == "2026-04-13T08:01:32Z"
+    assert result.data["time_coverage"] == {
+        "query_window_explicit": False,
+        "query_from": None,
+        "query_to": None,
+        "earliest_event_at": "2026-04-13T08:01:32Z",
+        "latest_event_at": "2026-04-13T08:01:32Z",
+    }
+
+
+@pytest.mark.anyio
 async def test_successful_read_per_family_is_sanitized_and_source_bearing() -> None:
     linux, grafana, zabbix = FakeLinux(), FakeGrafana(), FakeZabbix()
     runner = _runner(linux, grafana, zabbix)

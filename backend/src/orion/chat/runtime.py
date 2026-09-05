@@ -85,6 +85,25 @@ _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
     "missing. Do not invent readings, identifiers, targets, or credentials."
 )
 
+_POST_OBSERVATION_INSTRUCTIONS = (
+    "Review the ordinary ToolResults already returned before selecting another tool. If those "
+    "results are enough for a bounded answer, answer now; do not broaden a general assessment "
+    "merely to make it exhaustive. Continue only for a specific missing fact that the user "
+    "requested and an in-scope tool can obtain. Treat point-in-time resource snapshots only as "
+    "readings at their retrieval time: without history, baselines, workload requirements, "
+    "thresholds/SLOs, or activity counters, do not infer health, sustained utilization, spare "
+    "capacity, workload sufficiency, absence of risk, or absence of swap-in/swap-out activity. "
+    "For dated records, "
+    "state the explicit query window and returned earliest/latest timestamps. Do not call events "
+    "current, recent, or part of a requested reporting period unless their occurred_at values "
+    "fall inside that period. Describe failed, empty, or unqueried evidence as a gap instead of "
+    "inferring absence. Separate measured facts from unknowns. A low load average is not CPU "
+    "utilization or proof of no contention. Free memory is not proof of sufficient capacity. "
+    "Do not label readings normal/healthy or invent readiness scores or thresholds. Do not "
+    "turn an assumption into a finding, even if labeled as an assumption. If evidence is "
+    "omitted from context, report it as unavailable; do not reconstruct values or states."
+)
+
 _CITATION_CORRECTION_INSTRUCTIONS = (
     "The assistant draft immediately above included a citation that was not returned by a "
     "visible ToolResult. Reconsider the request from the available evidence. If sourced evidence "
@@ -272,6 +291,7 @@ class ChatRuntime:
                 recovery_decision_next = False
                 recovery_guidance_next = False
                 recovery_exhausted_next = False
+                observation_review_next = False
                 citation_correction_next: AssistantMessage | None = None
                 while True:
                     self._ensure_not_cancelled(cancellation)
@@ -284,6 +304,8 @@ class ChatRuntime:
                     citation_correction_next = None
                     recovery_exhausted = recovery_exhausted_next
                     recovery_exhausted_next = False
+                    observation_review = observation_review_next
+                    observation_review_next = False
                     turn, usage, visible_sources = await self._stream_turn(
                         session_id,
                         request_id,
@@ -296,6 +318,7 @@ class ChatRuntime:
                         capability_action_pending=capability_action_pending,
                         citation_correction=citation_correction,
                         recovery_exhausted=recovery_exhausted,
+                        observation_review=observation_review,
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -429,6 +452,15 @@ class ChatRuntime:
                         tool_name != EXPAND_TOOL_NAME and result.status == "success"
                         for tool_name, result in results
                     )
+                    ordinary_nonrecoverable_result = any(
+                        tool_name != EXPAND_TOOL_NAME
+                        and (
+                            result.status == "success"
+                            or result.error is None
+                            or not result.error.model_recovery_required
+                        )
+                        for tool_name, result in results
+                    )
                     recoverable_failure_state = tuple(sorted(recoverable_fingerprints))
                     if ordinary_success:
                         last_recoverable_failure_state = ()
@@ -455,6 +487,7 @@ class ChatRuntime:
                         recovery_exhausted_next = True
                     elif recovery_pending or capability_action_pending:
                         recovery_guidance_next = True
+                    observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
             self._store.complete_request(request_id, "cancelled")
@@ -525,6 +558,7 @@ class ChatRuntime:
         capability_action_pending: bool = False,
         citation_correction: AssistantMessage | None = None,
         recovery_exhausted: bool = False,
+        observation_review: bool = False,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
@@ -556,6 +590,11 @@ class ChatRuntime:
             if recovery_exhausted
             else ()
         )
+        observation_review_message = (
+            (ContextMessage(role="system", content=_POST_OBSERVATION_INSTRUCTIONS),)
+            if observation_review
+            else ()
+        )
         prior_user_turn_exists = (
             sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
         )
@@ -576,6 +615,7 @@ class ChatRuntime:
             *recovery_message,
             *capability_action_message,
             *recovery_exhausted_message,
+            *observation_review_message,
             *citation_correction_messages,
         )
         context = self._context_builder.build_with_metadata(
