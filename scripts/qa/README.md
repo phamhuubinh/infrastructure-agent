@@ -7,17 +7,14 @@ session API. They never use Docker or the legacy `/api/query` endpoint. The runn
 local model profile without modifying it, or uses `ORION_QA_MODEL_BASE_URL`,
 `ORION_QA_MODEL_ID`, and optionally `ORION_QA_MODEL_API_KEY`.
 
-`qa-smoke` is the curated 15-case fast suite. `qa-full` runs the current 25 structured acceptance
-cases and the five-suite, 386-turn historical behavioral corpus. Historical prompts are immutable
-test data: they keep source order and session continuity, but only require request success, a safe
-non-empty final response, and no configured-credential leakage. They do not assert legacy routing
-or tool choices.
+`qa-smoke` runs the curated 15-case fast tier selected from the current 88-case canonical corpus.
+`qa-full` runs all 88 canonical cases. `qa-stability` is a separate two-case tier, not an extension
+of the canonical tier. `--case-id <canonical-case>` runs one case in its selected mode; the runner
+has no current historical execution phase or `--historical-suite` option.
 
-The historical phase starts a separate API process with an explicitly empty infrastructure
-configuration. This prevents fallback SSH and credential discovery and ensures historical mutation
-requests cannot target configured infrastructure. `--case-id <structured-case>` runs only that
-structured case; `--historical-suite <suite-id>` (with `--mode full`) runs only one historical
-suite for manual debugging.
+The five-suite, 386-turn mapping remains historical documentation only. It records prior source
+material and is not a corpus executed by the current runner, so it must not be reported as current
+QA coverage or acceptance evidence.
 
 `qa-stability` is a separate opt-in suite for broad prompts whose open-ended model/tool loops have
 previously exposed timeout instability. Its `enterprise-readiness` and `weekly-synthesis` prompts
@@ -33,6 +30,20 @@ Stability cases and the two corresponding bounded synthesis cases retain a
 tool-call arguments, result data, source references, and errors. Known API/environment secrets
 and credential-shaped fields are redacted. Reports are local operational evidence; inspect
 them before sharing because infrastructure readings and identities are intentionally retained.
+
+Each new manifest is versioned and checkpoints its execution provenance before the first case:
+Git HEAD/tree and dirty state, hashes of allowlisted QA/runtime source files, canonical and
+stability corpus hashes, selected case phase/ID plus prompt/assertion hashes, and effective model,
+endpoint, timeout, and temperature settings. Hashes identify input differences but are not a
+reproducible snapshot of a dirty tree; raw diffs and credentials are never stored. Compare reports
+only when their source, corpus, selected case phase/prompt/assertion, and effective settings match.
+A canonical case and a stability case with the same ID are not directly comparable. Older manifests
+without these fields remain readable but have insufficient provenance for direct comparison.
+
+`PASS` means the automatic case assertions passed. `FAIL` means an automatic assertion or runtime
+request failed. `SKIP` means a required optional safe capability was not configured. `MANUAL_REVIEW`
+means the deterministic checks completed but answer quality still requires human review; it is never
+an automatic PASS.
 
 Each text/payload includes its redacted character count and an explicit `*_truncated` flag.
 Assistant text is capped at 65,536 characters, each structured value at 131,072 serialized

@@ -185,6 +185,21 @@ def test_qa_case_selection_is_precise_and_unknown_ids_fail_cleanly(
         lambda *args: ([{"kind": "assistant_message", "payload": {"content": "answer"}}], [[]]),
     )
     monkeypatch.setattr(qa_runner, "qa_report_directory", lambda run_id: tmp_path / run_id)
+    monkeypatch.setattr(
+        qa_runner,
+        "collect_execution_provenance",
+        lambda *args: {
+            "schema_version": "1",
+            "fingerprint": "test-fingerprint",
+            "inputs": {
+                "git": {"head": "test-sha", "tree": "test-tree", "dirty": False},
+                "source_fingerprint": "source",
+                "corpora": {},
+                "selected_cases": [],
+                "settings": {"model_id": "test", "model_endpoint": "http://model.test/v1"},
+            },
+        },
+    )
 
     def capture_reports(report, manifest, results, **kwargs):  # type: ignore[no-untyped-def]
         captured["manifest"] = manifest
@@ -1934,7 +1949,7 @@ def test_run_interrupts_with_last_in_progress_and_normal_completion_is_canonical
 
     monkeypatch.setattr(qa_runner, "_run_structured", completed)
     assert qa_runner.run("full", False, "identity") == 0
-    complete = next(path for path in tmp_path.iterdir() if (path / "manifest.json").exists())
+    complete = next(path for path in tmp_path.iterdir() if (path / "summary.json").exists())
     assert {
         "manifest.json",
         "cases.jsonl",
@@ -2011,3 +2026,79 @@ def test_canonical_boundaries_do_not_invent_inputs_or_execute_dangerous_requests
         "grafana.alert.list",
         "grafana.datasource.query",
     }
+
+
+def test_execution_provenance_is_stable_redacted_and_comparable(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    root = tmp_path / "workspace"
+    (root / "scripts/qa/cases").mkdir(parents=True)
+    (root / "backend/src/orion").mkdir(parents=True)
+    (root / "scripts/qa/runner.py").write_text("code", encoding="utf-8")
+    (root / "backend/src/orion/runtime.py").write_text("runtime", encoding="utf-8")
+    (root / "scripts/qa/cases/canonical.json").write_text("[]", encoding="utf-8")
+    (root / "scripts/qa/cases/stability.json").write_text("[]", encoding="utf-8")
+    (root / "scripts/qa/.env").write_text("PROVIDER_SECRET=do-not-persist", encoding="utf-8")
+    paths = [
+        "scripts/qa/runner.py",
+        "backend/src/orion/runtime.py",
+        "scripts/qa/cases/canonical.json",
+        "scripts/qa/cases/stability.json",
+        "scripts/qa/.env",
+    ]
+
+    def fake_git(arguments, _root):  # type: ignore[no-untyped-def]
+        if arguments == ["rev-parse", "HEAD"]:
+            return "head\\n"
+        if arguments == ["rev-parse", "HEAD^{tree}"]:
+            return "tree\\n"
+        if arguments == ["status", "--porcelain"]:
+            return " M scripts/qa/runner.py\\n"
+        if arguments[0] == "ls-files":
+            return chr(0).join(paths) + chr(0)
+        return None
+
+    monkeypatch.setattr(qa_runner, "_git_output", fake_git)
+    model = {
+        "base_url": "https://user:secret@example.test/v1?key=secret",
+        "id": "model",
+        "api_key": "secret",
+    }
+    case = qa_runner.Case(id="same", prompt="prompt", category="qa", expected_tools=("tool",))
+    first = qa_runner.collect_execution_provenance([case], model, root=root)
+    repeat = qa_runner.collect_execution_provenance([case], model, root=root)
+    assert first == repeat and first["inputs"]["git"]["dirty"] is True
+    assert first["inputs"]["settings"]["model_endpoint"] == "https://example.test/v1"
+    assert "do-not-persist" not in json.dumps(first) and "secret" not in json.dumps(first)
+    assert {item["path"] for item in first["inputs"]["source_files"]} == set(paths[:-1])
+
+    (root / "scripts/qa/runner.py").write_text("changed code", encoding="utf-8")
+    assert (
+        qa_runner.collect_execution_provenance([case], model, root=root)["fingerprint"]
+        != first["fingerprint"]
+    )
+    changed = qa_runner.Case(
+        id="same", prompt="new prompt", category="qa", expected_tools=("other",)
+    )
+    assert (
+        qa_runner.collect_execution_provenance([changed], model, root=root)["fingerprint"]
+        != first["fingerprint"]
+    )
+    monkeypatch.setenv("ORION_QA_REQUEST_TIMEOUT_SECONDS", "45")
+    assert (
+        qa_runner.collect_execution_provenance([case], model, root=root)["fingerprint"]
+        != first["fingerprint"]
+    )
+    monkeypatch.delenv("ORION_QA_REQUEST_TIMEOUT_SECONDS")
+    monkeypatch.setattr(qa_runner, "QA_MODEL_TEMPERATURE", "0.3")
+    assert (
+        qa_runner.collect_execution_provenance([case], model, root=root)["fingerprint"]
+        != first["fingerprint"]
+    )
+
+    left, right = {"execution_provenance": first}, {"execution_provenance": repeat}
+    assert qa_runner.compare_execution_manifests(left, right)["status"] == "comparable"
+    stability = json.loads(json.dumps(right))
+    stability["execution_provenance"]["inputs"]["selected_cases"][0]["phase"] = "stability"
+    assert "phase differs" in qa_runner.compare_execution_manifests(left, stability)["reasons"][0]
+    assert qa_runner.assess_manifest_provenance({})["status"] == "insufficient_provenance"

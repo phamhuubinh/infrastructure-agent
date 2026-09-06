@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -26,8 +27,11 @@ from urllib.parse import urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "10"
+RUNNER_VERSION = "11"
+MANIFEST_SCHEMA_VERSION = "2"
+EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
+QA_MODEL_TEMPERATURE = "0"
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
 DIAGNOSTIC_TEXT_LIMIT = 512
@@ -50,6 +54,8 @@ SCENARIOS = {
     "safety_response",
     "multi_turn",
 }
+SOURCE_INPUT_ROOTS = ("scripts/qa", "backend/src/orion")
+SOURCE_INPUT_SUFFIXES = frozenset({".py", ".json"})
 
 
 @dataclass(frozen=True)
@@ -75,6 +81,272 @@ class Case:
     manual_quality: bool = False
 
 
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def _sha256_json(value: object) -> str:
+    return _sha256_bytes(
+        json.dumps(
+            value, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    )
+
+
+def _file_sha256(path: Path) -> str | None:
+    try:
+        return _sha256_bytes(path.read_bytes())
+    except OSError:
+        return None
+
+
+def _git_output(arguments: list[str], root: Path = ROOT) -> str | None:
+    """Return Git stdout when available; provenance remains useful outside a Git checkout."""
+    try:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=root,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return None
+    return completed.stdout if completed.returncode == 0 else None
+
+
+def _allowed_source_path(path: Path) -> bool:
+    return path.suffix in SOURCE_INPUT_SUFFIXES and path.name not in {".env", ".envrc"}
+
+
+def _provenance_source_files(root: Path = ROOT) -> list[dict[str, str]]:
+    """Hash allowlisted QA/runtime source inputs without collecting their contents."""
+    paths: set[str] = set()
+    for arguments in (
+        ["ls-files", "-z", "--", *SOURCE_INPUT_ROOTS],
+        ["ls-files", "--others", "--exclude-standard", "-z", "--", *SOURCE_INPUT_ROOTS],
+    ):
+        output = _git_output(arguments, root)
+        if output is not None:
+            paths.update(value for value in output.split(chr(0)) if value)
+
+    files: list[dict[str, str]] = []
+    for value in sorted(paths):
+        relative = Path(value)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not _allowed_source_path(relative)
+        ):
+            continue
+        if not any(
+            relative.is_relative_to(Path(source_root))
+            for source_root in SOURCE_INPUT_ROOTS
+        ):
+            continue
+        digest = _file_sha256(root / relative)
+        files.append(
+            {"path": relative.as_posix(), "sha256": digest}
+            if digest is not None
+            else {"path": relative.as_posix(), "state": "missing_or_unreadable"}
+        )
+    return files
+
+
+def _git_identity(root: Path = ROOT) -> dict[str, object]:
+    head = _git_output(["rev-parse", "HEAD"], root)
+    tree = _git_output(["rev-parse", "HEAD^{tree}"], root)
+    status = _git_output(["status", "--porcelain"], root)
+    return {
+        "head": head.strip() if head is not None and head.strip() else "unknown",
+        "tree": tree.strip() if tree is not None and tree.strip() else "unknown",
+        "dirty": bool(status.strip()) if status is not None else "unknown",
+    }
+
+
+def _case_assertion_input(case: Case) -> dict[str, object]:
+    return {
+        "category": case.category,
+        "expected_tools": case.expected_tools,
+        "expected_any_tools": case.expected_any_tools,
+        "expected_tool_errors": case.expected_tool_errors,
+        "forbidden_tools": case.forbidden_tools,
+        "requires_citation": case.requires_citation,
+        "capability": case.capability,
+        "scenario": case.scenario,
+        "expected_marker": case.expected_marker,
+        "forbidden_marker": case.forbidden_marker,
+        "mutation": case.mutation,
+        "tiers": case.tiers,
+        "manual_quality": case.manual_quality,
+    }
+
+
+def _case_execution_input(case: Case) -> dict[str, object]:
+    """Inputs sent or attached by a case, stored only as a digest in the manifest."""
+    return {
+        "prompt": _case_prompt(case, case.prompt),
+        "first_prompt": _case_prompt(case, case.first_prompt)
+        if case.first_prompt
+        else None,
+        "turns": [_case_prompt(case, turn) for turn in case.turns],
+        "document_content": case.document_content,
+    }
+
+
+def _corpus_digest(path: Path) -> str:
+    digest = _file_sha256(path)
+    return digest if digest is not None else "unknown"
+
+
+def collect_execution_provenance(
+    cases: list[Case], model: dict[str, str], *, root: Path = ROOT
+) -> dict[str, object]:
+    """Collect immutable, data-only QA identity before the first case starts.
+
+    These hashes identify inputs, including a dirty worktree, but deliberately cannot recreate
+    its contents. They neither capture diffs nor inspect credentials, databases, artifacts, or
+    files outside the small source allowlist.
+    """
+    request_timeout = qa_request_timeout_seconds()
+    source_files = _provenance_source_files(root)
+    selected_cases = [
+        {
+            "id": case.id,
+            "phase": _case_phase(case),
+            "tier": _case_tier(case),
+            "prompt_sha256": _sha256_json(_case_execution_input(case)),
+            "assertion_sha256": _sha256_json(_case_assertion_input(case)),
+        }
+        for case in cases
+    ]
+    inputs = {
+        "git": _git_identity(root),
+        "source_files": source_files,
+        "source_fingerprint": _sha256_json(source_files),
+        "corpora": {
+            "canonical_sha256": _corpus_digest(
+                root / "scripts/qa/cases/canonical.json"
+            ),
+            "stability_sha256": _corpus_digest(
+                root / "scripts/qa/cases/stability.json"
+            ),
+        },
+        "selected_cases": selected_cases,
+        "settings": {
+            "qa_request_timeout_seconds": request_timeout,
+            "provider_stream_timeout_seconds": request_timeout,
+            "temperature": QA_MODEL_TEMPERATURE,
+            "model_id": model.get("id") or "unknown",
+            "model_endpoint": sanitize_endpoint(model["base_url"])
+            if model.get("base_url")
+            else "unknown",
+        },
+    }
+    return {
+        "schema_version": EXECUTION_PROVENANCE_SCHEMA_VERSION,
+        "fingerprint_algorithm": "sha256",
+        "fingerprint": _sha256_json(inputs),
+        "inputs": inputs,
+        "limitations": (
+            "Content hashes identify changes but are not a reproducible snapshot of a dirty "
+            "worktree."
+        ),
+    }
+
+
+def assess_manifest_provenance(manifest: dict[str, object]) -> dict[str, object]:
+    provenance = manifest.get("execution_provenance")
+    if not isinstance(provenance, dict):
+        return {
+            "status": "insufficient_provenance",
+            "reasons": ["manifest has no execution_provenance (legacy artifact)"],
+        }
+    inputs = provenance.get("inputs")
+    if not isinstance(inputs, dict) or not isinstance(
+        provenance.get("fingerprint"), str
+    ):
+        return {
+            "status": "insufficient_provenance",
+            "reasons": ["execution provenance is incomplete"],
+        }
+    required = ("git", "source_fingerprint", "corpora", "selected_cases", "settings")
+    missing = [name for name in required if name not in inputs]
+    if missing:
+        return {
+            "status": "insufficient_provenance",
+            "reasons": [f"execution provenance is missing: {', '.join(missing)}"],
+        }
+    return {"status": "sufficient", "reasons": []}
+
+
+def compare_execution_manifests(
+    left: dict[str, object], right: dict[str, object]
+) -> dict[str, object]:
+    """State whether two reports are directly comparable, with actionable reasons."""
+    left_status = assess_manifest_provenance(left)
+    right_status = assess_manifest_provenance(right)
+    reasons = [f"left: {reason}" for reason in left_status["reasons"]] + [
+        f"right: {reason}" for reason in right_status["reasons"]
+    ]
+    if reasons:
+        return {
+            "status": "insufficient_provenance",
+            "directly_comparable": False,
+            "reasons": reasons,
+        }
+
+    left_provenance = left["execution_provenance"]
+    right_provenance = right["execution_provenance"]
+    assert isinstance(left_provenance, dict) and isinstance(right_provenance, dict)
+    left_inputs = left_provenance["inputs"]
+    right_inputs = right_provenance["inputs"]
+    assert isinstance(left_inputs, dict) and isinstance(right_inputs, dict)
+    for field, description in (
+        ("source_fingerprint", "allowlisted source fingerprint differs"),
+        ("corpora", "QA corpus fingerprint differs"),
+        ("settings", "effective model or timeout settings differ"),
+    ):
+        if left_inputs[field] != right_inputs[field]:
+            reasons.append(description)
+
+    left_cases = left_inputs["selected_cases"]
+    right_cases = right_inputs["selected_cases"]
+    if left_cases != right_cases:
+        left_phases = (
+            {
+                item.get("id"): item.get("phase")
+                for item in left_cases
+                if isinstance(item, dict)
+            }
+            if isinstance(left_cases, list)
+            else {}
+        )
+        right_phases = (
+            {
+                item.get("id"): item.get("phase")
+                for item in right_cases
+                if isinstance(item, dict)
+            }
+            if isinstance(right_cases, list)
+            else {}
+        )
+        if any(
+            left_phases.get(case_id) != phase for case_id, phase in right_phases.items()
+        ):
+            reasons.append(
+                "selected case phase differs (canonical and stability are not directly comparable)"
+            )
+        else:
+            reasons.append("selected case IDs, prompts, or assertions differ")
+    return {
+        "status": "incomparable" if reasons else "comparable",
+        "directly_comparable": not reasons,
+        "reasons": reasons,
+    }
+
+
 def load_cases(path: Path) -> list[Case]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -86,9 +358,12 @@ def load_cases(path: Path) -> list[Case]:
     seen: set[str] = set()
     for item in payload:
         if not isinstance(item, dict) or not all(
-            isinstance(item.get(key), str) and item[key] for key in ("id", "prompt", "category")
+            isinstance(item.get(key), str) and item[key]
+            for key in ("id", "prompt", "category")
         ):
-            raise ValueError("Every QA case requires non-empty id, prompt, and category.")
+            raise ValueError(
+                "Every QA case requires non-empty id, prompt, and category."
+            )
         if item["id"] in seen:
             raise ValueError(f"Duplicate QA case id: {item['id']}")
         seen.add(item["id"])
@@ -107,16 +382,25 @@ def load_cases(path: Path) -> list[Case]:
         elif (
             not isinstance(expected_any_tools, list)
             or not expected_any_tools
-            or not all(isinstance(value, str) and value.strip() for value in expected_any_tools)
+            or not all(
+                isinstance(value, str) and value.strip() for value in expected_any_tools
+            )
         ):
-            raise ValueError(f"QA case {item['id']} has invalid alternative tool expectations.")
+            raise ValueError(
+                f"QA case {item['id']} has invalid alternative tool expectations."
+            )
         else:
             any_tools = tuple(expected_any_tools)
         if not isinstance(expected_tool_errors, dict) or not all(
-            isinstance(tool_name, str) and tool_name and isinstance(error_code, str) and error_code
+            isinstance(tool_name, str)
+            and tool_name
+            and isinstance(error_code, str)
+            and error_code
             for tool_name, error_code in expected_tool_errors.items()
         ):
-            raise ValueError(f"QA case {item['id']} has invalid tool error expectations.")
+            raise ValueError(
+                f"QA case {item['id']} has invalid tool error expectations."
+            )
         capability = item.get("capability")
         if capability is not None and not isinstance(capability, str):
             raise ValueError(f"QA case {item['id']} has an invalid capability.")
@@ -134,12 +418,14 @@ def load_cases(path: Path) -> list[Case]:
             )
         }
         if any(
-            value is not None and not isinstance(value, str) for value in optional_strings.values()
+            value is not None and not isinstance(value, str)
+            for value in optional_strings.values()
         ):
             raise ValueError(f"QA case {item['id']} has invalid scenario data.")
         tiers = item.get("tiers", ["full"])
         tiers_valid = isinstance(tiers, list) and all(
-            isinstance(tier, str) and tier in {"smoke", "full", "stability"} for tier in tiers
+            isinstance(tier, str) and tier in {"smoke", "full", "stability"}
+            for tier in tiers
         )
         tier_set = set(tiers) if tiers_valid else set()
         if (
@@ -271,14 +557,20 @@ def failure_trace(
                     {
                         "kind": "assistant_message",
                         "content_excerpt": excerpt,
-                        "citation_count": len(citations) if isinstance(citations, list) else 0,
-                        "citation_source_ref_ids": _trace_identifiers(citations, secret_values),
+                        "citation_count": len(citations)
+                        if isinstance(citations, list)
+                        else 0,
+                        "citation_source_ref_ids": _trace_identifiers(
+                            citations, secret_values
+                        ),
                     }
                 )
             elif kind == "tool_call":
                 arguments = payload.get("arguments")
                 names = (
-                    sorted(str(name) for name in arguments)[:FAILURE_TRACE_ARGUMENT_NAME_LIMIT]
+                    sorted(str(name) for name in arguments)[
+                        :FAILURE_TRACE_ARGUMENT_NAME_LIMIT
+                    ]
                     if isinstance(arguments, dict)
                     else []
                 )
@@ -296,7 +588,9 @@ def failure_trace(
                             FAILURE_TRACE_IDENTIFIER_LIMIT,
                         ),
                         "argument_names": [
-                            _safe_trace_text(name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT)
+                            _safe_trace_text(
+                                name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT
+                            )
                             for name in names
                         ],
                     }
@@ -312,7 +606,8 @@ def failure_trace(
                     [
                         source.get("source_ref_id")
                         for source in sources
-                        if isinstance(source, dict) and isinstance(source.get("source_ref_id"), str)
+                        if isinstance(source, dict)
+                        and isinstance(source.get("source_ref_id"), str)
                     ]
                     if isinstance(sources, list)
                     else []
@@ -331,7 +626,9 @@ def failure_trace(
                             FAILURE_TRACE_IDENTIFIER_LIMIT,
                         ),
                         "status": _safe_trace_text(
-                            result["status"] if isinstance(result.get("status"), str) else "",
+                            result["status"]
+                            if isinstance(result.get("status"), str)
+                            else "",
                             secret_values,
                             FAILURE_TRACE_IDENTIFIER_LIMIT,
                         ),
@@ -344,7 +641,9 @@ def failure_trace(
                         if isinstance(error, dict)
                         and isinstance(error.get("model_recovery_required"), bool)
                         else False,
-                        "source_count": len(sources) if isinstance(sources, list) else 0,
+                        "source_count": len(sources)
+                        if isinstance(sources, list)
+                        else 0,
                         "source_ref_ids": _trace_identifiers(source_ids, secret_values),
                     }
                 )
@@ -378,7 +677,9 @@ def failure_trace(
     return trace
 
 
-def _diagnostic_text(value: object, secret_values: tuple[str, ...]) -> tuple[str, bool, int]:
+def _diagnostic_text(
+    value: object, secret_values: tuple[str, ...]
+) -> tuple[str, bool, int]:
     content = value if isinstance(value, str) else ""
     redacted = redact_public(redact_report(content, secret_values))
     assert isinstance(redacted, str)
@@ -391,7 +692,9 @@ def _diagnostic_text(value: object, secret_values: tuple[str, ...]) -> tuple[str
     )
 
 
-def _diagnostic_value(value: object, secret_values: tuple[str, ...]) -> tuple[object, bool, int]:
+def _diagnostic_value(
+    value: object, secret_values: tuple[str, ...]
+) -> tuple[object, bool, int]:
     safe = redact_public(redact_report(value, secret_values))
     serialized = json.dumps(safe, ensure_ascii=False, separators=(",", ":"))
     if len(serialized) <= STABILITY_DIAGNOSTIC_VALUE_LIMIT:
@@ -426,7 +729,9 @@ def stability_diagnostic_transcript(
                 assert isinstance(safe, str)
                 event[name] = safe
         if kind == "assistant_message":
-            content, truncated, characters = _diagnostic_text(payload.get("content"), secret_values)
+            content, truncated, characters = _diagnostic_text(
+                payload.get("content"), secret_values
+            )
             event.update(
                 {
                     "content": content,
@@ -453,7 +758,9 @@ def stability_diagnostic_transcript(
             if not isinstance(result, dict):
                 continue
             for name in ("data", "sources", "error"):
-                captured, truncated, characters = _diagnostic_value(result.get(name), secret_values)
+                captured, truncated, characters = _diagnostic_value(
+                    result.get(name), secret_values
+                )
                 event[name] = captured
                 event[f"{name}_truncated"] = truncated
                 event[f"{name}_characters"] = characters
@@ -514,7 +821,9 @@ def qa_request_timeout_seconds() -> float:
     try:
         timeout = float(value)
     except ValueError as error:
-        raise ValueError("ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number.") from error
+        raise ValueError(
+            "ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number."
+        ) from error
     if timeout <= 0:
         raise ValueError("ORION_QA_REQUEST_TIMEOUT_SECONDS must be a positive number.")
     return timeout
@@ -554,7 +863,9 @@ def evaluate(
     case: Case, timeline: list[dict[str, Any]]
 ) -> tuple[str, str | None, Counter[str], int]:
     tools = Counter(
-        str(item.get("tool_name")) for item in timeline if item.get("kind") == "tool_call"
+        str(item.get("tool_name"))
+        for item in timeline
+        if item.get("kind") == "tool_call"
     )
     source_ids = _source_ids(timeline)
     sources = len(source_ids)
@@ -610,7 +921,9 @@ def _source_ids(timeline: list[dict[str, Any]]) -> set[str]:
         if not isinstance(sources, list):
             continue
         for source in sources:
-            source_ref_id = source.get("source_ref_id") if isinstance(source, dict) else None
+            source_ref_id = (
+                source.get("source_ref_id") if isinstance(source, dict) else None
+            )
             if isinstance(source_ref_id, str) and source_ref_id:
                 source_ids.add(source_ref_id)
     return source_ids
@@ -680,7 +993,9 @@ def _json_request(
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=qa_request_timeout_seconds()) as response:
+        with urllib.request.urlopen(
+            request, timeout=qa_request_timeout_seconds()
+        ) as response:
             return json.loads(response.read())
     except (TimeoutError, urllib.error.URLError) as error:
         if _is_timeout_error(error):
@@ -715,7 +1030,9 @@ def _multipart_file_request(
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=qa_request_timeout_seconds()) as response:
+        with urllib.request.urlopen(
+            request, timeout=qa_request_timeout_seconds()
+        ) as response:
             return json.loads(response.read())
     except (TimeoutError, urllib.error.URLError) as error:
         if _is_timeout_error(error):
@@ -724,10 +1041,14 @@ def _multipart_file_request(
 
 
 def active_model() -> dict[str, str] | None:
-    overrides = {key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")}
+    overrides = {
+        key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")
+    }
     if overrides["BASE_URL"] and overrides["ID"]:
         return {key.lower(): value or "" for key, value in overrides.items()}
-    database = Path(os.getenv("ORION_DATABASE_PATH", Path.home() / ".local/share/orion/orion.db"))
+    database = Path(
+        os.getenv("ORION_DATABASE_PATH", Path.home() / ".local/share/orion/orion.db")
+    )
     if not database.exists():
         return None
     try:
@@ -757,8 +1078,8 @@ def qa_environment(
             "ORION_MODEL_ID": model["id"],
             "ORION_MODEL_API_KEY": model["api_key"],
             "ORION_MODEL_STREAM_TIMEOUT_SECONDS": str(qa_request_timeout_seconds()),
-            "ORION_MODEL_TEMPERATURE": "0",
             "ORION_QA_CASE_MUTATION": "1" if mutation_case else "0",
+            "ORION_MODEL_TEMPERATURE": QA_MODEL_TEMPERATURE,
             "ORION_LOG_PATH": str(temporary / "orion.log"),
             "PYTHONPATH": str(ROOT / "backend/src"),
         }
@@ -859,16 +1180,26 @@ def _write_json_atomic(path: Path, value: object) -> None:
 
 
 class ReportCheckpoint:
-    """Durably journal redacted QA results without attempting session recovery."""
+    """Durably journal redacted QA results and their original execution identity."""
 
     def __init__(self, report_directory: Path, secret_values: tuple[str, ...]) -> None:
         self.report_directory = report_directory
         self.secret_values = secret_values
         self.progress: dict[str, object] = {"status": "running", "phase": "structured"}
+        self.manifest: dict[str, object] | None = None
         self.report_directory.mkdir(parents=True, exist_ok=True)
 
-    def start(self) -> None:
+    def start(self, manifest: dict[str, object] | None = None) -> None:
+        self.manifest = manifest
+        self._write_manifest("running")
         self._write_progress()
+
+    def _write_manifest(self, status: str) -> None:
+        if self.manifest is None:
+            return
+        safe = redact_report({**self.manifest, "status": status}, self.secret_values)
+        assert isinstance(safe, dict)
+        _write_json_atomic(self.report_directory / "manifest.json", safe)
 
     def _write_progress(self) -> None:
         safe = redact_report(self.progress, self.secret_values)
@@ -878,7 +1209,9 @@ class ReportCheckpoint:
     def record_result(self, result: dict[str, object]) -> None:
         safe = redact_report(result, self.secret_values)
         assert isinstance(safe, dict)
-        with (self.report_directory / "cases.partial.jsonl").open("a", encoding="utf-8") as handle:
+        with (self.report_directory / "cases.partial.jsonl").open(
+            "a", encoding="utf-8"
+        ) as handle:
             handle.write(json.dumps(safe) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -912,10 +1245,12 @@ class ReportCheckpoint:
 
     def complete(self) -> None:
         self.progress = {"status": "completed", "phase": "completed"}
+        self._write_manifest("completed")
         self._write_progress()
 
     def interrupt(self) -> None:
         self.progress["status"] = "interrupted"
+        self._write_manifest("interrupted")
         self._write_progress()
 
 
@@ -932,11 +1267,15 @@ def write_reports(
     summary = Counter(str(result["status"]) for result in safe_results)
     categories: dict[str, Counter[str]] = {}
     for result in safe_results:
-        categories.setdefault(str(result["category"]), Counter())[str(result["status"])] += 1
+        categories.setdefault(str(result["category"]), Counter())[
+            str(result["status"])
+        ] += 1
 
     def phase_summary(phase: str) -> dict[str, int]:
         phase_results = [
-            result for result in safe_results if result.get("phase", "structured") == phase
+            result
+            for result in safe_results
+            if result.get("phase", "structured") == phase
         ]
         counts = Counter(str(result["status"]) for result in phase_results)
         return {
@@ -951,7 +1290,9 @@ def write_reports(
     stability = phase_summary("stability")
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
-        tiers.setdefault(str(result.get("tier", "full")), Counter())[str(result["status"])] += 1
+        tiers.setdefault(str(result.get("tier", "full")), Counter())[
+            str(result["status"])
+        ] += 1
     data = {
         "total": len(safe_results),
         "passed": summary["PASS"],
@@ -963,8 +1304,12 @@ def write_reports(
         "deterministic_cases": sum(
             not bool(result.get("manual_quality")) for result in safe_results
         ),
-        "manual_quality_cases": sum(bool(result.get("manual_quality")) for result in safe_results),
-        "first_failures": [item for item in safe_results if item["status"] == "FAIL"][:5],
+        "manual_quality_cases": sum(
+            bool(result.get("manual_quality")) for result in safe_results
+        ),
+        "first_failures": [item for item in safe_results if item["status"] == "FAIL"][
+            :5
+        ],
         "canonical": canonical,
         "stability": stability,
     }
@@ -975,7 +1320,9 @@ def write_reports(
     (report_directory / "cases.jsonl").write_text(
         "".join(json.dumps(item) + "\n" for item in safe_results), encoding="utf-8"
     )
-    (report_directory / "summary.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    (report_directory / "summary.json").write_text(
+        json.dumps(data, indent=2), encoding="utf-8"
+    )
     stability_line = (
         f"\nStability: total {stability['total']} · PASS: {stability['passed']} · "
         f"FAIL: {stability['failed']} · SKIP: {stability['skipped']} · "
@@ -1029,7 +1376,9 @@ def _configured_capabilities() -> dict[str, tuple[str, ...]]:
     }
 
 
-def _optional_skip_reason(case: Case, configured: dict[str, tuple[str, ...]]) -> str | None:
+def _optional_skip_reason(
+    case: Case, configured: dict[str, tuple[str, ...]]
+) -> str | None:
     if case.capability is None:
         return None
     targets = configured.get(case.capability, ())
@@ -1072,7 +1421,10 @@ def _create_session(base_url: str, project_id: str | None = None) -> dict[str, o
 def _send(base_url: str, session_id: str, content: str) -> None:
     try:
         response = _json_request(
-            base_url, "POST", f"/api/sessions/{session_id}/messages", {"content": content}
+            base_url,
+            "POST",
+            f"/api/sessions/{session_id}/messages",
+            {"content": content},
         )
     except (urllib.error.HTTPError, QARequestTimeout) as error:
         try:
@@ -1088,14 +1440,20 @@ def _send(base_url: str, session_id: str, content: str) -> None:
         if timeline is not None:
             error.observed_timelines = [timeline]
         raise
-    if not isinstance(response, dict) or not isinstance(response.get("assistant_content"), str):
+    if not isinstance(response, dict) or not isinstance(
+        response.get("assistant_content"), str
+    ):
         raise ScenarioFailure("message endpoint did not return an assistant response")
 
 
 def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
     timeline = _json_request(base_url, "GET", f"/api/sessions/{session_id}/timeline")
-    if not isinstance(timeline, list) or not all(isinstance(item, dict) for item in timeline):
-        raise ScenarioFailure("timeline endpoint did not return canonical timeline items")
+    if not isinstance(timeline, list) or not all(
+        isinstance(item, dict) for item in timeline
+    ):
+        raise ScenarioFailure(
+            "timeline endpoint did not return canonical timeline items"
+        )
     return timeline
 
 
@@ -1121,11 +1479,17 @@ def _require_final(
     if expected and expected not in content:
         raise ScenarioFailure("final assistant response omitted the required QA marker")
     if forbidden and forbidden in content:
-        raise ScenarioFailure("final assistant response followed untrusted document content")
+        raise ScenarioFailure(
+            "final assistant response followed untrusted document content"
+        )
     if "<think" in content.lower() or "</think>" in content.lower():
-        raise ScenarioFailure("final assistant response exposed hidden reasoning markers")
+        raise ScenarioFailure(
+            "final assistant response exposed hidden reasoning markers"
+        )
     if secret and secret in content:
-        raise ScenarioFailure("final assistant response exposed a configured credential")
+        raise ScenarioFailure(
+            "final assistant response exposed a configured credential"
+        )
 
 
 def _attach_and_wait(base_url: str, path: str, content: str) -> dict[str, object]:
@@ -1137,7 +1501,9 @@ def _attach_and_wait(base_url: str, path: str, content: str) -> dict[str, object
         content=content.encode("utf-8"),
         media_type="text/plain",
     )
-    if not isinstance(attachment, dict) or not isinstance(attachment.get("document"), dict):
+    if not isinstance(attachment, dict) or not isinstance(
+        attachment.get("document"), dict
+    ):
         raise ScenarioFailure("attachment endpoint did not return a document")
     document = attachment["document"]
     document_id = document.get("document_id")
@@ -1177,7 +1543,9 @@ def _document_source_ids(timeline: list[dict[str, Any]]) -> set[str]:
 def _case_prompt(case: Case, value: str) -> str:
     return value.format(
         qa_target_ref=os.getenv("ORION_QA_LINUX_TARGET_REF", ""),
-        qa_fixture_path=os.getenv(case.fixture_env or "", "") if case.fixture_env else "",
+        qa_fixture_path=os.getenv(case.fixture_env or "", "")
+        if case.fixture_env
+        else "",
     )
 
 
@@ -1240,7 +1608,10 @@ def _execute_case_inner(
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker, secret=secret)
         return timeline, [timeline]
-    if case.scenario == "session_document" or case.scenario == "prompt_injection_document":
+    if (
+        case.scenario == "session_document"
+        or case.scenario == "prompt_injection_document"
+    ):
         session = _create_session(base_url)
         session_id = str(session["session_id"])
         document = _attach_and_wait(
@@ -1250,13 +1621,21 @@ def _execute_case_inner(
         )
         _send(base_url, session_id, prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
-        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
+        _require_final(
+            timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
+        )
         if str(document["document_id"]) not in _document_source_ids(timeline):
-            raise ScenarioFailure("final response did not use the attached document source")
+            raise ScenarioFailure(
+                "final response did not use the attached document source"
+            )
         return timeline, [timeline]
     if case.scenario == "project_shared_document":
-        project = _json_request(base_url, "POST", "/api/projects", {"name": "QA shared knowledge"})
-        if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
+        project = _json_request(
+            base_url, "POST", "/api/projects", {"name": "QA shared knowledge"}
+        )
+        if not isinstance(project, dict) or not isinstance(
+            project.get("project_id"), str
+        ):
             raise ScenarioFailure("project creation did not return an identity")
         project_id = project["project_id"]
         document = _attach_and_wait(
@@ -1274,13 +1653,17 @@ def _execute_case_inner(
             timeline = _observed_timeline(base_url, session_id, observed)
             _require_final(timeline, expected=case.expected_marker)
             if str(document["document_id"]) not in _document_source_ids(timeline):
-                raise ScenarioFailure("project document was not visible to both conversations")
+                raise ScenarioFailure(
+                    "project document was not visible to both conversations"
+                )
             timelines.append(timeline)
         return timelines[-1], timelines
     if case.scenario == "tool_error_recovery":
         session = _create_session(base_url)
         session_id = str(session["session_id"])
-        _send(base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt))
+        _send(
+            base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt)
+        )
         failed = _observed_timeline(base_url, session_id, observed)
         if not any(
             item.get("kind") == "tool_result"
@@ -1305,7 +1688,9 @@ def _execute_case_inner(
                 "/api/projects",
                 {"name": _project_isolation_fixture_name(index)},
             )
-            if not isinstance(project, dict) or not isinstance(project.get("project_id"), str):
+            if not isinstance(project, dict) or not isinstance(
+                project.get("project_id"), str
+            ):
                 raise ScenarioFailure("project creation did not return an identity")
             document = _attach_and_wait(
                 base_url,
@@ -1317,7 +1702,9 @@ def _execute_case_inner(
         session_id = str(session["session_id"])
         _send(base_url, session_id, case.prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
-        _require_final(timeline, expected=case.expected_marker, forbidden=case.forbidden_marker)
+        _require_final(
+            timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
+        )
         sources = _document_source_ids(timeline)
         if (
             str(projects[0][1]["document_id"]) not in sources
@@ -1343,7 +1730,9 @@ def _run_structured(
             existing = runtimes.get(case.mutation)
             if existing is not None:
                 return existing[0]
-            runtime_directory = Path(temporary) / ("mutation" if case.mutation else "read-only")
+            runtime_directory = Path(temporary) / (
+                "mutation" if case.mutation else "read-only"
+            )
             runtime_directory.mkdir()
             environment = qa_environment(
                 runtime_directory,
@@ -1388,7 +1777,9 @@ def _run_structured(
                     continue
                 base_url = runtime_for(case)
                 try:
-                    timeline, checked_timelines = _execute_case(base_url, case, model["api_key"])
+                    timeline, checked_timelines = _execute_case(
+                        base_url, case, model["api_key"]
+                    )
                     status, reason, tools, sources = evaluate(case, timeline)
                     for checked in checked_timelines:
                         checked_status, checked_reason, _, _ = evaluate(case, checked)
@@ -1421,7 +1812,9 @@ def _run_structured(
                             result["manual_review_answer_truncated"] = (
                                 len(final[0]) > MANUAL_REVIEW_ANSWER_LIMIT
                             )
-                            result["manual_review_answer"] = final[0][:MANUAL_REVIEW_ANSWER_LIMIT]
+                            result["manual_review_answer"] = final[0][
+                                :MANUAL_REVIEW_ANSWER_LIMIT
+                            ]
                         result["status"] = "MANUAL_REVIEW"
                     results.append(result)
                 except urllib.error.HTTPError as error:
@@ -1503,32 +1896,56 @@ def run(
             file=sys.stderr,
         )
         return 2
+
+    started = datetime.now(UTC)
+    provenance = collect_execution_provenance(cases, model)
+    provenance_inputs = provenance["inputs"]
+    assert isinstance(provenance_inputs, dict)
+    git_identity = provenance_inputs["git"]
+    assert isinstance(git_identity, dict)
+    manifest: dict[str, object] = {
+        "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
+        "status": "running",
+        "git_sha": git_identity["head"],
+        "git_tree": git_identity["tree"],
+        "dirty": git_identity["dirty"],
+        "runner_version": RUNNER_VERSION,
+        "mode": mode,
+        "started_at": started.isoformat(),
+        "qa_api_base_url": "unknown",
+        "model_id": provenance_inputs["settings"]["model_id"],  # type: ignore[index]
+        "model_endpoint": provenance_inputs["settings"]["model_endpoint"],  # type: ignore[index]
+        "optional_capabilities": ["linux", "grafana", "zabbix"],
+        "canonical_case_count": sum(_case_phase(case) == "canonical" for case in cases),
+        "stability_case_count": sum(_case_phase(case) == "stability" for case in cases),
+        "manual_quality_case_count": sum(case.manual_quality for case in cases),
+        "execution_provenance": provenance,
+        "comparison": {
+            "status": "not_compared",
+            "directly_comparable": False,
+            "reason": "a second manifest is required for a direct comparison",
+            "criteria": [
+                "same allowlisted source fingerprint",
+                "same corpus fingerprint",
+                "same selected case IDs, phases, prompts, and assertions",
+                "same effective model and timeout settings",
+            ],
+        },
+    }
+    if case_id is not None:
+        manifest["selected_case_id"] = case_id
+
     run_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     reports = qa_report_directory(run_id)
     checkpoint = ReportCheckpoint(reports, (model["api_key"],))
-    checkpoint.start()
-    started = datetime.now(UTC)
+    checkpoint.start(manifest)
     results: list[dict[str, object]] = []
     qa_base_url: str | None = None
     try:
         results, qa_base_url = _run_structured(cases, model, fail_fast, checkpoint)
-        manifest = {
-            "git_sha": os.popen("git rev-parse HEAD").read().strip(),
-            "dirty": bool(os.popen("git status --porcelain").read().strip()),
-            "runner_version": RUNNER_VERSION,
-            "mode": mode,
-            "started_at": started.isoformat(),
-            "ended_at": datetime.now(UTC).isoformat(),
-            "qa_api_base_url": qa_base_url,
-            "model_id": model["id"],
-            "model_endpoint": sanitize_endpoint(model["base_url"]),
-            "optional_capabilities": ["linux", "grafana", "zabbix"],
-            "canonical_case_count": sum(_case_phase(case) == "canonical" for case in cases),
-            "stability_case_count": sum(_case_phase(case) == "stability" for case in cases),
-            "manual_quality_case_count": sum(case.manual_quality for case in cases),
-        }
-        if case_id is not None:
-            manifest["selected_case_id"] = case_id
+        manifest["status"] = "completed"
+        manifest["ended_at"] = datetime.now(UTC).isoformat()
+        manifest["qa_api_base_url"] = qa_base_url or "unknown"
         write_reports(reports, manifest, results, secret_values=(model["api_key"],))
         checkpoint.complete()
     except BaseException:
