@@ -1,0 +1,154 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture
+def quality_verdicts():  # type: ignore[no-untyped-def]
+    path = Path(__file__).parents[2] / "scripts" / "qa" / "quality_verdicts.py"
+    specification = importlib.util.spec_from_file_location("orion_qa_quality_verdicts", path)
+    assert specification and specification.loader
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = module
+    specification.loader.exec_module(module)
+    return module
+
+
+def quality_fixture(quality_verdicts, tmp_path):  # type: ignore[no-untyped-def]
+    report = tmp_path / "quality-report"
+    report.mkdir()
+    manifest = {
+        "mode": "full",
+        "execution_provenance": {"fingerprint": "execution-fingerprint"},
+    }
+    result = {
+        "phase": "canonical",
+        "id": "synthetic-synthesis",
+        "category": "workflow",
+        "manual_quality": True,
+        "status": "MANUAL_REVIEW",
+        "stability_diagnostic": {
+            "events_truncated": False,
+            "events": [
+                {
+                    "kind": "tool_result",
+                    "data": {"state": "inactive"},
+                    "data_truncated": False,
+                },
+                {
+                    "kind": "assistant_message",
+                    "content": "The service is inactive.",
+                    "content_truncated": False,
+                    "hidden_reasoning_omitted": False,
+                    "terminal_response": True,
+                },
+            ],
+        },
+    }
+    (report / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (report / "cases.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+    return report, manifest, result, quality_verdicts.review_subject(report, manifest, result)
+
+
+def verdict(subject, decision="accepted"):  # type: ignore[no-untyped-def]
+    return {
+        "schema_version": 1,
+        "run_id": subject["run_id"],
+        "manifest_sha256": subject["manifest_sha256"],
+        "execution_fingerprint": subject["execution_fingerprint"],
+        "phase": subject["phase"],
+        "case_id": subject["case_id"],
+        "answer_sha256": subject["answer_sha256"],
+        "evidence_sha256": subject["evidence_sha256"],
+        "verdict": decision,
+        "rationale": "Synthetic review rationale.",
+        "reviewer": "offline-reviewer",
+        "reviewed_at": "2026-09-06T00:00:00Z",
+    }
+
+
+def test_quality_overlay_keeps_execution_separate_and_requires_valid_review(
+    quality_verdicts, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, subject = quality_fixture(quality_verdicts, tmp_path)
+
+    pending = quality_verdicts.aggregate_quality(report, manifest, [result])
+    assert pending["execution"] == {"MANUAL_REVIEW": 1}
+    assert pending["quality"] == {"pending_review": 1}
+    assert pending["cases"][0]["execution_status"] == "MANUAL_REVIEW"
+    assert not quality_verdicts.quality_gate(pending, skip_policy="forbid")["passed"]
+
+    accepted = quality_verdicts.aggregate_quality(report, manifest, [result], [verdict(subject)])
+    assert accepted["quality"] == {"accepted": 1}
+    assert quality_verdicts.quality_gate(accepted, skip_policy="forbid")["passed"]
+
+
+def test_quality_overlay_rejects_stale_and_duplicate_sidecars(quality_verdicts, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, subject = quality_fixture(quality_verdicts, tmp_path)
+    stale = verdict(subject)
+    stale["answer_sha256"] = "0" * 64
+    stale_aggregate = quality_verdicts.aggregate_quality(report, manifest, [result], [stale])
+    stale_case = stale_aggregate["cases"][0]
+    assert stale_case["quality_status"] == "pending_review"
+    assert "does not match this artifact" in stale_case["quality_reason"]
+    assert not quality_verdicts.quality_gate(stale_aggregate, skip_policy="forbid")["passed"]
+
+    review = verdict(subject)
+    duplicate = quality_verdicts.aggregate_quality(report, manifest, [result], [review, review])
+    assert duplicate["cases"][0]["quality_status"] == "pending_review"
+    assert "duplicate" in duplicate["cases"][0]["quality_reason"]
+    assert not quality_verdicts.quality_gate(duplicate, skip_policy="forbid")["passed"]
+
+
+def test_quality_overlay_never_accepts_missing_or_truncated_terminal_evidence(
+    quality_verdicts, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, _ = quality_fixture(quality_verdicts, tmp_path)
+    result["stability_diagnostic"]["events"][-1]["content_truncated"] = True
+
+    aggregate = quality_verdicts.aggregate_quality(report, manifest, [result])
+
+    assert aggregate["quality"] == {"not_assessable": 1}
+    assert not quality_verdicts.quality_gate(aggregate, skip_policy="forbid")["passed"]
+
+
+def test_quality_overlay_legacy_and_skip_policy_are_explicit(quality_verdicts, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, _, _ = quality_fixture(quality_verdicts, tmp_path)
+    legacy = {"phase": "canonical", "id": "legacy", "status": "PASS"}
+    skipped = {
+        "phase": "canonical",
+        "id": "optional-capability",
+        "manual_quality": False,
+        "status": "SKIP",
+    }
+    aggregate = quality_verdicts.aggregate_quality(report, manifest, [legacy, skipped])
+
+    assert aggregate["quality"] == {"not_required": 1, "unknown": 1}
+    assert not quality_verdicts.quality_gate(aggregate, skip_policy="forbid")["passed"]
+    assert quality_verdicts.quality_gate(
+        aggregate,
+        skip_policy="allow-with-rationale",
+        skip_rationale="Optional capability is outside this coverage declaration.",
+    )["passed"]
+
+
+def test_quality_overlay_cli_is_offline_and_does_not_rewrite_execution_artifact(
+    quality_verdicts, tmp_path, monkeypatch, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, subject = quality_fixture(quality_verdicts, tmp_path)
+    sidecar = report / "quality-verdicts.jsonl"
+    sidecar.write_text(json.dumps(verdict(subject)) + "\n", encoding="utf-8")
+    before_manifest = (report / "manifest.json").read_bytes()
+    before_cases = (report / "cases.jsonl").read_bytes()
+    monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: pytest.fail("process"))
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: pytest.fail("network"))
+
+    assert quality_verdicts.main(["gate", str(report), "--skip-policy", "forbid"]) == 0
+    assert json.loads(capsys.readouterr().out)["passed"] is True
+    assert (report / "manifest.json").read_bytes() == before_manifest
+    assert (report / "cases.jsonl").read_bytes() == before_cases
