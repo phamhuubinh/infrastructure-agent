@@ -136,3 +136,53 @@ async def test_runtime_deadline_prevents_tool_dispatch_after_work_deadline(store
         "phase": "model",
         "elapsed_ms": 8000,
     }
+
+
+@pytest.mark.anyio
+async def test_request_budget_cancels_and_drains_a_hanging_read() -> None:
+    budget = RequestBudget.start(RequestBudgetSettings(request_deadline_seconds=10))
+    cancellation = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def read() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            stopped.set()
+            raise
+
+    async def cancel_on_next_turn() -> None:
+        await asyncio.sleep(0)
+        cancellation.set()
+
+    canceller = asyncio.create_task(cancel_on_next_turn())
+    with pytest.raises(asyncio.CancelledError):
+        await budget.await_work(read(), cancellation, phase="tool")
+    await canceller
+    assert stopped.is_set()
+
+
+@pytest.mark.anyio
+async def test_request_budget_drains_dispatched_mutation_before_terminal_handoff() -> None:
+    budget = RequestBudget.start(RequestBudgetSettings(request_deadline_seconds=10))
+    cancellation = asyncio.Event()
+    released = asyncio.Event()
+
+    async def dispatched_mutation() -> str:
+        await released.wait()
+        return "outcome_unknown"
+
+    async def interrupt_then_release() -> None:
+        await asyncio.sleep(0)
+        cancellation.set()
+        released.set()
+
+    interrupter = asyncio.create_task(interrupt_then_release())
+    result = await budget.await_work(
+        dispatched_mutation(),
+        cancellation,
+        phase="tool",
+        preserve_on_interrupt=True,
+    )
+    await interrupter
+    assert result == "outcome_unknown"

@@ -116,6 +116,7 @@ class RequestBudget:
         cancellation: asyncio.Event,
         *,
         phase: str,
+        preserve_on_interrupt: bool = False,
     ) -> T:
         """Await work or cancel and drain it at the common work deadline."""
         if cancellation.is_set():
@@ -133,9 +134,13 @@ class RequestBudget:
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if cancellation_task in done or cancellation.is_set():
+                if preserve_on_interrupt:
+                    return await operation_task
                 await _cancel_and_drain(operation_task)
                 raise asyncio.CancelledError
             if deadline_task in done or self.remaining_work_seconds() <= 0:
+                if preserve_on_interrupt:
+                    return await operation_task
                 await _cancel_and_drain(operation_task)
                 raise RequestDeadlineExceeded(phase)
             return await operation_task

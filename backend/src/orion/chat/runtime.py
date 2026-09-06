@@ -515,9 +515,17 @@ class ChatRuntime:
                             result = tool_exposure.expose_for_retry(model_call)
                         else:
                             result = await budget.await_work(
-                                self._runner.run_async(model_call, scope, cancellation.is_set),
-                                asyncio.Event(),
+                                self._runner.run_async(
+                                    model_call,
+                                    scope,
+                                    lambda: (
+                                        cancellation.is_set()
+                                        or budget.remaining_work_seconds() <= 0
+                                    ),
+                                ),
+                                cancellation,
                                 phase="tool",
+                                preserve_on_interrupt=definition.operation_kind == "mutation",
                             )
                         self._persist_tool_result(
                             session_id, request_id, result, self._elapsed_ms(tool_started_at)
@@ -535,6 +543,10 @@ class ChatRuntime:
                             }
                         )
                         results.append((model_call.tool_name, result))
+                        if definition is not None and definition.operation_kind == "mutation":
+                            if cancellation.is_set():
+                                raise asyncio.CancelledError
+                            budget.ensure_work_available("tool")
                         fingerprint = _recoverable_failure_fingerprint(model_call, result)
                         if fingerprint is not None:
                             recoverable_fingerprints.append(fingerprint)
