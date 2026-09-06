@@ -43,3 +43,16 @@ Model configuration should include only what is needed to connect/invoke:
 - timeout/retry transport settings.
 
 Model identity comes from configuration, not from asking the model to identify itself.
+
+### Request deadline settings
+
+`ORION_MODEL_STREAM_TIMEOUT_SECONDS` remains an adapter-local provider transport
+inactivity timeout. It is distinct from the monotonic request budget enforced by
+`ChatRuntime`: `ORION_REQUEST_DEADLINE_SECONDS` defaults to 120 seconds (10–900),
+and `ORION_REQUEST_FINALIZATION_RESERVE_SECONDS` defaults to 5 seconds (1–60 and
+strictly less than the request deadline). Invalid values fail startup validation.
+
+The runtime derives a work deadline by subtracting the reserve. Conversation-state
+preparation, ordinary model/tool work, and required verification must finish before
+that boundary; the reserve is only for terminal persistence, terminal events, and a
+future deterministic incomplete fallback. `ORION_QA_REQUEST_TIMEOUT_SECONDS` is a

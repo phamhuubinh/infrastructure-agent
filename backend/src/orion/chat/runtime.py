@@ -6,11 +6,13 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.conversation_state import ConversationStateManager
+from orion.chat.deadline import RequestBudget, RequestBudgetSettings, RequestDeadlineExceeded
 from orion.chat.diagnostics import RuntimeDiagnosticSink, model_input_snapshot
 from orion.contracts import (
     AssistantDelta,
@@ -205,6 +207,9 @@ class ChatRuntime:
         application_log: ApplicationLog | None = None,
         blocked_tool_operation_kinds: frozenset[str] = frozenset(),
         diagnostic_sink: RuntimeDiagnosticSink | None = None,
+        request_budget_settings: RequestBudgetSettings | None = None,
+        monotonic_clock: Callable[[], float] = time.monotonic,
+        deadline_sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -215,6 +220,11 @@ class ChatRuntime:
         self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
         self._diagnostic_sink = diagnostic_sink
+        self._request_budget_settings = (
+            request_budget_settings or RequestBudgetSettings.from_environment()
+        )
+        self._monotonic_clock = monotonic_clock
+        self._deadline_sleeper = deadline_sleeper
         initial_model_tools = registry.new_tool_exposure().model_tools
         self._maximum_model_tool_bytes = _tool_definitions_bytes(
             (*initial_model_tools, *registry.model_definitions())
@@ -226,6 +236,7 @@ class ChatRuntime:
         )
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
+        self._queued_at: dict[str, float] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
 
     async def submit(
@@ -242,6 +253,7 @@ class ChatRuntime:
         request_id = self._store.create_request(session_id)
         self._cancellations[request_id] = cancellation or asyncio.Event()
         self._pending_content[request_id] = content
+        self._queued_at[request_id] = self._monotonic_clock()
         return request_id
 
     def cancel(self, request_id: str) -> bool:
@@ -259,7 +271,8 @@ class ChatRuntime:
             if request is not None and request["status"] in {"queued", "running"}:
                 self._fail_unexpected(request_id)
             raise RequestFailed("Request is unavailable.")
-        started_at = time.monotonic()
+        started_at = 0.0
+        budget: RequestBudget | None = None
         input_tokens = 0
         output_tokens = 0
         has_complete_usage = True
@@ -268,18 +281,35 @@ class ChatRuntime:
         try:
             async with self._session_locks.setdefault(session_id, asyncio.Lock()):
                 self._store.start_request(request_id)
+                budget = RequestBudget.start(
+                    self._request_budget_settings,
+                    clock=self._monotonic_clock,
+                    sleeper=self._deadline_sleeper,
+                )
+                started_at = budget.started_monotonic
                 self._store.append_timeline(
                     session_id, request_id, "user_message", {"content": content}
                 )
                 self._emit(
                     request_id,
                     "request.accepted",
-                    {"request_id": request_id, "session_id": session_id},
+                    {
+                        "request_id": request_id,
+                        "session_id": session_id,
+                        "queue_wait_ms": max(
+                            0,
+                            round(
+                                (started_at - self._queued_at.get(request_id, started_at)) * 1000
+                            ),
+                        ),
+                    },
                 )
                 settings = self._settings()
                 scope = self._runtime_scope(session_id)
-                state_preparation = await self._conversation_state.prepare(
-                    session_id, settings, cancellation
+                state_preparation = await budget.await_work(
+                    self._conversation_state.prepare(session_id, settings, cancellation),
+                    cancellation,
+                    phase="conversation_state_preparation",
                 )
                 if state_preparation.attempted:
                     if state_preparation.usage is None:
@@ -301,9 +331,10 @@ class ChatRuntime:
                 model_turn_number = 0
                 while True:
                     self._ensure_not_cancelled(cancellation)
+                    budget.ensure_work_available("model")
                     model_turn_number += 1
                     model_turn_id = f"{request_id}:{model_turn_number}:{uuid.uuid4().hex[:8]}"
-                    model_started_at = time.monotonic()
+                    model_started_at = self._monotonic_clock()
                     self._emit(request_id, "model.started", {"model_turn_id": model_turn_id})
                     active_model_phase = (model_turn_id, model_started_at)
                     recovery_decision = recovery_decision_next
@@ -316,21 +347,25 @@ class ChatRuntime:
                     recovery_exhausted_next = False
                     observation_review = observation_review_next
                     observation_review_next = False
-                    turn, usage, visible_sources = await self._stream_turn(
-                        session_id,
-                        request_id,
-                        settings,
-                        scope,
+                    turn, usage, visible_sources = await budget.await_work(
+                        self._stream_turn(
+                            session_id,
+                            request_id,
+                            settings,
+                            scope,
+                            cancellation,
+                            tool_exposure,
+                            model_turn_id=model_turn_id,
+                            model_started_at=model_started_at,
+                            recovery_decision=recovery_decision,
+                            recovery_guidance=recovery_guidance,
+                            capability_action_pending=capability_action_pending,
+                            citation_correction=citation_correction,
+                            recovery_exhausted=recovery_exhausted,
+                            observation_review=observation_review,
+                        ),
                         cancellation,
-                        tool_exposure,
-                        model_turn_id=model_turn_id,
-                        model_started_at=model_started_at,
-                        recovery_decision=recovery_decision,
-                        recovery_guidance=recovery_guidance,
-                        capability_action_pending=capability_action_pending,
-                        citation_correction=citation_correction,
-                        recovery_exhausted=recovery_exhausted,
-                        observation_review=observation_review,
+                        phase="model",
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -382,7 +417,7 @@ class ChatRuntime:
                     if not turn.tool_calls and not recovery_abandoned:
                         metrics = {
                             "response_time_ms": max(
-                                0, round((time.monotonic() - started_at) * 1000)
+                                0, round((self._monotonic_clock() - started_at) * 1000)
                             )
                         }
                         if has_complete_usage:
@@ -435,7 +470,8 @@ class ChatRuntime:
                     recoverable_fingerprints: list[_RecoveryFingerprint] = []
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
-                        tool_started_at = time.monotonic()
+                        budget.ensure_work_available("tool")
+                        tool_started_at = self._monotonic_clock()
                         definition = self._registry.definition(model_call.tool_name)
                         self._store.append_timeline(
                             session_id,
@@ -478,8 +514,10 @@ class ChatRuntime:
                         elif model_call.tool_name not in exposed_before_turn:
                             result = tool_exposure.expose_for_retry(model_call)
                         else:
-                            result = await self._runner.run_async(
-                                model_call, scope, cancellation.is_set
+                            result = await budget.await_work(
+                                self._runner.run_async(model_call, scope, cancellation.is_set),
+                                asyncio.Event(),
+                                phase="tool",
                             )
                         self._persist_tool_result(
                             session_id, request_id, result, self._elapsed_ms(tool_started_at)
@@ -541,6 +579,32 @@ class ChatRuntime:
                         recovery_guidance_next = True
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
+        except RequestDeadlineExceeded as error:
+            elapsed_ms = budget.elapsed_ms() if budget is not None else 0
+            self._store.append_timeline(
+                session_id,
+                request_id,
+                "runtime_notice",
+                {
+                    "stage": "request_deadline",
+                    "status": "failed",
+                    "error_kind": "deadline_exceeded",
+                    "phase": error.phase,
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+            self._store.complete_request(request_id, "failed", str(error))
+            self._emit(
+                request_id,
+                "request.failed",
+                {
+                    "message": str(error),
+                    "error_kind": "deadline_exceeded",
+                    "phase": error.phase,
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+            raise RequestFailed(str(error)) from error
         except asyncio.CancelledError as error:
             if active_model_phase is not None:
                 self._record_diagnostic(
@@ -625,6 +689,7 @@ class ChatRuntime:
                 self._fail_unexpected(request_id)
             self._cancellations.pop(request_id, None)
             self._pending_content.pop(request_id, None)
+            self._queued_at.pop(request_id, None)
 
     async def _stream_turn(
         self,
@@ -886,9 +951,8 @@ class ChatRuntime:
             # Diagnostics are never allowed to affect dispatch or cancellation.
             return
 
-    @staticmethod
-    def _elapsed_ms(started_at: float) -> int:
-        return max(0, round((time.monotonic() - started_at) * 1000))
+    def _elapsed_ms(self, started_at: float) -> int:
+        return max(0, round((self._monotonic_clock() - started_at) * 1000))
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
         public_payload = redact_public(payload)
