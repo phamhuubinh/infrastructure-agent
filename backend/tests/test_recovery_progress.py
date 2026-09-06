@@ -57,6 +57,16 @@ def _call(call_id: str, value: str) -> ModelTurn:
     )
 
 
+def _mixed_call(call_id: str, *, reversed_order: bool = False) -> ModelTurn:
+    calls = (
+        ModelToolCall(call_id=f"{call_id}-failed", tool_name=_TOOL_NAME, arguments={"value": "a"}),
+        ModelToolCall(
+            call_id=f"{call_id}-success", tool_name=_TOOL_NAME, arguments={"value": "ok"}
+        ),
+    )
+    return ModelTurn(tool_calls=tuple(reversed(calls)) if reversed_order else calls)
+
+
 def _expand() -> ModelTurn:
     return ModelTurn(
         tool_calls=(
@@ -130,3 +140,90 @@ async def test_identical_recoverable_failure_state_eventually_disables_tools(sto
         for message in backend.calls[-1][0]
         if message.role == "system"
     )
+
+
+@pytest.mark.anyio
+async def test_alternating_recoverable_failure_cycle_disables_tools(store) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _call("bad-a-1", "a"),
+            _call("bad-b-1", "b"),
+            _call("bad-a-2", "a"),
+            _call("bad-b-2", "b"),
+            ModelTurn(assistant=AssistantMessage(content="I need corrected input.")),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
+
+    assert outcome.assistant_content == "I need corrected input."
+    assert backend.calls[-1][1] == ()
+
+
+@pytest.mark.anyio
+async def test_expansion_between_cycle_failures_preserves_history(store) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _call("bad-a-1", "a"),
+            _expand(),
+            _call("bad-b-1", "b"),
+            _call("bad-a-2", "a"),
+            _call("bad-b-2", "b"),
+            ModelTurn(assistant=AssistantMessage(content="I need corrected input.")),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
+
+    assert outcome.assistant_content == "I need corrected input."
+
+    assert backend.calls[-1][1] == ()
+
+
+@pytest.mark.anyio
+async def test_mixed_success_does_not_hide_repeated_recoverable_failure(store) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _mixed_call("mixed-1"),
+            _mixed_call("mixed-2", reversed_order=True),
+            _mixed_call("mixed-3"),
+            ModelTurn(assistant=AssistantMessage(content="I need corrected input.")),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
+
+    assert outcome.assistant_content == "I need corrected input."
+    assert backend.calls[-1][1] == ()
+
+
+@pytest.mark.anyio
+async def test_recovery_tracker_is_isolated_between_requests(store) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _call("first-a-1", "a"),
+            _call("first-a-2", "a"),
+            ModelTurn(assistant=AssistantMessage(content="Need recovery.")),
+            ModelTurn(assistant=AssistantMessage(content="First complete.")),
+            _expand(),
+            _call("second-a-1", "a"),
+            ModelTurn(assistant=AssistantMessage(content="Need recovery.")),
+            ModelTurn(assistant=AssistantMessage(content="Second complete.")),
+        ]
+    )
+    session = store.create_session()
+    chat = runtime(store, backend, _registry())
+
+    await chat.submit(session, "First request")
+    outcome = await chat.submit(session, "Second request")
+
+    assert outcome.assistant_content == "Second complete."
+    assert len(backend.calls) == 9
+    assert backend.calls[7][1] != ()

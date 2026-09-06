@@ -34,6 +34,8 @@ class RequestBudgetSettings:
 
     request_deadline_seconds: float = 120
     finalization_reserve_seconds: float = 5
+    recovery_repeat_limit: int = 3
+    recovery_cycle_repeat_limit: int = 2
 
     def __post_init__(self) -> None:
         _validate_range(
@@ -50,6 +52,15 @@ class RequestBudgetSettings:
                 "ORION_REQUEST_FINALIZATION_RESERVE_SECONDS must be less than "
                 "ORION_REQUEST_DEADLINE_SECONDS."
             )
+        _validate_integer_range(
+            "ORION_RECOVERY_REPEAT_LIMIT", self.recovery_repeat_limit, minimum=2, maximum=5
+        )
+        _validate_integer_range(
+            "ORION_RECOVERY_CYCLE_REPEAT_LIMIT",
+            self.recovery_cycle_repeat_limit,
+            minimum=2,
+            maximum=5,
+        )
 
     @classmethod
     def from_environment(cls) -> RequestBudgetSettings:
@@ -57,6 +68,10 @@ class RequestBudgetSettings:
             request_deadline_seconds=_environment_seconds("ORION_REQUEST_DEADLINE_SECONDS", 120),
             finalization_reserve_seconds=_environment_seconds(
                 "ORION_REQUEST_FINALIZATION_RESERVE_SECONDS", 5
+            ),
+            recovery_repeat_limit=_environment_integer("ORION_RECOVERY_REPEAT_LIMIT", 3),
+            recovery_cycle_repeat_limit=_environment_integer(
+                "ORION_RECOVERY_CYCLE_REPEAT_LIMIT", 2
             ),
         )
 
@@ -76,7 +91,23 @@ def _validate_range(name: str, value: float, *, minimum: float, maximum: float) 
         raise ValueError(f"{name} must be between {minimum:g} and {maximum:g} seconds.")
 
 
+def _environment_integer(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as error:
+        raise ValueError(f"{name} must be an integer.") from error
+
+
+def _validate_integer_range(name: str, value: int, *, minimum: int, maximum: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be an integer between {minimum} and {maximum}.")
+
+
 T = TypeVar("T")
+
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
 

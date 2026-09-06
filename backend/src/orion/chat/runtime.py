@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -19,6 +20,11 @@ from orion.chat.deadline import (
     RequestDeadlineExceeded,
 )
 from orion.chat.diagnostics import RuntimeDiagnosticSink, model_input_snapshot
+from orion.chat.recovery import (
+    RecoverableFailureTracker,
+    RecoveryFailureState,
+    RecoveryFingerprint,
+)
 from orion.contracts import (
     AssistantDelta,
     AssistantMessage,
@@ -125,12 +131,8 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 # recovery or capability-action obligation. This bound is not a tool-call quota;
 # successful tool chains remain unrestricted by a fixed call count.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
-# Stop only after the same normalized recoverable failure state repeats. A new
-# tool name, argument set, or error code is progress and resets this streak.
-_MAX_REPEATED_RECOVERABLE_FAILURE_STATES = 3
-
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
-_RecoveryFingerprint = tuple[str, str, str]
+_RecoveryFingerprint = RecoveryFingerprint
 
 
 def _tool_definitions_bytes(tools: tuple[ToolDefinition, ...]) -> int:
@@ -178,7 +180,11 @@ def _recoverable_failure_fingerprint(
         separators=(",", ":"),
         sort_keys=True,
     )
-    return model_call.tool_name, normalized_arguments, error.code
+    # Retain only a stable digest in request-local recovery history. Call IDs,
+    # argument key ordering, and raw argument content must not influence or leak
+    # through recurrence evidence.
+    arguments_digest = hashlib.sha256(normalized_arguments.encode("utf-8")).hexdigest()
+    return model_call.tool_name, arguments_digest, error.code
 
 
 def _next_recovery_state(
@@ -326,8 +332,10 @@ class ChatRuntime:
                 recovery_pending = False
                 capability_action_pending = False
                 forced_recovery_decisions_used = 0
-                last_recoverable_failure_state: tuple[_RecoveryFingerprint, ...] = ()
-                repeated_recoverable_failure_states = 0
+                recovery_tracker = RecoverableFailureTracker(
+                    repeat_limit=self._request_budget_settings.recovery_repeat_limit,
+                    cycle_repeat_limit=self._request_budget_settings.recovery_cycle_repeat_limit,
+                )
                 recovery_decision_next = False
                 recovery_guidance_next = False
                 recovery_exhausted_next = False
@@ -583,27 +591,31 @@ class ChatRuntime:
                         )
                         for tool_name, result in results
                     )
-                    recoverable_failure_state = tuple(sorted(recoverable_fingerprints))
-                    if ordinary_success:
-                        last_recoverable_failure_state = ()
-                        repeated_recoverable_failure_states = 0
-                    elif recoverable_failure_state:
-                        if recoverable_failure_state == last_recoverable_failure_state:
-                            repeated_recoverable_failure_states += 1
-                        else:
-                            last_recoverable_failure_state = recoverable_failure_state
-                            repeated_recoverable_failure_states = 1
-                    else:
-                        last_recoverable_failure_state = ()
-                        repeated_recoverable_failure_states = 0
+                    recoverable_failure_state: RecoveryFailureState = tuple(
+                        sorted(recoverable_fingerprints)
+                    )
+                    recovery_stall = recovery_tracker.observe(
+                        recoverable_failure_state,
+                        # A success resolves the outstanding chain only when no
+                        # recoverable error arrived in the same batch. This makes
+                        # batch ordering irrelevant and prevents unrelated success
+                        # from erasing a repeated failure.
+                        failure_resolved=ordinary_success and not recoverable_failure_state,
+                    )
                     recovery_pending, capability_action_pending = _next_recovery_state(
                         recovery_pending, capability_action_pending, results
                     )
-                    if (
-                        repeated_recoverable_failure_states
-                        >= _MAX_REPEATED_RECOVERABLE_FAILURE_STATES
-                    ):
+                    if recovery_stall is not None:
                         recovery_pending = False
+                        self._emit(
+                            request_id,
+                            "recovery.stalled",
+                            {
+                                "reason": recovery_stall.reason,
+                                "occurrences": recovery_stall.occurrences,
+                                "cycle_length": recovery_stall.cycle_length,
+                            },
+                        )
                         capability_action_pending = False
                         recovery_guidance_next = False
                         recovery_exhausted_next = True

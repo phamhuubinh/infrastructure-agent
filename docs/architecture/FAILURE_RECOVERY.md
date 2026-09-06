@@ -37,17 +37,28 @@ The model may:
 
 Do not convert a failed tool call into fake successful data.
 
-For errors that explicitly set `model_recovery_required`, Orion detects an actual
-non-progress loop from a normalized failure fingerprint:
+For errors that explicitly set `model_recovery_required`, Orion tracks normalized
+failure states request-locally within the unresolved recovery barrier. A fingerprint
+contains the operation name, a canonical-argument identity, and error code; call IDs
+and JSON key order do not change it. Parallel calls form one sorted state, so their
+execution order does not change recovery meaning.
 
 ```text
-(tool_name, normalized_arguments, error_code)
+(tool_name, canonical_argument_identity, error_code)
 ```
 
-Changing the arguments, tool, or error code is progress and starts a new recovery state.
-A fixed number of successful tool calls is never used as termination logic. Orion only
-removes model-facing tools after the same recoverable failure state repeats enough times
-to demonstrate no progress, then asks the model for a terminal explanation or needed input.
+Changing arguments, tools, or error codes is not by itself progress. The tracker detects
+both a repeated state and the shortest repeated multi-state cycle, such as
+`A -> B -> A -> B`, using the ADR 0012 configured occurrence limits. Its bounded
+history retains only normalized state identities and safe stall metadata; it does not
+route tools, rewrite arguments, retry automatically, or answer for the model.
+
+A successful ordinary result with no simultaneous recoverable error resolves the
+outstanding failure chain. Expansion/control success does not erase unresolved failure
+history. In a mixed success/error batch, the recoverable error remains unresolved, so
+an unrelated success cannot hide a recurring failure. A new non-repeating failure is
+returned to the model without being declared a stall. This is not a fixed tool-call
+limit: ordinary successful reads and ambiguous evidence are not recovery cycles.
 
 ## RAG failures
 
