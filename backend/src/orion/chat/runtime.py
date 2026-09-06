@@ -12,7 +12,12 @@ from dataclasses import dataclass
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.conversation_state import ConversationStateManager
-from orion.chat.deadline import RequestBudget, RequestBudgetSettings, RequestDeadlineExceeded
+from orion.chat.deadline import (
+    MutationOutcomeUnknown,
+    RequestBudget,
+    RequestBudgetSettings,
+    RequestDeadlineExceeded,
+)
 from orion.chat.diagnostics import RuntimeDiagnosticSink, model_input_snapshot
 from orion.contracts import (
     AssistantDelta,
@@ -502,6 +507,7 @@ class ChatRuntime:
                                 "elapsed_ms": self._elapsed_ms(tool_started_at),
                             }
                         )
+                        mutation_interruption: MutationOutcomeUnknown | None = None
                         if model_call.tool_name == EXPAND_TOOL_NAME:
                             result = tool_exposure.expand(model_call)
                         elif definition is None:
@@ -514,19 +520,29 @@ class ChatRuntime:
                         elif model_call.tool_name not in exposed_before_turn:
                             result = tool_exposure.expose_for_retry(model_call)
                         else:
-                            result = await budget.await_work(
-                                self._runner.run_async(
-                                    model_call,
-                                    scope,
-                                    lambda: (
-                                        cancellation.is_set()
-                                        or budget.remaining_work_seconds() <= 0
+                            try:
+                                result = await budget.await_work(
+                                    self._runner.run_async(
+                                        model_call,
+                                        scope,
+                                        lambda: (
+                                            cancellation.is_set()
+                                            or budget.remaining_work_seconds() <= 0
+                                        ),
                                     ),
-                                ),
-                                cancellation,
-                                phase="tool",
-                                preserve_on_interrupt=definition.operation_kind == "mutation",
-                            )
+                                    cancellation,
+                                    phase="tool",
+                                    preserve_on_interrupt=definition.operation_kind == "mutation",
+                                )
+                            except MutationOutcomeUnknown as error:
+                                mutation_interruption = error
+                                result = ToolResult.failure(
+                                    model_call.call_id,
+                                    model_call.tool_name,
+                                    "outcome_unknown",
+                                    "The mutation outcome could not be verified before the "
+                                    "request deadline.",
+                                )
                         self._persist_tool_result(
                             session_id, request_id, result, self._elapsed_ms(tool_started_at)
                         )
@@ -543,6 +559,10 @@ class ChatRuntime:
                             }
                         )
                         results.append((model_call.tool_name, result))
+                        if mutation_interruption is not None:
+                            if mutation_interruption.cancelled:
+                                raise asyncio.CancelledError
+                            raise RequestDeadlineExceeded("tool")
                         if definition is not None and definition.operation_kind == "mutation":
                             if cancellation.is_set():
                                 raise asyncio.CancelledError

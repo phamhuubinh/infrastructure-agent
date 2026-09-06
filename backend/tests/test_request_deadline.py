@@ -5,7 +5,12 @@ import asyncio
 import pytest
 
 from orion.access import LocalAccessAdapter
-from orion.chat.deadline import RequestBudget, RequestBudgetSettings, RequestDeadlineExceeded
+from orion.chat.deadline import (
+    MutationOutcomeUnknown,
+    RequestBudget,
+    RequestBudgetSettings,
+    RequestDeadlineExceeded,
+)
 from orion.chat.runtime import ChatRuntime, RequestFailed
 from orion.contracts import (
     ModelToolCall,
@@ -16,7 +21,7 @@ from orion.contracts import (
     ToolResult,
 )
 from orion.models.backend import ModelBackend, ModelSettings
-from orion.tool_runtime.registry import ToolRegistryBuilder
+from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 
 class FakeClock:
@@ -186,3 +191,100 @@ async def test_request_budget_drains_dispatched_mutation_before_terminal_handoff
     )
     await interrupter
     assert result == "outcome_unknown"
+
+
+@pytest.mark.anyio
+async def test_preserved_mutation_never_waits_past_absolute_deadline() -> None:
+    clock = FakeClock()
+
+    async def advance(seconds: float) -> None:
+        clock.advance(seconds)
+
+    budget = RequestBudget.start(
+        RequestBudgetSettings(request_deadline_seconds=10, finalization_reserve_seconds=2),
+        clock=clock,
+        sleeper=advance,
+    )
+
+    with pytest.raises(MutationOutcomeUnknown) as error:
+        await budget.await_work(
+            _never(),
+            asyncio.Event(),
+            phase="tool",
+            preserve_on_interrupt=True,
+        )
+
+    assert error.value.cancelled is False
+    assert clock.value == 10
+
+
+@pytest.mark.anyio
+async def test_runtime_persists_mutation_outcome_before_deadline_terminalization(store) -> None:  # type: ignore[no-untyped-def]
+    clock = FakeClock()
+
+    class Backend(ModelBackend):
+        def __init__(self) -> None:
+            self.turns = [
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id="expand",
+                            tool_name=EXPAND_TOOL_NAME,
+                            arguments={"tool_names": ["fake.mutate"]},
+                        ),
+                    )
+                ),
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(call_id="mutation", tool_name="fake.mutate", arguments={}),
+                    )
+                ),
+            ]
+
+        async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
+            yield ModelTurnCompleted(turn=self.turns.pop(0))
+
+    async def mutation(call: ToolCall) -> ToolResult:
+        clock.advance(8)
+        return ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "outcome_unknown",
+            "The side effect may have happened; final state is unknown.",
+        )
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.mutate",
+            description="Mutation test double.",
+            operation_kind="mutation",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.mutate",
+        ),
+        mutation,
+    )
+    session_id = store.create_session()
+    chat = ChatRuntime(
+        store,
+        Backend(),
+        builder.freeze(),
+        LocalAccessAdapter(),
+        request_budget_settings=RequestBudgetSettings(
+            request_deadline_seconds=10, finalization_reserve_seconds=2
+        ),
+        monotonic_clock=clock,
+        deadline_sleeper=_wait_without_expiring,
+    )
+
+    request_id = chat.begin(session_id, "Mutate")
+    with pytest.raises(RequestFailed, match="Request deadline exceeded"):
+        await chat.run(session_id, request_id)
+
+    result = next(
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name == "fake.mutate"
+    )
+    assert result["error"]["code"] == "outcome_unknown"
+    assert store.request(request_id)["status"] == "failed"

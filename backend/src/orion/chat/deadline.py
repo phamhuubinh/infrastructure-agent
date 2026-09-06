@@ -19,6 +19,15 @@ class RequestDeadlineExceeded(RuntimeError):
         self.phase = phase
 
 
+class MutationOutcomeUnknown(RuntimeError):
+    """A dispatched mutation did not finish bounded verification in time."""
+
+    def __init__(self, phase: str, *, cancelled: bool) -> None:
+        super().__init__("Mutation outcome could not be verified before the request deadline.")
+        self.phase = phase
+        self.cancelled = cancelled
+
+
 @dataclass(frozen=True)
 class RequestBudgetSettings:
     """Validated production request-deadline configuration."""
@@ -133,14 +142,15 @@ class RequestBudget:
                 {operation_task, cancellation_task, deadline_task},
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if cancellation_task in done or cancellation.is_set():
+            interrupted_by_cancellation = cancellation_task in done or cancellation.is_set()
+            if interrupted_by_cancellation:
                 if preserve_on_interrupt:
-                    return await operation_task
+                    return await self._drain_mutation(operation_task, phase, cancelled=True)
                 await _cancel_and_drain(operation_task)
                 raise asyncio.CancelledError
             if deadline_task in done or self.remaining_work_seconds() <= 0:
                 if preserve_on_interrupt:
-                    return await operation_task
+                    return await self._drain_mutation(operation_task, phase, cancelled=False)
                 await _cancel_and_drain(operation_task)
                 raise RequestDeadlineExceeded(phase)
             return await operation_task
@@ -151,6 +161,31 @@ class RequestBudget:
             for task in (cancellation_task, deadline_task):
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+
+    async def _drain_mutation(
+        self, operation_task: asyncio.Future[T], phase: str, *, cancelled: bool
+    ) -> T:
+        """Preserve a dispatched mutation result, but never beyond absolute deadline."""
+        remaining = self.deadline_monotonic - self.clock()
+        if remaining <= 0:
+            await _cancel_and_drain(operation_task)
+            raise MutationOutcomeUnknown(phase, cancelled=cancelled)
+        absolute_deadline_task = asyncio.ensure_future(self.sleeper(remaining))
+        try:
+            waitables: set[asyncio.Future[Any]] = {operation_task, absolute_deadline_task}
+            done, _ = await asyncio.wait(
+                waitables,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if operation_task in done:
+                return await operation_task
+            await _cancel_and_drain(operation_task)
+            raise MutationOutcomeUnknown(phase, cancelled=cancelled)
+        finally:
+            if not absolute_deadline_task.done():
+                absolute_deadline_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await absolute_deadline_task
 
 
 async def _cancel_and_drain(task: asyncio.Future[Any]) -> None:
