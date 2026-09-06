@@ -784,12 +784,44 @@ def stability_diagnostic_transcript(
     }
 
 
+def runtime_input_diagnostics(
+    base_url: str, timelines: list[list[dict[str, Any]]]
+) -> list[dict[str, object]]:
+    """Read opt-in runtime evidence before the temporary QA process is torn down."""
+    request_ids: list[str] = []
+    for timeline in timelines:
+        for item in timeline:
+            request_id = item.get("request_id")
+            if isinstance(request_id, str) and request_id not in request_ids:
+                request_ids.append(request_id)
+    diagnostics: list[dict[str, object]] = []
+    for request_id in request_ids:
+        try:
+            payload = _json_request(
+                base_url, "GET", f"/api/requests/{request_id}/diagnostics"
+            )
+        except (
+            QARequestTimeout,
+            ScenarioFailure,
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ):
+            continue
+        if isinstance(payload, dict):
+            diagnostics.append({"request_id": request_id, "capture": payload})
+    return diagnostics
+
+
 def _attach_stability_diagnostics(
     result: dict[str, object],
     phase: str,
     timelines: list[list[dict[str, Any]]],
     secret_values: tuple[str, ...],
+    runtime_diagnostics: list[dict[str, object]] = (),
 ) -> None:
+    if runtime_diagnostics:
+        result["runtime_input_diagnostics"] = runtime_diagnostics
     if phase != "stability" and result.get("id") not in {
         "enterprise-readiness",
         "weekly-synthesis",
@@ -1081,6 +1113,7 @@ def qa_environment(
             "ORION_QA_CASE_MUTATION": "1" if mutation_case else "0",
             "ORION_MODEL_TEMPERATURE": QA_MODEL_TEMPERATURE,
             "ORION_LOG_PATH": str(temporary / "orion.log"),
+            "ORION_RUNTIME_DIAGNOSTICS": "qa",
             "PYTHONPATH": str(ROOT / "backend/src"),
         }
     )
@@ -1800,7 +1833,11 @@ def _run_structured(
                     if case.requires_citation:
                         result["citation_diagnostics"] = citation_diagnostics(timeline)
                     _attach_stability_diagnostics(
-                        result, phase, checked_timelines, (model["api_key"],)
+                        result,
+                        phase,
+                        checked_timelines,
+                        (model["api_key"],),
+                        runtime_input_diagnostics(base_url, checked_timelines),
                     )
                     if status == "FAIL":
                         trace = failure_trace(checked_timelines, (model["api_key"],))
@@ -1834,7 +1871,11 @@ def _run_structured(
                     if trace:
                         result["failure_trace"] = trace
                     _attach_stability_diagnostics(
-                        result, phase, observed_timelines, (model["api_key"],)
+                        result,
+                        phase,
+                        observed_timelines,
+                        (model["api_key"],),
+                        runtime_input_diagnostics(base_url, observed_timelines),
                     )
                     results.append(result)
                 except (
@@ -1864,7 +1905,11 @@ def _run_structured(
                         if trace:
                             result["failure_trace"] = trace
                         _attach_stability_diagnostics(
-                            result, phase, observed_timelines, (model["api_key"],)
+                            result,
+                            phase,
+                            observed_timelines,
+                            (model["api_key"],),
+                            runtime_input_diagnostics(base_url, observed_timelines),
                         )
                     results.append(result)
                 if checkpoint is not None:

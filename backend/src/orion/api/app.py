@@ -420,6 +420,17 @@ def create_app(
         _require_session(store, assembled.access, str(request["session_id"]))
         return store.events(request_id)
 
+    @app.get("/api/requests/{request_id}/diagnostics")
+    async def request_diagnostics(request_id: str) -> dict[str, object]:
+        request = store.request(request_id)
+        if request is None:
+            raise HTTPException(status_code=404, detail="Request not found.")
+        _require_session(store, assembled.access, str(request["session_id"]))
+        diagnostic = runtime.diagnostics(request_id)
+        if diagnostic is None:
+            raise HTTPException(status_code=404, detail="Runtime diagnostics are disabled.")
+        return diagnostic
+
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str) -> dict[str, str]:
         request = store.request(request_id)

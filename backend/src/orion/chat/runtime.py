@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from dataclasses import dataclass
 
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.conversation_state import ConversationStateManager
+from orion.chat.diagnostics import RuntimeDiagnosticSink, model_input_snapshot
 from orion.contracts import (
     AssistantDelta,
     AssistantMessage,
@@ -202,6 +204,7 @@ class ChatRuntime:
         infrastructure_targets: tuple[tuple[str, str, str], ...] = (),
         application_log: ApplicationLog | None = None,
         blocked_tool_operation_kinds: frozenset[str] = frozenset(),
+        diagnostic_sink: RuntimeDiagnosticSink | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -211,6 +214,7 @@ class ChatRuntime:
         self._context_builder = ContextBuilder(store, infrastructure_targets)
         self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
+        self._diagnostic_sink = diagnostic_sink
         initial_model_tools = registry.new_tool_exposure().model_tools
         self._maximum_model_tool_bytes = _tool_definitions_bytes(
             (*initial_model_tools, *registry.model_definitions())
@@ -260,6 +264,7 @@ class ChatRuntime:
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
+        active_model_phase: tuple[str, float] | None = None
         try:
             async with self._session_locks.setdefault(session_id, asyncio.Lock()):
                 self._store.start_request(request_id)
@@ -293,9 +298,14 @@ class ChatRuntime:
                 recovery_exhausted_next = False
                 observation_review_next = False
                 citation_correction_next: AssistantMessage | None = None
+                model_turn_number = 0
                 while True:
                     self._ensure_not_cancelled(cancellation)
-                    self._emit(request_id, "model.started", {})
+                    model_turn_number += 1
+                    model_turn_id = f"{request_id}:{model_turn_number}:{uuid.uuid4().hex[:8]}"
+                    model_started_at = time.monotonic()
+                    self._emit(request_id, "model.started", {"model_turn_id": model_turn_id})
+                    active_model_phase = (model_turn_id, model_started_at)
                     recovery_decision = recovery_decision_next
                     recovery_decision_next = False
                     recovery_guidance = recovery_guidance_next
@@ -313,6 +323,8 @@ class ChatRuntime:
                         scope,
                         cancellation,
                         tool_exposure,
+                        model_turn_id=model_turn_id,
+                        model_started_at=model_started_at,
                         recovery_decision=recovery_decision,
                         recovery_guidance=recovery_guidance,
                         capability_action_pending=capability_action_pending,
@@ -327,8 +339,24 @@ class ChatRuntime:
                         output_tokens += usage.output_tokens
                     self._ensure_not_cancelled(cancellation)
                     self._emit(
-                        request_id, "model.completed", {"tool_call_count": len(turn.tool_calls)}
+                        request_id,
+                        "model.completed",
+                        {
+                            "model_turn_id": model_turn_id,
+                            "tool_call_count": len(turn.tool_calls),
+                            "elapsed_ms": self._elapsed_ms(model_started_at),
+                        },
                     )
+                    self._record_diagnostic(
+                        {
+                            "request_id": request_id,
+                            "model_turn_id": model_turn_id,
+                            "phase": "model",
+                            "status": "completed",
+                            "elapsed_ms": self._elapsed_ms(model_started_at),
+                        }
+                    )
+                    active_model_phase = None
                     recovery_abandoned = (
                         not turn.tool_calls
                         and (recovery_pending or capability_action_pending)
@@ -407,6 +435,7 @@ class ChatRuntime:
                     recoverable_fingerprints: list[_RecoveryFingerprint] = []
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
+                        tool_started_at = time.monotonic()
                         definition = self._registry.definition(model_call.tool_name)
                         self._store.append_timeline(
                             session_id,
@@ -421,12 +450,21 @@ class ChatRuntime:
                             call_id=model_call.call_id,
                             tool_name=model_call.tool_name,
                         )
-                        self._emit(
-                            request_id,
-                            "tool.started",
-                            self._tool_activity(
-                                model_call.tool_name, model_call.call_id, model_call.arguments
-                            ),
+                        tool_activity = self._tool_activity(
+                            model_call.tool_name, model_call.call_id, model_call.arguments
+                        )
+                        tool_activity["elapsed_ms"] = self._elapsed_ms(tool_started_at)
+                        self._emit(request_id, "tool.started", tool_activity)
+                        self._record_diagnostic(
+                            {
+                                "request_id": request_id,
+                                "model_turn_id": model_turn_id,
+                                "tool_call_id": model_call.call_id,
+                                "tool_name": model_call.tool_name,
+                                "phase": "tool",
+                                "status": "started",
+                                "elapsed_ms": self._elapsed_ms(tool_started_at),
+                            }
                         )
                         if model_call.tool_name == EXPAND_TOOL_NAME:
                             result = tool_exposure.expand(model_call)
@@ -443,7 +481,21 @@ class ChatRuntime:
                             result = await self._runner.run_async(
                                 model_call, scope, cancellation.is_set
                             )
-                        self._persist_tool_result(session_id, request_id, result)
+                        self._persist_tool_result(
+                            session_id, request_id, result, self._elapsed_ms(tool_started_at)
+                        )
+                        self._record_diagnostic(
+                            {
+                                "request_id": request_id,
+                                "model_turn_id": model_turn_id,
+                                "tool_call_id": model_call.call_id,
+                                "tool_name": model_call.tool_name,
+                                "phase": "tool",
+                                "status": "completed" if result.status == "success" else "failed",
+                                "elapsed_ms": self._elapsed_ms(tool_started_at),
+                                "canonical_result": result.model_dump(mode="json"),
+                            }
+                        )
                         results.append((model_call.tool_name, result))
                         fingerprint = _recoverable_failure_fingerprint(model_call, result)
                         if fingerprint is not None:
@@ -490,10 +542,30 @@ class ChatRuntime:
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
         except asyncio.CancelledError as error:
+            if active_model_phase is not None:
+                self._record_diagnostic(
+                    {
+                        "request_id": request_id,
+                        "model_turn_id": active_model_phase[0],
+                        "phase": "model",
+                        "status": "cancelled",
+                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                    }
+                )
             self._store.complete_request(request_id, "cancelled")
             self._emit(request_id, "request.cancelled", {})
             raise RequestCancelled("Request cancelled.") from error
         except ModelBackendError as error:
+            if active_model_phase is not None:
+                self._record_diagnostic(
+                    {
+                        "request_id": request_id,
+                        "model_turn_id": active_model_phase[0],
+                        "phase": "model",
+                        "status": "failed",
+                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                    }
+                )
             self._store.append_timeline(
                 session_id,
                 request_id,
@@ -531,6 +603,16 @@ class ChatRuntime:
             )
             raise
         except RequestFailed as error:
+            if active_model_phase is not None:
+                self._record_diagnostic(
+                    {
+                        "request_id": request_id,
+                        "model_turn_id": active_model_phase[0],
+                        "phase": "model",
+                        "status": "failed",
+                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                    }
+                )
             self._store.complete_request(request_id, "failed", str(error))
             self._emit(request_id, "request.failed", {"message": str(error)})
             raise
@@ -553,6 +635,8 @@ class ChatRuntime:
         cancellation: asyncio.Event,
         tool_exposure: ToolExposureRequest,
         *,
+        model_turn_id: str,
+        model_started_at: float,
         recovery_decision: bool = False,
         recovery_guidance: bool = False,
         capability_action_pending: bool = False,
@@ -641,6 +725,22 @@ class ChatRuntime:
                 "not silently truncated."
             )
 
+        self._record_diagnostic(
+            {
+                "request_id": request_id,
+                "model_turn_id": model_turn_id,
+                "phase": "model",
+                "status": "started",
+                "elapsed_ms": self._elapsed_ms(model_started_at),
+                "model_input": model_input_snapshot(
+                    model_messages,
+                    tuple(tool.name for tool in model_tools),
+                    tuple(source.source_ref_id for source in context.visible_sources),
+                    _model_request_proxy_bytes(model_messages, model_tools),
+                ),
+            }
+        )
+
         async for event in self._backend.stream(
             model_messages,
             model_tools,
@@ -710,7 +810,9 @@ class ChatRuntime:
             payload,
         )
 
-    def _persist_tool_result(self, session_id: str, request_id: str, result: ToolResult) -> None:
+    def _persist_tool_result(
+        self, session_id: str, request_id: str, result: ToolResult, elapsed_ms: int
+    ) -> None:
         self._store.append_timeline(
             session_id,
             request_id,
@@ -725,6 +827,7 @@ class ChatRuntime:
             "tool_name": result.tool_name,
             "status": result.status,
         }
+        payload["elapsed_ms"] = elapsed_ms
         definition = self._registry.definition(result.tool_name)
         if definition is not None and result.tool_name.split(".", 1)[0] in {
             "linux",
@@ -761,6 +864,31 @@ class ChatRuntime:
             if isinstance(target_ref, str):
                 payload["target_ref"] = target_ref
         return payload
+
+    def diagnostics(self, request_id: str) -> dict[str, object] | None:
+        """Return opt-in diagnostic records without making them runtime state."""
+        sink = self._diagnostic_sink
+        records = getattr(sink, "records", None)
+        if not callable(records):
+            return None
+        try:
+            value = records(request_id)
+        except Exception:
+            return None
+        return value if isinstance(value, dict) else None
+
+    def _record_diagnostic(self, record: dict[str, object]) -> None:
+        if self._diagnostic_sink is None:
+            return
+        try:
+            self._diagnostic_sink.record(record)
+        except Exception:
+            # Diagnostics are never allowed to affect dispatch or cancellation.
+            return
+
+    @staticmethod
+    def _elapsed_ms(started_at: float) -> int:
+        return max(0, round((time.monotonic() - started_at) * 1000))
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
         public_payload = redact_public(payload)

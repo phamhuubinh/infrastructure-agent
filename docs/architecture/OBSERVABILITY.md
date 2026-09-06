@@ -37,6 +37,10 @@ request.failed
 
 Include correlation IDs such as:
 
+Model turns should have a per-request model-turn correlation ID. Record monotonic elapsed
+time for model and tool phase start/finish/failure/cancellation; elapsed time is
+not evidence of provider queueing or hidden reasoning.
+
 - session ID;
 - request ID;
 - model call ID;
@@ -49,6 +53,12 @@ Include correlation IDs such as:
 Log safe structured metadata.
 
 Do not log raw secrets, bearer tokens, SSH private keys, database passwords, or unrestricted provider payloads.
+
+Detailed model-input evidence is disabled by default. A test-only opt-in sink may retain
+redacted, explicitly capped tool-result projections, exposed tool names, visible source IDs,
+byte counts, and projection omissions. It must not retain provider headers/native payloads,
+hidden reasoning, or unrestricted user/system/developer prompts, and sink failures must not
+affect request execution.
 
 ## Metrics
 

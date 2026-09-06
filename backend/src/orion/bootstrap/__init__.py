@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orion.access import LocalAccessAdapter
+from orion.chat.diagnostics import BoundedModelInputDiagnostics
 from orion.chat.runtime import ChatRuntime
 from orion.integrations import (
     DuckDuckGoInternetClient,
@@ -92,6 +93,9 @@ def build_application(
         registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
     selected_backend = backend or OpenAICompatibleBackend()
+    diagnostic_sink = (
+        BoundedModelInputDiagnostics() if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa" else None
+    )
     runtime = ChatRuntime(
         store,
         selected_backend,
@@ -100,6 +104,7 @@ def build_application(
         infrastructure_catalog.model_context(),
         ApplicationLog(Path(os.environ["ORION_LOG_PATH"])) if os.getenv("ORION_LOG_PATH") else None,
         blocked_tool_operation_kinds,
+        diagnostic_sink,
     )
     return OrionApplication(
         store=store,
