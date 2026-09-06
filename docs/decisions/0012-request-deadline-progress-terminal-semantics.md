@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed. This is a target contract for later, separately reviewed implementation
-issues. It does not change the current runtime, API, provider adapter, or request
-storage status by itself.
+Accepted. This contract governs the separately reviewed implementation issues that
+follow. It does not change the current runtime, API, provider adapter, or request
+storage status by itself until those implementation issues are completed.
 
 ## Context
 
@@ -26,10 +26,12 @@ picker, or a product-level tool-call quota.
 
 When a queued request obtains its session lock and changes durably to `running`,
 Orion records `started_monotonic` and derives one `deadline_monotonic`. Queue wait is
-not part of this budget. Everything after that transition is: persisting the user
-item, preparing conversation state, context construction, each model turn, each
-tool dispatch and its required verification, and terminal persistence/emission.
-Wall-clock time is for display only and must not decide expiry.
+not part of this budget and must be measured separately in safe telemetry; therefore
+the configured request deadline is not an end-to-end limit from the instant the user
+submits a request. Everything after the durable `running` transition is inside the
+budget: persisting the user item, preparing conversation state, context construction,
+each model turn, each tool dispatch and its required verification, and terminal
+persistence/emission. Wall-clock time is for display only and must not decide expiry.
 
 The implementation configuration contract is:
 
@@ -38,8 +40,8 @@ The implementation configuration contract is:
 | `ORION_REQUEST_DEADLINE_SECONDS` | 120 | 10–900 seconds | Total time from durable `running` to a terminal outcome. |
 | `ORION_REQUEST_FINALIZATION_RESERVE_SECONDS` | 5 | 1–60 seconds; strictly less than the request deadline | Time retained for deterministic terminal persistence, events, and fallback. |
 | `ORION_MODEL_STREAM_TIMEOUT_SECONDS` | 30 | 1–300 seconds | Provider transport inactivity limit for connect/read/write/pool work; it is not the total request deadline. |
-| `ORION_RECOVERY_REPEAT_LIMIT` | 3 | 2–5 | Repetitions of the same recoverable state before recovery is exhausted. |
-| `ORION_RECOVERY_CYCLE_REPEAT_LIMIT` | 2 | 2–5 | Repetitions of a multi-state recoverable cycle before recovery is exhausted. |
+| `ORION_RECOVERY_REPEAT_LIMIT` | 3 | 2–5 | Total occurrences of the same recoverable state at one barrier before recovery is exhausted. |
+| `ORION_RECOVERY_CYCLE_REPEAT_LIMIT` | 2 | 2–5 | Complete occurrences of the same multi-state recoverable cycle at one barrier before recovery is exhausted. |
 
 Invalid values or invalid cross-setting combinations fail configuration validation at
 startup; they are never silently clamped. The total default gives a local model time
@@ -49,17 +51,26 @@ limit remains shorter because it diagnoses inactive I/O, whereas an active strea
 may legitimately last longer than 30 seconds. `ORION_QA_REQUEST_TIMEOUT_SECONDS` is
 test-runner-only and must never supply any production default or policy.
 
-Every awaited request operation receives both the cancellation signal and the common
-monotonic deadline. Its effective local timeout is no greater than the remaining
-budget, and a provider transport timeout is additionally capped by the configured
-inactivity limit. A timeout wrapper must cancel and await its child before proceeding
-to terminalization so it cannot later emit a model delta, dispatch a tool, or write a
-second terminal result. Synchronous durable finalization is bounded by the reserved
-time operationally; if persistence itself cannot be confirmed, recovery is a process
+Orion derives a second monotonic boundary,
+`work_deadline_monotonic = deadline_monotonic - finalization_reserve`. Ordinary
+conversation preparation, model turns, tool work, verification, and the single
+optional forced-final model turn must complete by `work_deadline_monotonic`; they may
+not consume the reserved terminalization interval. Terminal persistence, terminal
+event emission, and the deterministic incomplete fallback may use the remaining
+reserve up to `deadline_monotonic`.
+
+Every awaited request operation receives both the cancellation signal and the
+appropriate common monotonic boundary. An ordinary model/tool operation's effective
+local timeout is no greater than the remaining work budget, and a provider transport
+timeout is additionally capped by the configured inactivity limit. A timeout wrapper
+must cancel and await its child before proceeding to terminalization so it cannot
+later emit a model delta, dispatch a tool, or write a second terminal result.
+Synchronous durable finalization is bounded by the reserved interval; if persistence
+itself cannot be confirmed before `deadline_monotonic`, recovery is a process
 integrity concern rather than permission to resume the request.
 
-No optional model turn or new tool dispatch may start once remaining time is at or
-below the finalization reserve. Work already past an infrastructure mutation's
+No optional model turn, forced-final model turn, or new tool dispatch may start at or
+after `work_deadline_monotonic`. Work already past an infrastructure mutation's
 side-effect boundary follows the mutation rules below instead of being described as
 never started.
 
@@ -72,9 +83,9 @@ The following is an internal runtime lifecycle, not context supplied to the mode
 | --- | --- | --- | --- |
 | `QUEUED` | session lock acquired | `RUNNING` | Atomically mark running and create the monotonic deadline. |
 | `QUEUED` | cancellation wins before start | `CANCELLED` | Persist one cancellation outcome; no model or tool work starts. |
-| `RUNNING` | useful model/tool work | `RUNNING` | Continue only while budget remains above reserve. |
+| `RUNNING` | useful model/tool work | `RUNNING` | Continue only while the operation can complete before `work_deadline_monotonic`. |
 | `RUNNING` | model returns a valid final assistant answer | `TERMINALIZING` | Stop accepting tool dispatch; validate and persist the final answer. |
-| `RUNNING` | deadline expires, or remaining time reaches reserve | `TERMINALIZING` | Do not start another model/tool operation; select deterministic incomplete fallback. |
+| `RUNNING` | `work_deadline_monotonic` is reached | `TERMINALIZING` | Do not start another model/tool operation; select deterministic incomplete fallback. |
 | `RUNNING` | cancellation before a mutation side-effect boundary | `TERMINALIZING` | Stop dispatch and select cancelled outcome. |
 | `RUNNING` | cancellation after a mutation side-effect boundary | `TERMINALIZING` | Preserve the dispatched call's verified or `outcome_unknown` ToolResult, then cancel the request. |
 | `RUNNING` | hard non-timeout runtime/provider failure | `TERMINALIZING` | Persist a redacted failure outcome. |
@@ -82,10 +93,12 @@ The following is an internal runtime lifecycle, not context supplied to the mode
 
 The terminal gate has one idempotent winner. After entry to `TERMINALIZING`, Orion
 does not invoke `ToolRunner`, expose/re-expose a tool, or resume the ordinary model
-loop. Late stream events are discarded. A provider that returns tool calls while
-Orion is collecting a single permitted forced final answer receives no tool result:
-those calls are never dispatched. If that forced turn lacks a valid assistant answer,
-or it runs out of budget, Orion uses the deterministic incomplete fallback.
+loop. Late stream events are discarded. A forced-final turn is valid only when it produces a valid assistant answer, contains
+zero tool calls, and passes the required terminal and citation validation. If the
+provider emits any tool call during that turn, Orion does not dispatch it and the
+forced-final turn is invalid even when assistant content is also present. A missing,
+malformed, tool-bearing, validation-failing, or over-budget forced-final turn uses the
+deterministic incomplete fallback.
 
 `COMPLETED` means a valid persisted assistant final answer. `INCOMPLETE` means Orion
 persisted a fixed, data-free fallback explaining that it could not obtain a complete
@@ -121,11 +134,15 @@ Within one barrier, Orion classifies a recoverable transition as follows:
 | `unknown_progress` | The result lacks enough stable evidence to compare (including an interrupted/ambiguous read). | Preserve the result and return control to the model; do not count it as stalled. |
 
 For a multi-state cycle, Orion normalizes the shortest repeating sequence of two or
-more recoverable states, such as `A → B → A → B`. The sequence becomes exhausted
-only at `ORION_RECOVERY_CYCLE_REPEAT_LIMIT` complete repetitions with the same
-barrier. A single repeated state uses `ORION_RECOVERY_REPEAT_LIMIT`. This is a
-bounded recovery guard, not a total tool-call quota: a long useful chain can continue
-without limit, and a model remains the semantic decision-maker.
+more recoverable states, such as `A → B → A → B`. Recovery limits count total
+observed occurrences at the same barrier, including the first occurrence used to
+establish the state or cycle. With `ORION_RECOVERY_REPEAT_LIMIT=3`, `A → A → A`
+exhausts on the third `A`, while `A → A` does not. With
+`ORION_RECOVERY_CYCLE_REPEAT_LIMIT=2`, `A → B → A → B` contains two complete
+occurrences of the `A → B` cycle and exhausts when the second cycle completes.
+Changing the barrier resets those counts. This is a bounded recovery guard, not a
+total tool-call quota: a long useful chain can continue without limit, and a model
+remains the semantic decision-maker.
 
 Repeated reads can be valid polling or required verification. A stable snapshot may
 be meaningful evidence that verification ran, but does not itself establish either
@@ -136,9 +153,10 @@ recoverable-error cycle must never be terminated merely because they look simila
 
 When a state/cycle is exhausted, Orion enters a bounded closing path: it may make one
 final model turn with ordinary tools unavailable solely to ask for an explanation or
-needed input, provided the finalization reserve permits it. It cannot return to the
-ordinary loop. A tool call from that turn is ignored and produces the incomplete
-fallback described above.
+needed input only when enough work budget remains for that turn to complete before
+`work_deadline_monotonic`. It cannot consume the finalization reserve and cannot
+return to the ordinary loop. A tool call from that turn is ignored and produces the
+incomplete fallback described above.
 
 ### Cancellation, timeout, and side effects
 
@@ -163,10 +181,10 @@ to add test code in this issue.
 
 | Trace | Expected outcome | Must not happen |
 | --- | --- | --- |
-| Long useful tool chain | Each call adds a relevant barrier; chain continues while the deadline permits, then completes normally. | A fixed model/tool-call count terminates it. |
+| Long useful tool chain | Each call adds a relevant barrier; chain continues while the work deadline permits, then completes normally. | A fixed model/tool-call count terminates it. |
 | `A/B` recoverable error cycle | With no barrier, the normalized `A,B` cycle exhausts at the configured limit; at most one tool-free final turn is allowed. | Treating different tool names as automatic progress or dispatching a final-turn tool call. |
 | Stable snapshot verification | The repeated snapshot is preserved; comparison is unknown or operation-defined, and model may finish/continue. | Declaring a stall solely from the read/timestamp repetition. |
-| Provider hangs or never produces final turn | Common deadline/inactivity handling cancels the child; one `INCOMPLETE` fallback/event is persisted. | A second terminal event, late delta, or another tool dispatch. |
+| Provider hangs or never produces final turn | Work-deadline/inactivity handling cancels the child; the reserved terminal interval persists one `INCOMPLETE` fallback/event. | A second terminal event, late delta, or another tool dispatch. |
 | User cancels before dispatch | One `CANCELLED` outcome; no side effect. | Calling the tool after cancellation. |
 | User cancels after mutation dispatch | Tool result contains verified evidence or `outcome_unknown`; request closes cancelled. | Recording the mutation as not attempted, retrying, or replaying it. |
 
