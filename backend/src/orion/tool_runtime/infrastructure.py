@@ -10,7 +10,7 @@ import asyncio
 import re
 import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from weakref import WeakKeyDictionary
@@ -62,6 +62,7 @@ def infrastructure_registrations(
     linux: LinuxExecutor | None = None,
     grafana: GrafanaClient | None = None,
     zabbix: ZabbixClient | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> tuple[ToolRegistration, ...]:
     """Register whole configured families in the ordinary immutable snapshot."""
     registrations: list[ToolRegistration] = []
@@ -70,7 +71,9 @@ def infrastructure_registrations(
     if catalog.configured("grafana"):
         registrations += _grafana_registrations(catalog, grafana or HttpGrafanaClient())
     if catalog.configured("zabbix"):
-        registrations += _zabbix_registrations(catalog, zabbix or HttpZabbixClient())
+        registrations += _zabbix_registrations(
+            catalog, zabbix or HttpZabbixClient(), now or (lambda: datetime.now(UTC))
+        )
     return tuple(
         ToolRegistration(registration.definition, _blocking_handler(registration.handler))
         for registration in registrations
@@ -579,11 +582,13 @@ def _grafana_registrations(catalog: TargetCatalog, client: GrafanaClient) -> lis
     return [ToolRegistration(definitions[name], handler) for name, handler in handlers.items()]
 
 
-def _zabbix_registrations(catalog: TargetCatalog, client: ZabbixClient) -> list[ToolRegistration]:
+def _zabbix_registrations(
+    catalog: TargetCatalog, client: ZabbixClient, now: Callable[[], datetime]
+) -> list[ToolRegistration]:
     definitions = _definitions()
     handlers = {
         "zabbix.host.get": lambda call: _zabbix_read(call, catalog, client, "host.get"),
-        "zabbix.event.list": lambda call: _zabbix_read(call, catalog, client, "event.get"),
+        "zabbix.event.list": lambda call: _zabbix_read(call, catalog, client, "event.get", now),
         "zabbix.history.get": lambda call: _zabbix_read(call, catalog, client, "history.get"),
         "zabbix.trigger.get": lambda call: _zabbix_read(call, catalog, client, "trigger.get"),
         "zabbix.template.get": lambda call: _zabbix_read(call, catalog, client, "template.get"),
@@ -1117,7 +1122,11 @@ def _grafana_annotation(
 
 
 def _zabbix_read(
-    call: ToolCall, catalog: TargetCatalog, client: ZabbixClient, method: str
+    call: ToolCall,
+    catalog: TargetCatalog,
+    client: ZabbixClient,
+    method: str,
+    now: Callable[[], datetime] | None = None,
 ) -> ToolResult:
     def operation() -> ToolResult:
         target, credential = _target(call, catalog, "zabbix")
@@ -1137,22 +1146,11 @@ def _zabbix_read(
         normalized = _normalize_zabbix(call.tool_name, result)
         data: dict[str, object] = {"target_ref": target.target_ref, "results": normalized}
         if call.tool_name == "zabbix.event.list":
-            occurred_at = (
-                [
-                    item["occurred_at"]
-                    for item in normalized
-                    if isinstance(item, dict) and isinstance(item.get("occurred_at"), str)
-                ]
-                if isinstance(normalized, list)
-                else []
+            data["time_coverage"] = _event_time_coverage(
+                args,
+                normalized if isinstance(normalized, list) else [],
+                (now or (lambda: datetime.now(UTC)))(),
             )
-            data["time_coverage"] = {
-                "query_window_explicit": "from" in args,
-                "query_from": args.get("from"),
-                "query_to": args.get("to"),
-                "earliest_event_at": min(occurred_at) if occurred_at else None,
-                "latest_event_at": max(occurred_at) if occurred_at else None,
-            }
         return _success(call, data, target, call.tool_name.rsplit(".", 1)[-1])
 
     return _with_errors(call, operation)
@@ -1269,7 +1267,11 @@ def _validate_zabbix_interval(name: str, args: dict[str, object]) -> None:
     if has_start != has_end:
         raise InfrastructureError("invalid_input", "Both from and to are required together.")
     if has_start:
-        _interval(args["from"], args["to"], 7 if name == "zabbix.history.get" else 31)
+        start, end = _parse_time(args["from"]), _parse_time(args["to"])
+        if end < start or end - start > timedelta(days=7 if name == "zabbix.history.get" else 31):
+            raise InfrastructureError(
+                "invalid_input", "Timestamp interval is outside the allowed bound."
+            )
 
 
 def _zabbix_params(name: str, args: dict[str, object]) -> dict[str, object]:
@@ -1294,6 +1296,10 @@ def _zabbix_params(name: str, args: dict[str, object]) -> dict[str, object]:
         params = {
             "output": ["eventid", "name", "severity", "clock", "acknowledged"],
             "limit": limit,
+            # Both fields are supported by event.get. eventid gives a deterministic
+            # tie-break when distinct events share the same clock second.
+            "sortfield": ["clock", "eventid"],
+            "sortorder": "DESC",
         }
         if "host_ids" in args:
             params["hostids"] = args["host_ids"]
@@ -1356,6 +1362,63 @@ def _add_zabbix_time(params: dict[str, object], args: dict[str, object]) -> None
         return
     params["time_from"] = int(_parse_time(args["from"]).timestamp())
     params["time_till"] = int(_parse_time(args["to"]).timestamp())
+
+
+def _event_time_coverage(
+    args: Mapping[str, object], records: list[dict[str, object]], retrieved_at: datetime
+) -> dict[str, object]:
+    """Describe what one bounded event.get response can, and cannot, establish."""
+    explicit_window = "from" in args
+    query_from = _rfc3339_utc(_parse_time(args["from"])) if explicit_window else None
+    query_to = _rfc3339_utc(_parse_time(args["to"])) if explicit_window else None
+    occurred_at = [
+        timestamp for item in records if isinstance((timestamp := item.get("occurred_at")), str)
+    ]
+    missing_timestamps = len(records) - len(occurred_at)
+    outside_window = 0
+    if explicit_window:
+        assert query_from is not None and query_to is not None
+        outside_window = sum(
+            timestamp < query_from or timestamp > query_to for timestamp in occurred_at
+        )
+    limit = args.get("limit", 100)
+    assert isinstance(limit, int)
+    filters = {key: args[key] for key in ("host_ids", "severities", "acknowledged") if key in args}
+    return {
+        "retrieved_at": _rfc3339_utc(retrieved_at),
+        "query_window_explicit": explicit_window,
+        "query_from": query_from,
+        "query_to": query_to,
+        "query_timezone": "UTC",
+        "query_boundary": "inclusive",
+        "temporal_coverage": "bounded_query" if explicit_window else "unknown_unbounded",
+        "ordering": {"sort_fields": ["clock", "eventid"], "sort_order": "DESC"},
+        "filters": filters,
+        "limit": limit,
+        "returned_count": len(records),
+        "possibly_truncated": len(records) >= limit,
+        # event.get does not return a total count in this bounded read. In
+        # particular, fewer returned records than limit is not proof that the
+        # source was exhaustively covered.
+        "result_completeness": "unknown",
+        "zero_matches_in_query": len(records) == 0 if explicit_window else None,
+        "absence_of_events_established": False,
+        "earliest_event_at": min(occurred_at) if occurred_at else None,
+        "latest_event_at": max(occurred_at) if occurred_at else None,
+        "events_missing_occurred_at": missing_timestamps,
+        "events_outside_query_window": outside_window,
+        "returned_events_within_query_window": (
+            None if not explicit_window or missing_timestamps else outside_window == 0
+        ),
+    }
+
+
+def _rfc3339_utc(value: datetime) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise InfrastructureError(
+            "invalid_input", "Timestamps must be timezone-aware RFC 3339 values."
+        )
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _sanitize(value: object) -> object:

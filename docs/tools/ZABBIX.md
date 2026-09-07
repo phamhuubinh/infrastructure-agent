@@ -52,6 +52,9 @@ When both selectors are present, they are intersected. Returned records are capp
 
 Returns bounded normalized event summaries. Severity values are Orion semantic
 values, mapped internally to the Zabbix API rather than passed as a generic filter.
+Each request explicitly uses Zabbix `event.get` ordering `clock`, then `eventid`,
+both descending; `eventid` is the deterministic tie-breaker for events in the same
+clock second.
 
 ```json
 {
@@ -76,9 +79,33 @@ values, mapped internally to the Zabbix API rather than passed as a generic filt
 }
 ```
 
-`from` and `to` must be supplied together when either is supplied; the interval is
-limited to 31 days. Event descriptions/tags are untrusted data and are bounded before
-returning to the model.
+`from` and `to` must be supplied together when either is supplied. They are
+timezone-aware RFC 3339 instants, normalized to UTC for the response metadata, and
+must satisfy `from <= to` within a 31-day maximum interval. They map to inclusive
+Zabbix epoch boundaries. A model translates a reporting period such as “last week”
+into these semantic arguments; there is no keyword or regex pre-router.
+
+The result's `time_coverage` distinguishes:
+
+- `retrieved_at`: when Orion received this response, not when an event occurred.
+- `query_from` / `query_to`: the explicit bounded UTC window, or `null` for an
+  unbounded list.
+- `earliest_event_at` / `latest_event_at`: timestamps among returned records only,
+  never inferred source-wide coverage.
+- `returned_count`, `limit`, fixed `ordering`, and semantic `filters` describe this
+  single response. `possibly_truncated` is true at the limit; `result_completeness`
+  remains `unknown` even below the limit because this read has no source total.
+- `zero_matches_in_query` is meaningful only for an explicit bounded query.
+  `absence_of_events_established` remains false: metadata cannot establish an
+  absence claim beyond what the query response itself observed.
+- missing or out-of-window returned timestamps are counted explicitly. They make
+  `returned_events_within_query_window` unknown or false rather than silently
+  treating the data as a complete period.
+
+An unbounded list remains available for generic inspection, but its
+`temporal_coverage` is `unknown_unbounded`; it must not be represented as a weekly,
+recent, or otherwise complete report. Event descriptions/tags are untrusted data and
+are bounded before returning to the model.
 
 ### `zabbix.history.get`
 

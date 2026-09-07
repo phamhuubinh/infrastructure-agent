@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from io import BytesIO
 
 import pytest
@@ -23,6 +24,7 @@ from orion.tool_runtime.infrastructure import (
     _blocking_handler,
     _linux_document_read,
     _linux_file_edit,
+    _zabbix_read,
     infrastructure_definitions,
     infrastructure_registrations,
 )
@@ -256,10 +258,19 @@ def _catalog() -> TargetCatalog:
     )
 
 
-def _runner(linux: FakeLinux, grafana: FakeGrafana, zabbix: FakeZabbix) -> ToolRunner:
+def _runner(
+    linux: FakeLinux,
+    grafana: FakeGrafana,
+    zabbix: FakeZabbix,
+    now: Callable[[], datetime] | None = None,
+) -> ToolRunner:
     builder = ToolRegistryBuilder()
     for registration in infrastructure_registrations(
-        _catalog(), linux=linux, grafana=grafana, zabbix=zabbix
+        _catalog(),
+        linux=linux,
+        grafana=grafana,
+        zabbix=zabbix,
+        now=now or (lambda: datetime(2026, 9, 5, 14, 35, 48, tzinfo=UTC)),
     ):
         builder.register(registration.definition, registration.handler)
     return ToolRunner(builder.freeze())
@@ -377,7 +388,7 @@ async def test_linux_snapshot_reports_missing_sections_and_inference_limits() ->
 
 
 @pytest.mark.anyio
-async def test_old_zabbix_event_has_iso_timestamp_and_explicit_time_coverage() -> None:
+async def test_unbounded_zabbix_event_does_not_claim_temporal_coverage() -> None:
     class OldEventZabbix(FakeZabbix):
         def call(
             self, target: Target, credential: object, method: str, params: Mapping[str, object]
@@ -403,12 +414,161 @@ async def test_old_zabbix_event_has_iso_timestamp_and_explicit_time_coverage() -
     assert result.status == "success"
     assert result.data["results"][0]["occurred_at"] == "2026-04-13T08:01:32Z"
     assert result.data["time_coverage"] == {
+        "retrieved_at": "2026-09-05T14:35:48Z",
         "query_window_explicit": False,
         "query_from": None,
         "query_to": None,
+        "query_timezone": "UTC",
+        "query_boundary": "inclusive",
+        "temporal_coverage": "unknown_unbounded",
+        "ordering": {"sort_fields": ["clock", "eventid"], "sort_order": "DESC"},
+        "filters": {},
+        "limit": 20,
+        "returned_count": 1,
+        "possibly_truncated": False,
+        "result_completeness": "unknown",
+        "zero_matches_in_query": None,
+        "absence_of_events_established": False,
         "earliest_event_at": "2026-04-13T08:01:32Z",
         "latest_event_at": "2026-04-13T08:01:32Z",
+        "events_missing_occurred_at": 0,
+        "events_outside_query_window": 0,
+        "returned_events_within_query_window": None,
     }
+
+
+@pytest.mark.anyio
+async def test_bounded_zabbix_event_listing_sends_explicit_order_and_reports_query_scope() -> None:
+    class CapturingEvents(FakeZabbix):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls: list[dict[str, object]] = []
+
+        def call(
+            self, target: Target, credential: object, method: str, params: Mapping[str, object]
+        ) -> object:
+            self.calls.append(dict(params))
+            if method == "event.get" and "eventids" not in params:
+                return []
+            return super().call(target, credential, method, params)
+
+    zabbix = CapturingEvents()
+    result = await _runner(FakeLinux(), FakeGrafana(), zabbix).run_async(
+        _call(
+            "zabbix.event.list",
+            {
+                "target_ref": "monitoring",
+                "host_ids": ["10"],
+                "severities": ["high"],
+                "acknowledged": False,
+                "from": "2026-09-01T07:00:00+07:00",
+                "to": "2026-09-01T08:00:00+07:00",
+                "limit": 3,
+            },
+        ),
+        _scope(),
+    )
+
+    assert result.status == "success"
+    assert zabbix.calls == [
+        {
+            "output": ["eventid", "name", "severity", "clock", "acknowledged"],
+            "limit": 3,
+            "sortfield": ["clock", "eventid"],
+            "sortorder": "DESC",
+            "hostids": ["10"],
+            "severities": [4],
+            "acknowledged": False,
+            "time_from": 1_788_220_800,
+            "time_till": 1_788_224_400,
+        }
+    ]
+    coverage = result.data["time_coverage"]
+    assert coverage["query_from"] == "2026-09-01T00:00:00Z"
+    assert coverage["query_to"] == "2026-09-01T01:00:00Z"
+    assert coverage["temporal_coverage"] == "bounded_query"
+    assert coverage["zero_matches_in_query"] is True
+    assert coverage["absence_of_events_established"] is False
+    assert coverage["result_completeness"] == "unknown"
+
+
+@pytest.mark.anyio
+async def test_zabbix_event_coverage_flags_truncation_and_unreliable_timestamps() -> None:
+    class MixedEvents(FakeZabbix):
+        def call(
+            self, target: Target, credential: object, method: str, params: Mapping[str, object]
+        ) -> object:
+            if method == "event.get" and "eventids" not in params:
+                return [
+                    {"eventid": "1", "name": "inside", "severity": "3", "clock": "1788222600"},
+                    {"eventid": "2", "name": "outside", "severity": "3", "clock": "1788228000"},
+                    {"eventid": "3", "name": "missing", "severity": "3", "clock": "not-a-time"},
+                ]
+            return super().call(target, credential, method, params)
+
+    result = await _runner(FakeLinux(), FakeGrafana(), MixedEvents()).run_async(
+        _call(
+            "zabbix.event.list",
+            {
+                "target_ref": "monitoring",
+                "from": "2026-09-01T00:00:00Z",
+                "to": "2026-09-01T01:00:00Z",
+                "limit": 3,
+            },
+        ),
+        _scope(),
+    )
+
+    assert result.status == "success"
+    coverage = result.data["time_coverage"]
+    assert coverage["returned_count"] == 3
+    assert coverage["possibly_truncated"] is True
+    assert coverage["events_missing_occurred_at"] == 1
+    assert coverage["events_outside_query_window"] == 1
+    assert coverage["returned_events_within_query_window"] is None
+    assert coverage["result_completeness"] == "unknown"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"from": "2026-09-01T00:00:00Z"},
+        {"to": "2026-09-01T00:00:00Z"},
+        {"from": "2026-09-01T00:00:00", "to": "2026-09-01T01:00:00Z"},
+        {"from": "2026-09-02T00:00:00Z", "to": "2026-09-01T00:00:00Z"},
+        {"from": "2026-09-01T00:00:00Z", "to": "2026-10-03T00:00:00Z"},
+    ],
+)
+async def test_zabbix_event_interval_is_validated_before_upstream_dispatch(
+    arguments: dict[str, object],
+) -> None:
+    class NeverCalled(FakeZabbix):
+        def __init__(self) -> None:
+            super().__init__()
+            self.calls = 0
+
+        def call(
+            self, target: Target, credential: object, method: str, params: Mapping[str, object]
+        ) -> object:
+            self.calls += 1
+            return super().call(target, credential, method, params)
+
+    zabbix = NeverCalled()
+    result = _zabbix_read(
+        ToolCall(
+            call_id="call",
+            tool_name="zabbix.event.list",
+            arguments={"target_ref": "monitoring", **arguments},
+            runtime_scope=_scope(),
+        ),
+        _catalog(),
+        zabbix,
+        "event.get",
+    )
+
+    assert result.error is not None and result.error.code == "invalid_input"
+    assert zabbix.calls == 0
 
 
 @pytest.mark.anyio
