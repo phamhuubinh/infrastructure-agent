@@ -75,3 +75,11 @@ Frontend:
 ```bash
 make test-frontend
 ```
+
+## Required CI checks
+
+The main-branch delivery policy requires the existing `backend`, `ui`, and
+`acceptance-extra` GitHub Actions checks. See
+[Branch protection](../operations/BRANCH_PROTECTION.md) for the settings payload,
+PR requirements, admin behavior, and API verification. These offline checks do not
+establish live model stability or answer quality.
