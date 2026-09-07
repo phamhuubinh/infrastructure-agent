@@ -477,8 +477,10 @@ def _omission_message(
     return ContextMessage(
         role="system",
         content=(
-            "Older conversation data was omitted from this model turn to fit the "
-            "local context window. The canonical session timeline remains complete. "
+            "Conversation data was omitted from this model turn to fit the local context "
+            "window. The canonical session timeline remains complete, but evidence and source "
+            "references from omitted or invalid blocks are unavailable for this turn and cannot "
+            "support citations. "
             f"Omitted turns: {omitted_turns}; omitted or invalid blocks: "
             f"{omitted_blocks}; older timeline turns: {omitted_timeline_turns}."
         ),

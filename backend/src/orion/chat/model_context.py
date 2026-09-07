@@ -27,6 +27,7 @@ _PRIORITY_KEYS = {
     "evidence_scope",
     "time_coverage",
 }
+_EVIDENCE_METADATA_KEYS = ("evidence_scope", "time_coverage")
 
 
 def compact_json(value: object) -> str:
@@ -54,6 +55,8 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
     envelope["data"] = None
     envelope["_orion_projection"] = {
         "applied": True,
+        "data_state": _data_state(canonical.get("data"), None),
+        "essential_metadata": _essential_metadata_states(canonical.get("data"), None),
         "original_bytes": original_bytes,
         "maximum_bytes": maximum_bytes,
         "omissions": [],
@@ -71,6 +74,10 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
             "data": projected_data,
             "_orion_projection": {
                 "applied": True,
+                "data_state": _data_state(canonical.get("data"), projected_data),
+                "essential_metadata": _essential_metadata_states(
+                    canonical.get("data"), projected_data
+                ),
                 "original_bytes": original_bytes,
                 "maximum_bytes": maximum_bytes,
                 "omissions": omissions[:_MAX_OMISSION_RECORDS],
@@ -82,6 +89,36 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
             break
         data_budget = max(0, data_budget - (projected_bytes - maximum_bytes) - 32)
     return compact_json(projected)
+
+
+def _data_state(original: Any, projected: Any) -> str:
+    """Describe data availability without conflating omission with an empty upstream result."""
+    if original is None or original == {} or original == []:
+        return "upstream_empty"
+    if projected is None:
+        return "omitted"
+    if projected == original:
+        return "complete"
+    return "partial"
+
+
+def _essential_metadata_states(original: Any, projected: Any) -> dict[str, str]:
+    """State whether coverage/limitation fields survived projection intact.
+
+    The projected values remain useful when partial, but a model must not treat a
+    partial value as the complete upstream coverage contract.
+    """
+    states: dict[str, str] = {}
+    for key in _EVIDENCE_METADATA_KEYS:
+        if not isinstance(original, dict) or key not in original:
+            states[key] = "not_provided_by_upstream"
+        elif not isinstance(projected, dict) or key not in projected:
+            states[key] = "omitted"
+        elif projected[key] == original[key]:
+            states[key] = "complete"
+        else:
+            states[key] = "partial"
+    return states
 
 
 def _project_value(value: Any, budget: int, path: str, omissions: list[dict[str, Any]]) -> Any:
@@ -148,7 +185,14 @@ def _project_dict(
 ) -> dict[str, Any]:
     projected: dict[str, Any] = {}
     positions = {key: index for index, key in enumerate(value)}
-    keys = sorted(value, key=lambda key: (key not in _PRIORITY_KEYS, positions[key]))
+    keys = sorted(
+        value,
+        key=lambda key: (
+            key not in _EVIDENCE_METADATA_KEYS,
+            key not in _PRIORITY_KEYS,
+            positions[key],
+        ),
+    )
     omitted_keys: list[str] = []
     for index, key in enumerate(keys):
         remaining = budget - _json_bytes(projected) - _json_bytes(key) - 2
@@ -156,10 +200,24 @@ def _project_dict(
             _record_omitted_key(value, key, path, omissions, omitted_keys)
             continue
         item = value[key]
-        # Share the remaining value space across every unprocessed key. Small
-        # scalars consume less than their share, so later collections inherit the
-        # unused space. A large early details field cannot starve all later keys.
-        value_budget = max(0, remaining // (len(keys) - index))
+        # Coverage and limitation metadata establishes what the result can
+        # support. Reserve room for every remaining essential field before
+        # allocating detail/result payloads. If that envelope itself cannot
+        # fit, its projection state explicitly reports the limitation.
+        remaining_essential = [
+            later_key for later_key in keys[index + 1 :] if later_key in _EVIDENCE_METADATA_KEYS
+        ]
+        if key in _EVIDENCE_METADATA_KEYS:
+            reserved = sum(
+                _json_bytes(value[later_key]) + _json_bytes(later_key) + 2
+                for later_key in remaining_essential
+            )
+            value_budget = max(0, remaining - reserved)
+        else:
+            # Share the remaining value space across every unprocessed key.
+            # Small scalars consume less than their share, so later collections
+            # inherit unused space and a large details field cannot starve them.
+            value_budget = max(0, remaining // (len(keys) - index))
         if value_budget == 0:
             _record_omitted_key(value, key, path, omissions, omitted_keys)
             continue

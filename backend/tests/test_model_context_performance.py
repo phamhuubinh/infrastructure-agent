@@ -36,7 +36,7 @@ EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_281
 EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_218
 EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 3_975
 # Includes post-observation grounding guidance; the context budget is unchanged.
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 10_603
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 10_589
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -226,7 +226,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 20_729
+    assert resumed_proxy == 20_715
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert resumed_proxy <= 23_000
     assert len(context[-1].content.encode()) <= 6_000
@@ -291,8 +291,8 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         )
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
-    assert _messages_bytes(current_messages) == 10_508
-    assert _provider_proxy(context) == 25_474
+    assert _messages_bytes(current_messages) == 11_978
+    assert _provider_proxy(context) == 26_944
 
 
 def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(store) -> None:  # type: ignore[no-untyped-def]
@@ -332,9 +332,14 @@ def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(sto
     assert _messages_bytes(strict_context.messages) <= maximum_bytes
     assert current_user_message in [message.content for message in strict_context.messages]
     assert any(
-        "Older conversation data was omitted" in message.content
-        for message in strict_context.messages
+        "Conversation data was omitted" in message.content for message in strict_context.messages
     )
+    omission_notice = next(
+        message.content
+        for message in strict_context.messages
+        if "Conversation data was omitted" in message.content
+    )
+    assert "source references from omitted or invalid blocks are unavailable" in omission_notice
 
     strict_call_ids = {
         call.call_id for message in strict_context.messages for call in message.tool_calls
@@ -415,6 +420,45 @@ def test_projection_preserves_evidence_scope_and_time_coverage_before_large_resu
     assert projected["data"]["evidence_scope"]["missing_sections"] == ["memory"]
     assert projected["data"]["time_coverage"] == result.data["time_coverage"]
     assert projected["_orion_projection"]["applied"] is True
+    assert projected["_orion_projection"]["data_state"] == "partial"
+    assert projected["_orion_projection"]["essential_metadata"] == {
+        "evidence_scope": "complete",
+        "time_coverage": "complete",
+    }
+
+
+def test_projection_distinguishes_upstream_empty_data_from_omitted_evidence() -> None:
+    empty = ToolResult(
+        call_id="empty",
+        tool_name="fake.read",
+        status="success",
+        data={},
+    )
+    omitted = ToolResult(
+        call_id="omitted",
+        tool_name="fake.read",
+        status="success",
+        data={
+            "evidence_scope": {"kind": "bounded", "limitations": ["x" * 1_000]},
+            "time_coverage": {
+                "query_from": "2026-09-01T00:00:00Z",
+                "query_to": "2026-09-02T00:00:00Z",
+            },
+            "details": "x" * 5_000,
+        },
+    )
+
+    empty_projection = json.loads(project_tool_result(empty, 1_000))
+    omitted_projection = json.loads(project_tool_result(omitted, 320))
+
+    assert empty_projection["data"] == {}
+    assert "_orion_projection" not in empty_projection
+    assert omitted_projection["_orion_projection"]["data_state"] in {"omitted", "partial"}
+    states = omitted_projection["_orion_projection"]["essential_metadata"]
+    assert states["evidence_scope"] in {"omitted", "partial"}
+    assert states["time_coverage"] in {"omitted", "partial", "complete"}
+    assert omitted.data is not None
+    assert omitted.data["details"] == "x" * 5_000
 
 
 def test_projection_reports_when_omission_metadata_is_itself_bounded() -> None:
@@ -488,7 +532,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 26_021
+    assert history_proxy == 26_141
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
