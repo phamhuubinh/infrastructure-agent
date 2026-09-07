@@ -68,6 +68,7 @@ class CitationValidationFailed(RequestFailed):
 class RequestOutcome:
     request_id: str
     assistant_content: str
+    status: str = "completed"
 
 
 _SESSION_CONTINUITY_INSTRUCTIONS = (
@@ -133,6 +134,7 @@ _CITATION_CORRECTION_INSTRUCTIONS = (
 # successful tool chains remain unrestricted by a fixed call count.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
+_INCOMPLETE_FALLBACK = "Orion could not complete a verified response before the request ended."
 _RecoveryFingerprint = RecoveryFingerprint
 
 
@@ -332,6 +334,8 @@ class ChatRuntime:
         has_complete_usage = True
         citation_correction_attempted = False
         active_model_phase: tuple[str, float] | None = None
+        terminal_final_started = False
+        observed_source_ref_ids: set[str] = set()
         try:
             async with self._session_locks.setdefault(session_id, asyncio.Lock()):
                 self._store.start_request(request_id)
@@ -383,12 +387,16 @@ class ChatRuntime:
                 read_observations: dict[tuple[str, str], str] = {}
                 recovery_guidance_next = False
                 recovery_exhausted_next = False
+                terminal_final_pending = False
                 observation_review_next = False
                 citation_correction_next: AssistantMessage | None = None
                 model_turn_number = 0
                 while True:
                     self._ensure_not_cancelled(cancellation)
                     budget.ensure_work_available("model")
+                    terminal_final = terminal_final_pending
+                    terminal_final_pending = False
+                    terminal_final_started = terminal_final_started or terminal_final
                     model_turn_number += 1
                     model_turn_id = f"{request_id}:{model_turn_number}:{uuid.uuid4().hex[:8]}"
                     model_started_at = self._monotonic_clock()
@@ -418,7 +426,8 @@ class ChatRuntime:
                             recovery_guidance=recovery_guidance,
                             capability_action_pending=capability_action_pending,
                             citation_correction=citation_correction,
-                            recovery_exhausted=recovery_exhausted,
+                            recovery_exhausted=recovery_exhausted or terminal_final,
+                            terminal_final=terminal_final,
                             observation_review=observation_review,
                         ),
                         cancellation,
@@ -449,6 +458,47 @@ class ChatRuntime:
                         }
                     )
                     active_model_phase = None
+                    if terminal_final:
+                        if turn.tool_calls or turn.assistant is None:
+                            return self._complete_incomplete(
+                                session_id,
+                                request_id,
+                                "terminal_turn_did_not_return_an_answer",
+                                observed_source_ref_ids,
+                            )
+                        try:
+                            self._validate_citations(turn, scope, visible_sources)
+                        except CitationValidationFailed:
+                            return self._complete_incomplete(
+                                session_id,
+                                request_id,
+                                "terminal_turn_has_unavailable_citation",
+                                observed_source_ref_ids,
+                            )
+                        terminal_metrics: dict[str, int] = {
+                            "response_time_ms": max(
+                                0, round((self._monotonic_clock() - started_at) * 1000)
+                            )
+                        }
+                        if has_complete_usage:
+                            terminal_metrics["input_tokens"] = input_tokens
+                            terminal_metrics["output_tokens"] = output_tokens
+                        assistant_item = self._persist_assistant_turn(
+                            session_id, request_id, turn, terminal_metrics
+                        )
+                        self._emit(
+                            request_id,
+                            "assistant.message",
+                            {
+                                "item": assistant_item.model_dump(mode="json"),
+                                "content": redact_public(turn.assistant.content),
+                            },
+                        )
+                        self._store.complete_request(request_id, "completed")
+                        self._emit(request_id, "request.completed", {})
+                        return RequestOutcome(
+                            request_id=request_id, assistant_content=turn.assistant.content
+                        )
                     recovery_abandoned = (
                         not turn.tool_calls
                         and (recovery_pending or capability_action_pending)
@@ -612,6 +662,9 @@ class ChatRuntime:
                             }
                         )
                         results.append((model_call.tool_name, result))
+                        observed_source_ref_ids.update(
+                            source.source_ref_id for source in result.sources
+                        )
                         evidence = _read_progress_evidence(
                             model_call, result, definition, read_observations
                         )
@@ -661,36 +714,20 @@ class ChatRuntime:
                         capability_action_pending = False
                         recovery_guidance_next = False
                         recovery_exhausted_next = True
+                        terminal_final_pending = True
                     elif recovery_pending or capability_action_pending:
                         recovery_guidance_next = True
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
         except RequestDeadlineExceeded as error:
-            elapsed_ms = budget.elapsed_ms() if budget is not None else 0
-            self._store.append_timeline(
+            return self._complete_incomplete(
                 session_id,
                 request_id,
-                "runtime_notice",
-                {
-                    "stage": "request_deadline",
-                    "status": "failed",
-                    "error_kind": "deadline_exceeded",
-                    "phase": error.phase,
-                    "elapsed_ms": elapsed_ms,
-                },
+                "request_deadline_exceeded",
+                observed_source_ref_ids,
+                phase=error.phase,
+                elapsed_ms=budget.elapsed_ms() if budget is not None else 0,
             )
-            self._store.complete_request(request_id, "failed", str(error))
-            self._emit(
-                request_id,
-                "request.failed",
-                {
-                    "message": str(error),
-                    "error_kind": "deadline_exceeded",
-                    "phase": error.phase,
-                    "elapsed_ms": elapsed_ms,
-                },
-            )
-            raise RequestFailed(str(error)) from error
         except asyncio.CancelledError as error:
             if active_model_phase is not None:
                 self._record_diagnostic(
@@ -706,6 +743,14 @@ class ChatRuntime:
             self._emit(request_id, "request.cancelled", {})
             raise RequestCancelled("Request cancelled.") from error
         except ModelBackendError as error:
+            if terminal_final_started:
+                return self._complete_incomplete(
+                    session_id,
+                    request_id,
+                    "terminal_model_failure",
+                    observed_source_ref_ids,
+                    model_error_kind=error.kind.value,
+                )
             if active_model_phase is not None:
                 self._record_diagnostic(
                     {
@@ -753,6 +798,13 @@ class ChatRuntime:
             )
             raise
         except RequestFailed as error:
+            if terminal_final_started:
+                return self._complete_incomplete(
+                    session_id,
+                    request_id,
+                    "terminal_finalization_failed",
+                    observed_source_ref_ids,
+                )
             if active_model_phase is not None:
                 self._record_diagnostic(
                     {
@@ -767,6 +819,13 @@ class ChatRuntime:
             self._emit(request_id, "request.failed", {"message": str(error)})
             raise
         except Exception as error:
+            if terminal_final_started:
+                return self._complete_incomplete(
+                    session_id,
+                    request_id,
+                    "terminal_finalization_failed",
+                    observed_source_ref_ids,
+                )
             self._fail_unexpected(request_id)
             raise RequestFailed("Request failed unexpectedly.") from error
         finally:
@@ -793,6 +852,7 @@ class ChatRuntime:
         capability_action_pending: bool = False,
         citation_correction: AssistantMessage | None = None,
         recovery_exhausted: bool = False,
+        terminal_final: bool = False,
         observation_review: bool = False,
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
@@ -844,7 +904,7 @@ class ChatRuntime:
             else ()
         )
 
-        model_tools = () if recovery_exhausted else tool_exposure.model_tools
+        model_tools = () if recovery_exhausted or terminal_final else tool_exposure.model_tools
         extra_messages = (
             *session_continuity_message,
             *recovery_message,
@@ -1049,6 +1109,55 @@ class ChatRuntime:
     def _fail_unexpected(self, request_id: str) -> None:
         self._store.complete_request(request_id, "failed", "Request failed unexpectedly.")
         self._emit(request_id, "request.failed", {"message": "Request failed unexpectedly."})
+
+    def _complete_incomplete(
+        self,
+        session_id: str,
+        request_id: str,
+        stop_reason: str,
+        observed_source_ref_ids: set[str],
+        **details: object,
+    ) -> RequestOutcome:
+        """Persist one data-free terminal fallback without starting more work."""
+        references = sorted(observed_source_ref_ids)
+        notice: dict[str, object] = {
+            "stage": "terminal",
+            "status": "incomplete",
+            "stop_reason": stop_reason,
+            "observation_source_ref_ids": references,
+            **details,
+        }
+        self._store.append_timeline(session_id, request_id, "runtime_notice", notice)
+        assistant_item = self._store.append_timeline(
+            session_id,
+            request_id,
+            "assistant_message",
+            {
+                "content": _INCOMPLETE_FALLBACK,
+                "citation_source_ref_ids": [],
+                "tool_calls": [],
+                "incomplete": True,
+            },
+        )
+        self._store.complete_request(request_id, "incomplete", _INCOMPLETE_FALLBACK)
+        self._emit(
+            request_id,
+            "assistant.message",
+            {
+                "item": assistant_item.model_dump(mode="json"),
+                "content": _INCOMPLETE_FALLBACK,
+            },
+        )
+        self._emit(
+            request_id,
+            "request.incomplete",
+            {"stop_reason": stop_reason, "observation_source_ref_ids": references, **details},
+        )
+        return RequestOutcome(
+            request_id=request_id,
+            assistant_content=_INCOMPLETE_FALLBACK,
+            status="incomplete",
+        )
 
     def _validate_citations(
         self, turn: ModelTurn, scope: RuntimeScope, visible_sources: tuple[SourceRef, ...]

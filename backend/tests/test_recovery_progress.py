@@ -10,12 +10,14 @@ from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
     ModelTurn,
+    ModelTurnCompleted,
     ReadProgress,
     SourceRef,
     ToolCall,
     ToolDefinition,
     ToolResult,
 )
+from orion.models.backend import ModelBackendError, ModelBackendErrorKind
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 _TOOL_NAME = "test.recover"
@@ -326,6 +328,173 @@ async def test_identical_recoverable_failure_state_eventually_disables_tools(sto
         for message in backend.calls[-1][0]
         if message.role == "system"
     )
+
+
+@pytest.mark.anyio
+async def test_terminal_turn_tool_call_is_never_dispatched(store) -> None:  # type: ignore[no-untyped-def]
+    executions: list[str] = []
+
+    def handler(call: ToolCall) -> ToolResult:
+        executions.append(call.call_id)
+        return _handler(call)
+
+    builder = ToolRegistryBuilder()
+    builder.register(_definition(), handler)
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _call("bad-1", "same"),
+            _call("bad-2", "same"),
+            _call("bad-3", "same"),
+            _call("malicious-final", "ok"),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session, "Use the tool")
+
+    assert outcome.status == "incomplete"
+    assert executions == ["bad-1", "bad-2", "bad-3"]
+    assert backend.calls[-1][1] == ()
+    assert all(
+        item.call_id != "malicious-final"
+        for item in store.timeline(session)
+        if item.kind == "tool_call"
+    )
+    terminal_events = [
+        event for event in store.events(outcome.request_id) if event["type"] == "request.incomplete"
+    ]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["payload"]["stop_reason"] == "terminal_turn_did_not_return_an_answer"
+
+
+@pytest.mark.anyio
+async def test_terminal_turn_with_invalid_citation_persists_incomplete(store) -> None:  # type: ignore[no-untyped-def]
+    backend = ScriptedBackend(
+        [
+            _expand(),
+            _call("bad-1", "same"),
+            _call("bad-2", "same"),
+            _call("bad-3", "same"),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Unsupported. [[source:not-observed]]",
+                    citation_source_ref_ids=("not-observed",),
+                )
+            ),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
+
+    assert outcome.status == "incomplete"
+    assert store.request(outcome.request_id)["status"] == "incomplete"
+    assert all(
+        "Unsupported." not in item.payload.get("content", "")
+        for item in store.timeline(session)
+        if item.kind == "assistant_message"
+    )
+
+
+@pytest.mark.anyio
+async def test_terminal_malformed_backend_result_persists_incomplete(store) -> None:  # type: ignore[no-untyped-def]
+    class MalformedFinalBackend(ScriptedBackend):
+        async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
+            self.calls.append((messages, tools))
+            if not self.turns:
+                raise ModelBackendError(
+                    "Model stream was malformed.", kind=ModelBackendErrorKind.MALFORMED_STREAM
+                )
+            yield ModelTurnCompleted(turn=self.turns.pop(0))
+
+    backend = MalformedFinalBackend(
+        [_expand(), _call("bad-1", "same"), _call("bad-2", "same"), _call("bad-3", "same")]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
+
+    assert outcome.status == "incomplete"
+    assert backend.calls[-1][1] == ()
+    event = next(
+        event for event in store.events(outcome.request_id) if event["type"] == "request.incomplete"
+    )
+    assert event["payload"] == {
+        "stop_reason": "terminal_model_failure",
+        "observation_source_ref_ids": [],
+        "model_error_kind": "malformed_stream",
+    }
+
+
+@pytest.mark.anyio
+async def test_terminal_turn_accepts_a_valid_existing_citation(store) -> None:  # type: ignore[no-untyped-def]
+    source_tool = ToolDefinition(
+        name="test.source",
+        description="Return one visible source.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        handler_key="test.source",
+    )
+
+    def source_handler(call: ToolCall) -> ToolResult:
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"observed": True},
+            sources=(
+                SourceRef(
+                    source_ref_id="terminal-visible",
+                    source_kind="internet",
+                    source_id="target",
+                    url="https://example.test/evidence",
+                ),
+            ),
+        )
+
+    builder = ToolRegistryBuilder()
+    builder.register(_definition(), _handler)
+    builder.register(source_tool, source_handler)
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": [_TOOL_NAME, source_tool.name]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(call_id="source", tool_name=source_tool.name, arguments={}),
+                )
+            ),
+            _call("bad-1", "same"),
+            _call("bad-2", "same"),
+            _call("bad-3", "same"),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Only the observed source is available. [[source:terminal-visible]]",
+                    citation_source_ref_ids=("terminal-visible",),
+                )
+            ),
+        ]
+    )
+    session = store.create_session()
+
+    outcome = await runtime(store, backend, builder.freeze()).submit(session, "Use the evidence")
+
+    assert outcome.status == "completed"
+    assert outcome.assistant_content.startswith("Only the observed source")
+    assert backend.calls[-1][1] == ()
+    terminal_events = [
+        event
+        for event in store.events(outcome.request_id)
+        if event["type"] in {"request.completed", "request.incomplete"}
+    ]
+    assert [event["type"] for event in terminal_events] == ["request.completed"]
 
 
 @pytest.mark.anyio

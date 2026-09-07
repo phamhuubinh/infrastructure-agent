@@ -136,6 +136,16 @@ class ToolResult:
 
 Tool results should be structured where practical and safe to send back to the model.
 
+## Request terminal outcomes
+
+Each request persists exactly one terminal status and emits exactly one matching
+terminal event: `completed` / `request.completed`, `incomplete` /
+`request.incomplete`, `failed` / `request.failed`, or `cancelled` /
+`request.cancelled`. An incomplete request uses a fixed data-free fallback when
+Orion cannot obtain a valid final answer before the work deadline or terminal
+model turn finishes. Its event and runtime notice may retain only existing visible
+source-reference IDs and a safe stop reason; they do not synthesize findings.
+
 ## ToolError
 
 ```python

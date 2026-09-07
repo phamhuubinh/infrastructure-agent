@@ -53,12 +53,22 @@ both a repeated state and the shortest repeated multi-state cycle, such as
 history retains only normalized state identities and safe stall metadata; it does not
 route tools, rewrite arguments, retry automatically, or answer for the model.
 
-A successful ordinary result with no simultaneous recoverable error resolves the
-outstanding failure chain. Expansion/control success does not erase unresolved failure
+A read resolves an outstanding recovery chain only when its declared canonical
+observation contract confirms new relevant progress. Expansion/control success,
+unknown observations, repeated stable reads, and unrelated reads preserve unresolved
 history. In a mixed success/error batch, the recoverable error remains unresolved, so
 an unrelated success cannot hide a recurring failure. A new non-repeating failure is
 returned to the model without being declared a stall. This is not a fixed tool-call
 limit: ordinary successful reads and ambiguous evidence are not recovery cycles.
+
+When a recovery state or cycle is exhausted, Orion enters a request-local terminal
+transition. It offers at most one final model turn with no tool schemas, then enforces
+that no returned tool call, expansion, retry, or handler dispatch can run. A valid
+final answer still needs ordinary citation validation. If that turn is tool-bearing,
+malformed, invalidly cited, fails, or runs out of work time, Orion persists one
+`incomplete` outcome with a fixed data-free fallback and safe references to existing
+observations. This is a terminal safety path, not a model-visible state machine or a
+tool-call quota.
 
 ## RAG failures
 

@@ -94,6 +94,7 @@ class ProjectView(ProjectInput):
 class AssistantResponse(BaseModel):
     request_id: str
     assistant_content: str
+    status: str
 
 
 class AttachmentView(BaseModel):
@@ -400,7 +401,9 @@ def create_app(
         except RequestFailed as error:
             raise HTTPException(status_code=502, detail=str(error)) from error
         return AssistantResponse(
-            request_id=outcome.request_id, assistant_content=outcome.assistant_content
+            request_id=outcome.request_id,
+            assistant_content=outcome.assistant_content,
+            status=outcome.status,
         )
 
     @app.post("/api/sessions/{session_id}/messages/stream")

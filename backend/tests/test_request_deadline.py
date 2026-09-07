@@ -11,7 +11,7 @@ from orion.chat.deadline import (
     RequestBudgetSettings,
     RequestDeadlineExceeded,
 )
-from orion.chat.runtime import ChatRuntime, RequestFailed
+from orion.chat.runtime import ChatRuntime
 from orion.contracts import (
     ModelToolCall,
     ModelTurn,
@@ -129,18 +129,115 @@ async def test_runtime_deadline_prevents_tool_dispatch_after_work_deadline(store
         deadline_sleeper=_wait_without_expiring,
     )
 
-    with pytest.raises(RequestFailed, match="Request deadline exceeded"):
-        await chat.submit(session_id, "Count")
+    outcome = await chat.submit(session_id, "Count")
 
     assert executions == 0
+    assert outcome.status == "incomplete"
+    assert store.request(outcome.request_id)["status"] == "incomplete"
     notices = [item for item in store.timeline(session_id) if item.kind == "runtime_notice"]
     assert notices[-1].payload == {
-        "stage": "request_deadline",
-        "status": "failed",
-        "error_kind": "deadline_exceeded",
+        "stage": "terminal",
+        "status": "incomplete",
+        "stop_reason": "request_deadline_exceeded",
+        "observation_source_ref_ids": [],
         "phase": "model",
         "elapsed_ms": 8000,
     }
+
+
+@pytest.mark.anyio
+async def test_terminal_turn_hang_persists_one_incomplete_fallback(store) -> None:  # type: ignore[no-untyped-def]
+    class Backend(ModelBackend):
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, object]] = []
+            self.turns = [
+                ModelTurn(
+                    tool_calls=(
+                        ModelToolCall(
+                            call_id="expand",
+                            tool_name=EXPAND_TOOL_NAME,
+                            arguments={"tool_names": ["fake.recover"]},
+                        ),
+                    )
+                ),
+                *[
+                    ModelTurn(
+                        tool_calls=(
+                            ModelToolCall(
+                                call_id=f"recover-{index}",
+                                tool_name="fake.recover",
+                                arguments={},
+                            ),
+                        )
+                    )
+                    for index in range(1, 4)
+                ],
+            ]
+
+        async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
+            self.calls.append((messages, tools))
+            if not self.turns:
+                await asyncio.Event().wait()
+            else:
+                yield ModelTurnCompleted(turn=self.turns.pop(0))
+
+    executions = 0
+
+    def recover(call: ToolCall) -> ToolResult:
+        nonlocal executions
+        executions += 1
+        return ToolResult.failure(
+            call.call_id,
+            call.tool_name,
+            "recover",
+            "Retry cannot progress.",
+            model_recovery_required=True,
+        )
+
+    clock = FakeClock()
+
+    async def advance_terminal_to_work_deadline(seconds: float) -> None:
+        await asyncio.sleep(0)
+        if len(backend.calls) >= 5:
+            clock.advance(seconds)
+            return
+        await asyncio.Event().wait()
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.recover",
+            description="Always returns a recoverable error.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.recover",
+        ),
+        recover,
+    )
+    backend = Backend()
+    session_id = store.create_session()
+    chat = ChatRuntime(
+        store,
+        backend,
+        builder.freeze(),
+        LocalAccessAdapter(),
+        request_budget_settings=RequestBudgetSettings(
+            request_deadline_seconds=10, finalization_reserve_seconds=2
+        ),
+        monotonic_clock=clock,
+        deadline_sleeper=advance_terminal_to_work_deadline,
+    )
+
+    outcome = await chat.submit(session_id, "Recover safely")
+
+    assert outcome.status == "incomplete"
+    assert executions == 3
+    assert len(backend.calls) == 5
+    assert backend.calls[-1][1] == ()
+    terminal_events = [
+        event for event in store.events(outcome.request_id) if event["type"] == "request.incomplete"
+    ]
+    assert len(terminal_events) == 1
+    assert terminal_events[0]["payload"]["stop_reason"] == "request_deadline_exceeded"
 
 
 @pytest.mark.anyio
@@ -278,8 +375,7 @@ async def test_runtime_persists_mutation_outcome_before_deadline_terminalization
     )
 
     request_id = chat.begin(session_id, "Mutate")
-    with pytest.raises(RequestFailed, match="Request deadline exceeded"):
-        await chat.run(session_id, request_id)
+    outcome = await chat.run(session_id, request_id)
 
     result = next(
         item.payload["result"]
@@ -287,4 +383,5 @@ async def test_runtime_persists_mutation_outcome_before_deadline_terminalization
         if item.kind == "tool_result" and item.tool_name == "fake.mutate"
     )
     assert result["error"]["code"] == "outcome_unknown"
-    assert store.request(request_id)["status"] == "failed"
+    assert outcome.status == "incomplete"
+    assert store.request(request_id)["status"] == "incomplete"
