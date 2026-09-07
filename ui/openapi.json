@@ -10,11 +10,16 @@
           "request_id": {
             "title": "Request Id",
             "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
           "request_id",
-          "assistant_content"
+          "assistant_content",
+          "status"
         ],
         "title": "AssistantResponse",
         "type": "object"
