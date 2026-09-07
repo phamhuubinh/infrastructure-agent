@@ -21,6 +21,7 @@ from orion.chat.deadline import (
 )
 from orion.chat.diagnostics import RuntimeDiagnosticSink, model_input_snapshot
 from orion.chat.recovery import (
+    ReadProgressEvidence,
     RecoverableFailureTracker,
     RecoveryFailureState,
     RecoveryFingerprint,
@@ -187,6 +188,48 @@ def _recoverable_failure_fingerprint(
     return model_call.tool_name, arguments_digest, error.code
 
 
+def _read_progress_evidence(
+    model_call: ModelToolCall,
+    result: ToolResult,
+    definition: ToolDefinition | None,
+    observations: dict[tuple[str, str], str],
+) -> ReadProgressEvidence | None:
+    """Compare a read before model projection; success alone is never progress."""
+    if definition is None or definition.operation_kind != "read":
+        return None
+    progress = result.read_progress
+    if result.status != "success" or progress is None or progress.certainty != "confirmed":
+        return ReadProgressEvidence(model_call.tool_name, "unknown_progress")
+    sources = [
+        source.model_dump(mode="json", exclude={"retrieved_at"}) for source in result.sources
+    ]
+    payload: dict[str, object] = {
+        "observation_id": progress.observation_id,
+        "version": progress.version,
+        "cursor": progress.cursor,
+        "coverage": progress.coverage,
+        "event_time": progress.event_time.isoformat() if progress.event_time else None,
+        "data": result.data,
+        "sources": sources,
+    }
+    # Arguments are evidence only for a handler-declared query coverage; an
+    # arbitrary changed argument must not manufacture a recovery barrier.
+    if progress.coverage is not None:
+        payload["query_semantics"] = model_call.arguments
+    snapshot = json.dumps(
+        payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=str
+    )
+    key = (model_call.tool_name, progress.observation_id)
+    previous = observations.get(key)
+    observations[key] = hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
+    return ReadProgressEvidence(
+        model_call.tool_name,
+        "confirmed_progress"
+        if previous is None or previous != observations[key]
+        else "confirmed_no_progress",
+    )
+
+
 def _next_recovery_state(
     recovery_pending: bool,
     capability_action_pending: bool,
@@ -337,6 +380,7 @@ class ChatRuntime:
                     cycle_repeat_limit=self._request_budget_settings.recovery_cycle_repeat_limit,
                 )
                 recovery_decision_next = False
+                read_observations: dict[tuple[str, str], str] = {}
                 recovery_guidance_next = False
                 recovery_exhausted_next = False
                 observation_review_next = False
@@ -476,6 +520,7 @@ class ChatRuntime:
                         return RequestOutcome(
                             request_id=request_id, assistant_content=turn.assistant.content
                         )
+                    read_progress: list[ReadProgressEvidence] = []
                     if recovery_decision:
                         recovery_pending = True
                     exposed_before_turn = tool_exposure.exposed_names
@@ -567,6 +612,11 @@ class ChatRuntime:
                             }
                         )
                         results.append((model_call.tool_name, result))
+                        evidence = _read_progress_evidence(
+                            model_call, result, definition, read_observations
+                        )
+                        if evidence is not None:
+                            read_progress.append(evidence)
                         if mutation_interruption is not None:
                             if mutation_interruption.cancelled:
                                 raise asyncio.CancelledError
@@ -578,10 +628,6 @@ class ChatRuntime:
                         fingerprint = _recoverable_failure_fingerprint(model_call, result)
                         if fingerprint is not None:
                             recoverable_fingerprints.append(fingerprint)
-                    ordinary_success = any(
-                        tool_name != EXPAND_TOOL_NAME and result.status == "success"
-                        for tool_name, result in results
-                    )
                     ordinary_nonrecoverable_result = any(
                         tool_name != EXPAND_TOOL_NAME
                         and (
@@ -596,11 +642,7 @@ class ChatRuntime:
                     )
                     recovery_stall = recovery_tracker.observe(
                         recoverable_failure_state,
-                        # A success resolves the outstanding chain only when no
-                        # recoverable error arrived in the same batch. This makes
-                        # batch ordering irrelevant and prevents unrelated success
-                        # from erasing a repeated failure.
-                        failure_resolved=ordinary_success and not recoverable_failure_state,
+                        read_progress=tuple(read_progress),
                     )
                     recovery_pending, capability_action_pending = _next_recovery_state(
                         recovery_pending, capability_action_pending, results

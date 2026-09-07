@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
 from weakref import WeakKeyDictionary
 
-from orion.contracts import SourceRef, ToolCall, ToolDefinition, ToolError, ToolResult
+from orion.contracts import ReadProgress, SourceRef, ToolCall, ToolDefinition, ToolError, ToolResult
 from orion.integrations.documents import (
     MAX_DOCUMENT_BYTES,
     DocumentCodecError,
@@ -630,6 +630,11 @@ def _success(call: ToolCall, data: object, target: Target, section: str) -> Tool
         status="success",
         data=data,
         sources=(_source(target.family, target, section),),
+        read_progress=ReadProgress(
+            observation_id=f"{target.family}:{target.target_ref}:{section}",
+            coverage=call.arguments,
+            certainty="confirmed",
+        ),
     )
 
 

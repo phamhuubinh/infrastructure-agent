@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from orion.contracts import ToolCall, ToolDefinition, ToolResult
+from orion.contracts import ReadProgress, ToolCall, ToolDefinition, ToolResult
 from orion.knowledge.service import KnowledgeService
 from orion.tool_runtime.registry import ToolRegistration
 
@@ -159,6 +159,17 @@ def _search(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
             status="success",
             data={"segments": [segment.model_dump(mode="json") for segment in segments]},
             sources=sources,
+            read_progress=ReadProgress(
+                observation_id=(
+                    "knowledge.search:"
+                    f"{call.runtime_scope.project_id or call.runtime_scope.session_id}"
+                ),
+                coverage={
+                    "query": call.arguments["query"],
+                    "document_ids": call.arguments.get("document_ids", []),
+                },
+                certainty="confirmed",
+            ),
         )
 
     return handler
@@ -203,6 +214,15 @@ def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
                 "section": call.arguments.get("section"),
             },
             sources=sources,
+            read_progress=ReadProgress(
+                observation_id=f"knowledge.read:{window.document.document_id}",
+                cursor=window.cursor,
+                coverage={
+                    "section": call.arguments.get("section"),
+                    "limit": call.arguments.get("limit", 5),
+                },
+                certainty="confirmed",
+            ),
         )
 
     return handler

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 # A state represents every recoverable failure returned by one model turn. The
 # enclosing tuple is sorted by the runtime, so parallel call ordering has no
 # semantic effect.
 RecoveryFingerprint = tuple[str, str, str]
 RecoveryFailureState = tuple[RecoveryFingerprint, ...]
-
+ReadProgressClassification = Literal[
+    "confirmed_progress", "confirmed_no_progress", "unknown_progress"
+]
 # This is a storage bound, not a recovery or tool-call limit. It retains enough
 # evidence for supported repeat limits and useful multi-state cycles while
 # keeping request-local state predictably small.
@@ -25,14 +28,21 @@ class RecoveryStallEvidence:
     cycle_length: int | None = None
 
 
+@dataclass(frozen=True)
+class ReadProgressEvidence:
+    """Request-local comparison outcome for one canonical successful read."""
+
+    tool_name: str
+    classification: ReadProgressClassification
+
+
 class RecoverableFailureTracker:
     """Track unresolved normalized failure states within one request/barrier.
 
-    The tracker intentionally knows nothing about tools, model choices, or retry
-    arguments. A successful ordinary result with no simultaneous recoverable
-    error resolves the current chain. Expansion/control results and ambiguous
-    outcomes preserve it. A mixed success/error turn remains unresolved so an
-    unrelated success cannot conceal a recurring recoverable error.
+    A confirmed read observation advances a barrier only when it comes from the
+    same tool as an unresolved recovery state. Unknown observations, repeated
+    stable observations, expansion/control results, and unrelated reads preserve
+    history. A mixed success/error turn remains unresolved.
     """
 
     def __init__(
@@ -61,9 +71,19 @@ class RecoverableFailureTracker:
         self,
         state: RecoveryFailureState,
         *,
-        failure_resolved: bool,
+        read_progress: tuple[ReadProgressEvidence, ...] = (),
     ) -> RecoveryStallEvidence | None:
         """Apply one deterministic transition and return terminal evidence, if any."""
+        unresolved_tools = {
+            fingerprint[0] for prior_state in self._history for fingerprint in prior_state
+        }
+        # A same-batch recoverable error always remains unresolved, so parallel
+        # call ordering cannot make a successful read erase it.
+        failure_resolved = not state and any(
+            evidence.classification == "confirmed_progress"
+            and evidence.tool_name in unresolved_tools
+            for evidence in read_progress
+        )
         if failure_resolved:
             self._history.clear()
             return None

@@ -287,6 +287,24 @@ class SourceRef(CanonicalModel):
     retrieved_at: datetime | None = None
 
 
+class ReadProgress(CanonicalModel):
+    """Stable read-observation metadata for request-local recovery control.
+
+    A handler sets ``certainty`` to ``confirmed`` only when it can name the
+    observation it made and Orion can safely compare the canonical result on a
+    later read. The runtime must not infer progress from a truncated
+    model-context projection, a call ID, or a retrieval timestamp.
+    """
+
+    observation_id: str = Field(min_length=1)
+    version: str | int | None = None
+    cursor: str | int | None = None
+    coverage: Any | None = None
+    # An occurrence time supplied by the observed system, not local retrieval.
+    event_time: datetime | None = None
+    certainty: Literal["confirmed", "unknown"] = "unknown"
+
+
 class Citation(CanonicalModel):
     source_ref_ids: tuple[str, ...] = Field(min_length=1)
 
@@ -318,6 +336,10 @@ class ToolResult(CanonicalModel):
     data: Any | None = None
     error: ToolError | None = None
     sources: tuple[SourceRef, ...] = ()
+
+    # Existing and third-party reads without a stable comparison contract stay
+    # conservatively unknown; no result is discarded.
+    read_progress: ReadProgress | None = None
 
     @field_validator("error")
     @classmethod

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from conftest import ScriptedBackend, runtime
 
-from orion.chat.runtime import _recoverable_failure_fingerprint
+from orion.chat.runtime import _read_progress_evidence, _recoverable_failure_fingerprint
 from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
     ModelTurn,
+    ReadProgress,
+    SourceRef,
     ToolCall,
     ToolDefinition,
     ToolResult,
@@ -92,6 +96,188 @@ def test_recovery_fingerprint_normalizes_argument_key_order() -> None:
     assert _recoverable_failure_fingerprint(first, first_result) == (
         _recoverable_failure_fingerprint(second, second_result)
     )
+
+
+def _read_evidence(
+    *,
+    call_id: str,
+    arguments: dict[str, object],
+    data: object,
+    progress: ReadProgress | None,
+    retrieved_at: datetime,
+    definition: ToolDefinition | None = None,
+    observations: dict[tuple[str, str], str],
+):
+    call = ModelToolCall(call_id=call_id, tool_name=_TOOL_NAME, arguments=arguments)
+    result = ToolResult(
+        call_id=call_id,
+        tool_name=_TOOL_NAME,
+        status="success",
+        data=data,
+        sources=(
+            SourceRef(
+                source_ref_id="source",
+                source_kind="test",
+                source_id="target",
+                retrieved_at=retrieved_at,
+            ),
+        ),
+        read_progress=progress,
+    )
+    return _read_progress_evidence(call, result, definition or _definition(), observations)
+
+
+def test_read_progress_ignores_call_id_and_retrieval_timestamp() -> None:
+    observations: dict[tuple[str, str], str] = {}
+    progress = ReadProgress(observation_id="target", version="v1", certainty="confirmed")
+    now = datetime.now(UTC)
+
+    first = _read_evidence(
+        call_id="one",
+        arguments={"value": "same"},
+        data={"value": 1},
+        progress=progress,
+        retrieved_at=now,
+        observations=observations,
+    )
+    repeated = _read_evidence(
+        call_id="two",
+        arguments={"value": "same"},
+        data={"value": 1},
+        progress=progress,
+        retrieved_at=now + timedelta(minutes=1),
+        observations=observations,
+    )
+
+    assert first is not None and first.classification == "confirmed_progress"
+    assert repeated is not None and repeated.classification == "confirmed_no_progress"
+
+
+def test_read_progress_preserves_event_data_cursor_and_query_coverage() -> None:
+    observations: dict[tuple[str, str], str] = {}
+    now = datetime.now(UTC)
+    first = _read_evidence(
+        call_id="one",
+        arguments={"query": "first"},
+        data={"events": []},
+        progress=ReadProgress(
+            observation_id="events",
+            cursor="page-1",
+            coverage={"window": "first"},
+            event_time=now,
+            certainty="confirmed",
+        ),
+        retrieved_at=now,
+        observations=observations,
+    )
+    data_changed = _read_evidence(
+        call_id="two",
+        arguments={"query": "first"},
+        data={"events": [{"id": "new"}]},
+        progress=ReadProgress(
+            observation_id="events",
+            cursor="page-1",
+            coverage={"window": "first"},
+            event_time=now,
+            certainty="confirmed",
+        ),
+        retrieved_at=now + timedelta(minutes=1),
+        observations=observations,
+    )
+    event_changed = _read_evidence(
+        call_id="three",
+        arguments={"query": "first"},
+        data={"events": [{"id": "new"}]},
+        progress=ReadProgress(
+            observation_id="events",
+            cursor="page-1",
+            coverage={"window": "first"},
+            event_time=now + timedelta(seconds=1),
+            certainty="confirmed",
+        ),
+        retrieved_at=now + timedelta(minutes=2),
+        observations=observations,
+    )
+    next_page = _read_evidence(
+        call_id="four",
+        arguments={"query": "first"},
+        data={"events": [{"id": "new"}]},
+        progress=ReadProgress(
+            observation_id="events",
+            cursor="page-2",
+            coverage={"window": "first"},
+            event_time=now + timedelta(seconds=1),
+            certainty="confirmed",
+        ),
+        retrieved_at=now + timedelta(minutes=3),
+        observations=observations,
+    )
+    query_coverage_changed = _read_evidence(
+        call_id="five",
+        arguments={"query": "second"},
+        data={"events": [{"id": "new"}]},
+        progress=ReadProgress(
+            observation_id="events",
+            cursor="page-2",
+            coverage={"window": "second"},
+            event_time=now + timedelta(seconds=1),
+            certainty="confirmed",
+        ),
+        retrieved_at=now + timedelta(minutes=4),
+        observations=observations,
+    )
+
+    assert first is not None and first.classification == "confirmed_progress"
+    assert data_changed is not None and data_changed.classification == "confirmed_progress"
+    assert event_changed is not None and event_changed.classification == "confirmed_progress"
+    assert next_page is not None and next_page.classification == "confirmed_progress"
+    assert (
+        query_coverage_changed is not None
+        and query_coverage_changed.classification == "confirmed_progress"
+    )
+
+
+def test_read_progress_without_contract_or_for_mutation_is_conservative() -> None:
+    observations: dict[tuple[str, str], str] = {}
+    now = datetime.now(UTC)
+    unknown = _read_evidence(
+        call_id="unknown",
+        arguments={"value": "empty"},
+        data={},
+        progress=None,
+        retrieved_at=now,
+        observations=observations,
+    )
+    mutation = _read_evidence(
+        call_id="mutation",
+        arguments={"value": "changed"},
+        data={"changed": True},
+        progress=ReadProgress(observation_id="target", certainty="confirmed"),
+        retrieved_at=now,
+        definition=_definition().model_copy(update={"operation_kind": "mutation"}),
+        observations=observations,
+    )
+
+    assert unknown is not None and unknown.classification == "unknown_progress"
+    assert mutation is None
+
+
+def test_empty_initial_query_is_evidence_when_coverage_is_declared() -> None:
+    observations: dict[tuple[str, str], str] = {}
+    evidence = _read_evidence(
+        call_id="empty-initial",
+        arguments={"query": "new scope"},
+        data={"results": []},
+        progress=ReadProgress(
+            observation_id="search-target",
+            coverage={"query": "new scope"},
+            certainty="confirmed",
+        ),
+        retrieved_at=datetime.now(UTC),
+        observations=observations,
+    )
+
+    assert evidence is not None and evidence.classification == "confirmed_progress"
 
 
 @pytest.mark.anyio

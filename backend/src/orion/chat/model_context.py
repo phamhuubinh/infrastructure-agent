@@ -40,7 +40,11 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
     Status, errors, correlation metadata, and exact SourceRef objects are never reduced.
     The byte limit is soft only when that irreducible envelope itself exceeds it.
     """
+    # An absent progress contract adds no model evidence or context overhead.
+    # Keep all other optional fields exactly as projected before this contract.
     canonical = result.model_dump(mode="json")
+    if canonical["read_progress"] is None:
+        del canonical["read_progress"]
     serialized = compact_json(canonical)
     original_bytes = len(serialized.encode("utf-8"))
     if original_bytes <= maximum_bytes:
