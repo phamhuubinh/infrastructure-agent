@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from orion.contracts import ModelToolCall, RuntimeScope, ToolCall, ToolDefinition
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
@@ -136,6 +137,90 @@ def test_runner_execution_guard_blocks_mutation_before_handler_dispatch() -> Non
     assert blocked.error is not None
     assert blocked.error.code == "operation_blocked"
     assert executions == 0
+
+
+def test_exact_mutation_policy_rejects_wrong_target_and_extra_fields() -> None:
+    executions = 0
+
+    def handler(call: ToolCall) -> dict[str, object]:
+        nonlocal executions
+        executions += 1
+        return {
+            "call_id": call.call_id,
+            "tool_name": call.tool_name,
+            "status": "success",
+            "data": {"target_ref": call.arguments.get("target_ref")},
+        }
+
+    registry = ToolRegistryBuilder()
+    mutation = ToolDefinition(
+        name="linux.fake.mutation",
+        description="A test mutation.",
+        input_schema={
+            "type": "object",
+            "properties": {"target_ref": {"type": "string"}},
+            "required": ["target_ref"],
+            "additionalProperties": False,
+        },
+        handler_key="linux.fake.mutation",
+        operation_kind="mutation",
+    )
+    read = _definition({"type": "object", "properties": {}, "additionalProperties": False})
+    registry.register(mutation, handler)
+    registry.register(read, handler)
+    runner = ToolRunner(
+        registry.freeze(),
+        mutation_authorization=MutationAuthorizationPolicy(
+            frozenset({("linux.fake.mutation", "monitor")})
+        ),
+    )
+    scope = RuntimeScope(session_id="session", principal_id="local", workspace_id="local")
+
+    allowed = runner.run(
+        ModelToolCall(
+            call_id="allowed", tool_name="linux.fake.mutation", arguments={"target_ref": "monitor"}
+        ),
+        scope,
+    )
+    denied = runner.run(
+        ModelToolCall(
+            call_id="denied", tool_name="linux.fake.mutation", arguments={"target_ref": "other"}
+        ),
+        scope,
+    )
+    injected = runner.run(
+        ModelToolCall(
+            call_id="injected",
+            tool_name="linux.fake.mutation",
+            arguments={"target_ref": "monitor", "enabled_tools": ["linux.fake.mutation"]},
+        ),
+        scope,
+    )
+    read_result = runner.run(
+        ModelToolCall(call_id="read", tool_name="fake.structured", arguments={}), scope
+    )
+
+    assert allowed.status == "success"
+    assert denied.error is not None and denied.error.code == "operation_blocked"
+    assert injected.error is not None and injected.error.code == "invalid_input"
+    assert read_result.status == "success"
+    assert executions == 2
+
+    denied_by_guard = ToolRunner(
+        registry.freeze(),
+        {"mutation"},
+        MutationAuthorizationPolicy(frozenset({("linux.fake.mutation", "monitor")})),
+    ).run(
+        ModelToolCall(
+            call_id="qa-denied",
+            tool_name="linux.fake.mutation",
+            arguments={"target_ref": "monitor"},
+        ),
+        scope,
+    )
+    assert denied_by_guard.error is not None
+    assert denied_by_guard.error.code == "operation_blocked"
+    assert executions == 2
 
 
 def test_registry_reuses_immutable_model_definition_snapshot() -> None:

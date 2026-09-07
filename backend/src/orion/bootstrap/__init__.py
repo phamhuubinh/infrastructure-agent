@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +31,10 @@ from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_registrations
 from orion.tool_runtime.internet import internet_registrations
+from orion.tool_runtime.mutation_authorization import (
+    MutationAuthorizationConfigurationError,
+    MutationAuthorizationPolicy,
+)
 from orion.tool_runtime.registry import ToolRegistration, ToolRegistry, ToolRegistryBuilder
 
 
@@ -61,6 +66,7 @@ def build_application(
     blocked_tool_operation_kinds: frozenset[str] = frozenset(),
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
+    infrastructure_config = _infrastructure_configuration()
     resolved_path = database_path or default_database_path()
     store = SQLiteStore(resolved_path)
     _configure_model_from_environment(store)
@@ -75,7 +81,11 @@ def build_application(
     knowledge.reconcile_incomplete()
     projects = ProjectService(store)
     internet = internet_client or _internet_client_from_environment()
-    infrastructure_catalog = infrastructure_catalog or TargetCatalog.from_environment()
+    infrastructure_catalog = infrastructure_catalog or (
+        TargetCatalog.from_mapping(infrastructure_config)
+        if infrastructure_config is not None
+        else TargetCatalog.from_environment()
+    )
     for registration in tool_registrations or (
         ToolRegistration(definition=calculator_definition(), handler=calculate),
     ):
@@ -92,6 +102,17 @@ def build_application(
     ):
         registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
+    try:
+        authorization = MutationAuthorizationPolicy.from_mapping(
+            infrastructure_config or {},
+            registry.definitions(),
+            lambda family, target_ref: _target_is_configured(
+                infrastructure_catalog, family, target_ref
+            ),
+        )
+    except MutationAuthorizationConfigurationError:
+        store.close()
+        raise
     selected_backend = backend or OpenAICompatibleBackend()
     diagnostic_sink = (
         BoundedModelInputDiagnostics() if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa" else None
@@ -105,6 +126,7 @@ def build_application(
         ApplicationLog(Path(os.environ["ORION_LOG_PATH"])) if os.getenv("ORION_LOG_PATH") else None,
         blocked_tool_operation_kinds,
         diagnostic_sink,
+        mutation_authorization=authorization,
     )
     return OrionApplication(
         store=store,
@@ -133,3 +155,24 @@ def _internet_client_from_environment() -> InternetClient:
     if not search_url:
         return DuckDuckGoInternetClient()
     return SearxngInternetClient(search_url)
+
+
+def _target_is_configured(catalog: TargetCatalog, family: str, target_ref: str) -> bool:
+    return any(target.target_ref == target_ref for target in catalog.targets(family))
+
+
+def _infrastructure_configuration() -> dict[str, object] | None:
+    path = os.getenv("ORION_INFRASTRUCTURE_CONFIG")
+    if path is None:
+        return None
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise MutationAuthorizationConfigurationError(
+            "Invalid production infrastructure configuration: expected a readable JSON object."
+        ) from None
+    if not isinstance(raw, dict):
+        raise MutationAuthorizationConfigurationError(
+            "Invalid production infrastructure configuration: expected a JSON object."
+        )
+    return raw

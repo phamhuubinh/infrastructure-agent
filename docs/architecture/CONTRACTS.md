@@ -181,6 +181,7 @@ invalid_input          closed-schema or operation-specific validation failed
 unknown_target         target_ref is not an exact configured target
 credential_unavailable configured target credentials cannot be resolved safely
 permission_denied      configured identity is not permitted to perform the operation
+operation_blocked      local server execution policy does not authorize dispatch
 verification_failed    a dispatched mutation did not reach its required observed state
 outcome_unknown        a side effect may have happened but its final state is unknown
 cancelled              cancellation was observed before the side-effect boundary
@@ -221,6 +222,7 @@ orchestrator. Their common lifecycle is:
 exact tool lookup
 → closed-schema validation
 → RuntimeScope attachment
+→ production mutation authorization (exact operation/target; ADR 0013)
 → exact target_ref resolution and validation
 → server-side credential resolution
 → operation-specific preflight
@@ -238,6 +240,14 @@ effect and may return `cancelled`. After dispatch, cancellation is not rollback 
 must not claim that no change happened. The integration attempts bounded verification
 when possible; if the final state cannot be determined, it returns `outcome_unknown`
 and does not retry or replay the mutation.
+
+Production authorization defaults to denying mutations. The trusted server allowlist
+grants only an exact registered operation/configured target pair; it does not replace
+scope validation, target/credential checks, or prove per-action user consent.
+`operation_blocked` has `retryable=false` and `model_recovery_required=false`.
+The ordinary timeline retains the denied result and `tool.authorization` activity
+records a safe allow/deny decision before handler dispatch. A deny guard takes
+precedence over an allowlist, including in isolated QA composition.
 
 Read retries may be bounded only when an operation document explicitly permits them;
 they never change target or `RuntimeScope`. No mutation has a transparent automatic

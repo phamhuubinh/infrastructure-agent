@@ -2,15 +2,16 @@
 
 ## Status
 
-Proposed.
+Accepted target decision. This contract governs the separately reviewed
+implementation issue that follows; it does not itself change runtime behavior.
 
 ## Context
 
 ADR 0011 defines the bounded infrastructure mutation lifecycle, but configured
 credentials and a registered mutation do not themselves authorize production use.
-The QA composition currently blocks mutations unless an explicitly enabled QA case
-allows them. That QA-only guard is not a production control: the ordinary bootstrap
-has an empty blocked-operation set.
+At proposal time, the QA composition blocked mutations unless an explicitly enabled
+QA case allowed them. That QA-only guard was not a production control: the ordinary
+bootstrap had an empty blocked-operation set.
 
 The `operator-action-follow-up` QA artifact showed attempted restart calls during a
 status-oriented workflow. Its `not_found` result is not evidence that a restart was
@@ -21,7 +22,7 @@ ADR 0011 intentionally excludes an approval engine. This decision therefore sets
 deployment authorization baseline; it does not claim to establish a user
 confirmation for every chat action.
 
-## Proposed decision
+## Decision
 
 Production is read-only by default. An infrastructure mutation is dispatchable only
 when trusted server configuration contains one exact allowlist entry for both its
@@ -49,7 +50,7 @@ therefore remains read-only.
 
 ### Fail-closed configuration rules
 
-| Input or call | Proposed result |
+| Input or call | Result |
 | --- | --- |
 | Allowlist unset or empty | All mutations denied; reads unaffected. |
 | Malformed/unreadable `ORION_INFRASTRUCTURE_CONFIG`, malformed `mutation_allowlist`, duplicate/partial entry, unknown tool, non-mutation tool, or target not present in the configured target catalog | Fail application startup; do not silently start permissively or discard the bad entry. |
@@ -116,9 +117,9 @@ model's tool arguments.
 
 ## Consequences and implementation acceptance matrix
 
-This ADR is proposed only. It changes neither current production bootstrap behavior
-nor QA composition. After acceptance, the follow-on implementation issue must prove
-the following offline with fake registry/catalog/handlers only:
+This ADR does not itself change production bootstrap behavior or QA composition.
+The follow-on implementation issue must prove the following offline with fake
+registry/catalog/handlers only:
 
 | Scenario | Required proof |
 | --- | --- |

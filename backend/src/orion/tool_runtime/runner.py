@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from orion.contracts import ModelToolCall, RuntimeScope, ToolCall, ToolResult
 from orion.security import redact_public
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolHandler, ToolRegistry
 
 
@@ -17,17 +18,20 @@ class ToolRunner:
         self,
         registry: ToolRegistry,
         blocked_operation_kinds: Collection[str] = (),
+        mutation_authorization: MutationAuthorizationPolicy | None = None,
     ) -> None:
         self._registry = registry
         self._blocked_operation_kinds = frozenset(blocked_operation_kinds)
+        self._mutation_authorization = mutation_authorization
 
     def run(
         self,
         model_call: ModelToolCall,
         scope: RuntimeScope,
         cancellation_requested: Callable[[], bool] | None = None,
+        authorization_observer: Callable[[bool], None] | None = None,
     ) -> ToolResult:
-        prepared = self._prepare(model_call, scope, cancellation_requested)
+        prepared = self._prepare(model_call, scope, cancellation_requested, authorization_observer)
         if isinstance(prepared, ToolResult):
             return prepared
         handler, call = prepared
@@ -50,8 +54,9 @@ class ToolRunner:
         model_call: ModelToolCall,
         scope: RuntimeScope,
         cancellation_requested: Callable[[], bool] | None = None,
+        authorization_observer: Callable[[bool], None] | None = None,
     ) -> ToolResult:
-        prepared = self._prepare(model_call, scope, cancellation_requested)
+        prepared = self._prepare(model_call, scope, cancellation_requested, authorization_observer)
         if isinstance(prepared, ToolResult):
             return prepared
         handler, call = prepared
@@ -70,18 +75,12 @@ class ToolRunner:
         model_call: ModelToolCall,
         scope: RuntimeScope,
         cancellation_requested: Callable[[], bool] | None,
+        authorization_observer: Callable[[bool], None] | None,
     ) -> ToolResult | tuple[ToolHandler, ToolCall]:
         definition = self._registry.definition(model_call.tool_name)
         if definition is None:
             return ToolResult.failure(
                 model_call.call_id, model_call.tool_name, "not_found", "Unknown registered tool."
-            )
-        if definition.operation_kind in self._blocked_operation_kinds:
-            return ToolResult.failure(
-                model_call.call_id,
-                model_call.tool_name,
-                "operation_blocked",
-                "This tool operation is blocked by the current execution guard.",
             )
         validation_issue = self._registry.argument_validation_issue(
             model_call.tool_name, model_call.arguments
@@ -95,6 +94,19 @@ class ToolRunner:
                 f"Validation issue: {validation_issue}. "
                 "Retry using only values allowed by the currently exposed schema.",
                 model_recovery_required=True,
+            )
+        authorized = definition.operation_kind not in self._blocked_operation_kinds and (
+            self._mutation_authorization is None
+            or self._mutation_authorization.authorizes(definition, model_call.arguments, scope)
+        )
+        if definition.operation_kind == "mutation" and authorization_observer is not None:
+            authorization_observer(authorized)
+        if not authorized:
+            return ToolResult.failure(
+                model_call.call_id,
+                model_call.tool_name,
+                "operation_blocked",
+                "This operation is not authorized by the local server execution policy.",
             )
         handler = self._registry.handler(definition.handler_key)
         if handler is None:

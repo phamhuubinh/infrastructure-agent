@@ -9,6 +9,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import partial
 
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
@@ -46,6 +47,7 @@ from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_public
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolExposureRequest, ToolRegistry
 from orion.tool_runtime.runner import ToolRunner
 
@@ -266,12 +268,14 @@ class ChatRuntime:
         request_budget_settings: RequestBudgetSettings | None = None,
         monotonic_clock: Callable[[], float] = time.monotonic,
         deadline_sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        mutation_authorization: MutationAuthorizationPolicy | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
         self._registry = registry
         self._access = access
-        self._runner = ToolRunner(registry, blocked_tool_operation_kinds)
+        self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
+        self._infrastructure_targets = infrastructure_targets
         self._context_builder = ContextBuilder(store, infrastructure_targets)
         self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
@@ -632,6 +636,7 @@ class ChatRuntime:
                                             cancellation.is_set()
                                             or budget.remaining_work_seconds() <= 0
                                         ),
+                                        partial(self._audit_authorization, request_id, model_call),
                                     ),
                                     cancellation,
                                     phase="tool",
@@ -1038,6 +1043,8 @@ class ChatRuntime:
             "tool_name": result.tool_name,
             "status": result.status,
         }
+        if result.error is not None and result.error.code == "operation_blocked":
+            payload["error_code"] = result.error.code
         payload["elapsed_ms"] = elapsed_ms
         definition = self._registry.definition(result.tool_name)
         if definition is not None and result.tool_name.split(".", 1)[0] in {
@@ -1075,6 +1082,23 @@ class ChatRuntime:
             if isinstance(target_ref, str):
                 payload["target_ref"] = target_ref
         return payload
+
+    def _audit_authorization(self, request_id: str, call: ModelToolCall, allowed: bool) -> None:
+        payload: dict[str, object] = {
+            "call_id": call.call_id,
+            "tool_name": call.tool_name,
+            "operation_kind": "mutation",
+            "decision": "allow" if allowed else "deny",
+        }
+        # Only a configured identity may appear in authorization audit output.
+        family = call.tool_name.partition(".")[0]
+        target_ref = call.arguments.get("target_ref")
+        if any(
+            target_family == family and target == target_ref
+            for target_family, target, _ in self._infrastructure_targets
+        ):
+            payload["target_ref"] = target_ref
+        self._emit(request_id, "tool.authorization", payload)
 
     def diagnostics(self, request_id: str) -> dict[str, object] | None:
         """Return opt-in diagnostic records without making them runtime state."""

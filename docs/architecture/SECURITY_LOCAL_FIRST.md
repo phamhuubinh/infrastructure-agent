@@ -54,4 +54,8 @@ Untrusted text may inform the answer but cannot redefine Orion's system instruct
 
 The current product direction does not require a complex approval engine for every automatic tool call. Tool implementations still own their normal argument validation, configured targets, credentials, and operational safety.
 
-If future tools gain high-impact mutation capabilities, introduce the necessary controls for those tools through a new explicit design decision rather than burdening the current Chat/Project runtime prematurely.
+Infrastructure mutations are production read-only unless an exact operation and
+configured target are authorized in trusted server configuration. Credentials do not
+grant that product authority. See ADR 0013 for the bounded allowlist, failure,
+audit, and non-goals contract; it does not add a per-action approval engine to
+Chat/Project.

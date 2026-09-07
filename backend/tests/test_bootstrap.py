@@ -10,11 +10,14 @@ from orion.contracts import (
     AssistantMessage,
     ModelToolCall,
     ModelTurn,
+    RuntimeScope,
     ToolCall,
     ToolDefinition,
     ToolResult,
 )
 from orion.integrations import DuckDuckGoInternetClient, SearxngInternetClient
+from orion.integrations.infrastructure import TargetCatalog
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationConfigurationError
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistration, ToolRegistryBuilder
 
 
@@ -24,6 +27,21 @@ def _definition(name: str, handler_key: str) -> ToolDefinition:
         description="A test tool.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         handler_key=handler_key,
+    )
+
+
+def _mutation_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="linux.fake.mutation",
+        description="A test mutation.",
+        input_schema={
+            "type": "object",
+            "properties": {"target_ref": {"type": "string"}},
+            "required": ["target_ref"],
+            "additionalProperties": False,
+        },
+        handler_key="linux.fake.mutation",
+        operation_kind="mutation",
     )
 
 
@@ -76,6 +94,99 @@ def test_internet_bootstrap_uses_built_in_default_or_explicit_searxng_override(m
 
     monkeypatch.setenv("ORION_INTERNET_SEARCH_URL", "https://search.test/api")
     assert isinstance(_internet_client_from_environment(), SearxngInternetClient)
+
+
+def test_production_bootstrap_denies_mutations_by_default_before_fake_handler(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.delenv("ORION_INFRASTRUCTURE_CONFIG", raising=False)
+    executions = 0
+
+    def mutate(call: ToolCall) -> ToolResult:
+        nonlocal executions
+        executions += 1
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"target_ref": call.arguments["target_ref"]},
+        )
+
+    app = build_application(
+        tmp_path / "orion.db",
+        ScriptedBackend([]),
+        (ToolRegistration(definition=_mutation_definition(), handler=mutate),),
+    )
+    blocked = app.runtime._runner.run(  # noqa: SLF001 - verifies production composition.
+        ModelToolCall(
+            call_id="blocked", tool_name="linux.fake.mutation", arguments={"target_ref": "monitor"}
+        ),
+        RuntimeScope(session_id="session", principal_id="local", workspace_id="local"),
+    )
+
+    assert blocked.status == "error"
+    assert blocked.error is not None and blocked.error.code == "operation_blocked"
+    assert executions == 0
+
+
+def test_production_bootstrap_allows_only_configured_exact_mutation_target(
+    tmp_path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    config = tmp_path / "infrastructure.json"
+    config.write_text(
+        '{"targets":{"linux":[{"target_ref":"monitor","ssh_alias":"monitor"}]},'
+        '"mutation_allowlist":[{"tool_name":"linux.fake.mutation","target_ref":"monitor"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ORION_INFRASTRUCTURE_CONFIG", str(config))
+    executions = 0
+
+    def mutate(call: ToolCall) -> ToolResult:
+        nonlocal executions
+        executions += 1
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"target_ref": call.arguments["target_ref"]},
+        )
+
+    catalog = TargetCatalog.from_mapping(
+        {"targets": {"linux": [{"target_ref": "monitor", "ssh_alias": "monitor"}]}}
+    )
+    app = build_application(
+        tmp_path / "orion.db",
+        ScriptedBackend([]),
+        (ToolRegistration(definition=_mutation_definition(), handler=mutate),),
+        infrastructure_catalog=catalog,
+    )
+    scope = RuntimeScope(session_id="session", principal_id="local", workspace_id="local")
+    allowed = app.runtime._runner.run(  # noqa: SLF001 - verifies production composition.
+        ModelToolCall(
+            call_id="allowed", tool_name="linux.fake.mutation", arguments={"target_ref": "monitor"}
+        ),
+        scope,
+    )
+    wrong_target = app.runtime._runner.run(  # noqa: SLF001 - verifies production composition.
+        ModelToolCall(
+            call_id="wrong", tool_name="linux.fake.mutation", arguments={"target_ref": "other"}
+        ),
+        scope.model_copy(update={"project_id": "project"}),
+    )
+
+    assert allowed.status == "success"
+    assert wrong_target.status == "error"
+    assert wrong_target.error is not None and wrong_target.error.code == "operation_blocked"
+    assert executions == 1
+
+
+def test_invalid_production_mutation_allowlist_fails_bootstrap(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    config = tmp_path / "infrastructure.json"
+    config.write_text('{"mutation_allowlist":[{"tool_name":"unknown","target_ref":"monitor"}]}')
+    monkeypatch.setenv("ORION_INFRASTRUCTURE_CONFIG", str(config))
+
+    with pytest.raises(MutationAuthorizationConfigurationError, match="unknown or non-mutation"):
+        build_application(tmp_path / "orion.db", ScriptedBackend([]))
 
 
 def test_environment_model_bootstrap_preserves_existing_saved_profile(

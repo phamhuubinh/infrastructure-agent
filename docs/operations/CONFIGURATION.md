@@ -81,7 +81,8 @@ Settings state.
     "linux": [{"target_ref": "production-node", "credential_ref": "linux-key", "host": "configured-host", "ssh_user": "configured-user"}],
     "grafana": [{"target_ref": "observability", "credential_ref": "monitoring-api", "base_url": "configured-url", "datasources": {"metrics": "prometheus"}}],
     "zabbix": [{"target_ref": "monitoring", "credential_ref": "monitoring-api", "base_url": "configured-url"}]
-  }
+  },
+  "mutation_allowlist": []
 }
 ```
 
@@ -89,6 +90,24 @@ Configured families register their full fixed semantic operation family in the s
 registry used by Chat and Project. Unconfigured families are absent from that registry.
 Tool execution activity and controlled tool errors are the product-visible evidence of
 availability; Settings does not probe or toggle integrations.
+
+Infrastructure mutations are production read-only by default. To authorize one,
+`mutation_allowlist` must contain its exact registered `tool_name` and configured
+`target_ref`; an absent or empty list authorizes no mutations. Invalid or unreadable
+infrastructure configuration, malformed entries, unknown/non-mutation tool names, or
+unknown targets fail startup rather than widening access. This allowlist is server
+deployment authority, not per-action user confirmation; it is never supplied through
+chat requests, model tool arguments, or a manual tool picker. Legacy credential-only
+configuration has no implicit mutation permission.
+
+For example, an operator may add
+`{"tool_name":"linux.service.restart","target_ref":"production-node"}` to that
+array to authorize service restarts on that configured target. The permission covers
+the operation on that target, not one service or one chat action. Policy and targets
+are loaded together at startup; restart Orion to apply a reviewed configuration
+change. No policy is inferred from credentials, and file edits/package installs
+require their own exact entries. The isolated QA execution guard can further deny
+mutations; setting QA opt-in variables alone does not grant a production allowlist.
 
 ## Remote file and document tools
 
