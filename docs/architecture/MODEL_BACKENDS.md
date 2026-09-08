@@ -50,7 +50,9 @@ Model identity comes from configuration, not from asking the model to identify i
 inactivity timeout. It is distinct from the monotonic request budget enforced by
 `ChatRuntime`: `ORION_REQUEST_DEADLINE_SECONDS` defaults to 120 seconds (10–900),
 and `ORION_REQUEST_FINALIZATION_RESERVE_SECONDS` defaults to 5 seconds (1–60 and
-strictly less than the request deadline). Invalid values fail startup validation.
+strictly less than the request deadline). The stream timeout defaults to 30 seconds
+and must be in the inclusive 1–300 second range. Invalid values fail startup
+validation; Orion does not clamp them.
 
 The runtime derives a work deadline by subtracting the reserve. Conversation-state
 preparation, ordinary model/tool work, and required verification must finish before

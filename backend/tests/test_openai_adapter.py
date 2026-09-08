@@ -13,7 +13,12 @@ from orion.contracts import (
     ToolCallDelta,
     ToolDefinition,
 )
-from orion.models.backend import ModelBackendError, ModelBackendErrorKind, ModelSettings
+from orion.models.backend import (
+    ModelBackendError,
+    ModelBackendErrorKind,
+    ModelSettings,
+    ModelStreamSettings,
+)
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend, _PendingToolCall
 from orion.tool_runtime.calculator import calculator_definition
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
@@ -145,6 +150,38 @@ def test_adapter_preserves_structural_tool_discovery_enum() -> None:
 
 
 @pytest.mark.parametrize(
+    ("configured", "expected"),
+    ((None, 30), ("1", 1), ("300", 300)),
+)
+def test_model_stream_settings_accept_default_and_bounded_values(
+    monkeypatch, configured: str | None, expected: float
+) -> None:  # type: ignore[no-untyped-def]
+    if configured is None:
+        monkeypatch.delenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", configured)
+
+    assert ModelStreamSettings.from_environment().timeout_seconds == expected
+
+
+@pytest.mark.parametrize(
+    ("configured", "message"),
+    (
+        ("not-a-number", "must be a number"),
+        ("0", "between 1 and 300"),
+        ("301", "between 1 and 300"),
+    ),
+)
+def test_model_stream_settings_reject_invalid_environment_values(
+    monkeypatch, configured: str, message: str
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", configured)
+
+    with pytest.raises(ValueError, match=message):
+        ModelStreamSettings.from_environment()
+
+
+@pytest.mark.parametrize(
     "marker",
     (
         "[[source:abc]]",
@@ -222,6 +259,56 @@ async def test_adapter_omits_empty_tools_and_normalizes_stream_usage(monkeypatch
     assert completed.usage is not None
     assert completed.usage.input_tokens == 1824
     assert completed.usage.output_tokens == 216
+
+
+@pytest.mark.anyio
+async def test_adapter_uses_validated_stream_timeout_for_transport(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield 'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}'
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, *args: object, **kwargs: object) -> Stream:
+            return Stream()
+
+    def client_factory(**kwargs: object) -> Client:
+        captured.update(kwargs)
+        return Client()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", client_factory
+    )
+    async for _ in OpenAICompatibleBackend(ModelStreamSettings(timeout_seconds=17)).stream(
+        (ContextMessage(role="user", content="Hello"),),
+        (),
+        ModelSettings(
+            provider_type="openai_compatible",
+            base_url="http://model.test/v1",
+            model_id="fake",
+        ),
+        asyncio.Event(),
+    ):
+        pass
+
+    assert captured["timeout"] == 17
 
 
 @pytest.mark.anyio
