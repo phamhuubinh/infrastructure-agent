@@ -22,7 +22,7 @@ from orion.integrations import (
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.ports import Chunker, DocumentParser
-from orion.models.backend import ModelBackend
+from orion.models.backend import ModelBackend, ModelStreamSettings
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.observability import ApplicationLog
 from orion.paths import database_path as default_database_path
@@ -66,6 +66,7 @@ def build_application(
     blocked_tool_operation_kinds: frozenset[str] = frozenset(),
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
+    stream_settings = ModelStreamSettings.from_environment()
     infrastructure_config = _infrastructure_configuration()
     resolved_path = database_path or default_database_path()
     store = SQLiteStore(resolved_path)
@@ -113,7 +114,7 @@ def build_application(
     except MutationAuthorizationConfigurationError:
         store.close()
         raise
-    selected_backend = backend or OpenAICompatibleBackend()
+    selected_backend = backend or OpenAICompatibleBackend(stream_settings)
     diagnostic_sink = (
         BoundedModelInputDiagnostics() if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa" else None
     )

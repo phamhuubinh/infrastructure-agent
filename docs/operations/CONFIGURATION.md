@@ -43,6 +43,11 @@ The first saved model becomes active automatically. Adding later profiles preser
 active model until it is explicitly changed. Orion blocks deletion of the active model; select a
 different saved profile first.
 
+`ORION_MODEL_STREAM_TIMEOUT_SECONDS` sets the OpenAI-compatible provider transport inactivity
+timeout. It defaults to `30` seconds and accepts values from `1` through `300` seconds inclusive.
+Invalid values fail application startup; they are not silently clamped. This transport setting is
+separate from the monotonic request deadline and does not change its duration.
+
 ## Internet integration
 
 Internet search works out of the box through Orion's built-in bounded DuckDuckGo HTML search

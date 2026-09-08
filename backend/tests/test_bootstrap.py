@@ -88,6 +88,16 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.
 
 
+@pytest.mark.parametrize("configured", ("not-a-number", "0", "301"))
+def test_production_bootstrap_rejects_invalid_model_stream_timeout(
+    tmp_path, monkeypatch, configured: str
+) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", configured)
+
+    with pytest.raises(ValueError, match="ORION_MODEL_STREAM_TIMEOUT_SECONDS"):
+        build_application(tmp_path / "orion.db", ScriptedBackend([]))
+
+
 def test_internet_bootstrap_uses_built_in_default_or_explicit_searxng_override(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.delenv("ORION_INTERNET_SEARCH_URL", raising=False)
     assert isinstance(_internet_client_from_environment(), DuckDuckGoInternetClient)

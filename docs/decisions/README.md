@@ -13,7 +13,7 @@ These decisions define the current target.
 - `0009-canonical-runtime-contracts.md`
 - `0010-project-scope-is-runtime-bound.md`
 - `0011-infrastructure-mutation-contracts.md`
-- `0012-request-deadline-progress-terminal-semantics.md` (Proposed)
+- `0012-request-deadline-progress-terminal-semantics.md` (Accepted)
 - `0013-production-mutation-authorization.md`
 
 A future change to these principles should be explicit rather than introduced indirectly through implementation convenience.

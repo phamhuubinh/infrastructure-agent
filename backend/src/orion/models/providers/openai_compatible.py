@@ -31,6 +31,7 @@ from orion.models.backend import (
     ModelBackendErrorKind,
     ModelSettings,
     ModelStreamEvent,
+    ModelStreamSettings,
 )
 
 
@@ -42,9 +43,10 @@ class _PendingToolCall:
 
 
 class OpenAICompatibleBackend(ModelBackend):
-    def __init__(self) -> None:
+    def __init__(self, stream_settings: ModelStreamSettings | None = None) -> None:
         self._cached_tools: tuple[ToolDefinition, ...] | None = None
         self._cached_provider_tools: tuple[dict[str, Any], ...] = ()
+        self._stream_settings = stream_settings or ModelStreamSettings.from_environment()
 
     async def stream(
         self,
@@ -76,8 +78,7 @@ class OpenAICompatibleBackend(ModelBackend):
         usage: ModelUsage | None = None
         stream_finished = False
         try:
-            stream_timeout = float(os.getenv("ORION_MODEL_STREAM_TIMEOUT_SECONDS", "30"))
-            async with httpx.AsyncClient(timeout=stream_timeout) as client:
+            async with httpx.AsyncClient(timeout=self._stream_settings.timeout_seconds) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
                     response.raise_for_status()
                     lines = response.aiter_lines().__aiter__()
