@@ -923,6 +923,7 @@ def test_manual_quality_and_timeout_are_contained_and_journaled(
     _runner_mocks(qa_runner, monkeypatch)
     manual = qa_runner.Case(id="manual", prompt="one", category="quality", manual_quality=True)
     timed = qa_runner.Case(id="timed", prompt="two", category="quality")
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, ("provider-secret",))
     checkpoint.start()
     calls: list[str] = []
@@ -972,6 +973,7 @@ def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
         qa_runner.Case(id="long", prompt="three", category="qa"),
         qa_runner.Case(id="timeout", prompt="four", category="qa"),
     ]
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
 
@@ -1075,6 +1077,7 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
     case = qa_runner.Case(
         id="trace", prompt="one", category="qa", expected_marker="REQUIRED_MARKER"
     )
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
     monkeypatch.setattr(qa_runner, "_create_session", lambda _: {"session_id": "session"})
@@ -1265,6 +1268,7 @@ def test_citation_http_error_persists_redacted_validation_notice(
 
     monkeypatch.setattr(qa_runner, "_json_request", request)
     case = next(item for item in cases(qa_runner) if item.id == "system-prompt-probe")
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
 
@@ -1327,6 +1331,7 @@ def test_model_timeout_http_error_persists_redacted_runtime_notice(
 
     monkeypatch.setattr(qa_runner, "_json_request", request)
     case = next(item for item in cases(qa_runner) if item.id == case_id)
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
 
@@ -1414,6 +1419,7 @@ def test_successful_cases_do_not_gain_failure_trace(qa_runner, monkeypatch, tmp_
 
     assert results[0]["status"] == "PASS"
     assert "failure_trace" not in results[0]
+    assert "stability_diagnostic" not in results[0]
 
 
 def test_stability_cases_keep_separate_runtime_phase(qa_runner, monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -1445,13 +1451,22 @@ def test_stability_cases_keep_separate_runtime_phase(qa_runner, monkeypatch) -> 
 
 
 @pytest.mark.parametrize("timed_out", [False, True])
-def test_synthesis_transcript_is_checkpointed_on_success_and_timeout(
-    qa_runner, monkeypatch, tmp_path, timed_out
+@pytest.mark.parametrize(
+    ("case_id", "manual_quality"),
+    [
+        ("ordinary-quality", True),
+        ("weekly-synthesis", True),
+        ("weekly-synthesis", False),
+        ("enterprise-readiness", False),
+    ],
+)
+def test_quality_and_synthesis_transcript_is_checkpointed_on_success_and_timeout(
+    qa_runner, monkeypatch, tmp_path, timed_out, case_id, manual_quality
 ) -> None:  # type: ignore[no-untyped-def]
     _runner_mocks(qa_runner, monkeypatch)
     secret = "configured-secret"
     case = qa_runner.Case(
-        id="weekly-synthesis", prompt="original", category="workflow", manual_quality=True
+        id=case_id, prompt="original", category="workflow", manual_quality=manual_quality
     )
     timeline = [
         {
@@ -1482,6 +1497,7 @@ def test_synthesis_transcript_is_checkpointed_on_success_and_timeout(
         return timeline, [timeline]
 
     monkeypatch.setattr(qa_runner, "_execute_case", execute)
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     results, _ = qa_runner._run_structured(
         [case], {"base_url": "http://model", "id": "model", "api_key": secret}, False, checkpoint
@@ -1489,14 +1505,16 @@ def test_synthesis_transcript_is_checkpointed_on_success_and_timeout(
     persisted = (tmp_path / "cases.partial.jsonl").read_text()
     assert secret not in persisted and "never-persist" not in persisted
     result = json.loads(persisted)
-    assert result["status"] == ("FAIL" if timed_out else "MANUAL_REVIEW")
+    assert result["status"] == (
+        "FAIL" if timed_out else "MANUAL_REVIEW" if manual_quality else "PASS"
+    )
     events = result["stability_diagnostic"]["events"]
     assert events[0]["data"]["clock"] == "1776067292"
     assert events[0]["sources"][0]["source_ref_id"] == "old-event"
     assert events[1]["content"].endswith(" answer " * 100)
     assert events[1]["content_truncated"] is False
     assert events[1]["terminal_response"] is True
-    if not timed_out:
+    if not timed_out and manual_quality:
         assert results[0]["manual_review_answer_truncated"] is True
 
 
@@ -1852,6 +1870,7 @@ def test_actual_isolated_and_multiturn_post_timeouts_never_retry(
     qa_runner, monkeypatch, tmp_path
 ) -> None:  # type: ignore[no-untyped-def]
     _runner_mocks(qa_runner, monkeypatch)
+    tmp_path = tmp_path / "report"
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, ("secret",))
     checkpoint.start()
     sessions: list[str] = []
@@ -1896,6 +1915,71 @@ def test_actual_isolated_and_multiturn_post_timeouts_never_retry(
         json.loads(line)["id"]
         for line in (tmp_path / "cases.partial.jsonl").read_text().splitlines()
     ] == ["isolated", "multi", "next"]
+
+
+def test_checkpoint_reserves_fresh_leaf_and_creates_parents(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    report = tmp_path / "missing-parent" / "new-run"
+    checkpoint = qa_runner.ReportCheckpoint(report, ())
+    assert report.is_dir()
+    assert list(report.iterdir()) == []
+    checkpoint.start({"mode": "full"})
+    assert json.loads((report / "manifest.json").read_text())["status"] == "running"
+    assert json.loads((report / "progress.json").read_text())["status"] == "running"
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_checkpoint_collision_preserves_existing_artifacts(
+    qa_runner, tmp_path, monkeypatch, populated
+) -> None:  # type: ignore[no-untyped-def]
+    report = tmp_path / "existing-run"
+    report.mkdir()
+    originals = (
+        {
+            "manifest.json": b'{"status":"completed"}\n',
+            "cases.jsonl": b'{"id":"original","status":"FAIL"}\n',
+            "sentinel.bin": b"\x00original evidence\xff",
+        }
+        if populated
+        else {}
+    )
+    for name, content in originals.items():
+        (report / name).write_bytes(content)
+    before_stats = {name: (report / name).stat().st_mtime_ns for name in originals}
+
+    with pytest.raises(FileExistsError):
+        qa_runner.ReportCheckpoint(report, ())
+
+    # Exercise normal run ordering with synthetic configuration/provenance: a
+    # collision must stop before start(), any execution, or final report writes.
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {"base_url": "http://model.invalid", "id": "mock", "api_key": ""},
+    )
+    monkeypatch.setattr(
+        qa_runner,
+        "collect_execution_provenance",
+        lambda *_: {
+            "inputs": {
+                "git": {"head": "synthetic", "tree": "synthetic", "dirty": False},
+                "settings": {"model_id": "mock", "model_endpoint": "http://model.invalid"},
+            }
+        },
+    )
+    allocations = []
+
+    def allocate(run_id):  # type: ignore[no-untyped-def]
+        allocations.append(run_id)
+        return report
+
+    monkeypatch.setattr(qa_runner, "qa_report_directory", allocate)
+    monkeypatch.setattr(qa_runner, "_run_structured", lambda *args: pytest.fail("execution"))
+    monkeypatch.setattr(qa_runner, "write_reports", lambda *args, **kw: pytest.fail("write"))
+    with pytest.raises(FileExistsError):
+        qa_runner.run("full", False, "identity")
+    assert len(allocations) == 1
+    assert {path.name: path.read_bytes() for path in report.iterdir()} == originals
+    assert {name: (report / name).stat().st_mtime_ns for name in originals} == before_stats
 
 
 def test_run_interrupts_with_last_in_progress_and_normal_completion_is_canonical(
