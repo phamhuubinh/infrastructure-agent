@@ -25,11 +25,18 @@ tool before its handler, and forbidden-tool checks also report attempted mutatio
 
 Reports are written under `artifacts/qa/`. Linux, Grafana, and Zabbix cases are explicitly
 reported as `SKIP` unless a safe QA capability is configured; they never target production files.
-Stability cases and the two corresponding bounded synthesis cases retain a
+Manual-quality cases, stability cases, and the two corresponding bounded synthesis cases retain a
 `stability_diagnostic` transcript in both checkpoint and final reports: assistant text,
 tool-call arguments, result data, source references, and errors. Known API/environment secrets
 and credential-shaped fields are redacted. Reports are local operational evidence; inspect
 them before sharing because infrastructure readings and identities are intentionally retained.
+The bounded transcript supplies the full terminal answer/evidence required by the quality
+sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
+remain not assessable.
+
+Each execution exclusively reserves its report directory before writing any checkpoint or
+final artifacts. An existing run directory causes failure without retry, reuse, or modification;
+missing parent directories are created as needed.
 
 Each new manifest is versioned and checkpoints its execution provenance before the first case:
 Git HEAD/tree and dirty state, hashes of allowlisted QA/runtime source files, canonical and

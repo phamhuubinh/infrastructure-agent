@@ -822,10 +822,11 @@ def _attach_stability_diagnostics(
 ) -> None:
     if runtime_diagnostics:
         result["runtime_input_diagnostics"] = runtime_diagnostics
-    if phase != "stability" and result.get("id") not in {
-        "enterprise-readiness",
-        "weekly-synthesis",
-    }:
+    if (
+        phase != "stability"
+        and result.get("manual_quality") is not True
+        and result.get("id") not in {"enterprise-readiness", "weekly-synthesis"}
+    ):
         return
     diagnostic = stability_diagnostic_transcript(timelines, secret_values)
     if diagnostic is not None:
@@ -1220,7 +1221,7 @@ class ReportCheckpoint:
         self.secret_values = secret_values
         self.progress: dict[str, object] = {"status": "running", "phase": "structured"}
         self.manifest: dict[str, object] | None = None
-        self.report_directory.mkdir(parents=True, exist_ok=True)
+        self.report_directory.mkdir(parents=True, exist_ok=False)
 
     def start(self, manifest: dict[str, object] | None = None) -> None:
         self.manifest = manifest

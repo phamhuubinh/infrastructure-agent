@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
@@ -105,16 +106,103 @@ def test_quality_overlay_rejects_stale_and_duplicate_sidecars(quality_verdicts, 
     assert not quality_verdicts.quality_gate(duplicate, skip_policy="forbid")["passed"]
 
 
+@pytest.mark.parametrize("damage", ["missing", "terminal", "text", "events", "data"])
 def test_quality_overlay_never_accepts_missing_or_truncated_terminal_evidence(
-    quality_verdicts, tmp_path
+    quality_verdicts, tmp_path, damage
 ) -> None:  # type: ignore[no-untyped-def]
-    report, manifest, result, _ = quality_fixture(quality_verdicts, tmp_path)
-    result["stability_diagnostic"]["events"][-1]["content_truncated"] = True
+    report, manifest, result, subject = quality_fixture(quality_verdicts, tmp_path)
+    diagnostic = result["stability_diagnostic"]
+    if damage == "missing":
+        del result["stability_diagnostic"]
+    elif damage == "terminal":
+        diagnostic["events"][-1]["terminal_response"] = False
+    elif damage == "text":
+        diagnostic["events"][-1]["content_truncated"] = True
+    elif damage == "events":
+        diagnostic["events_truncated"] = True
+    else:
+        diagnostic["events"][0]["data_truncated"] = True
 
     aggregate = quality_verdicts.aggregate_quality(report, manifest, [result])
 
     assert aggregate["quality"] == {"not_assessable": 1}
     assert not quality_verdicts.quality_gate(aggregate, skip_policy="forbid")["passed"]
+    attempted = quality_verdicts.aggregate_quality(report, manifest, [result], [verdict(subject)])
+    assert attempted["quality"] == {"not_assessable": 1}
+
+
+def test_canonical_manual_capture_is_reviewable_and_exact_bound_offline(
+    quality_verdicts, tmp_path, monkeypatch, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    path = Path(__file__).parents[2] / "scripts" / "qa" / "runner.py"
+    specification = importlib.util.spec_from_file_location("orion_qa_runner_quality", path)
+    assert specification and specification.loader
+    runner = importlib.util.module_from_spec(specification)
+    sys.modules[specification.name] = runner
+    specification.loader.exec_module(runner)
+    monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: pytest.fail("process"))
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: pytest.fail("network"))
+    report, manifest, result, _ = quality_fixture(quality_verdicts, tmp_path)
+    del result["stability_diagnostic"]
+    answer = "Evidence-backed synthetic answer. " * 30
+    result["manual_review_answer"] = answer[:512]
+    timeline = [
+        {
+            "kind": "tool_result",
+            "tool_name": "synthetic.read",
+            "payload": {"result": {"data": {"state": "inactive", "password": "secret"}}},
+        },
+        {"kind": "assistant_message", "payload": {"content": answer, "metrics": {}}},
+    ]
+    runner._attach_stability_diagnostics(result, "canonical", [timeline], ("secret",))
+    diagnostic = result["stability_diagnostic"]
+    assert diagnostic["events"][-1]["content"] == answer
+    assert diagnostic["events"][-1]["terminal_response"] is True
+    assert "secret" not in json.dumps(diagnostic)
+    (report / "cases.jsonl").write_text(json.dumps(result) + "\n", encoding="utf-8")
+    before = {name: (report / name).read_bytes() for name in ("manifest.json", "cases.jsonl")}
+
+    assert quality_verdicts.main(["inspect", str(report)]) == 0
+    inspected = json.loads(capsys.readouterr().out)
+    assert inspected["quality"] == {"pending_review": 1}
+    subject = inspected["cases"][0]["review_subject"]
+
+    def digest(value):  # type: ignore[no-untyped-def]
+        text = (
+            value
+            if isinstance(value, str)
+            else json.dumps(value, sort_keys=True, separators=(",", ":"))
+        )
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    assert subject == {
+        "run_id": report.name,
+        "manifest_sha256": digest(manifest),
+        "execution_fingerprint": "execution-fingerprint",
+        "phase": "canonical",
+        "case_id": result["id"],
+        "answer_sha256": digest(answer),
+        "evidence_sha256": digest(diagnostic),
+        "reviewable": True,
+        "reason": None,
+    }
+    review = verdict(subject)
+    for field in (
+        "run_id",
+        "manifest_sha256",
+        "execution_fingerprint",
+        "phase",
+        "case_id",
+        "answer_sha256",
+        "evidence_sha256",
+    ):
+        assert quality_verdicts.validate_verdict({**review, field: "stale"}, subject) is not None
+    (report / "quality-verdicts.jsonl").write_text(json.dumps(review) + "\n", encoding="utf-8")
+    assert quality_verdicts.main(["inspect", str(report)]) == 0
+    accepted = json.loads(capsys.readouterr().out)
+    assert accepted["quality"] == {"accepted": 1}
+    assert accepted["execution"] == {"MANUAL_REVIEW": 1}
+    assert {name: (report / name).read_bytes() for name in before} == before
 
 
 def test_quality_overlay_legacy_and_skip_policy_are_explicit(quality_verdicts, tmp_path) -> None:  # type: ignore[no-untyped-def]
