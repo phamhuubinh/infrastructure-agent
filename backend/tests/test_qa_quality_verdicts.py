@@ -106,6 +106,61 @@ def test_quality_overlay_rejects_stale_and_duplicate_sidecars(quality_verdicts, 
     assert not quality_verdicts.quality_gate(duplicate, skip_policy="forbid")["passed"]
 
 
+@pytest.mark.parametrize("status", ["FAIL", "SKIP", "PASS", "incomplete"])
+@pytest.mark.parametrize("sidecar_count", [0, 1, 2])
+@pytest.mark.parametrize("next_turn_started", [False, True])
+def test_nonterminal_execution_cannot_review_a_previous_turn(
+    quality_verdicts, tmp_path, status, sidecar_count, next_turn_started
+) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, previous_subject = quality_fixture(quality_verdicts, tmp_path)
+    result["status"] = status
+    if next_turn_started:
+        result["stability_diagnostic"]["events"].append(
+            {
+                "kind": "tool_call",
+                "tool_name": "synthetic.read",
+                "arguments": {},
+            }
+        )
+    subject = quality_verdicts.review_subject(report, manifest, result)
+    assert subject["reviewable"] is False
+    assert "execution did not reach reviewable terminal outcome" in subject["reason"]
+    assert "answer_sha256" not in subject
+    attempted = verdict(previous_subject)
+    attempted["evidence_sha256"] = quality_verdicts._sha256(result["stability_diagnostic"])
+    aggregate = quality_verdicts.aggregate_quality(
+        report, manifest, [result], [attempted] * sidecar_count
+    )
+    assert aggregate["quality"] == {"not_assessable": 1}
+    assert not quality_verdicts.quality_gate(aggregate, skip_policy="forbid")["passed"]
+    assert quality_verdicts.validate_verdict(attempted, subject) is not None
+
+
+@pytest.mark.parametrize("phase", ["canonical", "stability"])
+def test_successful_multiturn_review_binds_final_answer(quality_verdicts, tmp_path, phase) -> None:  # type: ignore[no-untyped-def]
+    report, manifest, result, previous_subject = quality_fixture(quality_verdicts, tmp_path)
+    result["phase"] = phase
+    result["stability_diagnostic"]["events"].append(
+        {
+            "kind": "assistant_message",
+            "content": "Final turn two answer.",
+            "terminal_response": True,
+            "content_truncated": False,
+        }
+    )
+    subject = quality_verdicts.review_subject(report, manifest, result)
+    assert subject["reviewable"] is True
+    assert subject["answer_sha256"] == hashlib.sha256(b"Final turn two answer.").hexdigest()
+    assert subject["answer_sha256"] != previous_subject["answer_sha256"]
+    assert subject["evidence_sha256"] == quality_verdicts._sha256(result["stability_diagnostic"])
+    pending = quality_verdicts.aggregate_quality(report, manifest, [result])
+    assert pending["quality"] == {"pending_review": 1}
+    assert not quality_verdicts.quality_gate(pending, skip_policy="forbid")["passed"]
+    accepted = quality_verdicts.aggregate_quality(report, manifest, [result], [verdict(subject)])
+    assert accepted["quality"] == {"accepted": 1}
+    assert quality_verdicts.quality_gate(accepted, skip_policy="forbid")["passed"]
+
+
 @pytest.mark.parametrize("damage", ["missing", "terminal", "text", "events", "data"])
 def test_quality_overlay_never_accepts_missing_or_truncated_terminal_evidence(
     quality_verdicts, tmp_path, damage
