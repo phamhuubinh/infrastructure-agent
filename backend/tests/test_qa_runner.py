@@ -619,7 +619,7 @@ def test_qa_routes_read_only_and_mutation_cases_to_separate_guarded_processes(
         environments.append(kwargs["env"])
         return Process()
 
-    def execute(base_url, case, secret):  # type: ignore[no-untyped-def]
+    def execute(base_url, case, secret, requests):  # type: ignore[no-untyped-def]
         executed.append((base_url, case.id))
         timeline = [{"kind": "assistant_message", "payload": {"content": "done"}}]
         return timeline, [timeline]
@@ -928,7 +928,7 @@ def test_manual_quality_and_timeout_are_contained_and_journaled(
     checkpoint.start()
     calls: list[str] = []
 
-    def execute(_, case, __):  # type: ignore[no-untyped-def]
+    def execute(_, case, __, requests):  # type: ignore[no-untyped-def]
         calls.append(case.id)
         if case.id == "timed":
             raise qa_runner.QARequestTimeout()
@@ -977,7 +977,7 @@ def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
 
-    def execute(_, case, __):  # type: ignore[no-untyped-def]
+    def execute(_, case, __, requests):  # type: ignore[no-untyped-def]
         if case.id == "marker":
             raise qa_runner.ScenarioFailure(
                 "final assistant response omitted the required QA marker"

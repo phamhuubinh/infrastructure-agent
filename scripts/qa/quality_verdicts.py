@@ -142,7 +142,16 @@ def review_subject(
         or not case_id
     ):
         raise QualityArtifactError("case result is missing a non-empty phase or id")
-    complete, answer, reason = _diagnostic_complete(result.get("stability_diagnostic"))
+    if result.get("status") != "MANUAL_REVIEW":
+        complete, answer, reason = (
+            False,
+            None,
+            "execution did not reach reviewable terminal outcome (MANUAL_REVIEW)",
+        )
+    else:
+        complete, answer, reason = _diagnostic_complete(
+            result.get("stability_diagnostic")
+        )
     subject: dict[str, object] = {
         **run_identity(report_directory, manifest),
         "phase": phase,
@@ -254,9 +263,13 @@ def aggregate_quality(
         item["review_subject"] = subject
         matches = grouped.get((phase, case_id), [])
         if len(matches) > 1:
-            item["quality_status"] = "pending_review"
+            item["quality_status"] = (
+                "pending_review" if subject["reviewable"] else "not_assessable"
+            )
             item["quality_reason"] = (
                 "duplicate reviewer verdicts for this run/phase/case"
+                if subject["reviewable"]
+                else f"{subject['reason']}; duplicate reviewer verdicts rejected"
             )
         elif len(matches) == 1:
             error = validate_verdict(matches[0], subject)

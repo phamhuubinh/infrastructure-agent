@@ -34,6 +34,17 @@ The bounded transcript supplies the full terminal answer/evidence required by th
 sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
 remain not assessable.
 
+Runner version 12 captures `runtime_input_diagnostics` using request identities returned by
+the message API, never inferred from public timeline items. Entries preserve one-based
+`send_index`, `session_id`, and `request_id` for each attempted send, across turns and sessions.
+Exact-request captures are fetched before the temporary API shuts down, with runtime bounds
+and redaction retained. Optional missing, empty, malformed, or mismatched diagnostics are
+`capture_status: unavailable` with a deterministic reason; they do not change execution status.
+A timed-out POST may not return any identity: that send has `request_id: null`, no capture,
+and never borrows a previous turn's ID. Legacy reports without these entries have no request
+capture evidence; this change does not repair them. Manifest and sidecar schema versions are
+unchanged; the runner version records the additive evidence change.
+
 Each execution exclusively reserves its report directory before writing any checkpoint or
 final artifacts. An existing run directory causes failure without retry, reuse, or modification;
 missing parent directories are created as needed.
@@ -51,6 +62,14 @@ without these fields remain readable but have insufficient provenance for direct
 request failed. `SKIP` means a required optional safe capability was not configured. `MANUAL_REVIEW`
 means the deterministic checks completed but answer quality still requires human review; it is never
 an automatic PASS.
+
+A manual-quality row is reviewable only when its execution status is `MANUAL_REVIEW`
+and its terminal evidence is complete and untruncated. `FAIL`, `SKIP`, or any other outcome
+is `not_assessable`, even if an earlier turn has a terminal answer. Reviewer sidecars,
+including attempted accepted or duplicate verdicts, cannot override this completion boundary.
+Successful multi-turn review subjects hash the last terminal answer and the full captured
+transcript. Legacy rows without a `manual_quality` marker remain `unknown`, never implicitly
+accepted; existing sidecars are validated against the execution boundary and exact subject.
 
 Each text/payload includes its redacted character count and an explicit `*_truncated` flag.
 Assistant text is capped at 65,536 characters, each structured value at 131,072 serialized

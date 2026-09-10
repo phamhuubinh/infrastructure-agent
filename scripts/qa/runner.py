@@ -22,12 +22,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "11"
+RUNNER_VERSION = "12"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
@@ -79,6 +79,14 @@ class Case:
     tiers: tuple[str, ...] = ("full",)
     turns: tuple[str, ...] = ()
     manual_quality: bool = False
+
+
+@dataclass
+class RequestObservation:
+    """Runner-owned identity for one attempted send, independent of public timelines."""
+
+    session_id: str
+    request_id: str | None = None
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -785,17 +793,22 @@ def stability_diagnostic_transcript(
 
 
 def runtime_input_diagnostics(
-    base_url: str, timelines: list[list[dict[str, Any]]]
+    base_url: str, requests: list[RequestObservation]
 ) -> list[dict[str, object]]:
     """Read opt-in runtime evidence before the temporary QA process is torn down."""
-    request_ids: list[str] = []
-    for timeline in timelines:
-        for item in timeline:
-            request_id = item.get("request_id")
-            if isinstance(request_id, str) and request_id not in request_ids:
-                request_ids.append(request_id)
     diagnostics: list[dict[str, object]] = []
-    for request_id in request_ids:
+    for index, request in enumerate(requests, start=1):
+        entry: dict[str, object] = {
+            "send_index": index,
+            "session_id": request.session_id,
+            "request_id": request.request_id,
+            "capture_status": "unavailable",
+        }
+        diagnostics.append(entry)
+        if request.request_id is None:
+            entry["reason"] = "message submission did not return a request identity"
+            continue
+        request_id = quote(request.request_id, safe="")
         try:
             payload = _json_request(
                 base_url, "GET", f"/api/requests/{request_id}/diagnostics"
@@ -807,9 +820,24 @@ def runtime_input_diagnostics(
             urllib.error.URLError,
             json.JSONDecodeError,
         ):
+            entry["reason"] = "exact-request diagnostics unavailable"
             continue
         if isinstance(payload, dict):
-            diagnostics.append({"request_id": request_id, "capture": payload})
+            records = payload.get("records")
+            if not isinstance(records, list) or not records:
+                entry["reason"] = "exact-request diagnostics contain no records"
+            elif any(
+                not isinstance(record, dict)
+                or record.get("request_id") != request.request_id
+                for record in records
+            ):
+                entry["reason"] = (
+                    "diagnostics records do not match exact request identity"
+                )
+            else:
+                entry.update(capture_status="captured", capture=payload)
+        else:
+            entry["reason"] = "exact-request diagnostics returned a non-object payload"
     return diagnostics
 
 
@@ -818,10 +846,7 @@ def _attach_stability_diagnostics(
     phase: str,
     timelines: list[list[dict[str, Any]]],
     secret_values: tuple[str, ...],
-    runtime_diagnostics: list[dict[str, object]] = (),
 ) -> None:
-    if runtime_diagnostics:
-        result["runtime_input_diagnostics"] = runtime_diagnostics
     if (
         phase != "stability"
         and result.get("manual_quality") is not True
@@ -1452,7 +1477,7 @@ def _create_session(base_url: str, project_id: str | None = None) -> dict[str, o
     return session
 
 
-def _send(base_url: str, session_id: str, content: str) -> None:
+def _send(base_url: str, session_id: str, content: str) -> str | None:
     try:
         response = _json_request(
             base_url,
@@ -1478,6 +1503,8 @@ def _send(base_url: str, session_id: str, content: str) -> None:
         response.get("assistant_content"), str
     ):
         raise ScenarioFailure("message endpoint did not return an assistant response")
+    request_id = response.get("request_id")
+    return request_id if isinstance(request_id, str) and request_id else None
 
 
 def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
@@ -1589,12 +1616,17 @@ def _project_isolation_fixture_name(index: int) -> str:
 
 
 def _execute_case(
-    base_url: str, case: Case, secret: str
+    base_url: str,
+    case: Case,
+    secret: str,
+    requests: list[RequestObservation] | None = None,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     """Exercise only public HTTP APIs; return the final and all checked timelines."""
     observed: list[list[dict[str, Any]]] = []
     try:
-        return _execute_case_inner(base_url, case, secret, observed)
+        return _execute_case_inner(
+            base_url, case, secret, observed, requests if requests is not None else []
+        )
     except ScenarioFailure as error:
         error.retain_timelines(observed)
         raise
@@ -1610,11 +1642,17 @@ def _execute_case_inner(
     case: Case,
     secret: str,
     observed: list[list[dict[str, Any]]],
+    requests: list[RequestObservation],
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
+    def send(session_id: str, content: str) -> None:
+        observation = RequestObservation(session_id)
+        requests.append(observation)
+        observation.request_id = _send(base_url, session_id, content)
+
     prompt = _case_prompt(case, case.prompt)
     if case.scenario == "ordinary_chat" or case.scenario == "safety_response":
         session = _create_session(base_url)
-        _send(base_url, str(session["session_id"]), prompt)
+        send(str(session["session_id"]), prompt)
         timeline = _observed_timeline(base_url, str(session["session_id"]), observed)
         _require_final(
             timeline,
@@ -1625,12 +1663,11 @@ def _execute_case_inner(
     if case.scenario == "continuity":
         session = _create_session(base_url)
         session_id = str(session["session_id"])
-        _send(
-            base_url,
+        send(
             session_id,
             _case_prompt(case, case.first_prompt or "Remember QA_SENTINEL."),
         )
-        _send(base_url, session_id, prompt)
+        send(session_id, prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker)
         return timeline, [timeline]
@@ -1638,7 +1675,7 @@ def _execute_case_inner(
         session = _create_session(base_url)
         session_id = str(session["session_id"])
         for turn in (case.prompt, *case.turns):
-            _send(base_url, session_id, _case_prompt(case, turn))
+            send(session_id, _case_prompt(case, turn))
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker, secret=secret)
         return timeline, [timeline]
@@ -1653,7 +1690,7 @@ def _execute_case_inner(
             f"/api/sessions/{session_id}/attachments",
             case.document_content or "",
         )
-        _send(base_url, session_id, prompt)
+        send(session_id, prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(
             timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
@@ -1683,7 +1720,7 @@ def _execute_case_inner(
             if session.get("project_id") != project_id:
                 raise ScenarioFailure("project conversation is not project scoped")
             session_id = str(session["session_id"])
-            _send(base_url, session_id, prompt)
+            send(session_id, prompt)
             timeline = _observed_timeline(base_url, session_id, observed)
             _require_final(timeline, expected=case.expected_marker)
             if str(document["document_id"]) not in _document_source_ids(timeline):
@@ -1695,9 +1732,7 @@ def _execute_case_inner(
     if case.scenario == "tool_error_recovery":
         session = _create_session(base_url)
         session_id = str(session["session_id"])
-        _send(
-            base_url, session_id, _case_prompt(case, case.first_prompt or case.prompt)
-        )
+        send(session_id, _case_prompt(case, case.first_prompt or case.prompt))
         failed = _observed_timeline(base_url, session_id, observed)
         if not any(
             item.get("kind") == "tool_result"
@@ -1707,7 +1742,7 @@ def _execute_case_inner(
             for item in failed
         ) or _source_ids(failed):
             raise ScenarioFailure("controlled tool failure did not remain source-free")
-        _send(base_url, session_id, prompt)
+        send(session_id, prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(timeline, expected=case.expected_marker)
         return timeline, [timeline]
@@ -1734,7 +1769,7 @@ def _execute_case_inner(
             projects.append((str(project["project_id"]), document))
         session = _create_session(base_url, projects[0][0])
         session_id = str(session["session_id"])
-        _send(base_url, session_id, case.prompt)
+        send(session_id, case.prompt)
         timeline = _observed_timeline(base_url, session_id, observed)
         _require_final(
             timeline, expected=case.expected_marker, forbidden=case.forbidden_marker
@@ -1810,9 +1845,10 @@ def _run_structured(
                         checkpoint.record_case(result)
                     continue
                 base_url = runtime_for(case)
+                requests: list[RequestObservation] = []
                 try:
                     timeline, checked_timelines = _execute_case(
-                        base_url, case, model["api_key"]
+                        base_url, case, model["api_key"], requests
                     )
                     status, reason, tools, sources = evaluate(case, timeline)
                     for checked in checked_timelines:
@@ -1838,7 +1874,6 @@ def _run_structured(
                         phase,
                         checked_timelines,
                         (model["api_key"],),
-                        runtime_input_diagnostics(base_url, checked_timelines),
                     )
                     if status == "FAIL":
                         trace = failure_trace(checked_timelines, (model["api_key"],))
@@ -1876,7 +1911,6 @@ def _run_structured(
                         phase,
                         observed_timelines,
                         (model["api_key"],),
-                        runtime_input_diagnostics(base_url, observed_timelines),
                     )
                     results.append(result)
                 except (
@@ -1910,9 +1944,15 @@ def _run_structured(
                             phase,
                             observed_timelines,
                             (model["api_key"],),
-                            runtime_input_diagnostics(base_url, observed_timelines),
                         )
                     results.append(result)
+                # Evidence is optional and collected for every observed send, including
+                # those preceding a later execution/transport failure, before shutdown.
+                diagnostics = runtime_input_diagnostics(base_url, requests)
+                if diagnostics:
+                    results[-1]["runtime_input_diagnostics"] = redact_report(
+                        diagnostics, (model["api_key"],)
+                    )
                 if checkpoint is not None:
                     checkpoint.record_case(results[-1])
                 if fail_fast and results[-1]["status"] == "FAIL":
