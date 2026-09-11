@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from io import BytesIO
 
@@ -61,6 +64,13 @@ def public_qa(qa_runner, monkeypatch, tmp_path):  # type: ignore[no-untyped-def]
         lambda: BoundedModelInputDiagnostics(text_limit=120, canonical_result_limit=120),
     )
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **kw: pytest.fail("network"))
+    monkeypatch.setattr("socket.create_connection", lambda *a, **kw: pytest.fail("network"))
+    monkeypatch.setattr(
+        "httpx.HTTPTransport.handle_request", lambda *a, **kw: pytest.fail("network")
+    )
+    monkeypatch.setattr(
+        "httpx.AsyncHTTPTransport.handle_async_request", lambda *a, **kw: pytest.fail("network")
+    )
     stack = ExitStack()
 
     def setup(turns, *, enabled=True, tool_error=False):  # type: ignore[no-untyped-def]
@@ -119,6 +129,15 @@ def public_qa(qa_runner, monkeypatch, tmp_path):  # type: ignore[no-untyped-def]
             return payload
 
         _runner_mocks(qa_runner, monkeypatch)
+        real_environment = qa_runner.qa_environment
+
+        def environment(temporary, model, **kwargs):  # type: ignore[no-untyped-def]
+            values = real_environment(temporary, model, **kwargs)
+            # The scripted API uses this test's isolated database, not a child process.
+            values["ORION_DATABASE_PATH"] = str(tmp_path / "api.db")
+            return values
+
+        monkeypatch.setattr(qa_runner, "qa_environment", environment)
         monkeypatch.setattr(qa_runner, "_available_port", lambda: 61001)
         monkeypatch.setattr(qa_runner, "_json_request", request)
         return client, backend, sent, fetched
@@ -182,6 +201,7 @@ def test_public_api_request_identity_reaches_qa_capture(
         2 if scenario == "project_shared_document" else 1
     )
     for entry in captures:
+        assert entry["request_identity_source"] == "message_response"
         expected = client.get(f"/api/requests/{entry['request_id']}/diagnostics").json()
         assert entry["capture"] == expected
         records = expected["records"]
@@ -282,3 +302,107 @@ def test_request_diagnostics_keeps_public_api_security_boundary(public_qa, scope
     foreign_request = application.runtime.begin(foreign_session, "private")
     assert client.get(f"/api/requests/{foreign_request}/diagnostics").status_code == 404
     assert client.get("/api/requests/nonexistent/diagnostics").status_code == 404
+
+
+@pytest.mark.parametrize("failure", ["timeout", "http_error"])
+@pytest.mark.parametrize("mismatch", [False, True])
+def test_running_request_identity_is_captured_after_transport_failure_before_shutdown(
+    qa_runner, public_qa, monkeypatch, tmp_path, failure, mismatch
+) -> None:  # type: ignore[no-untyped-def]
+    client, backend, sent, fetched = public_qa(read_turns("first") + read_turns("second"))
+    application = client.app.state.application
+    started = threading.Event()
+    release = asyncio.Event()
+    real_stream = backend.stream
+
+    async def held_stream(*args, **kwargs):  # type: ignore[no-untyped-def]
+        if len(backend.calls) == 3:
+            # The second real POST has passed begin(), SQLite commit, run() and
+            # model.started. Hold its scripted backend, not the observer/HTTP clock.
+            started.set()
+            await release.wait()
+        async for event in real_stream(*args, **kwargs):
+            yield event
+
+    monkeypatch.setattr(backend, "stream", held_stream)
+    original_request = qa_runner._json_request
+    attempts = 0
+    pending = None
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path / "timeout-report", ("do-not-persist",))
+    checkpoint.start({"mode": "full"})
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+
+        def request(base, method, path, body=None):  # type: ignore[no-untyped-def]
+            nonlocal attempts, pending
+            if method == "POST" and path.endswith("/messages"):
+                attempts += 1
+                if attempts == 2:
+                    pending = pool.submit(original_request, base, method, path, body)
+                    assert started.wait(3), "scripted runtime never started"
+                    if failure == "timeout":
+                        raise qa_runner.QARequestTimeout("controlled POST timeout")
+                    raise urllib.error.HTTPError(
+                        "http://qa" + path,
+                        502,
+                        "controlled gateway error",
+                        None,
+                        BytesIO(b'{"detail":"controlled"}'),
+                    )
+            payload = original_request(base, method, path, body)
+            if mismatch and path.endswith("/diagnostics") and len(fetched) == 2:
+                payload = {**payload, "records": [{"request_id": sent[0][1]}]}
+            return payload
+
+        def stopped(_):  # type: ignore[no-untyped-def]
+            row = json.loads((checkpoint.report_directory / "cases.partial.jsonl").read_text())
+            entries = row["runtime_input_diagnostics"]
+            assert row["status"] == "FAIL"
+            assert [entry["send_index"] for entry in entries] == [1, 2]
+            assert [entry["request_identity_source"] for entry in entries] == [
+                "message_response",
+                "qa_database_delta",
+            ]
+            timed = entries[1]
+            assert timed["request_id"] != entries[0]["request_id"]
+            assert fetched == [entry["request_id"] for entry in entries]
+            assert application.store.request(timed["request_id"])["status"] == "running"
+            assert pending is not None and not pending.done()
+            if mismatch:
+                assert timed["capture_status"] == "unavailable" and "capture" not in timed
+                assert timed["reason"] == "diagnostics records do not match exact request identity"
+            else:
+                assert timed["capture_status"] == "captured"
+                assert timed["capture"]["records"]
+                assert all(
+                    record["request_id"] == timed["request_id"]
+                    for record in timed["capture"]["records"]
+                )
+            assert "do-not-persist" not in json.dumps(row)
+
+        monkeypatch.setattr(qa_runner, "_json_request", request)
+        monkeypatch.setattr(qa_runner, "stop_qa_process", stopped)
+        try:
+            results, _ = qa_runner._run_structured(
+                [
+                    qa_runner.Case(
+                        id="running",
+                        prompt="first",
+                        turns=("second",),
+                        scenario="multi_turn",
+                        category="qa",
+                        manual_quality=True,
+                    )
+                ],
+                {"base_url": "http://mock.invalid", "id": "fake", "api_key": ""},
+                False,
+                checkpoint,
+            )
+            assert results[0]["detail"] == (
+                "QARequestTimeout" if failure == "timeout" else "HTTPError"
+            )
+            assert attempts == 2
+        finally:
+            client.portal.call(release.set)
+            if pending is not None:
+                pending.result(timeout=3)

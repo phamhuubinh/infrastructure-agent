@@ -619,8 +619,9 @@ def test_qa_routes_read_only_and_mutation_cases_to_separate_guarded_processes(
         environments.append(kwargs["env"])
         return Process()
 
-    def execute(base_url, case, secret, requests):  # type: ignore[no-untyped-def]
+    def execute(base_url, case, secret, requests, database):  # type: ignore[no-untyped-def]
         executed.append((base_url, case.id))
+        assert str(database) == environments[-1]["ORION_DATABASE_PATH"]
         timeline = [{"kind": "assistant_message", "payload": {"content": "done"}}]
         return timeline, [timeline]
 
@@ -881,7 +882,9 @@ def test_multiturn_reuses_one_session_but_cases_are_isolated(qa_runner, monkeypa
         return {"session_id": session}
 
     monkeypatch.setattr(qa_runner, "_create_session", create)
-    monkeypatch.setattr(qa_runner, "_send", lambda _, sid, prompt: sent.append((sid, prompt)))
+    monkeypatch.setattr(
+        qa_runner, "_send", lambda _, sid, prompt, *args: sent.append((sid, prompt))
+    )
     monkeypatch.setattr(
         qa_runner,
         "_timeline",
@@ -928,7 +931,7 @@ def test_manual_quality_and_timeout_are_contained_and_journaled(
     checkpoint.start()
     calls: list[str] = []
 
-    def execute(_, case, __, requests):  # type: ignore[no-untyped-def]
+    def execute(_, case, __, requests, database):  # type: ignore[no-untyped-def]
         calls.append(case.id)
         if case.id == "timed":
             raise qa_runner.QARequestTimeout()
@@ -977,7 +980,7 @@ def test_safe_exception_diagnostics_are_bounded_redacted_and_checkpointed(
     checkpoint = qa_runner.ReportCheckpoint(tmp_path, (secret,))
     checkpoint.start()
 
-    def execute(_, case, __, requests):  # type: ignore[no-untyped-def]
+    def execute(_, case, __, requests, database):  # type: ignore[no-untyped-def]
         if case.id == "marker":
             raise qa_runner.ScenarioFailure(
                 "final assistant response omitted the required QA marker"
@@ -1881,7 +1884,7 @@ def test_actual_isolated_and_multiturn_post_timeouts_never_retry(
         sessions.append(value)
         return {"session_id": value}
 
-    def send(_, session, prompt):  # type: ignore[no-untyped-def]
+    def send(_, session, prompt, observation, database):  # type: ignore[no-untyped-def]
         sent.append((session, prompt))
         if prompt in {"single", "turn-two"}:
             raise qa_runner.QARequestTimeout()
