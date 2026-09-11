@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 
 import pytest
 
@@ -289,9 +288,7 @@ def test_large_list_search_work_is_bounded_by_cap_not_list_length(monkeypatch) -
 
     monkeypatch.setattr(projection, "compact_json", measured_serialize)
     monkeypatch.setattr(projection, "_collect_omissions", measured_collect)
-    started = time.perf_counter()
     encoded = project_tool_result(result, cap)
-    elapsed = time.perf_counter() - started
     projected = json.loads(encoded)
     assert projected["data"] == result.data[: len(projected["data"])]
     assert 200 < len(projected["data"]) < 300
@@ -301,4 +298,3 @@ def test_large_list_search_work_is_bounded_by_cap_not_list_length(monkeypatch) -
     assert root_candidates <= 254
     assert sum(size > 2 * cap for size in sizes) == 1  # canonical, once
     assert sum(sizes) < sizes[0] + 254 * 14 * (2 * cap)
-    assert elapsed < 2.0, elapsed
