@@ -26,6 +26,13 @@ _SYSTEM_INSTRUCTIONS = (
     "catalog tools: expand exact unexposed names, not user-directed Orion calls."
 )
 
+_OMISSION_GROUNDING_INSTRUCTIONS = (
+    "_orion_projection: partial/omitted data_state or essential_metadata, omitted_items>0 or "
+    "omitted keys mean incomplete evidence, not absence/zero/no activity/incident/anomaly. "
+    "Disclose coverage limits or seek authorized evidence as appropriate. upstream_empty "
+    "supports emptiness only within query scope/time/limit."
+)
+
 # These are model-context byte proxies, not product quotas. Canonical timeline data
 # remains complete and the current user message is always retained in full.
 MAX_CONVERSATION_BYTES = 12_000
@@ -174,6 +181,15 @@ class ContextBuilder:
         timeline, omitted_timeline_turns = self._store.model_context_timeline(
             session_id, checkpoint.covered_item_id if checkpoint is not None else None
         )
+        # This is a data-presence check, not tool/intent routing. Every ToolResult
+        # (including complete/empty results) receives the same system contract.
+        # Charge it before strict budget allocation; data-free turns need no
+        # projection guidance and retain their existing context footprint.
+        if any(item.kind == "tool_result" for item in timeline):
+            messages[0] = ContextMessage(
+                role="system",
+                content=_SYSTEM_INSTRUCTIONS + " " + _OMISSION_GROUNDING_INSTRUCTIONS,
+            )
 
         compacted_current_blocks = 0
 

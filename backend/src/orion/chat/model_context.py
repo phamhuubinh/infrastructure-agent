@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from orion.contracts import ToolResult
 
-_PROJECTION_RESERVE_BYTES = 768
 _MAX_OMISSION_RECORDS = 12
 _PRIORITY_KEYS = {
     "target_ref",
@@ -36,13 +36,20 @@ def compact_json(value: object) -> str:
 
 
 def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
-    """Return a bounded model-only projection while leaving the canonical result untouched.
+    """Fit data AND actual omission metadata; never modify the canonical result.
 
-    Status, errors, correlation metadata, and exact SourceRef objects are never reduced.
-    The byte limit is soft only when that irreducible envelope itself exceeds it.
+    Reduction follows a budget-independent order: lower-priority dict fields,
+    list tails, then detail within the first remaining item. A fitting prefix is
+    selected using actual serialized costs, without a speculative byte reserve.
+    This nested sequence cannot trade away included items as the cap increases.
+
+    Status/error/correlation/sources are immutable. Only their envelope plus the
+    minimal truthful omission summary may exceed the cap (the irreducible case).
+    Per-path records are bounded; unreported_list_items sums cardinalities of
+    unreported list records, including nested lists, NOT distinct observations.
+    essential_metadata contains only upstream-provided fields; {} means neither
+    coverage field was supplied, not that coverage is complete.
     """
-    # An absent progress contract adds no model evidence or context overhead.
-    # Keep all other optional fields exactly as projected before this contract.
     canonical = result.model_dump(mode="json")
     if canonical["read_progress"] is None:
         del canonical["read_progress"]
@@ -51,211 +58,210 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
     if original_bytes <= maximum_bytes:
         return serialized
 
+    original = canonical["data"]
     envelope = {key: value for key, value in canonical.items() if key != "data"}
-    envelope["data"] = None
-    envelope["_orion_projection"] = {
-        "applied": True,
-        "data_state": _data_state(canonical.get("data"), None),
-        "essential_metadata": _essential_metadata_states(canonical.get("data"), None),
-        "original_bytes": original_bytes,
-        "maximum_bytes": maximum_bytes,
-        "omissions": [],
-        "omission_entries_omitted": 0,
-    }
-    irreducible_bytes = len(compact_json(envelope).encode("utf-8"))
-    data_budget = max(0, maximum_bytes - irreducible_bytes - _PROJECTION_RESERVE_BYTES)
+    projected = original
+    encoded = ""
 
-    projected: dict[str, Any] = envelope
-    for _ in range(4):
+    def assign(value: Any) -> None:
+        nonlocal projected
+        projected = value
+
+    def fits() -> bool:
+        nonlocal encoded
+        # A data-only lower bound is safe; omission costs are NOT monotonic.
+        # Skip omission collection/serialization when data alone cannot fit.
+        if (
+            projected not in (None, [], {})
+            and len(compact_json(projected).encode()) > maximum_bytes
+        ):
+            return False
         omissions: list[dict[str, Any]] = []
-        projected_data = _project_value(canonical.get("data"), data_budget, "$.data", omissions)
-        projected = {
-            **{key: value for key, value in canonical.items() if key != "data"},
-            "data": projected_data,
-            "_orion_projection": {
-                "applied": True,
-                "data_state": _data_state(canonical.get("data"), projected_data),
-                "essential_metadata": _essential_metadata_states(
-                    canonical.get("data"), projected_data
-                ),
-                "original_bytes": original_bytes,
-                "maximum_bytes": maximum_bytes,
-                "omissions": omissions[:_MAX_OMISSION_RECORDS],
-                "omission_entries_omitted": max(0, len(omissions) - _MAX_OMISSION_RECORDS),
-            },
+        _collect_omissions(original, projected, "$.data", omissions)
+        metadata: dict[str, Any] = {
+            "applied": True,
+            "data_state": _data_state(original, projected),
+            "essential_metadata": _essential_metadata_states(original, projected),
+            "original_bytes": original_bytes,
+            "maximum_bytes": maximum_bytes,
         }
-        projected_bytes = len(compact_json(projected).encode("utf-8"))
-        if projected_bytes <= maximum_bytes or data_budget == 0:
-            break
-        data_budget = max(0, data_budget - (projected_bytes - maximum_bytes) - 32)
-    return compact_json(projected)
+        # Spend only the actual needed metadata bytes. Retain the longest fitting
+        # record prefix, with explicit counts for every unreported list record.
+        retained_count = min(len(omissions), _MAX_OMISSION_RECORDS)
+        count_keys = ("original_items", "included_items", "omitted_items")
+        unreported = {
+            key: sum(item[key] for item in omissions[retained_count:] if key in item)
+            for key in count_keys
+        }
+        unreported_lists = sum("original_items" in item for item in omissions[retained_count:])
+        for retained in range(retained_count, -1, -1):
+            metadata["omissions"] = omissions[:retained]
+            metadata["omission_entries_omitted"] = len(omissions) - retained
+            if unreported_lists:
+                metadata["unreported_list_items"] = unreported
+            else:
+                metadata.pop("unreported_list_items", None)
+            encoded = compact_json({**envelope, "data": projected, "_orion_projection": metadata})
+            if len(encoded.encode("utf-8")) <= maximum_bytes:
+                return True
+            if retained and "original_items" in omissions[retained - 1]:
+                unreported_lists += 1
+                for key in count_keys:
+                    unreported[key] += omissions[retained - 1][key]
+        return False
+
+    # The unchanged canonical already failed, so adding metadata cannot fit it.
+    if _shrink(original, assign, fits, maximum_bytes):
+        return encoded
+    # No data-bearing candidate fits. Keep true empty upstream containers intact;
+    # nonempty-but-unavailable data is null, never a misleading [] or {}.
+    assign(original if _data_state(original, None) == "upstream_empty" else None)
+    fits()
+    return encoded
+
+
+def _shrink(
+    value: Any, assign: Callable[[Any], None], fits: Callable[[], bool], maximum_bytes: int
+) -> bool:
+    """Search a fixed decreasing evidence sequence, using exact envelope costs.
+
+    List prefixes are exhaustive, longest first: including nested data can REMOVE
+    omission records, so final serialized cost cannot be binary-searched. Only
+    the data-only prefix cost is monotonic and safely excludes oversized prefixes.
+    With cap B, at most (B - 1) // 2 nonempty prefixes reach fits (each JSON item
+    costs at least one byte plus a comma). Thus candidate serialization is bounded
+    by the context cap, not an O(N**2) sequence of full N-item serializations.
+    """
+    if isinstance(value, list) and value:
+        prefix_bytes = 2
+        largest = 0
+        for index in range(len(value) - 1):
+            item = value[index]
+            prefix_bytes += len(compact_json(item).encode()) + (1 if index else 0)
+            if prefix_bytes > maximum_bytes:
+                break
+            largest = index + 1
+        for included in range(largest, 0, -1):
+            assign(value[:included])
+            if fits():
+                return True
+        assign(value[:1])
+        if _shrink(
+            value[0], lambda item: assign([item] if item is not None else None), fits, maximum_bytes
+        ):
+            return True
+    elif isinstance(value, dict) and value:
+        current = dict(value)
+        assign(current)
+        positions = {key: index for index, key in enumerate(value)}
+        keys = sorted(
+            value,
+            key=lambda key: (
+                key not in _EVIDENCE_METADATA_KEYS,
+                key not in _PRIORITY_KEYS,
+                positions[key],
+            ),
+        )
+        for key in reversed(keys):
+
+            def assign_child(item: Any, child_key: str = key) -> None:
+                if item is None:
+                    current.pop(child_key, None)
+                else:
+                    current[child_key] = item
+                assign(current if current else None)
+
+            if _shrink(value[key], assign_child, fits, maximum_bytes):
+                return True
+            assign_child(None)
+            if fits():
+                return True
+    elif isinstance(value, str) and value:
+        # Unlike lists, strictly partial string prefixes have monotonic cost for
+        # EACH fixed record-retention count: each character adds >=1 UTF-8/JSON
+        # byte, and omitted_characters loses at most one decimal digit. Omission
+        # paths/counts and all coverage states stay fixed. The union of these
+        # feasible prefix intervals is still an interval, so binary search is safe.
+        # Exclude an ellipsis replacement equal to the full original: completing
+        # that value removes metadata (and the full value already failed above).
+        low = 1
+        high = min(len(value) - (2 if value.endswith("…") else 1), maximum_bytes)
+        best = 0
+        while low <= high:
+            middle = (low + high) // 2
+            assign(value[:middle] + "…")
+            if fits():
+                best, low = middle, middle + 1
+            else:
+                high = middle - 1
+        if best:
+            assign(value[:best] + "…")
+            return fits()
+    assign(None)
+    return fits()
 
 
 def _data_state(original: Any, projected: Any) -> str:
-    """Describe data availability without conflating omission with an empty upstream result."""
     if original is None or original == {} or original == []:
         return "upstream_empty"
     if projected is None:
         return "omitted"
-    if projected == original:
-        return "complete"
-    return "partial"
+    return "complete" if projected == original else "partial"
 
 
 def _essential_metadata_states(original: Any, projected: Any) -> dict[str, str]:
-    """State whether coverage/limitation fields survived projection intact.
-
-    The projected values remain useful when partial, but a model must not treat a
-    partial value as the complete upstream coverage contract.
-    """
-    states: dict[str, str] = {}
-    for key in _EVIDENCE_METADATA_KEYS:
-        if not isinstance(original, dict) or key not in original:
-            states[key] = "not_provided_by_upstream"
-        elif not isinstance(projected, dict) or key not in projected:
-            states[key] = "omitted"
-        elif projected[key] == original[key]:
-            states[key] = "complete"
-        else:
-            states[key] = "partial"
-    return states
+    return {
+        key: (
+            "omitted"
+            if not isinstance(projected, dict) or key not in projected
+            else "complete"
+            if projected[key] == original[key]
+            else "partial"
+        )
+        for key in _EVIDENCE_METADATA_KEYS
+        if isinstance(original, dict) and key in original
+    }
 
 
-def _project_value(value: Any, budget: int, path: str, omissions: list[dict[str, Any]]) -> Any:
-    if _json_bytes(value) <= budget:
-        return value
-    if isinstance(value, str):
-        return _project_string(value, budget, path, omissions)
-    if isinstance(value, list):
-        return _project_list(value, budget, path, omissions)
-    if isinstance(value, dict):
-        return _project_dict(value, budget, path, omissions)
-    omissions.append({"path": path, "value_omitted": True})
-    return None
-
-
-def _project_string(
-    value: str, budget: int, path: str, omissions: list[dict[str, Any]]
-) -> str | None:
-    if budget < 5:
-        omissions.append({"path": path, "omitted_characters": len(value)})
-        return None
-    low, high = 0, len(value)
-    while low < high:
-        middle = (low + high + 1) // 2
-        candidate = value[:middle] + "…"
-        if _json_bytes(candidate) <= budget:
-            low = middle
-        else:
-            high = middle - 1
-    omissions.append({"path": path, "omitted_characters": len(value) - low})
-    return value[:low] + "…"
-
-
-def _project_list(
-    value: list[Any], budget: int, path: str, omissions: list[dict[str, Any]]
-) -> list[Any]:
-    projected: list[Any] = []
-    for index, item in enumerate(value):
-        remaining = budget - _json_bytes(projected) - (1 if projected else 0)
-        if remaining <= 2:
-            break
-        if _json_bytes(item) <= remaining:
-            projected.append(item)
-            continue
-        if not projected:
-            reduced = _project_value(item, remaining, f"{path}[{index}]", omissions)
-            if reduced is not None:
-                projected.append(reduced)
-        break
-    if len(projected) < len(value):
+def _collect_omissions(
+    original: Any, projected: Any, path: str, omissions: list[dict[str, Any]]
+) -> None:
+    if original == projected:
+        return
+    if isinstance(original, list):
+        included = len(projected) if isinstance(projected, list) else 0
         omissions.append(
             {
                 "path": path,
-                "original_items": len(value),
-                "included_items": len(projected),
-                "omitted_items": len(value) - len(projected),
+                "original_items": len(original),
+                "included_items": included,
+                "omitted_items": len(original) - included,
             }
         )
-    return projected
-
-
-def _project_dict(
-    value: dict[str, Any], budget: int, path: str, omissions: list[dict[str, Any]]
-) -> dict[str, Any]:
-    projected: dict[str, Any] = {}
-    positions = {key: index for index, key in enumerate(value)}
-    keys = sorted(
-        value,
-        key=lambda key: (
-            key not in _EVIDENCE_METADATA_KEYS,
-            key not in _PRIORITY_KEYS,
-            positions[key],
-        ),
-    )
-    omitted_keys: list[str] = []
-    for index, key in enumerate(keys):
-        remaining = budget - _json_bytes(projected) - _json_bytes(key) - 2
-        if remaining <= 0:
-            _record_omitted_key(value, key, path, omissions, omitted_keys)
-            continue
-        item = value[key]
-        # Coverage and limitation metadata establishes what the result can
-        # support. Reserve room for every remaining essential field before
-        # allocating detail/result payloads. If that envelope itself cannot
-        # fit, its projection state explicitly reports the limitation.
-        remaining_essential = [
-            later_key for later_key in keys[index + 1 :] if later_key in _EVIDENCE_METADATA_KEYS
-        ]
-        if key in _EVIDENCE_METADATA_KEYS:
-            reserved = sum(
-                _json_bytes(value[later_key]) + _json_bytes(later_key) + 2
-                for later_key in remaining_essential
-            )
-            value_budget = max(0, remaining - reserved)
-        else:
-            # Share the remaining value space across every unprocessed key.
-            # Small scalars consume less than their share, so later collections
-            # inherit unused space and a large details field cannot starve them.
-            value_budget = max(0, remaining // (len(keys) - index))
-        if value_budget == 0:
-            _record_omitted_key(value, key, path, omissions, omitted_keys)
-            continue
-        reduced = (
-            item
-            if _json_bytes(item) <= value_budget
-            else _project_value(item, value_budget, f"{path}.{key}", omissions)
-        )
-        candidate = {**projected, key: reduced}
-        if _json_bytes(candidate) <= budget:
-            projected[key] = reduced
-        else:
-            _record_omitted_key(value, key, path, omissions, omitted_keys)
-    if omitted_keys:
-        omissions.append({"path": path, "omitted_keys": omitted_keys})
-    return projected
-
-
-def _record_omitted_key(
-    value: dict[str, Any],
-    key: str,
-    path: str,
-    omissions: list[dict[str, Any]],
-    omitted_keys: list[str],
-) -> None:
-    item = value[key]
-    if isinstance(item, list):
-        omissions.append(
-            {
-                "path": f"{path}.{key}",
-                "original_items": len(item),
-                "included_items": 0,
-                "omitted_items": len(item),
-            }
-        )
+        for index, item in enumerate(original):
+            if index < included:
+                _collect_omissions(item, projected[index], f"{path}[{index}]", omissions)
+            else:
+                _collect_nested_lists(item, f"{path}[{index}]", omissions)
+    elif isinstance(original, dict):
+        visible = projected if isinstance(projected, dict) else {}
+        missing = [key for key in original if key not in visible]
+        if missing:
+            omissions.append({"path": path, "omitted_keys": missing})
+        for key, item in original.items():
+            if key in visible or isinstance(item, (dict, list)):
+                _collect_omissions(item, visible.get(key), f"{path}.{key}", omissions)
+    elif isinstance(original, str):
+        kept = len(projected) - 1 if isinstance(projected, str) else 0
+        omissions.append({"path": path, "omitted_characters": len(original) - kept})
     else:
-        omitted_keys.append(key)
+        omissions.append({"path": path, "value_omitted": True})
 
 
-def _json_bytes(value: object) -> int:
-    return len(compact_json(value).encode("utf-8"))
+def _collect_nested_lists(value: Any, path: str, omissions: list[dict[str, Any]]) -> None:
+    """An omitted parent covers its scalar fields, but not nested cardinalities."""
+    if isinstance(value, list):
+        _collect_omissions(value, None, path, omissions)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _collect_nested_lists(item, f"{path}.{key}", omissions)
