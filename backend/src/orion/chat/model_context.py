@@ -67,8 +67,15 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
         nonlocal projected
         projected = value
 
-    def fits(*, compact_records: bool = False) -> bool:
+    def fits() -> bool:
         nonlocal encoded
+        # A data-only lower bound is safe; omission costs are NOT monotonic.
+        # Skip omission collection/serialization when data alone cannot fit.
+        if (
+            projected not in (None, [], {})
+            and len(compact_json(projected).encode()) > maximum_bytes
+        ):
+            return False
         omissions: list[dict[str, Any]] = []
         _collect_omissions(original, projected, "$.data", omissions)
         metadata: dict[str, Any] = {
@@ -81,54 +88,67 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
         # Spend only the actual needed metadata bytes. Retain the longest fitting
         # record prefix, with explicit counts for every unreported list record.
         retained_count = min(len(omissions), _MAX_OMISSION_RECORDS)
-        counts = range(retained_count, -1, -1) if compact_records else (retained_count,)
-        for retained in counts:
+        count_keys = ("original_items", "included_items", "omitted_items")
+        unreported = {
+            key: sum(item[key] for item in omissions[retained_count:] if key in item)
+            for key in count_keys
+        }
+        unreported_lists = sum("original_items" in item for item in omissions[retained_count:])
+        for retained in range(retained_count, -1, -1):
             metadata["omissions"] = omissions[:retained]
             metadata["omission_entries_omitted"] = len(omissions) - retained
-            lists = [item for item in omissions[retained:] if "original_items" in item]
-            if lists:
-                metadata["unreported_list_items"] = {
-                    key: sum(item[key] for item in lists)
-                    for key in ("original_items", "included_items", "omitted_items")
-                }
+            if unreported_lists:
+                metadata["unreported_list_items"] = unreported
             else:
                 metadata.pop("unreported_list_items", None)
             encoded = compact_json({**envelope, "data": projected, "_orion_projection": metadata})
             if len(encoded.encode("utf-8")) <= maximum_bytes:
                 return True
+            if retained and "original_items" in omissions[retained - 1]:
+                unreported_lists += 1
+                for key in count_keys:
+                    unreported[key] += omissions[retained - 1][key]
         return False
 
-    if fits() or _shrink(original, assign, fits):
+    # The unchanged canonical already failed, so adding metadata cannot fit it.
+    if _shrink(original, assign, fits, maximum_bytes):
         return encoded
     # No data-bearing candidate fits. Keep true empty upstream containers intact;
     # nonempty-but-unavailable data is null, never a misleading [] or {}.
     assign(original if _data_state(original, None) == "upstream_empty" else None)
-    fits(compact_records=True)
+    fits()
     return encoded
 
 
-def _shrink(value: Any, assign: Callable[[Any], None], fits: Callable[[], bool]) -> bool:
+def _shrink(
+    value: Any, assign: Callable[[Any], None], fits: Callable[[], bool], maximum_bytes: int
+) -> bool:
     """Search a fixed decreasing evidence sequence, using exact envelope costs.
 
-    Binary searches select prefixes within one stage; stages always have the same
-    order regardless of cap. Full values are tried before their shortened forms,
-    since completing a value can remove an omission record and LOWER its cost.
+    List prefixes are exhaustive, longest first: including nested data can REMOVE
+    omission records, so final serialized cost cannot be binary-searched. Only
+    the data-only prefix cost is monotonic and safely excludes oversized prefixes.
+    With cap B, at most (B - 1) // 2 nonempty prefixes reach fits (each JSON item
+    costs at least one byte plus a comma). Thus candidate serialization is bounded
+    by the context cap, not an O(N**2) sequence of full N-item serializations.
     """
     if isinstance(value, list) and value:
-        low, high = 1, len(value) - 1
-        best = 0
-        while low <= high:
-            middle = (low + high) // 2
-            assign(value[:middle])
+        prefix_bytes = 2
+        largest = 0
+        for index in range(len(value) - 1):
+            item = value[index]
+            prefix_bytes += len(compact_json(item).encode()) + (1 if index else 0)
+            if prefix_bytes > maximum_bytes:
+                break
+            largest = index + 1
+        for included in range(largest, 0, -1):
+            assign(value[:included])
             if fits():
-                best, low = middle, middle + 1
-            else:
-                high = middle - 1
-        if best:
-            assign(value[:best])
-            return fits()
+                return True
         assign(value[:1])
-        if _shrink(value[0], lambda item: assign([item] if item is not None else None), fits):
+        if _shrink(
+            value[0], lambda item: assign([item] if item is not None else None), fits, maximum_bytes
+        ):
             return True
     elif isinstance(value, dict) and value:
         current = dict(value)
@@ -151,13 +171,21 @@ def _shrink(value: Any, assign: Callable[[Any], None], fits: Callable[[], bool])
                     current[child_key] = item
                 assign(current if current else None)
 
-            if _shrink(value[key], assign_child, fits):
+            if _shrink(value[key], assign_child, fits, maximum_bytes):
                 return True
             assign_child(None)
             if fits():
                 return True
     elif isinstance(value, str) and value:
-        low, high = 1, len(value) - 1
+        # Unlike lists, strictly partial string prefixes have monotonic cost for
+        # EACH fixed record-retention count: each character adds >=1 UTF-8/JSON
+        # byte, and omitted_characters loses at most one decimal digit. Omission
+        # paths/counts and all coverage states stay fixed. The union of these
+        # feasible prefix intervals is still an interval, so binary search is safe.
+        # Exclude an ellipsis replacement equal to the full original: completing
+        # that value removes metadata (and the full value already failed above).
+        low = 1
+        high = min(len(value) - (2 if value.endswith("…") else 1), maximum_bytes)
         best = 0
         while low <= high:
             middle = (low + high) // 2

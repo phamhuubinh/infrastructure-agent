@@ -386,15 +386,21 @@ def test_projection_preserves_collection_counts_when_large_details_precede_recor
     )
 
     projected = json.loads(project_tool_result(result, 1_500))
+    metadata = projected["_orion_projection"]
     record_omission = next(
-        omission
-        for omission in projected["_orion_projection"]["omissions"]
-        if omission["path"] == "$.data.records"
+        (omission for omission in metadata["omissions"] if omission["path"] == "$.data.records"),
+        None,
     )
+    if record_omission is None:
+        # This fixture has exactly one list. Adaptive detail compaction must
+        # preserve its exact cardinalities in the truthful aggregate instead.
+        assert metadata["omission_entries_omitted"] > 0
+        record_omission = metadata["unreported_list_items"]
 
     assert projected["data"]["verification"]["status"] == "verified"
     assert record_omission["original_items"] == 37
     assert record_omission["included_items"] + record_omission["omitted_items"] == 37
+    assert record_omission["included_items"] == len(projected["data"].get("records", []))
 
 
 def test_projection_preserves_evidence_scope_and_time_coverage_before_large_results() -> None:
