@@ -34,15 +34,32 @@ The bounded transcript supplies the full terminal answer/evidence required by th
 sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
 remain not assessable.
 
-Runner version 12 captures `runtime_input_diagnostics` using request identities returned by
-the message API, never inferred from public timeline items. Entries preserve one-based
+Runner version 13 captures `runtime_input_diagnostics` using authoritative message-response
+identities or exact session-scoped QA SQLite deltas, never public timeline items. Entries preserve
+one-based
 `send_index`, `session_id`, and `request_id` for each attempted send, across turns and sessions.
 Exact-request captures are fetched before the temporary API shuts down, with runtime bounds
 and redaction retained. Optional missing, empty, malformed, or mismatched diagnostics are
 `capture_status: unavailable` with a deterministic reason; they do not change execution status.
-A timed-out POST may not return any identity: that send has `request_id: null`, no capture,
-and never borrows a previous turn's ID. Legacy reports without these entries have no request
-capture evidence; this change does not repair them. Manifest and sidecar schema versions are
+
+Every send snapshots request IDs before and after exactly one POST, using a fresh read-only
+connection to that execution's isolated temporary QA database. This is QA evidence coupling to
+the stable `requests(request_id, session_id)` table, not a production store/API change. There
+are no migrations/writes, lock waits, POST retries, or waits for request completion.
+On success, a valid response ID always wins, even if observation fails or the delta disagrees.
+On timeout/HTTP error, only `after_ids - before_ids` containing exactly one same-session ID may
+bind the observation. The original timeout/error still propagates. This association relies on
+the runner's serial sends and exclusive ownership of the temporary session/database; it never
+selects a latest row, timestamp, another session, or a prior turn's ID.
+`request_identity_source` is `message_response`, `qa_database_delta`, or `unavailable`.
+Zero/ambiguous deltas or failed reads retain `request_id: null` with a fixed, bounded
+`request_identity_reason`; raw SQLite errors, database paths and content are not reported.
+A request not yet committed when the after-snapshot runs remains unavailable; the observer
+does not poll for it. Recovered timeout IDs allow exact-request diagnostics before shutdown,
+but records must still all match that ID and may be unavailable or incomplete.
+
+Legacy reports without these entries have no request capture evidence; this change does not
+repair them. Manifest and sidecar schema versions are
 unchanged; the runner version records the additive evidence change.
 
 Each execution exclusively reserves its report directory before writing any checkpoint or

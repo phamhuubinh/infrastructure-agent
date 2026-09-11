@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 import uuid
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,7 +28,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "12"
+RUNNER_VERSION = "13"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
@@ -87,6 +88,60 @@ class RequestObservation:
 
     session_id: str
     request_id: str | None = None
+    request_identity_source: str = "unavailable"
+    request_identity_reason: str | None = (
+        "message submission did not return a request identity"
+    )
+
+
+def _request_ids_snapshot(database: Path | None, session_id: str) -> frozenset[str] | None:
+    """QA-only evidence coupling to requests(request_id, session_id), without migrations.
+
+    The caller supplies the isolated QA execution database, never the active user
+    database. A fresh read-only connection observes committed rows only. Do not
+    wait for a lock or runtime completion; unreadable evidence is unavailable.
+    """
+    if database is None:
+        return None
+    try:
+        with closing(
+            sqlite3.connect(
+                database.resolve().as_uri() + "?mode=ro", uri=True, timeout=0
+            )
+        ) as connection:
+            rows = connection.execute(
+                "SELECT request_id FROM requests WHERE session_id = ?", (session_id,)
+            ).fetchall()
+        if any(not isinstance(row[0], str) or not row[0] for row in rows):
+            return None
+        return frozenset(row[0] for row in rows)
+    except (OSError, ValueError, sqlite3.Error):
+        return None
+
+
+def _bind_request_delta(
+    observation: RequestObservation,
+    before: frozenset[str] | None,
+    after: frozenset[str] | None,
+) -> None:
+    """Bind only an unambiguous session delta under runner-owned serial sends."""
+    observation.request_id = None
+    observation.request_identity_source = "unavailable"
+    new_ids = after - before if before is not None and after is not None else frozenset()
+    if before is None:
+        reason = "before-send QA database snapshot unavailable"
+    elif after is None:
+        reason = "after-send QA database snapshot unavailable"
+    elif not new_ids:
+        reason = "no new request in exact-session QA database delta"
+    elif len(new_ids) != 1:
+        reason = "ambiguous exact-session QA database delta"
+    else:
+        observation.request_id = next(iter(new_ids))
+        observation.request_identity_source = "qa_database_delta"
+        observation.request_identity_reason = None
+        return
+    observation.request_identity_reason = reason
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -802,11 +857,14 @@ def runtime_input_diagnostics(
             "send_index": index,
             "session_id": request.session_id,
             "request_id": request.request_id,
+            "request_identity_source": request.request_identity_source,
             "capture_status": "unavailable",
         }
+        if request.request_identity_reason is not None:
+            entry["request_identity_reason"] = request.request_identity_reason
         diagnostics.append(entry)
         if request.request_id is None:
-            entry["reason"] = "message submission did not return a request identity"
+            entry["reason"] = request.request_identity_reason or "request identity unavailable"
             continue
         request_id = quote(request.request_id, safe="")
         try:
@@ -1477,15 +1535,30 @@ def _create_session(base_url: str, project_id: str | None = None) -> dict[str, o
     return session
 
 
-def _send(base_url: str, session_id: str, content: str) -> str | None:
+def _send(
+    base_url: str,
+    session_id: str,
+    content: str,
+    observation: RequestObservation | None = None,
+    database: Path | None = None,
+) -> str | None:
+    if observation is None:
+        observation = RequestObservation(session_id)
+    before = _request_ids_snapshot(database, session_id)
     try:
-        response = _json_request(
-            base_url,
-            "POST",
-            f"/api/sessions/{session_id}/messages",
-            {"content": content},
-        )
+        try:
+            response = _json_request(
+                base_url,
+                "POST",
+                f"/api/sessions/{session_id}/messages",
+                {"content": content},
+            )
+        finally:
+            after = _request_ids_snapshot(database, session_id)
     except (urllib.error.HTTPError, QARequestTimeout) as error:
+        # Bind before timeline best-effort capture and before propagating the
+        # original error. Never retry, wait for completion, or inspect a latest row.
+        _bind_request_delta(observation, before, after)
         try:
             timeline = _timeline(base_url, session_id)
         except (
@@ -1499,12 +1572,16 @@ def _send(base_url: str, session_id: str, content: str) -> str | None:
         if timeline is not None:
             error.observed_timelines = [timeline]
         raise
+    request_id = response.get("request_id") if isinstance(response, dict) else None
+    if isinstance(request_id, str) and request_id:
+        observation.request_id = request_id
+        observation.request_identity_source = "message_response"
+        observation.request_identity_reason = None
     if not isinstance(response, dict) or not isinstance(
         response.get("assistant_content"), str
     ):
         raise ScenarioFailure("message endpoint did not return an assistant response")
-    request_id = response.get("request_id")
-    return request_id if isinstance(request_id, str) and request_id else None
+    return observation.request_id
 
 
 def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
@@ -1620,12 +1697,18 @@ def _execute_case(
     case: Case,
     secret: str,
     requests: list[RequestObservation] | None = None,
+    database: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
-    """Exercise only public HTTP APIs; return the final and all checked timelines."""
+    """Exercise public HTTP APIs with optional read-only QA identity observation."""
     observed: list[list[dict[str, Any]]] = []
     try:
         return _execute_case_inner(
-            base_url, case, secret, observed, requests if requests is not None else []
+            base_url,
+            case,
+            secret,
+            observed,
+            requests if requests is not None else [],
+            database,
         )
     except ScenarioFailure as error:
         error.retain_timelines(observed)
@@ -1643,11 +1726,12 @@ def _execute_case_inner(
     secret: str,
     observed: list[list[dict[str, Any]]],
     requests: list[RequestObservation],
+    database: Path | None = None,
 ) -> tuple[list[dict[str, Any]], list[list[dict[str, Any]]]]:
     def send(session_id: str, content: str) -> None:
         observation = RequestObservation(session_id)
         requests.append(observation)
-        observation.request_id = _send(base_url, session_id, content)
+        _send(base_url, session_id, content, observation, database)
 
     prompt = _case_prompt(case, case.prompt)
     if case.scenario == "ordinary_chat" or case.scenario == "safety_response":
@@ -1792,6 +1876,7 @@ def _run_structured(
 ) -> tuple[list[dict[str, object]], str]:
     with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
         runtimes: dict[bool, tuple[str, subprocess.Popen[str]]] = {}
+        databases: dict[bool, Path] = {}
         results: list[dict[str, object]] = []
         base_url = ""
 
@@ -1808,6 +1893,7 @@ def _run_structured(
                 model,
                 mutation_case=case.mutation,
             )
+            databases[case.mutation] = Path(environment["ORION_DATABASE_PATH"])
             port = _available_port()
             runtime_base_url = f"http://127.0.0.1:{port}"
             process = subprocess.Popen(
@@ -1848,7 +1934,7 @@ def _run_structured(
                 requests: list[RequestObservation] = []
                 try:
                     timeline, checked_timelines = _execute_case(
-                        base_url, case, model["api_key"], requests
+                        base_url, case, model["api_key"], requests, databases[case.mutation]
                     )
                     status, reason, tools, sources = evaluate(case, timeline)
                     for checked in checked_timelines:
