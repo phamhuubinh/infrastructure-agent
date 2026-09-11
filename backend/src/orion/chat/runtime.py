@@ -38,6 +38,7 @@ from orion.contracts import (
     RuntimeScope,
     SourceRef,
     TimelineItem,
+    ToolCallDelta,
     ToolDefinition,
     ToolResult,
     citations_are_visible,
@@ -71,6 +72,63 @@ class RequestOutcome:
     request_id: str
     assistant_content: str
     status: str = "completed"
+
+
+@dataclass
+class _ModelStreamProgress:
+    """Aggregate safe stream-shape facts for one normalized model turn.
+
+    This deliberately receives only canonical ``ModelStreamEvent`` instances.
+    It never retains the content or arguments carried by delta events.
+    """
+
+    first_normalized_event_elapsed_ms: int | None = None
+    first_assistant_delta_elapsed_ms: int | None = None
+    first_tool_call_delta_elapsed_ms: int | None = None
+    first_actionable_delta_kind: str | None = None
+    assistant_delta_count: int = 0
+    assistant_delta_characters: int = 0
+    tool_call_delta_count: int = 0
+
+    def observe(self, event: object, elapsed_ms: int) -> str | None:
+        if self.first_normalized_event_elapsed_ms is None:
+            self.first_normalized_event_elapsed_ms = elapsed_ms
+        if isinstance(event, AssistantDelta):
+            if self.first_assistant_delta_elapsed_ms is None:
+                self.first_assistant_delta_elapsed_ms = elapsed_ms
+            self.assistant_delta_count += 1
+            self.assistant_delta_characters += len(event.content)
+            return self._first_actionable_delta("assistant")
+        elif isinstance(event, ToolCallDelta):
+            if self.first_tool_call_delta_elapsed_ms is None:
+                self.first_tool_call_delta_elapsed_ms = elapsed_ms
+            self.tool_call_delta_count += 1
+            return self._first_actionable_delta("tool_call")
+        return None
+
+    def _first_actionable_delta(self, kind: str) -> str | None:
+        if self.first_actionable_delta_kind is not None:
+            return None
+        self.first_actionable_delta_kind = kind
+        return kind
+
+    def diagnostic_fields(self) -> dict[str, int | None]:
+        """Return the fixed, content-free fields safe to add to a terminal record."""
+        return {
+            "first_normalized_event_elapsed_ms": self.first_normalized_event_elapsed_ms,
+            "first_assistant_delta_elapsed_ms": self.first_assistant_delta_elapsed_ms,
+            "first_tool_call_delta_elapsed_ms": self.first_tool_call_delta_elapsed_ms,
+            "assistant_delta_count": self.assistant_delta_count,
+            "assistant_delta_characters": self.assistant_delta_characters,
+            "tool_call_delta_count": self.tool_call_delta_count,
+        }
+
+
+@dataclass(frozen=True)
+class _ActiveModelPhase:
+    model_turn_id: str
+    started_at: float
+    progress: _ModelStreamProgress
 
 
 _SESSION_CONTINUITY_INSTRUCTIONS = (
@@ -337,7 +395,7 @@ class ChatRuntime:
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
-        active_model_phase: tuple[str, float] | None = None
+        active_model_phase: _ActiveModelPhase | None = None
         terminal_final_started = False
         observed_source_ref_ids: set[str] = set()
         try:
@@ -404,8 +462,11 @@ class ChatRuntime:
                     model_turn_number += 1
                     model_turn_id = f"{request_id}:{model_turn_number}:{uuid.uuid4().hex[:8]}"
                     model_started_at = self._monotonic_clock()
+                    model_stream_progress = _ModelStreamProgress()
                     self._emit(request_id, "model.started", {"model_turn_id": model_turn_id})
-                    active_model_phase = (model_turn_id, model_started_at)
+                    active_model_phase = _ActiveModelPhase(
+                        model_turn_id, model_started_at, model_stream_progress
+                    )
                     recovery_decision = recovery_decision_next
                     recovery_decision_next = False
                     recovery_guidance = recovery_guidance_next
@@ -426,6 +487,7 @@ class ChatRuntime:
                             tool_exposure,
                             model_turn_id=model_turn_id,
                             model_started_at=model_started_at,
+                            model_stream_progress=model_stream_progress,
                             recovery_decision=recovery_decision,
                             recovery_guidance=recovery_guidance,
                             capability_action_pending=capability_action_pending,
@@ -443,24 +505,36 @@ class ChatRuntime:
                         input_tokens += usage.input_tokens
                         output_tokens += usage.output_tokens
                     self._ensure_not_cancelled(cancellation)
+                    completed_elapsed_ms = self._elapsed_ms(model_started_at)
                     self._emit(
                         request_id,
                         "model.completed",
                         {
                             "model_turn_id": model_turn_id,
                             "tool_call_count": len(turn.tool_calls),
-                            "elapsed_ms": self._elapsed_ms(model_started_at),
+                            "elapsed_ms": completed_elapsed_ms,
                         },
                     )
-                    self._record_diagnostic(
-                        {
-                            "request_id": request_id,
-                            "model_turn_id": model_turn_id,
-                            "phase": "model",
-                            "status": "completed",
-                            "elapsed_ms": self._elapsed_ms(model_started_at),
-                        }
+                    completed_diagnostic: dict[str, object] = {
+                        "request_id": request_id,
+                        "model_turn_id": model_turn_id,
+                        "phase": "model",
+                        "status": "completed",
+                        "elapsed_ms": completed_elapsed_ms,
+                        "completed_elapsed_ms": completed_elapsed_ms,
+                        "tool_call_count": len(turn.tool_calls),
+                        **model_stream_progress.diagnostic_fields(),
+                    }
+                    first_event_elapsed_ms = model_stream_progress.first_normalized_event_elapsed_ms
+                    completed_diagnostic["first_normalized_event_to_completed_elapsed_ms"] = (
+                        max(0, completed_elapsed_ms - first_event_elapsed_ms)
+                        if first_event_elapsed_ms is not None
+                        else None
                     )
+                    if usage is not None:
+                        completed_diagnostic["input_tokens"] = usage.input_tokens
+                        completed_diagnostic["output_tokens"] = usage.output_tokens
+                    self._record_diagnostic(completed_diagnostic)
                     active_model_phase = None
                     if terminal_final:
                         if turn.tool_calls or turn.assistant is None:
@@ -725,6 +799,17 @@ class ChatRuntime:
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
         except RequestDeadlineExceeded as error:
+            if active_model_phase is not None:
+                self._record_diagnostic(
+                    {
+                        "request_id": request_id,
+                        "model_turn_id": active_model_phase.model_turn_id,
+                        "phase": "model",
+                        "status": "timed_out",
+                        "elapsed_ms": self._elapsed_ms(active_model_phase.started_at),
+                        **active_model_phase.progress.diagnostic_fields(),
+                    }
+                )
             return self._complete_incomplete(
                 session_id,
                 request_id,
@@ -738,10 +823,11 @@ class ChatRuntime:
                 self._record_diagnostic(
                     {
                         "request_id": request_id,
-                        "model_turn_id": active_model_phase[0],
+                        "model_turn_id": active_model_phase.model_turn_id,
                         "phase": "model",
                         "status": "cancelled",
-                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                        "elapsed_ms": self._elapsed_ms(active_model_phase.started_at),
+                        **active_model_phase.progress.diagnostic_fields(),
                     }
                 )
             self._store.complete_request(request_id, "cancelled")
@@ -760,10 +846,11 @@ class ChatRuntime:
                 self._record_diagnostic(
                     {
                         "request_id": request_id,
-                        "model_turn_id": active_model_phase[0],
+                        "model_turn_id": active_model_phase.model_turn_id,
                         "phase": "model",
                         "status": "failed",
-                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                        "elapsed_ms": self._elapsed_ms(active_model_phase.started_at),
+                        **active_model_phase.progress.diagnostic_fields(),
                     }
                 )
             self._store.append_timeline(
@@ -814,10 +901,11 @@ class ChatRuntime:
                 self._record_diagnostic(
                     {
                         "request_id": request_id,
-                        "model_turn_id": active_model_phase[0],
+                        "model_turn_id": active_model_phase.model_turn_id,
                         "phase": "model",
                         "status": "failed",
-                        "elapsed_ms": self._elapsed_ms(active_model_phase[1]),
+                        "elapsed_ms": self._elapsed_ms(active_model_phase.started_at),
+                        **active_model_phase.progress.diagnostic_fields(),
                     }
                 )
             self._store.complete_request(request_id, "failed", str(error))
@@ -852,6 +940,7 @@ class ChatRuntime:
         *,
         model_turn_id: str,
         model_started_at: float,
+        model_stream_progress: _ModelStreamProgress,
         recovery_decision: bool = False,
         recovery_guidance: bool = False,
         capability_action_pending: bool = False,
@@ -964,6 +1053,20 @@ class ChatRuntime:
             cancellation,
         ):
             self._ensure_not_cancelled(cancellation)
+            event_elapsed_ms = self._elapsed_ms(model_started_at)
+            first_actionable_delta_kind = model_stream_progress.observe(event, event_elapsed_ms)
+            if first_actionable_delta_kind is not None:
+                self._record_diagnostic(
+                    {
+                        "request_id": request_id,
+                        "model_turn_id": model_turn_id,
+                        "phase": "model",
+                        "status": "stream_progress",
+                        "elapsed_ms": event_elapsed_ms,
+                        "first_actionable_delta_kind": first_actionable_delta_kind,
+                        **model_stream_progress.diagnostic_fields(),
+                    }
+                )
             if isinstance(event, AssistantDelta):
                 self._emit(request_id, "assistant.delta", {"content": event.content})
             elif isinstance(event, ModelTurnCompleted):
