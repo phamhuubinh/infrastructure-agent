@@ -49,6 +49,7 @@ def _variants(result: ToolResult, included: int, cap: int) -> list[str]:
         metadata = dict(
             applied=True,
             data_state="partial",
+            source_data_state="upstream_nonempty_partial",
             essential_metadata={},
             original_bytes=len(compact_json(original).encode()),
             maximum_bytes=cap,
@@ -70,19 +71,19 @@ def test_nested_small_lists_choose_maximal_fitting_prefix() -> None:
     result = _result()
     cap = 600
     assert len(compact_json(_canonical(result)).encode()) == 783 > cap
-    candidate = _variants(result, 10, cap)[0]
-    assert len(candidate.encode()) == 578 <= cap
+    candidate = _variants(result, 8, cap)[0]
+    assert len(candidate.encode()) == 581 <= cap
     encoded = project_tool_result(result, cap)
     value = json.loads(encoded)
-    assert value["data"] == result.data[:10]
+    assert value["data"] == result.data[:8]
     assert encoded == candidate
     assert all(
-        len(variant.encode()) > cap for n in range(11, 30) for variant in _variants(result, n, cap)
+        len(variant.encode()) > cap for n in range(9, 30) for variant in _variants(result, n, cap)
     )
     assert value["_orion_projection"]["unreported_list_items"] == {
-        "original_items": 50,
-        "included_items": 10,
-        "omitted_items": 40,
+        "original_items": 52,
+        "included_items": 8,
+        "omitted_items": 44,
     }
 
 
@@ -117,6 +118,7 @@ def test_even_minimal_metadata_cost_can_fall_when_a_prefix_grows() -> None:
             metadata = dict(
                 applied=True,
                 data_state="partial",
+                source_data_state="upstream_nonempty_partial",
                 essential_metadata={},
                 original_bytes=original_bytes,
                 maximum_bytes=cap,
@@ -135,14 +137,14 @@ def test_even_minimal_metadata_cost_can_fall_when_a_prefix_grows() -> None:
             )
         return outputs
 
-    cap = 350
+    cap = 398
     assert original_bytes > cap
     # Binary search tests midpoint 2, then 1: both fail although 3 fits, even
     # after trying ALL detail-retention counts at each of those prefixes.
     assert [min(len(value.encode()) for value in variants(n, cap)) for n in (1, 2, 3)] == [
-        353,
-        356,
-        350,
+        401,
+        404,
+        398,
     ]
     assert project_tool_result(result, cap) == variants(3, cap)[-1]
     previous = 0
@@ -244,6 +246,7 @@ def test_partial_string_search_matches_exhaustive_costs(ending: str) -> None:
                 metadata = dict(
                     applied=True,
                     data_state="partial",
+                    source_data_state="upstream_nonempty_partial",
                     essential_metadata={},
                     original_bytes=original_size,
                     maximum_bytes=cap,

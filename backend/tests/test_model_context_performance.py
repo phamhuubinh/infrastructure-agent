@@ -36,9 +36,9 @@ EXPECTED_EXPANSION_SCHEMA_BYTES = 894
 EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_984
 EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_281
 EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_218
-EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 4_589
+EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 4_660
 # Includes post-observation batching and grounding guidance; the context budget is unchanged.
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 11_860
+EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 11_983
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -228,7 +228,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 21_735
+    assert resumed_proxy == 21_858
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert resumed_proxy <= 23_000
     assert len(context[-1].content.encode()) <= 6_000
@@ -293,8 +293,8 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         )
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
-    assert _messages_bytes(current_messages) == 11_038
-    assert _provider_proxy(context) == 26_317
+    assert _messages_bytes(current_messages) == 11_558
+    assert _provider_proxy(context) == 26_908
 
 
 def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(store) -> None:  # type: ignore[no-untyped-def]
@@ -333,7 +333,9 @@ def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(sto
 
     assert _messages_bytes(strict_context.messages) <= maximum_bytes
     assert strict_context.messages[0].role == "system"
-    assert "_orion_projection: partial/omitted data_state" in strict_context.messages[0].content
+    assert (
+        "source_data_state=upstream_nonempty_omitted/partial" in strict_context.messages[0].content
+    )
     assert current_user_message in [message.content for message in strict_context.messages]
     assert any(
         "Conversation data was omitted" in message.content for message in strict_context.messages
@@ -542,7 +544,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 26_454
+    assert history_proxy == 26_525
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
