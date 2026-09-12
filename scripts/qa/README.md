@@ -14,19 +14,31 @@ result has the stable ID `<suite-id>-<ordinal 3 digits>` plus `source_file` and 
 metadata. `--case-id` is intentionally unavailable in behavioral mode because a partial suite
 would break its conversation semantics.
 
-If a message submission times out, disconnects, or fails before returning an assistant response,
-behavioral QA stops the entire batch, even without `--fail-fast`. A client timeout does not cancel
-server-side work: continuing the same session would queue more requests behind it. The failed
-row retains its review/diagnostic payload and `execution_stop_reason`; the temporary QA process
-is stopped. Final manifest/progress/summary report `aborted`; manifest and summary include
-`reported_case_count`, `unrun_case_count` and `stop_reason`, with `stop_case_id` in the manifest.
-Unrun prompts are not reported
-as PASS/SKIP and no replacement session is created. The command exits nonzero.
+Behavioral message submissions wait for the actual terminal answer. They do **not** use the
+90-second `ORION_QA_REQUEST_TIMEOUT_SECONDS` setting as a latency verdict. A separate, fixed
+900-second (15-minute) wall-clock watchdog bounds each submission, including a stuck socket;
+the runner also monitors its owned API process while waiting. There is no POST retry, new
+session, or next prompt while an answer is outstanding.
 
-An assertion or timeline-capture failure after a message response has returned remains a per-case
-FAIL; subsequent prompts still use the same session unless `--fail-fast` was requested. The
-90-second QA timeout and production runtime/model/tool behavior are unchanged. This prevents
-queue accumulation; it does not claim to fix slow model/provider completion.
+Connection loss, API/process failure, invalid API responses, or watchdog expiry stop the batch
+with `ABORTED_INFRA`, even without `--fail-fast`. This is incomplete infrastructure execution,
+not a behavioral `FAIL`. The record retains redacted review evidence and `execution_stop_reason`;
+the owned QA API is stopped. Manifest/progress and summary execution status are `ABORTED_INFRA`.
+Manifest/summary include `reported_case_count`, `unrun_case_count` and `stop_reason`, with
+`stop_case_id` in the manifest. Summary `aborted_infra` is separate from `failed`. Unrun prompts
+are not reported as PASS/SKIP. The runner and offline quality gate exit nonzero for infra aborts.
+
+Terminal-answer assertions can still produce behavioral `FAIL` (and honor `--fail-fast`). A
+timeline-capture timeout after a returned answer is `MANUAL_REVIEW`, retaining that answer;
+it is not a correctness failure and does not abort an otherwise live conversation.
+`timing.request_elapsed_ms` measures the submission wait, `timing.response_time_ms` retains
+the runtime terminal metric, and bounded `timing.model_calls` retain allowlisted numeric model
+timings from exact-request diagnostics. Each `tool_calls` entry includes observed `elapsed_ms`.
+Unavailable timing is null/empty, never fabricated. Timing does not determine correctness.
+
+Smoke/full/stability retain their existing request-timeout behavior. Production runtime/model/tool
+behavior is unchanged, including the existing QA provider stream timeout: this patch changes
+only how long the behavioral harness waits, not the runtime's own execution budgets.
 
 `qa-smoke` runs the curated 15-case fast tier selected from the current 88-case canonical corpus.
 `qa-full` runs all 88 canonical cases. `qa-stability` is a separate two-case tier, not an extension
@@ -81,7 +93,7 @@ The bounded transcript supplies the full terminal answer/evidence required by th
 sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
 remain not assessable.
 
-Runner version 15 retains the behavioral review payload and `runtime_input_diagnostics`
+Runner version 16 retains the behavioral review payload and `runtime_input_diagnostics`
 using authoritative message-response
 identities or exact session-scoped QA SQLite deltas, never public timeline items. Entries preserve
 one-based

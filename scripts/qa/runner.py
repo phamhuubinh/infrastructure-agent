@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import signal
 import socket
@@ -13,6 +14,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -21,6 +23,7 @@ from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -28,10 +31,11 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "15"
+RUNNER_VERSION = "16"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
+BEHAVIORAL_WATCHDOG_SECONDS = 900
 QA_MODEL_TEMPERATURE = "0"
 CITATION_DIAGNOSTIC_LIMIT = 8
 HTTP_ERROR_BODY_LIMIT = 4096
@@ -333,6 +337,7 @@ def collect_execution_provenance(
         "selected_cases": selected_cases,
         "settings": {
             "qa_request_timeout_seconds": request_timeout,
+            "behavioral_watchdog_seconds": BEHAVIORAL_WATCHDOG_SECONDS,
             "provider_stream_timeout_seconds": request_timeout,
             "temperature": QA_MODEL_TEMPERATURE,
             "model_id": model.get("id") or "unknown",
@@ -906,6 +911,7 @@ def behavioral_review_payload(
         _behavioral_review_text(None if hidden_reasoning else answer, secret_values)
     )
     statuses: dict[tuple[str, str], str] = {}
+    tool_timings: dict[tuple[str, str], int | float | None] = {}
     for item in timeline:
         if item.get("kind") != "tool_result":
             continue
@@ -920,6 +926,9 @@ def behavioral_review_payload(
             and status in {"success", "error"}
         ):
             statuses[(tool_name, call_id)] = status
+            tool_timings[(tool_name, call_id)] = _safe_milliseconds(
+                payload.get("elapsed_ms")
+            )
     tool_calls: list[dict[str, object]] = []
     for item in timeline:
         if item.get("kind") != "tool_call":
@@ -942,6 +951,7 @@ def behavioral_review_payload(
                 "arguments": arguments,
                 "arguments_truncated": arguments_truncated,
                 "arguments_characters": arguments_characters,
+                "elapsed_ms": tool_timings.get((tool_name, str(call_id))),
                 "status": statuses.get(
                     (tool_name, call_id)
                     if isinstance(call_id, str)
@@ -990,6 +1000,50 @@ def behavioral_review_payload(
         or any(len(value) > FAILURE_TRACE_IDENTIFIER_LIMIT for value in citation_ids),
         "runtime_notices": notices[:BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT],
         "runtime_notices_truncated": len(notices) > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
+    }
+
+
+def _safe_milliseconds(value: object) -> int | float | None:
+    if type(value) in {int, float} and math.isfinite(value) and value >= 0:
+        return value
+    return None
+
+
+def behavioral_timing(
+    timeline: list[dict[str, Any]],
+    diagnostics: list[dict[str, object]],
+    request_elapsed_ms: int,
+) -> dict[str, object]:
+    """Timing is observational only; copy numeric allowlisted fields, never raw evidence."""
+    response_time_ms = None
+    for item in timeline:
+        payload = item.get("payload", {})
+        metrics = payload.get("metrics") if isinstance(payload, dict) else None
+        if item.get("kind") == "assistant_message" and isinstance(metrics, dict):
+            response_time_ms = _safe_milliseconds(metrics.get("response_time_ms"))
+    model_calls = []
+    for diagnostic in diagnostics:
+        capture = diagnostic.get("capture")
+        records = capture.get("records") if isinstance(capture, dict) else None
+        for record in records if isinstance(records, list) else []:
+            if not isinstance(record, dict) or record.get("phase") != "model":
+                continue
+            model_calls.append(
+                {
+                    key: _safe_milliseconds(record.get(key))
+                    for key in (
+                        "elapsed_ms",
+                        "completed_elapsed_ms",
+                        "first_normalized_event_elapsed_ms",
+                    )
+                }
+            )
+    return {
+        "request_elapsed_ms": request_elapsed_ms,
+        "response_time_ms": response_time_ms,
+        "watchdog_seconds": BEHAVIORAL_WATCHDOG_SECONDS,
+        "model_calls": model_calls[:BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT],
+        "model_calls_truncated": len(model_calls) > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
     }
 
 
@@ -1162,6 +1216,10 @@ def _attach_stability_diagnostics(
 
 class QARequestTimeout(TimeoutError):
     """A transport timeout normalized for the isolated QA harness only."""
+
+
+class BehavioralInfraError(RuntimeError):
+    """The harness cannot obtain an answer; not a behavioral correctness verdict."""
 
 
 def _is_timeout_error(error: BaseException) -> bool:
@@ -1343,7 +1401,12 @@ def citation_diagnostics(timeline: list[dict[str, Any]]) -> dict[str, object]:
 
 
 def _json_request(
-    base_url: str, method: str, path: str, body: dict[str, object] | None = None
+    base_url: str,
+    method: str,
+    path: str,
+    body: dict[str, object] | None = None,
+    *,
+    timeout_seconds: float | None = None,
 ) -> object:
     data = json.dumps(body).encode() if body is not None else None
     request = urllib.request.Request(
@@ -1354,7 +1417,10 @@ def _json_request(
     )
     try:
         with urllib.request.urlopen(
-            request, timeout=qa_request_timeout_seconds()
+            request,
+            timeout=qa_request_timeout_seconds()
+            if timeout_seconds is None
+            else timeout_seconds,
         ) as response:
             return json.loads(response.read())
     except (TimeoutError, urllib.error.URLError) as error:
@@ -1669,6 +1735,10 @@ def write_reports(
     canonical = phase_summary("canonical")
     stability = phase_summary("stability")
     behavioral = phase_summary("behavioral")
+    behavioral["aborted_infra"] = sum(
+        item.get("phase") == "behavioral" and item["status"] == "ABORTED_INFRA"
+        for item in safe_results
+    )
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
         tiers.setdefault(str(result.get("tier", "full")), Counter())[
@@ -1702,6 +1772,7 @@ def write_reports(
             reported_case_count=len(safe_results),
             unrun_case_count=manifest.get("unrun_case_count"),
             stop_reason=manifest.get("stop_reason"),
+            aborted_infra=behavioral["aborted_infra"],
         )
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
@@ -1723,7 +1794,8 @@ def write_reports(
     behavioral_line = (
         f"\nBehavioral: total {behavioral['total']} · PASS: {behavioral['passed']} · "
         f"FAIL: {behavioral['failed']} · SKIP: {behavioral['skipped']} · "
-        f"MANUAL_REVIEW: {behavioral['manual_review']}\n"
+        f"MANUAL_REVIEW: {behavioral['manual_review']} · "
+        f"ABORTED_INFRA: {behavioral['aborted_infra']}\n"
         if behavioral["total"]
         else ""
     )
@@ -1826,6 +1898,8 @@ def _send(
     content: str,
     observation: RequestObservation | None = None,
     database: Path | None = None,
+    *,
+    timeout_seconds: float | None = None,
 ) -> str | None:
     if observation is None:
         observation = RequestObservation(session_id)
@@ -1837,6 +1911,11 @@ def _send(
                 "POST",
                 f"/api/sessions/{session_id}/messages",
                 {"content": content},
+                **(
+                    {"timeout_seconds": timeout_seconds}
+                    if timeout_seconds is not None
+                    else {}
+                ),
             )
         finally:
             after = _request_ids_snapshot(database, session_id)
@@ -1844,6 +1923,10 @@ def _send(
         # Bind before timeline best-effort capture and before propagating the
         # original error. Never retry, wait for completion, or inspect a latest row.
         _bind_request_delta(observation, before, after)
+        if timeout_seconds is not None:
+            # Behavioral failures are finalized by its watchdog, not a second
+            # potentially blocking diagnostic request inside the submission.
+            raise
         try:
             timeline = _timeline(base_url, session_id)
         except (
@@ -1868,6 +1951,65 @@ def _send(
         raise ScenarioFailure("message endpoint did not return an assistant response")
     observation.assistant_content = response["assistant_content"]
     return observation.request_id
+
+
+def _send_behavioral(
+    base_url: str,
+    session_id: str,
+    content: str,
+    observation: RequestObservation,
+    database: Path,
+    process: subprocess.Popen[str],
+) -> None:
+    """One POST, waiting for its terminal response with a wall-clock infra ceiling.
+
+    The daemon worker owns its observation until completion. On watchdog/process
+    failure the caller stops this batch and its owned API; it never retries a POST.
+    """
+    completed = threading.Event()
+    completed_at: list[float] = []
+    errors: list[BaseException] = []
+    worker_observation = RequestObservation(session_id)
+    before = _request_ids_snapshot(database, session_id)
+
+    def submit() -> None:
+        try:
+            _send(
+                base_url,
+                session_id,
+                content,
+                worker_observation,
+                database,
+                timeout_seconds=BEHAVIORAL_WATCHDOG_SECONDS,
+            )
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            completed_at.append(time.monotonic())
+            completed.set()
+
+    if process.poll() is not None:
+        raise BehavioralInfraError("api_process_exited")
+    deadline = time.monotonic() + BEHAVIORAL_WATCHDOG_SECONDS
+    threading.Thread(target=submit, name="qa-behavioral-http", daemon=True).start()
+    while not completed.is_set():
+        reason = None
+        if process.poll() is not None:
+            reason = "api_process_exited"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 and reason is None:
+            reason = "behavioral_watchdog_expired"
+        if reason is not None:
+            _bind_request_delta(
+                observation, before, _request_ids_snapshot(database, session_id)
+            )
+            raise BehavioralInfraError(reason)
+        completed.wait(min(1.0, remaining))
+    observation.__dict__.update(worker_observation.__dict__)
+    if completed_at[0] > deadline:
+        raise BehavioralInfraError("behavioral_watchdog_expired")
+    if errors:
+        raise errors[0]
 
 
 def _timeline(base_url: str, session_id: str) -> list[dict[str, Any]]:
@@ -2380,6 +2522,24 @@ def _run_behavioral(
     if tuple(grouped) != tuple(suite[0] for suite in BEHAVIORAL_SUITES):
         raise ValueError("Behavioral suites do not match the fixed corpus order.")
 
+    def unavailable(
+        case: Case, error: Exception, reason: str
+    ) -> list[dict[str, object]]:
+        result = _behavioral_result(
+            case, "unavailable", status="ABORTED_INFRA", reason=reason
+        )
+        result.update(
+            detail=type(error).__name__,
+            execution_stop_reason=reason,
+            review_trace_available=False,
+        )
+        if isinstance(error, urllib.error.HTTPError):
+            result.update(http_error_diagnostics(error))
+        result.update(behavioral_review_payload(case, [], (model["api_key"],)))
+        if checkpoint is not None:
+            checkpoint.record_case(result)
+        return [result]
+
     with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
         runtime_directory = Path(temporary) / "read-only"
         runtime_directory.mkdir()
@@ -2387,17 +2547,23 @@ def _run_behavioral(
         database = Path(environment["ORION_DATABASE_PATH"])
         port = _available_port()
         base_url = f"http://127.0.0.1:{port}"
-        process = subprocess.Popen(
-            qa_process_command(port),
-            cwd=ROOT,
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
+        try:
+            process = subprocess.Popen(
+                qa_process_command(port),
+                cwd=ROOT,
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+        except OSError as error:
+            return unavailable(cases[0], error, "api_startup_failed"), base_url
         results: list[dict[str, object]] = []
         try:
-            _wait_for_health(base_url, process)
+            try:
+                _wait_for_health(base_url, process)
+            except (RuntimeError, OSError, HTTPException) as error:
+                return unavailable(cases[0], error, "api_startup_failed"), base_url
             stopped = False
             for _suite_id, suite_cases in grouped.items():
                 try:
@@ -2409,29 +2575,15 @@ def _run_behavioral(
                     urllib.error.HTTPError,
                     urllib.error.URLError,
                     json.JSONDecodeError,
+                    OSError,
+                    HTTPException,
                 ) as error:
-                    for case in suite_cases:
-                        if checkpoint is not None:
-                            checkpoint.mark_case_in_progress(case.id, "behavioral")
-                        result = _behavioral_result(
-                            case,
-                            "unavailable",
-                            status="FAIL",
-                            reason="session creation failed",
+                    results.extend(
+                        unavailable(
+                            suite_cases[0], error, "session_creation_unavailable"
                         )
-                        result["detail"] = type(error).__name__
-                        if isinstance(error, urllib.error.HTTPError):
-                            result.update(http_error_diagnostics(error))
-                        result.update(
-                            behavioral_review_payload(case, [], (model["api_key"],))
-                        )
-                        result["review_trace_available"] = False
-                        results.append(result)
-                        if checkpoint is not None:
-                            checkpoint.record_case(result)
-                    if fail_fast:
-                        break
-                    continue
+                    )
+                    break
 
                 previous_timeline: list[dict[str, Any]] = []
                 for case in suite_cases:
@@ -2443,10 +2595,27 @@ def _run_behavioral(
                     timeline = previous_timeline
                     previous_timeline_length = len(previous_timeline)
                     turn_timeline: list[dict[str, Any]] = []
+                    stage = "message"
+                    request_started = time.monotonic()
+                    request_elapsed_ms = 0
                     try:
-                        _send(base_url, session_id, case.prompt, observation, database)
+                        try:
+                            _send_behavioral(
+                                base_url,
+                                session_id,
+                                case.prompt,
+                                observation,
+                                database,
+                                process,
+                            )
+                        finally:
+                            request_elapsed_ms = max(
+                                0, round((time.monotonic() - request_started) * 1000)
+                            )
+                        stage = "timeline"
                         timeline = _timeline(base_url, session_id)
                         turn_timeline = timeline[previous_timeline_length:]
+                        stage = "evaluation"
                         _require_final(turn_timeline, secret=model["api_key"])
                         status, reason, tools, sources = evaluate(case, turn_timeline)
                         result = _behavioral_result(
@@ -2458,16 +2627,13 @@ def _run_behavioral(
                         result = _behavioral_result(
                             case,
                             session_id,
-                            status="FAIL",
+                            status="ABORTED_INFRA",
                             reason="HTTP/runtime failure",
                         )
                         result.update(
                             detail=type(error).__name__, **http_error_diagnostics(error)
                         )
-                        if observation.assistant_content is None:
-                            result["execution_stop_reason"] = (
-                                "message_submission_outcome_unconfirmed"
-                            )
+                        result["execution_stop_reason"] = "api_http_error"
                         observed = getattr(error, "observed_timelines", [])
                         if observed:
                             previous_timeline = list(observed[-1])
@@ -2481,17 +2647,38 @@ def _run_behavioral(
                         ScenarioFailure,
                         urllib.error.URLError,
                         json.JSONDecodeError,
+                        OSError,
+                        HTTPException,
+                        BehavioralInfraError,
                     ) as error:
+                        capture_timeout = stage == "timeline" and isinstance(
+                            error, QARequestTimeout
+                        )
+                        infrastructure = stage != "evaluation" and not capture_timeout
                         result = _behavioral_result(
                             case,
                             session_id,
-                            status="FAIL",
-                            reason="HTTP/runtime failure",
+                            status="MANUAL_REVIEW"
+                            if capture_timeout
+                            else "ABORTED_INFRA"
+                            if infrastructure
+                            else "FAIL",
+                            reason="timeline capture unavailable"
+                            if capture_timeout
+                            else "HTTP/runtime failure"
+                            if infrastructure
+                            else "terminal answer assertion failed",
                         )
                         result["detail"] = type(error).__name__
-                        if observation.assistant_content is None:
+                        if infrastructure:
                             result["execution_stop_reason"] = (
-                                "message_submission_outcome_unconfirmed"
+                                str(error)
+                                if isinstance(error, BehavioralInfraError)
+                                else "behavioral_watchdog_expired"
+                                if isinstance(error, QARequestTimeout)
+                                else "connection_lost"
+                                if isinstance(error, (OSError, HTTPException))
+                                else "api_response_invalid"
                             )
                         if isinstance(error, (QARequestTimeout, ScenarioFailure)):
                             message = safe_exception_message(error, (model["api_key"],))
@@ -2516,7 +2703,13 @@ def _run_behavioral(
                             assistant_content=observation.assistant_content,
                         )
                     )
-                    diagnostics = runtime_input_diagnostics(base_url, [observation])
+                    try:
+                        diagnostics = runtime_input_diagnostics(base_url, [observation])
+                    except (OSError, HTTPException):
+                        diagnostics = []
+                    result["timing"] = behavioral_timing(
+                        review_timeline, diagnostics, request_elapsed_ms
+                    )
                     if diagnostics:
                         result["runtime_input_diagnostics"] = redact_report(
                             diagnostics, (model["api_key"],)
@@ -2626,7 +2819,11 @@ def run(
             manifest["unrun_case_count"] = len(cases) - len(results)
             stop_reason = results[-1].get("execution_stop_reason") if results else None
             if stop_reason or len(results) < len(cases):
-                manifest["status"] = "aborted"
+                manifest["status"] = (
+                    "ABORTED_INFRA"
+                    if results and results[-1]["status"] == "ABORTED_INFRA"
+                    else "aborted"
+                )
                 manifest["stop_reason"] = stop_reason or "fail_fast"
                 manifest["stop_case_id"] = results[-1]["id"] if results else None
         manifest["ended_at"] = datetime.now(UTC).isoformat()
@@ -2637,12 +2834,16 @@ def run(
         checkpoint.interrupt()
         raise
     print(f"QA report: {reports}")
-    if manifest["status"] == "aborted":
+    if manifest["status"] in {"aborted", "ABORTED_INFRA"}:
         print(
             f"Behavioral batch aborted: {manifest['stop_reason']}; "
             f"{manifest['unrun_case_count']} prompts not run."
         )
-    return 1 if any(result["status"] == "FAIL" for result in results) else 0
+    return (
+        1
+        if any(result["status"] in {"FAIL", "ABORTED_INFRA"} for result in results)
+        else 0
+    )
 
 
 if __name__ == "__main__":

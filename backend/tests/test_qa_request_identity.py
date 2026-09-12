@@ -197,7 +197,7 @@ def test_snapshot_is_read_only_and_exactly_session_scoped(qa_runner, store, tmp_
 
 
 def test_identity_evidence_version_changes_without_timeout_or_schema_bump(qa_runner) -> None:  # type: ignore[no-untyped-def]
-    assert qa_runner.RUNNER_VERSION == "15"
+    assert qa_runner.RUNNER_VERSION == "16"
     assert qa_runner.MANIFEST_SCHEMA_VERSION == "2"
     assert qa_runner.EXECUTION_PROVENANCE_SCHEMA_VERSION == "1"
     assert qa_runner.QA_REQUEST_TIMEOUT_SECONDS == 90
