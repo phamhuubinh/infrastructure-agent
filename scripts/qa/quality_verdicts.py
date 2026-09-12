@@ -255,6 +255,13 @@ def aggregate_quality(
             item["quality_reason"] = "legacy artifact has no manual_quality marker"
             cases.append(item)
             continue
+        if result.get("status") == "MANUAL_REVIEW" and not bool(
+            result.get("manual_quality")
+        ):
+            item["quality_status"] = "not_assessable"
+            item["quality_reason"] = "execution evidence requires review"
+            cases.append(item)
+            continue
         if not bool(result.get("manual_quality")):
             item["quality_status"] = "not_required"
             cases.append(item)
@@ -320,11 +327,23 @@ def quality_gate(
     ]
     if automatic_failures:
         failures.append(f"automatic FAIL in {len(automatic_failures)} case(s)")
+    infrastructure_aborts = [
+        item
+        for item in cases
+        if isinstance(item, dict) and item.get("execution_status") == "ABORTED_INFRA"
+    ]
+    if infrastructure_aborts:
+        failures.append(
+            f"incomplete QA: ABORTED_INFRA in {len(infrastructure_aborts)} case(s)"
+        )
     quality_failures = [
         item
         for item in cases
         if isinstance(item, dict)
-        and item.get("manual_quality") is True
+        and (
+            item.get("manual_quality") is True
+            or item.get("execution_status") == "MANUAL_REVIEW"
+        )
         and item.get("quality_status") != "accepted"
     ]
     if quality_failures:
