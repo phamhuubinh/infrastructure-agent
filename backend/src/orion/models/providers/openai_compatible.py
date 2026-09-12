@@ -20,6 +20,7 @@ from orion.contracts import (
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
+    ReasoningDelta,
     ToolCallDelta,
     ToolDefinition,
     citation_source_ref_ids_from_content,
@@ -197,7 +198,7 @@ class OpenAICompatibleBackend(ModelBackend):
         chunk: dict[str, Any],
         content_parts: list[str],
         calls: dict[int, _PendingToolCall],
-    ) -> tuple[AssistantDelta | ToolCallDelta, ...]:
+    ) -> tuple[AssistantDelta | ReasoningDelta | ToolCallDelta, ...]:
         try:
             choices = chunk.get("choices", [])
             if not choices:
@@ -205,7 +206,14 @@ class OpenAICompatibleBackend(ModelBackend):
             delta = choices[0].get("delta", {})
             if not isinstance(delta, dict):
                 raise ValueError("provider stream delta is not an object")
-            events: list[AssistantDelta | ToolCallDelta] = []
+            events: list[AssistantDelta | ReasoningDelta | ToolCallDelta] = []
+            for field_name in ("reasoning", "reasoning_content"):
+                reasoning = delta.get(field_name)
+                if reasoning is not None:
+                    if not isinstance(reasoning, str):
+                        raise ValueError("reasoning delta is not a string")
+                    if reasoning:
+                        events.append(ReasoningDelta(content=reasoning))
             content = delta.get("content")
             if content is not None:
                 if not isinstance(content, str):

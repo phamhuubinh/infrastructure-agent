@@ -9,7 +9,9 @@ from orion.contracts import (
     AssistantDelta,
     ContextMessage,
     ModelToolCall,
+    ModelTurn,
     ModelTurnCompleted,
+    ReasoningDelta,
     ToolCallDelta,
     ToolDefinition,
 )
@@ -40,6 +42,7 @@ def test_adapter_serializes_tool_result_continuation_without_handler_binding() -
     )
 
     assert payload["tool_calls"][0]["function"]["name"] == "calculator.evaluate"
+    assert "reasoning" not in payload
     assert "handler_key" not in str(calculator_definition().provider_schema())
 
 
@@ -556,7 +559,9 @@ async def test_adapter_classifies_malformed_sse_json(monkeypatch) -> None:  # ty
 
 
 @pytest.mark.anyio
-async def test_adapter_keeps_reasoning_deltas_opaque_while_stream_remains_live(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+async def test_adapter_normalizes_known_reasoning_delta_variants_without_exposing_them_as_content(
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
     class Response:
         def raise_for_status(self) -> None:
             return None
@@ -601,12 +606,68 @@ async def test_adapter_keeps_reasoning_deltas_opaque_while_stream_remains_live(m
         )
     ]
 
+    reasoning_events = [event for event in events if isinstance(event, ReasoningDelta)]
+    assert len(reasoning_events) == 65
+    assert sum(len(event.content) for event in reasoning_events) == (
+        64 * len("private chain of thought") + len("also private")
+    )
     assert [event.content for event in events if isinstance(event, AssistantDelta)] == ["Answer."]
     completed = events[-1]
     assert isinstance(completed, ModelTurnCompleted)
     assert completed.turn.assistant is not None
     assert completed.turn.assistant.content == "Answer."
-    assert "private" not in str(events)
+    assert "private" not in str(completed)
+
+
+def test_adapter_reconstructs_tool_turn_unchanged_after_reasoning_deltas() -> None:
+    backend = OpenAICompatibleBackend()
+    content_parts: list[str] = []
+    calls: dict[int, _PendingToolCall] = {}
+
+    reasoning = backend._normalize_chunk(
+        {"choices": [{"delta": {"reasoning_content": "private planning"}}]},
+        content_parts,
+        calls,
+    )
+    tool_start = backend._normalize_chunk(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call-1",
+                                "function": {
+                                    "name": "calculator.evaluate",
+                                    "arguments": '{"expression":"2',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        content_parts,
+        calls,
+    )
+    tool_end = backend._normalize_chunk(
+        {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '+2"}'}}]}}]},
+        content_parts,
+        calls,
+    )
+
+    assert isinstance(reasoning[0], ReasoningDelta)
+    assert all(isinstance(event, ToolCallDelta) for event in tool_start + tool_end)
+    assert backend._build_turn(content_parts, calls) == ModelTurn(
+        tool_calls=(
+            ModelToolCall(
+                call_id="call-1",
+                tool_name="calculator.evaluate",
+                arguments={"expression": "2+2"},
+            ),
+        )
+    )
 
 
 @pytest.mark.anyio

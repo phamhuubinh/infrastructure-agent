@@ -16,11 +16,12 @@ from orion.contracts import (
     ContextMessage,
     ModelTurn,
     ModelTurnCompleted,
+    ReasoningDelta,
     ToolCallDelta,
     ToolDefinition,
 )
 
-ModelStreamEvent = AssistantDelta | ToolCallDelta | ModelTurnCompleted
+ModelStreamEvent = AssistantDelta | ReasoningDelta | ToolCallDelta | ModelTurnCompleted
 
 
 @dataclass(frozen=True)

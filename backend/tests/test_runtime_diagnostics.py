@@ -17,6 +17,7 @@ from orion.contracts import (
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
+    ReasoningDelta,
     ToolCallDelta,
     ToolDefinition,
     ToolResult,
@@ -84,6 +85,14 @@ def _stream_progress_record(sink, request_id):  # type: ignore[no-untyped-def]
         for record in _model_records(sink, request_id)
         if record["status"] == "stream_progress"
     )
+
+
+def _stream_progress_records(sink, request_id):  # type: ignore[no-untyped-def]
+    return [
+        record
+        for record in _model_records(sink, request_id)
+        if record["status"] == "stream_progress"
+    ]
 
 
 @pytest.mark.anyio
@@ -207,7 +216,9 @@ async def test_model_stream_diagnostics_measure_first_assistant_delta_with_monot
     assert record["completed_elapsed_ms"] == 500
     assert record["first_normalized_event_to_completed_elapsed_ms"] == 375
     progress = _stream_progress_record(sink, outcome.request_id)
+    assert progress["first_stream_activity_kind"] == "assistant"
     assert progress["first_actionable_delta_kind"] == "assistant"
+    assert progress["stream_progress_milestone"] == "actionable"
     assert progress["elapsed_ms"] == 125
 
 
@@ -241,8 +252,16 @@ async def test_model_stream_diagnostics_measure_first_tool_call_delta_with_monot
     assert record["tool_call_delta_count"] == 1
     assert record["tool_call_count"] == 0
     assert (
+        _stream_progress_record(sink, outcome.request_id)["first_stream_activity_kind"]
+        == "tool_call"
+    )
+    assert (
         _stream_progress_record(sink, outcome.request_id)["first_actionable_delta_kind"]
         == "tool_call"
+    )
+    assert (
+        _stream_progress_record(sink, outcome.request_id)["stream_progress_milestone"]
+        == "actionable"
     )
 
 
@@ -300,11 +319,13 @@ async def test_model_stream_diagnostics_leave_delta_timings_unavailable_without_
 
     record = _completed_record(sink, outcome.request_id)
     assert record["first_normalized_event_elapsed_ms"] == 456
+    assert record["first_stream_activity_elapsed_ms"] is None
     assert record["first_assistant_delta_elapsed_ms"] is None
     assert record["first_tool_call_delta_elapsed_ms"] is None
     assert record["assistant_delta_count"] == 0
     assert record["assistant_delta_characters"] == 0
     assert record["tool_call_delta_count"] == 0
+    assert not _stream_progress_records(sink, outcome.request_id)
 
 
 @pytest.mark.anyio
@@ -387,14 +408,17 @@ async def test_model_stream_diagnostics_omit_usage_when_provider_does_not_supply
 
 
 class _ProgressThenHangBackend:
-    def __init__(self, clock: _FakeClock) -> None:
+    def __init__(
+        self, clock: _FakeClock, delta: AssistantDelta | ReasoningDelta | None = None
+    ) -> None:
         self._clock = clock
+        self._delta = delta or AssistantDelta(content="partial")
         self.delta_emitted = asyncio.Event()
 
     async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
         self._clock.advance(0.15)
         self.delta_emitted.set()
-        yield AssistantDelta(content="partial")
+        yield self._delta
         await asyncio.Event().wait()
 
 
@@ -406,6 +430,24 @@ class _BlockedBeforeFirstEventBackend:
         if False:
             yield AssistantDelta(content="unreachable")
         self.entered.set()
+        await asyncio.Event().wait()
+
+
+class _ReasoningThenToolThenHangBackend:
+    def __init__(self, clock: _FakeClock) -> None:
+        self._clock = clock
+        self.reasoning_emitted = asyncio.Event()
+        self.release_tool_call = asyncio.Event()
+        self.tool_call_emitted = asyncio.Event()
+
+    async def stream(self, messages, tools, settings, cancellation):  # type: ignore[no-untyped-def]
+        self._clock.advance(0.1)
+        yield ReasoningDelta(content="PRIVATE_REASONING")
+        self.reasoning_emitted.set()
+        await self.release_tool_call.wait()
+        self._clock.advance(30)
+        yield ToolCallDelta(index=0, tool_name="test.read", arguments_delta="PRIVATE_ARGUMENTS")
+        self.tool_call_emitted.set()
         await asyncio.Event().wait()
 
 
@@ -437,13 +479,93 @@ async def test_in_flight_diagnostics_persist_first_stream_milestone_before_termi
     milestone = _stream_progress_record(sink, request_id)
     assert milestone["request_id"] == request_id
     assert milestone["model_turn_id"].startswith(f"{request_id}:1:")
-    assert milestone["first_actionable_delta_kind"] == "assistant"
+    assert milestone["first_stream_activity_kind"] == "assistant"
+    assert milestone["stream_progress_milestone"] == "actionable"
     assert milestone["first_normalized_event_elapsed_ms"] == 150
     assert milestone["first_assistant_delta_elapsed_ms"] == 150
     assert milestone["first_tool_call_delta_elapsed_ms"] is None
     assert milestone["assistant_delta_count"] == 1
     assert milestone["assistant_delta_characters"] == len("partial")
     assert all(record["status"] != "completed" for record in snapshot["records"])
+    assert not task.done()
+
+    assert runtime.cancel(request_id) is True
+    with pytest.raises(RequestCancelled):
+        await task
+
+
+@pytest.mark.anyio
+async def test_reasoning_only_stream_activity_is_visible_without_persisting_reasoning(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    clock = _FakeClock()
+    sink = BoundedModelInputDiagnostics()
+    backend = _ProgressThenHangBackend(clock, ReasoningDelta(content="PRIVATE_REASONING"))
+    runtime = _runtime(store, backend, sink, monotonic_clock=clock)
+    session_id = store.create_session()
+    request_id = runtime.begin(session_id, "Reasoning boundary")
+    task = asyncio.create_task(runtime.run(session_id, request_id))
+    await backend.delta_emitted.wait()
+    await _wait_for_stream_progress(sink, request_id)
+
+    milestone = _stream_progress_record(sink, request_id)
+    assert milestone["first_stream_activity_kind"] == "reasoning"
+    assert milestone["first_actionable_delta_kind"] is None
+    assert milestone["stream_progress_milestone"] == "reasoning"
+    assert milestone["first_normalized_event_elapsed_ms"] == 150
+    assert milestone["first_reasoning_delta_elapsed_ms"] == 150
+    assert milestone["reasoning_delta_count"] == 1
+    assert milestone["reasoning_delta_characters"] == len("PRIVATE_REASONING")
+    assert milestone["first_assistant_delta_elapsed_ms"] is None
+    assert milestone["first_stream_activity_elapsed_ms"] == 150
+    assert "PRIVATE_REASONING" not in json.dumps(sink.records(request_id))
+    assert not task.done()
+
+    assert runtime.cancel(request_id) is True
+    with pytest.raises(RequestCancelled):
+        await task
+    assert "PRIVATE_REASONING" not in json.dumps(
+        [item.payload for item in store.timeline(session_id)]
+    )
+
+
+@pytest.mark.anyio
+async def test_in_flight_reasoning_does_not_hide_first_tool_call_milestone(store) -> None:  # type: ignore[no-untyped-def]
+    clock = _FakeClock()
+    sink = BoundedModelInputDiagnostics()
+    backend = _ReasoningThenToolThenHangBackend(clock)
+    runtime = _runtime(store, backend, sink, monotonic_clock=clock)
+    session_id = store.create_session()
+    request_id = runtime.begin(session_id, "Reason then tool")
+    task = asyncio.create_task(runtime.run(session_id, request_id))
+    await backend.reasoning_emitted.wait()
+    await _wait_for_stream_progress(sink, request_id)
+
+    before_actionable = _stream_progress_records(sink, request_id)
+    assert len(before_actionable) == 1
+    assert before_actionable[0]["stream_progress_milestone"] == "reasoning"
+    assert before_actionable[0]["first_actionable_delta_kind"] is None
+
+    backend.release_tool_call.set()
+    await backend.tool_call_emitted.wait()
+    for _ in range(20):
+        if len(_stream_progress_records(sink, request_id)) == 2:
+            break
+        await asyncio.sleep(0)
+    else:
+        pytest.fail("First actionable tool-call milestone was not recorded.")
+
+    milestones = _stream_progress_records(sink, request_id)
+    reasoning, actionable = milestones
+    assert reasoning["stream_progress_milestone"] == "reasoning"
+    assert reasoning["first_reasoning_delta_elapsed_ms"] == 100
+    assert actionable["stream_progress_milestone"] == "actionable"
+    assert actionable["first_actionable_delta_kind"] == "tool_call"
+    assert actionable["first_tool_call_delta_elapsed_ms"] == 30100
+    assert actionable["reasoning_observed_before_first_actionable_delta"] is True
+    snapshot = json.dumps(sink.records(request_id))
+    assert "PRIVATE_REASONING" not in snapshot
+    assert "PRIVATE_ARGUMENTS" not in snapshot
     assert not task.done()
 
     assert runtime.cancel(request_id) is True
@@ -471,6 +593,50 @@ async def test_in_flight_diagnostics_do_not_invent_stream_timing_before_a_delta(
     assert runtime.cancel(request_id) is True
     with pytest.raises(RequestCancelled):
         await task
+
+
+@pytest.mark.anyio
+async def test_reasoning_diagnostics_preserve_later_assistant_and_tool_delta_behavior(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    clock = _FakeClock()
+    sink = BoundedModelInputDiagnostics()
+    backend = _TimedScriptedBackend(
+        clock,
+        [
+            [
+                (0.05, ReasoningDelta(content="private")),
+                (0.05, AssistantDelta(content="Draft")),
+                (0.05, ToolCallDelta(index=0, tool_name="test.read")),
+                (
+                    0.05,
+                    ModelTurnCompleted(turn=ModelTurn(assistant=AssistantMessage(content="Done."))),
+                ),
+            ]
+        ],
+    )
+
+    outcome = await _runtime(store, backend, sink, monotonic_clock=clock).submit(
+        store.create_session(), "Reason then act"
+    )
+
+    record = _completed_record(sink, outcome.request_id)
+    assert record["first_normalized_event_elapsed_ms"] == 50
+    assert record["first_reasoning_delta_elapsed_ms"] == 50
+    assert record["reasoning_delta_count"] == 1
+    assert record["reasoning_delta_characters"] == len("private")
+    assert record["first_assistant_delta_elapsed_ms"] == 100
+    assert record["first_tool_call_delta_elapsed_ms"] == 150
+    assert record["first_actionable_delta_kind"] == "assistant"
+    assert record["reasoning_observed_before_first_actionable_delta"] is True
+    assert record["assistant_delta_count"] == 1
+    assert record["tool_call_delta_count"] == 1
+    milestones = _stream_progress_records(sink, outcome.request_id)
+    assert [milestone["stream_progress_milestone"] for milestone in milestones] == [
+        "reasoning",
+        "actionable",
+    ]
+    assert milestones[1]["first_actionable_delta_kind"] == "assistant"
 
 
 @pytest.mark.anyio
@@ -549,6 +715,7 @@ async def test_model_stream_diagnostics_exclude_stream_and_request_secrets(store
         clock,
         [
             [
+                (0.1, ReasoningDelta(content="REASONING_CONTENT_SECRET")),
                 (0.1, AssistantDelta(content="ASSISTANT_CONTENT_SECRET")),
                 (
                     0.1,
@@ -566,30 +733,36 @@ async def test_model_stream_diagnostics_exclude_stream_and_request_secrets(store
         ],
     )
 
+    session_id = store.create_session()
     outcome = await _runtime(store, backend, sink, monotonic_clock=clock).submit(
-        store.create_session(), "PROMPT_SECRET raw SSE: data: RAW_SSE_SECRET"
+        session_id, "PROMPT_SECRET raw SSE: data: RAW_SSE_SECRET"
     )
 
     persisted = json.dumps(sink.records(outcome.request_id))
     for secret in (
         "ASSISTANT_CONTENT_SECRET",
         "TOOL_ARGUMENT_SECRET",
+        "REASONING_CONTENT_SECRET",
         "PROMPT_SECRET",
         "API_KEY_SECRET",
         "REASONING_SECRET",
         "RAW_SSE_SECRET",
     ):
         assert secret not in persisted
+    assert "REASONING_CONTENT_SECRET" not in json.dumps(
+        [item.payload for item in store.timeline(session_id)]
+    )
 
 
 @pytest.mark.anyio
 async def test_model_stream_diagnostics_keep_record_cardinality_bounded(store) -> None:  # type: ignore[no-untyped-def]
     clock = _FakeClock()
-    sink = BoundedModelInputDiagnostics(records_limit=3)
+    sink = BoundedModelInputDiagnostics(records_limit=4)
     backend = _TimedScriptedBackend(
         clock,
         [
             [
+                *[(0.001, ReasoningDelta(content="x")) for _ in range(40)],
                 *[(0.001, AssistantDelta(content="x")) for _ in range(40)],
                 *[(0.001, ToolCallDelta(index=0, arguments_delta="x")) for _ in range(40)],
                 (
@@ -605,8 +778,13 @@ async def test_model_stream_diagnostics_keep_record_cardinality_bounded(store) -
     )
 
     capture = sink.records(outcome.request_id)
-    assert len(capture["records"]) == 3
+    assert len(capture["records"]) == 4
     assert capture["records_truncated"] is False
+    assert [
+        record["stream_progress_milestone"]
+        for record in _stream_progress_records(sink, outcome.request_id)
+    ] == ["reasoning", "actionable"]
     record = _completed_record(sink, outcome.request_id)
+    assert record["reasoning_delta_count"] == 40
     assert record["assistant_delta_count"] == 40
     assert record["tool_call_delta_count"] == 40
