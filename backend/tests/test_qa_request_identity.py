@@ -98,6 +98,7 @@ def test_success_response_is_authoritative_despite_observer(
     monkeypatch.setattr(qa_runner, "_request_ids_snapshot", snapshot)
     monkeypatch.setattr(qa_runner, "_json_request", request)
     returned = qa_runner._send("http://qa", session, "send", observation, database)
+    assert observation.assistant_content == "answer"
     assert returned == observation.request_id
     assert returned == (
         "authoritative-response"
@@ -196,7 +197,7 @@ def test_snapshot_is_read_only_and_exactly_session_scoped(qa_runner, store, tmp_
 
 
 def test_identity_evidence_version_changes_without_timeout_or_schema_bump(qa_runner) -> None:  # type: ignore[no-untyped-def]
-    assert qa_runner.RUNNER_VERSION == "13"
+    assert qa_runner.RUNNER_VERSION == "14"
     assert qa_runner.MANIFEST_SCHEMA_VERSION == "2"
     assert qa_runner.EXECUTION_PROVENANCE_SCHEMA_VERSION == "1"
     assert qa_runner.QA_REQUEST_TIMEOUT_SECONDS == 90

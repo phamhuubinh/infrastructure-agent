@@ -1,0 +1,104 @@
+# Bộ câu hỏi kiểm tra lại (v2) — dùng sau khi Cline/DeepSeek sửa xong.
+# Mỗi nhóm ứng với 1 lỗi trong bao_cao_loi_orion.md, nhưng đổi cách diễn đạt
+# khác với câu test lần đầu, để tránh trường hợp bị "vá" chỉ đúng câu chữ cũ.
+# Dùng: python3 orion_qa_runner.py --questions-file cauhoi_kiemtra_v2.txt --output orion_qa_transcript_v2.md
+
+# --- Bug #1: Identity lộ "Qwen/Alibaba" ---
+Bạn là ai vậy?
+Ai đã tạo ra bạn?
+Bạn dựa trên model nào?
+Giới thiệu bản thân bạn đi
+Who are you?
+What company made you?
+
+# --- Bug #2: Disk usage trả "?"/"None%" ---
+Dung lượng đĩa còn trống bao nhiêu?
+Các phân vùng ổ đĩa đang dùng bao nhiêu %?
+Ổ / còn trống bao nhiêu GB?
+Mount point nào sắp đầy?
+Kiểm tra dung lượng lưu trữ
+
+# --- Bug #3: Parameter extractor nhặt nhầm từ ---
+Xem các service đang hoạt động
+Những service nào đang được bật
+Kiểm tra trạng thái toàn bộ dịch vụ
+Check the status of all services
+Forecast CPU usage for next month
+Predict memory trend next quarter
+Check the current status
+Show service status
+
+# --- Bug #4: Hallucination host không tồn tại ---
+Xem CPU trên con máy tên là fake-server-999
+Kiểm tra RAM của server không tồn tại testxyz999
+Check disk on a server called doesnotexist123
+Máy chủ ten-la-gi-cung-duoc có ổn không
+
+# --- Bug #5: Yêu cầu viết script chạy nhầm pipeline ---
+Viết cho tôi 1 đoạn script kiểm tra uptime
+Tạo giúp tôi file docker-compose cho redis
+Viết crontab để restart nginx mỗi sáng
+Generate a bash script to monitor disk space
+Write a Python script to check CPU usage
+
+# --- Bug #6: Session đổi tên mất khi F5 (test tay trên UI, không qua tool) ---
+# (Không cần thêm câu hỏi — kiểm tra bằng cách: tạo New chat, gửi 1 câu bất kỳ,
+#  xem tên đổi trên sidebar, F5, xem tên còn giữ không.)
+
+# --- Bug #7: Streaming (chưa xây, chỉ theo dõi, không cần test) ---
+
+# --- Bug #8: Câu hỏi khái niệm bị nhầm infra-check (và ngược lại) ---
+Load average là gì vậy?
+RAM và Swap khác nhau chỗ nào?
+Zombie process nghĩa là sao?
+Container là gì?
+What does uptime mean?
+What's the difference between a process and a thread?
+Hostname dùng để làm gì?
+Tên máy hiện tại là gì?
+
+# --- Bug #9: Uptime không trả lời đúng ---
+Server chạy liên tục bao lâu rồi?
+Máy đã bật bao lâu chưa reboot?
+How long since the last reboot?
+Thời gian hoạt động liên tục của máy?
+
+# --- Bug #10: Kernel version không trả lời đúng ---
+Kernel đang chạy phiên bản mấy?
+Linux kernel version là bao nhiêu?
+Cho tôi biết version kernel
+
+# --- Bug #11: Listening ports rơi vào "dạy lệnh" ---
+Cổng nào đang mở để lắng nghe kết nối?
+Danh sách port đang listen
+Which ports are currently open?
+
+# --- Bug #12: ToolSelector bỏ qua chỉ định tool ---
+Lấy số liệu CPU từ Grafana giúp tôi
+Xem báo cáo Zabbix về trạng thái host
+Chỉ kiểm tra qua SSH thôi, đừng dùng Grafana
+Pull memory data from Grafana only
+Only use Zabbix, ignore other tools
+
+# --- Bug #13: Container bị nhầm thành SSHD ---
+Có container nào đang chạy không?
+Danh sách Docker container hiện tại
+Show me running containers
+Container nào đang tốn tài nguyên nhất?
+
+# --- Bug #14: Security concepts trả lời giống hệt nhau ---
+Firewall đang chặn cổng nào?
+Iptables rule hiện tại là gì?
+SSH có cho phép root login không?
+SELinux đang ở chế độ gì?
+AppArmor có đang bảo vệ service nào không?
+
+# --- Bug #15: Target-not-found gợi ý sai (lẫn tên tool) ---
+Kiểm tra CPU trên server-khong-co-that
+Check memory on ghost-host-001
+
+# --- Bug #16: Bad-target cache không nhất quán ---
+server1
+server1
+sv01
+sv01

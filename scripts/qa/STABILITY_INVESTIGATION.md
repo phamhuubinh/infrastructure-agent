@@ -7,13 +7,11 @@ timeout remain unchanged. No total tool-call quota has been introduced.
 
 ## Evidence captured before runtime changes
 
-Report `artifacts/qa/20260903T134156Z-c430be1a/cases.jsonl` was collected after adding
-diagnostics and before changing runtime guidance or infrastructure results. Both original
-cases completed as `MANUAL_REVIEW`, not PASS. Their full assistant texts (2,144 and 1,456
-characters) and corresponding tool data/sources have false truncation flags. These local
-reports deliberately remain untracked because they contain infrastructure identities and
-readings even after credential redaction. The excerpts below are intentionally incomplete;
-the report contains the complete review material.
+The report collected after adding diagnostics and before changing runtime guidance or
+infrastructure results is no longer retained in the retired root `artifacts/` tree. Both
+original cases completed as `MANUAL_REVIEW`, not PASS. Their full assistant texts (2,144 and
+1,456 characters) and corresponding tool data/sources had false truncation flags. The excerpts
+below are intentionally incomplete and document the historical findings only.
 
 ### Separate quality review: both rejected
 

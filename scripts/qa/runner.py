@@ -28,7 +28,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "13"
+RUNNER_VERSION = "14"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
@@ -44,6 +44,9 @@ FAILURE_TRACE_ARGUMENT_NAME_LIMIT = 8
 STABILITY_DIAGNOSTIC_EVENT_LIMIT = 256
 STABILITY_DIAGNOSTIC_TEXT_LIMIT = 65_536
 STABILITY_DIAGNOSTIC_VALUE_LIMIT = 131_072
+BEHAVIORAL_REVIEW_TEXT_LIMIT = 262_144
+BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT = 64
+BEHAVIORAL_REVIEW_REFERENCE_LIMIT = 64
 SCENARIOS = {
     "ordinary_chat",
     "continuity",
@@ -55,8 +58,15 @@ SCENARIOS = {
     "safety_response",
     "multi_turn",
 }
+BEHAVIORAL_SUITES = (
+    ("historical-default", "historical-default.txt", 193),
+    ("cauhoi_kiemtra_v2", "cauhoi_kiemtra_v2.txt", 66),
+    ("cauhoi_phanb", "cauhoi_phanb.txt", 28),
+    ("cauhoi_v4_adversarial", "cauhoi_v4_adversarial.txt", 61),
+    ("cauhoi_v5_workflow", "cauhoi_v5_workflow.txt", 38),
+)
 SOURCE_INPUT_ROOTS = ("scripts/qa", "backend/src/orion")
-SOURCE_INPUT_SUFFIXES = frozenset({".py", ".json"})
+SOURCE_INPUT_SUFFIXES = frozenset({".py", ".json", ".txt"})
 
 
 @dataclass(frozen=True)
@@ -80,6 +90,10 @@ class Case:
     tiers: tuple[str, ...] = ("full",)
     turns: tuple[str, ...] = ()
     manual_quality: bool = False
+    suite_id: str | None = None
+    ordinal: int | None = None
+    source_file: str | None = None
+    source_line: int | None = None
 
 
 @dataclass
@@ -92,9 +106,12 @@ class RequestObservation:
     request_identity_reason: str | None = (
         "message submission did not return a request identity"
     )
+    assistant_content: str | None = None
 
 
-def _request_ids_snapshot(database: Path | None, session_id: str) -> frozenset[str] | None:
+def _request_ids_snapshot(
+    database: Path | None, session_id: str
+) -> frozenset[str] | None:
     """QA-only evidence coupling to requests(request_id, session_id), without migrations.
 
     The caller supplies the isolated QA execution database, never the active user
@@ -127,7 +144,9 @@ def _bind_request_delta(
     """Bind only an unambiguous session delta under runner-owned serial sends."""
     observation.request_id = None
     observation.request_identity_source = "unavailable"
-    new_ids = after - before if before is not None and after is not None else frozenset()
+    new_ids = (
+        after - before if before is not None and after is not None else frozenset()
+    )
     if before is None:
         reason = "before-send QA database snapshot unavailable"
     elif after is None:
@@ -243,6 +262,10 @@ def _case_assertion_input(case: Case) -> dict[str, object]:
         "mutation": case.mutation,
         "tiers": case.tiers,
         "manual_quality": case.manual_quality,
+        "suite_id": case.suite_id,
+        "ordinal": case.ordinal,
+        "source_file": case.source_file,
+        "source_line": case.source_line,
     }
 
 
@@ -295,6 +318,17 @@ def collect_execution_provenance(
             "stability_sha256": _corpus_digest(
                 root / "scripts/qa/cases/stability.json"
             ),
+            "behavioral_suites": [
+                {
+                    "suite_id": suite_id,
+                    "path": f"scripts/qa/cases/historical/{filename}",
+                    "prompt_count": prompt_count,
+                    "sha256": _corpus_digest(
+                        root / "scripts/qa/cases/historical" / filename
+                    ),
+                }
+                for suite_id, filename, prompt_count in BEHAVIORAL_SUITES
+            ],
         },
         "selected_cases": selected_cases,
         "settings": {
@@ -532,15 +566,59 @@ def load_cases(path: Path) -> list[Case]:
     return cases
 
 
+def load_behavioral_cases(root: Path = ROOT) -> list[Case]:
+    """Load the fixed 386-prompt corpus without changing prompt text or suite order."""
+    cases: list[Case] = []
+    historical_root = root / "scripts" / "qa" / "cases" / "historical"
+    for suite_id, filename, expected_count in BEHAVIORAL_SUITES:
+        path = historical_root / filename
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as error:
+            raise ValueError(f"Cannot load behavioral suite: {filename}") from error
+        prompts = [
+            (line_number, line)
+            for line_number, line in enumerate(lines, start=1)
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if len(prompts) != expected_count:
+            raise ValueError(
+                f"Behavioral suite {suite_id} has {len(prompts)} prompts; "
+                f"expected {expected_count}."
+            )
+        for ordinal, (source_line, prompt) in enumerate(prompts, start=1):
+            cases.append(
+                Case(
+                    id=f"{suite_id}-{ordinal:03d}",
+                    prompt=prompt,
+                    category="behavioral",
+                    tiers=("behavioral",),
+                    suite_id=suite_id,
+                    ordinal=ordinal,
+                    source_file=(
+                        Path("scripts") / "qa" / "cases" / "historical" / filename
+                    ).as_posix(),
+                    source_line=source_line,
+                )
+            )
+    if len(cases) != sum(suite[2] for suite in BEHAVIORAL_SUITES):
+        raise ValueError("Behavioral corpus prompt count is invalid.")
+    return cases
+
+
 def select_tier(cases: list[Case], tier: str) -> list[Case]:
     return [case for case in cases if tier in case.tiers]
 
 
 def _case_phase(case: Case) -> str:
+    if "behavioral" in case.tiers:
+        return "behavioral"
     return "stability" if "stability" in case.tiers else "canonical"
 
 
 def _case_tier(case: Case) -> str:
+    if "behavioral" in case.tiers:
+        return "behavioral"
     if "stability" in case.tiers:
         return "stability"
     return "smoke" if "smoke" in case.tiers else "full"
@@ -766,6 +844,169 @@ def _diagnostic_value(
     return serialized[:STABILITY_DIAGNOSTIC_VALUE_LIMIT], True, len(serialized)
 
 
+def _behavioral_review_text(
+    value: str | None, secret_values: tuple[str, ...]
+) -> tuple[str | None, bool, int, str | None]:
+    """Redact and bound reviewer-visible text before deriving its persisted hash."""
+    if value is None:
+        return None, False, 0, None
+    safe = redact_public(redact_report(value, secret_values))
+    assert isinstance(safe, str)
+    text = safe[:BEHAVIORAL_REVIEW_TEXT_LIMIT]
+    return (
+        text,
+        len(safe) > BEHAVIORAL_REVIEW_TEXT_LIMIT,
+        len(safe),
+        _sha256_bytes(text.encode("utf-8")),
+    )
+
+
+def _behavioral_review_identifiers(
+    values: list[str], secret_values: tuple[str, ...]
+) -> list[str]:
+    return [
+        str(
+            redact_public(
+                _safe_trace_text(value, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT)
+            )
+        )
+        for value in values[:BEHAVIORAL_REVIEW_REFERENCE_LIMIT]
+    ]
+
+
+def behavioral_review_payload(
+    case: Case,
+    timeline: list[dict[str, Any]],
+    secret_values: tuple[str, ...],
+    *,
+    assistant_content: str | None = None,
+) -> dict[str, object]:
+    """Return bounded reviewer evidence without persisting raw tool-result payloads."""
+    prompt_text, prompt_truncated, prompt_characters, prompt_sha256 = (
+        _behavioral_review_text(case.prompt, secret_values)
+    )
+    terminal_events = [
+        item
+        for item in timeline
+        if item.get("kind") == "assistant_message"
+        and isinstance(item.get("payload"), dict)
+        and isinstance(item["payload"].get("metrics"), dict)
+        and not item["payload"].get("tool_calls")
+    ]
+    final = _final_assistant(terminal_events)
+    answer = (
+        assistant_content
+        if assistant_content is not None
+        else (final[0] if final else None)
+    )
+    hidden_reasoning = answer is not None and (
+        "<think" in answer.lower() or "</think>" in answer.lower()
+    )
+    answer_text, answer_truncated, answer_characters, answer_sha256 = (
+        _behavioral_review_text(None if hidden_reasoning else answer, secret_values)
+    )
+    statuses: dict[tuple[str, str], str] = {}
+    for item in timeline:
+        if item.get("kind") != "tool_result":
+            continue
+        payload = item.get("payload")
+        result = payload.get("result") if isinstance(payload, dict) else None
+        tool_name = item.get("tool_name")
+        call_id = item.get("call_id")
+        status = result.get("status") if isinstance(result, dict) else None
+        if (
+            isinstance(tool_name, str)
+            and isinstance(call_id, str)
+            and status in {"success", "error"}
+        ):
+            statuses[(tool_name, call_id)] = status
+    tool_calls: list[dict[str, object]] = []
+    for item in timeline:
+        if item.get("kind") != "tool_call":
+            continue
+        payload = item.get("payload")
+        tool_name = item.get("tool_name")
+        call_id = item.get("call_id")
+        if not isinstance(payload, dict) or not isinstance(tool_name, str):
+            continue
+        arguments, arguments_truncated, arguments_characters = _diagnostic_value(
+            payload.get("arguments", {}), secret_values
+        )
+        tool_calls.append(
+            {
+                "tool_name": redact_public(
+                    _safe_trace_text(
+                        tool_name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT
+                    )
+                ),
+                "arguments": arguments,
+                "arguments_truncated": arguments_truncated,
+                "arguments_characters": arguments_characters,
+                "status": statuses.get(
+                    (tool_name, call_id)
+                    if isinstance(call_id, str)
+                    else (tool_name, ""),
+                    "not_observed",
+                ),
+            }
+        )
+        if len(tool_calls) == BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT:
+            break
+    citation_ids = final[1] if final is not None else []
+    source_ids = sorted(_source_ids(timeline))
+    notices = [
+        {
+            key: str(redact_public(_safe_trace_text(payload[key], secret_values, 128)))
+            for key in ("stage", "status", "error_kind", "stop_reason")
+            if isinstance(payload.get(key), str)
+        }
+        for item in timeline
+        if item.get("kind") == "runtime_notice"
+        and isinstance(payload := item.get("payload"), dict)
+    ]
+    return {
+        "prompt_text": prompt_text,
+        "prompt_text_truncated": prompt_truncated,
+        "prompt_text_characters": prompt_characters,
+        "prompt_sha256": prompt_sha256,
+        "terminal_answer_text": answer_text,
+        "terminal_answer_text_truncated": answer_truncated,
+        "terminal_answer_text_characters": answer_characters,
+        "terminal_answer_sha256": answer_sha256,
+        "terminal_answer_hidden_reasoning_omitted": hidden_reasoning,
+        "tool_calls": tool_calls,
+        "tool_calls_truncated": sum(
+            1 for item in timeline if item.get("kind") == "tool_call"
+        )
+        > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
+        "source_ref_ids": _behavioral_review_identifiers(source_ids, secret_values),
+        "source_ref_ids_truncated": len(source_ids) > BEHAVIORAL_REVIEW_REFERENCE_LIMIT
+        or any(len(value) > FAILURE_TRACE_IDENTIFIER_LIMIT for value in source_ids),
+        "citation_source_ref_ids": _behavioral_review_identifiers(
+            citation_ids, secret_values
+        ),
+        "citation_source_ref_ids_truncated": len(citation_ids)
+        > BEHAVIORAL_REVIEW_REFERENCE_LIMIT
+        or any(len(value) > FAILURE_TRACE_IDENTIFIER_LIMIT for value in citation_ids),
+        "runtime_notices": notices[:BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT],
+        "runtime_notices_truncated": len(notices) > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
+    }
+
+
+def _behavioral_review_turn(
+    case: Case, timeline: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], bool]:
+    """Do not attribute stale/ambiguous timeline deltas after a failed capture to a new prompt."""
+    users = [item for item in timeline if item.get("kind") == "user_message"]
+    if len(users) != 1 or not isinstance(users[0].get("payload"), dict):
+        return [], False
+    content = users[0]["payload"].get("content")
+    if content not in (case.prompt, redact_public(case.prompt)):
+        return [], False
+    # Ignore any late output from the previous request before this prompt's user event.
+    return timeline[timeline.index(users[0]) :], True
+
+
 def stability_diagnostic_transcript(
     timelines: list[list[dict[str, Any]]], secret_values: tuple[str, ...]
 ) -> dict[str, object] | None:
@@ -865,7 +1106,9 @@ def runtime_input_diagnostics(
             entry["request_identity_reason"] = request.request_identity_reason
         diagnostics.append(entry)
         if request.request_id is None:
-            entry["reason"] = request.request_identity_reason or "request identity unavailable"
+            entry["reason"] = (
+                request.request_identity_reason or "request identity unavailable"
+            )
             continue
         request_id = quote(request.request_id, safe="")
         try:
@@ -1175,9 +1418,12 @@ def active_model() -> dict[str, str] | None:
     try:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
             columns = {
-                column[1] for column in connection.execute("PRAGMA table_info(model_configs)")
+                column[1]
+                for column in connection.execute("PRAGMA table_info(model_configs)")
             }
-            reasoning_column = "reasoning_mode" if "reasoning_mode" in columns else "'auto'"
+            reasoning_column = (
+                "reasoning_mode" if "reasoning_mode" in columns else "'auto'"
+            )
             row = connection.execute(
                 "SELECT base_url, model_id, api_key, "
                 f"{reasoning_column} FROM model_configs WHERE is_active = 1 LIMIT 1"
@@ -1235,7 +1481,8 @@ def qa_process_command(port: int) -> list[str]:
 
 
 def qa_report_directory(run_id: str) -> Path:
-    return ROOT / "artifacts" / "qa" / run_id
+    """Keep generated QA evidence with the QA runner, not a retired root artifact tree."""
+    return ROOT / "scripts" / "qa" / "reports" / run_id
 
 
 def stop_qa_process(process: subprocess.Popen[str]) -> None:
@@ -1421,6 +1668,7 @@ def write_reports(
 
     canonical = phase_summary("canonical")
     stability = phase_summary("stability")
+    behavioral = phase_summary("behavioral")
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
         tiers.setdefault(str(result.get("tier", "full")), Counter())[
@@ -1445,6 +1693,7 @@ def write_reports(
         ],
         "canonical": canonical,
         "stability": stability,
+        "behavioral": behavioral,
     }
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
@@ -1463,13 +1712,20 @@ def write_reports(
         if stability["total"]
         else ""
     )
+    behavioral_line = (
+        f"\nBehavioral: total {behavioral['total']} · PASS: {behavioral['passed']} · "
+        f"FAIL: {behavioral['failed']} · SKIP: {behavioral['skipped']} · "
+        f"MANUAL_REVIEW: {behavioral['manual_review']}\n"
+        if behavioral["total"]
+        else ""
+    )
     (report_directory / "summary.md").write_text(
         "# Orion QA "
         f"{manifest['mode']}\n\n"
         f"Canonical: total {canonical['total']} · PASS: {canonical['passed']} · "
         f"FAIL: {canonical['failed']} · SKIP: {canonical['skipped']} · "
         f"MANUAL_REVIEW: {canonical['manual_review']}\n"
-        f"{stability_line}",
+        f"{stability_line}{behavioral_line}",
         encoding="utf-8",
     )
 
@@ -1597,6 +1853,7 @@ def _send(
         response.get("assistant_content"), str
     ):
         raise ScenarioFailure("message endpoint did not return an assistant response")
+    observation.assistant_content = response["assistant_content"]
     return observation.request_id
 
 
@@ -1950,7 +2207,11 @@ def _run_structured(
                 requests: list[RequestObservation] = []
                 try:
                     timeline, checked_timelines = _execute_case(
-                        base_url, case, model["api_key"], requests, databases[case.mutation]
+                        base_url,
+                        case,
+                        model["api_key"],
+                        requests,
+                        databases[case.mutation],
                     )
                     status, reason, tools, sources = evaluate(case, timeline)
                     for checked in checked_timelines:
@@ -2065,15 +2326,211 @@ def _run_structured(
     return results, base_url
 
 
+def _behavioral_result(
+    case: Case,
+    session_id: str,
+    *,
+    status: str,
+    reason: str | None,
+) -> dict[str, object]:
+    """Build one report row while retaining the source and single-session identity."""
+    assert case.suite_id is not None and case.ordinal is not None
+    assert case.source_file is not None and case.source_line is not None
+    return {
+        "phase": "behavioral",
+        "tier": "behavioral",
+        "id": case.id,
+        "category": case.category,
+        "manual_quality": False,
+        "suite_id": case.suite_id,
+        "ordinal": case.ordinal,
+        "source_file": case.source_file,
+        "source_line": case.source_line,
+        "session_id": session_id,
+        "status": status,
+        "reason": reason,
+    }
+
+
+def _run_behavioral(
+    cases: list[Case],
+    model: dict[str, str],
+    fail_fast: bool,
+    checkpoint: ReportCheckpoint | None = None,
+) -> tuple[list[dict[str, object]], str]:
+    """Run every source suite as exactly one ordered, read-only conversation."""
+    grouped: dict[str, list[Case]] = {}
+    for case in cases:
+        if case.suite_id is None or "behavioral" not in case.tiers:
+            raise ValueError("Behavioral runner received a non-behavioral case.")
+        grouped.setdefault(case.suite_id, []).append(case)
+    if tuple(grouped) != tuple(suite[0] for suite in BEHAVIORAL_SUITES):
+        raise ValueError("Behavioral suites do not match the fixed corpus order.")
+
+    with tempfile.TemporaryDirectory(prefix="orion-qa-") as temporary:
+        runtime_directory = Path(temporary) / "read-only"
+        runtime_directory.mkdir()
+        environment = qa_environment(runtime_directory, model, mutation_case=False)
+        database = Path(environment["ORION_DATABASE_PATH"])
+        port = _available_port()
+        base_url = f"http://127.0.0.1:{port}"
+        process = subprocess.Popen(
+            qa_process_command(port),
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        results: list[dict[str, object]] = []
+        try:
+            _wait_for_health(base_url, process)
+            stopped = False
+            for _suite_id, suite_cases in grouped.items():
+                try:
+                    session = _create_session(base_url)
+                    session_id = str(session["session_id"])
+                except (
+                    QARequestTimeout,
+                    ScenarioFailure,
+                    urllib.error.HTTPError,
+                    urllib.error.URLError,
+                    json.JSONDecodeError,
+                ) as error:
+                    for case in suite_cases:
+                        if checkpoint is not None:
+                            checkpoint.mark_case_in_progress(case.id, "behavioral")
+                        result = _behavioral_result(
+                            case,
+                            "unavailable",
+                            status="FAIL",
+                            reason="session creation failed",
+                        )
+                        result["detail"] = type(error).__name__
+                        if isinstance(error, urllib.error.HTTPError):
+                            result.update(http_error_diagnostics(error))
+                        result.update(
+                            behavioral_review_payload(case, [], (model["api_key"],))
+                        )
+                        result["review_trace_available"] = False
+                        results.append(result)
+                        if checkpoint is not None:
+                            checkpoint.record_case(result)
+                    if fail_fast:
+                        break
+                    continue
+
+                previous_timeline: list[dict[str, Any]] = []
+                for case in suite_cases:
+                    if checkpoint is not None:
+                        checkpoint.mark_case_in_progress(case.id, "behavioral")
+                    observation = RequestObservation(session_id)
+                    timeline = previous_timeline
+                    previous_timeline_length = len(previous_timeline)
+                    turn_timeline: list[dict[str, Any]] = []
+                    try:
+                        _send(base_url, session_id, case.prompt, observation, database)
+                        timeline = _timeline(base_url, session_id)
+                        turn_timeline = timeline[previous_timeline_length:]
+                        _require_final(turn_timeline, secret=model["api_key"])
+                        status, reason, tools, sources = evaluate(case, turn_timeline)
+                        result = _behavioral_result(
+                            case, session_id, status=status, reason=reason
+                        )
+                        result.update(tools=dict(tools), sources=sources)
+                        previous_timeline = list(timeline)
+                    except urllib.error.HTTPError as error:
+                        result = _behavioral_result(
+                            case,
+                            session_id,
+                            status="FAIL",
+                            reason="HTTP/runtime failure",
+                        )
+                        result.update(
+                            detail=type(error).__name__, **http_error_diagnostics(error)
+                        )
+                        observed = getattr(error, "observed_timelines", [])
+                        if observed:
+                            previous_timeline = list(observed[-1])
+                        elif timeline is not previous_timeline:
+                            previous_timeline = list(timeline)
+                        failure_timeline = observed[-1] if observed else timeline
+                        turn_timeline = failure_timeline[previous_timeline_length:]
+                    except (
+                        AssertionError,
+                        QARequestTimeout,
+                        ScenarioFailure,
+                        urllib.error.URLError,
+                        json.JSONDecodeError,
+                    ) as error:
+                        result = _behavioral_result(
+                            case,
+                            session_id,
+                            status="FAIL",
+                            reason="HTTP/runtime failure",
+                        )
+                        result["detail"] = type(error).__name__
+                        if isinstance(error, (QARequestTimeout, ScenarioFailure)):
+                            message = safe_exception_message(error, (model["api_key"],))
+                            if message:
+                                result["message"] = message
+                        observed = getattr(error, "observed_timelines", [])
+                        if observed:
+                            previous_timeline = list(observed[-1])
+                        elif timeline is not previous_timeline:
+                            previous_timeline = list(timeline)
+                        failure_timeline = observed[-1] if observed else timeline
+                        turn_timeline = failure_timeline[previous_timeline_length:]
+                    review_timeline, trace_available = _behavioral_review_turn(
+                        case, turn_timeline
+                    )
+                    result["review_trace_available"] = trace_available
+                    result.update(
+                        behavioral_review_payload(
+                            case,
+                            review_timeline,
+                            (model["api_key"],),
+                            assistant_content=observation.assistant_content,
+                        )
+                    )
+                    diagnostics = runtime_input_diagnostics(base_url, [observation])
+                    if diagnostics:
+                        result["runtime_input_diagnostics"] = redact_report(
+                            diagnostics, (model["api_key"],)
+                        )
+                    results.append(result)
+                    if checkpoint is not None:
+                        checkpoint.record_case(result)
+                    if fail_fast and result["status"] == "FAIL":
+                        stopped = True
+                        break
+                if stopped:
+                    break
+        finally:
+            stop_qa_process(process)
+    return results, base_url
+
+
 def run(
     mode: str,
     fail_fast: bool,
     case_id: str | None = None,
 ) -> int:
-    corpus_name = "stability.json" if mode == "stability" else "canonical.json"
-    cases = load_cases(ROOT / "scripts" / "qa" / "cases" / corpus_name)
     try:
-        cases = select_cases(select_tier(cases, mode), case_id)
+        if mode == "behavioral":
+            if case_id is not None:
+                raise ValueError(
+                    "behavioral mode runs complete suites and does not support --case-id"
+                )
+            cases = load_behavioral_cases()
+        else:
+            corpus_name = "stability.json" if mode == "stability" else "canonical.json"
+            cases = select_cases(
+                select_tier(
+                    load_cases(ROOT / "scripts" / "qa" / "cases" / corpus_name), mode
+                ),
+                case_id,
+            )
     except ValueError as error:
         print(f"QA preflight failed: {error}", file=sys.stderr)
         return 2
@@ -2104,6 +2561,12 @@ def run(
         "model_id": provenance_inputs["settings"]["model_id"],  # type: ignore[index]
         "model_endpoint": provenance_inputs["settings"]["model_endpoint"],  # type: ignore[index]
         "optional_capabilities": ["linux", "grafana", "zabbix"],
+        "behavioral_suite_count": len(
+            {case.suite_id for case in cases if _case_phase(case) == "behavioral"}
+        ),
+        "behavioral_case_count": sum(
+            _case_phase(case) == "behavioral" for case in cases
+        ),
         "canonical_case_count": sum(_case_phase(case) == "canonical" for case in cases),
         "stability_case_count": sum(_case_phase(case) == "stability" for case in cases),
         "manual_quality_case_count": sum(case.manual_quality for case in cases),
@@ -2130,7 +2593,8 @@ def run(
     results: list[dict[str, object]] = []
     qa_base_url: str | None = None
     try:
-        results, qa_base_url = _run_structured(cases, model, fail_fast, checkpoint)
+        runner = _run_behavioral if mode == "behavioral" else _run_structured
+        results, qa_base_url = runner(cases, model, fail_fast, checkpoint)
         manifest["status"] = "completed"
         manifest["ended_at"] = datetime.now(UTC).isoformat()
         manifest["qa_api_base_url"] = qa_base_url or "unknown"
@@ -2145,7 +2609,9 @@ def run(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=("smoke", "full", "stability"), required=True)
+    parser.add_argument(
+        "--mode", choices=("behavioral", "smoke", "full", "stability"), required=True
+    )
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--case-id")
     arguments = parser.parse_args()
