@@ -50,6 +50,14 @@ class ModelStreamSettings:
         return cls(timeout_seconds=timeout_seconds)
 
 
+class ReasoningMode(StrEnum):
+    """Provider-neutral request preference for models that support reasoning controls."""
+
+    AUTO = "auto"
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
 class ModelSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -57,6 +65,7 @@ class ModelSettings(BaseModel):
     base_url: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
     api_key: str | None = None
+    reasoning_mode: ReasoningMode = ReasoningMode.AUTO
 
 
 class ModelBackendErrorKind(StrEnum):

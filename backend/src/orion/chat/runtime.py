@@ -1139,6 +1139,7 @@ class ChatRuntime:
                 "base_url": stored["base_url"],
                 "model_id": stored["model_id"],
                 "api_key": stored["api_key"],
+                "reasoning_mode": stored["reasoning_mode"],
             }
         )
 

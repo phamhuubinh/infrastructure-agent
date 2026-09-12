@@ -71,6 +71,10 @@ class OpenAICompatibleBackend(ModelBackend):
         configured_temperature = os.getenv("ORION_MODEL_TEMPERATURE")
         if configured_temperature is not None:
             payload["temperature"] = float(configured_temperature)
+        if settings.reasoning_mode != "auto":
+            payload.setdefault("chat_template_kwargs", {})["enable_thinking"] = (
+                settings.reasoning_mode == "enabled"
+            )
         if tools:
             payload["tools"] = self._provider_tools(tools)
         url = f"{settings.base_url.rstrip('/')}/chat/completions"

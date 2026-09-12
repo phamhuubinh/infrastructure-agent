@@ -205,15 +205,18 @@ def test_environment_model_bootstrap_preserves_existing_saved_profile(
     database = tmp_path / "orion.db"
     monkeypatch.setenv("ORION_MODEL_BASE_URL", "http://qwen.test/v1")
     monkeypatch.setenv("ORION_MODEL_ID", "qwen3-32b")
+    monkeypatch.setenv("ORION_MODEL_REASONING_MODE", "disabled")
     first = build_application(database, ScriptedBackend([]))
     first.store.close()
 
     monkeypatch.setenv("ORION_MODEL_BASE_URL", "http://replacement.test/v1")
     monkeypatch.setenv("ORION_MODEL_ID", "replacement-model")
+    monkeypatch.setenv("ORION_MODEL_REASONING_MODE", "enabled")
     restarted = build_application(database, ScriptedBackend([]))
 
     assert [profile["model_id"] for profile in restarted.store.model_configs()] == ["qwen3-32b"]
     assert restarted.store.active_model_config()["model_id"] == "qwen3-32b"  # type: ignore[index]
+    assert restarted.store.active_model_config()["reasoning_mode"] == "disabled"  # type: ignore[index]
 
 
 @pytest.mark.anyio

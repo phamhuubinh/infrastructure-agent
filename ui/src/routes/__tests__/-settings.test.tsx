@@ -27,6 +27,7 @@ describe("M1 model settings", () => {
             provider_type: "openai_compatible",
             base_url: "https://api.openai.com/v1",
             model_id: "gpt-4.1",
+            reasoning_mode: "auto",
             is_active: true,
           }),
         );
@@ -40,6 +41,7 @@ describe("M1 model settings", () => {
                   provider_type: "openai_compatible",
                   base_url: "https://api.openai.com/v1",
                   model_id: "gpt-4.1",
+                  reasoning_mode: "auto",
                   is_active: true,
                 },
               ]
@@ -73,8 +75,11 @@ describe("M1 model settings", () => {
       base_url: "https://api.openai.com/v1",
       model_id: "gpt-4.1",
       api_key: "provider-secret",
+      reasoning_mode: "auto",
     });
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit gpt-4.1" }));
+    expect((screen.getByLabelText("Reasoning mode") as HTMLSelectElement).value).toBe("auto");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
@@ -85,6 +90,7 @@ describe("M1 model settings", () => {
         provider_type: "openai_compatible",
         base_url: "http://qwen.test/v1",
         model_id: "qwen3-32b",
+        reasoning_mode: "auto",
         is_active: true,
       },
       {
@@ -92,6 +98,7 @@ describe("M1 model settings", () => {
         provider_type: "openai_compatible",
         base_url: "http://llama.test/v1",
         model_id: "llama-3.3",
+        reasoning_mode: "disabled",
         is_active: false,
       },
     ];
@@ -128,6 +135,9 @@ describe("M1 model settings", () => {
 
     await screen.findByText("Đã chọn model đang dùng.");
     expect(fetchMock).toHaveBeenCalledWith("/api/models/cfg-b/activate", expect.anything());
+    fireEvent.click(screen.getByRole("button", { name: "Edit llama-3.3" }));
+    expect((screen.getByLabelText("Reasoning mode") as HTMLSelectElement).value).toBe("disabled");
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit qwen3-32b" }));
     fireEvent.change(screen.getByPlaceholderText("Model name"), {
       target: { value: "qwen3-32b-updated" },
@@ -143,6 +153,7 @@ describe("M1 model settings", () => {
       provider_type: "openai_compatible",
       base_url: "http://qwen.test/v1",
       model_id: "qwen3-32b-updated",
+      reasoning_mode: "auto",
     });
     fireEvent.click(screen.getByRole("button", { name: "Delete qwen3-32b-updated" }));
 
