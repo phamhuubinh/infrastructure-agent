@@ -125,11 +125,13 @@ read back for final verification. Remote permissions continue to apply.
 
 ## Live QA
 
-`make qa-smoke` and `make qa-full` are manual-only live commands, never dependencies of test,
-lint, acceptance, CI, installation, packaging, or Orion startup. They run the current HTTP API in
-an isolated temporary data directory; they do not use Docker or legacy endpoints. They require a
-local active model profile or the `ORION_QA_MODEL_*` overrides. Reports are written under
-`artifacts/qa/`; unavailable optional Linux, Grafana, and Zabbix suites are reported as `SKIP`.
+`make qa-behavioral`, `make qa-smoke`, and `make qa-full` are manual-only live commands, never
+dependencies of test, lint, acceptance, CI, installation, packaging, or Orion startup. They run
+the current HTTP API in an isolated temporary data directory; they do not use Docker or legacy
+endpoints. `qa-behavioral` is the primary 386-prompt, five-session behavioral corpus. They require
+a local active model profile or the `ORION_QA_MODEL_*` overrides. Reports are written under
+`scripts/qa/reports/`; unavailable optional Linux, Grafana, and Zabbix suites are reported as
+`SKIP`.
 
 ### Existing local deployment sources
 

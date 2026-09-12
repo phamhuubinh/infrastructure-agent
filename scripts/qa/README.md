@@ -1,20 +1,27 @@
 # Orion live QA
 
-`make qa-smoke`, `make qa-full`, and `make qa-stability` are manual-only live commands: they are
-not dependencies of tests, lint, acceptance, CI, installation, builds, or Orion startup. They
-launch isolated loopback Orion APIs with temporary SQLite databases and exercise the current HTTP
-session API. They never use Docker or the legacy `/api/query` endpoint. The runner reads an active
-local model profile without modifying it, or uses `ORION_QA_MODEL_BASE_URL`,
-`ORION_QA_MODEL_ID`, and optionally `ORION_QA_MODEL_API_KEY`.
+`make qa-behavioral`, `make qa-smoke`, `make qa-full`, and `make qa-stability` are manual-only
+live commands: they are not dependencies of tests, lint, acceptance, CI, installation, builds, or
+Orion startup. They launch isolated loopback Orion APIs with temporary SQLite databases and
+exercise the current HTTP session API. They never use Docker or the legacy `/api/query` endpoint.
+The runner reads an active local model profile without modifying it, or uses
+`ORION_QA_MODEL_BASE_URL`, `ORION_QA_MODEL_ID`, and optionally `ORION_QA_MODEL_API_KEY`.
+
+`qa-behavioral` is the primary QA tier. It runs the retained 386-prompt corpus as exactly five
+sessions, one for each source suite. Prompts are sent in source order to the same session; the
+runner never resets a suite session, infers groups from keywords, or splits a source suite. Each
+result has the stable ID `<suite-id>-<ordinal 3 digits>` plus `source_file` and `source_line`
+metadata. `--case-id` is intentionally unavailable in behavioral mode because a partial suite
+would break its conversation semantics.
 
 `qa-smoke` runs the curated 15-case fast tier selected from the current 88-case canonical corpus.
 `qa-full` runs all 88 canonical cases. `qa-stability` is a separate two-case tier, not an extension
-of the canonical tier. `--case-id <canonical-case>` runs one case in its selected mode; the runner
-has no current historical execution phase or `--historical-suite` option.
+of the canonical tier. `--case-id <canonical-case>` runs one selected canonical case; behavioral
+sessions are always complete source suites.
 
-The five-suite, 386-turn mapping remains historical documentation only. It records prior source
-material and is not a corpus executed by the current runner, so it must not be reported as current
-QA coverage or acceptance evidence.
+The five-suite corpus is stored in `cases/historical/`: `historical-default` (193),
+`cauhoi_kiemtra_v2` (66), `cauhoi_phanb` (28), `cauhoi_v4_adversarial` (61), and
+`cauhoi_v5_workflow` (38). It totals 386 prompts and is the behavioral QA coverage baseline.
 
 `qa-stability` is a separate opt-in suite for broad prompts whose open-ended model/tool loops have
 previously exposed timeout instability. Its `enterprise-readiness` and `weekly-synthesis` prompts
@@ -23,8 +30,34 @@ contract; their completion does not demonstrate that the runtime timeout for the
 has been fixed. Stability cases remain read-only: the same execution guard blocks every mutating
 tool before its handler, and forbidden-tool checks also report attempted mutation.
 
-Reports are written under `artifacts/qa/`. Linux, Grafana, and Zabbix cases are explicitly
+Reports are written under `scripts/qa/reports/`. Linux, Grafana, and Zabbix cases are explicitly
 reported as `SKIP` unless a safe QA capability is configured; they never target production files.
+Each behavioral result retains redacted prompt and terminal-answer text plus hashes of the exact
+persisted text. Its bounded review trace contains tool names, redacted arguments and statuses,
+source references, citations, and any runtime/HTTP failure metadata; it never stores raw tool
+result payloads.
+`prompt_text` / `prompt_sha256` and `terminal_answer_text` / `terminal_answer_sha256`
+are present on every behavioral row. SHA-256 uses UTF-8 bytes of the redacted, persisted text.
+Each text is capped at 262,144 characters, with `*_text_truncated` and `*_text_characters`
+recording truncation and the full redacted length. A missing terminal answer has null text/hash;
+intermediate assistant prose is not a terminal answer. Hidden-reasoning-tagged answers are
+omitted with `terminal_answer_hidden_reasoning_omitted: true`.
+
+The same-send message response supplies the answer even if subsequent timeline capture fails.
+Otherwise only a persisted terminal assistant event from an unambiguous current-prompt delta
+can supply it. `review_trace_available: false` records absent or ambiguous deltas. This capture
+does not alter execution status, retry a send, reset a session, or change conversation history.
+
+`tool_calls` contains at most 64 entries (`tool_name`, `arguments`, `status`, and argument
+size/truncation metadata). Arguments use the existing 131,072-character structured-value cap;
+oversized values become a marked JSON excerpt. Status is correlated by tool name and call ID,
+or `not_observed` when no result was captured. `source_ref_ids` and `citation_source_ref_ids`
+are capped at 64 references of 128 characters each, with explicit truncation flags.
+`runtime_notices` retains at most 64 entries with only stage/status/error-kind/stop-reason
+metadata. HTTP/runtime failures retain bounded error metadata. Raw ToolResult data is excluded
+from this review trace; source IDs alone do not prove a conclusion is grounded. Existing
+optional `runtime_input_diagnostics` capture remains separate.
+
 Manual-quality cases, stability cases, and the two corresponding bounded synthesis cases retain a
 `stability_diagnostic` transcript in both checkpoint and final reports: assistant text,
 tool-call arguments, result data, source references, and errors. Known API/environment secrets
@@ -34,7 +67,8 @@ The bounded transcript supplies the full terminal answer/evidence required by th
 sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
 remain not assessable.
 
-Runner version 13 captures `runtime_input_diagnostics` using authoritative message-response
+Runner version 14 adds the behavioral review payload while retaining `runtime_input_diagnostics`
+using authoritative message-response
 identities or exact session-scoped QA SQLite deltas, never public timeline items. Entries preserve
 one-based
 `send_index`, `session_id`, and `request_id` for each attempted send, across turns and sessions.

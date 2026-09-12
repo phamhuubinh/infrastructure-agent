@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import re
@@ -538,8 +539,8 @@ def test_qa_import_and_make_targets_are_manual_only(monkeypatch) -> None:  # typ
         "acceptance: openapi-check architecture-check operations-check test lint typecheck"
         in makefile
     )
-    assert "qa-smoke:" in makefile and "qa-full:" in makefile
-    assert "qa-smoke" not in ci and "qa-full" not in ci
+    assert "qa-behavioral:" in makefile and "qa-smoke:" in makefile and "qa-full:" in makefile
+    assert "qa-behavioral" not in ci and "qa-smoke" not in ci and "qa-full" not in ci
 
 
 def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -583,7 +584,7 @@ def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_
     assert command[-2:] == ["--port", "61889"]
     assert "127.0.0.1" in command and "uvicorn" in command
     assert "scripts.qa.app:create_app" in command
-    assert report == qa_runner.ROOT / "artifacts" / "qa" / "run-id"
+    assert report == qa_runner.ROOT / "scripts" / "qa" / "reports" / "run-id"
     assert process.stopped and not process.killed
 
 
@@ -701,6 +702,10 @@ def stability_cases(qa_runner):  # type: ignore[no-untyped-def]
     return qa_runner.load_cases(qa_runner.ROOT / "scripts/qa/cases/stability.json")
 
 
+def behavioral_cases(qa_runner):  # type: ignore[no-untyped-def]
+    return qa_runner.load_behavioral_cases()
+
+
 def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ignore[no-untyped-def]
     corpus = cases(qa_runner)
     smoke = qa_runner.select_tier(corpus, "smoke")
@@ -713,7 +718,234 @@ def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ig
     assert not (qa_runner.ROOT / "scripts/qa/cases/full.json").exists()
     assert not (qa_runner.ROOT / "scripts/qa/cases/smoke.json").exists()
     assert (qa_runner.ROOT / "scripts/qa/cases/stability.json").is_file()
-    assert not list((qa_runner.ROOT / "scripts/qa/cases/historical").glob("*.txt"))
+    assert len(list((qa_runner.ROOT / "scripts/qa/cases/historical").glob("*.txt"))) == 5
+
+
+def test_behavioral_corpus_preserves_five_source_suites_and_stable_ids(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    corpus = behavioral_cases(qa_runner)
+    assert len(corpus) == 386
+    assert [suite[0] for suite in qa_runner.BEHAVIORAL_SUITES] == [
+        "historical-default",
+        "cauhoi_kiemtra_v2",
+        "cauhoi_phanb",
+        "cauhoi_v4_adversarial",
+        "cauhoi_v5_workflow",
+    ]
+    offset = 0
+    for suite_id, filename, count in qa_runner.BEHAVIORAL_SUITES:
+        suite = corpus[offset : offset + count]
+        assert [case.id for case in suite] == [
+            f"{suite_id}-{ordinal:03d}" for ordinal in range(1, count + 1)
+        ]
+        assert all(case.suite_id == suite_id for case in suite)
+        assert [case.ordinal for case in suite] == list(range(1, count + 1))
+        assert all(case.source_file and case.source_file.endswith(filename) for case in suite)
+        assert [case.source_line for case in suite] == sorted(
+            case.source_line for case in suite if case.source_line is not None
+        )
+        source_prompts = [
+            line
+            for line in (qa_runner.ROOT / "scripts" / "qa" / "cases" / "historical" / filename)
+            .read_text(encoding="utf-8")
+            .splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert [case.prompt for case in suite] == source_prompts
+        offset += count
+
+
+def test_behavioral_runner_uses_one_ordered_session_per_source_suite(
+    qa_runner, monkeypatch, tmp_path
+) -> None:  # type: ignore[no-untyped-def]
+    corpus = behavioral_cases(qa_runner)
+    sessions: list[str] = []
+    sent: list[tuple[str, str]] = []
+    timelines: dict[str, list[dict[str, object]]] = {}
+    monkeypatch.setenv("ORION_QA_REVIEW_SECRET", "Hostname")
+    answer_suffix = " Full evidence-based answer. " * 100
+    checkpoint = qa_runner.ReportCheckpoint(tmp_path / "report", ("secret",))
+    checkpoint.start({"mode": "behavioral"})
+
+    monkeypatch.setattr(qa_runner, "_available_port", lambda: 61889)
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *args, **kwargs: object())
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *args: None)
+    monkeypatch.setattr(qa_runner, "stop_qa_process", lambda process: None)
+
+    def create(_):  # type: ignore[no-untyped-def]
+        session_id = f"session-{len(sessions) + 1}"
+        sessions.append(session_id)
+        timelines[session_id] = []
+        return {"session_id": session_id}
+
+    def send(_, session_id, prompt, observation, database):  # type: ignore[no-untyped-def]
+        sent.append((session_id, prompt))
+        observation.assistant_content = f"Answer {len(sent)} Hostname" + answer_suffix
+        timelines[session_id].extend(
+            [
+                {"kind": "user_message", "payload": {"content": prompt}},
+                {
+                    "kind": "assistant_message",
+                    "payload": {"content": observation.assistant_content, "metrics": {}},
+                },
+            ]
+        )
+
+    monkeypatch.setattr(qa_runner, "_create_session", create)
+    monkeypatch.setattr(qa_runner, "_send", send)
+    monkeypatch.setattr(qa_runner, "_timeline", lambda _, session_id: timelines[session_id])
+
+    results, _ = qa_runner._run_behavioral(
+        corpus,
+        {"base_url": "http://model", "id": "model", "api_key": "secret"},
+        False,
+        checkpoint,
+    )
+
+    assert sessions == [f"session-{index}" for index in range(1, 6)]
+    assert [item[0] for item in sent].count("session-1") == 193
+    assert [item[0] for item in sent].count("session-2") == 66
+    assert [item[0] for item in sent].count("session-3") == 28
+    assert [item[0] for item in sent].count("session-4") == 61
+    assert [item[0] for item in sent].count("session-5") == 38
+    assert [prompt for _, prompt in sent] == [case.prompt for case in corpus]
+    assert [result["id"] for result in results] == [case.id for case in corpus]
+    assert {result["session_id"] for result in results} == set(sessions)
+    assert all(result["status"] == "PASS" for result in results)
+    qa_runner.write_reports(
+        tmp_path / "report", {"mode": "behavioral"}, results, secret_values=("secret",)
+    )
+    report = tmp_path / "report"
+    assert (report / "cases.jsonl").read_bytes() == (report / "cases.partial.jsonl").read_bytes()
+    persisted = [json.loads(line) for line in (report / "cases.jsonl").read_text().splitlines()]
+    for index, (case, result) in enumerate(zip(corpus, persisted, strict=True), start=1):
+        assert result["prompt_text"] == case.prompt.replace("Hostname", "[REDACTED]")
+        assert result["terminal_answer_text"] == f"Answer {index} [REDACTED]" + answer_suffix
+        for field, digest in (
+            ("prompt_text", "prompt_sha256"),
+            ("terminal_answer_text", "terminal_answer_sha256"),
+        ):
+            assert result[digest] == hashlib.sha256(result[field].encode("utf-8")).hexdigest()
+            assert result[f"{field}_truncated"] is False
+
+
+def test_behavioral_review_payload_is_redacted_integrity_bound_and_tool_safe(
+    qa_runner,
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    secret = "qa-review-secret"
+    case = qa_runner.Case(
+        id="historical-default-001",
+        prompt=f"Inspect safely using {secret}.",
+        category="behavioral",
+        tiers=("behavioral",),
+        suite_id="historical-default",
+        ordinal=1,
+        source_file="scripts/qa/cases/historical/historical-default.txt",
+        source_line=1,
+    )
+    timeline = [
+        {
+            "kind": "tool_call",
+            "tool_name": "linux.system.inspect",
+            "call_id": "call-1",
+            "payload": {"arguments": {"target_ref": "safe-target", "token": secret}},
+        },
+        {
+            "kind": "tool_result",
+            "tool_name": "linux.system.inspect",
+            "call_id": "call-1",
+            "payload": {
+                "result": {
+                    "status": "success",
+                    "data": {"private_evidence": secret},
+                    "sources": [{"source_ref_id": "source-1"}],
+                }
+            },
+        },
+        {
+            "kind": "assistant_message",
+            "payload": {
+                "content": f"The observed state is healthy; {secret} was not exposed.",
+                "citation_source_ref_ids": ["source-1"],
+                "metrics": {},
+            },
+        },
+    ]
+
+    payload = qa_runner.behavioral_review_payload(case, timeline, (secret,))
+
+    assert payload["prompt_text"] == "Inspect safely using <redacted>."
+    assert payload["terminal_answer_text"] == (
+        "The observed state is healthy; <redacted> was not exposed."
+    )
+    assert (
+        payload["prompt_sha256"]
+        == hashlib.sha256(str(payload["prompt_text"]).encode("utf-8")).hexdigest()
+    )
+    assert (
+        payload["terminal_answer_sha256"]
+        == hashlib.sha256(str(payload["terminal_answer_text"]).encode("utf-8")).hexdigest()
+    )
+    assert payload["tool_calls"] == [
+        {
+            "tool_name": "linux.system.inspect",
+            "arguments": {"target_ref": "safe-target", "token": "<redacted>"},
+            "arguments_truncated": False,
+            "arguments_characters": len('{"target_ref":"safe-target","token":"<redacted>"}'),
+            "status": "success",
+        }
+    ]
+    assert payload["source_ref_ids"] == ["source-1"]
+    assert payload["citation_source_ref_ids"] == ["source-1"]
+    assert "private_evidence" not in json.dumps(payload)
+    assert secret not in json.dumps(payload)
+    result = qa_runner._behavioral_result(case, "session", status="PASS", reason=None)
+    result.update(payload)
+    qa_runner.write_reports(tmp_path, {"mode": "behavioral"}, [result], secret_values=(secret,))
+    written = json.loads((tmp_path / "cases.jsonl").read_text())
+    assert written["tool_calls"] == payload["tool_calls"]
+    assert secret not in (tmp_path / "cases.jsonl").read_text()
+    for field, digest in (
+        ("prompt_text", "prompt_sha256"),
+        ("terminal_answer_text", "terminal_answer_sha256"),
+    ):
+        assert written[digest] == hashlib.sha256(written[field].encode("utf-8")).hexdigest()
+
+
+def test_behavioral_review_does_not_reuse_stale_or_intermediate_answer(qa_runner) -> None:
+    case = behavioral_cases(qa_runner)[0]
+    old = {"kind": "assistant_message", "payload": {"content": "old", "metrics": {}}}
+    user = {"kind": "user_message", "payload": {"content": case.prompt}}
+    intermediate = {
+        "kind": "assistant_message",
+        "payload": {"content": "Collecting data", "tool_calls": [{"name": "read"}]},
+    }
+    turn, available = qa_runner._behavioral_review_turn(case, [old, user, intermediate])
+    assert available and turn == [user, intermediate]
+    missing = qa_runner.behavioral_review_payload(case, turn, ())
+    assert missing["terminal_answer_text"] is None
+    assert missing["terminal_answer_sha256"] is None
+    # A repeated prompt after a missed capture must not bind an ambiguous delta.
+    assert qa_runner._behavioral_review_turn(case, [user, old, user, intermediate]) == ([], False)
+    response = qa_runner.behavioral_review_payload(
+        case, [], (), assistant_content="actual response"
+    )
+    assert response["terminal_answer_text"] == "actual response"
+
+
+def test_behavioral_review_bounds_have_explicit_flags_and_persisted_text_hashes(qa_runner) -> None:
+    case = behavioral_cases(qa_runner)[0]
+    limit = qa_runner.BEHAVIORAL_REVIEW_TEXT_LIMIT
+    payload = qa_runner.behavioral_review_payload(case, [], (), assistant_content="a" * (limit + 1))
+    assert len(payload["terminal_answer_text"]) == limit
+    assert payload["terminal_answer_text_truncated"] is True
+    assert payload["terminal_answer_text_characters"] == limit + 1
+    assert payload["terminal_answer_sha256"] == hashlib.sha256(b"a" * limit).hexdigest()
+    hidden = qa_runner.behavioral_review_payload(
+        case, [], (), assistant_content="<think>private</think>"
+    )
+    assert hidden["terminal_answer_text"] is None
+    assert hidden["terminal_answer_hidden_reasoning_omitted"] is True
 
 
 def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) -> None:  # type: ignore[no-untyped-def]

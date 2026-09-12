@@ -7,7 +7,7 @@ does not judge answers automatically, and a deterministic QA `PASS` or
 Review the exact terminal answer and the evidence bound by the hashes emitted by:
 
 ```bash
-python scripts/qa/quality_verdicts.py inspect artifacts/qa/<run-id>
+python scripts/qa/quality_verdicts.py inspect scripts/qa/reports/<run-id>
 ```
 
 Only enter `accepted`, `rejected`, or `not_assessable` after checking the following
@@ -54,7 +54,7 @@ The offline release gate is explicit about skip coverage; it does not treat `SKI
 as sufficient evidence by default:
 
 ```bash
-python scripts/qa/quality_verdicts.py gate artifacts/qa/<run-id> --skip-policy forbid
+python scripts/qa/quality_verdicts.py gate scripts/qa/reports/<run-id> --skip-policy forbid
 ```
 
 Use `--skip-policy allow-with-rationale --skip-rationale '...'` only when a
