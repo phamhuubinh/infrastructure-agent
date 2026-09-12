@@ -388,6 +388,16 @@ class AssistantDelta(CanonicalModel):
     content: str = Field(min_length=1)
 
 
+class ReasoningDelta(CanonicalModel):
+    """A provider-normalized private reasoning fragment.
+
+    Runtime consumers may use this only as transient activity. It must never
+    be persisted or returned through a user-facing surface.
+    """
+
+    content: str = Field(min_length=1)
+
+
 class ToolCallDelta(CanonicalModel):
     """A provider-normalized fragment of a tool call under construction."""
 

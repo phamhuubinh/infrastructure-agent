@@ -35,6 +35,7 @@ from orion.contracts import (
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
+    ReasoningDelta,
     RuntimeScope,
     SourceRef,
     TimelineItem,
@@ -82,42 +83,79 @@ class _ModelStreamProgress:
     It never retains the content or arguments carried by delta events.
     """
 
+    # Every accepted ModelBackend event, including ReasoningDelta and completion.
     first_normalized_event_elapsed_ms: int | None = None
+    # Stream deltas only; ModelTurnCompleted alone does not constitute activity.
+    first_stream_activity_elapsed_ms: int | None = None
+    first_reasoning_delta_elapsed_ms: int | None = None
     first_assistant_delta_elapsed_ms: int | None = None
     first_tool_call_delta_elapsed_ms: int | None = None
+    first_stream_activity_kind: str | None = None
     first_actionable_delta_kind: str | None = None
+    reasoning_observed_before_first_actionable_delta: bool | None = None
+    reasoning_delta_count: int = 0
+    reasoning_delta_characters: int = 0
     assistant_delta_count: int = 0
     assistant_delta_characters: int = 0
     tool_call_delta_count: int = 0
+    reasoning_milestone_recorded: bool = False
 
     def observe(self, event: object, elapsed_ms: int) -> str | None:
         if self.first_normalized_event_elapsed_ms is None:
             self.first_normalized_event_elapsed_ms = elapsed_ms
+        if isinstance(event, ReasoningDelta):
+            self._first_stream_activity("reasoning", elapsed_ms)
+            if self.first_reasoning_delta_elapsed_ms is None:
+                self.first_reasoning_delta_elapsed_ms = elapsed_ms
+            self.reasoning_delta_count += 1
+            self.reasoning_delta_characters += len(event.content)
+            if self.first_actionable_delta_kind is None and not self.reasoning_milestone_recorded:
+                self.reasoning_milestone_recorded = True
+                return "reasoning"
+            return None
         if isinstance(event, AssistantDelta):
+            self._first_stream_activity("assistant", elapsed_ms)
             if self.first_assistant_delta_elapsed_ms is None:
                 self.first_assistant_delta_elapsed_ms = elapsed_ms
             self.assistant_delta_count += 1
             self.assistant_delta_characters += len(event.content)
-            return self._first_actionable_delta("assistant")
+            return "actionable" if self._first_actionable_delta("assistant") else None
         elif isinstance(event, ToolCallDelta):
+            self._first_stream_activity("tool_call", elapsed_ms)
             if self.first_tool_call_delta_elapsed_ms is None:
                 self.first_tool_call_delta_elapsed_ms = elapsed_ms
             self.tool_call_delta_count += 1
-            return self._first_actionable_delta("tool_call")
+            return "actionable" if self._first_actionable_delta("tool_call") else None
         return None
 
-    def _first_actionable_delta(self, kind: str) -> str | None:
-        if self.first_actionable_delta_kind is not None:
-            return None
-        self.first_actionable_delta_kind = kind
-        return kind
+    def _first_stream_activity(self, kind: str, elapsed_ms: int) -> None:
+        if self.first_stream_activity_kind is not None:
+            return
+        self.first_stream_activity_kind = kind
+        self.first_stream_activity_elapsed_ms = elapsed_ms
 
-    def diagnostic_fields(self) -> dict[str, int | None]:
+    def _first_actionable_delta(self, kind: str) -> bool:
+        if self.first_actionable_delta_kind is not None:
+            return False
+        self.first_actionable_delta_kind = kind
+        self.reasoning_observed_before_first_actionable_delta = self.reasoning_delta_count > 0
+        return True
+
+    def diagnostic_fields(self) -> dict[str, object]:
         """Return the fixed, content-free fields safe to add to a terminal record."""
         return {
             "first_normalized_event_elapsed_ms": self.first_normalized_event_elapsed_ms,
+            "first_stream_activity_elapsed_ms": self.first_stream_activity_elapsed_ms,
+            "first_stream_activity_kind": self.first_stream_activity_kind,
+            "first_reasoning_delta_elapsed_ms": self.first_reasoning_delta_elapsed_ms,
             "first_assistant_delta_elapsed_ms": self.first_assistant_delta_elapsed_ms,
             "first_tool_call_delta_elapsed_ms": self.first_tool_call_delta_elapsed_ms,
+            "first_actionable_delta_kind": self.first_actionable_delta_kind,
+            "reasoning_observed_before_first_actionable_delta": (
+                self.reasoning_observed_before_first_actionable_delta
+            ),
+            "reasoning_delta_count": self.reasoning_delta_count,
+            "reasoning_delta_characters": self.reasoning_delta_characters,
             "assistant_delta_count": self.assistant_delta_count,
             "assistant_delta_characters": self.assistant_delta_characters,
             "tool_call_delta_count": self.tool_call_delta_count,
@@ -1054,8 +1092,8 @@ class ChatRuntime:
         ):
             self._ensure_not_cancelled(cancellation)
             event_elapsed_ms = self._elapsed_ms(model_started_at)
-            first_actionable_delta_kind = model_stream_progress.observe(event, event_elapsed_ms)
-            if first_actionable_delta_kind is not None:
+            milestone_kind = model_stream_progress.observe(event, event_elapsed_ms)
+            if milestone_kind is not None:
                 self._record_diagnostic(
                     {
                         "request_id": request_id,
@@ -1063,7 +1101,7 @@ class ChatRuntime:
                         "phase": "model",
                         "status": "stream_progress",
                         "elapsed_ms": event_elapsed_ms,
-                        "first_actionable_delta_kind": first_actionable_delta_kind,
+                        "stream_progress_milestone": milestone_kind,
                         **model_stream_progress.diagnostic_fields(),
                     }
                 )
