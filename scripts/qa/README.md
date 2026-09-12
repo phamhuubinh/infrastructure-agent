@@ -14,6 +14,20 @@ result has the stable ID `<suite-id>-<ordinal 3 digits>` plus `source_file` and 
 metadata. `--case-id` is intentionally unavailable in behavioral mode because a partial suite
 would break its conversation semantics.
 
+If a message submission times out, disconnects, or fails before returning an assistant response,
+behavioral QA stops the entire batch, even without `--fail-fast`. A client timeout does not cancel
+server-side work: continuing the same session would queue more requests behind it. The failed
+row retains its review/diagnostic payload and `execution_stop_reason`; the temporary QA process
+is stopped. Final manifest/progress/summary report `aborted`; manifest and summary include
+`reported_case_count`, `unrun_case_count` and `stop_reason`, with `stop_case_id` in the manifest.
+Unrun prompts are not reported
+as PASS/SKIP and no replacement session is created. The command exits nonzero.
+
+An assertion or timeline-capture failure after a message response has returned remains a per-case
+FAIL; subsequent prompts still use the same session unless `--fail-fast` was requested. The
+90-second QA timeout and production runtime/model/tool behavior are unchanged. This prevents
+queue accumulation; it does not claim to fix slow model/provider completion.
+
 `qa-smoke` runs the curated 15-case fast tier selected from the current 88-case canonical corpus.
 `qa-full` runs all 88 canonical cases. `qa-stability` is a separate two-case tier, not an extension
 of the canonical tier. `--case-id <canonical-case>` runs one selected canonical case; behavioral
@@ -67,7 +81,7 @@ The bounded transcript supplies the full terminal answer/evidence required by th
 sidecar; the 512-character preview is not review evidence. Missing or truncated diagnostics
 remain not assessable.
 
-Runner version 14 adds the behavioral review payload while retaining `runtime_input_diagnostics`
+Runner version 15 retains the behavioral review payload and `runtime_input_diagnostics`
 using authoritative message-response
 identities or exact session-scoped QA SQLite deltas, never public timeline items. Entries preserve
 one-based

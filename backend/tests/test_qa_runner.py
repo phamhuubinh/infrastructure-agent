@@ -912,6 +912,87 @@ def test_behavioral_review_payload_is_redacted_integrity_bound_and_tool_safe(
         assert written[digest] == hashlib.sha256(written[field].encode("utf-8")).hexdigest()
 
 
+@pytest.mark.parametrize("failure", ["timeout", "disconnect", "http", "invalid_response"])
+def test_behavioral_stops_batch_after_unconfirmed_send_and_preserves_reports(
+    qa_runner, monkeypatch, tmp_path, failure
+) -> None:
+    sessions = []
+    sent = []
+    timeline = []
+    stopped = []
+    errors = {
+        "timeout": qa_runner.QARequestTimeout("timed out"),
+        "disconnect": urllib.error.URLError("connection lost"),
+        "http": urllib.error.HTTPError("http://qa", 502, "Bad Gateway", None, BytesIO(b"{}")),
+        "invalid_response": qa_runner.ScenarioFailure("invalid message response"),
+    }
+    monkeypatch.setattr(
+        qa_runner,
+        "active_model",
+        lambda: {
+            "base_url": "http://model.invalid",
+            "id": "mock",
+            "api_key": "secret",
+        },
+    )
+    monkeypatch.setattr(qa_runner, "qa_report_directory", lambda _: tmp_path / "run")
+    monkeypatch.setattr(qa_runner, "_git_output", lambda *a: None)
+    monkeypatch.setattr(qa_runner, "_available_port", lambda: 61889)
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *a, **kw: "owned-process")
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *a: None)
+    monkeypatch.setattr(qa_runner, "stop_qa_process", stopped.append)
+    monkeypatch.setattr(qa_runner, "runtime_input_diagnostics", lambda *a: [])
+
+    def create(_):
+        sessions.append("suite-session")
+        return {"session_id": sessions[-1]}
+
+    def send(_, session_id, prompt, observation, database):
+        sent.append((session_id, prompt))
+        timeline.append({"kind": "user_message", "payload": {"content": prompt}})
+        if len(sent) == 2:
+            error = errors[failure]
+            error.observed_timelines = [list(timeline)]
+            raise error
+        observation.assistant_content = "first terminal answer"
+        timeline.append(
+            {
+                "kind": "assistant_message",
+                "payload": {
+                    "content": observation.assistant_content,
+                    "metrics": {},
+                },
+            }
+        )
+
+    monkeypatch.setattr(qa_runner, "_create_session", create)
+    monkeypatch.setattr(qa_runner, "_send", send)
+    monkeypatch.setattr(qa_runner, "_timeline", lambda *a: list(timeline))
+    assert qa_runner.run("behavioral", fail_fast=False) == 1
+    assert len(sent) == 2 and sessions == ["suite-session"]
+    assert stopped == ["owned-process"]
+    report = tmp_path / "run"
+    rows = [json.loads(line) for line in (report / "cases.jsonl").read_text().splitlines()]
+    assert [row["status"] for row in rows] == ["PASS", "FAIL"]
+    assert rows[0]["terminal_answer_text"] == "first terminal answer"
+    assert rows[1]["terminal_answer_text"] is None
+    assert rows[1]["prompt_text"] == sent[1][1]
+    assert rows[1]["execution_stop_reason"] == "message_submission_outcome_unconfirmed"
+    assert (report / "cases.partial.jsonl").read_bytes() == (report / "cases.jsonl").read_bytes()
+    manifest = json.loads((report / "manifest.json").read_text())
+    assert manifest["status"] == "aborted"
+    assert manifest["reported_case_count"] == 2
+    assert manifest["unrun_case_count"] == 384
+    assert manifest["stop_case_id"] == "historical-default-002"
+    assert manifest["ended_at"]
+    assert json.loads((report / "progress.json").read_text())["status"] == "aborted"
+    summary = json.loads((report / "summary.json").read_text())
+    assert summary["execution_status"] == "aborted"
+    assert summary["planned_case_count"] == 386
+    assert summary["unrun_case_count"] == 384
+    assert "aborted" in (report / "summary.md").read_text()
+
+
 def test_behavioral_review_does_not_reuse_stale_or_intermediate_answer(qa_runner) -> None:
     case = behavioral_cases(qa_runner)[0]
     old = {"kind": "assistant_message", "payload": {"content": "old", "metrics": {}}}
@@ -931,6 +1012,54 @@ def test_behavioral_review_does_not_reuse_stale_or_intermediate_answer(qa_runner
         case, [], (), assistant_content="actual response"
     )
     assert response["terminal_answer_text"] == "actual response"
+
+
+@pytest.mark.parametrize("fail_fast", [False, True])
+def test_behavioral_confirmed_response_can_continue_after_timeline_failure(
+    qa_runner, monkeypatch, fail_fast
+) -> None:
+    cases = [case for case in behavioral_cases(qa_runner) if case.ordinal == 1]
+    sessions = []
+    sends = []
+    monkeypatch.setattr(qa_runner, "_available_port", lambda: 61889)
+    monkeypatch.setattr(qa_runner.subprocess, "Popen", lambda *a, **kw: object())
+    monkeypatch.setattr(qa_runner, "_wait_for_health", lambda *a: None)
+    monkeypatch.setattr(qa_runner, "stop_qa_process", lambda *a: None)
+    monkeypatch.setattr(qa_runner, "runtime_input_diagnostics", lambda *a: [])
+
+    def create(_):
+        sessions.append(f"session-{len(sessions) + 1}")
+        return {"session_id": sessions[-1]}
+
+    def send(_, sid, prompt, observation, database):
+        sends.append((sid, prompt))
+        observation.assistant_content = "returned answer"
+
+    def timeline(*args):
+        if len(sends) == 1:
+            raise qa_runner.QARequestTimeout("only timeline GET timed out")
+        return [
+            {"kind": "user_message", "payload": {"content": sends[-1][1]}},
+            {"kind": "assistant_message", "payload": {"content": "returned answer", "metrics": {}}},
+        ]
+
+    monkeypatch.setattr(qa_runner, "_create_session", create)
+    monkeypatch.setattr(qa_runner, "_send", send)
+    monkeypatch.setattr(qa_runner, "_timeline", timeline)
+    results, _ = qa_runner._run_behavioral(
+        cases,
+        {
+            "base_url": "http://model",
+            "id": "mock",
+            "api_key": "secret",
+        },
+        fail_fast,
+    )
+    assert len(sessions) == len(sends) == len(results) == (1 if fail_fast else 5)
+    assert results[0]["status"] == "FAIL"
+    assert results[0]["terminal_answer_text"] == "returned answer"
+    assert all("execution_stop_reason" not in row for row in results)
+    assert all(row["status"] == "PASS" for row in results[1:])
 
 
 def test_behavioral_review_bounds_have_explicit_flags_and_persisted_text_hashes(qa_runner) -> None:

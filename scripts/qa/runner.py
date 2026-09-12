@@ -28,7 +28,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "14"
+RUNNER_VERSION = "15"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
@@ -1623,9 +1623,9 @@ class ReportCheckpoint:
         }
         self._write_progress()
 
-    def complete(self) -> None:
-        self.progress = {"status": "completed", "phase": "completed"}
-        self._write_manifest("completed")
+    def complete(self, status: str = "completed") -> None:
+        self.progress = {"status": status, "phase": status}
+        self._write_manifest(status)
         self._write_progress()
 
     def interrupt(self) -> None:
@@ -1695,6 +1695,14 @@ def write_reports(
         "stability": stability,
         "behavioral": behavioral,
     }
+    if manifest.get("mode") == "behavioral":
+        data.update(
+            execution_status=manifest.get("status"),
+            planned_case_count=manifest.get("behavioral_case_count"),
+            reported_case_count=len(safe_results),
+            unrun_case_count=manifest.get("unrun_case_count"),
+            stop_reason=manifest.get("stop_reason"),
+        )
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
         json.dumps(safe_manifest, indent=2), encoding="utf-8"
@@ -1719,6 +1727,11 @@ def write_reports(
         if behavioral["total"]
         else ""
     )
+    if manifest.get("mode") == "behavioral":
+        behavioral_line += (
+            f"\nExecution: {manifest.get('status', 'unknown')} · "
+            f"Unrun: {manifest.get('unrun_case_count', 'unknown')}\n"
+        )
     (report_directory / "summary.md").write_text(
         "# Orion QA "
         f"{manifest['mode']}\n\n"
@@ -2425,6 +2438,8 @@ def _run_behavioral(
                     if checkpoint is not None:
                         checkpoint.mark_case_in_progress(case.id, "behavioral")
                     observation = RequestObservation(session_id)
+                    # A failed HTTP submission does not cancel server-side work.
+                    # Only a returned response permits the next prompt in this session.
                     timeline = previous_timeline
                     previous_timeline_length = len(previous_timeline)
                     turn_timeline: list[dict[str, Any]] = []
@@ -2449,6 +2464,10 @@ def _run_behavioral(
                         result.update(
                             detail=type(error).__name__, **http_error_diagnostics(error)
                         )
+                        if observation.assistant_content is None:
+                            result["execution_stop_reason"] = (
+                                "message_submission_outcome_unconfirmed"
+                            )
                         observed = getattr(error, "observed_timelines", [])
                         if observed:
                             previous_timeline = list(observed[-1])
@@ -2470,6 +2489,10 @@ def _run_behavioral(
                             reason="HTTP/runtime failure",
                         )
                         result["detail"] = type(error).__name__
+                        if observation.assistant_content is None:
+                            result["execution_stop_reason"] = (
+                                "message_submission_outcome_unconfirmed"
+                            )
                         if isinstance(error, (QARequestTimeout, ScenarioFailure)):
                             message = safe_exception_message(error, (model["api_key"],))
                             if message:
@@ -2501,7 +2524,9 @@ def _run_behavioral(
                     results.append(result)
                     if checkpoint is not None:
                         checkpoint.record_case(result)
-                    if fail_fast and result["status"] == "FAIL":
+                    if result.get("execution_stop_reason") or (
+                        fail_fast and result["status"] == "FAIL"
+                    ):
                         stopped = True
                         break
                 if stopped:
@@ -2596,14 +2621,27 @@ def run(
         runner = _run_behavioral if mode == "behavioral" else _run_structured
         results, qa_base_url = runner(cases, model, fail_fast, checkpoint)
         manifest["status"] = "completed"
+        if mode == "behavioral":
+            manifest["reported_case_count"] = len(results)
+            manifest["unrun_case_count"] = len(cases) - len(results)
+            stop_reason = results[-1].get("execution_stop_reason") if results else None
+            if stop_reason or len(results) < len(cases):
+                manifest["status"] = "aborted"
+                manifest["stop_reason"] = stop_reason or "fail_fast"
+                manifest["stop_case_id"] = results[-1]["id"] if results else None
         manifest["ended_at"] = datetime.now(UTC).isoformat()
         manifest["qa_api_base_url"] = qa_base_url or "unknown"
         write_reports(reports, manifest, results, secret_values=(model["api_key"],))
-        checkpoint.complete()
+        checkpoint.complete(str(manifest["status"]))
     except BaseException:
         checkpoint.interrupt()
         raise
     print(f"QA report: {reports}")
+    if manifest["status"] == "aborted":
+        print(
+            f"Behavioral batch aborted: {manifest['stop_reason']}; "
+            f"{manifest['unrun_case_count']} prompts not run."
+        )
     return 1 if any(result["status"] == "FAIL" for result in results) else 0
 
 
