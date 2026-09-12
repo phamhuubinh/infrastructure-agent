@@ -27,10 +27,11 @@ _SYSTEM_INSTRUCTIONS = (
 )
 
 _OMISSION_GROUNDING_INSTRUCTIONS = (
-    "_orion_projection: partial/omitted data_state or essential_metadata, omitted_items>0 or "
-    "omitted keys mean incomplete evidence, not absence/zero/no activity/incident/anomaly. "
-    "Disclose coverage limits or seek authorized evidence as appropriate. upstream_empty "
-    "supports emptiness only within query scope/time/limit."
+    "_orion_projection: source_data_state=upstream_nonempty_omitted/partial, partial/omitted "
+    "data_state or essential_metadata, omitted_items>0 or omitted keys mean incomplete evidence, "
+    "not absence/zero/no activity/incident/anomaly. Disclose coverage limits or seek authorized "
+    "evidence as appropriate. source_data_state=upstream_empty supports emptiness only within "
+    "query scope/time/limit."
 )
 
 # These are model-context byte proxies, not product quotas. Canonical timeline data

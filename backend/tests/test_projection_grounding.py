@@ -23,10 +23,11 @@ from orion.contracts import (
 from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
 GROUNDING_RULE = (
-    "_orion_projection: partial/omitted data_state or essential_metadata, omitted_items>0 or "
-    "omitted keys mean incomplete evidence, not absence/zero/no activity/incident/anomaly. "
-    "Disclose coverage limits or seek authorized evidence as appropriate. upstream_empty "
-    "supports emptiness only within query scope/time/limit."
+    "_orion_projection: source_data_state=upstream_nonempty_omitted/partial, partial/omitted "
+    "data_state or essential_metadata, omitted_items>0 or omitted keys mean incomplete evidence, "
+    "not absence/zero/no activity/incident/anomaly. Disclose coverage limits or seek authorized "
+    "evidence as appropriate. source_data_state=upstream_empty supports emptiness only within "
+    "query scope/time/limit."
 )
 
 
@@ -77,6 +78,32 @@ def canonical(result: ToolResult) -> str:
     return compact_json(value)
 
 
+def live_shaped_event_result() -> ToolResult:
+    """Synthetic structural equivalent of the three-event live projection failure."""
+    return ToolResult(
+        call_id="live-shape",
+        tool_name="zabbix.event.list",
+        status="success",
+        data={
+            "target_ref": "zabbix",
+            "results": [
+                {"event_id": str(index), "severity": "high", "detail": "é漢字" * 100}
+                for index in range(3)
+            ],
+            "time_coverage": {
+                "returned_count": 3,
+                "zero_matches_in_query": False,
+                "absence_of_events_established": False,
+                "possibly_truncated": False,
+                "result_completeness": "unknown",
+                "from": "2026-09-01T00:00:00Z",
+                "to": "2026-09-02T00:00:00Z",
+            },
+            "evidence_scope": {"kind": "bounded", "limitations": ["x" * 300]},
+        },
+    )
+
+
 def test_995_byte_nested_result_keeps_useful_rows_at_994() -> None:
     result = three_row_result()
     before = result.model_dump(mode="json")
@@ -95,6 +122,53 @@ def test_995_byte_nested_result_keeps_useful_rows_at_994() -> None:
     assert coverage["included_items"] == len(rows)
     assert coverage["omitted_items"] == 3 - len(rows)
     assert result.model_dump(mode="json") == before
+
+
+def test_nonempty_events_remain_unambiguous_when_rows_and_coverage_are_omitted() -> None:
+    result = live_shaped_event_result()
+    before = result.model_dump(mode="json")
+    cap = 465
+    encoded = project_tool_result(result, cap)
+    projected = json.loads(encoded)
+    metadata = projected["_orion_projection"]
+
+    assert len(encoded.encode("utf-8")) == cap
+    assert projected["data"] is None
+    assert metadata["data_state"] == "omitted"
+    assert metadata["source_data_state"] == "upstream_nonempty_omitted"
+    assert metadata["essential_metadata"] == {
+        "evidence_scope": "omitted",
+        "time_coverage": "omitted",
+    }
+    assert metadata["unreported_list_items"] == {
+        "original_items": 4,
+        "included_items": 0,
+        "omitted_items": 4,
+    }
+    # This aggregate includes the nested limitations list as well as events;
+    # it is not an event/observation count.
+    assert metadata["unreported_list_items"]["original_items"] != 3
+    assert result.model_dump(mode="json") == before
+
+    larger = json.loads(project_tool_result(result, 500))
+    assert len(project_tool_result(result, 500).encode("utf-8")) <= 500
+    assert larger["_orion_projection"]["source_data_state"] == "upstream_nonempty_partial"
+    assert larger["data"]["time_coverage"]["returned_count"] == 3
+    assert larger["data"]["time_coverage"].get("absence_of_events_established") is not True
+
+    absence_critical = json.loads(project_tool_result(result, 600))
+    assert absence_critical["data"]["time_coverage"]["absence_of_events_established"] is False
+    row_counts = []
+    for budget in (cap, 500, 600, 1_200, 3_000):
+        value = json.loads(project_tool_result(result, budget))
+        assert len(project_tool_result(result, budget).encode("utf-8")) <= budget
+        row_counts.append(len((value["data"] or {}).get("results", [])))
+    assert row_counts == sorted(row_counts)
+
+    empty = ToolResult(call_id="empty", tool_name=result.tool_name, status="success", data=[])
+    upstream_empty = json.loads(project_tool_result(empty, cap))
+    assert upstream_empty["data"] == []
+    assert upstream_empty != projected
 
 
 @pytest.mark.parametrize("offset", range(-16, 5))
@@ -212,6 +286,7 @@ def test_upstream_empty_and_omitted_positive_are_not_interchangeable(nested: boo
         upstream = json.loads(project_tool_result(empty, 1))
         assert upstream["data"] == []
         assert upstream["_orion_projection"]["data_state"] == "upstream_empty"
+        assert upstream["_orion_projection"]["source_data_state"] == "upstream_empty"
     else:
         upstream = json.loads(project_tool_result(empty, 330))
         assert upstream["data"] != omitted["data"]

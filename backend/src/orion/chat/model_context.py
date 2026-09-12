@@ -22,8 +22,13 @@ _PRIORITY_KEYS = {
     "count",
     "total",
     "result_count",
+    "returned_count",
     "segment_count",
     "total_segments",
+    "zero_matches_in_query",
+    "absence_of_events_established",
+    "possibly_truncated",
+    "result_completeness",
     "evidence_scope",
     "time_coverage",
 }
@@ -49,6 +54,9 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
     unreported list records, including nested lists, NOT distinct observations.
     essential_metadata contains only upstream-provided fields; {} means neither
     coverage field was supplied, not that coverage is complete.
+    source_data_state is an irreducible projection-level fact: it distinguishes
+    upstream nonempty evidence from an empty successful result even when all
+    data rows and coverage metadata are omitted.
     """
     canonical = result.model_dump(mode="json")
     if canonical["read_progress"] is None:
@@ -81,6 +89,7 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
         metadata: dict[str, Any] = {
             "applied": True,
             "data_state": _data_state(original, projected),
+            "source_data_state": _source_data_state(result.status, original, projected),
             "essential_metadata": _essential_metadata_states(original, projected),
             "original_bytes": original_bytes,
             "maximum_bytes": maximum_bytes,
@@ -207,6 +216,13 @@ def _data_state(original: Any, projected: Any) -> str:
     if projected is None:
         return "omitted"
     return "complete" if projected == original else "partial"
+
+
+def _source_data_state(status: str, original: Any, projected: Any) -> str:
+    """Name source-data presence without relying on a null projected value."""
+    if original is None or original == {} or original == []:
+        return "upstream_empty" if status == "success" else "unavailable"
+    return "upstream_nonempty_omitted" if projected is None else "upstream_nonempty_partial"
 
 
 def _essential_metadata_states(original: Any, projected: Any) -> dict[str, str]:
