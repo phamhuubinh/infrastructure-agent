@@ -406,6 +406,69 @@ async def test_one_expansion_can_expose_multiple_plausible_tools_without_routing
 
 
 @pytest.mark.anyio
+async def test_independent_read_batch_continues_after_first_normal_failure(store) -> None:  # type: ignore[no-untyped-def]
+    executions: list[str] = []
+    builder = ToolRegistryBuilder()
+
+    def handler(call: ToolCall) -> ToolResult:
+        executions.append(call.tool_name)
+        if call.tool_name == "fake.alpha":
+            return ToolResult.failure(
+                call.call_id, call.tool_name, "upstream_error", "Unavailable."
+            )
+        return ToolResult(call_id=call.call_id, tool_name=call.tool_name, status="success", data={})
+
+    for name in ("fake.alpha", "fake.beta"):
+        builder.register(
+            ToolDefinition(
+                name=name,
+                description=f"Use {name} for an independent read.",
+                input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+                handler_key=name,
+            ),
+            handler,
+        )
+    backend = ScriptedBackend(
+        [
+            _expand("fake.alpha", "fake.beta"),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(call_id="alpha", tool_name="fake.alpha", arguments={}),
+                    ModelToolCall(call_id="beta", tool_name="fake.beta", arguments={}),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Both reads were considered.")),
+        ]
+    )
+    session_id = store.create_session()
+
+    await runtime(store, backend, builder.freeze()).submit(session_id, "Read both sources")
+
+    assert executions == ["fake.alpha", "fake.beta"]
+    assert len(backend.calls) == 3
+    continuation = backend.calls[2][0]
+    assistant_index = next(
+        index
+        for index, message in enumerate(continuation)
+        if message.role == "assistant"
+        and [call.call_id for call in message.tool_calls] == ["alpha", "beta"]
+    )
+    returned_results = continuation[assistant_index + 1 : assistant_index + 3]
+    assert [
+        (message.role, message.tool_call_id, message.tool_name) for message in returned_results
+    ] == [
+        ("tool", "alpha", "fake.alpha"),
+        ("tool", "beta", "fake.beta"),
+    ]
+    timeline_results = [
+        item.payload["result"]
+        for item in store.timeline(session_id)
+        if item.kind == "tool_result" and item.tool_name in {"fake.alpha", "fake.beta"}
+    ]
+    assert [result["status"] for result in timeline_results] == ["error", "success"]
+
+
+@pytest.mark.anyio
 async def test_hidden_or_invalid_ordinary_tool_never_dispatches(store) -> None:  # type: ignore[no-untyped-def]
     calls: list[ToolCall] = []
     backend = ScriptedBackend(

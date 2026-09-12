@@ -55,6 +55,10 @@ def test_infrastructure_context_separates_identity_and_supplies_current_time(
     }
     assert "2026-09-05T10:00:00+00:00" in identities
     assert "unspecified query window is not a weekly window" in identities
+    assert "do not merely offer a tool procedure or ask permission" in identities
+    assert "relevant authorized read-only tools have known inputs" in identities
+    assert "emit those calls together in one model turn" in identities
+    assert "For dependent calls, obtain prerequisite evidence first" in identities
 
 
 def _expand(*tool_names: str, call_id: str = "expand") -> ModelTurn:
