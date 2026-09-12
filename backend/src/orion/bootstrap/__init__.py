@@ -22,7 +22,7 @@ from orion.integrations import (
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.ports import Chunker, DocumentParser
-from orion.models.backend import ModelBackend, ModelStreamSettings
+from orion.models.backend import ModelBackend, ModelStreamSettings, ReasoningMode
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.observability import ApplicationLog
 from orion.paths import database_path as default_database_path
@@ -147,7 +147,11 @@ def _configure_model_from_environment(store: SQLiteStore) -> None:
     base_url, model_id = os.getenv("ORION_MODEL_BASE_URL"), os.getenv("ORION_MODEL_ID")
     if base_url and model_id:
         store.create_model_config(
-            "openai_compatible", base_url, model_id, os.getenv("ORION_MODEL_API_KEY")
+            "openai_compatible",
+            base_url,
+            model_id,
+            os.getenv("ORION_MODEL_API_KEY"),
+            ReasoningMode(os.getenv("ORION_MODEL_REASONING_MODE", "auto")).value,
         )
 
 

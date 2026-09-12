@@ -24,6 +24,7 @@ type ModelConnection = {
   provider_type: string;
   base_url: string;
   model_id: string;
+  reasoning_mode: "auto" | "enabled" | "disabled";
   is_active: boolean;
 };
 
@@ -32,6 +33,7 @@ export function SettingsPage() {
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [reasoningMode, setReasoningMode] = useState<ModelConnection["reasoning_mode"]>("auto");
   const [editingModel, setEditingModel] = useState<ModelConnection | null>(null);
   const [addingModel, setAddingModel] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -54,6 +56,7 @@ export function SettingsPage() {
     setBaseUrl("");
     setModelId("");
     setApiKey("");
+    setReasoningMode("auto");
     setEditingModel(null);
     setAddingModel(false);
   }
@@ -62,6 +65,7 @@ export function SettingsPage() {
     setBaseUrl(model.base_url);
     setModelId(model.model_id);
     setApiKey("");
+    setReasoningMode(model.reasoning_mode);
     setEditingModel(model);
     setAddingModel(false);
     setNotice("");
@@ -91,6 +95,7 @@ export function SettingsPage() {
           base_url: baseUrl,
           model_id: modelId,
           api_key: apiKey || undefined,
+          reasoning_mode: reasoningMode,
         }),
       });
       // Credentials remain request-only: never put them in browser persistence or rendered state.
@@ -203,7 +208,7 @@ export function SettingsPage() {
                         {item.is_active && <Badge>Đang dùng</Badge>}
                       </div>
                       <div className="mt-1 truncate text-xs text-muted-foreground">
-                        {item.provider_type} · {item.base_url}
+                        {item.provider_type} · {item.base_url} · {item.reasoning_mode}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -255,6 +260,20 @@ export function SettingsPage() {
                       onChange={(event) => setBaseUrl(event.target.value)}
                       placeholder="Base URL, ví dụ http://localhost:11434/v1"
                     />
+                    <label className="grid gap-1 text-sm text-muted-foreground">
+                      Reasoning mode
+                      <select
+                        value={reasoningMode}
+                        onChange={(event) =>
+                          setReasoningMode(event.target.value as ModelConnection["reasoning_mode"])
+                        }
+                        className="h-9 rounded-md border border-input bg-transparent px-3 text-sm text-foreground"
+                      >
+                        <option value="auto">Auto (provider default)</option>
+                        <option value="enabled">Enabled</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    </label>
                     <Input
                       value={modelId}
                       onChange={(event) => setModelId(event.target.value)}

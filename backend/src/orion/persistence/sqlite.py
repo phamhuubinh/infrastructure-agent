@@ -55,6 +55,8 @@ class SQLiteStore:
                     base_url TEXT NOT NULL,
                     model_id TEXT NOT NULL,
                     api_key TEXT,
+                    reasoning_mode TEXT NOT NULL DEFAULT 'auto'
+                        CHECK (reasoning_mode IN ('auto', 'enabled', 'disabled')),
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL
                 );
@@ -170,6 +172,11 @@ class SQLiteStore:
             if "is_active" not in model_columns:
                 self._connection.execute(
                     "ALTER TABLE model_configs ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+                )
+            if "reasoning_mode" not in model_columns:
+                self._connection.execute(
+                    "ALTER TABLE model_configs "
+                    "ADD COLUMN reasoning_mode TEXT NOT NULL DEFAULT 'auto'"
                 )
             self._normalize_active_model_config()
             self._connection.execute(
@@ -829,7 +836,12 @@ class SQLiteStore:
         ]
 
     def create_model_config(
-        self, provider_type: str, base_url: str, model_id: str, api_key: str | None
+        self,
+        provider_type: str,
+        base_url: str,
+        model_id: str,
+        api_key: str | None,
+        reasoning_mode: str = "auto",
     ) -> str:
         model_config_id = str(uuid.uuid4())
         with self._lock, self._connection:
@@ -837,14 +849,17 @@ class SQLiteStore:
                 "SELECT 1 FROM model_configs WHERE is_active = 1 LIMIT 1"
             ).fetchone()
             self._connection.execute(
-                """INSERT INTO model_configs(model_config_id, provider_type, base_url, model_id,
-                   api_key, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                """INSERT INTO model_configs(
+                   model_config_id, provider_type, base_url, model_id, api_key, reasoning_mode,
+                   is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     model_config_id,
                     provider_type,
                     base_url.rstrip("/"),
                     model_id,
                     api_key,
+                    reasoning_mode,
                     0 if active_exists else 1,
                     _utc_now(),
                 ),
@@ -852,15 +867,21 @@ class SQLiteStore:
         return model_config_id
 
     def upsert_model_config(
-        self, provider_type: str, base_url: str, model_id: str, api_key: str | None
+        self,
+        provider_type: str,
+        base_url: str,
+        model_id: str,
+        api_key: str | None,
+        reasoning_mode: str = "auto",
     ) -> str:
         """Compatibility name for callers that previously created the one active configuration."""
-        return self.create_model_config(provider_type, base_url, model_id, api_key)
+        return self.create_model_config(provider_type, base_url, model_id, api_key, reasoning_mode)
 
     def model_configs(self) -> list[dict[str, str | int | None]]:
         with self._lock:
             rows = self._connection.execute(
-                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, "
+                "reasoning_mode, is_active "
                 "FROM model_configs ORDER BY is_active DESC, created_at DESC, rowid DESC"
             ).fetchall()
         return [dict(row) for row in rows]
@@ -868,7 +889,8 @@ class SQLiteStore:
     def model_config(self, model_config_id: str) -> dict[str, str | int | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, "
+                "reasoning_mode, is_active "
                 "FROM model_configs WHERE model_config_id = ?",
                 (model_config_id,),
             ).fetchone()
@@ -881,12 +903,21 @@ class SQLiteStore:
         base_url: str,
         model_id: str,
         api_key: str | None,
+        reasoning_mode: str | None = None,
     ) -> bool:
         with self._lock, self._connection:
             updated = self._connection.execute(
                 "UPDATE model_configs SET provider_type = ?, base_url = ?, model_id = ?, "
-                "api_key = COALESCE(?, api_key) WHERE model_config_id = ?",
-                (provider_type, base_url.rstrip("/"), model_id, api_key, model_config_id),
+                "api_key = COALESCE(?, api_key), reasoning_mode = COALESCE(?, reasoning_mode) "
+                "WHERE model_config_id = ?",
+                (
+                    provider_type,
+                    base_url.rstrip("/"),
+                    model_id,
+                    api_key,
+                    reasoning_mode,
+                    model_config_id,
+                ),
             )
         return updated.rowcount == 1
 
@@ -921,7 +952,8 @@ class SQLiteStore:
     def active_model_config(self) -> dict[str, str | int | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT model_config_id, provider_type, base_url, model_id, api_key, is_active "
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, "
+                "reasoning_mode, is_active "
                 "FROM model_configs "
                 "WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1"
             ).fetchone()

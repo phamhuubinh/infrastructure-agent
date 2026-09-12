@@ -543,7 +543,12 @@ def test_qa_import_and_make_targets_are_manual_only(monkeypatch) -> None:  # typ
 
 
 def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
-    model = {"base_url": "https://user:secret@example.test/v1", "id": "model", "api_key": "secret"}
+    model = {
+        "base_url": "https://user:secret@example.test/v1",
+        "id": "model",
+        "api_key": "secret",
+        "reasoning_mode": "disabled",
+    }
     environment = qa_runner.qa_environment(tmp_path, model)
     mutation_environment = qa_runner.qa_environment(tmp_path, model, mutation_case=True)
     command = qa_runner.qa_process_command(61889)
@@ -572,6 +577,7 @@ def test_qa_process_environment_reports_and_cleanup_are_isolated(qa_runner, tmp_
     assert environment["ORION_DATABASE_PATH"] == str(tmp_path / "orion.db")
     assert environment["ORION_LOG_PATH"] == str(tmp_path / "orion.log")
     assert environment["ORION_MODEL_API_KEY"] == "secret"
+    assert environment["ORION_MODEL_REASONING_MODE"] == "disabled"
     assert environment["ORION_QA_CASE_MUTATION"] == "0"
     assert mutation_environment["ORION_QA_CASE_MUTATION"] == "1"
     assert command[-2:] == ["--port", "61889"]
@@ -2150,6 +2156,7 @@ def test_execution_provenance_is_stable_redacted_and_comparable(
         "base_url": "https://user:secret@example.test/v1?key=secret",
         "id": "model",
         "api_key": "secret",
+        "reasoning_mode": "auto",
     }
     case = qa_runner.Case(id="same", prompt="prompt", category="qa", expected_tools=("tool",))
     first = qa_runner.collect_execution_provenance([case], model, root=root)
@@ -2185,6 +2192,13 @@ def test_execution_provenance_is_stable_redacted_and_comparable(
 
     left, right = {"execution_provenance": first}, {"execution_provenance": repeat}
     assert qa_runner.compare_execution_manifests(left, right)["status"] == "comparable"
+    reasoning_mode_changed = json.loads(json.dumps(right))
+    reasoning_mode_changed["execution_provenance"]["inputs"]["settings"]["reasoning_mode"] = (
+        "disabled"
+    )
+    comparison = qa_runner.compare_execution_manifests(left, reasoning_mode_changed)
+    assert comparison["status"] == "incomparable"
+    assert "effective model or timeout settings differ" in comparison["reasons"]
     stability = json.loads(json.dumps(right))
     stability["execution_provenance"]["inputs"]["selected_cases"][0]["phase"] = "stability"
     assert "phase differs" in qa_runner.compare_execution_manifests(left, stability)["reasons"][0]

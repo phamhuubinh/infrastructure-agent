@@ -202,7 +202,9 @@ def test_adapter_normalizes_insignificant_citation_marker_whitespace(marker: str
 
 
 @pytest.mark.anyio
-async def test_adapter_omits_empty_tools_and_normalizes_stream_usage(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+async def test_adapter_default_auto_preserves_payload_and_normalizes_stream_usage(
+    monkeypatch,
+) -> None:  # type: ignore[no-untyped-def]
     captured: dict[str, object] = {}
 
     class Response:
@@ -312,6 +314,60 @@ async def test_adapter_uses_validated_stream_timeout_for_transport(monkeypatch) 
         pass
 
     assert captured["timeout"] == 17
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("reasoning_mode", "enable_thinking"),
+    (("enabled", True), ("disabled", False)),
+)
+async def test_adapter_sends_explicit_reasoning_mode_override(
+    monkeypatch, reasoning_mode: str, enable_thinking: bool
+) -> None:  # type: ignore[no-untyped-def]
+    captured: dict[str, object] = {}
+
+    class Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+            yield 'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}'
+
+    class Stream:
+        async def __aenter__(self) -> Response:
+            return Response()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class Client:
+        async def __aenter__(self) -> Client:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        def stream(self, _method: str, _url: str, **kwargs: object) -> Stream:
+            captured.update(kwargs)
+            return Stream()
+
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient", lambda **_: Client()
+    )
+    async for _ in OpenAICompatibleBackend().stream(
+        (ContextMessage(role="user", content="Hello"),),
+        (),
+        ModelSettings(
+            provider_type="openai_compatible",
+            base_url="http://model.test/v1",
+            model_id="fake",
+            reasoning_mode=reasoning_mode,
+        ),
+        asyncio.Event(),
+    ):
+        pass
+
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": enable_thinking}  # type: ignore[index]
 
 
 @pytest.mark.anyio

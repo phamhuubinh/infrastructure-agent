@@ -22,7 +22,7 @@ from orion.chat.runtime import (
     RequestFailed,
 )
 from orion.contracts import RuntimeScope
-from orion.models.backend import ModelBackend
+from orion.models.backend import ModelBackend, ReasoningMode
 from orion.paths import (
     ORION_HEALTH_IDENTITY,
     PACKAGED_UI_SHELL,
@@ -44,6 +44,7 @@ class ModelConfigInput(StrictRequest):
     base_url: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
     api_key: str | None = None
+    reasoning_mode: ReasoningMode = ReasoningMode.AUTO
 
 
 class ModelConfigView(BaseModel):
@@ -51,6 +52,7 @@ class ModelConfigView(BaseModel):
     provider_type: str
     base_url: str
     model_id: str
+    reasoning_mode: ReasoningMode
     is_active: bool
 
 
@@ -123,6 +125,7 @@ def create_app(
             provider_type=str(config["provider_type"]),
             base_url=safe_endpoint(str(config["base_url"])),
             model_id=redact_text(str(config["model_id"])),
+            reasoning_mode=ReasoningMode(str(config["reasoning_mode"])),
             is_active=bool(config["is_active"]),
         )
 
@@ -144,6 +147,7 @@ def create_app(
             config.base_url,
             config.model_id,
             config.api_key.strip() if config.api_key and config.api_key.strip() else None,
+            config.reasoning_mode.value,
         )
         created = store.model_config(config_id)
         assert created is not None
@@ -157,6 +161,7 @@ def create_app(
             config.base_url,
             config.model_id,
             config.api_key.strip() if config.api_key and config.api_key.strip() else None,
+            (config.reasoning_mode.value if "reasoning_mode" in config.model_fields_set else None),
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Model configuration not found.")

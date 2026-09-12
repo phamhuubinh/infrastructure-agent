@@ -352,6 +352,7 @@ def _settings(store: SQLiteStore) -> ModelSettings:
             "base_url": config["base_url"],
             "model_id": config["model_id"],
             "api_key": config["api_key"],
+            "reasoning_mode": config["reasoning_mode"],
         }
     )
 

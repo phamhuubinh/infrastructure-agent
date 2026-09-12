@@ -305,6 +305,7 @@ def collect_execution_provenance(
             "model_endpoint": sanitize_endpoint(model["base_url"])
             if model.get("base_url")
             else "unknown",
+            "reasoning_mode": model.get("reasoning_mode") or "auto",
         },
     }
     return {
@@ -1158,10 +1159,14 @@ def _multipart_file_request(
 
 def active_model() -> dict[str, str] | None:
     overrides = {
-        key: os.getenv(f"ORION_QA_MODEL_{key}") for key in ("BASE_URL", "ID", "API_KEY")
+        key: os.getenv(f"ORION_QA_MODEL_{key}")
+        for key in ("BASE_URL", "ID", "API_KEY", "REASONING_MODE")
     }
     if overrides["BASE_URL"] and overrides["ID"]:
-        return {key.lower(): value or "" for key, value in overrides.items()}
+        return {
+            **{key.lower(): value or "" for key, value in overrides.items()},
+            "reasoning_mode": overrides["REASONING_MODE"] or "auto",
+        }
     database = Path(
         os.getenv("ORION_DATABASE_PATH", Path.home() / ".local/share/orion/orion.db")
     )
@@ -1169,14 +1174,24 @@ def active_model() -> dict[str, str] | None:
         return None
     try:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
+            columns = {
+                column[1] for column in connection.execute("PRAGMA table_info(model_configs)")
+            }
+            reasoning_column = "reasoning_mode" if "reasoning_mode" in columns else "'auto'"
             row = connection.execute(
-                "SELECT base_url, model_id, api_key FROM model_configs WHERE is_active = 1 LIMIT 1"
+                "SELECT base_url, model_id, api_key, "
+                f"{reasoning_column} FROM model_configs WHERE is_active = 1 LIMIT 1"
             ).fetchone()
     except sqlite3.Error:
         return None
     if not row:
         return None
-    return {"base_url": str(row[0]), "id": str(row[1]), "api_key": str(row[2] or "")}
+    return {
+        "base_url": str(row[0]),
+        "id": str(row[1]),
+        "api_key": str(row[2] or ""),
+        "reasoning_mode": overrides["REASONING_MODE"] or str(row[3] or "auto"),
+    }
 
 
 def qa_environment(
@@ -1193,6 +1208,7 @@ def qa_environment(
             "ORION_MODEL_BASE_URL": model["base_url"],
             "ORION_MODEL_ID": model["id"],
             "ORION_MODEL_API_KEY": model["api_key"],
+            "ORION_MODEL_REASONING_MODE": model.get("reasoning_mode") or "auto",
             "ORION_MODEL_STREAM_TIMEOUT_SECONDS": str(qa_request_timeout_seconds()),
             "ORION_QA_CASE_MUTATION": "1" if mutation_case else "0",
             "ORION_MODEL_TEMPERATURE": QA_MODEL_TEMPERATURE,

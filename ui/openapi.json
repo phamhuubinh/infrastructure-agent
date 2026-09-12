@@ -128,6 +128,10 @@
             "pattern": "^openai_compatible$",
             "title": "Provider Type",
             "type": "string"
+          },
+          "reasoning_mode": {
+            "$ref": "#/components/schemas/ReasoningMode",
+            "default": "auto"
           }
         },
         "required": [
@@ -159,6 +163,9 @@
           "provider_type": {
             "title": "Provider Type",
             "type": "string"
+          },
+          "reasoning_mode": {
+            "$ref": "#/components/schemas/ReasoningMode"
           }
         },
         "required": [
@@ -166,6 +173,7 @@
           "provider_type",
           "base_url",
           "model_id",
+          "reasoning_mode",
           "is_active"
         ],
         "title": "ModelConfigView",
@@ -275,6 +283,16 @@
         ],
         "title": "ProjectView",
         "type": "object"
+      },
+      "ReasoningMode": {
+        "description": "Provider-neutral request preference for models that support reasoning controls.",
+        "enum": [
+          "auto",
+          "enabled",
+          "disabled"
+        ],
+        "title": "ReasoningMode",
+        "type": "string"
       },
       "SessionSummaryView": {
         "properties": {
