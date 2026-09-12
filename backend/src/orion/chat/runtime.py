@@ -189,8 +189,12 @@ _RECOVERY_DECISION_INSTRUCTIONS = (
 
 _CAPABILITY_ACTION_INSTRUCTIONS = (
     "An ordinary capability was successfully expanded for this unresolved request, but no "
-    "ordinary tool call has followed. Emit a safe, in-scope ordinary tool call before giving "
-    "terminal prose. The model chooses the exact exposed tool and arguments."
+    "ordinary tool call has followed. Emit safe, in-scope ordinary tool calls before giving "
+    "terminal prose. When multiple relevant exposed read-only tools have all required inputs "
+    "already known and none depends on another ToolResult, emit those calls together in this "
+    "model turn; do not serialize independent reads merely to inspect each result first. For "
+    "dependent calls, obtain prerequisite evidence first. The model chooses the exact exposed "
+    "tools and arguments."
 )
 
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
@@ -201,10 +205,13 @@ _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
 )
 
 _POST_OBSERVATION_INSTRUCTIONS = (
-    "Review the ordinary ToolResults already returned before selecting another tool. If those "
-    "results are enough for a bounded answer, answer now; do not broaden a general assessment "
-    "merely to make it exhaustive. Continue only for a specific missing fact that the user "
-    "requested and an in-scope tool can obtain. Treat point-in-time resource snapshots only as "
+    "Review the ordinary ToolResults already returned before selecting further tools. This does "
+    "not make other already-independent reads sequential: when relevant exposed read-only tools "
+    "have known inputs and do not depend on another result, emit them together in one model "
+    "turn rather than waiting to inspect each result first. If the returned results are enough "
+    "for a bounded answer, answer now; do not broaden a general assessment merely to make it "
+    "exhaustive. Continue only for a specific missing fact that the user requested and an "
+    "in-scope tool can obtain. Treat point-in-time resource snapshots only as "
     "readings at their retrieval time: without history, baselines, workload requirements, "
     "thresholds/SLOs, or activity counters, do not infer health, sustained utilization, spare "
     "capacity, workload sufficiency, absence of risk, or absence of swap-in/swap-out activity. "

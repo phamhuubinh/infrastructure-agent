@@ -118,9 +118,12 @@ class ContextBuilder:
                 "query window is not a weekly window. For a requested assessment, perform "
                 "relevant authorized reads and return findings in this response; do not merely "
                 "offer a tool procedure or ask permission to begin read-only checks. Select "
-                "proportionate evidence queries. Batch independent reads with known inputs in "
-                "one model turn. Do not invent package/service names or dashboard identifiers "
-                "to fill a checklist; record those unknowns as gaps."
+                "proportionate evidence queries. When multiple relevant authorized read-only "
+                "tools have known inputs and none depends on another result, emit those calls "
+                "together in one model turn; do not serialize them merely to inspect each "
+                "result first. For dependent calls, obtain prerequisite evidence first. Do not "
+                "invent package/service names or dashboard identifiers to fill a checklist; "
+                "record those unknowns as gaps."
             )
             messages.append(ContextMessage(role="system", content="\n".join(lines)))
         attachments = self._store.visible_documents(session_id, attachment_ids)

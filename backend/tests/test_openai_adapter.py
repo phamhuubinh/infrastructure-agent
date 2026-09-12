@@ -103,6 +103,75 @@ def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -
     )
 
 
+def test_adapter_reconstructs_interleaved_multiple_streamed_tool_calls() -> None:
+    backend = OpenAICompatibleBackend()
+    content_parts: list[str] = []
+    calls: dict[int, _PendingToolCall] = {}
+
+    first = backend._normalize_chunk(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call-",
+                                "function": {
+                                    "name": "alpha_",
+                                    "arguments": '{"value":"A',
+                                },
+                            },
+                            {
+                                "index": 1,
+                                "id": "call-",
+                                "function": {
+                                    "name": "beta_",
+                                    "arguments": '{"value":"B',
+                                },
+                            },
+                        ]
+                    }
+                }
+            ]
+        },
+        content_parts,
+        calls,
+    )
+    second = backend._normalize_chunk(
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 1,
+                                "id": "1",
+                                "function": {"name": "read", "arguments": '"}'},
+                            },
+                            {
+                                "index": 0,
+                                "id": "0",
+                                "function": {"name": "read", "arguments": '"}'},
+                            },
+                        ]
+                    }
+                }
+            ]
+        },
+        content_parts,
+        calls,
+    )
+
+    assert all(isinstance(event, ToolCallDelta) for event in first + second)
+    assert backend._build_turn(content_parts, calls) == ModelTurn(
+        tool_calls=(
+            ModelToolCall(call_id="call-0", tool_name="alpha_read", arguments={"value": "A"}),
+            ModelToolCall(call_id="call-1", tool_name="beta_read", arguments={"value": "B"}),
+        )
+    )
+
+
 def test_adapter_rejects_duplicate_tool_call_ids() -> None:
     calls = {
         0: _PendingToolCall(call_id="duplicate", tool_name="first.tool", arguments="{}"),
