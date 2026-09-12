@@ -20,6 +20,38 @@ def quality_verdicts():  # type: ignore[no-untyped-def]
     return module
 
 
+def test_infrastructure_abort_blocks_gate_without_becoming_behavioral_fail(quality_verdicts):
+    aggregate = {
+        "cases": [
+            {
+                "execution_status": "ABORTED_INFRA",
+                "manual_quality": False,
+                "quality_status": "not_required",
+            }
+        ]
+    }
+    verdict = quality_verdicts.quality_gate(aggregate, skip_policy="forbid")
+    assert verdict["passed"] is False
+    assert verdict["failures"] == ["incomplete QA: ABORTED_INFRA in 1 case(s)"]
+
+
+def test_capture_timeout_needs_review_even_without_corpus_manual_marker(quality_verdicts, tmp_path):
+    aggregate = quality_verdicts.aggregate_quality(
+        tmp_path,
+        {},
+        [
+            {
+                "phase": "behavioral",
+                "id": "historical-default-001",
+                "status": "MANUAL_REVIEW",
+                "manual_quality": False,
+            }
+        ],
+    )
+    assert aggregate["cases"][0]["quality_status"] == "not_assessable"
+    assert not quality_verdicts.quality_gate(aggregate, skip_policy="forbid")["passed"]
+
+
 def quality_fixture(quality_verdicts, tmp_path):  # type: ignore[no-untyped-def]
     report = tmp_path / "quality-report"
     report.mkdir()
