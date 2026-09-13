@@ -1903,7 +1903,7 @@ def write_reports(
 
     canonical = phase_summary("canonical")
     stability = phase_summary("stability")
-    behavioral = phase_summary("behavioral")
+    behavioral: dict[str, object] = {**phase_summary("behavioral")}
     behavioral["aborted_infra"] = sum(
         item.get("phase") == "behavioral" and item["status"] == "ABORTED_INFRA"
         for item in safe_results
