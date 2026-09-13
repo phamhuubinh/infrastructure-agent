@@ -1,7 +1,9 @@
 # Historical QA corpus migration
 
 This documentation-only table has one record for every executable legacy prompt row.
-No legacy file is loaded by the runtime.
+No legacy file is loaded by the production runtime or by the canonical QA tiers. The explicit
+`--mode behavioral` exploratory runner intentionally reads the five retained legacy files as
+ordered conversations; its completion statuses are not semantic answer-quality verdicts.
 
 | Source | Index | Excerpt / identifier | Disposition | Canonical case IDs | Reason |
 | --- | ---: | --- | --- | --- | --- |

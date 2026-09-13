@@ -12,6 +12,7 @@ from orion.contracts import (
     ToolError,
     ToolResult,
     citation_source_ref_ids_from_content,
+    has_invalid_source_citation_marker,
     strip_source_citation_markers,
 )
 
@@ -30,6 +31,42 @@ def test_citation_marker_parser_and_stripper_share_the_same_syntax(marker: str) 
 
     assert citation_source_ref_ids_from_content(content) == ("abc",)
     assert strip_source_citation_markers(content) == "Evidence  remains prose."
+    assert has_invalid_source_citation_marker(content) is False
+
+
+@pytest.mark.parametrize(
+    "marker",
+    (
+        "[[source:",
+        "[[source:]]",
+        "[[source:abc",
+        "[[source:abc]",
+        "[[source:abc def]]",
+        "[[source:   ]]",
+        "[[source:two ids]]",
+        "[[source:abc]] followed by [[source:",
+    ),
+)
+def test_empty_unterminated_or_malformed_source_marker_is_not_silently_accepted(
+    marker: str,
+) -> None:
+    assert has_invalid_source_citation_marker(f"Evidence {marker}") is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        "Ordinary prose",
+        "source:abc",
+        "[source:abc]",
+        "[[other:abc",
+        "[[source:abc]] [[source:def]]",
+    ),
+)
+def test_source_marker_validation_preserves_prose_and_multiple_valid_citations(
+    content: str,
+) -> None:
+    assert has_invalid_source_citation_marker(content) is False
 
 
 def test_contracts_serialize_and_hide_handler_binding_from_provider() -> None:

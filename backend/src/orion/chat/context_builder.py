@@ -26,6 +26,19 @@ _SYSTEM_INSTRUCTIONS = (
     "catalog tools: expand exact unexposed names, not user-directed Orion calls."
 )
 
+_EVIDENCE_FRESHNESS_INSTRUCTIONS = (
+    "Evidence and freshness contract: ToolResult data is the complete visible evidence for the "
+    "facts it reports. State a tool-observed value, identity, absence, installation, "
+    "configuration, ownership, or status only when that exact fact is present in applicable "
+    "evidence; otherwise identify it as unknown or an explicitly limited inference. A lookup or "
+    "status for one resource establishes only that lookup or status, not a different resource's "
+    "installation, configuration, ownership, or absence. For a current-state request, prefer "
+    "relevant ToolResults obtained after the latest user message. Earlier ToolResults are "
+    "historical context: use them only for comparison when clearly labeled historical and do not "
+    "present them as a current reading. If no relevant evidence was refreshed, state that "
+    "freshness/coverage limitation rather than silently reusing historical data."
+)
+
 _OMISSION_GROUNDING_INSTRUCTIONS = (
     "_orion_projection: source_data_state=upstream_nonempty_omitted/partial, partial/omitted "
     "data_state or essential_metadata, omitted_items>0 or omitted keys mean incomplete evidence, "
@@ -48,6 +61,8 @@ HISTORICAL_TOOL_RESULT_BYTES = 1_200
 class BuiltContext:
     messages: tuple[ContextMessage, ...]
     visible_sources: tuple[SourceRef, ...]
+    current_visible_sources: tuple[SourceRef, ...] = ()
+    historical_visible_sources: tuple[SourceRef, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,7 +207,13 @@ class ContextBuilder:
         if any(item.kind == "tool_result" for item in timeline):
             messages[0] = ContextMessage(
                 role="system",
-                content=_SYSTEM_INSTRUCTIONS + " " + _OMISSION_GROUNDING_INSTRUCTIONS,
+                content=(
+                    _SYSTEM_INSTRUCTIONS
+                    + " "
+                    + _EVIDENCE_FRESHNESS_INSTRUCTIONS
+                    + " "
+                    + _OMISSION_GROUNDING_INSTRUCTIONS
+                ),
             )
 
         compacted_current_blocks = 0
@@ -251,8 +272,17 @@ class ContextBuilder:
                 )
             )
         messages.extend(message for turn in selected for message in turn.messages)
-        visible_sources = tuple(source for turn in selected for source in turn.sources)
-        return BuiltContext(tuple(messages), visible_sources)
+        historical_visible_sources = tuple(
+            source for turn in selected[:-1] for source in turn.sources
+        )
+        current_visible_sources = selected[-1].sources if selected else ()
+        visible_sources = (*historical_visible_sources, *current_visible_sources)
+        return BuiltContext(
+            tuple(messages),
+            visible_sources,
+            current_visible_sources,
+            historical_visible_sources,
+        )
 
     def _fair_current_result_budget(
         self, timeline: list[TimelineItem], maximum_bytes: int = MAX_CONVERSATION_BYTES

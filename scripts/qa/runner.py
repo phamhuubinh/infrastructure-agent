@@ -31,7 +31,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from orion.security import redact_public
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_VERSION = "16"
+RUNNER_VERSION = "17"
 MANIFEST_SCHEMA_VERSION = "2"
 EXECUTION_PROVENANCE_SCHEMA_VERSION = "1"
 QA_REQUEST_TIMEOUT_SECONDS = 90
@@ -911,6 +911,7 @@ def behavioral_review_payload(
         _behavioral_review_text(None if hidden_reasoning else answer, secret_values)
     )
     statuses: dict[tuple[str, str], str] = {}
+    error_codes: dict[tuple[str, str], str] = {}
     tool_timings: dict[tuple[str, str], int | float | None] = {}
     for item in timeline:
         if item.get("kind") != "tool_result":
@@ -929,6 +930,10 @@ def behavioral_review_payload(
             tool_timings[(tool_name, call_id)] = _safe_milliseconds(
                 payload.get("elapsed_ms")
             )
+            error = result.get("error")
+            code = error.get("code") if isinstance(error, dict) else None
+            if status == "error" and isinstance(code, str):
+                error_codes[(tool_name, call_id)] = code
     tool_calls: list[dict[str, object]] = []
     for item in timeline:
         if item.get("kind") != "tool_call":
@@ -941,8 +946,7 @@ def behavioral_review_payload(
         arguments, arguments_truncated, arguments_characters = _diagnostic_value(
             payload.get("arguments", {}), secret_values
         )
-        tool_calls.append(
-            {
+        call: dict[str, object] = {
                 "tool_name": redact_public(
                     _safe_trace_text(
                         tool_name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT
@@ -958,8 +962,12 @@ def behavioral_review_payload(
                     else (tool_name, ""),
                     "not_observed",
                 ),
-            }
-        )
+        }
+        error_code = error_codes.get((tool_name, call_id)) if isinstance(call_id, str) else None
+        if error_code is not None:
+            call["error_code"] = error_code
+            call["error_category"] = behavioral_tool_error_category(error_code)
+        tool_calls.append(call)
         if len(tool_calls) == BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT:
             break
     citation_ids = final[1] if final is not None else []
@@ -1009,6 +1017,21 @@ def _safe_milliseconds(value: object) -> int | float | None:
     return None
 
 
+def behavioral_tool_error_category(error_code: str) -> str:
+    """Classify canonical error codes for review without assigning product blame."""
+    if error_code == "exposed_for_retry":
+        return "expected_discovery_retry"
+    if error_code in {"operation_blocked", "authorization_denied", "mutation_denied"}:
+        return "expected_authorization_or_mutation_block"
+    if error_code in {"not_found", "unknown_target", "unsafe_url"}:
+        return "environment_or_target_boundary"
+    if error_code in {"invalid_input", "invalid_arguments", "schema_validation"}:
+        return "model_schema_or_input"
+    if error_code in {"upstream_error", "timeout", "unavailable"}:
+        return "upstream_or_transport"
+    return "runtime_or_integration_review"
+
+
 def behavioral_timing(
     timeline: list[dict[str, Any]],
     diagnostics: list[dict[str, object]],
@@ -1021,29 +1044,81 @@ def behavioral_timing(
         metrics = payload.get("metrics") if isinstance(payload, dict) else None
         if item.get("kind") == "assistant_message" and isinstance(metrics, dict):
             response_time_ms = _safe_milliseconds(metrics.get("response_time_ms"))
-    model_calls = []
+    model_started: dict[str, dict[str, int | float | None]] = {}
+    model_calls: list[dict[str, int | float | None]] = []
     for diagnostic in diagnostics:
         capture = diagnostic.get("capture")
         records = capture.get("records") if isinstance(capture, dict) else None
         for record in records if isinstance(records, list) else []:
             if not isinstance(record, dict) or record.get("phase") != "model":
                 continue
-            model_calls.append(
-                {
-                    key: _safe_milliseconds(record.get(key))
-                    for key in (
-                        "elapsed_ms",
-                        "completed_elapsed_ms",
-                        "first_normalized_event_elapsed_ms",
+            model_turn_id = record.get("model_turn_id")
+            if not isinstance(model_turn_id, str):
+                # Older bounded captures predate turn IDs. Preserve their
+                # numeric timing evidence without attempting a cross-record join.
+                if record.get("status") is None:
+                    model_calls.append(
+                        {
+                            key: _safe_milliseconds(record.get(key))
+                            for key in (
+                                "elapsed_ms",
+                                "completed_elapsed_ms",
+                                "first_normalized_event_elapsed_ms",
+                            )
+                        }
                     )
+                continue
+            if record.get("status") == "started":
+                model_input = record.get("model_input")
+                model_started[model_turn_id] = {
+                    "request_proxy_bytes": _safe_milliseconds(
+                        model_input.get("request_proxy_bytes")
+                        if isinstance(model_input, dict)
+                        else None
+                    ),
+                    "context_bytes": _safe_milliseconds(
+                        model_input.get("context_bytes")
+                        if isinstance(model_input, dict)
+                        else None
+                    ),
+                    "exposed_tool_count": len(model_input.get("exposed_tool_names", []))
+                    if isinstance(model_input, dict)
+                    and isinstance(model_input.get("exposed_tool_names"), list)
+                    else None,
                 }
-            )
+            if record.get("status") in {"completed", None}:
+                model_calls.append(
+                    {
+                        **{
+                            key: _safe_milliseconds(record.get(key))
+                            for key in (
+                                "elapsed_ms",
+                                "completed_elapsed_ms",
+                                "first_normalized_event_elapsed_ms",
+                            )
+                        },
+                        **model_started.get(model_turn_id, {}),
+                    }
+                )
+    tool_elapsed_ms = [
+        _safe_milliseconds(item.get("payload", {}).get("elapsed_ms"))
+        for item in timeline
+        if item.get("kind") == "tool_result" and isinstance(item.get("payload"), dict)
+    ]
+    observed_tool_elapsed_ms = [value for value in tool_elapsed_ms if value is not None]
+    observed_model_elapsed_ms = [
+        value for value in (call.get("elapsed_ms") for call in model_calls) if value is not None
+    ]
     return {
         "request_elapsed_ms": request_elapsed_ms,
         "response_time_ms": response_time_ms,
         "watchdog_seconds": BEHAVIORAL_WATCHDOG_SECONDS,
         "model_calls": model_calls[:BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT],
         "model_calls_truncated": len(model_calls) > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
+        "model_turn_count": len(model_calls),
+        "model_elapsed_ms_total": sum(observed_model_elapsed_ms),
+        "tool_elapsed_ms_total": sum(observed_tool_elapsed_ms),
+        "tool_elapsed_ms_observed_count": len(observed_tool_elapsed_ms),
     }
 
 
@@ -1324,6 +1399,100 @@ def evaluate(
         if invented:
             return "FAIL", "final assistant cites unavailable source", tools, sources
     return "PASS", None, tools, sources
+
+
+def behavioral_terminal_is_incomplete(timeline: list[dict[str, Any]]) -> bool:
+    """Return whether the runtime explicitly says its terminal answer is incomplete.
+
+    A fallback sentence is still an assistant message, so ``_require_final`` alone
+    cannot distinguish it from a verified terminal answer.  Historical behavioral
+    prompts intentionally have no semantic answer oracle; treating this runtime
+    outcome as PASS would therefore overstate the result as successful completion.
+    """
+    for item in timeline:
+        if item.get("kind") != "runtime_notice":
+            continue
+        payload = item.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if (
+            payload.get("stage") == "terminal"
+            and payload.get("status") == "incomplete"
+        ):
+            return True
+    return False
+
+
+def behavioral_execution_status(
+    status: str, reason: str | None, timeline: list[dict[str, Any]]
+) -> tuple[str, str | None]:
+    """Keep incomplete runtime execution out of exploratory behavioral PASS counts."""
+    if status == "PASS" and behavioral_terminal_is_incomplete(timeline):
+        return "MANUAL_REVIEW", "terminal runtime response is incomplete"
+    return status, reason
+
+
+def behavioral_diagnostics_summary(results: list[dict[str, object]]) -> dict[str, object]:
+    """Aggregate bounded behavioral telemetry; it is not a product verdict."""
+    model_turn_count = 0
+    model_elapsed_ms = 0
+    tool_elapsed_ms = 0
+    request_sizes: list[int | float] = []
+    context_sizes: list[int | float] = []
+    error_categories: Counter[str] = Counter()
+    for result in results:
+        if result.get("phase") != "behavioral":
+            continue
+        timing = result.get("timing")
+        if isinstance(timing, dict):
+            count = timing.get("model_turn_count")
+            model_turn_count += int(count) if type(count) in {int, float} and count >= 0 else 0
+            for key, destination in (
+                ("model_elapsed_ms_total", "model"),
+                ("tool_elapsed_ms_total", "tool"),
+            ):
+                value = timing.get(key)
+                if type(value) in {int, float} and value >= 0:
+                    if destination == "model":
+                        model_elapsed_ms += value
+                    else:
+                        tool_elapsed_ms += value
+            calls = timing.get("model_calls")
+            if isinstance(calls, list):
+                for call in calls:
+                    if not isinstance(call, dict):
+                        continue
+                    request_bytes = call.get("request_proxy_bytes")
+                    context_bytes = call.get("context_bytes")
+                    if type(request_bytes) in {int, float} and request_bytes >= 0:
+                        request_sizes.append(request_bytes)
+                    if type(context_bytes) in {int, float} and context_bytes >= 0:
+                        context_sizes.append(context_bytes)
+        calls = result.get("tool_calls")
+        if isinstance(calls, list):
+            for call in calls:
+                category = call.get("error_category") if isinstance(call, dict) else None
+                if isinstance(category, str):
+                    error_categories[category] += 1
+    return {
+        "model_turn_count": model_turn_count,
+        "model_elapsed_ms_total": model_elapsed_ms,
+        "tool_elapsed_ms_total": tool_elapsed_ms,
+        "tool_error_categories": dict(sorted(error_categories.items())),
+        "request_proxy_bytes": _growth_summary(request_sizes),
+        "context_bytes": _growth_summary(context_sizes),
+    }
+
+
+def _growth_summary(values: list[int | float]) -> dict[str, int | float | None]:
+    if not values:
+        return {"observed": 0, "first": None, "last": None, "maximum": None}
+    return {
+        "observed": len(values),
+        "first": values[0],
+        "last": values[-1],
+        "maximum": max(values),
+    }
 
 
 def _source_ids(timeline: list[dict[str, Any]]) -> set[str]:
@@ -1734,10 +1903,13 @@ def write_reports(
 
     canonical = phase_summary("canonical")
     stability = phase_summary("stability")
-    behavioral = phase_summary("behavioral")
+    behavioral: dict[str, object] = {**phase_summary("behavioral")}
     behavioral["aborted_infra"] = sum(
         item.get("phase") == "behavioral" and item["status"] == "ABORTED_INFRA"
         for item in safe_results
+    )
+    behavioral["assertion_scope"] = (
+        "completion_only" if behavioral["total"] else "not_run"
     )
     tiers: dict[str, Counter[str]] = {}
     for result in safe_results:
@@ -1773,6 +1945,9 @@ def write_reports(
             unrun_case_count=manifest.get("unrun_case_count"),
             stop_reason=manifest.get("stop_reason"),
             aborted_infra=behavioral["aborted_infra"],
+            behavioral_assertion_scope="completion_only",
+            behavioral_semantic_answer_assertions=0,
+            behavioral_diagnostics=behavioral_diagnostics_summary(safe_results),
         )
     report_directory.mkdir(parents=True, exist_ok=True)
     (report_directory / "manifest.json").write_text(
@@ -1803,6 +1978,10 @@ def write_reports(
         behavioral_line += (
             f"\nExecution: {manifest.get('status', 'unknown')} · "
             f"Unrun: {manifest.get('unrun_case_count', 'unknown')}\n"
+            "\nInterpretation: this retained historical corpus has no semantic "
+            "answer assertions. PASS only means a verified terminal response and "
+            "any automatic runtime/tool assertions completed; it is exploratory "
+            "evidence, not an answer-quality or correctness verdict.\n"
         )
     (report_directory / "summary.md").write_text(
         "# Orion QA "
@@ -2618,6 +2797,9 @@ def _run_behavioral(
                         stage = "evaluation"
                         _require_final(turn_timeline, secret=model["api_key"])
                         status, reason, tools, sources = evaluate(case, turn_timeline)
+                        status, reason = behavioral_execution_status(
+                            status, reason, turn_timeline
+                        )
                         result = _behavioral_result(
                             case, session_id, status=status, reason=reason
                         )
