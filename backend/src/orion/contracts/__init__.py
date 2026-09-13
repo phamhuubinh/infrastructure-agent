@@ -310,6 +310,7 @@ class Citation(CanonicalModel):
 
 
 _SOURCE_CITATION_PATTERN = re.compile(r"\[\[source:\s*([^\]\s]+)\s*\]\]")
+_SOURCE_CITATION_PREFIX = "[[source:"
 
 
 def citation_source_ref_ids_from_content(content: str) -> tuple[str, ...]:
@@ -320,6 +321,25 @@ def citation_source_ref_ids_from_content(content: str) -> tuple[str, ...]:
 def strip_source_citation_markers(content: str) -> str:
     """Remove only citation markers recognized by Orion, preserving the surrounding draft."""
     return _SOURCE_CITATION_PATTERN.sub("", content)
+
+
+def has_invalid_source_citation_marker(content: str) -> bool:
+    """Reject source-marker-shaped text that is not a canonical citation.
+
+    Once the explicit marker prefix appears, an unterminated or malformed marker
+    cannot silently become ordinary prose. This is deliberately syntax-only:
+    source visibility and authorization remain runtime responsibilities.
+    """
+    start = 0
+    while (marker_start := content.find(_SOURCE_CITATION_PREFIX, start)) >= 0:
+        marker_end = content.find("]]", marker_start + len(_SOURCE_CITATION_PREFIX))
+        if marker_end < 0:
+            return True
+        marker = content[marker_start : marker_end + 2]
+        if _SOURCE_CITATION_PATTERN.fullmatch(marker) is None:
+            return True
+        start = marker_end + 2
+    return False
 
 
 def citations_are_visible(

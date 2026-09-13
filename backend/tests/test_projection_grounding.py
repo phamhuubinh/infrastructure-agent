@@ -31,6 +31,43 @@ GROUNDING_RULE = (
 )
 
 
+def test_service_status_context_does_not_turn_into_package_or_fabricated_facts(store) -> None:  # type: ignore[no-untyped-def]
+    """The model-visible contract keeps a service lookup scoped to its actual evidence."""
+    session = store.create_session()
+    call = ModelToolCall(call_id="service", tool_name="arbitrary.service.inspect", arguments={})
+    result = ToolResult(
+        call_id=call.call_id,
+        tool_name=call.tool_name,
+        status="success",
+        data={"load_state": "not-found", "active_state": "inactive", "sub_state": "dead"},
+    )
+    store.append_timeline(
+        session, None, "user_message", {"content": "Inspect current service state"}
+    )
+    store.append_timeline(
+        session,
+        None,
+        "assistant_message",
+        {"content": "", "citation_source_ref_ids": [], "tool_calls": [call.model_dump()]},
+    )
+    store.append_timeline(
+        session,
+        None,
+        "tool_result",
+        {"result": result.model_dump(mode="json"), "elapsed_ms": 1},
+        call_id=call.call_id,
+        tool_name=call.tool_name,
+    )
+
+    context = ContextBuilder(store).build(session)
+    tool_evidence = next(message.content for message in context if message.role == "tool")
+
+    assert "not a different resource's installation" in context[0].content
+    assert "package" not in tool_evidence
+    for fabricated in ("1234", "1h23m", "eth0", "192.168.1.100"):
+        assert fabricated not in tool_evidence
+
+
 def three_row_result() -> ToolResult:
     # Same nested result/envelope shape as DIAG-03, with synthetic identities/text.
     result = ToolResult(
@@ -417,6 +454,9 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
     messages = backend.calls[-1][0]
     assert len(backend.calls) == 3 and outcome.status == "completed"
     assert messages[0].role == "system" and messages[0].content.endswith(GROUNDING_RULE)
+    assert "State a tool-observed value" in messages[0].content
+    assert "not a different resource's installation" in messages[0].content
+    assert "after the latest user message" in messages[0].content
     assert ContextBuilder(store).build(session)[0] == messages[0]
     assert [message.content for message in messages if message.role == "user"] == [prompt]
     assert all(_messages_bytes(call[0]) <= MAX_CONVERSATION_BYTES for call in backend.calls)

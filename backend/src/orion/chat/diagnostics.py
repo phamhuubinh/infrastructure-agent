@@ -106,6 +106,10 @@ def model_input_snapshot(
     exposed_tool_names: Sequence[str],
     visible_source_ids: Sequence[str],
     request_bytes: int,
+    *,
+    context_bytes: int | None = None,
+    current_visible_source_ids: Sequence[str] = (),
+    historical_visible_source_ids: Sequence[str] = (),
 ) -> dict[str, object]:
     """Describe only the data-bearing tool inputs sent to the model.
 
@@ -126,12 +130,17 @@ def model_input_snapshot(
             "projection_omissions": _projection_omissions(content),
         }
         projections.append(item)
-    return {
+    snapshot: dict[str, object] = {
         "request_proxy_bytes": request_bytes,
         "exposed_tool_names": list(exposed_tool_names),
         "visible_source_ref_ids": list(visible_source_ids),
         "tool_result_projections": projections,
     }
+    if context_bytes is not None:
+        snapshot["context_bytes"] = context_bytes
+    snapshot["current_visible_source_ref_ids"] = list(current_visible_source_ids)
+    snapshot["historical_visible_source_ref_ids"] = list(historical_visible_source_ids)
+    return snapshot
 
 
 def _projection_omissions(content: str) -> list[object]:

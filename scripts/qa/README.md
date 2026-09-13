@@ -7,12 +7,19 @@ exercise the current HTTP session API. They never use Docker or the legacy `/api
 The runner reads an active local model profile without modifying it, or uses
 `ORION_QA_MODEL_BASE_URL`, `ORION_QA_MODEL_ID`, and optionally `ORION_QA_MODEL_API_KEY`.
 
-`qa-behavioral` is the primary QA tier. It runs the retained 386-prompt corpus as exactly five
-sessions, one for each source suite. Prompts are sent in source order to the same session; the
-runner never resets a suite session, infers groups from keywords, or splits a source suite. Each
-result has the stable ID `<suite-id>-<ordinal 3 digits>` plus `source_file` and `source_line`
-metadata. `--case-id` is intentionally unavailable in behavioral mode because a partial suite
-would break its conversation semantics.
+`qa-behavioral` is the exploratory live-QA tier. It runs the retained 386-prompt corpus as
+exactly five sessions, one for each source suite. Prompts are sent in source order to the same
+session; the runner never resets a suite session, infers groups from keywords, or splits a source
+suite. Each result has the stable ID `<suite-id>-<ordinal 3 digits>` plus `source_file` and
+`source_line` metadata. `--case-id` is intentionally unavailable in behavioral mode because a
+partial suite would break its conversation semantics.
+
+The historical prompts intentionally have no machine-readable semantic answer oracle. A
+behavioral `PASS` therefore demonstrates a verified terminal response and any automatic
+runtime/tool checks only; it is not an answer-quality, grounding, or correctness verdict. An
+explicitly incomplete terminal runtime response is `MANUAL_REVIEW`, never `PASS`. Use
+`qa-smoke`/`qa-full` for deterministic canonical assertions and the quality-verdict workflow for
+human assessment.
 
 Behavioral message submissions wait for the actual terminal answer. They do **not** use the
 90-second `ORION_QA_REQUEST_TIMEOUT_SECONDS` setting as a latency verdict. A separate, fixed

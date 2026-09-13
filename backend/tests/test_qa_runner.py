@@ -1145,6 +1145,104 @@ def test_behavioral_timing_is_numeric_bounded_and_not_raw_evidence(qa_runner) ->
     assert "secret" not in json.dumps(timing)
 
 
+def test_behavioral_diagnostics_join_model_and_tool_latency_without_raw_evidence(qa_runner) -> None:
+    timeline = [
+        {
+            "kind": "tool_result",
+            "payload": {"elapsed_ms": 17, "result": {"status": "success"}},
+        }
+    ]
+    diagnostics = [
+        {
+            "capture": {
+                "records": [
+                    {
+                        "phase": "model",
+                        "status": "started",
+                        "model_turn_id": "turn-1",
+                        "model_input": {
+                            "request_proxy_bytes": 1200,
+                            "context_bytes": 1000,
+                            "exposed_tool_names": ["fake.read"],
+                            "private_prompt": "never copy",
+                        },
+                    },
+                    {
+                        "phase": "model",
+                        "status": "completed",
+                        "model_turn_id": "turn-1",
+                        "elapsed_ms": 900,
+                        "completed_elapsed_ms": 900,
+                        "first_normalized_event_elapsed_ms": 10,
+                    },
+                ]
+            }
+        }
+    ]
+
+    timing = qa_runner.behavioral_timing(timeline, diagnostics, 1000)
+
+    assert timing["model_turn_count"] == 1
+    assert timing["model_elapsed_ms_total"] == 900
+    assert timing["tool_elapsed_ms_total"] == 17
+    assert timing["model_calls"] == [
+        {
+            "elapsed_ms": 900,
+            "completed_elapsed_ms": 900,
+            "first_normalized_event_elapsed_ms": 10,
+            "request_proxy_bytes": 1200,
+            "context_bytes": 1000,
+            "exposed_tool_count": 1,
+        }
+    ]
+    assert "private_prompt" not in json.dumps(timing)
+
+
+def test_behavioral_diagnostics_summary_keeps_only_bounded_telemetry(qa_runner) -> None:
+    summary = qa_runner.behavioral_diagnostics_summary(
+        [
+            {
+                "phase": "behavioral",
+                "timing": {
+                    "model_turn_count": 2,
+                    "model_elapsed_ms_total": 100,
+                    "tool_elapsed_ms_total": 7,
+                    "model_calls": [
+                        {"request_proxy_bytes": 10, "context_bytes": 8},
+                        {"request_proxy_bytes": 12, "context_bytes": 9},
+                    ],
+                },
+                "tool_calls": [{"error_category": "expected_discovery_retry"}],
+            }
+        ]
+    )
+    assert summary == {
+        "model_turn_count": 2,
+        "model_elapsed_ms_total": 100,
+        "tool_elapsed_ms_total": 7,
+        "tool_error_categories": {"expected_discovery_retry": 1},
+        "request_proxy_bytes": {"observed": 2, "first": 10, "last": 12, "maximum": 12},
+        "context_bytes": {"observed": 2, "first": 8, "last": 9, "maximum": 9},
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "category"),
+    (
+        ("exposed_for_retry", "expected_discovery_retry"),
+        ("operation_blocked", "expected_authorization_or_mutation_block"),
+        ("not_found", "environment_or_target_boundary"),
+        ("invalid_input", "model_schema_or_input"),
+        ("upstream_error", "upstream_or_transport"),
+        ("unexpected", "runtime_or_integration_review"),
+    ),
+)
+def test_behavioral_tool_errors_are_classified_without_calling_all_errors_bugs(
+    qa_runner, code, category
+) -> None:  # type: ignore[no-untyped-def]
+    assert qa_runner.behavioral_tool_error_category(code) == category
+
+
 def test_behavioral_watchdog_does_not_change_legacy_transport_or_model_environment(
     qa_runner, monkeypatch, tmp_path
 ) -> None:
@@ -2271,6 +2369,65 @@ def test_reports_and_ci_policy(qa_runner, tmp_path) -> None:  # type: ignore[no-
     assert summary["stability"]["total"] == 0
     ci = (qa_runner.ROOT / ".github/workflows/ci.yml").read_text()
     assert "qa-smoke" not in ci and "qa-full" not in ci
+
+
+def test_behavioral_reports_are_labeled_as_completion_only(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    qa_runner.write_reports(
+        tmp_path,
+        {
+            "mode": "behavioral",
+            "status": "completed",
+            "behavioral_case_count": 1,
+            "unrun_case_count": 0,
+        },
+        [
+            {
+                "phase": "behavioral",
+                "tier": "behavioral",
+                "id": "historical-default-001",
+                "category": "behavioral",
+                "manual_quality": False,
+                "status": "PASS",
+                "reason": None,
+            }
+        ],
+    )
+
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    assert summary["behavioral"]["assertion_scope"] == "completion_only"
+    assert summary["behavioral_assertion_scope"] == "completion_only"
+    assert summary["behavioral_semantic_answer_assertions"] == 0
+    markdown = (tmp_path / "summary.md").read_text()
+    assert "not an answer-quality or correctness verdict" in markdown
+
+
+def test_behavioral_incomplete_terminal_response_requires_review(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    complete = [
+        {
+            "kind": "runtime_notice",
+            "payload": {"stage": "terminal", "status": "completed"},
+        }
+    ]
+    incomplete = [
+        {
+            "kind": "runtime_notice",
+            "payload": {
+                "stage": "terminal",
+                "status": "incomplete",
+                "stop_reason": "request_deadline_exceeded",
+            },
+        }
+    ]
+
+    assert qa_runner.behavioral_terminal_is_incomplete(complete) is False
+    assert qa_runner.behavioral_terminal_is_incomplete(incomplete) is True
+    assert qa_runner.behavioral_execution_status("PASS", None, incomplete) == (
+        "MANUAL_REVIEW",
+        "terminal runtime response is incomplete",
+    )
+    # A slow but terminally completed behavioral request remains a completion PASS;
+    # its 900-second watchdog is not a correctness threshold.
+    assert qa_runner.behavioral_execution_status("PASS", None, complete) == ("PASS", None)
 
 
 def test_stability_results_are_reported_separately(qa_runner, tmp_path) -> None:  # type: ignore[no-untyped-def]

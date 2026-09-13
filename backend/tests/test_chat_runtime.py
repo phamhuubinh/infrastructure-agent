@@ -372,6 +372,91 @@ async def test_adapter_parsed_whitespace_citation_is_rejected_after_one_correcti
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "marker", ("[[source:", "[[source:]]", "[[source:abc", "[[source:abc]", "[[source:abc def]]")
+)
+async def test_malformed_source_marker_is_rejected_after_one_correction_attempt(
+    store, marker: str
+) -> None:  # type: ignore[no-untyped-def]
+    invalid = ModelTurn(assistant=AssistantMessage(content=f"Unsupported. {marker}"))
+    backend = ScriptedBackend([invalid, invalid])
+    session_id = store.create_session()
+
+    with pytest.raises(RequestFailed, match="invalid source citation"):
+        await runtime(store, backend).submit(session_id, "Answer")
+
+    assert len(backend.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_visible_current_and_historical_sources_are_distinguished_for_freshness(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    historical = SourceRef(source_ref_id="historical", source_kind="linux", source_id="host")
+    current = SourceRef(source_ref_id="current", source_kind="linux", source_id="host")
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.read",
+            description="Return a scoped observation.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.read",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"observation": "fresh"},
+            sources=(historical if call.call_id == "old" else current,),
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-old",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["fake.read"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="old", tool_name="fake.read", arguments={}),)
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Historical reading.")),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="expand-new",
+                        tool_name=EXPAND_TOOL_NAME,
+                        arguments={"tool_names": ["fake.read"]},
+                    ),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="new", tool_name="fake.read", arguments={}),)
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Fresh reading.")),
+        ]
+    )
+    session_id = store.create_session()
+    chat = runtime(store, backend, builder.freeze())
+
+    await chat.submit(session_id, "Read the previous state")
+    await chat.submit(session_id, "What is the current state?")
+
+    messages = backend.calls[-1][0]
+    contract = messages[0].content
+    assert "not a different resource's installation" in contract
+    assert "after the latest user message" in contract
+    assert "clearly labeled historical" in contract
+    built = ContextBuilder(store).build_with_metadata(session_id)
+    assert [source.source_ref_id for source in built.current_visible_sources] == ["current"]
+    assert [source.source_ref_id for source in built.historical_visible_sources] == ["historical"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("prompt", "draft", "correctable_draft", "clean"),
     (
         (

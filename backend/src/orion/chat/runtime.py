@@ -43,6 +43,7 @@ from orion.contracts import (
     ToolDefinition,
     ToolResult,
     citations_are_visible,
+    has_invalid_source_citation_marker,
     strip_source_citation_markers,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
@@ -1087,6 +1088,13 @@ class ChatRuntime:
                     tuple(tool.name for tool in model_tools),
                     tuple(source.source_ref_id for source in context.visible_sources),
                     _model_request_proxy_bytes(model_messages, model_tools),
+                    context_bytes=_messages_bytes(model_messages),
+                    current_visible_source_ids=tuple(
+                        source.source_ref_id for source in context.current_visible_sources
+                    ),
+                    historical_visible_source_ids=tuple(
+                        source.source_ref_id for source in context.historical_visible_sources
+                    ),
                 ),
             }
         )
@@ -1335,7 +1343,11 @@ class ChatRuntime:
     def _validate_citations(
         self, turn: ModelTurn, scope: RuntimeScope, visible_sources: tuple[SourceRef, ...]
     ) -> None:
-        if turn.assistant is None or not turn.assistant.citation_source_ref_ids:
+        if turn.assistant is None:
+            return
+        if has_invalid_source_citation_marker(turn.assistant.content):
+            raise CitationValidationFailed("Assistant used an invalid source citation.")
+        if not turn.assistant.citation_source_ref_ids:
             return
         sources_by_id = {source.source_ref_id: source for source in visible_sources}
         if not citations_are_visible(turn.assistant.citation_source_ref_ids, set(sources_by_id)):
