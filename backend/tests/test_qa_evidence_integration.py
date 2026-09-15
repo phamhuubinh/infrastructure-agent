@@ -33,15 +33,6 @@ def read_turns(label: str) -> list[ModelTurn]:
         ModelTurn(
             tool_calls=(
                 ModelToolCall(
-                    call_id=f"expand-{label}",
-                    tool_name="orion.tools.expand",
-                    arguments={"tool_names": ["test.read"]},
-                ),
-            )
-        ),
-        ModelTurn(
-            tool_calls=(
-                ModelToolCall(
                     call_id=f"read-{label}",
                     tool_name="test.read",
                     arguments={},
@@ -214,7 +205,7 @@ def test_public_api_request_identity_reaches_qa_capture(
         assert any(p["content_truncated"] for p in projections)
         assert all(len(p["content"].encode()) <= 120 for p in projections)
     assert "do-not-persist" not in json.dumps(result)
-    assert len(backend.calls) == (6 if multiple else 3)
+    assert len(backend.calls) == (4 if multiple else 2)
 
 
 @pytest.mark.parametrize(

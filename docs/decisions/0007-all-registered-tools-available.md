@@ -1,18 +1,24 @@
-# ADR 0007 — Registry-derived progressive tool exposure
+# ADR 0007 — Direct canonical registry exposure
+
+## Status
+
+Accepted. This supersedes the former progressive model-facing schema exposure decision.
 
 ## Decision
 
-Every successfully registered/configured ordinary tool is discoverable in Chat and
-Project through one deterministic exact-name discovery enum on the generic
-expansion control, derived from the canonical registry. Its full description and
-provider schema appear only after expansion.
+Chat and Project supply every registered model-callable tool schema from the one canonical
+`ToolRegistry` on the initial model turn. This is not a semantic router: the model still
+decides whether and which tools to call.
 
-The model uses one generic expansion control to request one or more exact registered
-names. Full schemas are then exposed only for that request's selected subset. The
-model remains the semantic chooser; Orion does not pre-route prompts or provide a
-user tool picker. An unexposed ordinary tool cannot execute.
+`ToolRunner`, `RuntimeScope`, input validation, mutation authorization, and exact mutation
+allowlisting remain application-owned and complete regardless of model schema visibility.
+Seeing a mutation schema never authorizes execution.
 
-## Future
+The runtime reports the complete provider tool-schema byte size. A registry that cannot fit the
+focused context limit is a measured failure, not a reason to restore progressive exposure.
 
-The canonical registry, ToolRunner validation, RuntimeScope binding, and ToolResult
-loop remain complete and unchanged by the model-facing projection.
+## Superseded architecture (historical)
+
+The former ADR 0007 used `orion.tools.expand` for request-local schema discovery and
+`exposed_for_retry` for calls made before exposure. These mechanisms are retired; this
+paragraph documents migration history only, not current runtime behavior.

@@ -1,0 +1,558 @@
+{
+  "method": {
+    "percentile": "linear interpolation: index=(n-1)*p/100",
+    "scope": "offline artifact audit; no live QA; no semantic acceptance rate inferred",
+    "tool_durations": "sum terminal tool completed/failed diagnostics only",
+    "previous_error_taxonomy": "Runner 16 lacks per-call error_code fields; empty tool_error_codes and null discovery_retry_cases mean unavailable, not zero errors.",
+    "artifact_evidence_limits": "No answer or diagnostic record-list truncation; bounded canonical_result truncation exists on 2 new-run records. Model-visible projections are separately bounded."
+  },
+  "new": {
+    "run_id": "20260913T035817Z-ddda65b5",
+    "manifest_sha256": "a0ad89b28bfddbf22834dcc893551684cee0e7778e18225fa2b38386675a8f8c",
+    "cases_sha256": "9c5b51bcf1fa68bfd2055b40b20609347573e48075a429f78bba2acb49dcc0e5",
+    "summary": {
+      "total": 386,
+      "statuses": {
+        "PASS": 343,
+        "MANUAL_REVIEW": 43
+      },
+      "request_ms_total": 20169579,
+      "mean_ms": 52252.795,
+      "p50_ms": 47536.5,
+      "p95_ms": 115060,
+      "p99_ms": 115077.3,
+      "max_ms": 115276,
+      "tool_calls": 181,
+      "sourced_cases": 65,
+      "cited_cases": 10
+    },
+    "manifest_overview": {
+      "status": "completed",
+      "git_sha": "e005a340240bd8d68e21f1324996eef2904208b4",
+      "dirty": false,
+      "runner_version": "17",
+      "mode": "behavioral",
+      "started_at": "2026-09-13T03:58:17.129382+00:00",
+      "ended_at": "2026-09-13T09:34:34.910949+00:00"
+    },
+    "diagnostic_counts": {
+      "model.started": 519,
+      "model.stream_progress": 1036,
+      "model.completed": 514,
+      "tool.started": 181,
+      "tool.failed": 106,
+      "tool.completed": 75,
+      "model.timed_out": 5
+    },
+    "diagnostic_elapsed_ms": {
+      "model.completed": 8246960,
+      "model.timed_out": 137276,
+      "tool.completed": 25522,
+      "tool.failed": 2616
+    },
+    "tool_breakdown": {
+      "grafana.alert.list": {
+        "exposed_for_retry": 2,
+        "success": 2
+      },
+      "grafana.dashboard.get": {
+        "exposed_for_retry": 2
+      },
+      "internet.fetch": {
+        "exposed_for_retry": 1,
+        "unsafe_url": 1
+      },
+      "linux.file.read": {
+        "exposed_for_retry": 21,
+        "success": 17,
+        "upstream_error": 4
+      },
+      "linux.package.status": {
+        "exposed_for_retry": 4,
+        "upstream_error": 2,
+        "success": 1
+      },
+      "linux.service.status": {
+        "exposed_for_retry": 14,
+        "success": 16
+      },
+      "linux.system.inspect": {
+        "exposed_for_retry": 22,
+        "success": 21,
+        "invalid_input": 1
+      },
+      "orion.tools.expand": {
+        "success": 1
+      },
+      "zabbix.event.list": {
+        "exposed_for_retry": 7,
+        "success": 8,
+        "invalid_input": 2
+      },
+      "zabbix.history.get": {
+        "exposed_for_retry": 6,
+        "invalid_input": 3
+      },
+      "zabbix.host.get": {
+        "exposed_for_retry": 7,
+        "success": 6,
+        "invalid_input": 1
+      },
+      "zabbix.trigger.get": {
+        "exposed_for_retry": 4,
+        "success": 3,
+        "invalid_input": 2
+      }
+    },
+    "tool_error_codes": {
+      "exposed_for_retry": 90,
+      "invalid_input": 9,
+      "upstream_error": 6,
+      "unsafe_url": 1
+    },
+    "suites": {
+      "historical-default": {
+        "total": 193,
+        "statuses": {
+          "PASS": 189,
+          "MANUAL_REVIEW": 4
+        },
+        "request_ms_total": 11337380,
+        "mean_ms": 58742.902,
+        "p50_ms": 54517,
+        "p95_ms": 89742.6,
+        "p99_ms": 115074.4,
+        "max_ms": 115111,
+        "tool_calls": 91,
+        "sourced_cases": 34,
+        "cited_cases": 8
+      },
+      "cauhoi_kiemtra_v2": {
+        "total": 66,
+        "statuses": {
+          "PASS": 66
+        },
+        "request_ms_total": 1514422,
+        "mean_ms": 22945.788,
+        "p50_ms": 11980.5,
+        "p95_ms": 72115,
+        "p99_ms": 80846.15,
+        "max_ms": 88171,
+        "tool_calls": 18,
+        "sourced_cases": 8,
+        "cited_cases": 0
+      },
+      "cauhoi_phanb": {
+        "total": 28,
+        "statuses": {
+          "PASS": 28
+        },
+        "request_ms_total": 867131,
+        "mean_ms": 30968.964,
+        "p50_ms": 30273.5,
+        "p95_ms": 50931.95,
+        "p99_ms": 82414.92,
+        "max_ms": 93378,
+        "tool_calls": 35,
+        "sourced_cases": 11,
+        "cited_cases": 0
+      },
+      "cauhoi_v4_adversarial": {
+        "total": 61,
+        "statuses": {
+          "PASS": 23,
+          "MANUAL_REVIEW": 38
+        },
+        "request_ms_total": 5229925,
+        "mean_ms": 85736.475,
+        "p50_ms": 115045,
+        "p95_ms": 115074,
+        "p99_ms": 115083.4,
+        "max_ms": 115093,
+        "tool_calls": 14,
+        "sourced_cases": 6,
+        "cited_cases": 2
+      },
+      "cauhoi_v5_workflow": {
+        "total": 38,
+        "statuses": {
+          "PASS": 37,
+          "MANUAL_REVIEW": 1
+        },
+        "request_ms_total": 1220721,
+        "mean_ms": 32124.237,
+        "p50_ms": 23314.5,
+        "p95_ms": 95599.5,
+        "p99_ms": 109483.28,
+        "max_ms": 115276,
+        "tool_calls": 23,
+        "sourced_cases": 6,
+        "cited_cases": 0
+      }
+    },
+    "no_tool_cases": 308,
+    "discovery_retry_cases": 77,
+    "sourced_uncited_cases": 57,
+    "notice_ids": [
+      "historical-default-072",
+      "historical-default-089",
+      "historical-default-106",
+      "historical-default-107",
+      "cauhoi_v4_adversarial-024",
+      "cauhoi_v4_adversarial-025",
+      "cauhoi_v4_adversarial-026",
+      "cauhoi_v4_adversarial-027",
+      "cauhoi_v4_adversarial-028",
+      "cauhoi_v4_adversarial-029",
+      "cauhoi_v4_adversarial-030",
+      "cauhoi_v4_adversarial-031",
+      "cauhoi_v4_adversarial-032",
+      "cauhoi_v4_adversarial-033",
+      "cauhoi_v4_adversarial-034",
+      "cauhoi_v4_adversarial-035",
+      "cauhoi_v4_adversarial-036",
+      "cauhoi_v4_adversarial-037",
+      "cauhoi_v4_adversarial-038",
+      "cauhoi_v4_adversarial-039",
+      "cauhoi_v4_adversarial-040",
+      "cauhoi_v4_adversarial-041",
+      "cauhoi_v4_adversarial-042",
+      "cauhoi_v4_adversarial-043",
+      "cauhoi_v4_adversarial-044",
+      "cauhoi_v4_adversarial-045",
+      "cauhoi_v4_adversarial-046",
+      "cauhoi_v4_adversarial-047",
+      "cauhoi_v4_adversarial-048",
+      "cauhoi_v4_adversarial-049",
+      "cauhoi_v4_adversarial-050",
+      "cauhoi_v4_adversarial-051",
+      "cauhoi_v4_adversarial-052",
+      "cauhoi_v4_adversarial-053",
+      "cauhoi_v4_adversarial-054",
+      "cauhoi_v4_adversarial-055",
+      "cauhoi_v4_adversarial-056",
+      "cauhoi_v4_adversarial-057",
+      "cauhoi_v4_adversarial-058",
+      "cauhoi_v4_adversarial-059",
+      "cauhoi_v4_adversarial-060",
+      "cauhoi_v4_adversarial-061",
+      "cauhoi_v5_workflow-030"
+    ],
+    "no_diagnostic_ids": [
+      "cauhoi_v4_adversarial-024",
+      "cauhoi_v4_adversarial-025",
+      "cauhoi_v4_adversarial-026",
+      "cauhoi_v4_adversarial-027",
+      "cauhoi_v4_adversarial-028",
+      "cauhoi_v4_adversarial-029",
+      "cauhoi_v4_adversarial-030",
+      "cauhoi_v4_adversarial-031",
+      "cauhoi_v4_adversarial-032",
+      "cauhoi_v4_adversarial-033",
+      "cauhoi_v4_adversarial-034",
+      "cauhoi_v4_adversarial-035",
+      "cauhoi_v4_adversarial-036",
+      "cauhoi_v4_adversarial-037",
+      "cauhoi_v4_adversarial-038",
+      "cauhoi_v4_adversarial-039",
+      "cauhoi_v4_adversarial-040",
+      "cauhoi_v4_adversarial-041",
+      "cauhoi_v4_adversarial-042",
+      "cauhoi_v4_adversarial-043",
+      "cauhoi_v4_adversarial-044",
+      "cauhoi_v4_adversarial-045",
+      "cauhoi_v4_adversarial-046",
+      "cauhoi_v4_adversarial-047",
+      "cauhoi_v4_adversarial-048",
+      "cauhoi_v4_adversarial-049",
+      "cauhoi_v4_adversarial-050",
+      "cauhoi_v4_adversarial-051",
+      "cauhoi_v4_adversarial-052",
+      "cauhoi_v4_adversarial-053",
+      "cauhoi_v4_adversarial-054",
+      "cauhoi_v4_adversarial-055",
+      "cauhoi_v4_adversarial-056",
+      "cauhoi_v4_adversarial-057",
+      "cauhoi_v4_adversarial-058",
+      "cauhoi_v4_adversarial-059",
+      "cauhoi_v4_adversarial-060",
+      "cauhoi_v4_adversarial-061"
+    ],
+    "request_over_ms": {
+      "60000": 127,
+      "90000": 52,
+      "100000": 45
+    },
+    "invalid_final_citation_ids": [],
+    "canonical_result_truncated_case_ids": [
+      "historical-default-031",
+      "historical-default-152"
+    ],
+    "canonical_result_truncated_record_count": 2,
+    "diagnostic_records_truncated_captures": 0,
+    "answer_truncated_count": 0,
+    "prompt_truncated_count": 0,
+    "unique_ids": 386,
+    "unique_sessions": 5,
+    "answer_hashes_valid": true,
+    "prompt_hashes_valid": true,
+    "partial_equals_final": true,
+    "quality_gate": {
+      "gate": "orion-qa-quality-gate",
+      "passed": false,
+      "failures": [
+        "required quality review is not accepted for 43 case(s)"
+      ],
+      "skip_policy": "forbid",
+      "skip_rationale": null
+    },
+    "quality_aggregate": {
+      "execution": {
+        "MANUAL_REVIEW": 43,
+        "PASS": 343
+      },
+      "quality": {
+        "not_assessable": 43,
+        "not_required": 343
+      },
+      "sidecar_errors": []
+    },
+    "execution_fingerprint": "1f3f9bb0c19d2f1f8c708a6eed2d33e669ca0531a703ac06782a719af69bfc2f",
+    "wall_seconds": 20177.781567,
+    "unattributed_request_ms": 11757205,
+    "adversarial_tail_request_ms": 4372126
+  },
+  "previous": {
+    "run_id": "20260912T113357Z-a0ff0274",
+    "manifest_sha256": "5fbccf3300c7e0ca1d8b4453bfadf6a4a5adbff3b13ae5610eb7bf7f0f84886e",
+    "cases_sha256": "6ff5b72ceeb6f9ec232c42c6b0401aee5017b2a08aa563a32973c69fc787ae2d",
+    "summary": {
+      "total": 386,
+      "statuses": {
+        "PASS": 386
+      },
+      "request_ms_total": 18523115,
+      "mean_ms": 47987.345,
+      "p50_ms": 50895.5,
+      "p95_ms": 86560,
+      "p99_ms": 112403.5,
+      "max_ms": 115049,
+      "tool_calls": 198,
+      "sourced_cases": 59,
+      "cited_cases": 14
+    },
+    "manifest_overview": {
+      "status": "completed",
+      "git_sha": "132265b61299e39c5381aea08ad22839daebf772",
+      "dirty": false,
+      "runner_version": "16",
+      "mode": "behavioral",
+      "started_at": "2026-09-12T11:33:57.237825+00:00",
+      "ended_at": "2026-09-12T16:42:47.281356+00:00"
+    },
+    "diagnostic_counts": {
+      "model.started": 577,
+      "model.stream_progress": 1151,
+      "model.completed": 574,
+      "tool.started": 198,
+      "tool.failed": 124,
+      "tool.completed": 74,
+      "model.timed_out": 3
+    },
+    "diagnostic_elapsed_ms": {
+      "model.completed": 9175084,
+      "model.timed_out": 48370,
+      "tool.completed": 36016,
+      "tool.failed": 4672
+    },
+    "tool_breakdown": {
+      "calculator.evaluate": {
+        "error": 1,
+        "success": 1
+      },
+      "grafana.alert.list": {
+        "error": 2,
+        "success": 3
+      },
+      "grafana.dashboard.get": {
+        "error": 4
+      },
+      "grafana.datasource.query": {
+        "error": 4
+      },
+      "internet.fetch": {
+        "error": 2
+      },
+      "internet.search": {
+        "error": 1,
+        "success": 1
+      },
+      "linux.file.edit": {
+        "error": 2
+      },
+      "linux.file.read": {
+        "error": 20,
+        "success": 12
+      },
+      "linux.package.status": {
+        "error": 3,
+        "success": 2
+      },
+      "linux.service.restart": {
+        "error": 4
+      },
+      "linux.service.status": {
+        "error": 22,
+        "success": 17
+      },
+      "linux.system.inspect": {
+        "error": 27,
+        "success": 20
+      },
+      "orion.tools.expand": {
+        "success": 1
+      },
+      "zabbix.event.list": {
+        "error": 5,
+        "success": 4
+      },
+      "zabbix.history.get": {
+        "error": 11,
+        "success": 1
+      },
+      "zabbix.host.get": {
+        "error": 10,
+        "success": 7
+      },
+      "zabbix.trigger.get": {
+        "error": 6,
+        "success": 5
+      }
+    },
+    "tool_error_codes": {},
+    "suites": {
+      "historical-default": {
+        "total": 193,
+        "statuses": {
+          "PASS": 193
+        },
+        "request_ms_total": 10914281,
+        "mean_ms": 56550.679,
+        "p50_ms": 56500,
+        "p95_ms": 88271.6,
+        "p99_ms": 115048,
+        "max_ms": 115049,
+        "tool_calls": 61,
+        "sourced_cases": 19,
+        "cited_cases": 8
+      },
+      "cauhoi_kiemtra_v2": {
+        "total": 66,
+        "statuses": {
+          "PASS": 66
+        },
+        "request_ms_total": 1844459,
+        "mean_ms": 27946.348,
+        "p50_ms": 13893,
+        "p95_ms": 84764,
+        "p99_ms": 95031.5,
+        "max_ms": 99588,
+        "tool_calls": 23,
+        "sourced_cases": 6,
+        "cited_cases": 0
+      },
+      "cauhoi_phanb": {
+        "total": 28,
+        "statuses": {
+          "PASS": 28
+        },
+        "request_ms_total": 877537,
+        "mean_ms": 31340.607,
+        "p50_ms": 27584.5,
+        "p95_ms": 64253.5,
+        "p99_ms": 69789.54,
+        "max_ms": 69951,
+        "tool_calls": 42,
+        "sourced_cases": 12,
+        "cited_cases": 1
+      },
+      "cauhoi_v4_adversarial": {
+        "total": 61,
+        "statuses": {
+          "PASS": 61
+        },
+        "request_ms_total": 3536986,
+        "mean_ms": 57983.377,
+        "p50_ms": 53664,
+        "p95_ms": 81014,
+        "p99_ms": 95265.4,
+        "max_ms": 112084,
+        "tool_calls": 30,
+        "sourced_cases": 10,
+        "cited_cases": 5
+      },
+      "cauhoi_v5_workflow": {
+        "total": 38,
+        "statuses": {
+          "PASS": 38
+        },
+        "request_ms_total": 1349852,
+        "mean_ms": 35522.421,
+        "p50_ms": 23901.5,
+        "p95_ms": 89091.55,
+        "p99_ms": 97046.94,
+        "max_ms": 100872,
+        "tool_calls": 42,
+        "sourced_cases": 12,
+        "cited_cases": 0
+      }
+    },
+    "no_tool_cases": 305,
+    "discovery_retry_cases": null,
+    "sourced_uncited_cases": 48,
+    "notice_ids": [
+      "historical-default-065",
+      "historical-default-077",
+      "historical-default-079"
+    ],
+    "no_diagnostic_ids": [],
+    "request_over_ms": {
+      "60000": 115,
+      "90000": 15,
+      "100000": 8
+    },
+    "invalid_final_citation_ids": [
+      "historical-default-078"
+    ],
+    "canonical_result_truncated_case_ids": [
+      "historical-default-031"
+    ],
+    "canonical_result_truncated_record_count": 1,
+    "diagnostic_records_truncated_captures": 0,
+    "answer_truncated_count": 0,
+    "prompt_truncated_count": 0,
+    "unique_ids": 386,
+    "unique_sessions": 5,
+    "answer_hashes_valid": true,
+    "prompt_hashes_valid": true,
+    "partial_equals_final": true,
+    "execution_fingerprint": "8204bdef214ce9d51b9bd6c4be6c2545ea2f80729d98917d5eafdfdee7c75206",
+    "wall_seconds": 18530.043531
+  },
+  "ordered_prompts_identical": true,
+  "settings_identical": true,
+  "shared_nonsecret_settings": {
+    "qa_request_timeout_seconds": 90,
+    "behavioral_watchdog_seconds": 900,
+    "provider_stream_timeout_seconds": 90,
+    "temperature": "0",
+    "model_id": "qwen3-32b",
+    "reasoning_mode": "auto"
+  },
+  "review_scope_counts": {
+    "not_semantically_adjudicated": 302,
+    "targeted_observation": 16,
+    "confirmed_issue": 25,
+    "runtime_incomplete": 43
+  }
+}

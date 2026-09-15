@@ -9,7 +9,7 @@ Architecture and implementation alignment:
 - defined Project as Chat plus project-scoped knowledge/RAG;
 - removed manual tool selection from Chat and Project;
 - made every registered/configured ordinary tool discoverable to the model through the canonical registry;
-- accepted registry-derived progressive model-facing schema exposure in ADR 0007 via the generic `orion.tools.expand` control;
+- accepted direct registry-derived tool schemas on the first model turn in ADR 0007;
 - kept semantic tool choice model-driven instead of Orion pre-routing;
 - kept canonical registry validation, `ToolRunner`, `RuntimeScope`, and execution permissions independent of request-local schema exposure;
 - removed product-level quota/rate-limit layers from the core tool architecture while retaining bounded failure/watchdog safety mechanisms;

@@ -6,7 +6,6 @@ from conftest import ScriptedBackend
 
 from orion.api.app import create_app
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME
 
 
 async def _configure(client: httpx.AsyncClient) -> None:
@@ -174,15 +173,6 @@ async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> No
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["calculator.evaluate"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
                         call_id="calc-1",
                         tool_name="calculator.evaluate",
                         arguments={"expression": "9 - 4"},
@@ -206,11 +196,6 @@ async def test_api_exposes_calculator_activity_as_runtime_events(tmp_path) -> No
     assert response.status_code == 200
     assert [event["type"] for event in events] == [
         "request.accepted",
-        "model.started",
-        "model.completed",
-        "tool.started",
-        "tool.completed",
-        "model.resumed",
         "model.started",
         "model.completed",
         "tool.started",

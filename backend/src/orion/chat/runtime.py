@@ -13,7 +13,6 @@ from functools import partial
 
 from orion.access import LocalAccessAdapter
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
-from orion.chat.conversation_state import ConversationStateManager
 from orion.chat.deadline import (
     MutationOutcomeUnknown,
     RequestBudget,
@@ -46,13 +45,13 @@ from orion.contracts import (
     has_invalid_source_citation_marker,
     strip_source_citation_markers,
 )
-from orion.models.backend import ModelBackend, ModelBackendError, ModelSettings
+from orion.models.backend import ModelBackend, ModelBackendError, ModelRequest, ModelSettings
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_public
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolExposureRequest, ToolRegistry
-from orion.tool_runtime.runner import ToolRunner
+from orion.tool_runtime.registry import ToolRegistry
+from orion.tool_runtime.runner import PreparedTool, ToolRunner
 
 
 class RequestCancelled(RuntimeError):
@@ -178,24 +177,9 @@ _SESSION_CONTINUITY_INSTRUCTIONS = (
 )
 
 _RECOVERY_DECISION_INSTRUCTIONS = (
-    "The preceding ToolResult marked model recovery as required or expanded capability without "
-    "an ordinary follow-up, and the request is unresolved. If exposed_for_retry, call that "
-    "now-visible tool directly; do not expand it. If not_exposed, expand the same exact failed "
-    "tool name and retry the intended operation rather than substituting a different discovery or "
-    "metadata tool. For other recoverable outcomes, "
-    "either emit the next safe, in-scope tool calls, expanding an unexposed exact catalog name "
-    "when needed, or give a final clarification/refusal if recovery is not appropriate. Do not "
-    "merely repeat a tool procedure in prose."
-)
-
-_CAPABILITY_ACTION_INSTRUCTIONS = (
-    "An ordinary capability was successfully expanded for this unresolved request, but no "
-    "ordinary tool call has followed. Emit safe, in-scope ordinary tool calls before giving "
-    "terminal prose. When multiple relevant exposed read-only tools have all required inputs "
-    "already known and none depends on another ToolResult, emit those calls together in this "
-    "model turn; do not serialize independent reads merely to inspect each result first. For "
-    "dependent calls, obtain prerequisite evidence first. The model chooses the exact exposed "
-    "tools and arguments."
+    "The preceding ToolResult requires recovery and the request remains unresolved. Either emit "
+    "the next safe, in-scope registered tool calls with corrected arguments, or give a concise "
+    "clarification/refusal if recovery is not appropriate. Do not repeat a tool procedure in prose."
 )
 
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
@@ -230,13 +214,13 @@ _POST_OBSERVATION_INSTRUCTIONS = (
 _CITATION_CORRECTION_INSTRUCTIONS = (
     "The assistant draft immediately above included a citation that was not returned by a "
     "visible ToolResult. Reconsider the request from the available evidence. If sourced evidence "
-    "is needed and none is visible, continue with safe model-chosen tool calls, expanding exact "
-    "catalog names when needed. Otherwise regenerate without the invalid citation. Use only exact "
+    "is needed and none is visible, continue with safe model-chosen tool calls. "
+    "Otherwise regenerate without the invalid citation. Use only exact "
     "visible source_ref_id values and do not repeat, transform, or invent unavailable sources."
 )
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
-# recovery or capability-action obligation. This bound is not a tool-call quota;
+# recovery obligation. This bound is not a tool-call quota;
 # successful tool chains remain unrestricted by a fixed call count.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
@@ -281,7 +265,7 @@ def _recoverable_failure_fingerprint(
     model_call: ModelToolCall, result: ToolResult
 ) -> _RecoveryFingerprint | None:
     error = result.error
-    if error is None or not error.model_recovery_required or error.code == "exposed_for_retry":
+    if error is None or not error.model_recovery_required:
         return None
     normalized_arguments = json.dumps(
         model_call.arguments,
@@ -340,22 +324,14 @@ def _read_progress_evidence(
 
 def _next_recovery_state(
     recovery_pending: bool,
-    capability_action_pending: bool,
     results: list[tuple[str, ToolResult]],
-) -> tuple[bool, bool]:
+) -> bool:
     """Apply one order-independent recovery transition for a model tool-call turn."""
-    ordinary_called = any(tool_name != EXPAND_TOOL_NAME for tool_name, _ in results)
+    ordinary_called = bool(results)
     recoverable_error = any(
         result.error is not None and result.error.model_recovery_required for _, result in results
     )
-    expansion_succeeded = any(
-        tool_name == EXPAND_TOOL_NAME and result.status == "success"
-        for tool_name, result in results
-    )
-    return (
-        recoverable_error or (recovery_pending and not ordinary_called),
-        (capability_action_pending or expansion_succeeded) and not ordinary_called,
-    )
+    return recoverable_error or (recovery_pending and not ordinary_called)
 
 
 class ChatRuntime:
@@ -381,7 +357,6 @@ class ChatRuntime:
         self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
         self._infrastructure_targets = infrastructure_targets
         self._context_builder = ContextBuilder(store, infrastructure_targets)
-        self._conversation_state = ConversationStateManager(store, backend)
         self._application_log = application_log
         self._diagnostic_sink = diagnostic_sink
         self._request_budget_settings = (
@@ -389,10 +364,7 @@ class ChatRuntime:
         )
         self._monotonic_clock = monotonic_clock
         self._deadline_sleeper = deadline_sleeper
-        initial_model_tools = registry.new_tool_exposure().model_tools
-        self._maximum_model_tool_bytes = _tool_definitions_bytes(
-            (*initial_model_tools, *registry.model_definitions())
-        )
+        self._maximum_model_tool_bytes = _tool_definitions_bytes(registry.model_definitions())
         self._maximum_model_request_proxy_bytes = (
             MAX_CONVERSATION_BYTES
             + self._maximum_model_tool_bytes
@@ -472,20 +444,7 @@ class ChatRuntime:
                 )
                 settings = self._settings()
                 scope = self._runtime_scope(session_id)
-                state_preparation = await budget.await_work(
-                    self._conversation_state.prepare(session_id, settings, cancellation),
-                    cancellation,
-                    phase="conversation_state_preparation",
-                )
-                if state_preparation.attempted:
-                    if state_preparation.usage is None:
-                        has_complete_usage = False
-                    else:
-                        input_tokens += state_preparation.usage.input_tokens
-                        output_tokens += state_preparation.usage.output_tokens
-                tool_exposure = self._registry.new_tool_exposure()
                 recovery_pending = False
-                capability_action_pending = False
                 forced_recovery_decisions_used = 0
                 recovery_tracker = RecoverableFailureTracker(
                     repeat_limit=self._request_budget_settings.recovery_repeat_limit,
@@ -530,13 +489,11 @@ class ChatRuntime:
                             settings,
                             scope,
                             cancellation,
-                            tool_exposure,
                             model_turn_id=model_turn_id,
                             model_started_at=model_started_at,
                             model_stream_progress=model_stream_progress,
                             recovery_decision=recovery_decision,
                             recovery_guidance=recovery_guidance,
-                            capability_action_pending=capability_action_pending,
                             citation_correction=citation_correction,
                             recovery_exhausted=recovery_exhausted or terminal_final,
                             terminal_final=terminal_final,
@@ -625,7 +582,7 @@ class ChatRuntime:
                         )
                     recovery_abandoned = (
                         not turn.tool_calls
-                        and (recovery_pending or capability_action_pending)
+                        and recovery_pending
                         and forced_recovery_decisions_used < _MAX_FORCED_RECOVERY_DECISIONS
                         and not recovery_decision
                     )
@@ -659,15 +616,6 @@ class ChatRuntime:
                         citation_correction_next = turn.assistant
                         self._emit(request_id, "model.resumed", {})
                         continue
-                    if (
-                        not turn.tool_calls
-                        and capability_action_pending
-                        and forced_recovery_decisions_used >= _MAX_FORCED_RECOVERY_DECISIONS
-                    ):
-                        raise RequestFailed(
-                            "Model did not make an ordinary tool decision after successful "
-                            "capability expansion."
-                        )
                     assistant_item = self._persist_assistant_turn(
                         session_id, request_id, turn, metrics
                     )
@@ -697,14 +645,22 @@ class ChatRuntime:
                     read_progress: list[ReadProgressEvidence] = []
                     if recovery_decision:
                         recovery_pending = True
-                    exposed_before_turn = tool_exposure.exposed_names
                     results: list[tuple[str, ToolResult]] = []
                     recoverable_fingerprints: list[_RecoveryFingerprint] = []
+                    prepared_calls: list[
+                        tuple[ModelToolCall, ToolDefinition | None, PreparedTool]
+                    ] = []
+                    # Complete canonical validation/authorization before any handler starts.
                     for model_call in turn.tool_calls:
                         self._ensure_not_cancelled(cancellation)
                         budget.ensure_work_available("tool")
-                        tool_started_at = self._monotonic_clock()
                         definition = self._registry.definition(model_call.tool_name)
+                        prepared = self._runner.prepare(
+                            model_call,
+                            scope,
+                            lambda: cancellation.is_set() or budget.remaining_work_seconds() <= 0,
+                            partial(self._audit_authorization, request_id, model_call),
+                        )
                         self._store.append_timeline(
                             session_id,
                             request_id,
@@ -718,74 +674,132 @@ class ChatRuntime:
                             call_id=model_call.call_id,
                             tool_name=model_call.tool_name,
                         )
-                        tool_activity = self._tool_activity(
+                        prepared_calls.append((model_call, definition, prepared))
+
+                    async def execute(
+                        index: int,
+                        calls: list[
+                            tuple[ModelToolCall, ToolDefinition | None, PreparedTool]
+                        ] = prepared_calls,
+                        turn_id: str = model_turn_id,
+                    ) -> ToolResult:
+                        model_call, definition, prepared = calls[index]
+                        self._ensure_not_cancelled(cancellation)
+                        budget.ensure_work_available("tool")
+                        started = self._monotonic_clock()
+                        activity = self._tool_activity(
                             model_call.tool_name, model_call.call_id, model_call.arguments
                         )
-                        tool_activity["elapsed_ms"] = self._elapsed_ms(tool_started_at)
-                        self._emit(request_id, "tool.started", tool_activity)
+                        activity["elapsed_ms"] = 0
+                        self._emit(request_id, "tool.started", activity)
+                        diagnostic = {
+                            "request_id": request_id,
+                            "model_turn_id": turn_id,
+                            "tool_call_id": model_call.call_id,
+                            "tool_name": model_call.tool_name,
+                            "phase": "tool",
+                        }
                         self._record_diagnostic(
-                            {
-                                "request_id": request_id,
-                                "model_turn_id": model_turn_id,
-                                "tool_call_id": model_call.call_id,
-                                "tool_name": model_call.tool_name,
-                                "phase": "tool",
-                                "status": "started",
-                                "elapsed_ms": self._elapsed_ms(tool_started_at),
-                            }
+                            {**diagnostic, "status": "started", "elapsed_ms": 0}
                         )
-                        mutation_interruption: MutationOutcomeUnknown | None = None
-                        if model_call.tool_name == EXPAND_TOOL_NAME:
-                            result = tool_exposure.expand(model_call)
-                        elif definition is None:
-                            result = ToolResult.failure(
-                                model_call.call_id,
-                                model_call.tool_name,
-                                "not_found",
-                                "Unknown registered tool.",
+
+                        def finish(result: ToolResult, status: str | None = None) -> ToolResult:
+                            elapsed = self._elapsed_ms(started)
+                            # Persist at completion, before subsequent work can fail or cancel.
+                            self._persist_tool_result(session_id, request_id, result, elapsed)
+                            self._record_diagnostic(
+                                {
+                                    **diagnostic,
+                                    "status": status
+                                    or ("completed" if result.status == "success" else "failed"),
+                                    "elapsed_ms": elapsed,
+                                    "canonical_result": result.model_dump(mode="json"),
+                                }
                             )
-                        elif model_call.tool_name not in exposed_before_turn:
-                            result = tool_exposure.expose_for_retry(model_call)
-                        else:
-                            try:
-                                result = await budget.await_work(
-                                    self._runner.run_async(
-                                        model_call,
-                                        scope,
-                                        lambda: (
-                                            cancellation.is_set()
-                                            or budget.remaining_work_seconds() <= 0
-                                        ),
-                                        partial(self._audit_authorization, request_id, model_call),
-                                    ),
-                                    cancellation,
-                                    phase="tool",
-                                    preserve_on_interrupt=definition.operation_kind == "mutation",
-                                )
-                            except MutationOutcomeUnknown as error:
-                                mutation_interruption = error
-                                result = ToolResult.failure(
+                            observed_source_ref_ids.update(
+                                source.source_ref_id for source in result.sources
+                            )
+                            return result
+
+                        try:
+                            result = await budget.await_work(
+                                self._runner.run_prepared_async(prepared),
+                                cancellation,
+                                phase="tool",
+                                preserve_on_interrupt=definition is not None
+                                and definition.operation_kind == "mutation",
+                            )
+                        except MutationOutcomeUnknown as error:
+                            finish(
+                                ToolResult.failure(
                                     model_call.call_id,
                                     model_call.tool_name,
                                     "outcome_unknown",
-                                    "The mutation outcome could not be verified before the "
-                                    "request deadline.",
-                                )
-                        self._persist_tool_result(
-                            session_id, request_id, result, self._elapsed_ms(tool_started_at)
-                        )
-                        self._record_diagnostic(
-                            {
-                                "request_id": request_id,
-                                "model_turn_id": model_turn_id,
-                                "tool_call_id": model_call.call_id,
-                                "tool_name": model_call.tool_name,
-                                "phase": "tool",
-                                "status": "completed" if result.status == "success" else "failed",
-                                "elapsed_ms": self._elapsed_ms(tool_started_at),
-                                "canonical_result": result.model_dump(mode="json"),
-                            }
-                        )
+                                    "The mutation outcome was not verified before interruption.",
+                                ),
+                                "cancelled" if error.cancelled else "timed_out",
+                            )
+                            if error.cancelled:
+                                raise asyncio.CancelledError from error
+                            raise RequestDeadlineExceeded("tool") from error
+                        except RequestDeadlineExceeded:
+                            finish(
+                                ToolResult.failure(
+                                    model_call.call_id,
+                                    model_call.tool_name,
+                                    "timeout",
+                                    "Tool execution exceeded the request deadline.",
+                                ),
+                                "timed_out",
+                            )
+                            raise
+                        except asyncio.CancelledError:
+                            finish(
+                                ToolResult.failure(
+                                    model_call.call_id,
+                                    model_call.tool_name,
+                                    "cancelled",
+                                    "Tool execution was interrupted.",
+                                ),
+                                "cancelled",
+                            )
+                            raise
+                        return finish(result)
+
+                    dispatched: dict[int, ToolResult] = {}
+                    pending_reads: list[int] = []
+
+                    async def flush_reads(
+                        pending: list[int] = pending_reads,
+                        completed: dict[int, ToolResult] = dispatched,
+                    ) -> None:
+                        indexes = tuple(pending)
+                        pending.clear()
+                        tasks = [asyncio.create_task(execute(index)) for index in indexes]
+                        try:
+                            outcomes = await asyncio.gather(*tasks)
+                        except BaseException:
+                            # Drain siblings before closing the request/store. Their completed
+                            # or interrupted results remain recorded independently.
+                            for task in tasks:
+                                if not task.done():
+                                    task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
+                            raise
+                        completed.update(zip(indexes, outcomes, strict=True))
+
+                    for index, (_, definition, _) in enumerate(prepared_calls):
+                        if definition is None or definition.operation_kind == "read":
+                            pending_reads.append(index)
+                            continue
+                        await flush_reads()
+                        dispatched[index] = await execute(index)
+                        self._ensure_not_cancelled(cancellation)
+                        budget.ensure_work_available("tool")
+                    await flush_reads()
+
+                    for index, (model_call, definition, _) in enumerate(prepared_calls):
+                        result = dispatched[index]
                         results.append((model_call.tool_name, result))
                         observed_source_ref_ids.update(
                             source.source_ref_id for source in result.sources
@@ -795,10 +809,6 @@ class ChatRuntime:
                         )
                         if evidence is not None:
                             read_progress.append(evidence)
-                        if mutation_interruption is not None:
-                            if mutation_interruption.cancelled:
-                                raise asyncio.CancelledError
-                            raise RequestDeadlineExceeded("tool")
                         if definition is not None and definition.operation_kind == "mutation":
                             if cancellation.is_set():
                                 raise asyncio.CancelledError
@@ -807,8 +817,7 @@ class ChatRuntime:
                         if fingerprint is not None:
                             recoverable_fingerprints.append(fingerprint)
                     ordinary_nonrecoverable_result = any(
-                        tool_name != EXPAND_TOOL_NAME
-                        and (
+                        (
                             result.status == "success"
                             or result.error is None
                             or not result.error.model_recovery_required
@@ -822,9 +831,7 @@ class ChatRuntime:
                         recoverable_failure_state,
                         read_progress=tuple(read_progress),
                     )
-                    recovery_pending, capability_action_pending = _next_recovery_state(
-                        recovery_pending, capability_action_pending, results
-                    )
+                    recovery_pending = _next_recovery_state(recovery_pending, results)
                     if recovery_stall is not None:
                         recovery_pending = False
                         self._emit(
@@ -836,11 +843,10 @@ class ChatRuntime:
                                 "cycle_length": recovery_stall.cycle_length,
                             },
                         )
-                        capability_action_pending = False
                         recovery_guidance_next = False
                         recovery_exhausted_next = True
                         terminal_final_pending = True
-                    elif recovery_pending or capability_action_pending:
+                    elif recovery_pending:
                         recovery_guidance_next = True
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
@@ -982,14 +988,12 @@ class ChatRuntime:
         settings: ModelSettings,
         scope: RuntimeScope,
         cancellation: asyncio.Event,
-        tool_exposure: ToolExposureRequest,
         *,
         model_turn_id: str,
         model_started_at: float,
         model_stream_progress: _ModelStreamProgress,
         recovery_decision: bool = False,
         recovery_guidance: bool = False,
-        capability_action_pending: bool = False,
         citation_correction: AssistantMessage | None = None,
         recovery_exhausted: bool = False,
         terminal_final: bool = False,
@@ -997,16 +1001,14 @@ class ChatRuntime:
     ) -> tuple[ModelTurn, ModelUsage | None, tuple[SourceRef, ...]]:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
-        recovery_message = (
-            (ContextMessage(role="system", content=_RECOVERY_DECISION_INSTRUCTIONS),)
-            if recovery_decision or recovery_guidance
-            else ()
-        )
-        capability_action_message = (
-            (ContextMessage(role="system", content=_CAPABILITY_ACTION_INSTRUCTIONS),)
-            if (recovery_decision or recovery_guidance) and capability_action_pending
-            else ()
-        )
+        runtime_instruction_parts = [
+            _RECOVERY_DECISION_INSTRUCTIONS if recovery_decision or recovery_guidance else "",
+            _RECOVERY_EXHAUSTED_INSTRUCTIONS if recovery_exhausted else "",
+            _POST_OBSERVATION_INSTRUCTIONS if observation_review else "",
+            _SESSION_CONTINUITY_INSTRUCTIONS
+            if sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
+            else "",
+        ]
         citation_correction_messages = (
             (
                 ContextMessage(
@@ -1014,45 +1016,18 @@ class ChatRuntime:
                     content=strip_source_citation_markers(citation_correction.content),
                     citation_source_ref_ids=(),
                 ),
-                ContextMessage(role="system", content=_CITATION_CORRECTION_INSTRUCTIONS),
             )
             if citation_correction is not None
             else ()
         )
-
-        recovery_exhausted_message = (
-            (ContextMessage(role="system", content=_RECOVERY_EXHAUSTED_INSTRUCTIONS),)
-            if recovery_exhausted
-            else ()
+        if citation_correction is not None:
+            runtime_instruction_parts.append(_CITATION_CORRECTION_INSTRUCTIONS)
+        # All registered schemas are present even on follow-up turns. This is a
+        # portable direct-registry contract, not a request-local discovery protocol.
+        model_tools = (
+            () if recovery_exhausted or terminal_final else self._registry.model_definitions()
         )
-        observation_review_message = (
-            (ContextMessage(role="system", content=_POST_OBSERVATION_INSTRUCTIONS),)
-            if observation_review
-            else ()
-        )
-        prior_user_turn_exists = (
-            sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
-        )
-        session_continuity_message = (
-            (
-                ContextMessage(
-                    role="system",
-                    content=_SESSION_CONTINUITY_INSTRUCTIONS,
-                ),
-            )
-            if prior_user_turn_exists
-            else ()
-        )
-
-        model_tools = () if recovery_exhausted or terminal_final else tool_exposure.model_tools
-        extra_messages = (
-            *session_continuity_message,
-            *recovery_message,
-            *capability_action_message,
-            *recovery_exhausted_message,
-            *observation_review_message,
-            *citation_correction_messages,
-        )
+        extra_messages = citation_correction_messages
         context = self._context_builder.build_with_metadata(
             session_id,
             scope.project_id,
@@ -1060,8 +1035,18 @@ class ChatRuntime:
             attachment_ids=scope.attachment_ids,
             maximum_bytes=_context_budget_for_turn(extra_messages),
             strict_total_budget=True,
+            runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
         )
         model_messages = (*context.messages, *extra_messages)
+        system_messages = tuple(message for message in model_messages if message.role == "system")
+        if len(system_messages) != 1 or model_messages[:1] != system_messages:
+            raise RequestFailed("Model input must contain exactly one leading system message.")
+        model_request = ModelRequest(
+            system_instructions=system_messages[0].content,
+            messages=tuple(message for message in model_messages if message.role != "system"),
+            tools=model_tools,
+        )
+        model_messages = model_request.provider_messages()
         if _messages_bytes(model_messages) > MAX_CONVERSATION_BYTES:
             raise RequestFailed(
                 "Model context exceeds Orion's local safety bound; the current user message was "
@@ -1089,6 +1074,12 @@ class ChatRuntime:
                     tuple(source.source_ref_id for source in context.visible_sources),
                     _model_request_proxy_bytes(model_messages, model_tools),
                     context_bytes=_messages_bytes(model_messages),
+                    tool_schema_bytes=_tool_definitions_bytes(model_tools),
+                    current_evidence_bytes=sum(
+                        len(message.content.encode("utf-8"))
+                        for message in model_messages
+                        if message.role == "tool"
+                    ),
                     current_visible_source_ids=tuple(
                         source.source_ref_id for source in context.current_visible_sources
                     ),
@@ -1101,7 +1092,7 @@ class ChatRuntime:
 
         async for event in self._backend.stream(
             model_messages,
-            model_tools,
+            model_request.tools,
             settings,
             cancellation,
         ):
@@ -1190,7 +1181,7 @@ class ChatRuntime:
             session_id,
             request_id,
             "tool_result",
-            {"result": result.model_dump(mode="json")},
+            {"result": result.model_dump(mode="json"), "elapsed_ms": elapsed_ms},
             call_id=result.call_id,
             tool_name=result.tool_name,
         )

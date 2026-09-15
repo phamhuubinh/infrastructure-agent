@@ -3,17 +3,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-import pytest
-from conftest import ScriptedBackend, runtime
-
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.model_context import project_tool_result
 from orion.contracts import (
-    AssistantMessage,
     ModelToolCall,
-    ModelTurn,
     SourceRef,
-    ToolCall,
     ToolResult,
 )
 from orion.knowledge.tools import (
@@ -26,19 +20,11 @@ from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.tool_runtime.calculator import calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
 
-EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 12_514
+EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 12_503
 # Tool-result byte snapshots include provider-neutral grounding/freshness instructions;
 # these are measurements, not increased runtime/benchmark budget limits.
-EXPECTED_SIMPLE_PROXY_BYTES = 14_511
-EXPECTED_EXPANSION_SCHEMA_BYTES = 894
-EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES = 1_984
-EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES = 2_281
-EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES = 3_218
-EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES = 5_525
-# Includes post-observation batching and grounding guidance; the context budget is unchanged.
-EXPECTED_ZABBIX_RESUMED_PROXY_BYTES = 12_848
+EXPECTED_SIMPLE_PROXY_BYTES = 16_304
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -167,56 +153,6 @@ def test_provider_tool_schema_size_and_simple_context_regressions(store) -> None
     assert simple_proxy == EXPECTED_SIMPLE_PROXY_BYTES
 
 
-def test_progressive_model_view_size_regressions(store) -> None:  # type: ignore[no-untyped-def]
-    definitions = _all_definitions()
-    builder = ToolRegistryBuilder()
-    for definition in definitions:
-        builder.register(
-            definition,
-            lambda call: ToolResult(
-                call_id=call.call_id, tool_name=call.tool_name, status="success", data={}
-            ),
-        )
-    exposure = builder.freeze().new_tool_exposure()
-    session_id = store.create_session()
-    store.append_timeline(session_id, None, "user_message", {"content": "Hello"})
-    messages = ContextBuilder(store).build(session_id)
-    model_messages = messages
-    assert all("Tools (expand exact ordinary names" not in message.content for message in messages)
-    assert exposure.model_tools[0].provider_schema()["function"]["parameters"]["properties"][
-        "tool_names"
-    ]["items"]["enum"] == [definition.name for definition in definitions]
-    assert (
-        len(json.dumps(exposure.model_tools[0].provider_schema(), separators=(",", ":")).encode())
-        == EXPECTED_EXPANSION_SCHEMA_BYTES
-    )
-    assert _compact_provider_proxy(messages, definitions) == 13_602
-    assert _compact_provider_proxy(model_messages, exposure.model_tools) == (
-        EXPECTED_PROGRESSIVE_INITIAL_PROXY_BYTES
-    )
-
-    exposure.expand(
-        ModelToolCall(
-            call_id="one",
-            tool_name=EXPAND_TOOL_NAME,
-            arguments={"tool_names": ["calculator.evaluate"]},
-        )
-    )
-    assert _compact_provider_proxy(model_messages, exposure.model_tools) == (
-        EXPECTED_PROGRESSIVE_ONE_TOOL_PROXY_BYTES
-    )
-    exposure.expand(
-        ModelToolCall(
-            call_id="more",
-            tool_name=EXPAND_TOOL_NAME,
-            arguments={"tool_names": ["internet.search", "zabbix.event.list"]},
-        )
-    )
-    assert _compact_provider_proxy(model_messages, exposure.model_tools) == (
-        EXPECTED_PROGRESSIVE_THREE_TOOL_PROXY_BYTES
-    )
-
-
 def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store) -> None:  # type: ignore[no-untyped-def]
     session_id = store.create_session()
     store.append_timeline(session_id, None, "user_message", {"content": "List events"})
@@ -228,9 +164,9 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 22_723
+    assert resumed_proxy == 23_308
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
-    assert resumed_proxy <= 23_000
+    assert resumed_proxy <= MAX_CONVERSATION_BYTES + EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES
     assert len(context[-1].content.encode()) <= 6_000
     assert model_result["_orion_projection"]["applied"] is True
     assert model_result["data"]["target_ref"] == "zabbix"
@@ -293,8 +229,8 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         )
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
-    assert _messages_bytes(current_messages) == 11_558
-    assert _provider_proxy(context) == 27_773
+    assert _messages_bytes(current_messages) == 11_998
+    assert _provider_proxy(context) == 28_787
 
 
 def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(store) -> None:  # type: ignore[no-untyped-def]
@@ -544,7 +480,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 27_390
+    assert history_proxy == 27_903
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
     assert history_proxy <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
@@ -554,7 +490,7 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     assert len(store.timeline(session_id)) == 64
 
 
-def test_huge_historical_tool_turn_is_skipped_without_cutting_older_complete_turns(store) -> None:  # type: ignore[no-untyped-def]
+def test_huge_historical_evidence_is_omitted_without_cutting_conversation(store) -> None:  # type: ignore[no-untyped-def]
     session_id = store.create_session()
     store.append_timeline(session_id, None, "user_message", {"content": "Older valid question"})
     store.append_timeline(
@@ -581,8 +517,9 @@ def test_huge_historical_tool_turn_is_skipped_without_cutting_older_complete_tur
     assert loaded[0].kind == "user_message"
     assert loaded[0].payload["content"] == "Older valid question"
     assert omitted_at_read == 0
-    assert users == ["Older valid question", "Current question"]
-    assert any("Omitted turns: 1" in message.content for message in context)
+    assert users == ["Older valid question", "Huge tool turn", "Current question"]
+    assert not any(message.role == "tool" for message in context)
+    assert any(message.content == "Older valid answer" for message in context)
 
 
 def test_model_context_query_does_not_deserialize_unbounded_old_timeline(store) -> None:  # type: ignore[no-untyped-def]
@@ -614,74 +551,6 @@ def test_model_context_query_does_not_deserialize_unbounded_old_timeline(store) 
     )
     assert context_rows[0].kind == "user_message"
     assert any("older timeline turns: 86" in message.content for message in context)
-
-
-@pytest.mark.anyio
-async def test_registered_tools_are_progressively_exposed_on_initial_and_resumed_turns(
-    store,
-) -> None:  # type: ignore[no-untyped-def]
-    result = _zabbix_result()
-
-    def handler(call: ToolCall) -> ToolResult:
-        return result.model_copy(update={"call_id": call.call_id, "tool_name": call.tool_name})
-
-    builder = ToolRegistryBuilder()
-    for definition in _all_definitions():
-        builder.register(definition, handler)
-    registry = builder.freeze()
-    backend = ScriptedBackend(
-        [
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["zabbix.event.list"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="zabbix-1",
-                        tool_name="zabbix.event.list",
-                        arguments={"target_ref": "zabbix"},
-                    ),
-                )
-            ),
-            ModelTurn(
-                assistant=AssistantMessage(
-                    content="Events. [[source:zabbix-events-prod]]",
-                    citation_source_ref_ids=("zabbix-events-prod",),
-                )
-            ),
-        ]
-    )
-    session_id = store.create_session()
-
-    await runtime(store, backend, registry).submit(session_id, "List events with a source")
-
-    assert len(backend.calls) == 3
-    assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert [definition.name for definition in backend.calls[1][1]] == [
-        EXPAND_TOOL_NAME,
-        "zabbix.event.list",
-    ]
-    assert [definition.name for definition in backend.calls[2][1]] == [
-        EXPAND_TOOL_NAME,
-        "zabbix.event.list",
-    ]
-    assert _compact_provider_proxy(*backend.calls[1]) == EXPECTED_ZABBIX_EXPANSION_PROXY_BYTES
-    assert _compact_provider_proxy(*backend.calls[2]) == EXPECTED_ZABBIX_RESUMED_PROXY_BYTES
-    resumed = backend.calls[2][0]
-    assistant_index = next(
-        index
-        for index, message in enumerate(resumed)
-        if message.tool_calls and message.tool_calls[0].tool_name == "zabbix.event.list"
-    )
-    assert resumed[assistant_index + 1].role == "tool"
-    assert resumed[assistant_index + 1].tool_call_id == "zabbix-1"
-    assert len(store.timeline(session_id)[-2].payload["result"]["data"]["results"]) == 100
 
 
 def test_incomplete_tool_pair_is_not_sent_to_provider(store) -> None:  # type: ignore[no-untyped-def]

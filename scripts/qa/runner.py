@@ -947,23 +947,23 @@ def behavioral_review_payload(
             payload.get("arguments", {}), secret_values
         )
         call: dict[str, object] = {
-                "tool_name": redact_public(
-                    _safe_trace_text(
-                        tool_name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT
-                    )
-                ),
-                "arguments": arguments,
-                "arguments_truncated": arguments_truncated,
-                "arguments_characters": arguments_characters,
-                "elapsed_ms": tool_timings.get((tool_name, str(call_id))),
-                "status": statuses.get(
-                    (tool_name, call_id)
-                    if isinstance(call_id, str)
-                    else (tool_name, ""),
-                    "not_observed",
-                ),
+            "tool_name": redact_public(
+                _safe_trace_text(
+                    tool_name, secret_values, FAILURE_TRACE_IDENTIFIER_LIMIT
+                )
+            ),
+            "arguments": arguments,
+            "arguments_truncated": arguments_truncated,
+            "arguments_characters": arguments_characters,
+            "elapsed_ms": tool_timings.get((tool_name, str(call_id))),
+            "status": statuses.get(
+                (tool_name, call_id) if isinstance(call_id, str) else (tool_name, ""),
+                "not_observed",
+            ),
         }
-        error_code = error_codes.get((tool_name, call_id)) if isinstance(call_id, str) else None
+        error_code = (
+            error_codes.get((tool_name, call_id)) if isinstance(call_id, str) else None
+        )
         if error_code is not None:
             call["error_code"] = error_code
             call["error_category"] = behavioral_tool_error_category(error_code)
@@ -1019,8 +1019,6 @@ def _safe_milliseconds(value: object) -> int | float | None:
 
 def behavioral_tool_error_category(error_code: str) -> str:
     """Classify canonical error codes for review without assigning product blame."""
-    if error_code == "exposed_for_retry":
-        return "expected_discovery_retry"
     if error_code in {"operation_blocked", "authorization_denied", "mutation_denied"}:
         return "expected_authorization_or_mutation_block"
     if error_code in {"not_found", "unknown_target", "unsafe_url"}:
@@ -1081,12 +1079,24 @@ def behavioral_timing(
                         if isinstance(model_input, dict)
                         else None
                     ),
-                    "exposed_tool_count": len(model_input.get("exposed_tool_names", []))
+                    "tool_schema_count": len(model_input.get("tool_names", []))
                     if isinstance(model_input, dict)
-                    and isinstance(model_input.get("exposed_tool_names"), list)
+                    and isinstance(model_input.get("tool_names"), list)
                     else None,
                 }
-            if record.get("status") in {"completed", None}:
+                if isinstance(model_input, dict):
+                    for key in ("tool_schema_bytes", "current_evidence_bytes"):
+                        if key in model_input:
+                            model_started[model_turn_id][key] = _safe_milliseconds(
+                                model_input[key]
+                            )
+            if record.get("status") in {
+                "completed",
+                "timed_out",
+                "cancelled",
+                "failed",
+                None,
+            }:
                 model_calls.append(
                     {
                         **{
@@ -1107,7 +1117,9 @@ def behavioral_timing(
     ]
     observed_tool_elapsed_ms = [value for value in tool_elapsed_ms if value is not None]
     observed_model_elapsed_ms = [
-        value for value in (call.get("elapsed_ms") for call in model_calls) if value is not None
+        value
+        for value in (call.get("elapsed_ms") for call in model_calls)
+        if value is not None
     ]
     return {
         "request_elapsed_ms": request_elapsed_ms,
@@ -1116,6 +1128,10 @@ def behavioral_timing(
         "model_calls": model_calls[:BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT],
         "model_calls_truncated": len(model_calls) > BEHAVIORAL_REVIEW_TOOL_CALL_LIMIT,
         "model_turn_count": len(model_calls),
+        "model_attempt_count": len(model_calls),
+        "model_completed_count": sum(
+            1 for call in model_calls if call.get("completed_elapsed_ms") is not None
+        ),
         "model_elapsed_ms_total": sum(observed_model_elapsed_ms),
         "tool_elapsed_ms_total": sum(observed_tool_elapsed_ms),
         "tool_elapsed_ms_observed_count": len(observed_tool_elapsed_ms),
@@ -1415,10 +1431,7 @@ def behavioral_terminal_is_incomplete(timeline: list[dict[str, Any]]) -> bool:
         payload = item.get("payload")
         if not isinstance(payload, dict):
             continue
-        if (
-            payload.get("stage") == "terminal"
-            and payload.get("status") == "incomplete"
-        ):
+        if payload.get("stage") == "terminal" and payload.get("status") == "incomplete":
             return True
     return False
 
@@ -1432,7 +1445,9 @@ def behavioral_execution_status(
     return status, reason
 
 
-def behavioral_diagnostics_summary(results: list[dict[str, object]]) -> dict[str, object]:
+def behavioral_diagnostics_summary(
+    results: list[dict[str, object]],
+) -> dict[str, object]:
     """Aggregate bounded behavioral telemetry; it is not a product verdict."""
     model_turn_count = 0
     model_elapsed_ms = 0
@@ -1446,7 +1461,9 @@ def behavioral_diagnostics_summary(results: list[dict[str, object]]) -> dict[str
         timing = result.get("timing")
         if isinstance(timing, dict):
             count = timing.get("model_turn_count")
-            model_turn_count += int(count) if type(count) in {int, float} and count >= 0 else 0
+            model_turn_count += (
+                int(count) if type(count) in {int, float} and count >= 0 else 0
+            )
             for key, destination in (
                 ("model_elapsed_ms_total", "model"),
                 ("tool_elapsed_ms_total", "tool"),
@@ -1471,7 +1488,9 @@ def behavioral_diagnostics_summary(results: list[dict[str, object]]) -> dict[str
         calls = result.get("tool_calls")
         if isinstance(calls, list):
             for call in calls:
-                category = call.get("error_category") if isinstance(call, dict) else None
+                category = (
+                    call.get("error_category") if isinstance(call, dict) else None
+                )
                 if isinstance(category, str):
                     error_categories[category] += 1
     return {

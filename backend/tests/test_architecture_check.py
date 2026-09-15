@@ -82,41 +82,16 @@ def test_architecture_check_ignores_docs_and_test_prose(tmp_path: Path) -> None:
     assert checker.check(root, ui) == []
 
 
-def test_architecture_check_allows_registry_derived_model_exposure(tmp_path: Path) -> None:
-    checker = _checker()
-    root, ui = tmp_path / "orion", tmp_path / "ui"
-    _runtime(root)
-    (root / "tool_exposure.py").write_text(
-        "class ToolExposure:\n    def catalog(self):\n        return 'registry-derived catalog'\n",
-        encoding="utf-8",
-    )
-
-    assert checker.check(root, ui) == []
-
-
 def test_documentation_check_rejects_stale_tool_exposure_claims(tmp_path: Path) -> None:
     checker = _checker()
     files = {
-        "AGENTS.md": (
-            "registry-derived progressive tool exposure orion.tools.expand canonical registry "
-            "The current architecture has no dynamic tool discovery/exposure protocol."
-        ),
-        "README.md": (
-            "registry-derived progressive model-facing exposure protocol orion.tools.expand "
-            "Knowledge/RAG Internet provide all registered tool definitions"
-        ),
-        "CHANGELOG.md": (
-            "progressive model-facing schema exposure orion.tools.expand "
-            "removed dynamic tool exposure/discovery from the target architecture"
-        ),
-        "docs/operations/TROUBLESHOOTING.md": (
-            "orion.tools.expand canonical registry receives the calculator schema on every call"
-        ),
+        relative: " ".join(required)
+        for relative, required in checker._DOCUMENTATION_REQUIRED.items()
     }
     for relative, text in files.items():
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text + " schemas are hidden until discovery", encoding="utf-8")
 
     violations = "\n".join(checker.check_documentation(tmp_path))
 
@@ -129,15 +104,8 @@ def test_documentation_check_rejects_stale_tool_exposure_claims(tmp_path: Path) 
 def test_documentation_check_accepts_current_tool_exposure_contract(tmp_path: Path) -> None:
     checker = _checker()
     files = {
-        "AGENTS.md": (
-            "registry-derived progressive tool exposure orion.tools.expand canonical registry"
-        ),
-        "README.md": (
-            "registry-derived progressive model-facing exposure protocol orion.tools.expand "
-            "Knowledge/RAG Internet"
-        ),
-        "CHANGELOG.md": "progressive model-facing schema exposure orion.tools.expand",
-        "docs/operations/TROUBLESHOOTING.md": "orion.tools.expand canonical registry",
+        relative: " ".join(required)
+        for relative, required in checker._DOCUMENTATION_REQUIRED.items()
     }
     for relative, text in files.items():
         path = tmp_path / relative

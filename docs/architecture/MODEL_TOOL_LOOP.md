@@ -1,118 +1,37 @@
 # Model-tool loop
 
-## Core contract
-
-The model is called with conversation context and one generic expansion control whose
-provider schema structurally lists exact registered ordinary names. Full ordinary
-schemas appear only after the model requests names from that discovery enum.
-
-The model may return:
-
-- normal assistant content/final answer;
-- one or more provider-supported tool calls.
-
-Provider adapters normalize provider-native output into Orion's canonical runtime contracts defined in `CONTRACTS.md`.
-
-## Canonical loop
+Chat and Project use the same model-driven loop and the same canonical `ToolRegistry`.
+There is no manual picker or semantic pre-router.
 
 ```text
-while model has not produced a final answer:
-    model_turn = model(context, expansion_control + exposed_tools)
-
-    if model_turn contains tool calls:
-        normalize ModelToolCall
-        validate tool name + input schema
-        attach deterministic RuntimeScope
-        ToolResult = execute registered tool
-        append public tool call + ToolResult to context/timeline
-        continue
-
-    return assistant answer
+direct request: user -> deterministic context + all registered schemas -> model -> answer
+tool request:   user -> deterministic context + all registered schemas -> model -> tools -> model -> answer
 ```
 
-This is a model-native tool loop, not a model-visible Orion workflow state machine.
+A direct request normally makes one model call. A request whose first turn calls tools normally
+makes two: one decision call and one synthesis call after current-request `ToolResult` data.
+Independent read-only calls emitted together are validated then run concurrently and do not add
+model turns. Later turns are only for a genuine dependency, recoverable invalid call, or citation
+correction. Mutations stay ordered and application-authorized.
 
-## Responsibility split
+Every call in an emitted turn is prepared through the canonical runner (schema validation,
+scope binding, and authorization) before any handler starts. Read batches are drained on
+interruption; mutations form ordering boundaries. Each completed or interrupted execution
+persists its own correlated result and measured elapsed time immediately, rather than waiting
+for later calls. A later deadline must not erase an already verified mutation outcome.
+Results correlate by `call_id`; completion order need not equal dispatch order. Synthesis
+starts only after the batch has returned all results. Per-tool elapsed time measures that
+execution, not the wait for the slowest member of its batch.
 
-```text
-Model owns:
-- whether a tool is useful;
-- which registered names to expand and which exposed tool to call;
-- semantic arguments such as query, expression, host operation parameters;
-- whether another call is useful after seeing ToolResult;
-- when to answer.
+All registered model-callable schemas are supplied on every normal turn. Schema visibility never
+authorizes execution: `ToolRunner` validates arguments, binds `RuntimeScope`, and enforces the
+mutation allowlist/default deny policy.
 
-Orion owns:
-- registered tool definitions;
-- provider normalization;
-- schema validation;
-- session/project RuntimeScope binding;
-- dispatch;
-- public timeline persistence;
-- ToolResult normalization.
-```
+The provider-neutral input has one `system_instructions` value plus user/assistant/tool messages.
+The OpenAI-compatible adapter emits at most one leading system message and never a system role
+after conversation begins.
 
-## No old workflow protocol
-
-Do not require the model to emit or memorize states such as:
-
-- DISCOVER;
-- SELECT;
-- ACTION;
-- ACTION_DETAIL;
-- OBSERVATION;
-- FEEDBACK;
-- completion obligations.
-
-A tool call is simply a tool call. A tool result is simply a tool result.
-
-## Automatic tool use
-
-"Automatic" means:
-
-- the user does not choose a tool;
-- Orion does not choose the semantic tool before the model;
-- the model chooses from registered tools;
-- Orion executes the chosen registered tool with deterministic runtime scope.
-
-## Tool availability
-
-For the current architecture:
-
-```text
-registered/configured ordinary tool
-        ↓
-structural deterministic discovery enum
-        ↓
-model-controlled exact-name expansion
-        ↓
-request-local full schema exposure
-```
-
-The discovery enum is not a semantic router, user tool picker, or integration-specific
-protocol. It is a generic registry projection. Exposure resets for the next user
-request and never authorizes a hidden ordinary tool to dispatch.
-
-## Sequential and multiple calls
-
-The runtime must support natural sequential use:
-
-```text
-model → project knowledge search
-result → model
-model → exact document read
-result → model
-model → calculator
-result → model
-model → final
-```
-
-Parallel provider tool calls may be supported where adapters and tool implementations support them correctly. Sequential correctness is the baseline.
-
-## Failures
-
-A tool failure produces a canonical error `ToolResult` and returns to the model.
-
-The model may use another source, correct arguments, explain the failure, or ask the user.
-
-Do not invent successful data when a tool failed.
+`ToolResult` data is evidence. Prior assistant prose is continuity only, not current evidence.
+Current-state claims require ToolResults from the current request; old measurements, when
+explicitly included for comparison, are historical. Citation validation validates syntax,
+visibility, and provenance only; it does not establish semantic entailment.

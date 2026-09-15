@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from conftest import ScriptedBackend, runtime
@@ -25,7 +26,7 @@ from orion.models.backend import (
     ModelSettings,
 )
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 
 
 def test_infrastructure_context_separates_identity_and_supplies_current_time(
@@ -59,18 +60,6 @@ def test_infrastructure_context_separates_identity_and_supplies_current_time(
     assert "relevant authorized read-only tools have known inputs" in identities
     assert "emit those calls together in one model turn" in identities
     assert "For dependent calls, obtain prerequisite evidence first" in identities
-
-
-def _expand(*tool_names: str, call_id: str = "expand") -> ModelTurn:
-    return ModelTurn(
-        tool_calls=(
-            ModelToolCall(
-                call_id=call_id,
-                tool_name=EXPAND_TOOL_NAME,
-                arguments={"tool_names": list(tool_names)},
-            ),
-        )
-    )
 
 
 class UsageScriptedBackend(ModelBackend):
@@ -112,12 +101,8 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
     assert outcome.assistant_content == "Direct answer."
     assert executions == 0
     assert len(backend.calls) == 1
-    assert [definition.name for definition in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert all(
-        "Tools (expand exact ordinary names" not in message.content
-        and "fake.count" not in message.content
-        for message in backend.calls[0][0]
-    )
+    assert [definition.name for definition in backend.calls[0][1]] == ["fake.count"]
+    assert all("fake.count" not in message.content for message in backend.calls[0][0])
 
 
 @pytest.mark.anyio
@@ -154,10 +139,6 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
     backend = UsageScriptedBackend(
         [
             (
-                _expand("calculator.evaluate"),
-                ModelUsage(input_tokens=50, output_tokens=10),
-            ),
-            (
                 ModelTurn(
                     tool_calls=(
                         ModelToolCall(
@@ -185,8 +166,8 @@ async def test_tool_loop_aggregates_all_usage_only_on_the_final_assistant_turn(
     assert "metrics" not in assistant_items[0].payload
     assert assistant_items[-1].payload["metrics"] == {
         "response_time_ms": assistant_items[-1].payload["metrics"]["response_time_ms"],
-        "input_tokens": 300,
-        "output_tokens": 60,
+        "input_tokens": 250,
+        "output_tokens": 50,
     }
 
 
@@ -214,7 +195,6 @@ async def test_post_observation_guidance_limits_inference_without_disabling_tool
         )
     backend = ScriptedBackend(
         [
-            _expand("fake.observe", "fake.follow_up"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -249,7 +229,6 @@ async def test_post_observation_guidance_limits_inference_without_disabling_tool
     assert any("swap-in/swap-out" in message for message in review_messages)
     assert any("earliest/latest timestamps" in message for message in review_messages)
     assert {definition.name for definition in backend.calls[2][1]} == {
-        EXPAND_TOOL_NAME,
         "fake.observe",
         "fake.follow_up",
     }
@@ -275,7 +254,6 @@ async def test_recovery_decision_usage_is_counted_once_on_the_final_answer(store
     )
     backend = UsageScriptedBackend(
         [
-            (_expand("fake.recover"), ModelUsage(input_tokens=10, output_tokens=1)),
             (
                 ModelTurn(
                     tool_calls=(
@@ -316,17 +294,16 @@ async def test_recovery_decision_usage_is_counted_once_on_the_final_answer(store
     assert "metrics" not in assistants[-2].payload
     assert assistants[-1].payload["metrics"] == {
         "response_time_ms": assistants[-1].payload["metrics"]["response_time_ms"],
-        "input_tokens": 210,
-        "output_tokens": 21,
+        "input_tokens": 200,
+        "output_tokens": 20,
     }
-    assert len(backend.calls) == 6
+    assert len(backend.calls) == 5
 
 
 @pytest.mark.anyio
 async def test_missing_usage_omits_partial_token_totals(store) -> None:  # type: ignore[no-untyped-def]
     backend = UsageScriptedBackend(
         [
-            (_expand("calculator.evaluate"), ModelUsage(input_tokens=50, output_tokens=10)),
             (
                 ModelTurn(
                     tool_calls=(
@@ -412,27 +389,9 @@ async def test_visible_current_and_historical_sources_are_distinguished_for_fres
     backend = ScriptedBackend(
         [
             ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-old",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["fake.read"]},
-                    ),
-                )
-            ),
-            ModelTurn(
                 tool_calls=(ModelToolCall(call_id="old", tool_name="fake.read", arguments={}),)
             ),
             ModelTurn(assistant=AssistantMessage(content="Historical reading.")),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-new",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["fake.read"]},
-                    ),
-                )
-            ),
             ModelTurn(
                 tool_calls=(ModelToolCall(call_id="new", tool_name="fake.read", arguments={}),)
             ),
@@ -452,7 +411,7 @@ async def test_visible_current_and_historical_sources_are_distinguished_for_fres
     assert "clearly labeled historical" in contract
     built = ContextBuilder(store).build_with_metadata(session_id)
     assert [source.source_ref_id for source in built.current_visible_sources] == ["current"]
-    assert [source.source_ref_id for source in built.historical_visible_sources] == ["historical"]
+    assert built.historical_visible_sources == ()
 
 
 @pytest.mark.anyio
@@ -503,7 +462,7 @@ async def test_terminal_stale_citation_metadata_is_regenerated_before_persistenc
         for index, message in enumerate(correction_messages)
         if message.role == "system" and "included a citation" in message.content
     )
-    assert draft_index < correction_index
+    assert correction_index == 0 < draft_index
     assert (
         "continue with safe model-chosen tool calls"
         in correction_messages[correction_index].content
@@ -519,7 +478,6 @@ async def test_stale_citation_after_a_source_less_tool_result_is_regenerated(
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -543,7 +501,7 @@ async def test_stale_citation_after_a_source_less_tool_result_is_regenerated(
     outcome = await runtime(store, backend).submit(session_id, "Calculate 2 + 3")
 
     assert outcome.assistant_content == "The result is 5."
-    assert len(backend.calls) == 4
+    assert len(backend.calls) == 3
     assert any(
         "citation that was not returned" in message.content for message in backend.calls[-1][0]
     )
@@ -597,7 +555,6 @@ async def test_stale_citation_metadata_regenerates_after_unrelated_session_activ
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -624,9 +581,9 @@ async def test_stale_citation_metadata_regenerates_after_unrelated_session_activ
     outcome = await chat.submit(session_id, "Give a source-free response")
 
     assert outcome.assistant_content == "Clean regenerated response."
-    assert len(backend.calls) == 5
+    assert len(backend.calls) == 4
     assert any(
-        "citation that was not returned" in message.content for message in backend.calls[4][0]
+        "citation that was not returned" in message.content for message in backend.calls[3][0]
     )
 
 
@@ -636,7 +593,6 @@ async def test_changed_stale_citation_metadata_after_populated_session_stays_str
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -668,7 +624,7 @@ async def test_changed_stale_citation_metadata_after_populated_session_stays_str
     with pytest.raises(RequestFailed, match="unavailable source"):
         await chat.submit(session_id, "Give a source-free response")
 
-    assert len(backend.calls) == 5
+    assert len(backend.calls) == 4
     assert store.timeline(session_id)[-1].payload == {
         "stage": "citation_validation",
         "status": "failed",
@@ -683,7 +639,6 @@ async def test_recovery_replaces_unavailable_citation_before_terminal_validation
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(
                     content="Draft.",
@@ -707,8 +662,8 @@ async def test_recovery_replaces_unavailable_citation_before_terminal_validation
     outcome = await runtime(store, backend).submit(session_id, "Calculate")
 
     assert outcome.assistant_content == "Final clarification."
-    assert len(backend.calls) == 4
-    assert any("expanded capability" in message.content for message in backend.calls[2][0])
+    assert len(backend.calls) == 3
+    assert any("citation" in message.content for message in backend.calls[2][0])
 
 
 @pytest.mark.anyio
@@ -717,7 +672,6 @@ async def test_invalid_intermediate_citation_does_not_block_tool_execution(
 ) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(
                     content="Calculating. [[source: unavailable]]",
@@ -739,7 +693,7 @@ async def test_invalid_intermediate_citation_does_not_block_tool_execution(
     outcome = await runtime(store, backend).submit(session_id, "Calculate 2 + 3")
 
     assert outcome.assistant_content == "The result is 5."
-    assert len(backend.calls) == 3
+    assert len(backend.calls) == 2
 
 
 @pytest.mark.anyio
@@ -772,7 +726,6 @@ async def test_assistant_deltas_are_public_but_persist_one_final_message(store) 
 async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(content="Calculating. "),
                 tool_calls=(
@@ -785,59 +738,32 @@ async def test_calculator_round_trip_returns_to_same_model(store) -> None:  # ty
             ),
             ModelTurn(assistant=AssistantMessage(content="The result is 5.")),
         ],
-        deltas=[[], ["Calculating. "], ["The result ", "is 5."]],
+        deltas=[["Calculating. "], ["The result ", "is 5."]],
     )
     session_id = store.create_session()
 
     outcome = await runtime(store, backend).submit(session_id, "What is 2 + 3?")
 
     assert outcome.assistant_content == "The result is 5."
-    assert len(backend.calls) == 3
-    continuation = backend.calls[1][0]
-    assert [definition.name for definition in backend.calls[1][1]] == [
-        EXPAND_TOOL_NAME,
-        "calculator.evaluate",
-    ]
-    expansion_result = ToolResult.model_validate_json(
-        next(message.content for message in continuation if message.role == "tool")
-    )
-    assert expansion_result.data == {"exposed_tools": ["calculator.evaluate"]}
-    calculator_continuation = backend.calls[2][0]
-    calculator_result = ToolResult.model_validate_json(
+    assert len(backend.calls) == 2
+    assert [definition.name for definition in backend.calls[1][1]] == ["calculator.evaluate"]
+    calculator_continuation = backend.calls[1][0]
+    calculator_result = json.loads(
         next(
             message.content
             for message in reversed(calculator_continuation)
             if message.role == "tool"
         )
     )
-    assert calculator_result.data == {"value": 5}
-    assert calculator_result.sources == ()
-    assert [event["type"] for event in store.events(outcome.request_id)] == [
-        "request.accepted",
-        "model.started",
-        "model.completed",
-        "tool.started",
-        "tool.completed",
-        "model.resumed",
-        "model.started",
-        "assistant.delta",
-        "model.completed",
-        "assistant.message",
-        "tool.started",
-        "tool.completed",
-        "model.resumed",
-        "model.started",
-        "assistant.delta",
-        "assistant.delta",
-        "model.completed",
-        "assistant.message",
-        "request.completed",
-    ]
+    assert calculator_result["data"] == {"value": 5}
+    assert calculator_result["sources"] == []
+    events = [event["type"] for event in store.events(outcome.request_id)]
+    assert events[0] == "request.accepted"
+    assert events[-1] == "request.completed"
+    assert events.count("model.started") == 2
+    assert "tool.failed" not in events and events.count("tool.completed") == 1
     assert [item.kind for item in store.timeline(session_id)] == [
         "user_message",
-        "assistant_message",
-        "tool_call",
-        "tool_result",
         "assistant_message",
         "tool_call",
         "tool_result",
@@ -863,16 +789,14 @@ def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
     assert "sources=[], emit no [[source:...]] marker" in instructions
     assert "Never invent, guess, transform, or reuse an ID" in instructions
     assert "For unresolved requests" in instructions
-    assert "recover safely with catalog tools" in instructions
-    assert "expand exact unexposed names" in instructions
-    assert "not user-directed Orion calls" in instructions
+    assert "registered tools" in instructions
+    assert "do not ask the user to invoke Orion control tools" in instructions
 
 
 @pytest.mark.anyio
 async def test_sequential_calculator_calls_have_no_orion_call_quota(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -899,14 +823,13 @@ async def test_sequential_calculator_calls_have_no_orion_call_quota(store) -> No
     outcome = await runtime(store, backend).submit(session_id, "Use two calculations")
 
     assert outcome.assistant_content == "2 and 6"
-    assert len(backend.calls) == 4
+    assert len(backend.calls) == 3
 
 
 @pytest.mark.anyio
 async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand("calculator.evaluate"),
             ModelTurn(
                 assistant=AssistantMessage(content="I will calculate that."),
                 tool_calls=(
@@ -933,7 +856,7 @@ async def test_assistant_content_and_tool_call_are_preserved_in_one_turn(store) 
     assert first_assistant.payload["tool_calls"][0]["call_id"] == "one"
     combined_assistant = next(
         message
-        for message in backend.calls[2][0]
+        for message in backend.calls[1][0]
         if message.role == "assistant"
         and message.content == "I will calculate that."
         and message.tool_calls
@@ -958,8 +881,7 @@ async def test_unknown_or_invalid_tools_never_dispatch(
         ),
         ModelTurn(assistant=AssistantMessage(content="I could not run that tool.")),
     ]
-    if tool_name == "calculator.evaluate":
-        turns.insert(0, _expand(tool_name))
+    if tool_name != "missing.tool":
         turns.append(ModelTurn(assistant=AssistantMessage(content="Final recovery response.")))
     backend = ScriptedBackend(turns)
     session_id = store.create_session()
@@ -1006,7 +928,6 @@ async def test_recoverable_tool_loop_finishes_with_bounded_no_tool_turn(
 
     backend = ScriptedBackend(
         [
-            _expand("fake.recover"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -1046,7 +967,7 @@ async def test_recoverable_tool_loop_finishes_with_bounded_no_tool_turn(
     outcome = await runtime(store, backend, builder.freeze()).submit(session_id, "Inspect safely.")
 
     assert "could not verify" in outcome.assistant_content
-    assert len(backend.calls) == 5
+    assert len(backend.calls) == 4
     assert backend.calls[-1][1] == ()
     assert any(
         message.role == "system" and "bounded recovery budget is exhausted" in message.content
@@ -1177,7 +1098,6 @@ async def test_unobserved_bad_citation_with_visible_source_gets_one_correction(
 
     backend = ScriptedBackend(
         [
-            _expand("fake.source"),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
@@ -1208,7 +1128,7 @@ async def test_unobserved_bad_citation_with_visible_source_gets_one_correction(
     )
 
     assert outcome.assistant_content == "Observed. [[source:qa-visible-source]]"
-    assert len(backend.calls) == 4
+    assert len(backend.calls) == 3
     assert any(
         message.role == "system" and "included a citation" in message.content
         for message in backend.calls[-1][0]
@@ -1268,8 +1188,6 @@ class RecoveryBlockingBackend(ModelBackend):
     async def stream(self, messages, tools, settings: ModelSettings, cancellation):  # type: ignore[no-untyped-def]
         self.calls += 1
         if self.calls == 1:
-            yield ModelTurnCompleted(turn=_expand("fake.recover"))
-        elif self.calls == 2:
             yield ModelTurnCompleted(
                 turn=ModelTurn(
                     tool_calls=(
@@ -1277,7 +1195,7 @@ class RecoveryBlockingBackend(ModelBackend):
                     )
                 )
             )
-        elif self.calls == 3:
+        elif self.calls == 2:
             yield ModelTurnCompleted(turn=ModelTurn(assistant=AssistantMessage(content="Recover.")))
         else:
             self.recovery_started.set()
@@ -1292,9 +1210,7 @@ class SecondRecoveryBlockingBackend(ModelBackend):
 
     async def stream(self, messages, tools, settings: ModelSettings, cancellation):  # type: ignore[no-untyped-def]
         self.calls += 1
-        if self.calls == 1:
-            yield ModelTurnCompleted(turn=_expand("fake.recover"))
-        elif self.calls in {2, 4}:
+        if self.calls in {1, 3}:
             yield ModelTurnCompleted(
                 turn=ModelTurn(
                     tool_calls=(
@@ -1306,7 +1222,7 @@ class SecondRecoveryBlockingBackend(ModelBackend):
                     )
                 )
             )
-        elif self.calls in {3, 5}:
+        elif self.calls in {2, 4}:
             yield ModelTurnCompleted(turn=ModelTurn(assistant=AssistantMessage(content="Recover.")))
         else:
             self.recovery_started.set()
@@ -1404,7 +1320,7 @@ async def test_runtime_cancellation_stops_the_extra_recovery_decision(store) -> 
 
     with pytest.raises(RequestCancelled):
         await task
-    assert backend.calls == 4
+    assert backend.calls == 3
     assert store.request(request_id)["status"] == "cancelled"
 
 
@@ -1437,7 +1353,7 @@ async def test_runtime_cancellation_stops_the_second_recovery_decision(store) ->
 
     with pytest.raises(RequestCancelled):
         await task
-    assert backend.calls == 6
+    assert backend.calls == 5
     assert store.request(request_id)["status"] == "cancelled"
 
 

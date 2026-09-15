@@ -82,8 +82,8 @@ credentials, policy paths, or target configuration beyond safe values already
 visible to the model. A valid read or a different authorized mutation remains a
 model semantic choice through the ordinary loop.
 
-Tool registration and ADR 0007 progressive exposure are unchanged. A mutation may
-remain discoverable/expandable as an ordinary registered tool even when the policy
+Tool registration and ADR 0007 direct first-turn schema visibility do not grant permissions.
+A mutation remains model-visible as an ordinary registered tool even when the policy
 will block a call; no per-request `enabled_tools` field, manual picker, or semantic
 pre-router is introduced.
 

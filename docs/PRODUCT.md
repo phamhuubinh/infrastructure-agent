@@ -53,7 +53,7 @@ All ordinary tools remain available in Project.
 
 There is no tool picker.
 
-The model receives structural discovery for registered tool names and autonomously decides:
+The model receives all registered model-callable tool schemas on the first turn and autonomously decides:
 
 - whether a tool is needed;
 - which tool is appropriate;
@@ -61,8 +61,8 @@ The model receives structural discovery for registered tool names and autonomous
 - whether another tool call is useful after receiving a result;
 - when enough information exists to answer.
 
-When a tool is useful, the model first requests one or more exact registered names
-through the generic expansion control, then calls from that request-local subset.
+When tools are useful, the model calls ordinary registered tools directly. Independent
+reads with known inputs may be called together before the synthesis turn.
 
 Orion itself does not infer semantic intent before the model with keyword rules, regex lists, bilingual aliases, or a separate tool-selection classifier.
 

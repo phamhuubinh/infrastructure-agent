@@ -41,7 +41,7 @@ The target runtime remains:
 
 ```text
 message
-→ model with registry-derived tool catalog + expansion control
+→ model with all registered model-callable schemas from the first turn
 → optional exact-name expansion
 → direct answer OR automatic model-selected tool call
 → Orion executes the registered tool

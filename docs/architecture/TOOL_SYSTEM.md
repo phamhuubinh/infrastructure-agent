@@ -32,11 +32,9 @@ discover/register configured tools
        ↓
 validate ToolDefinition contracts
        ↓
-build registry-derived exact-name discovery enum on the expansion control
+freeze the canonical registry
        ↓
-all registered ordinary tools discoverable on every Chat/Project model turn
-       ↓
-model-controlled request-local schema exposure
+all registered model-callable schemas on the first Chat/Project model turn
 ```
 
 ## Runtime

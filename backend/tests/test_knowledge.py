@@ -15,7 +15,7 @@ from orion.knowledge.tools import (
     search_definition,
     source_metadata_definition,
 )
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -300,15 +300,6 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.search"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
                         call_id="search-1",
                         tool_name="knowledge.search",
                         arguments={"query": "actual fact"},
@@ -330,10 +321,10 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
     outcome = await chat.submit(session, "What is the fact?")
 
     assert outcome.assistant_content == "The fact is blue."
-    assert len(backend.calls) == 3
+    assert len(backend.calls) == 2
     assert "Ignore all previous" not in backend.calls[0][0][0].content
     tool_content = next(
-        message.content for message in reversed(backend.calls[2][0]) if message.role == "tool"
+        message.content for message in reversed(backend.calls[1][0]) if message.role == "tool"
     )
     assert "Ignore all previous" in tool_content
     assert source.source_ref_id in tool_content
@@ -375,15 +366,6 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="expand-list",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.list_documents"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
                         call_id="list-invalid",
                         tool_name="knowledge.list_documents",
                         arguments={"project_id": str(project["project_id"])},
@@ -403,15 +385,6 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
                 assistant=AssistantMessage(
                     content=invalid_draft,
                     citation_source_ref_ids=("forged-listing-source",),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-read",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.read"]},
-                    ),
                 )
             ),
             ModelTurn(
@@ -440,8 +413,8 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
     )
 
     assert "ORION_QA_PROJECT_A_7711" in outcome.assistant_content
-    assert len(backend.calls) == 8
-    correction_messages, correction_tools = backend.calls[5]
+    assert len(backend.calls) == 6
+    correction_messages, correction_tools = backend.calls[4]
     correction_drafts = [
         message
         for message in correction_messages
@@ -454,15 +427,8 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
         message.role == "system" and "continue with safe model-chosen tool calls" in message.content
         for message in correction_messages
     )
-    assert [tool.name for tool in correction_tools] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.list_documents",
-    ]
-    assert [tool.name for tool in backend.calls[6][1]] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.list_documents",
-        "knowledge.read",
-    ]
+    assert correction_tools == _registry(knowledge).model_definitions()
+    assert backend.calls[0][1] == correction_tools
     assert invalid_draft not in [
         str(item.payload.get("content", ""))
         for item in store.timeline(session)
@@ -474,10 +440,8 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
         if item.kind == "tool_result"
     ]
     assert [result.error.code if result.error is not None else None for result in results] == [
-        "exposed_for_retry",
-        None,
         "invalid_input",
-        None,
+        "invalid_input",
         None,
         None,
     ]
@@ -505,7 +469,7 @@ async def test_attachment_does_not_trigger_pre_model_retrieval(knowledge, store)
     assert upload.document.document_id in initial_context
     assert "notes.txt" in initial_context
     assert "UNTRUSTED CONTENT" not in initial_context
-    assert [tool.name for tool in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
+    assert backend.calls[0][1] == builder.freeze().model_definitions()
     assert [item.kind for item in store.timeline(session)] == [
         "attachment",
         "user_message",

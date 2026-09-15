@@ -18,7 +18,7 @@ from orion.contracts import (
     ToolResult,
 )
 from orion.models.backend import ModelBackendError, ModelBackendErrorKind
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 
 _TOOL_NAME = "test.recover"
 
@@ -71,18 +71,6 @@ def _mixed_call(call_id: str, *, reversed_order: bool = False) -> ModelTurn:
         ),
     )
     return ModelTurn(tool_calls=tuple(reversed(calls)) if reversed_order else calls)
-
-
-def _expand() -> ModelTurn:
-    return ModelTurn(
-        tool_calls=(
-            ModelToolCall(
-                call_id="expand",
-                tool_name=EXPAND_TOOL_NAME,
-                arguments={"tool_names": [_TOOL_NAME]},
-            ),
-        )
-    )
 
 
 def test_recovery_fingerprint_normalizes_argument_key_order() -> None:
@@ -286,7 +274,6 @@ def test_empty_initial_query_is_evidence_when_coverage_is_declared() -> None:
 async def test_changed_recoverable_arguments_continue_beyond_old_turn_count(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("bad-1", "one"),
             _call("bad-2", "two"),
             _call("bad-3", "three"),
@@ -310,7 +297,6 @@ async def test_changed_recoverable_arguments_continue_beyond_old_turn_count(stor
 async def test_identical_recoverable_failure_state_eventually_disables_tools(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("bad-1", "same"),
             _call("bad-2", "same"),
             _call("bad-3", "same"),
@@ -342,7 +328,6 @@ async def test_terminal_turn_tool_call_is_never_dispatched(store) -> None:  # ty
     builder.register(_definition(), handler)
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("bad-1", "same"),
             _call("bad-2", "same"),
             _call("bad-3", "same"),
@@ -372,7 +357,6 @@ async def test_terminal_turn_tool_call_is_never_dispatched(store) -> None:  # ty
 async def test_terminal_turn_with_invalid_citation_persists_incomplete(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("bad-1", "same"),
             _call("bad-2", "same"),
             _call("bad-3", "same"),
@@ -409,7 +393,7 @@ async def test_terminal_malformed_backend_result_persists_incomplete(store) -> N
             yield ModelTurnCompleted(turn=self.turns.pop(0))
 
     backend = MalformedFinalBackend(
-        [_expand(), _call("bad-1", "same"), _call("bad-2", "same"), _call("bad-3", "same")]
+        [_call("bad-1", "same"), _call("bad-2", "same"), _call("bad-3", "same")]
     )
     session = store.create_session()
 
@@ -459,15 +443,6 @@ async def test_terminal_turn_accepts_a_valid_existing_citation(store) -> None:  
         [
             ModelTurn(
                 tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": [_TOOL_NAME, source_tool.name]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
                     ModelToolCall(call_id="source", tool_name=source_tool.name, arguments={}),
                 )
             ),
@@ -501,7 +476,6 @@ async def test_terminal_turn_accepts_a_valid_existing_citation(store) -> None:  
 async def test_alternating_recoverable_failure_cycle_disables_tools(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("bad-a-1", "a"),
             _call("bad-b-1", "b"),
             _call("bad-a-2", "a"),
@@ -514,28 +488,6 @@ async def test_alternating_recoverable_failure_cycle_disables_tools(store) -> No
     outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
 
     assert outcome.assistant_content == "I need corrected input."
-    assert backend.calls[-1][1] == ()
-
-
-@pytest.mark.anyio
-async def test_expansion_between_cycle_failures_preserves_history(store) -> None:  # type: ignore[no-untyped-def]
-    backend = ScriptedBackend(
-        [
-            _expand(),
-            _call("bad-a-1", "a"),
-            _expand(),
-            _call("bad-b-1", "b"),
-            _call("bad-a-2", "a"),
-            _call("bad-b-2", "b"),
-            ModelTurn(assistant=AssistantMessage(content="I need corrected input.")),
-        ]
-    )
-    session = store.create_session()
-
-    outcome = await runtime(store, backend, _registry()).submit(session, "Use the tool")
-
-    assert outcome.assistant_content == "I need corrected input."
-
     assert backend.calls[-1][1] == ()
 
 
@@ -543,7 +495,6 @@ async def test_expansion_between_cycle_failures_preserves_history(store) -> None
 async def test_mixed_success_does_not_hide_repeated_recoverable_failure(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _mixed_call("mixed-1"),
             _mixed_call("mixed-2", reversed_order=True),
             _mixed_call("mixed-3"),
@@ -562,12 +513,10 @@ async def test_mixed_success_does_not_hide_repeated_recoverable_failure(store) -
 async def test_recovery_tracker_is_isolated_between_requests(store) -> None:  # type: ignore[no-untyped-def]
     backend = ScriptedBackend(
         [
-            _expand(),
             _call("first-a-1", "a"),
             _call("first-a-2", "a"),
             ModelTurn(assistant=AssistantMessage(content="Need recovery.")),
             ModelTurn(assistant=AssistantMessage(content="First complete.")),
-            _expand(),
             _call("second-a-1", "a"),
             ModelTurn(assistant=AssistantMessage(content="Need recovery.")),
             ModelTurn(assistant=AssistantMessage(content="Second complete.")),
@@ -580,5 +529,5 @@ async def test_recovery_tracker_is_isolated_between_requests(store) -> None:  # 
     outcome = await chat.submit(session, "Second request")
 
     assert outcome.assistant_content == "Second complete."
-    assert len(backend.calls) == 9
-    assert backend.calls[7][1] != ()
+    assert len(backend.calls) == 7
+    assert backend.calls[5][1] != ()

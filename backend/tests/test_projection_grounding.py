@@ -20,7 +20,7 @@ from orion.contracts import (
     ToolDefinition,
     ToolResult,
 )
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 
 GROUNDING_RULE = (
     "_orion_projection: source_data_state=upstream_nonempty_omitted/partial, partial/omitted "
@@ -66,6 +66,88 @@ def test_service_status_context_does_not_turn_into_package_or_fabricated_facts(s
     assert "package" not in tool_evidence
     for fabricated in ("1234", "1h23m", "eth0", "192.168.1.100"):
         assert fabricated not in tool_evidence
+
+
+@pytest.mark.anyio
+async def test_commented_ssh_directive_reaches_model_as_inactive_data(store) -> None:  # type: ignore[no-untyped-def]
+    fixture = "#PermitRootLogin prohibit-password\n"
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="test.ssh",
+            handler_key="test.ssh",
+            description="SSH fixture.",
+            input_schema={"type": "object", "properties": {}},
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"path": "/fixture/sshd_config", "content": fixture},
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="ssh", tool_name="test.ssh", arguments={}),)
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="The line is commented; the effective setting is unknown."
+                )
+            ),
+        ]
+    )
+    await runtime(store, backend, builder.freeze()).submit(
+        store.create_session(), "Is this directive active?"
+    )
+    messages, _ = backend.calls[1]
+    evidence = json.loads(next(message.content for message in messages if message.role == "tool"))
+    assert evidence["data"]["content"] == fixture
+    assert "A commented configuration line beginning with # is not active" in messages[0].content
+
+
+@pytest.mark.anyio
+async def test_visible_ram_citation_is_provenance_not_nginx_entailment(store) -> None:  # type: ignore[no-untyped-def]
+    source = SourceRef(source_ref_id="ram-only", source_kind="linux", source_id="host", label="RAM")
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="test.ram",
+            handler_key="test.ram",
+            description="RAM fixture.",
+            input_schema={"type": "object", "properties": {}},
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"memory_free_bytes": 1024},
+            sources=(source,),
+        ),
+    )
+    # Deliberately wrong model prose: deterministic validation can validate this ref,
+    # not the semantics of this claim. Do not describe acceptance as grounding proof.
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="ram", tool_name="test.ram", arguments={}),)
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="nginx is installed. [[source:ram-only]]",
+                    citation_source_ref_ids=("ram-only",),
+                )
+            ),
+        ]
+    )
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        store.create_session(), "Inspect RAM"
+    )
+    assert outcome.status == "completed"
+    instructions = backend.calls[1][0][0].content
+    assert "citation validation only proves provenance, not semantic entailment" in instructions
+    assert "directly supported by that same ToolResult" in instructions
 
 
 def three_row_result() -> ToolResult:
@@ -428,15 +510,6 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
         [
             ModelTurn(
                 tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": [result.tool_name]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
                     ModelToolCall(call_id=result.call_id, tool_name=result.tool_name, arguments={}),
                 )
             ),
@@ -452,22 +525,25 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
     prompt = "Explain the observations with coverage limitations and a source."
     outcome = await runtime(store, backend, registry.freeze()).submit(session, prompt)
     messages = backend.calls[-1][0]
-    assert len(backend.calls) == 3 and outcome.status == "completed"
-    assert messages[0].role == "system" and messages[0].content.endswith(GROUNDING_RULE)
+    assert len(backend.calls) == 2 and outcome.status == "completed"
+    assert messages[0].role == "system" and GROUNDING_RULE in messages[0].content
     assert "State a tool-observed value" in messages[0].content
     assert "not a different resource's installation" in messages[0].content
     assert "after the latest user message" in messages[0].content
-    assert ContextBuilder(store).build(session)[0] == messages[0]
+    assert ContextBuilder(store).build(session)[0].role == "system"
     assert [message.content for message in messages if message.role == "user"] == [prompt]
     assert all(_messages_bytes(call[0]) <= MAX_CONVERSATION_BYTES for call in backend.calls)
     tool = next(message for message in messages if message.tool_call_id == result.call_id)
     value = json.loads(tool.content)
     if empty:
-        assert tool.content == canonical(result) and value["data"] == []
+        assert value["data"] == []
+        assert value["_orion_provenance"]["current_request"] is True
     else:
         metadata = value["_orion_projection"]
         assert metadata["data_state"] == "partial"
-        assert tool.content == project_tool_result(result, metadata["maximum_bytes"])
+        assert tool.content == project_tool_result(
+            result, metadata["maximum_bytes"], current_request=True
+        )
         assert len(tool.content.encode()) <= metadata["maximum_bytes"] <= 6000
         coverage = next(item for item in metadata["omissions"] if item["path"] == "$.data")
         assert 0 < coverage["included_items"] < 60

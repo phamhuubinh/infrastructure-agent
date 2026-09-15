@@ -35,6 +35,20 @@ def _utc_now() -> str:
 class SQLiteStore:
     """Persistence boundary; rows map to canonical public timeline semantics."""
 
+    @classmethod
+    def read_active_model_config(cls, database_path: Path) -> dict[str, str | int | None] | None:
+        """Read a deployed profile without creating a database or running migrations."""
+        instance = cls.__new__(cls)
+        instance._connection = sqlite3.connect(
+            database_path.resolve().as_uri() + "?mode=ro", uri=True
+        )
+        instance._connection.row_factory = sqlite3.Row
+        instance._lock = threading.RLock()
+        try:
+            return instance.active_model_config()
+        finally:
+            instance.close()
+
     def __init__(self, database_path: Path) -> None:
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(database_path, check_same_thread=False)

@@ -21,7 +21,7 @@ from orion.contracts import (
     ToolResult,
 )
 from orion.models.backend import ModelBackend, ModelSettings
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 
 
 class FakeClock:
@@ -151,15 +151,6 @@ async def test_terminal_turn_hang_persists_one_incomplete_fallback(store) -> Non
         def __init__(self) -> None:
             self.calls: list[tuple[object, object]] = []
             self.turns = [
-                ModelTurn(
-                    tool_calls=(
-                        ModelToolCall(
-                            call_id="expand",
-                            tool_name=EXPAND_TOOL_NAME,
-                            arguments={"tool_names": ["fake.recover"]},
-                        ),
-                    )
-                ),
                 *[
                     ModelTurn(
                         tool_calls=(
@@ -198,7 +189,7 @@ async def test_terminal_turn_hang_persists_one_incomplete_fallback(store) -> Non
 
     async def advance_terminal_to_work_deadline(seconds: float) -> None:
         await asyncio.sleep(0)
-        if len(backend.calls) >= 5:
+        if len(backend.calls) >= 4:
             clock.advance(seconds)
             return
         await asyncio.Event().wait()
@@ -231,7 +222,7 @@ async def test_terminal_turn_hang_persists_one_incomplete_fallback(store) -> Non
 
     assert outcome.status == "incomplete"
     assert executions == 3
-    assert len(backend.calls) == 5
+    assert len(backend.calls) == 4
     assert backend.calls[-1][1] == ()
     terminal_events = [
         event for event in store.events(outcome.request_id) if event["type"] == "request.incomplete"
@@ -322,15 +313,6 @@ async def test_runtime_persists_mutation_outcome_before_deadline_terminalization
     class Backend(ModelBackend):
         def __init__(self) -> None:
             self.turns = [
-                ModelTurn(
-                    tool_calls=(
-                        ModelToolCall(
-                            call_id="expand",
-                            tool_name=EXPAND_TOOL_NAME,
-                            arguments={"tool_names": ["fake.mutate"]},
-                        ),
-                    )
-                ),
                 ModelTurn(
                     tool_calls=(
                         ModelToolCall(call_id="mutation", tool_name="fake.mutate", arguments={}),

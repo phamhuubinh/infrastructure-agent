@@ -64,14 +64,17 @@ class OpenAICompatibleBackend(ModelBackend):
             headers["Authorization"] = f"Bearer {settings.api_key}"
         payload: dict[str, Any] = {
             "model": settings.model_id,
-            "messages": [self._message_payload(message) for message in messages],
+            "messages": self._provider_messages(messages),
             "stream": True,
             "stream_options": {"include_usage": True},
         }
         configured_temperature = os.getenv("ORION_MODEL_TEMPERATURE")
         if configured_temperature is not None:
             payload["temperature"] = float(configured_temperature)
-        if settings.reasoning_mode != "auto":
+        if (
+            settings.reasoning_mode != "auto"
+            and os.getenv("ORION_OPENAI_COMPAT_REASONING_TEMPLATE_KWARGS") == "1"
+        ):
             payload.setdefault("chat_template_kwargs", {})["enable_thinking"] = (
                 settings.reasoning_mode == "enabled"
             )
@@ -319,6 +322,27 @@ class OpenAICompatibleBackend(ModelBackend):
                 "OpenAI-compatible model stream was malformed.",
                 kind=ModelBackendErrorKind.MALFORMED_STREAM,
             ) from error
+
+    @staticmethod
+    def _provider_messages(messages: tuple[ContextMessage, ...]) -> list[dict[str, Any]]:
+        """Emit the minimum portable OpenAI message sequence.
+
+        One system instruction is permitted only at the front. This is enforced
+        for every OpenAI-compatible server, not by model-name detection.
+        """
+        seen_conversation = False
+        system_count = 0
+        for message in messages:
+            if message.role == "system":
+                system_count += 1
+                if seen_conversation or system_count > 1:
+                    raise ModelBackendError(
+                        "Model input contains a system message after conversation began.",
+                        kind=ModelBackendErrorKind.PROTOCOL,
+                    )
+            else:
+                seen_conversation = True
+        return [OpenAICompatibleBackend._message_payload(message) for message in messages]
 
     @staticmethod
     def _message_payload(message: ContextMessage) -> dict[str, Any]:

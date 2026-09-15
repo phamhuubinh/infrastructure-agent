@@ -12,6 +12,8 @@ from orion.security import redact_public
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolHandler, ToolRegistry
 
+PreparedTool = ToolResult | tuple[ToolHandler, ToolCall]
+
 
 class ToolRunner:
     def __init__(
@@ -31,7 +33,7 @@ class ToolRunner:
         cancellation_requested: Callable[[], bool] | None = None,
         authorization_observer: Callable[[bool], None] | None = None,
     ) -> ToolResult:
-        prepared = self._prepare(model_call, scope, cancellation_requested, authorization_observer)
+        prepared = self.prepare(model_call, scope, cancellation_requested, authorization_observer)
         if isinstance(prepared, ToolResult):
             return prepared
         handler, call = prepared
@@ -56,7 +58,11 @@ class ToolRunner:
         cancellation_requested: Callable[[], bool] | None = None,
         authorization_observer: Callable[[bool], None] | None = None,
     ) -> ToolResult:
-        prepared = self._prepare(model_call, scope, cancellation_requested, authorization_observer)
+        prepared = self.prepare(model_call, scope, cancellation_requested, authorization_observer)
+        return await self.run_prepared_async(prepared)
+
+    async def run_prepared_async(self, prepared: PreparedTool) -> ToolResult:
+        """Execute an application-prepared call without repeating validation or authorization."""
         if isinstance(prepared, ToolResult):
             return prepared
         handler, call = prepared
@@ -70,13 +76,13 @@ class ToolRunner:
             )
         return self._normalise(call, raw_result)
 
-    def _prepare(
+    def prepare(
         self,
         model_call: ModelToolCall,
         scope: RuntimeScope,
-        cancellation_requested: Callable[[], bool] | None,
-        authorization_observer: Callable[[bool], None] | None,
-    ) -> ToolResult | tuple[ToolHandler, ToolCall]:
+        cancellation_requested: Callable[[], bool] | None = None,
+        authorization_observer: Callable[[bool], None] | None = None,
+    ) -> PreparedTool:
         definition = self._registry.definition(model_call.tool_name)
         if definition is None:
             return ToolResult.failure(

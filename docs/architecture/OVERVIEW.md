@@ -24,8 +24,8 @@ The architecture is intentionally centered on one loop:
                v
 ┌────────────────────────────┐
 │           MODEL            │
-│ structural tool discovery  │
-│ + expanded tool schemas    │
+│ all registered schemas     │
+│ from the first turn         │
 └──────────┬───────────┬─────┘
            │           │
      final answer      │ tool call

@@ -18,7 +18,7 @@ from orion.contracts import (
 from orion.integrations import DuckDuckGoInternetClient, SearxngInternetClient
 from orion.integrations.infrastructure import TargetCatalog
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationConfigurationError
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistration, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistration, ToolRegistryBuilder
 
 
 def _definition(name: str, handler_key: str) -> ToolDefinition:
@@ -237,15 +237,6 @@ async def test_local_principal_and_workspace_are_runtime_owned_not_model_argumen
 
     backend = ScriptedBackend(
         [
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["fake.scope"]},
-                    ),
-                )
-            ),
             ModelTurn(
                 tool_calls=(ModelToolCall(call_id="scope-1", tool_name="fake.scope", arguments={}),)
             ),

@@ -18,11 +18,7 @@ explicit request failure.
 ## Model never calls a registered tool
 
 Check that the configured model supports OpenAI-compatible tool calls and continuation
-after tool-result messages. Orion initially sends the registry-derived generic
-`orion.tools.expand` control; the model requests exact registered tool names and then
-receives those full schemas request-locally. The canonical registry remains the source
-of validation and execution authority. Do not add keyword routing or a user tool picker
-as a workaround.
+after tool-result messages. Orion sends all registered model-callable tool schemas on the first model turn. The canonical registry remains the source of validation and execution authority. Confirm the expected ordinary tool is registered and inspect its ToolResult errors. Do not add keyword routing or a user tool picker as a workaround.
 
 ## Inspecting a request
 
