@@ -5,6 +5,7 @@ import json
 
 import pytest
 from conftest import ScriptedBackend
+from test_qa_runner import qa_runner as qa_runner
 
 from orion.access import LocalAccessAdapter
 from orion.chat.deadline import RequestBudgetSettings
@@ -18,11 +19,68 @@ from orion.contracts import (
     ModelTurnCompleted,
     ModelUsage,
     ReasoningDelta,
+    ToolCall,
     ToolCallDelta,
     ToolDefinition,
     ToolResult,
 )
 from orion.tool_runtime.registry import ToolRegistryBuilder
+
+
+@pytest.mark.anyio
+async def test_real_tool_elapsed_time_reaches_qa_totals(store, qa_runner) -> None:  # type: ignore[no-untyped-def]
+    async def read(call: ToolCall) -> ToolResult:
+        await asyncio.sleep(0.02)
+        return ToolResult(call_id=call.call_id, tool_name=call.tool_name, status="success")
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="test.timed_read",
+            handler_key="test.timed_read",
+            description="Timed read.",
+            input_schema={"type": "object", "properties": {}},
+        ),
+        read,
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read",
+                        tool_name="test.timed_read",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Done.")),
+        ]
+    )
+    sink = BoundedModelInputDiagnostics()
+    session = store.create_session()
+    outcome = await ChatRuntime(
+        store,
+        backend,
+        builder.freeze(),
+        LocalAccessAdapter(),
+        diagnostic_sink=sink,
+    ).submit(session, "Read once")
+    timeline = [item.model_dump(mode="json") for item in store.timeline(session)]
+
+    timing = qa_runner.behavioral_timing(
+        timeline,
+        [{"capture": sink.records(outcome.request_id)}],
+        100,
+    )
+
+    assert timing["model_attempt_count"] == timing["model_completed_count"] == 2
+    assert timing["tool_elapsed_ms_observed_count"] == 1
+    elapsed = next(
+        item["payload"]["elapsed_ms"] for item in timeline if item["kind"] == "tool_result"
+    )
+    assert timing["tool_elapsed_ms_total"] == elapsed
+    assert elapsed >= 15
 
 
 class _FakeClock:
@@ -102,16 +160,6 @@ async def test_opt_in_diagnostics_record_exact_model_projection_and_phase_data(s
         [
             ModelTurn(
                 assistant=AssistantMessage(content=""),
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-1",
-                        tool_name="orion.tools.expand",
-                        arguments={"tool_names": ["test.read"]},
-                    ),
-                ),
-            ),
-            ModelTurn(
-                assistant=AssistantMessage(content=""),
                 tool_calls=(ModelToolCall(call_id="read-1", tool_name="test.read", arguments={}),),
             ),
             ModelTurn(assistant=AssistantMessage(content="Done.")),
@@ -125,15 +173,16 @@ async def test_opt_in_diagnostics_record_exact_model_projection_and_phase_data(s
     records = capture["records"]
     assert isinstance(records, list)
     model_inputs = [record["model_input"] for record in records if "model_input" in record]
-    assert len(model_inputs) == 3
+    assert len(model_inputs) == 2
     assert all("system" not in json.dumps(value).lower() for value in model_inputs)
     second = model_inputs[1]
-    assert second["exposed_tool_names"] == ["orion.tools.expand", "test.read"]
+    assert second["tool_names"] == ["test.read"]
+    assert second["tool_schema_bytes"] > 0
     projection = model_inputs[-1]["tool_result_projections"][-1]
     assert projection["tool_name"] == "test.read"
     assert projection["content_truncated"] is True
     assert "ORION_TEST_SECRET_TOKEN" not in json.dumps(capture)
-    assert "[REDACTED]" in projection["content"]
+    assert '"current_request":true' in projection["content"]
     phases = [(record["phase"], record["status"]) for record in records]
     assert ("model", "started") in phases
     assert ("model", "completed") in phases

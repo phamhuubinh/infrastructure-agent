@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -23,7 +24,7 @@ from orion.models.backend import (
 )
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend, _PendingToolCall
 from orion.tool_runtime.calculator import calculator_definition
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 
 
 def test_adapter_serializes_tool_result_continuation_without_handler_binding() -> None:
@@ -44,6 +45,73 @@ def test_adapter_serializes_tool_result_continuation_without_handler_binding() -
     assert payload["tool_calls"][0]["function"]["name"] == "calculator.evaluate"
     assert "reasoning" not in payload
     assert "handler_key" not in str(calculator_definition().provider_schema())
+
+
+def test_adapter_rejects_a_system_message_after_conversation_begins() -> None:
+    with pytest.raises(ModelBackendError, match="system message after conversation began"):
+        OpenAICompatibleBackend._provider_messages(
+            (
+                ContextMessage(role="user", content="hello"),
+                ContextMessage(role="system", content="late instruction"),
+            )
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("correction", [False, True])
+async def test_strict_http_provider_accepts_runtime_tool_and_correction_turns(
+    store, monkeypatch, correction
+) -> None:  # type: ignore[no-untyped-def]
+    from conftest import runtime
+
+    requests = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        roles = [message["role"] for message in payload["messages"]]
+        assert roles[0] == "system" and roles.count("system") == 1
+        assert "chat_template_kwargs" not in payload
+        assert [tool["function"]["name"] for tool in payload["tools"]] == ["calculator.evaluate"]
+        if len(requests) == 1:
+            delta = {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "calc",
+                        "type": "function",
+                        "function": {
+                            "name": "calculator.evaluate",
+                            "arguments": '{"expression":"2+3"}',
+                        },
+                    }
+                ]
+            }
+        else:
+            assert any(
+                message["role"] == "tool" and message["tool_call_id"] == "calc"
+                for message in payload["messages"]
+            )
+            delta = {
+                "content": "5. [[source:missing]]" if correction and len(requests) == 2 else "5."
+            }
+        body = (
+            "data: "
+            + json.dumps({"choices": [{"delta": delta, "finish_reason": "stop"}]})
+            + "\n\ndata: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"Content-Type": "text/event-stream"})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(provider), **kwargs),
+    )
+    outcome = await runtime(store, OpenAICompatibleBackend()).submit(
+        store.create_session(), "What is 2+3?"
+    )
+    assert outcome.assistant_content == "5."
+    assert len(requests) == (3 if correction else 2)
 
 
 def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -> None:
@@ -198,7 +266,7 @@ def test_provider_schema_cache_cannot_be_corrupted_by_callers() -> None:
     assert "corruption" not in third[0]["function"]["parameters"]["properties"]
 
 
-def test_adapter_preserves_structural_tool_discovery_enum() -> None:
+def test_adapter_preserves_full_registered_tool_schemas() -> None:
     builder = ToolRegistryBuilder()
     for name in ("fake.beta", "fake.alpha"):
         builder.register(
@@ -211,14 +279,10 @@ def test_adapter_preserves_structural_tool_discovery_enum() -> None:
             lambda call: None,
         )
 
-    tools = builder.freeze().new_tool_exposure().model_tools
+    tools = builder.freeze().model_definitions()
     projected = OpenAICompatibleBackend()._provider_tools(tools)
 
-    assert [item["function"]["name"] for item in projected] == [EXPAND_TOOL_NAME]
-    assert projected[0]["function"]["parameters"]["properties"]["tool_names"]["items"]["enum"] == [
-        "fake.alpha",
-        "fake.beta",
-    ]
+    assert [item["function"]["name"] for item in projected] == ["fake.alpha", "fake.beta"]
 
 
 @pytest.mark.parametrize(
@@ -436,7 +500,7 @@ async def test_adapter_sends_explicit_reasoning_mode_override(
     ):
         pass
 
-    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": enable_thinking}  # type: ignore[index]
+    assert "chat_template_kwargs" not in captured["json"]  # type: ignore[index]
 
 
 @pytest.mark.anyio

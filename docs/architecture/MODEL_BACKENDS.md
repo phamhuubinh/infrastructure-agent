@@ -4,12 +4,13 @@
 
 The Chat/Project runtime should depend on a small provider-neutral interface.
 
-Conceptually:
+Conceptually, model input separates one system instruction from conversation data:
 
 ```python
-class ModelBackend:
-    async def complete(self, messages, tools, settings): ...
-    async def stream(self, messages, tools, settings): ...
+class ModelRequest:
+    system_instructions: str
+    messages: tuple[ContextMessage, ...]  # user/assistant/tool only
+    tools: tuple[ToolDefinition, ...]
 ```
 
 Adapters translate provider-native messages/tool calls to and from Orion's internal contracts.
@@ -54,7 +55,7 @@ strictly less than the request deadline). The stream timeout defaults to 30 seco
 and must be in the inclusive 1–300 second range. Invalid values fail startup
 validation; Orion does not clamp them.
 
-The runtime derives a work deadline by subtracting the reserve. Conversation-state
-preparation, ordinary model/tool work, and required verification must finish before
-that boundary; the reserve is only for terminal persistence, terminal events, and a
+The runtime derives a work deadline by subtracting the reserve. Ordinary model/tool work and
+required verification must finish before that boundary; the reserve is only for terminal
+persistence, terminal events, and a
 future deterministic incomplete fallback. `ORION_QA_REQUEST_TIMEOUT_SECONDS` is a

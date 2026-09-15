@@ -103,11 +103,13 @@ class BoundedModelInputDiagnostics:
 
 def model_input_snapshot(
     messages: Sequence[object],
-    exposed_tool_names: Sequence[str],
+    tool_names: Sequence[str],
     visible_source_ids: Sequence[str],
     request_bytes: int,
     *,
     context_bytes: int | None = None,
+    tool_schema_bytes: int | None = None,
+    current_evidence_bytes: int | None = None,
     current_visible_source_ids: Sequence[str] = (),
     historical_visible_source_ids: Sequence[str] = (),
 ) -> dict[str, object]:
@@ -132,12 +134,16 @@ def model_input_snapshot(
         projections.append(item)
     snapshot: dict[str, object] = {
         "request_proxy_bytes": request_bytes,
-        "exposed_tool_names": list(exposed_tool_names),
+        "tool_names": list(tool_names),
         "visible_source_ref_ids": list(visible_source_ids),
         "tool_result_projections": projections,
     }
     if context_bytes is not None:
         snapshot["context_bytes"] = context_bytes
+    if tool_schema_bytes is not None:
+        snapshot["tool_schema_bytes"] = tool_schema_bytes
+    if current_evidence_bytes is not None:
+        snapshot["current_evidence_bytes"] = current_evidence_bytes
     snapshot["current_visible_source_ref_ids"] = list(current_visible_source_ids)
     snapshot["historical_visible_source_ref_ids"] = list(historical_visible_source_ids)
     return snapshot

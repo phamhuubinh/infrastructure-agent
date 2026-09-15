@@ -25,6 +25,32 @@ ModelStreamEvent = AssistantDelta | ReasoningDelta | ToolCallDelta | ModelTurnCo
 
 
 @dataclass(frozen=True)
+class ModelRequest:
+    """Provider-neutral input with instructions separate from conversation data.
+
+    Providers serialize this as one leading system message followed by the
+    user/assistant/tool conversation.  Keeping the split explicit prevents a
+    runtime instruction from being appended after a tool or assistant message.
+    """
+
+    system_instructions: str
+    messages: tuple[ContextMessage, ...]
+    tools: tuple[ToolDefinition, ...]
+
+    def __post_init__(self) -> None:
+        if any(message.role == "system" for message in self.messages):
+            raise ValueError("ModelRequest conversation messages cannot contain system roles.")
+
+    def provider_messages(self) -> tuple[ContextMessage, ...]:
+        leading = (
+            (ContextMessage(role="system", content=self.system_instructions),)
+            if self.system_instructions
+            else ()
+        )
+        return (*leading, *self.messages)
+
+
+@dataclass(frozen=True)
 class ModelStreamSettings:
     """Validated provider transport settings, distinct from the request budget."""
 

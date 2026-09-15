@@ -40,7 +40,9 @@ def compact_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
-def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
+def project_tool_result(
+    result: ToolResult, maximum_bytes: int, *, current_request: bool = False
+) -> str:
     """Fit data AND actual omission metadata; never modify the canonical result.
 
     Reduction follows a budget-independent order: lower-priority dict fields,
@@ -59,6 +61,20 @@ def project_tool_result(result: ToolResult, maximum_bytes: int) -> str:
     data rows and coverage metadata are omitted.
     """
     canonical = result.model_dump(mode="json")
+    if current_request:
+        canonical["_orion_provenance"] = {
+            "tool_name": result.tool_name,
+            "current_request": True,
+            "source_refs": [source.source_ref_id for source in result.sources],
+            "retrieved_at": [
+                source.retrieved_at.isoformat()
+                for source in result.sources
+                if source.retrieved_at is not None
+            ],
+            "target_ref": result.data.get("target_ref")
+            if isinstance(result.data, dict) and isinstance(result.data.get("target_ref"), str)
+            else None,
+        }
     if canonical["read_progress"] is None:
         del canonical["read_progress"]
     serialized = compact_json(canonical)

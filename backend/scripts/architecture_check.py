@@ -38,34 +38,14 @@ UI_FORBIDDEN = re.compile(
 
 
 _DOCUMENTATION_REQUIRED = {
-    "AGENTS.md": (
-        "registry-derived progressive tool exposure",
-        "orion.tools.expand",
-        "canonical registry",
-    ),
-    "README.md": (
-        "registry-derived progressive model-facing exposure protocol",
-        "orion.tools.expand",
-        "Knowledge/RAG",
-        "Internet",
-    ),
-    "CHANGELOG.md": (
-        "progressive model-facing schema exposure",
-        "orion.tools.expand",
-    ),
-    "docs/operations/TROUBLESHOOTING.md": (
-        "orion.tools.expand",
-        "canonical registry",
-    ),
+    "AGENTS.md": ("first model turn", "canonical registry"),
+    "README.md": ("first model turn", "canonical registry", "Knowledge/RAG", "Internet"),
+    "CHANGELOG.md": ("direct registry-derived tool schemas", "first model turn"),
+    "docs/operations/TROUBLESHOOTING.md": ("first model turn", "canonical registry"),
 }
 _DOCUMENTATION_FORBIDDEN = {
-    "AGENTS.md": ("The current architecture has no dynamic tool discovery/exposure protocol.",),
-    "README.md": (
-        "Knowledge/RAG,\nInternet, Linux, Grafana, and Zabbix are planned milestones and are not registered yet.",
-        "provide all registered tool definitions",
-    ),
-    "CHANGELOG.md": ("removed dynamic tool exposure/discovery from the target architecture",),
-    "docs/operations/TROUBLESHOOTING.md": ("receives the calculator schema on every call",),
+    path: ("progressive model-facing", "progressive tool exposure", "schemas are hidden")
+    for path in _DOCUMENTATION_REQUIRED
 }
 
 

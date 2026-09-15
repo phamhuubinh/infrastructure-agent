@@ -31,8 +31,8 @@ When evaluating architecture, use this order:
 - Chat is the base interaction runtime.
 - Project uses the same runtime as Chat and adds project-scoped knowledge/RAG.
 - Chat and Project have **no manual tool picker**.
-- Every registered/configured ordinary tool is available to the model automatically through the registry-derived progressive tool exposure protocol accepted by ADR 0007.
-- `orion.tools.expand` exposes exact registered tool schemas request-locally; it is a model-facing context/latency optimization, not a semantic router or a second tool registry.
+- Every registered/configured ordinary tool is available to the model automatically on the first model turn through direct registry-derived tool schemas accepted by ADR 0007.
+- Direct schema visibility uses the canonical registry; it does not grant execution permission or add a semantic router.
 - The canonical registry, authorization/validation, `ToolRunner`, `RuntimeScope`, and execution permissions remain complete regardless of which schemas are currently exposed to the model.
 - The model decides semantically when and which tools to use.
 - Orion must not add a keyword/intent/regex pre-router before the model.

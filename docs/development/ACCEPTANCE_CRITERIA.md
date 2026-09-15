@@ -50,7 +50,7 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 
 - Knowledge/RAG, calculator, Internet, Linux, Grafana, and Zabbix families can register through the same tool system.
 - A new registered tool becomes discoverable/model-visible without adding semantic router rules.
-- Progressive exact-name exposure remains a model-context optimization over the canonical registry rather than an authorization or semantic-routing layer.
+- All registered model-callable schemas are visible on the first turn; schema visibility never grants mutation authorization.
 - Tool errors return explicitly to the model.
 - Repeated recoverable failures terminate only after an unchanged normalized failure state demonstrates no progress; corrected arguments may continue.
 - Secrets do not appear in model-visible tool arguments/results unless intentionally processed as user data by a defined safe path.
@@ -74,6 +74,6 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 ## Documentation consistency
 
 - Architecture/product docs may describe target state and must label future behavior as such.
-- Accepted ADRs, architecture rules, current-state docs, and executable behavior must not contradict the progressive exposure contract.
+- Accepted ADRs, architecture rules, current-state docs, and executable behavior must not contradict the direct first-turn registry contract.
 - Operations docs describing current commands/configuration must be checked against current scripts/config files.
 - No stale current-state claim may be retained merely because it existed in an older deployment.

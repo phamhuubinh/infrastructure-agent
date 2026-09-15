@@ -76,11 +76,9 @@ Schema constraints such as closed objects, bounds, regexes, defaults, and collec
 limits remain server-side and are enforced before dispatch. The projection does not
 create another semantic selector or validation contract.
 
-The registry also derives one deterministic exact-name discovery enum on the generic
-expansion control from those same canonical definitions. The model may expand exact
-ordinary tool names for the current request; their useful provider descriptions and
-schemas then appear. This affects only model schema visibility, never the canonical
-registry or validation authority. Hidden ordinary names are not dispatch-authorized.
+The registry supplies every registered model-callable tool definition on the first model
+turn. Provider projection affects encoding only, never tool availability, canonical
+validation, scope, or execution authorization.
 
 Do not duplicate tool identity/schema in a separate semantic selector.
 

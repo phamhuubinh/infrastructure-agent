@@ -35,7 +35,7 @@ def list_documents_definition() -> ToolDefinition:
             "List metadata for ready documents visible in the current knowledge scope, including "
             "session attachments and active Project documents. This does not read document "
             "contents and returns no citation sources. To answer from or cite document contents, "
-            "expand and call knowledge.read or knowledge.search using an exact returned "
+            "call knowledge.read or knowledge.search using an exact returned "
             "document_id. This tool takes no parameters; Orion binds session and Project scope "
             "from the current runtime context and model arguments cannot override it."
         ),

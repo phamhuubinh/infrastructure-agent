@@ -1,7 +1,8 @@
 """Run Orion's reusable model-context benchmark suite.
 
-Default mode is deterministic and network-free. ``--live`` is owner-only and uses the
-configured ORION_MODEL_BASE_URL, ORION_MODEL_ID, and optional ORION_MODEL_API_KEY.
+Default mode is deterministic and network-free. ``--live`` uses the application's
+active persisted model profile with synthetic tool fixtures, not live infrastructure
+evidence. Use targeted_live_validation.py for the small real-runtime validation set.
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ from orion.benchmarks.model_context import run_live_benchmark, run_offline_bench
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Measure Orion model-context regression fixtures.")
-    parser.add_argument("--live", action="store_true", help="Run the configured provider diagnostic.")
-    parser.add_argument("--json", action="store_true", help="Print stable JSON instead of a text table.")
+    parser.add_argument(
+        "--live", action="store_true", help="Run the persisted-profile provider with fixture tools."
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Print stable JSON instead of a text table."
+    )
     args = parser.parse_args()
     report = asyncio.run(run_live_benchmark() if args.live else run_offline_benchmark())
     print(report.to_json() if args.json else report.to_text())

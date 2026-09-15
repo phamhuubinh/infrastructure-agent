@@ -16,7 +16,7 @@ When a chat is associated with an active project, Orion deterministically includ
 - project instructions/description when configured;
 - references to the project's documents/knowledge source.
 
-The model receives the same registry-derived structural discovery enum and generic expansion control
+The model receives the same registry-derived tool schemas on the first model turn
 as ordinary Chat; Project does not own a separate tool protocol.
 
 ## Scope ownership

@@ -11,7 +11,7 @@ from orion.api.app import create_app
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, ToolCall, ToolResult
 from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.mutation_authorization import MutationAuthorizationConfigurationError
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistration
+from orion.tool_runtime.registry import ToolRegistration
 
 
 def _configuration() -> dict[str, object]:
@@ -121,15 +121,6 @@ async def test_http_chat_and_project_enforce_policy_and_audit(
     }
     backend = ScriptedBackend(
         [
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": sorted(names)},
-                    ),
-                )
-            ),
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(call_id="mutation", tool_name=tool_name, arguments=arguments),

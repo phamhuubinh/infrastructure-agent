@@ -19,7 +19,7 @@ from orion.knowledge.service import KnowledgeService
 from orion.knowledge.tools import knowledge_registrations
 from orion.projects import ProjectService
 from orion.tool_runtime.calculator import calculate, calculator_definition
-from orion.tool_runtime.registry import EXPAND_TOOL_NAME, ToolRegistryBuilder
+from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
 
@@ -114,15 +114,6 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.search", "calculator.evaluate"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
                         call_id="project-search",
                         tool_name="knowledge.search",
                         arguments={"query": "node RAM"},
@@ -151,19 +142,14 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
     outcome = await runtime.submit(session, "Size three nodes")
 
     assert outcome.assistant_content == "Three nodes need 36 GB RAM."
-    assert len(backend.calls) == 4
-    assert {tool.name for tool in backend.calls[1][1]} >= {
-        EXPAND_TOOL_NAME,
+    assert len(backend.calls) == 3
+    assert {tool.name for tool in backend.calls[0][1]} >= {
         "knowledge.search",
         "calculator.evaluate",
     }
     assert any("Active Project" in message.content for message in backend.calls[0][0])
     assert any("Capacity" in message.content for message in backend.calls[0][0])
-    assert [
-        item.tool_name
-        for item in store.timeline(session)
-        if item.kind == "tool_call" and item.tool_name != EXPAND_TOOL_NAME
-    ] == [
+    assert [item.tool_name for item in store.timeline(session) if item.kind == "tool_call"] == [
         "knowledge.search",
         "calculator.evaluate",
     ]
@@ -171,7 +157,7 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
 
 
 @pytest.mark.anyio
-async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
+async def test_project_runtime_recovers_from_stale_citation_with_project_search(
     store, project_knowledge
 ) -> None:  # type: ignore[no-untyped-def]
     projects, knowledge = project_knowledge
@@ -188,7 +174,7 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="list-before-expand",
+                        call_id="list-initial",
                         tool_name="knowledge.list_documents",
                         arguments={},
                     ),
@@ -198,42 +184,6 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
                 assistant=AssistantMessage(
                     content="I need a document list first.",
                     citation_source_ref_ids=("stale-provider-citation",),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-list",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.list_documents"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="list-project-documents",
-                        tool_name="knowledge.list_documents",
-                        arguments={},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="search-before-expand",
-                        tool_name="knowledge.search",
-                        arguments={"query": "Project marker"},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-search",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.search"]},
-                    ),
                 )
             ),
             ModelTurn(
@@ -260,39 +210,15 @@ async def test_project_runtime_recovers_from_repeated_generic_tool_exposure(
 
     assert outcome.assistant_content == "The Project marker is cedar."
     assert document.document.source.kind == "project"
-    assert len(backend.calls) == 8
-    assert [tool.name for tool in backend.calls[0][1]] == [EXPAND_TOOL_NAME]
-    assert any("model recovery as required" in message.content for message in backend.calls[2][0])
-    assert [tool.name for tool in backend.calls[3][1]] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.list_documents",
-    ]
-    assert [tool.name for tool in backend.calls[6][1]] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.list_documents",
-        "knowledge.search",
-    ]
+    assert len(backend.calls) == 4
+    assert backend.calls[0][1] == _registry(knowledge).model_definitions()
+    assert any(
+        "citation that was not returned" in message.content for message in backend.calls[2][0]
+    )
     results = [
         item.payload["result"] for item in store.timeline(session) if item.kind == "tool_result"
     ]
-    exposed_for_retry = [
-        result
-        for result in results
-        if result["error"] and result["error"]["code"] == "exposed_for_retry"
-    ]
-    assert [result["tool_name"] for result in exposed_for_retry] == [
-        "knowledge.list_documents",
-        "knowledge.search",
-    ]
-    assert all(
-        result["error"]["message"]
-        == (
-            "This call was not executed because its tool schema was hidden. The exact registered "
-            "schema is now visible; reconsider the arguments and retry the tool directly without "
-            "calling orion.tools.expand for it."
-        )
-        for result in exposed_for_retry
-    )
+    assert all(result["status"] == "success" for result in results)
     search_result = next(
         result for result in results if result["call_id"] == "search-project-document"
     )
@@ -318,18 +244,9 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="read-before-expand",
+                        call_id="read-inexact-id",
                         tool_name="knowledge.read",
                         arguments={"document_id": "shared Project document fact"},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-read",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.read"]},
                     ),
                 )
             ),
@@ -354,18 +271,9 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
             ModelTurn(
                 tool_calls=(
                     ModelToolCall(
-                        call_id="list-before-expand",
+                        call_id="list-initial",
                         tool_name="knowledge.list_documents",
                         arguments={},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand-list",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["knowledge.list_documents"]},
                     ),
                 )
             ),
@@ -401,22 +309,14 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
     )
 
     assert outcome.assistant_content == "The Project marker is cedar."
-    assert len(backend.calls) == 9
-    assert [tool.name for tool in backend.calls[2][1]] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.read",
-    ]
-    assert [tool.name for tool in backend.calls[6][1]] == [
-        EXPAND_TOOL_NAME,
-        "knowledge.list_documents",
-        "knowledge.read",
-    ]
+    assert len(backend.calls) == 7
+    assert backend.calls[0][1] == _registry(knowledge).model_definitions()
     results = {
         item.payload["result"]["call_id"]: item.payload["result"]
         for item in store.timeline(session)
         if item.kind == "tool_result"
     }
-    assert results["read-before-expand"]["error"]["code"] == "exposed_for_retry"
+    assert results["read-inexact-id"]["error"]["code"] == "not_found"
     assert results["read-invalid-limit"]["error"]["code"] == "invalid_input"
     assert results["read-document-name"]["error"]["code"] == "not_found"
     assert results["read-document-name"]["error"]["message"] == (
@@ -424,7 +324,7 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
         "knowledge.list_documents or knowledge.search, then retry; do not use a name or "
         "title as document_id."
     )
-    assert results["list-before-expand"]["error"]["code"] == "exposed_for_retry"
+    assert results["list-initial"]["status"] == "success"
     assert results["list-project-documents"]["data"]["documents"][0]["document_id"] == (
         document.document.document_id
     )
@@ -481,8 +381,9 @@ async def test_project_runtime_rejects_cross_project_citations(store, project_kn
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("batched", [False, True])
 async def test_request_scope_snapshots_project_id_for_every_tool_call(
-    store, project_knowledge
+    store, project_knowledge, batched
 ) -> None:  # type: ignore[no-untyped-def]
     projects, knowledge = project_knowledge
     project = projects.create("Snapshot")
@@ -506,23 +407,18 @@ async def test_request_scope_snapshots_project_id_for_every_tool_call(
     )
     builder = ToolRegistryBuilder()
     builder.register(definition, capture)
+    calls = (
+        ModelToolCall(call_id="one", tool_name="test.capture", arguments={}),
+        ModelToolCall(call_id="two", tool_name="test.capture", arguments={}),
+    )
+    read_turns = (
+        [ModelTurn(tool_calls=calls)]
+        if batched
+        else [ModelTurn(tool_calls=(call,)) for call in calls]
+    )
     backend = ScriptedBackend(
         [
-            ModelTurn(
-                tool_calls=(
-                    ModelToolCall(
-                        call_id="expand",
-                        tool_name=EXPAND_TOOL_NAME,
-                        arguments={"tool_names": ["test.capture"]},
-                    ),
-                )
-            ),
-            ModelTurn(
-                tool_calls=(ModelToolCall(call_id="one", tool_name="test.capture", arguments={}),)
-            ),
-            ModelTurn(
-                tool_calls=(ModelToolCall(call_id="two", tool_name="test.capture", arguments={}),)
-            ),
+            *read_turns,
             ModelTurn(assistant=AssistantMessage(content="Done.")),
         ]
     )
@@ -536,3 +432,9 @@ async def test_request_scope_snapshots_project_id_for_every_tool_call(
         project["project_id"],
     ]
     assert [scope.session_id for scope in observed] == [session, session]
+    assert [(scope.principal_id, scope.workspace_id) for scope in observed] == [
+        ("local", "local"),
+        ("local", "local"),
+    ]
+    assert len(backend.calls) == (2 if batched else 3)
+    assert backend.calls[0][1] == builder.freeze().model_definitions()

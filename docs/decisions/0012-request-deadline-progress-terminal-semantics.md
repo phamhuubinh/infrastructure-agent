@@ -209,7 +209,7 @@ Follow-up code may replace them only while preserving the accepted semantics abo
 ## Consequences
 - Chat and Project retain the same `ChatRuntime`, canonical registry, `ToolRunner`,
   `RuntimeScope`, and provider-neutral model contracts.
-- Model-controlled registry-derived progressive tool exposure remains unchanged;
+- ADR 0007 supplies registered tool schemas directly on the first model turn;
   terminal gating only stops dispatch after Orion has decided to close a request.
 - No keyword, intent, or regex semantic router and no manual tool picker is added.
 - A request deadline bounds elapsed work, not semantic usefulness, and therefore is

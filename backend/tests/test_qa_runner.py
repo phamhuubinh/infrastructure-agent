@@ -1163,7 +1163,7 @@ def test_behavioral_diagnostics_join_model_and_tool_latency_without_raw_evidence
                         "model_input": {
                             "request_proxy_bytes": 1200,
                             "context_bytes": 1000,
-                            "exposed_tool_names": ["fake.read"],
+                            "tool_names": ["fake.read"],
                             "private_prompt": "never copy",
                         },
                     },
@@ -1192,10 +1192,43 @@ def test_behavioral_diagnostics_join_model_and_tool_latency_without_raw_evidence
             "first_normalized_event_elapsed_ms": 10,
             "request_proxy_bytes": 1200,
             "context_bytes": 1000,
-            "exposed_tool_count": 1,
+            "tool_schema_count": 1,
         }
     ]
     assert "private_prompt" not in json.dumps(timing)
+
+
+@pytest.mark.parametrize("status", ["timed_out", "cancelled", "failed"])
+def test_interrupted_model_attempts_are_counted_but_not_completed(qa_runner, status) -> None:  # type: ignore[no-untyped-def]
+    records = [
+        {"phase": "model", "status": "started", "model_turn_id": "attempt-1"},
+        {
+            "phase": "model",
+            "status": "completed",
+            "model_turn_id": "attempt-1",
+            "elapsed_ms": 10,
+            "completed_elapsed_ms": 10,
+        },
+        {"phase": "model", "status": "started", "model_turn_id": "attempt-2"},
+        {
+            "phase": "model",
+            "status": "stream_progress",
+            "model_turn_id": "attempt-2",
+            "elapsed_ms": 5,
+        },
+        {
+            "phase": "model",
+            "status": status,
+            "model_turn_id": "attempt-2",
+            "elapsed_ms": 20,
+        },
+    ]
+
+    timing = qa_runner.behavioral_timing([], [{"capture": {"records": records}}], 30)
+
+    assert timing["model_attempt_count"] == 2
+    assert timing["model_completed_count"] == 1
+    assert timing["model_elapsed_ms_total"] == 30
 
 
 def test_behavioral_diagnostics_summary_keeps_only_bounded_telemetry(qa_runner) -> None:
@@ -1229,7 +1262,6 @@ def test_behavioral_diagnostics_summary_keeps_only_bounded_telemetry(qa_runner) 
 @pytest.mark.parametrize(
     ("code", "category"),
     (
-        ("exposed_for_retry", "expected_discovery_retry"),
         ("operation_blocked", "expected_authorization_or_mutation_block"),
         ("not_found", "environment_or_target_boundary"),
         ("invalid_input", "model_schema_or_input"),
@@ -1696,19 +1728,19 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
         ],
         {
             "kind": "tool_call",
-            "tool_name": "orion.tools.expand",
-            "call_id": "expand",
+            "tool_name": "knowledge.read",
+            "call_id": "read",
             "payload": {
                 "arguments": {
-                    "tool_names": ["knowledge.read"],
+                    "start": 0,
                     "document_id": "raw-argument-value",
                 }
             },
         },
         {
             "kind": "tool_result",
-            "tool_name": "orion.tools.expand",
-            "call_id": "expand",
+            "tool_name": "knowledge.read",
+            "call_id": "read",
             "payload": {
                 "result": {
                     "status": "success",
@@ -1761,14 +1793,14 @@ def test_scenario_failure_trace_is_safe_bounded_and_checkpointed(
     assert isinstance(trace, list) and len(trace) == qa_runner.FAILURE_TRACE_EVENT_LIMIT
     assert trace[0] == {
         "kind": "tool_call",
-        "tool_name": "orion.tools.expand",
-        "call_id": "expand",
-        "argument_names": ["document_id", "tool_names"],
+        "tool_name": "knowledge.read",
+        "call_id": "read",
+        "argument_names": ["document_id", "start"],
     }
     assert trace[1] == {
         "kind": "tool_result",
-        "tool_name": "orion.tools.expand",
-        "call_id": "expand",
+        "tool_name": "knowledge.read",
+        "call_id": "read",
         "status": "success",
         "error_code": "",
         "model_recovery_required": False,
@@ -2033,7 +2065,7 @@ def test_failure_trace_prioritizes_latest_observed_timeline(qa_runner) -> None: 
     assert [item["content_excerpt"] for item in trace] == ["latest-failing-conversation"]
 
 
-def test_failure_trace_preserves_implicit_exposure_recovery_code(qa_runner) -> None:  # type: ignore[no-untyped-def]
+def test_failure_trace_preserves_invalid_input_recovery_code(qa_runner) -> None:  # type: ignore[no-untyped-def]
     trace = qa_runner.failure_trace(
         [
             [
@@ -2045,7 +2077,7 @@ def test_failure_trace_preserves_implicit_exposure_recovery_code(qa_runner) -> N
                         "result": {
                             "status": "error",
                             "error": {
-                                "code": "exposed_for_retry",
+                                "code": "invalid_input",
                                 "model_recovery_required": True,
                             },
                             "sources": [],
@@ -2063,7 +2095,7 @@ def test_failure_trace_preserves_implicit_exposure_recovery_code(qa_runner) -> N
             "tool_name": "fake.alpha",
             "call_id": "hidden",
             "status": "error",
-            "error_code": "exposed_for_retry",
+            "error_code": "invalid_input",
             "model_recovery_required": True,
             "source_count": 0,
             "source_ref_ids": [],
