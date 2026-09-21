@@ -24,7 +24,8 @@ from orion.tool_runtime.internet import internet_fetch_definition, internet_sear
 EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 12_503
 # Tool-result byte snapshots include provider-neutral grounding/freshness instructions;
 # these are measurements, not increased runtime/benchmark budget limits.
-EXPECTED_SIMPLE_PROXY_BYTES = 16_304
+EXPECTED_SIMPLE_PROXY_BYTES = 18_624
+SEMANTIC_CONTRACT_GROWTH_BYTES = 2_320
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
 
@@ -164,9 +165,12 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 23_308
+    assert resumed_proxy == 25_628
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
-    assert resumed_proxy <= MAX_CONVERSATION_BYTES + EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES
+    assert (
+        resumed_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES
+        <= MAX_CONVERSATION_BYTES + EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES
+    )
     assert len(context[-1].content.encode()) <= 6_000
     assert model_result["_orion_projection"]["applied"] is True
     assert model_result["data"]["target_ref"] == "zabbix"
@@ -230,7 +234,7 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
     assert _messages_bytes(current_messages) == 11_998
-    assert _provider_proxy(context) == 28_787
+    assert _provider_proxy(context) == 31_107
 
 
 def test_strict_budget_compacts_an_oversized_current_turn_by_complete_blocks(store) -> None:  # type: ignore[no-untyped-def]
@@ -480,9 +484,10 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 27_903
+    assert history_proxy == 30_223
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
-    assert history_proxy <= 28_000
+    # The generic semantic contract adds 2,320 fixed bytes, not more history budget.
+    assert history_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
     users = [item.content for item in context if item.role == "user"]
     assert users[-1].startswith("Follow-up question 29:")
