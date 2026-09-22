@@ -212,9 +212,8 @@ async def test_project_runtime_recovers_from_stale_citation_with_project_search(
     assert document.document.source.kind == "project"
     assert len(backend.calls) == 4
     assert backend.calls[0][1] == _registry(knowledge).model_definitions()
-    assert any(
-        "citation that was not returned" in message.content for message in backend.calls[2][0]
-    )
+    assert backend.calls[2][0][-1].role == "user"
+    assert "citation requirements" in backend.calls[2][0][-1].content
     results = [
         item.payload["result"] for item in store.timeline(session) if item.kind == "tool_result"
     ]

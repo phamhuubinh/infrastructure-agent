@@ -98,12 +98,14 @@ class ModelBackendErrorKind(StrEnum):
     """Safe, provider-neutral categories for model backend failures."""
 
     CONNECTION = "connection"
+    EMPTY_TURN = "empty_turn"
     INCOMPLETE_STREAM = "incomplete_stream"
     MALFORMED_STREAM = "malformed_stream"
     PROTOCOL = "protocol"
     TIMEOUT = "timeout"
     UNKNOWN = "unknown"
     UPSTREAM_HTTP = "upstream_http"
+    UPSTREAM_STREAM_ERROR = "upstream_stream_error"
 
 
 class ModelBackendError(RuntimeError):

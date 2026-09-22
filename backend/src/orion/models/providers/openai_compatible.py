@@ -103,6 +103,7 @@ class OpenAICompatibleBackend(ModelBackend):
                         if not raw_chunk:
                             continue
                         chunk = self._parse_chunk(raw_chunk)
+                        self._raise_for_stream_error(chunk)
                         stream_finished = self._chunk_has_finish_reason(chunk) or stream_finished
                         chunk_usage = self._usage_from_chunk(chunk)
                         if chunk_usage is not None:
@@ -158,6 +159,14 @@ class OpenAICompatibleBackend(ModelBackend):
         if not isinstance(chunk, dict):
             raise ValueError("provider stream chunk is not an object")
         return chunk
+
+    @staticmethod
+    def _raise_for_stream_error(chunk: dict[str, Any]) -> None:
+        if chunk.get("error") is not None or chunk.get("object") == "error":
+            raise ModelBackendError(
+                "OpenAI-compatible provider reported an in-stream error.",
+                kind=ModelBackendErrorKind.UPSTREAM_STREAM_ERROR,
+            )
 
     @staticmethod
     def _chunk_has_finish_reason(chunk: dict[str, Any]) -> bool:
@@ -312,6 +321,11 @@ class OpenAICompatibleBackend(ModelBackend):
                     )
                 )
             content = "".join(content_parts)
+            if not content and not tool_calls:
+                raise ModelBackendError(
+                    "OpenAI-compatible model completed without assistant content or tool calls.",
+                    kind=ModelBackendErrorKind.EMPTY_TURN,
+                )
             citations = citation_source_ref_ids_from_content(content)
             assistant = None
             if content:

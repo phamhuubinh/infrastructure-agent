@@ -460,13 +460,16 @@ async def test_terminal_stale_citation_metadata_is_regenerated_before_persistenc
     correction_index = next(
         index
         for index, message in enumerate(correction_messages)
-        if message.role == "system" and "included a citation" in message.content
+        if message.role == "user" and "Revise the immediately preceding" in message.content
     )
-    assert correction_index == 0 < draft_index
+    assert correction_index == draft_index + 1 == len(correction_messages) - 1
     assert (
-        "continue with safe model-chosen tool calls"
+        "If required evidence is missing and an appropriate safe tool is available, use it."
         in correction_messages[correction_index].content
     )
+    assert "Revise the immediately preceding" not in correction_messages[0].content
+    users = [item for item in store.timeline(session_id) if item.kind == "user_message"]
+    assert [item.payload["content"] for item in users] == [prompt]
     assistants = [item for item in store.timeline(session_id) if item.kind == "assistant_message"]
     assert [item.payload["content"] for item in assistants] == [clean]
     assert assistants[0].payload["citation_source_ref_ids"] == []
@@ -502,9 +505,8 @@ async def test_stale_citation_after_a_source_less_tool_result_is_regenerated(
 
     assert outcome.assistant_content == "The result is 5."
     assert len(backend.calls) == 3
-    assert any(
-        "citation that was not returned" in message.content for message in backend.calls[-1][0]
-    )
+    assert backend.calls[-1][0][-1].role == "user"
+    assert "citation requirements" in backend.calls[-1][0][-1].content
 
 
 @pytest.mark.anyio
@@ -582,9 +584,8 @@ async def test_stale_citation_metadata_regenerates_after_unrelated_session_activ
 
     assert outcome.assistant_content == "Clean regenerated response."
     assert len(backend.calls) == 4
-    assert any(
-        "citation that was not returned" in message.content for message in backend.calls[3][0]
-    )
+    assert backend.calls[3][0][-1].role == "user"
+    assert "citation requirements" in backend.calls[3][0][-1].content
 
 
 @pytest.mark.anyio
@@ -1129,10 +1130,8 @@ async def test_unobserved_bad_citation_with_visible_source_gets_one_correction(
 
     assert outcome.assistant_content == "Observed. [[source:qa-visible-source]]"
     assert len(backend.calls) == 3
-    assert any(
-        message.role == "system" and "included a citation" in message.content
-        for message in backend.calls[-1][0]
-    )
+    assert backend.calls[-1][0][-1].role == "user"
+    assert "citation requirements" in backend.calls[-1][0][-1].content
     assert all(
         "invented-source" not in str(item.payload)
         for item in store.timeline(session_id)

@@ -211,12 +211,11 @@ _POST_OBSERVATION_INSTRUCTIONS = (
     "omitted from context, report it as unavailable; do not reconstruct values or states."
 )
 
-_CITATION_CORRECTION_INSTRUCTIONS = (
-    "The assistant draft immediately above included a citation that was not returned by a "
-    "visible ToolResult. Reconsider the request from the available evidence. If sourced evidence "
-    "is needed and none is visible, continue with safe model-chosen tool calls. "
-    "Otherwise regenerate without the invalid citation. Use only exact "
-    "visible source_ref_id values and do not repeat, transform, or invent unavailable sources."
+_CITATION_CORRECTION_REQUEST = (
+    "Revise the immediately preceding assistant draft according to the citation requirements. "
+    "Use only exact visible source_ref_id values. If the currently visible evidence is "
+    "sufficient, answer directly. If required evidence is missing and an appropriate safe tool "
+    "is available, use it. Do not invent citations."
 )
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
@@ -1009,6 +1008,8 @@ class ChatRuntime:
             if sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
             else "",
         ]
+        # Request-local feedback starts a new generation after the assistant draft.
+        # Neither message is persisted as a user turn or changes the request scope.
         citation_correction_messages = (
             (
                 ContextMessage(
@@ -1016,12 +1017,11 @@ class ChatRuntime:
                     content=strip_source_citation_markers(citation_correction.content),
                     citation_source_ref_ids=(),
                 ),
+                ContextMessage(role="user", content=_CITATION_CORRECTION_REQUEST),
             )
             if citation_correction is not None
             else ()
         )
-        if citation_correction is not None:
-            runtime_instruction_parts.append(_CITATION_CORRECTION_INSTRUCTIONS)
         # All registered schemas are present even on follow-up turns. This is a
         # portable direct-registry contract, not a request-local discovery protocol.
         model_tools = (

@@ -95,6 +95,9 @@ async def test_strict_http_provider_accepts_runtime_tool_and_correction_turns(
             delta = {
                 "content": "5. [[source:missing]]" if correction and len(requests) == 2 else "5."
             }
+            if correction and len(requests) == 3 and roles[-1] != "user":
+                # Qwen/vLLM can complete with no output for a trailing draft + tools.
+                delta = {}
         body = (
             "data: "
             + json.dumps({"choices": [{"delta": delta, "finish_reason": "stop"}]})
@@ -112,6 +115,13 @@ async def test_strict_http_provider_accepts_runtime_tool_and_correction_turns(
     )
     assert outcome.assistant_content == "5."
     assert len(requests) == (3 if correction else 2)
+    if correction:
+        assert [message["role"] for message in requests[-1]["messages"][-2:]] == [
+            "assistant",
+            "user",
+        ]
+        assert requests[-1]["tools"] == requests[0]["tools"]
+        assert "Revise the immediately preceding" not in requests[-1]["messages"][0]["content"]
 
 
 def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -> None:

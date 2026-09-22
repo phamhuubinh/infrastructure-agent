@@ -19,9 +19,33 @@ from orion.models.backend import ModelBackendError, ModelSettings
         (
             'data: {"choices":[{"delta":{"reasoning_content":"secret thought"},'
             '"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
-            "malformed_stream",
+            "empty_turn",
             [],
             True,
+        ),
+        (
+            'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}\n\n'
+            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n'
+            'data: {"choices":[],"usage":{"prompt_tokens":216,"completion_tokens":2}}\n\n'
+            "data: [DONE]\n\n",
+            "empty_turn",
+            [],
+            True,
+        ),
+        (
+            'data: {"error":{"message":"secret provider error","code":"secret"}}\n\n'
+            "data: [DONE]\n\n",
+            "upstream_stream_error",
+            [],
+            False,
+        ),
+        (
+            'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
+            'data: {"object":"error","message":"secret provider error"}\n\n'
+            "data: [DONE]\n\n",
+            "upstream_stream_error",
+            [],
+            False,
         ),
         (
             'data: {"choices":[{"delta":{"content":"sensitive text"},"finish_reason":"stop"}]}\n\n'
@@ -76,6 +100,7 @@ async def test_diagnostics_observe_without_changing_adapter_or_leaking_payload(
         assert events[-1].__class__.__name__ == "ModelTurnCompleted"
     except ModelBackendError as error:
         assert error.kind.value == error_kind
+        assert "secret" not in str(error)
     record = observer.diagnostics[0]
     assert record["adapter_error_category"] == error_kind
     assert record["http_status"] == 200
@@ -85,9 +110,10 @@ async def test_diagnostics_observe_without_changing_adapter_or_leaking_payload(
     assert record["elapsed_ms"] >= 0
     assert "secret" not in json.dumps(record)
     assert "sensitive" not in json.dumps(record)
+    if error_kind == "empty_turn":
+        assert record["stage"] == "build_turn"
+        assert record["exception_types"] == ["ModelBackendError"]
+        assert record["sse_ended_normally"] is True
     if "reasoning_content" in body:
         # Valid SSE framing is not a usable completed turn: no answer or tool call.
-        assert record["stage"] == "build_turn"
-        assert record["exception_types"] == ["ModelBackendError", "ValidationError"]
         assert record["normalized_event_counts"] == {"ReasoningDelta": 1}
-        assert record["sse_ended_normally"] is True

@@ -423,9 +423,10 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
     assert len(correction_drafts) == 1
     assert correction_drafts[0].content == "Unverified project answer. "
     assert correction_drafts[0].citation_source_ref_ids == ()
-    assert any(
-        message.role == "system" and "continue with safe model-chosen tool calls" in message.content
-        for message in correction_messages
+    assert correction_messages[-1].role == "user"
+    assert (
+        "If required evidence is missing and an appropriate safe tool is available, use it."
+        in correction_messages[-1].content
     )
     assert correction_tools == _registry(knowledge).model_definitions()
     assert backend.calls[0][1] == correction_tools
