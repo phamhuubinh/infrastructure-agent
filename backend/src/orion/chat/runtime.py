@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from orion.access import LocalAccessAdapter
+from orion.chat.citation_requirements import explicitly_requests_citation
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.deadline import (
     MutationOutcomeUnknown,
@@ -63,7 +64,11 @@ class RequestFailed(RuntimeError):
 
 
 class CitationValidationFailed(RequestFailed):
-    """A terminal response cited a source that is not available to the session."""
+    """A terminal response omitted a required citation or used an unavailable source."""
+
+    def __init__(self, message: str, *, error_kind: str = "unavailable_source") -> None:
+        super().__init__(message)
+        self.error_kind = error_kind
 
     public_message = "Orion could not verify the response against available sources."
 
@@ -182,6 +187,12 @@ _RECOVERY_DECISION_INSTRUCTIONS = (
     "clarification/refusal if recovery is not appropriate. Do not repeat a tool procedure in prose."
 )
 
+_RECOVERY_CONTINUATION_REQUEST = (
+    "Continue the original request. The previous assistant draft abandoned a required "
+    "tool recovery. Retry using only arguments allowed by the exposed tool schema. "
+    "Do not treat the previous draft as the final answer."
+)
+
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
     "The same recoverable tool failure state has repeated without argument or error progress, "
     "so its bounded recovery budget is exhausted. Do not call tools again for that state. Give "
@@ -212,11 +223,34 @@ _POST_OBSERVATION_INSTRUCTIONS = (
 )
 
 _CITATION_CORRECTION_REQUEST = (
-    "Revise the immediately preceding assistant draft according to the citation requirements. "
-    "Use only exact visible source_ref_id values. If the currently visible evidence is "
+    "Re-answer the original user request using the currently visible evidence. "
+    "Preserve all requirements from the original request, including requested "
+    "exact wording, scope, and format. Meet the citation requirements using only exact "
+    "visible source_ref_id values. "
+    "When the user requested sources and visible evidence is available, include exact "
+    "[[source:<source_ref_id>]] markers. "
+    "If the currently visible evidence is "
     "sufficient, answer directly. If required evidence is missing and an appropriate safe tool "
-    "is available, use it. Do not invent citations."
+    "is available, use it. Do not invent content or citations."
 )
+
+
+def _citation_correction_request(visible_sources: tuple[SourceRef, ...]) -> str:
+    allowed = list(dict.fromkeys(source.source_ref_id for source in visible_sources))
+    allowed_markers = [f"[[source:{source_ref_id}]]" for source_ref_id in allowed]
+    return (
+        _CITATION_CORRECTION_REQUEST
+        + "\nUse citations only from this exact allowlist. Allowed source_ref_ids:\n"
+        + json.dumps(allowed, ensure_ascii=False)
+        + "\nCanonical citation markers you may copy exactly:\n"
+        + json.dumps(allowed_markers, ensure_ascii=False)
+        + "\nCopy a canonical citation marker exactly as shown. "
+        "Do not change brackets, punctuation, spacing, prefix, or source_ref_id. "
+        "Copy source_ref_id values exactly; do not shorten, transform, infer, or invent one. "
+        "If none of these sources supports a claim, do not fabricate a citation. "
+        "An empty list permits no source citation."
+    )
+
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
 # recovery obligation. This bound is not a tool-call quota;
@@ -412,6 +446,7 @@ class ChatRuntime:
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
+        citation_failure_diagnostic: dict[str, object] | None = None
         active_model_phase: _ActiveModelPhase | None = None
         terminal_final_started = False
         observed_source_ref_ids: set[str] = set()
@@ -547,12 +582,24 @@ class ChatRuntime:
                                 observed_source_ref_ids,
                             )
                         try:
-                            self._validate_citations(turn, scope, visible_sources)
-                        except CitationValidationFailed:
+                            self._validate_citations(turn, scope, visible_sources, content)
+                        except CitationValidationFailed as error:
+                            citation_failure_diagnostic = self._record_citation_failure(
+                                request_id,
+                                model_turn_id,
+                                turn,
+                                visible_sources,
+                                error,
+                                citation_correction_attempted,
+                            )
                             return self._complete_incomplete(
                                 session_id,
                                 request_id,
-                                "terminal_turn_has_unavailable_citation",
+                                (
+                                    "terminal_turn_has_missing_citation"
+                                    if error.error_kind == "missing_citation"
+                                    else "terminal_turn_has_unavailable_citation"
+                                ),
                                 observed_source_ref_ids,
                             )
                         terminal_metrics: dict[str, int] = {
@@ -588,8 +635,16 @@ class ChatRuntime:
                     citation_correction_required = False
                     if not turn.tool_calls and not recovery_abandoned:
                         try:
-                            self._validate_citations(turn, scope, visible_sources)
-                        except CitationValidationFailed:
+                            self._validate_citations(turn, scope, visible_sources, content)
+                        except CitationValidationFailed as error:
+                            citation_failure_diagnostic = self._record_citation_failure(
+                                request_id,
+                                model_turn_id,
+                                turn,
+                                visible_sources,
+                                error,
+                                citation_correction_attempted,
+                            )
                             assert turn.assistant is not None
                             if (
                                 citation_correction_attempted
@@ -922,16 +977,12 @@ class ChatRuntime:
             )
             raise RequestFailed(str(error)) from error
         except CitationValidationFailed as error:
+            assert citation_failure_diagnostic is not None
             self._store.append_timeline(
                 session_id,
                 request_id,
                 "runtime_notice",
-                {
-                    "stage": "citation_validation",
-                    "status": "failed",
-                    "error_kind": "unavailable_source",
-                    "citation_correction_attempted": citation_correction_attempted,
-                },
+                citation_failure_diagnostic,
             )
             self._store.complete_request(request_id, "failed", str(error))
             self._emit(
@@ -1017,7 +1068,7 @@ class ChatRuntime:
                     content=strip_source_citation_markers(citation_correction.content),
                     citation_source_ref_ids=(),
                 ),
-                ContextMessage(role="user", content=_CITATION_CORRECTION_REQUEST),
+                ContextMessage(role="user", content=_citation_correction_request(())),
             )
             if citation_correction is not None
             else ()
@@ -1027,16 +1078,42 @@ class ChatRuntime:
         model_tools = (
             () if recovery_exhausted or terminal_final else self._registry.model_definitions()
         )
-        extra_messages = citation_correction_messages
-        context = self._context_builder.build_with_metadata(
-            session_id,
-            scope.project_id,
-            project_id_is_resolved=True,
-            attachment_ids=scope.attachment_ids,
-            maximum_bytes=_context_budget_for_turn(extra_messages),
-            strict_total_budget=True,
-            runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
+        # Forced recovery drafts are already in history. Request-only feedback
+        # follows them to start a fresh generation, with its bytes reserved below.
+        extra_messages = citation_correction_messages + (
+            (ContextMessage(role="user", content=_RECOVERY_CONTINUATION_REQUEST),)
+            if recovery_decision
+            else ()
         )
+        context_budget = _context_budget_for_turn(extra_messages)
+        while True:
+            context = self._context_builder.build_with_metadata(
+                session_id,
+                scope.project_id,
+                project_id_is_resolved=True,
+                attachment_ids=scope.attachment_ids,
+                maximum_bytes=context_budget,
+                strict_total_budget=True,
+                runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
+            )
+            if citation_correction is None:
+                break
+            # The citation draft/user pair precedes any other continuation.
+            # Derive the allowlist from THIS context, not the rejected turn's
+            # sources, which may have been dropped to make room for feedback.
+            extra_messages = (
+                extra_messages[0],
+                ContextMessage(
+                    role="user", content=_citation_correction_request(context.visible_sources)
+                ),
+                *extra_messages[2:],
+            )
+            revised_budget = _context_budget_for_turn(extra_messages)
+            if revised_budget >= context_budget:
+                break
+            # Reservations only grow: dropping a source cannot oscillate between
+            # a shorter allowlist/larger context and a longer list/smaller context.
+            context_budget = revised_budget
         model_messages = (*context.messages, *extra_messages)
         system_messages = tuple(message for message in model_messages if message.role == "system")
         if len(system_messages) != 1 or model_messages[:1] != system_messages:
@@ -1331,14 +1408,57 @@ class ChatRuntime:
             status="incomplete",
         )
 
+    def _record_citation_failure(
+        self,
+        request_id: str,
+        model_turn_id: str,
+        turn: ModelTurn,
+        visible_sources: tuple[SourceRef, ...],
+        error: CitationValidationFailed,
+        citation_correction_attempted: bool,
+    ) -> dict[str, object]:
+        diagnostic: dict[str, object] = {
+            "stage": "citation_validation",
+            "status": "failed",
+            "error_kind": error.error_kind,
+            "attempted_source_ref_ids": list(turn.assistant.citation_source_ref_ids)
+            if turn.assistant is not None
+            else [],
+            "visible_source_ref_ids": list(
+                dict.fromkeys(source.source_ref_id for source in visible_sources)
+            ),
+            "citation_correction_attempted": citation_correction_attempted,
+        }
+        self._record_diagnostic(
+            {
+                "request_id": request_id,
+                "model_turn_id": model_turn_id,
+                "phase": "citation_validation",
+                **diagnostic,
+            }
+        )
+        return diagnostic
+
     def _validate_citations(
-        self, turn: ModelTurn, scope: RuntimeScope, visible_sources: tuple[SourceRef, ...]
+        self,
+        turn: ModelTurn,
+        scope: RuntimeScope,
+        visible_sources: tuple[SourceRef, ...],
+        request_content: str,
     ) -> None:
         if turn.assistant is None:
             return
         if has_invalid_source_citation_marker(turn.assistant.content):
-            raise CitationValidationFailed("Assistant used an invalid source citation.")
+            raise CitationValidationFailed(
+                "Assistant used an invalid source citation.",
+                error_kind="invalid_citation_marker",
+            )
         if not turn.assistant.citation_source_ref_ids:
+            citation_required = explicitly_requests_citation(request_content)
+            if citation_required and visible_sources:
+                raise CitationValidationFailed(
+                    "Assistant omitted a required source citation.", error_kind="missing_citation"
+                )
             return
         sources_by_id = {source.source_ref_id: source for source in visible_sources}
         if not citations_are_visible(turn.assistant.citation_source_ref_ids, set(sources_by_id)):

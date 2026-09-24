@@ -15,6 +15,7 @@ from orion.contracts import (
     ReasoningDelta,
     ToolCallDelta,
     ToolDefinition,
+    ToolResult,
 )
 from orion.models.backend import (
     ModelBackendError,
@@ -121,7 +122,125 @@ async def test_strict_http_provider_accepts_runtime_tool_and_correction_turns(
             "user",
         ]
         assert requests[-1]["tools"] == requests[0]["tools"]
-        assert "Revise the immediately preceding" not in requests[-1]["messages"][0]["content"]
+        assert "Re-answer the original user request" not in requests[-1]["messages"][0]["content"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("recoveries", [1, 2])
+async def test_forced_recovery_appends_request_only_user_after_abandoned_draft(
+    store, monkeypatch, recoveries
+) -> None:  # type: ignore[no-untyped-def]
+    from conftest import runtime
+
+    requests = []
+    executions = []
+    draft = "Có lỗi xảy ra khi đọc tài liệu."
+    final = "Project fact: ORION_QA_PROJECT_A_7711"
+    prompt = "Read the Project fact verbatim."
+
+    def read(call):  # type: ignore[no-untyped-def]
+        executions.append(call)
+        return ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"segments": [{"text": final}]},
+        )
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="knowledge.read",
+            handler_key="knowledge.read",
+            description="Read document segments.",
+            input_schema={
+                "type": "object",
+                "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 8}},
+                "required": ["limit"],
+                "additionalProperties": False,
+            },
+        ),
+        read,
+    )
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        number = len(requests)
+        messages = payload["messages"]
+        if number % 2:
+            if number > 1 and messages[-1]["role"] != "user":
+                # Reproduce Qwen/vLLM's valid but empty completion when the
+                # forced recovery request ends with an assistant draft + tools.
+                delta = {}
+            else:
+                limit = 100 if number == 1 else 8 if number == 2 * recoveries + 1 else 9
+                delta = {
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": f"read-{number}",
+                            "type": "function",
+                            "function": {
+                                "name": "knowledge.read",
+                                "arguments": json.dumps({"limit": limit}),
+                            },
+                        }
+                    ]
+                }
+        else:
+            delta = {"content": final if number == 2 * recoveries + 2 else draft}
+        body = (
+            "data: "
+            + json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": delta,
+                            "finish_reason": "tool_calls" if "tool_calls" in delta else "stop",
+                        }
+                    ]
+                }
+            )
+            + "\n\ndata: [DONE]\n\n"
+        )
+        return httpx.Response(200, text=body, headers={"Content-Type": "text/event-stream"})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        "orion.models.providers.openai_compatible.httpx.AsyncClient",
+        lambda **kwargs: client_type(transport=httpx.MockTransport(provider), **kwargs),
+    )
+    session = store.create_session()
+    outcome = await runtime(store, OpenAICompatibleBackend(), builder.freeze()).submit(
+        session, prompt
+    )
+
+    assert outcome.status == "completed"
+    assert outcome.assistant_content == final
+    assert len(requests) == 2 * recoveries + 2
+    assert len(executions) == 1
+    assert executions[0].arguments == {"limit": 8}
+    assert executions[0].runtime_scope.session_id == session
+    for number, payload in enumerate(requests, start=1):
+        assert payload["tools"] == requests[0]["tools"]
+        assert payload["tools"]
+        messages = payload["messages"]
+        assert [m["role"] for m in messages].count("system") == 1
+        if number > 1 and number % 2:
+            assert [m["role"] for m in messages[-2:]] == ["assistant", "user"]
+            assert messages[-2]["content"] == draft
+            assert "Continue the original request" in messages[-1]["content"]
+            assert "arguments allowed by the exposed tool schema" in messages[-1]["content"]
+            assert "Do not treat the previous draft as the final answer" in messages[-1]["content"]
+        else:
+            assert [m["content"] for m in messages if m["role"] == "user"] == [prompt]
+    timeline = store.timeline(session)
+    assert [item.payload["content"] for item in timeline if item.kind == "user_message"] == [prompt]
+    results = [item.payload["result"] for item in timeline if item.kind == "tool_result"]
+    assert all(result["error"]["model_recovery_required"] for result in results[:-1])
+    assert all(result["error"]["code"] == "invalid_input" for result in results[:-1])
+    assert results[-1]["status"] == "success"
 
 
 def test_adapter_normalizes_assistant_deltas_and_reconstructs_tool_arguments() -> None:

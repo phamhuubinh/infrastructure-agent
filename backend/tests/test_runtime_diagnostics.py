@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 
 import pytest
 from conftest import ScriptedBackend
 from test_qa_runner import qa_runner as qa_runner
 
 from orion.access import LocalAccessAdapter
+from orion.chat.context_builder import MAX_CONVERSATION_BYTES, _messages_bytes
 from orion.chat.deadline import RequestBudgetSettings
 from orion.chat.diagnostics import BoundedModelInputDiagnostics
-from orion.chat.runtime import ChatRuntime, RequestCancelled
+from orion.chat.runtime import ChatRuntime, RequestCancelled, RequestFailed
 from orion.contracts import (
     AssistantDelta,
     AssistantMessage,
@@ -19,12 +21,105 @@ from orion.contracts import (
     ModelTurnCompleted,
     ModelUsage,
     ReasoningDelta,
+    SourceRef,
     ToolCall,
     ToolCallDelta,
     ToolDefinition,
     ToolResult,
 )
 from orion.tool_runtime.registry import ToolRegistryBuilder
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("correction_succeeds", [True, False])
+async def test_citation_allowlist_and_rejection_ids_are_recorded_without_draft_content(
+    store, correction_succeeds
+) -> None:  # type: ignore[no-untyped-def]
+    allowed = "5b30120f-f311-5b1f-a6a4-7076537e9e65"
+    invented = "77777777-f311-5b1f-a6a4-7076537e9e65"
+    source = SourceRef(source_ref_id=allowed, source_kind="grafana", source_id="grafana")
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="grafana.alert.list",
+            handler_key="grafana.alert.list",
+            description="List alerts.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"alerts": [{"name": "Example alert"}]},
+            sources=(source,),
+        ),
+    )
+    rejected_text = "REJECTED_DRAFT_TEXT_SHOULD_NOT_BE_LOGGED"
+    final_id = allowed if correction_succeeds else invented
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(call_id="alerts", tool_name="grafana.alert.list", arguments={}),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=f"{rejected_text} [[source:{invented}]]",
+                    citation_source_ref_ids=(invented,),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=f"Example alert. [[source:{final_id}]]",
+                    citation_source_ref_ids=(final_id,),
+                )
+            ),
+        ]
+    )
+    sink = BoundedModelInputDiagnostics()
+    session = store.create_session()
+    chat = ChatRuntime(store, backend, builder.freeze(), LocalAccessAdapter(), diagnostic_sink=sink)
+    prompt = "List alerts and cite the source."
+    request_id = chat.begin(session, prompt)
+    if correction_succeeds:
+        outcome = await chat.run(session, request_id)
+        assert outcome.assistant_content == f"Example alert. [[source:{allowed}]]"
+    else:
+        with pytest.raises(RequestFailed, match="unavailable source"):
+            await chat.run(session, request_id)
+
+    assert len(backend.calls) == 3
+    messages, tools = backend.calls[-1]
+    assert [m.role for m in messages[-2:]] == ["assistant", "user"]
+    correction = messages[-1].content
+    allowlist = json.loads(correction.split("Allowed source_ref_ids:\n", 1)[1].splitlines()[0])
+    assert allowlist == [allowed]
+    assert "do not shorten, transform, infer, or invent" in correction
+    assert tools == builder.freeze().model_definitions()
+    timeline = store.timeline(session)
+    assert [item.payload["content"] for item in timeline if item.kind == "user_message"] == [prompt]
+    assistants = [
+        item for item in timeline if item.kind == "assistant_message" and item.payload["content"]
+    ]
+    assert len(assistants) == (1 if correction_succeeds else 0)
+
+    captured = sink.records(request_id)
+    rejected = [r for r in captured["records"] if r.get("stage") == "citation_validation"]
+    assert len(rejected) == (1 if correction_succeeds else 2)
+    for index, record in enumerate(rejected):
+        assert record["request_id"] == request_id
+        assert record["model_turn_id"]
+        assert record["error_kind"] == "unavailable_source"
+        assert record["attempted_source_ref_ids"] == [invented]
+        assert record["visible_source_ref_ids"] == [allowed]
+        assert record["citation_correction_attempted"] is (index == 1)
+    assert rejected_text not in json.dumps(captured)
+    if not correction_succeeds:
+        notice = next(item.payload for item in timeline if item.kind == "runtime_notice")
+        assert notice["attempted_source_ref_ids"] == [invented]
+        assert notice["visible_source_ref_ids"] == [allowed]
+        assert notice["citation_correction_attempted"] is True
 
 
 @pytest.mark.anyio
@@ -837,3 +932,254 @@ async def test_model_stream_diagnostics_keep_record_cardinality_bounded(store) -
     assert record["reasoning_delta_count"] == 40
     assert record["assistant_delta_count"] == 40
     assert record["tool_call_delta_count"] == 40
+
+
+@pytest.mark.anyio
+async def test_citation_allowlist_is_rebuilt_from_sources_visible_after_budget_reservation(
+    store, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    allowed = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    dropped = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    invented = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+    source_allowed = SourceRef(
+        source_ref_id=allowed,
+        source_kind="grafana",
+        source_id="grafana",
+    )
+    source_dropped = SourceRef(
+        source_ref_id=dropped,
+        source_kind="grafana",
+        source_id="grafana-extra",
+    )
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="grafana.alert.list",
+            handler_key="grafana.alert.list",
+            description="List alerts.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"alerts": [{"name": "Example alert"}]},
+            sources=(source_allowed,),
+        ),
+    )
+
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alerts",
+                        tool_name="grafana.alert.list",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=f"Example alert. [[source:{invented}]]",
+                    citation_source_ref_ids=(invented,),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=f"Example alert. [[source:{allowed}]]",
+                    citation_source_ref_ids=(allowed,),
+                )
+            ),
+        ]
+    )
+
+    session = store.create_session()
+    chat = ChatRuntime(
+        store,
+        backend,
+        builder.freeze(),
+        LocalAccessAdapter(),
+    )
+
+    original_build = chat._context_builder.build_with_metadata
+    original_record_citation_failure = chat._record_citation_failure
+    citation_correction_started = False
+    correction_build_count = 0
+
+    def record_citation_failure(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal citation_correction_started
+        result = original_record_citation_failure(*args, **kwargs)
+        citation_correction_started = True
+        return result
+
+    def build_with_changed_visible_sources(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal correction_build_count
+
+        result = original_build(*args, **kwargs)
+
+        if not citation_correction_started:
+            return result
+
+        correction_build_count += 1
+
+        if correction_build_count == 1:
+            # First correction-context build still has both sources.
+            return replace(
+                result,
+                visible_sources=(source_allowed, source_dropped),
+            )
+
+        # After reserving bytes for the explicit allowlist, source B no
+        # longer fits. The final allowlist must therefore contain only A.
+        return replace(
+            result,
+            visible_sources=(source_allowed,),
+        )
+
+    monkeypatch.setattr(
+        chat,
+        "_record_citation_failure",
+        record_citation_failure,
+    )
+    monkeypatch.setattr(
+        chat._context_builder,
+        "build_with_metadata",
+        build_with_changed_visible_sources,
+    )
+
+    outcome = await chat.submit(
+        session,
+        "List Grafana alerts and cite the source.",
+    )
+
+    assert outcome.assistant_content == f"Example alert. [[source:{allowed}]]"
+    assert len(backend.calls) == 3
+    assert correction_build_count == 2
+
+    correction_messages, _ = backend.calls[-1]
+    correction_request = correction_messages[-1]
+
+    assert correction_request.role == "user"
+
+    allowlist = json.loads(
+        correction_request.content.split(
+            "Allowed source_ref_ids:\n",
+            1,
+        )[1].splitlines()[0]
+    )
+
+    assert allowlist == [allowed]
+    assert dropped not in correction_request.content
+    assert invented not in correction_request.content
+    assert _messages_bytes(correction_messages) <= MAX_CONVERSATION_BYTES
+
+
+@pytest.mark.anyio
+async def test_successfully_repaired_missing_citation_records_rejection_diagnostic(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    allowed = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    source = SourceRef(
+        source_ref_id=allowed,
+        source_kind="internet",
+        source_id="https://example.test/",
+        url="https://example.test/",
+    )
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="internet.fetch",
+            handler_key="internet.fetch",
+            description="Read a webpage.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"content": "Example fact."},
+            sources=(source,),
+        ),
+    )
+
+    rejected_text = "REJECTED_MISSING_CITATION_DRAFT"
+
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="fetch",
+                        tool_name="internet.fetch",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=rejected_text,
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=f"Example fact. [[source:{allowed}]]",
+                    citation_source_ref_ids=(allowed,),
+                )
+            ),
+        ]
+    )
+
+    sink = BoundedModelInputDiagnostics()
+    session = store.create_session()
+
+    chat = ChatRuntime(
+        store,
+        backend,
+        builder.freeze(),
+        LocalAccessAdapter(),
+        diagnostic_sink=sink,
+    )
+
+    prompt = "Read the page and cite the source."
+    request_id = chat.begin(session, prompt)
+
+    outcome = await chat.run(session, request_id)
+
+    assert outcome.assistant_content == f"Example fact. [[source:{allowed}]]"
+    assert len(backend.calls) == 3
+
+    captured = sink.records(request_id)
+    rejected = [
+        record for record in captured["records"] if record.get("stage") == "citation_validation"
+    ]
+
+    assert len(rejected) == 1
+
+    diagnostic = rejected[0]
+    assert diagnostic["request_id"] == request_id
+    assert diagnostic["model_turn_id"]
+    assert diagnostic["error_kind"] == "missing_citation"
+    assert diagnostic["attempted_source_ref_ids"] == []
+    assert diagnostic["visible_source_ref_ids"] == [allowed]
+    assert diagnostic["citation_correction_attempted"] is False
+
+    assert rejected_text not in json.dumps(captured)
+
+    assert not [
+        item
+        for item in store.timeline(session)
+        if item.kind == "runtime_notice" and item.payload.get("stage") == "citation_validation"
+    ]

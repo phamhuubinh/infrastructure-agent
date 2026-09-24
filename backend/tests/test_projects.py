@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from conftest import ScriptedBackend
 
@@ -154,6 +156,70 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
         "calculator.evaluate",
     ]
     assert document.document.source.kind == "project"
+
+
+@pytest.mark.anyio
+async def test_citation_correction_reanswers_original_verbatim_request_from_visible_evidence(
+    store, project_knowledge
+) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project = projects.create("Project A")
+    session = projects.create_session(project["project_id"], "local", "local")
+    fact = "Project fact: ORION_QA_PROJECT_A_7711"
+    document = knowledge.attach_project(project["project_id"], "fact.txt", fact.encode())
+    source = knowledge.source_for_segment(
+        knowledge.search(_scope(session, project["project_id"]), "Project fact", 1)[0]
+    )
+    prompt = "Repeat the Project fact verbatim in one sentence and cite the source."
+    draft = "The document confirms its existence. [[source:invented]]"
+    final = f"{fact} [[source:{source.source_ref_id}]]"
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="read-fact",
+                        tool_name="knowledge.read",
+                        arguments={"document_id": document.document.document_id, "limit": 8},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(content=draft, citation_source_ref_ids=("invented",))
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=final, citation_source_ref_ids=(source.source_ref_id,)
+                )
+            ),
+        ]
+    )
+    registry = _registry(knowledge)
+    outcome = await ChatRuntime(store, backend, registry, LocalAccessAdapter()).submit(
+        session, prompt
+    )
+
+    assert outcome.assistant_content == final
+    assert len(backend.calls) == 3
+    messages, tools = backend.calls[-1]
+    correction = messages[-1].content
+    assert messages[-1].role == "user"
+    assert "Re-answer the original user request using the currently visible evidence." in correction
+    assert "Preserve all requirements from the original request" in correction
+    assert "exact wording, scope, and format" in correction
+    assert messages[-2].role == "assistant"
+    assert "confirms its existence" in messages[-2].content
+    assert messages[-2].citation_source_ref_ids == ()
+    assert [m.content for m in messages if m.role == "user"] == [prompt, correction]
+    read = next(json.loads(m.content) for m in messages if m.role == "tool")
+    assert read["data"]["segments"][0]["text"] == fact
+    assert read["sources"][0]["source_ref_id"] == source.source_ref_id
+    assert tools == registry.model_definitions()
+    assert all(
+        item.payload["content"] != draft
+        for item in store.timeline(session)
+        if item.kind == "assistant_message"
+    )
 
 
 @pytest.mark.anyio

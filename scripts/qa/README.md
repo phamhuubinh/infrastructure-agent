@@ -47,8 +47,10 @@ Smoke/full/stability retain their existing request-timeout behavior. Production 
 behavior is unchanged, including the existing QA provider stream timeout: this patch changes
 only how long the behavioral harness waits, not the runtime's own execution budgets.
 
-`qa-smoke` runs the curated 15-case fast tier selected from the current 88-case canonical corpus.
-`qa-full` runs all 88 canonical cases. `qa-stability` is a separate two-case tier, not an extension
+`qa-smoke` runs the curated 15-case fast tier selected from the current 90-case canonical corpus.
+`qa-full` runs all 90 canonical cases. The full tier also pairs fact-only extraction from an
+injected document with explicitly requested quotation/analysis of the same embedded instruction.
+`qa-stability` is a separate two-case tier, not an extension
 of the canonical tier. `--case-id <canonical-case>` runs one selected canonical case; behavioral
 sessions are always complete source suites.
 

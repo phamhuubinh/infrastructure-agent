@@ -50,8 +50,11 @@ def project_tool_result(
     selected using actual serialized costs, without a speculative byte reserve.
     This nested sequence cannot trade away included items as the cap increases.
 
-    Status/error/correlation/sources are immutable. Only their envelope plus the
-    minimal truthful omission summary may exceed the cap (the irreducible case).
+    Status/error/correlation and source reference IDs are immutable. Under budget
+    pressure source metadata is reduced to ID/label/URL before data is reduced;
+    complete SourceRefs remain in the canonical result and runtime visibility set.
+    Only this envelope plus the minimal truthful omission summary may exceed the
+    cap (the irreducible case).
     Per-path records are bounded; unreported_list_items sums cardinalities of
     unreported list records, including nested lists, NOT distinct observations.
     essential_metadata contains only upstream-provided fields; {} means neither
@@ -63,6 +66,7 @@ def project_tool_result(
     canonical = result.model_dump(mode="json")
     if current_request:
         canonical["_orion_provenance"] = {
+            "trust": "untrusted_external_content",
             "tool_name": result.tool_name,
             "current_request": True,
             "source_refs": [source.source_ref_id for source in result.sources],
@@ -84,6 +88,15 @@ def project_tool_result(
 
     original = canonical["data"]
     envelope = {key: value for key, value in canonical.items() if key != "data"}
+    if result.sources:
+        envelope["sources"] = [
+            {
+                key: source[key]
+                for key in ("source_ref_id", "label", "url")
+                if source[key] is not None
+            }
+            for source in canonical["sources"]
+        ]
     projected = original
     encoded = ""
 
@@ -110,6 +123,8 @@ def project_tool_result(
             "original_bytes": original_bytes,
             "maximum_bytes": maximum_bytes,
         }
+        if result.sources:
+            metadata["sources_compacted"] = True
         # Spend only the actual needed metadata bytes. Retain the longest fitting
         # record prefix, with explicit counts for every unreported list record.
         retained_count = min(len(omissions), _MAX_OMISSION_RECORDS)
@@ -135,7 +150,10 @@ def project_tool_result(
                     unreported[key] += omissions[retained - 1][key]
         return False
 
-    # The unchanged canonical already failed, so adding metadata cannot fit it.
+    # Reducing source metadata may suffice without discarding any actual evidence.
+    if result.sources and fits():
+        return encoded
+    # The full data with its projected envelope and metadata did not fit.
     if _shrink(original, assign, fits, maximum_bytes):
         return encoded
     # No data-bearing candidate fits. Keep true empty upstream containers intact;
@@ -238,6 +256,8 @@ def _source_data_state(status: str, original: Any, projected: Any) -> str:
     """Name source-data presence without relying on a null projected value."""
     if original is None or original == {} or original == []:
         return "upstream_empty" if status == "success" else "unavailable"
+    if projected == original:
+        return "upstream_nonempty_complete"
     return "upstream_nonempty_omitted" if projected is None else "upstream_nonempty_partial"
 
 

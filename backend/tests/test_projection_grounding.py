@@ -411,7 +411,7 @@ def test_upstream_empty_and_omitted_positive_are_not_interchangeable(nested: boo
         assert upstream["data"] != omitted["data"]
 
 
-def test_exact_error_source_progress_envelope_survives_irreducible_cap() -> None:
+def test_exact_error_progress_and_source_identity_survive_irreducible_cap() -> None:
     original = three_row_result()
     failed = ToolResult.failure(original.call_id, original.tool_name, "upstream_error", "x" * 900)
     failed = failed.model_copy(
@@ -423,9 +423,13 @@ def test_exact_error_source_progress_envelope_survives_irreducible_cap() -> None
     )
     before = failed.model_dump(mode="json")
     value = json.loads(project_tool_result(failed, 50))
-    assert {key: value[key] for key in before if key != "data"} == {
-        key: val for key, val in before.items() if key != "data"
+    assert {key: value[key] for key in before if key not in {"data", "sources"}} == {
+        key: val for key, val in before.items() if key not in {"data", "sources"}
     }
+    assert value["sources"] == [
+        {"source_ref_id": source.source_ref_id, "label": source.label}
+        for source in original.sources
+    ]
     assert value["data"] is None
     assert value["_orion_projection"]["data_state"] == "omitted"
     assert failed.model_dump(mode="json") == before
@@ -556,7 +560,11 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
         )
         assert captured["content"] == tool.content
         assert captured["projection_omissions"] == metadata["omissions"]
-    assert value["sources"] == [source.model_dump(mode="json")]
+    assert value["sources"] == (
+        [source.model_dump(mode="json")]
+        if empty
+        else [{"source_ref_id": source.source_ref_id, "url": source.url}]
+    )
     persisted = next(
         item.payload["result"]
         for item in store.timeline(session)

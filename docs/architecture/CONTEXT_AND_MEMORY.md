@@ -50,21 +50,42 @@ separate byte-proxy-bounded projection of that record:
   skipped so an older complete turn may still be retained;
 - assistant tool calls are included only with every matching tool result;
 - duplicate provider tool-call IDs are rejected before persistence;
-- every current-turn ToolResult receives the same deterministic cap; Orion finds the
-  largest shared cap whose complete current protocol sequence fits the conversation
-  byte proxy, so no result is privileged merely for executing last;
+- retained current-turn ToolResults share a deterministic cap. Under strict budget
+  pressure, Orion selects complete tool-call/result blocks and recomputes that cap
+  from their canonical results; discarded retry blocks do not consume the retained
+  evidence budget;
+- compaction reserves usable successful source-bearing evidence that fits with the
+  complete user message and system context, then considers the latest failed tool
+  block for recovery and other evidence. A later failure does not automatically
+  replace an earlier success. Selected blocks stay in chronological order, with
+  exact sources and call/result pairings; their original data remains persisted;
+- a non-null projected `data` object is not proof that evidence survived: it may
+  contain document metadata after all segment text was removed. Any reduction of
+  successful source-bearing data triggers reconsideration of the strict-budget
+  allocation. Its best standalone projection is protected before adding discovery
+  results and retry history, which may be compacted or dropped to preserve text;
 - prior-request raw ToolResults are not normal model context; only current-request results are
   evidence for a current-state claim;
 - oversized ToolResults are reduced structurally, never by cutting serialized JSON;
 - status, errors, correlation fields, infrastructure target/change/verification
-  metadata, collection counts, and exact `SourceRef` objects remain visible;
+  metadata, collection counts, and exact source reference IDs remain visible;
+- when a ToolResult exceeds its model projection budget, source metadata is reduced
+  to `source_ref_id` plus non-null `label` and `url` before reducing evidence data.
+  Every source ID is preserved; `sources_compacted` reports this reduction. The
+  canonical timeline and runtime visibility/authorization retain full `SourceRef`
+  objects, including document/project identity and retrieval metadata;
 - explicit projection metadata reports omitted keys, items, string characters, and
   the number of omission records hidden by the metadata cap;
 - checkpoint state plus its recent raw history share the same conversation byte
   budget; a checkpoint never creates an additional unbounded history allowance.
 
 Projection never mutates the canonical `ToolResult`. Assistant/tool protocol envelopes,
-errors, and exact sources remain structurally valid. Orion does not silently truncate the
+errors, and source identities remain structurally valid. The Orion-owned
+`untrusted_external_content` trust label on current tool-result provenance survives data
+compaction. Embedded instructions are retained as untrusted data, so a user can explicitly
+ask to quote or analyze them; they are not removed using keyword rules. Source-only compaction leaves
+`data_state=complete` and `source_data_state=upstream_nonempty_complete` when all nonempty
+evidence data fits. Orion does not silently truncate the
 current user message: if the complete current request plus irreducible protocol/system
 context cannot fit Orion's local safety bound, the request fails explicitly before the
 provider call with a context-safety error. This local byte proxy is deterministic context

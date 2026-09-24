@@ -460,14 +460,14 @@ async def test_terminal_stale_citation_metadata_is_regenerated_before_persistenc
     correction_index = next(
         index
         for index, message in enumerate(correction_messages)
-        if message.role == "user" and "Revise the immediately preceding" in message.content
+        if message.role == "user" and "Re-answer the original user request" in message.content
     )
     assert correction_index == draft_index + 1 == len(correction_messages) - 1
     assert (
         "If required evidence is missing and an appropriate safe tool is available, use it."
         in correction_messages[correction_index].content
     )
-    assert "Revise the immediately preceding" not in correction_messages[0].content
+    assert "Re-answer the original user request" not in correction_messages[0].content
     users = [item for item in store.timeline(session_id) if item.kind == "user_message"]
     assert [item.payload["content"] for item in users] == [prompt]
     assistants = [item for item in store.timeline(session_id) if item.kind == "assistant_message"]
@@ -540,12 +540,16 @@ async def test_regenerated_unavailable_citation_remains_a_strict_failure_with_sa
     assert len(correction_drafts) == 1
     assert correction_drafts[0].content == "Direct answer. "
     assert correction_drafts[0].citation_source_ref_ids == ()
+    correction = backend.calls[1][0][-1].content
+    assert json.loads(correction.split("Allowed source_ref_ids:\n", 1)[1].splitlines()[0]) == []
     timeline = store.timeline(session_id)
     assert [item.kind for item in timeline] == ["user_message", "runtime_notice"]
     assert timeline[-1].payload == {
         "stage": "citation_validation",
         "status": "failed",
         "error_kind": "unavailable_source",
+        "attempted_source_ref_ids": ["changed-secret-citation"],
+        "visible_source_ref_ids": [],
         "citation_correction_attempted": True,
     }
     assert "provider-secret-citation" not in str(timeline[-1].payload)
@@ -630,6 +634,8 @@ async def test_changed_stale_citation_metadata_after_populated_session_stays_str
         "stage": "citation_validation",
         "status": "failed",
         "error_kind": "unavailable_source",
+        "attempted_source_ref_ids": ["changed-stale-metadata"],
+        "visible_source_ref_ids": [],
         "citation_correction_attempted": True,
     }
 
@@ -1068,6 +1074,103 @@ async def test_structural_tool_exposure_does_not_spend_recovery_budget(
     assert len(backend.calls) == 5
     assert backend.calls[3][1]
     assert any(definition.name == "fake.second" for definition in backend.calls[3][1])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("prompt", "has_source", "needs_correction", "repair_succeeds"),
+    [
+        ("Read https://www.python.org/ and cite the source.", True, True, True),
+        ("Đọc https://www.python.org/ và trích dẫn nguồn.", True, True, True),
+        ("Read https://www.python.org/ and cite the source.", True, True, False),
+        ("Read https://www.python.org/.", True, False, False),
+        ("Read https://www.python.org/; do not cite sources.", True, False, False),
+        ("Read https://www.python.org/ and cite the source.", False, False, False),
+    ],
+)
+async def test_missing_requested_citation_gets_one_correction(
+    store, prompt, has_source, needs_correction, repair_succeeds
+) -> None:  # type: ignore[no-untyped-def]
+    source = SourceRef(
+        source_ref_id="python-homepage",
+        source_kind="internet",
+        source_id="https://www.python.org/",
+        url="https://www.python.org/",
+    )
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="internet.fetch",
+            description="Read a webpage.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="internet.fetch",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"content": "Python is a programming language."},
+            sources=(source,) if has_source else (),
+        ),
+    )
+    draft = "Python is a programming language. [Python.org](https://www.python.org/)"
+    repaired = "Python is a programming language. [[source:python-homepage]]"
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(call_id="fetch", tool_name="internet.fetch", arguments={}),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content=draft)),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=repaired if repair_succeeds else draft,
+                    citation_source_ref_ids=(source.source_ref_id,) if repair_succeeds else (),
+                )
+            ),
+        ]
+    )
+    session_id = store.create_session()
+    chat = runtime(store, backend, builder.freeze())
+    if needs_correction and not repair_succeeds:
+        with pytest.raises(RequestFailed, match="required source citation"):
+            await chat.submit(session_id, prompt)
+    else:
+        outcome = await chat.submit(session_id, prompt)
+        assert outcome.assistant_content == (repaired if needs_correction else draft)
+    assert len(backend.calls) == (3 if needs_correction else 2)
+    if needs_correction:
+        messages, tools = backend.calls[-1]
+        assert messages[-2].role == "assistant"
+        assert messages[-2].content == draft
+        assert messages[-1].role == "user"
+        assert "citation requirements" in messages[-1].content
+        assert tools
+        assert all(exposed == tools for _, exposed in backend.calls)
+        assert source.source_ref_id in "".join(m.content for m in messages if m.role == "tool")
+        assert all(
+            item.payload.get("content") != draft
+            for item in store.timeline(session_id)
+            if item.kind == "assistant_message"
+        )
+        assert [
+            item.payload["content"]
+            for item in store.timeline(session_id)
+            if item.kind == "user_message"
+        ] == [prompt]
+    if needs_correction and not repair_succeeds:
+        notices = [
+            item.payload for item in store.timeline(session_id) if item.kind == "runtime_notice"
+        ]
+        assert any(notice.get("error_kind") == "missing_citation" for notice in notices)
+    if needs_correction and repair_succeeds:
+        # Citation requirements belong to the original request, not session history
+        # or the synthetic correction user message.
+        backend.turns.append(ModelTurn(assistant=AssistantMessage(content="A brief summary.")))
+        following = await chat.submit(session_id, "Give me a brief summary.")
+        assert following.assistant_content == "A brief summary."
+        assert len(backend.calls) == 4
 
 
 @pytest.mark.anyio
