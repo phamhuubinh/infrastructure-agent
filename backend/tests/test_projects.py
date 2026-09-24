@@ -213,7 +213,8 @@ async def test_citation_correction_reanswers_original_verbatim_request_from_visi
     assert [m.content for m in messages if m.role == "user"] == [prompt, correction]
     read = next(json.loads(m.content) for m in messages if m.role == "tool")
     assert read["data"]["segments"][0]["text"] == fact
-    assert read["sources"][0]["source_ref_id"] == source.source_ref_id
+    assert read["sources"][0]["evidence_ref"] == "S1"
+    assert source.source_ref_id not in json.dumps(read)
     assert tools == registry.model_definitions()
     assert all(
         item.payload["content"] != draft

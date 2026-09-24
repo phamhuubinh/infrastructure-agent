@@ -334,11 +334,23 @@ class SourceRef:
     retrieved_at: datetime | None
 ```
 
-A final citation is a presentation-level reference to one or more canonical visible
-`source_ref_id` values. Orion rejects citation IDs that were not returned in a visible
-tool result. Citation rendering belongs to the UI/API presentation layer, not to retrieval
-ranking logic. Non-document sources such as Internet retrieval use `url` and
-`retrieved_at` for canonical provenance while leaving document-specific fields unset.
+`source_ref_id` is canonical runtime identity and is not a model serialization
+responsibility. For each model generation Orion derives a request-local alias registry:
+
+```text
+S1 -> canonical source_ref_id A
+S2 -> canonical source_ref_id B
+```
+
+Model-visible ToolResult projections expose these aliases as `evidence_ref` values. The
+model selects evidence by alias; Orion resolves the alias back to canonical identity before
+terminal validation and persistence. Unknown aliases fail closed. A raw `source_id`,
+target/document identity, URL, or guessed canonical ID is not accepted as a model citation.
+
+A final persisted citation remains a presentation-level reference to one or more canonical
+visible `source_ref_id` values. Citation rendering belongs to the UI/API presentation layer,
+not to retrieval ranking logic. Non-document sources such as Internet retrieval use `url`
+and `retrieved_at` for canonical provenance while leaving document-specific fields unset.
 
 Infrastructure read observations may use this same citation path. Their
 `source_kind` is `linux`, `grafana`, or `zabbix`; `source_id` is the sanitized
@@ -346,8 +358,9 @@ configured target reference/identity; and `label`, `section`, and `retrieved_at`
 contain only safe operation-specific provenance. Infrastructure sources must leave
 `url` unset unless a separately safe, non-secret presentation URL is explicitly
 defined. They must never contain credentials, private keys, authorization headers,
-or secret-bearing URLs. Citation validation remains unchanged: a final answer may
-only cite a `source_ref_id` returned in a visible result for that model loop.
+or secret-bearing URLs. Citation validation accepts only aliases resolved from the
+current visible registry; the resolved canonical citation must name a `source_ref_id`
+returned in a visible result for that model loop.
 
 ## TimelineItem
 

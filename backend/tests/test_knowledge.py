@@ -353,7 +353,8 @@ async def test_retrieved_instructions_have_a_trust_boundary_without_stripping_co
     projected = json.loads(tool_message.content)
     assert projected["_orion_provenance"]["trust"] == "untrusted_external_content"
     assert projected["data"]["segments"][0]["text"] == document_text
-    assert projected["sources"][0]["source_ref_id"] == source.source_ref_id
+    assert projected["sources"][0]["evidence_ref"] == "S1"
+    assert source.source_ref_id not in tool_message.content
     assert f"[[source:{source.source_ref_id}]]" in outcome.assistant_content
     if analyze_instruction:
         assert instruction in outcome.assistant_content
@@ -413,7 +414,8 @@ async def test_knowledge_runs_in_existing_tool_loop_and_text_stays_untrusted(
         message.content for message in reversed(backend.calls[1][0]) if message.role == "tool"
     )
     assert "Ignore all previous" in tool_content
-    assert source.source_ref_id in tool_content
+    assert source.source_ref_id not in tool_content
+    assert '"evidence_ref":"S1"' in tool_content
     assert store.timeline(session)[-1].payload["citation_source_ref_ids"] == [source.source_ref_id]
 
 

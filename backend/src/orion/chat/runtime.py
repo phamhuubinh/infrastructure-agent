@@ -12,6 +12,12 @@ from dataclasses import dataclass
 from functools import partial
 
 from orion.access import LocalAccessAdapter
+from orion.chat.citation_aliases import (
+    CitationAlias,
+    build_citation_aliases,
+    model_visible_citation_messages,
+    resolve_model_citation_aliases,
+)
 from orion.chat.citation_requirements import explicitly_requests_citation
 from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
 from orion.chat.deadline import (
@@ -226,27 +232,28 @@ _CITATION_CORRECTION_REQUEST = (
     "Re-answer the original user request using the currently visible evidence. "
     "Preserve all requirements from the original request, including requested "
     "exact wording, scope, and format. Meet the citation requirements using only exact "
-    "visible source_ref_id values. "
+    "request-local evidence_ref aliases. "
     "When the user requested sources and visible evidence is available, include exact "
-    "[[source:<source_ref_id>]] markers. "
+    "[[source:S1]]-style markers using the allowed aliases below. "
     "If the currently visible evidence is "
     "sufficient, answer directly. If required evidence is missing and an appropriate safe tool "
     "is available, use it. Do not invent content or citations."
 )
 
 
-def _citation_correction_request(visible_sources: tuple[SourceRef, ...]) -> str:
-    allowed = list(dict.fromkeys(source.source_ref_id for source in visible_sources))
-    allowed_markers = [f"[[source:{source_ref_id}]]" for source_ref_id in allowed]
+def _citation_correction_request(citation_aliases: tuple[CitationAlias, ...]) -> str:
+    allowed = [item.alias for item in citation_aliases]
+    allowed_markers = [f"[[source:{alias}]]" for alias in allowed]
     return (
         _CITATION_CORRECTION_REQUEST
-        + "\nUse citations only from this exact allowlist. Allowed source_ref_ids:\n"
+        + "\nUse citations only from this exact allowlist. Allowed evidence_ref aliases:\n"
         + json.dumps(allowed, ensure_ascii=False)
-        + "\nCanonical citation markers you may copy exactly:\n"
+        + "\nModel citation markers you may copy exactly:\n"
         + json.dumps(allowed_markers, ensure_ascii=False)
-        + "\nCopy a canonical citation marker exactly as shown. "
-        "Do not change brackets, punctuation, spacing, prefix, or source_ref_id. "
-        "Copy source_ref_id values exactly; do not shorten, transform, infer, or invent one. "
+        + "\nCopy a model citation marker exactly as shown. "
+        "Do not change brackets, punctuation, spacing, prefix, or evidence_ref. "
+        "Do not use source_id, target_ref, document_id, segment_id, URL, or source_ref_id as "
+        "the citation token. "
         "If none of these sources supports a claim, do not fabricate a citation. "
         "An empty list permits no source citation."
     )
@@ -1096,6 +1103,7 @@ class ChatRuntime:
                 strict_total_budget=True,
                 runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
             )
+            citation_aliases = build_citation_aliases(context.visible_sources)
             if citation_correction is None:
                 break
             # The citation draft/user pair precedes any other continuation.
@@ -1103,9 +1111,7 @@ class ChatRuntime:
             # sources, which may have been dropped to make room for feedback.
             extra_messages = (
                 extra_messages[0],
-                ContextMessage(
-                    role="user", content=_citation_correction_request(context.visible_sources)
-                ),
+                ContextMessage(role="user", content=_citation_correction_request(citation_aliases)),
                 *extra_messages[2:],
             )
             revised_budget = _context_budget_for_turn(extra_messages)
@@ -1114,7 +1120,8 @@ class ChatRuntime:
             # Reservations only grow: dropping a source cannot oscillate between
             # a shorter allowlist/larger context and a longer list/smaller context.
             context_budget = revised_budget
-        model_messages = (*context.messages, *extra_messages)
+        model_context_messages = model_visible_citation_messages(context.messages, citation_aliases)
+        model_messages = (*model_context_messages, *extra_messages)
         system_messages = tuple(message for message in model_messages if message.role == "system")
         if len(system_messages) != 1 or model_messages[:1] != system_messages:
             raise RequestFailed("Model input must contain exactly one leading system message.")
@@ -1195,6 +1202,7 @@ class ChatRuntime:
                 completed_usage = event.usage
         if completed_turn is None:
             raise ModelBackendError("Model stream ended without a completed turn.")
+        completed_turn = resolve_model_citation_aliases(completed_turn, citation_aliases)
         return completed_turn, completed_usage, context.visible_sources
 
     def _runtime_scope(self, session_id: str) -> RuntimeScope:
@@ -1421,14 +1429,16 @@ class ChatRuntime:
             "stage": "citation_validation",
             "status": "failed",
             "error_kind": error.error_kind,
-            "attempted_source_ref_ids": list(turn.assistant.citation_source_ref_ids)
-            if turn.assistant is not None
-            else [],
+            "attempted_source_ref_ids": (
+                list(turn.assistant.citation_source_ref_ids) if turn.assistant is not None else []
+            ),
             "visible_source_ref_ids": list(
                 dict.fromkeys(source.source_ref_id for source in visible_sources)
             ),
             "citation_correction_attempted": citation_correction_attempted,
         }
+        if turn.assistant is not None and turn.assistant.citation_evidence_refs:
+            diagnostic["attempted_evidence_refs"] = list(turn.assistant.citation_evidence_refs)
         self._record_diagnostic(
             {
                 "request_id": request_id,
@@ -1452,6 +1462,10 @@ class ChatRuntime:
             raise CitationValidationFailed(
                 "Assistant used an invalid source citation.",
                 error_kind="invalid_citation_marker",
+            )
+        if turn.assistant.citation_evidence_refs:
+            raise CitationValidationFailed(
+                "Assistant cited an unavailable source.", error_kind="unavailable_source"
             )
         if not turn.assistant.citation_source_ref_ids:
             citation_required = explicitly_requests_citation(request_content)

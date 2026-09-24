@@ -67,13 +67,15 @@ separate byte-proxy-bounded projection of that record:
 - prior-request raw ToolResults are not normal model context; only current-request results are
   evidence for a current-state claim;
 - oversized ToolResults are reduced structurally, never by cutting serialized JSON;
-- status, errors, correlation fields, infrastructure target/change/verification
-  metadata, collection counts, and exact source reference IDs remain visible;
+- status, errors, correlation fields, infrastructure target/change/verification metadata,
+  collection counts, and canonical source identities remain preserved by the runtime;
 - when a ToolResult exceeds its model projection budget, source metadata is reduced
   to `source_ref_id` plus non-null `label` and `url` before reducing evidence data.
-  Every source ID is preserved; `sources_compacted` reports this reduction. The
-  canonical timeline and runtime visibility/authorization retain full `SourceRef`
-  objects, including document/project identity and retrieval metadata;
+  Every canonical source ID is preserved internally; `sources_compacted` reports this reduction.
+  At the final model boundary, canonical source-reference fields are replaced with request-local
+  `evidence_ref` aliases such as `S1`, while the canonical timeline and runtime
+  visibility/authorization retain full `SourceRef` objects, including document/project identity
+  and retrieval metadata;
 - explicit projection metadata reports omitted keys, items, string characters, and
   the number of omission records hidden by the metadata cap;
 - checkpoint state plus its recent raw history share the same conversation byte

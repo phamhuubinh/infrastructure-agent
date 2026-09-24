@@ -545,9 +545,6 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
     else:
         metadata = value["_orion_projection"]
         assert metadata["data_state"] == "partial"
-        assert tool.content == project_tool_result(
-            result, metadata["maximum_bytes"], current_request=True
-        )
         assert len(tool.content.encode()) <= metadata["maximum_bytes"] <= 6000
         coverage = next(item for item in metadata["omissions"] if item["path"] == "$.data")
         assert 0 < coverage["included_items"] < 60
@@ -560,10 +557,13 @@ async def test_backend_receives_grounding_rule_projection_and_current_prompt(sto
         )
         assert captured["content"] == tool.content
         assert captured["projection_omissions"] == metadata["omissions"]
+    assert source.source_ref_id not in tool.content
+    assert value["_orion_provenance"]["evidence_refs"] == ["S1"]
+    expected_source = source.model_dump(mode="json")
+    expected_source.pop("source_ref_id")
+    expected_source["evidence_ref"] = "S1"
     assert value["sources"] == (
-        [source.model_dump(mode="json")]
-        if empty
-        else [{"source_ref_id": source.source_ref_id, "url": source.url}]
+        [expected_source] if empty else [{"evidence_ref": "S1", "url": source.url}]
     )
     persisted = next(
         item.payload["result"]

@@ -93,9 +93,12 @@ async def test_citation_allowlist_and_rejection_ids_are_recorded_without_draft_c
     messages, tools = backend.calls[-1]
     assert [m.role for m in messages[-2:]] == ["assistant", "user"]
     correction = messages[-1].content
-    allowlist = json.loads(correction.split("Allowed source_ref_ids:\n", 1)[1].splitlines()[0])
-    assert allowlist == [allowed]
-    assert "do not shorten, transform, infer, or invent" in correction
+    allowlist = json.loads(
+        correction.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]
+    )
+    assert allowlist == ["S1"]
+    assert allowed not in correction
+    assert "Do not use source_id, target_ref, document_id" in correction
     assert tools == builder.freeze().model_definitions()
     timeline = store.timeline(session)
     assert [item.payload["content"] for item in timeline if item.kind == "user_message"] == [prompt]
@@ -1070,12 +1073,13 @@ async def test_citation_allowlist_is_rebuilt_from_sources_visible_after_budget_r
 
     allowlist = json.loads(
         correction_request.content.split(
-            "Allowed source_ref_ids:\n",
+            "Allowed evidence_ref aliases:\n",
             1,
         )[1].splitlines()[0]
     )
 
-    assert allowlist == [allowed]
+    assert allowlist == ["S1"]
+    assert allowed not in correction_request.content
     assert dropped not in correction_request.content
     assert invented not in correction_request.content
     assert _messages_bytes(correction_messages) <= MAX_CONVERSATION_BYTES

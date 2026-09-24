@@ -326,10 +326,13 @@ class OpenAICompatibleBackend(ModelBackend):
                     "OpenAI-compatible model completed without assistant content or tool calls.",
                     kind=ModelBackendErrorKind.EMPTY_TURN,
                 )
-            citations = citation_source_ref_ids_from_content(content)
+            citation_refs = citation_source_ref_ids_from_content(content)
             assistant = None
             if content:
-                assistant = AssistantMessage(content=content, citation_source_ref_ids=citations)
+                assistant = AssistantMessage(
+                    content=content,
+                    citation_evidence_refs=citation_refs,
+                )
             return ModelTurn(assistant=assistant, tool_calls=tuple(tool_calls))
         except (TypeError, ValueError, json.JSONDecodeError) as error:
             raise ModelBackendError(

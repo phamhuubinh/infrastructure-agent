@@ -109,9 +109,12 @@ class CanonicalModel(BaseModel):
 
 class AssistantMessage(CanonicalModel):
     content: str = ""
-    # These are presentation references, not document IDs supplied by the model.
-    # Orion validates them against SourceRef values actually returned by tools.
+    # Canonical presentation references populated only after Orion resolves the
+    # provider/model-facing evidence aliases.
     citation_source_ref_ids: tuple[str, ...] = ()
+    # Raw request-local aliases parsed at the provider boundary. These are
+    # ephemeral and must never be persisted as canonical source identity.
+    citation_evidence_refs: tuple[str, ...] = ()
 
 
 class ModelToolCall(CanonicalModel):
@@ -314,13 +317,24 @@ _SOURCE_CITATION_PREFIX = "[[source:"
 
 
 def citation_source_ref_ids_from_content(content: str) -> tuple[str, ...]:
-    """Extract source reference IDs from the citation markers accepted by Orion."""
+    """Extract raw citation reference tokens from markers accepted by Orion."""
     return tuple(_SOURCE_CITATION_PATTERN.findall(content))
 
 
 def strip_source_citation_markers(content: str) -> str:
     """Remove only citation markers recognized by Orion, preserving the surrounding draft."""
     return _SOURCE_CITATION_PATTERN.sub("", content)
+
+
+def replace_source_citation_ref_ids(content: str, replacements: Mapping[str, str]) -> str:
+    """Replace recognized citation reference tokens without rewriting ordinary prose."""
+
+    def replace(match: re.Match[str]) -> str:
+        reference = match.group(1)
+        replacement = replacements.get(reference)
+        return match.group(0) if replacement is None else f"[[source:{replacement}]]"
+
+    return _SOURCE_CITATION_PATTERN.sub(replace, content)
 
 
 def has_invalid_source_citation_marker(content: str) -> bool:

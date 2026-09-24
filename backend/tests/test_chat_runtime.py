@@ -338,7 +338,8 @@ async def test_adapter_parsed_whitespace_citation_is_rejected_after_one_correcti
 ) -> None:  # type: ignore[no-untyped-def]
     turn = OpenAICompatibleBackend._build_turn(["Unsupported citation. [[source: none]]"], {})
     assert turn.assistant is not None
-    assert turn.assistant.citation_source_ref_ids == ("none",)
+    assert turn.assistant.citation_source_ref_ids == ()
+    assert turn.assistant.citation_evidence_refs == ("none",)
     backend = ScriptedBackend([turn, turn])
     session_id = store.create_session()
 
@@ -541,7 +542,9 @@ async def test_regenerated_unavailable_citation_remains_a_strict_failure_with_sa
     assert correction_drafts[0].content == "Direct answer. "
     assert correction_drafts[0].citation_source_ref_ids == ()
     correction = backend.calls[1][0][-1].content
-    assert json.loads(correction.split("Allowed source_ref_ids:\n", 1)[1].splitlines()[0]) == []
+    assert (
+        json.loads(correction.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]) == []
+    )
     timeline = store.timeline(session_id)
     assert [item.kind for item in timeline] == ["user_message", "runtime_notice"]
     assert timeline[-1].payload == {
@@ -791,10 +794,11 @@ def test_context_builder_explains_source_less_tool_results_cannot_be_cited(
         instructions
     )
     assert "asks for citation, source, or attribution" in instructions
-    assert "MUST include exact [[source:<source_ref_id>]] markers" in instructions
-    assert "exactly from a visible ToolResult.sources entry" in instructions
-    assert "sources=[], emit no [[source:...]] marker" in instructions
-    assert "Never invent, guess, transform, or reuse an ID" in instructions
+    assert "include exact [[source:<evidence_ref>]]" in instructions
+    assert "Copy each evidence_ref exactly as shown" in instructions
+    assert "If no evidence_ref is visible, emit no source marker" in instructions
+    assert "Never use source_id, target_ref, URL, or source_ref_id" in instructions
+    assert "never invent or transform one" in instructions
     assert "For unresolved requests" in instructions
     assert "registered tools" in instructions
     assert "do not ask the user to invoke Orion control tools" in instructions
@@ -1148,7 +1152,10 @@ async def test_missing_requested_citation_gets_one_correction(
         assert "citation requirements" in messages[-1].content
         assert tools
         assert all(exposed == tools for _, exposed in backend.calls)
-        assert source.source_ref_id in "".join(m.content for m in messages if m.role == "tool")
+        tool_content = "".join(m.content for m in messages if m.role == "tool")
+        assert source.source_ref_id not in tool_content
+        assert '"evidence_ref":"S1"' in tool_content
+        assert "source_ref_id" not in tool_content
         assert all(
             item.payload.get("content") != draft
             for item in store.timeline(session_id)
@@ -1171,6 +1178,128 @@ async def test_missing_requested_citation_gets_one_correction(
         following = await chat.submit(session_id, "Give me a brief summary.")
         assert following.assistant_content == "A brief summary."
         assert len(backend.calls) == 4
+
+
+@pytest.mark.anyio
+async def test_model_evidence_alias_resolves_to_canonical_citation_before_persistence(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    canonical = "5b30120f-f311-5b1f-a6a4-7076537e9e65"
+    source = SourceRef(
+        source_ref_id=canonical,
+        source_kind="grafana",
+        source_id="grafana",
+        label="Grafana",
+    )
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="grafana.alert.list",
+            description="List Grafana alerts.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="grafana.alert.list",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"alerts": []},
+            sources=(source,),
+        ),
+    )
+    provider_turn = OpenAICompatibleBackend._build_turn(
+        ["No Grafana alerts are firing. [[source:S1]]"], {}
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alerts",
+                        tool_name="grafana.alert.list",
+                        arguments={},
+                    ),
+                )
+            ),
+            provider_turn,
+        ]
+    )
+    session_id = store.create_session()
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        session_id, "List Grafana alerts and cite the source."
+    )
+
+    assert outcome.assistant_content == f"No Grafana alerts are firing. [[source:{canonical}]]"
+    tool_message = next(message for message in backend.calls[1][0] if message.role == "tool")
+    assert canonical not in tool_message.content
+    assert '"evidence_ref":"S1"' in tool_message.content
+    assert '"source_id":"grafana"' in tool_message.content
+    assistant = store.timeline(session_id)[-1]
+    assert assistant.payload["citation_source_ref_ids"] == [canonical]
+    assert assistant.payload["content"] == outcome.assistant_content
+
+
+@pytest.mark.anyio
+async def test_model_source_id_is_not_accepted_as_citation_alias(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    canonical = "5b30120f-f311-5b1f-a6a4-7076537e9e65"
+    source = SourceRef(
+        source_ref_id=canonical,
+        source_kind="grafana",
+        source_id="grafana",
+        label="Grafana",
+    )
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="grafana.alert.list",
+            description="List Grafana alerts.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="grafana.alert.list",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"alerts": []},
+            sources=(source,),
+        ),
+    )
+    bad = OpenAICompatibleBackend._build_turn(
+        ["No Grafana alerts are firing. [[source:grafana]]"], {}
+    )
+    repaired = OpenAICompatibleBackend._build_turn(
+        ["No Grafana alerts are firing. [[source:S1]]"], {}
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="alerts",
+                        tool_name="grafana.alert.list",
+                        arguments={},
+                    ),
+                )
+            ),
+            bad,
+            repaired,
+        ]
+    )
+    session_id = store.create_session()
+    outcome = await runtime(store, backend, builder.freeze()).submit(
+        session_id, "List Grafana alerts and cite the source."
+    )
+
+    assert len(backend.calls) == 3
+    assert outcome.assistant_content == f"No Grafana alerts are firing. [[source:{canonical}]]"
+    correction = backend.calls[-1][0][-1]
+    assert correction.role == "user"
+    assert "Allowed evidence_ref aliases" in correction.content
+    assert "grafana" not in json.loads(
+        correction.content.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]
+    )
 
 
 @pytest.mark.anyio

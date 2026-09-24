@@ -460,7 +460,8 @@ def test_adapter_normalizes_insignificant_citation_marker_whitespace(marker: str
 
     assert turn.assistant is not None
     assert turn.assistant.content == f"Answer. {marker}"
-    assert turn.assistant.citation_source_ref_ids == ("abc",)
+    assert turn.assistant.citation_source_ref_ids == ()
+    assert turn.assistant.citation_evidence_refs == ("abc",)
 
 
 @pytest.mark.anyio
