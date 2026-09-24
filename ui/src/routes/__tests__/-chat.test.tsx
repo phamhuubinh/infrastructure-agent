@@ -612,8 +612,9 @@ describe("M1 Chat integration", () => {
         created_at: "2026-08-25T00:00:02Z",
         kind: "assistant_message",
         payload: {
-          content: "The policy requires review. [[source:source-1]] [[source:invented-source]]",
-          citation_source_ref_ids: ["source-1", "invented-source"],
+          content:
+            "The policy requires review. [[source:source-1]] [[source:source-1]] [[source:invented-source]]",
+          citation_source_ref_ids: ["source-1", "source-1", "invented-source"],
         },
         call_id: null,
         tool_name: null,
@@ -649,7 +650,9 @@ describe("M1 Chat integration", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     renderChat();
-    const source = (await screen.findAllByRole("button", { name: "Open source security.md" }))[0];
+    const sources = await screen.findAllByRole("button", { name: "Open source security.md" });
+    expect(sources).toHaveLength(1);
+    const source = sources[0];
     expect(screen.queryByText(/invented-source/)).toBeNull();
     fireEvent.click(source);
     fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));

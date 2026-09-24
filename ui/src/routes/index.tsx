@@ -342,9 +342,13 @@ function CitationCards({
   onOpenSource: (sourceRefId: string) => void;
 }) {
   const byId = new Map(sources.map((source) => [source.sourceRefId, source]));
+  const seen = new Set<string>();
   const cited = sourceRefIds.flatMap((sourceRefId) => {
+    if (seen.has(sourceRefId)) return [];
     const source = byId.get(sourceRefId);
-    return source ? [source] : [];
+    if (!source) return [];
+    seen.add(sourceRefId);
+    return [source];
   });
   if (cited.length === 0) return null;
   return (
