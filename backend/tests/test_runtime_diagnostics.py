@@ -91,14 +91,13 @@ async def test_citation_allowlist_and_rejection_ids_are_recorded_without_draft_c
 
     assert len(backend.calls) == 3
     messages, tools = backend.calls[-1]
-    assert [m.role for m in messages[-2:]] == ["assistant", "user"]
+    assert messages[-1].role == "user"
     correction = messages[-1].content
-    allowlist = json.loads(
-        correction.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]
-    )
-    assert allowlist == ["S1"]
+    assert "Allowed evidence_ref aliases" not in correction
+    assert "exact evidence_ref aliases that are visible" in correction
     assert allowed not in correction
-    assert "Do not use source_id, target_ref, document_id" in correction
+    assert rejected_text not in "\n".join(message.content for message in messages)
+    assert "Never use source_id, target_ref, document_id" in correction
     assert tools == builder.freeze().model_definitions()
     timeline = store.timeline(session)
     assert [item.payload["content"] for item in timeline if item.kind == "user_message"] == [prompt]
@@ -938,7 +937,7 @@ async def test_model_stream_diagnostics_keep_record_cardinality_bounded(store) -
 
 
 @pytest.mark.anyio
-async def test_citation_allowlist_is_rebuilt_from_sources_visible_after_budget_reservation(
+async def test_citation_correction_uses_one_context_build_and_filters_unbacked_sources(
     store, monkeypatch
 ) -> None:  # type: ignore[no-untyped-def]
     allowed = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -1032,18 +1031,12 @@ async def test_citation_allowlist_is_rebuilt_from_sources_visible_after_budget_r
 
         correction_build_count += 1
 
-        if correction_build_count == 1:
-            # First correction-context build still has both sources.
-            return replace(
-                result,
-                visible_sources=(source_allowed, source_dropped),
-            )
-
-        # After reserving bytes for the explicit allowlist, source B no
-        # longer fits. The final allowlist must therefore contain only A.
+        # The runtime sees an extra canonical source here, but there is no
+        # projected ToolResult evidence for it. Citation eligibility must
+        # therefore keep only source_allowed without a second context rebuild.
         return replace(
             result,
-            visible_sources=(source_allowed,),
+            visible_sources=(source_allowed, source_dropped),
         )
 
     monkeypatch.setattr(
@@ -1064,21 +1057,14 @@ async def test_citation_allowlist_is_rebuilt_from_sources_visible_after_budget_r
 
     assert outcome.assistant_content == f"Example alert. [[source:{allowed}]]"
     assert len(backend.calls) == 3
-    assert correction_build_count == 2
+    assert correction_build_count == 1
 
     correction_messages, _ = backend.calls[-1]
     correction_request = correction_messages[-1]
 
     assert correction_request.role == "user"
-
-    allowlist = json.loads(
-        correction_request.content.split(
-            "Allowed evidence_ref aliases:\n",
-            1,
-        )[1].splitlines()[0]
-    )
-
-    assert allowlist == ["S1"]
+    assert "Allowed evidence_ref aliases" not in correction_request.content
+    assert "exact evidence_ref aliases that are visible" in correction_request.content
     assert allowed not in correction_request.content
     assert dropped not in correction_request.content
     assert invented not in correction_request.content

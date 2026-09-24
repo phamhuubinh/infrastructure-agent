@@ -6,6 +6,11 @@ import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from orion.chat.citation_aliases import (
+    build_citation_aliases,
+    citation_eligible_sources,
+    model_visible_citation_messages,
+)
 from orion.chat.model_context import project_tool_result
 from orion.contracts import ContextMessage, ModelToolCall, SourceRef, TimelineItem, ToolResult
 from orion.persistence.sqlite import SQLiteStore
@@ -153,6 +158,7 @@ class ContextBuilder:
         attachment_ids: tuple[str, ...] = (),
         maximum_bytes: int = MAX_CONVERSATION_BYTES,
         strict_total_budget: bool = False,
+        model_visible_citation_sizing: bool = False,
         runtime_instructions: str = "",
     ) -> BuiltContext:
         messages: list[ContextMessage] = [
@@ -243,12 +249,19 @@ class ContextBuilder:
         compacted_current_blocks = 0
 
         if maximum_bytes >= MAX_CONVERSATION_BYTES and not strict_total_budget:
-            current_budget = self._fair_current_result_budget(timeline)
+            current_budget = self._fair_current_result_budget(
+                timeline,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
             budgets = self._tool_result_budgets(timeline, current_budget)
             blocks, invalid_pairings = self._blocks(timeline, budgets)
             turns, ungrouped_blocks = self._turns(blocks)
             raw_budget = MAX_CONVERSATION_BYTES
-            selected, omitted_turns = self._bounded_turns(turns, raw_budget)
+            selected, omitted_turns = self._bounded_turns(
+                turns,
+                raw_budget,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
         else:
             prefix_bytes = _messages_bytes(tuple(messages))
 
@@ -270,13 +283,25 @@ class ContextBuilder:
                 0,
                 maximum_bytes - prefix_bytes - omission_reserve,
             )
-            current_budget = self._fair_current_result_budget(timeline, raw_budget)
+            current_budget = self._fair_current_result_budget(
+                timeline,
+                raw_budget,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
             budgets = self._tool_result_budgets(timeline, current_budget)
             blocks, invalid_pairings = self._blocks(timeline, budgets)
             turns, ungrouped_blocks = self._turns(blocks)
             if strict_total_budget:
-                turns, compacted_current_blocks = self._compact_current_turn(turns, raw_budget)
-            selected, omitted_turns = self._bounded_turns(turns, raw_budget)
+                turns, compacted_current_blocks = self._compact_current_turn(
+                    turns,
+                    raw_budget,
+                    model_visible_citation_sizing=model_visible_citation_sizing,
+                )
+            selected, omitted_turns = self._bounded_turns(
+                turns,
+                raw_budget,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
 
         omitted_blocks = invalid_pairings + ungrouped_blocks + compacted_current_blocks
         if omitted_turns or omitted_blocks or omitted_timeline_turns:
@@ -308,7 +333,11 @@ class ContextBuilder:
         )
 
     def _fair_current_result_budget(
-        self, timeline: list[TimelineItem], maximum_bytes: int = MAX_CONVERSATION_BYTES
+        self,
+        timeline: list[TimelineItem],
+        maximum_bytes: int = MAX_CONVERSATION_BYTES,
+        *,
+        model_visible_citation_sizing: bool = False,
     ) -> int:
         """Find one fair per-result cap whose complete current turn fits the byte proxy.
 
@@ -325,21 +354,53 @@ class ContextBuilder:
             return CURRENT_TOOL_RESULT_BYTES
         blocks, _ = self._blocks(current_timeline, self._tool_result_budgets(current_timeline, 0))
         turns, _ = self._turns(blocks)
-        return self._fair_block_budget(turns[-1].blocks, maximum_bytes) if turns else 0
+        return (
+            self._fair_block_budget(
+                turns[-1].blocks,
+                maximum_bytes,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
+            if turns
+            else 0
+        )
 
     @classmethod
-    def _fair_block_budget(cls, blocks: tuple[_Block, ...], maximum_bytes: int) -> int:
+    def _fair_block_budget(
+        cls,
+        blocks: tuple[_Block, ...],
+        maximum_bytes: int,
+        *,
+        model_visible_citation_sizing: bool = False,
+    ) -> int:
         low, high, selected = 0, CURRENT_TOOL_RESULT_BYTES, 0
         while low <= high:
             candidate = (low + high) // 2
             projected = _ConversationTurn(cls._project_blocks(blocks, candidate))
-            current_size = _messages_bytes(projected.messages)
+            current_size = cls._turns_messages_bytes(
+                (projected,),
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
             if current_size <= maximum_bytes:
                 selected = candidate
                 low = candidate + 1
             else:
                 high = candidate - 1
         return selected
+
+    @staticmethod
+    def _turns_messages_bytes(
+        turns: tuple[_ConversationTurn, ...],
+        *,
+        model_visible_citation_sizing: bool,
+    ) -> int:
+        messages = tuple(message for turn in turns for message in turn.messages)
+        if not model_visible_citation_sizing:
+            return _messages_bytes(messages)
+
+        sources = tuple(source for turn in turns for source in turn.sources)
+        citation_sources = citation_eligible_sources(messages, sources)
+        aliases = build_citation_aliases(citation_sources)
+        return _messages_bytes(model_visible_citation_messages(messages, aliases))
 
     @staticmethod
     def _project_blocks(blocks: tuple[_Block, ...], budget: int) -> tuple[_Block, ...]:
@@ -533,7 +594,11 @@ class ContextBuilder:
 
     @classmethod
     def _compact_current_turn(
-        cls, turns: list[_ConversationTurn], maximum_bytes: int
+        cls,
+        turns: list[_ConversationTurn],
+        maximum_bytes: int,
+        *,
+        model_visible_citation_sizing: bool = False,
     ) -> tuple[list[_ConversationTurn], int]:
         """Select complete blocks, then redistribute bytes from canonical results.
 
@@ -555,7 +620,10 @@ class ContextBuilder:
         # Non-null data may contain only document metadata after segments/text
         # were removed. Reconsider the allocation whenever sourced evidence is
         # reduced, so discovery/retry history cannot take its standalone budget.
-        if _messages_bytes(current.messages) <= maximum_bytes and all(
+        if cls._turns_messages_bytes(
+            (current,),
+            model_visible_citation_sizing=model_visible_citation_sizing,
+        ) <= maximum_bytes and all(
             data == canonical_evidence[call_id] for call_id, data in evidence.items()
         ):
             return turns, 0
@@ -565,9 +633,21 @@ class ContextBuilder:
 
         def fit(indices: set[int]) -> _ConversationTurn | None:
             blocks = tuple(current.blocks[index] for index in sorted(indices))
-            budget = cls._fair_block_budget(blocks, maximum_bytes)
+            budget = cls._fair_block_budget(
+                blocks,
+                maximum_bytes,
+                model_visible_citation_sizing=model_visible_citation_sizing,
+            )
             candidate = _ConversationTurn(cls._project_blocks(blocks, budget))
-            return candidate if _messages_bytes(candidate.messages) <= maximum_bytes else None
+            return (
+                candidate
+                if cls._turns_messages_bytes(
+                    (candidate,),
+                    model_visible_citation_sizing=model_visible_citation_sizing,
+                )
+                <= maximum_bytes
+                else None
+            )
 
         newest_first = list(range(len(current.blocks) - 1, 0, -1))
         evidence_indices = [
@@ -631,20 +711,28 @@ class ContextBuilder:
             and message.tool_call_id is not None
         }
 
-    @staticmethod
+    @classmethod
     def _bounded_turns(
-        turns: list[_ConversationTurn], maximum_bytes: int = MAX_CONVERSATION_BYTES
+        cls,
+        turns: list[_ConversationTurn],
+        maximum_bytes: int = MAX_CONVERSATION_BYTES,
+        *,
+        model_visible_citation_sizing: bool = False,
     ) -> tuple[tuple[_ConversationTurn, ...], int]:
         if not turns:
             return (), 0
         selected = [turns[-1]]
-        used = _messages_bytes(turns[-1].messages)
         for turn in reversed(turns[:-1]):
-            size = _messages_bytes(turn.messages)
-            if used + size > maximum_bytes:
+            candidate = (turn, *reversed(selected))
+            if (
+                cls._turns_messages_bytes(
+                    candidate,
+                    model_visible_citation_sizing=model_visible_citation_sizing,
+                )
+                > maximum_bytes
+            ):
                 continue
             selected.append(turn)
-            used += size
         selected.reverse()
         return tuple(selected), len(turns) - len(selected)
 

@@ -13,8 +13,8 @@ from functools import partial
 
 from orion.access import LocalAccessAdapter
 from orion.chat.citation_aliases import (
-    CitationAlias,
     build_citation_aliases,
+    citation_eligible_sources,
     model_visible_citation_messages,
     resolve_model_citation_aliases,
 )
@@ -50,7 +50,6 @@ from orion.contracts import (
     ToolResult,
     citations_are_visible,
     has_invalid_source_citation_marker,
-    strip_source_citation_markers,
 )
 from orion.models.backend import ModelBackend, ModelBackendError, ModelRequest, ModelSettings
 from orion.observability import ApplicationLog
@@ -229,35 +228,15 @@ _POST_OBSERVATION_INSTRUCTIONS = (
 )
 
 _CITATION_CORRECTION_REQUEST = (
-    "Re-answer the original user request using the currently visible evidence. "
-    "Preserve all requirements from the original request, including requested "
-    "exact wording, scope, and format. Meet the citation requirements using only exact "
-    "request-local evidence_ref aliases. "
-    "When the user requested sources and visible evidence is available, include exact "
-    "[[source:S1]]-style markers using the allowed aliases below. "
-    "If the currently visible evidence is "
-    "sufficient, answer directly. If required evidence is missing and an appropriate safe tool "
-    "is available, use it. Do not invent content or citations."
+    "Re-answer the original user request using the currently visible ToolResult evidence. "
+    "Preserve all requirements from the original request, including requested exact wording, "
+    "scope, and format. Meet citation requirements using only exact evidence_ref aliases that "
+    "are visible in the current ToolResult messages. When the user requested sources and an "
+    "evidence_ref is visible, include exact [[source:<evidence_ref>]] markers by copying those "
+    "aliases exactly. Never use source_id, target_ref, document_id, segment_id, URL, or "
+    "source_ref_id as a citation token. If required evidence is missing and an appropriate safe "
+    "tool is available, use it. Do not invent content or citations."
 )
-
-
-def _citation_correction_request(citation_aliases: tuple[CitationAlias, ...]) -> str:
-    allowed = [item.alias for item in citation_aliases]
-    allowed_markers = [f"[[source:{alias}]]" for alias in allowed]
-    return (
-        _CITATION_CORRECTION_REQUEST
-        + "\nUse citations only from this exact allowlist. Allowed evidence_ref aliases:\n"
-        + json.dumps(allowed, ensure_ascii=False)
-        + "\nModel citation markers you may copy exactly:\n"
-        + json.dumps(allowed_markers, ensure_ascii=False)
-        + "\nCopy a model citation marker exactly as shown. "
-        "Do not change brackets, punctuation, spacing, prefix, or evidence_ref. "
-        "Do not use source_id, target_ref, document_id, segment_id, URL, or source_ref_id as "
-        "the citation token. "
-        "If none of these sources supports a claim, do not fabricate a citation. "
-        "An empty list permits no source citation."
-    )
-
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
 # recovery obligation. This bound is not a tool-call quota;
@@ -589,7 +568,13 @@ class ChatRuntime:
                                 observed_source_ref_ids,
                             )
                         try:
-                            self._validate_citations(turn, scope, visible_sources, content)
+                            self._validate_citations(
+                                turn,
+                                scope,
+                                visible_sources,
+                                content,
+                                citation_obligation_active=citation_correction_attempted,
+                            )
                         except CitationValidationFailed as error:
                             citation_failure_diagnostic = self._record_citation_failure(
                                 request_id,
@@ -642,7 +627,13 @@ class ChatRuntime:
                     citation_correction_required = False
                     if not turn.tool_calls and not recovery_abandoned:
                         try:
-                            self._validate_citations(turn, scope, visible_sources, content)
+                            self._validate_citations(
+                                turn,
+                                scope,
+                                visible_sources,
+                                content,
+                                citation_obligation_active=citation_correction_attempted,
+                            )
                         except CitationValidationFailed as error:
                             citation_failure_diagnostic = self._record_citation_failure(
                                 request_id,
@@ -1066,17 +1057,11 @@ class ChatRuntime:
             if sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
             else "",
         ]
-        # Request-local feedback starts a new generation after the assistant draft.
-        # Neither message is persisted as a user turn or changes the request scope.
+        # Citation correction is request-local feedback, not conversation history.
+        # Do not replay the rejected draft: it is not evidence and must not displace
+        # the ToolResult evidence required to repair the answer.
         citation_correction_messages = (
-            (
-                ContextMessage(
-                    role="assistant",
-                    content=strip_source_citation_markers(citation_correction.content),
-                    citation_source_ref_ids=(),
-                ),
-                ContextMessage(role="user", content=_citation_correction_request(())),
-            )
+            (ContextMessage(role="user", content=_CITATION_CORRECTION_REQUEST),)
             if citation_correction is not None
             else ()
         )
@@ -1085,41 +1070,35 @@ class ChatRuntime:
         model_tools = (
             () if recovery_exhausted or terminal_final else self._registry.model_definitions()
         )
-        # Forced recovery drafts are already in history. Request-only feedback
-        # follows them to start a fresh generation, with its bytes reserved below.
         extra_messages = citation_correction_messages + (
             (ContextMessage(role="user", content=_RECOVERY_CONTINUATION_REQUEST),)
             if recovery_decision
             else ()
         )
         context_budget = _context_budget_for_turn(extra_messages)
-        while True:
-            context = self._context_builder.build_with_metadata(
-                session_id,
-                scope.project_id,
-                project_id_is_resolved=True,
-                attachment_ids=scope.attachment_ids,
-                maximum_bytes=context_budget,
-                strict_total_budget=True,
-                runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
-            )
-            citation_aliases = build_citation_aliases(context.visible_sources)
-            if citation_correction is None:
-                break
-            # The citation draft/user pair precedes any other continuation.
-            # Derive the allowlist from THIS context, not the rejected turn's
-            # sources, which may have been dropped to make room for feedback.
-            extra_messages = (
-                extra_messages[0],
-                ContextMessage(role="user", content=_citation_correction_request(citation_aliases)),
-                *extra_messages[2:],
-            )
-            revised_budget = _context_budget_for_turn(extra_messages)
-            if revised_budget >= context_budget:
-                break
-            # Reservations only grow: dropping a source cannot oscillate between
-            # a shorter allowlist/larger context and a longer list/smaller context.
-            context_budget = revised_budget
+        context = self._context_builder.build_with_metadata(
+            session_id,
+            scope.project_id,
+            project_id_is_resolved=True,
+            attachment_ids=scope.attachment_ids,
+            maximum_bytes=context_budget,
+            strict_total_budget=True,
+            model_visible_citation_sizing=True,
+            runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
+        )
+        citation_sources = citation_eligible_sources(
+            context.messages,
+            context.visible_sources,
+        )
+        current_citation_sources = citation_eligible_sources(
+            context.messages,
+            context.current_visible_sources,
+        )
+        historical_citation_sources = citation_eligible_sources(
+            context.messages,
+            context.historical_visible_sources,
+        )
+        citation_aliases = build_citation_aliases(citation_sources)
         model_context_messages = model_visible_citation_messages(context.messages, citation_aliases)
         model_messages = (*model_context_messages, *extra_messages)
         system_messages = tuple(message for message in model_messages if message.role == "system")
@@ -1155,7 +1134,7 @@ class ChatRuntime:
                 "model_input": model_input_snapshot(
                     model_messages,
                     tuple(tool.name for tool in model_tools),
-                    tuple(source.source_ref_id for source in context.visible_sources),
+                    tuple(source.source_ref_id for source in citation_sources),
                     _model_request_proxy_bytes(model_messages, model_tools),
                     context_bytes=_messages_bytes(model_messages),
                     tool_schema_bytes=_tool_definitions_bytes(model_tools),
@@ -1165,10 +1144,10 @@ class ChatRuntime:
                         if message.role == "tool"
                     ),
                     current_visible_source_ids=tuple(
-                        source.source_ref_id for source in context.current_visible_sources
+                        source.source_ref_id for source in current_citation_sources
                     ),
                     historical_visible_source_ids=tuple(
-                        source.source_ref_id for source in context.historical_visible_sources
+                        source.source_ref_id for source in historical_citation_sources
                     ),
                 ),
             }
@@ -1203,7 +1182,7 @@ class ChatRuntime:
         if completed_turn is None:
             raise ModelBackendError("Model stream ended without a completed turn.")
         completed_turn = resolve_model_citation_aliases(completed_turn, citation_aliases)
-        return completed_turn, completed_usage, context.visible_sources
+        return completed_turn, completed_usage, citation_sources
 
     def _runtime_scope(self, session_id: str) -> RuntimeScope:
         identity = self._store.session_identity(session_id)
@@ -1455,6 +1434,8 @@ class ChatRuntime:
         scope: RuntimeScope,
         visible_sources: tuple[SourceRef, ...],
         request_content: str,
+        *,
+        citation_obligation_active: bool = False,
     ) -> None:
         if turn.assistant is None:
             return
@@ -1469,7 +1450,7 @@ class ChatRuntime:
             )
         if not turn.assistant.citation_source_ref_ids:
             citation_required = explicitly_requests_citation(request_content)
-            if citation_required and visible_sources:
+            if citation_required and (visible_sources or citation_obligation_active):
                 raise CitationValidationFailed(
                     "Assistant omitted a required source citation.", error_kind="missing_citation"
                 )

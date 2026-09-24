@@ -4,6 +4,7 @@ import json
 
 from orion.chat.citation_aliases import (
     build_citation_aliases,
+    citation_eligible_sources,
     model_visible_citation_messages,
 )
 from orion.chat.model_context import project_tool_result
@@ -76,3 +77,63 @@ def test_model_projection_rewrites_only_internet_owned_data_source_ref() -> None
     assert projected["data"]["evidence_ref"] == "S1"
     assert "source_ref_id" not in projected["data"]
     assert projected["sources"][0]["evidence_ref"] == "S1"
+
+
+def test_internet_search_only_retained_rows_are_citation_eligible() -> None:
+    first = SourceRef(
+        source_ref_id="internet-source-a",
+        source_kind="internet",
+        source_id="https://example.test/a",
+        url="https://example.test/a",
+        label="A",
+    )
+    second = SourceRef(
+        source_ref_id="internet-source-b",
+        source_kind="internet",
+        source_id="https://example.test/b",
+        url="https://example.test/b",
+        label="B",
+    )
+    payload = {
+        "call_id": "search",
+        "tool_name": "internet.search",
+        "status": "success",
+        "error": None,
+        "data": {
+            "results": [
+                {
+                    "source_ref_id": first.source_ref_id,
+                    "url": first.url,
+                    "title": first.label,
+                    "snippet": "retained evidence",
+                }
+            ]
+        },
+        "sources": [
+            first.model_dump(mode="json"),
+            second.model_dump(mode="json"),
+        ],
+        "_orion_provenance": {
+            "trust": "untrusted_external_content",
+            "tool_name": "internet.search",
+            "current_request": True,
+            "source_refs": [first.source_ref_id, second.source_ref_id],
+        },
+    }
+    message = ContextMessage(
+        role="tool",
+        tool_call_id="search",
+        tool_name="internet.search",
+        content=json.dumps(payload),
+    )
+
+    eligible = citation_eligible_sources((message,), (first, second))
+    aliases = build_citation_aliases(eligible)
+    projected = json.loads(model_visible_citation_messages((message,), aliases)[0].content)
+
+    assert eligible == (first,)
+    assert projected["data"]["results"][0]["evidence_ref"] == "S1"
+    assert len(projected["sources"]) == 1
+    assert projected["sources"][0]["evidence_ref"] == "S1"
+    assert "source_ref_id" not in projected["sources"][0]
+    assert projected["_orion_provenance"]["evidence_refs"] == ["S1"]

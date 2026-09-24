@@ -450,25 +450,19 @@ async def test_terminal_stale_citation_metadata_is_regenerated_before_persistenc
     assert outcome.assistant_content == clean
     assert len(backend.calls) == 2
     correction_messages = backend.calls[1][0]
-    draft_index = next(
-        index
-        for index, message in enumerate(correction_messages)
-        if message.role == "assistant" and message.content == correctable_draft
-    )
-    correction_draft = correction_messages[draft_index]
-    assert "[[source:" not in correction_draft.content
-    assert correction_draft.citation_source_ref_ids == ()
-    correction_index = next(
-        index
-        for index, message in enumerate(correction_messages)
-        if message.role == "user" and "Re-answer the original user request" in message.content
-    )
-    assert correction_index == draft_index + 1 == len(correction_messages) - 1
+    correction = correction_messages[-1]
+    assert correction.role == "user"
+    assert "Re-answer the original user request" in correction.content
     assert (
         "If required evidence is missing and an appropriate safe tool is available, use it."
-        in correction_messages[correction_index].content
+        in correction.content
     )
-    assert "Re-answer the original user request" not in correction_messages[0].content
+    assert all(
+        message.content != correctable_draft
+        for message in correction_messages
+        if message.role == "assistant"
+    )
+    assert "Allowed evidence_ref aliases" not in correction.content
     users = [item for item in store.timeline(session_id) if item.kind == "user_message"]
     assert [item.payload["content"] for item in users] == [prompt]
     assistants = [item for item in store.timeline(session_id) if item.kind == "assistant_message"]
@@ -533,18 +527,15 @@ async def test_regenerated_unavailable_citation_remains_a_strict_failure_with_sa
         await runtime(store, backend).submit(session_id, "Answer without sources")
 
     assert len(backend.calls) == 2
-    correction_drafts = [
-        message
-        for message in backend.calls[1][0]
-        if message.role == "assistant" and "Direct answer." in message.content
-    ]
-    assert len(correction_drafts) == 1
-    assert correction_drafts[0].content == "Direct answer. "
-    assert correction_drafts[0].citation_source_ref_ids == ()
-    correction = backend.calls[1][0][-1].content
-    assert (
-        json.loads(correction.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]) == []
+    correction_messages = backend.calls[1][0]
+    assert all(
+        "Direct answer." not in message.content
+        for message in correction_messages
+        if message.role == "assistant"
     )
+    correction = correction_messages[-1].content
+    assert "Allowed evidence_ref aliases" not in correction
+    assert "exact evidence_ref aliases that are visible" in correction
     timeline = store.timeline(session_id)
     assert [item.kind for item in timeline] == ["user_message", "runtime_notice"]
     assert timeline[-1].payload == {
@@ -1146,10 +1137,9 @@ async def test_missing_requested_citation_gets_one_correction(
     assert len(backend.calls) == (3 if needs_correction else 2)
     if needs_correction:
         messages, tools = backend.calls[-1]
-        assert messages[-2].role == "assistant"
-        assert messages[-2].content == draft
         assert messages[-1].role == "user"
         assert "citation requirements" in messages[-1].content
+        assert all(message.content != draft for message in messages)
         assert tools
         assert all(exposed == tools for _, exposed in backend.calls)
         tool_content = "".join(m.content for m in messages if m.role == "tool")
@@ -1296,10 +1286,9 @@ async def test_model_source_id_is_not_accepted_as_citation_alias(
     assert outcome.assistant_content == f"No Grafana alerts are firing. [[source:{canonical}]]"
     correction = backend.calls[-1][0][-1]
     assert correction.role == "user"
-    assert "Allowed evidence_ref aliases" in correction.content
-    assert "grafana" not in json.loads(
-        correction.content.split("Allowed evidence_ref aliases:\n", 1)[1].splitlines()[0]
-    )
+    assert "Allowed evidence_ref aliases" not in correction.content
+    assert "exact evidence_ref aliases that are visible" in correction.content
+    assert "grafana" not in correction.content
 
 
 @pytest.mark.anyio

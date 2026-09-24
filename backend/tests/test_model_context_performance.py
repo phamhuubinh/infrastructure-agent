@@ -5,9 +5,21 @@ from datetime import UTC, datetime
 
 import pytest
 
-from orion.chat.context_builder import MAX_CONVERSATION_BYTES, ContextBuilder, _messages_bytes
+from orion.chat.citation_aliases import (
+    build_citation_aliases,
+    citation_eligible_sources,
+    model_visible_citation_messages,
+)
+from orion.chat.context_builder import (
+    MAX_CONVERSATION_BYTES,
+    ContextBuilder,
+    _Block,
+    _ConversationTurn,
+    _messages_bytes,
+)
 from orion.chat.model_context import project_tool_result
 from orion.contracts import (
+    ContextMessage,
     ModelToolCall,
     ReadProgress,
     SourceRef,
@@ -648,6 +660,61 @@ def test_strict_context_retains_eight_source_search_with_usable_evidence(
     ]
     assert _messages_bytes(context.messages) <= maximum_bytes
     assert store.timeline(session) == persisted
+
+
+def test_fair_budget_measures_final_alias_projection_for_source_heavy_result() -> None:
+    result = _internet_search_result()
+    call = ModelToolCall(
+        call_id=result.call_id,
+        tool_name=result.tool_name,
+        arguments={"query": "current Python release", "limit": 8},
+    )
+    blocks = (
+        _Block(
+            (
+                ContextMessage(
+                    role="user",
+                    content="Search for the current Python release and cite it.",
+                ),
+            ),
+            starts_user_turn=True,
+        ),
+        _Block(
+            (
+                ContextMessage(role="assistant", content="", tool_calls=(call,)),
+                ContextMessage(
+                    role="tool",
+                    content=project_tool_result(result, 0, current_request=True),
+                    tool_call_id=result.call_id,
+                    tool_name=result.tool_name,
+                ),
+            ),
+            sources=result.sources,
+            results=(result,),
+        ),
+    )
+    maximum_bytes = 3_500
+
+    canonical_budget = ContextBuilder._fair_block_budget(blocks, maximum_bytes)
+    model_visible_budget = ContextBuilder._fair_block_budget(
+        blocks,
+        maximum_bytes,
+        model_visible_citation_sizing=True,
+    )
+
+    assert model_visible_budget > canonical_budget
+
+    candidate = _ConversationTurn(ContextBuilder._project_blocks(blocks, model_visible_budget))
+    eligible = citation_eligible_sources(candidate.messages, candidate.sources)
+    aliases = build_citation_aliases(eligible)
+    projected = model_visible_citation_messages(candidate.messages, aliases)
+
+    assert eligible
+    assert _messages_bytes(projected) <= maximum_bytes
+    assert all(
+        source.source_ref_id not in "".join(message.content for message in projected)
+        for source in eligible
+    )
 
 
 def test_search_projection_compacts_source_metadata_before_discarding_evidence() -> None:

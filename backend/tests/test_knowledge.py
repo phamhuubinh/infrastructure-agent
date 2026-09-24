@@ -503,15 +503,14 @@ async def test_project_discovery_citation_correction_can_continue_to_exact_read(
     assert "ORION_QA_PROJECT_A_7711" in outcome.assistant_content
     assert len(backend.calls) == 6
     correction_messages, correction_tools = backend.calls[4]
-    correction_drafts = [
-        message
+    assert all(
+        "Unverified project answer." not in message.content
         for message in correction_messages
-        if message.role == "assistant" and "Unverified project answer." in message.content
-    ]
-    assert len(correction_drafts) == 1
-    assert correction_drafts[0].content == "Unverified project answer. "
-    assert correction_drafts[0].citation_source_ref_ids == ()
+        if message.role == "assistant"
+    )
     assert correction_messages[-1].role == "user"
+    assert correction_messages[-2].role == "tool"
+    assert correction_messages[-2].tool_name == "knowledge.list_documents"
     assert (
         "If required evidence is missing and an appropriate safe tool is available, use it."
         in correction_messages[-1].content

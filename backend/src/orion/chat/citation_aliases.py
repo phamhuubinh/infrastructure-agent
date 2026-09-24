@@ -24,6 +24,104 @@ class CitationAlias:
     source_ref_id: str
 
 
+def citation_eligible_sources(
+    messages: tuple[ContextMessage, ...],
+    sources: tuple[SourceRef, ...],
+) -> tuple[SourceRef, ...]:
+    """Return canonical sources whose evidence remains model-visible.
+
+    Canonical ToolResults may retain more SourceRefs than a compacted model projection
+    retains evidence rows for. A source can be cited only when the projected tool
+    message still carries evidence that can be correlated to that source.
+
+    Internet search and Knowledge retrieval are row-addressable, so only retained
+    result/segment rows are eligible. Other sourced ToolResults use their top-level
+    source list when non-null data remains visible. The canonical timeline is never
+    mutated.
+    """
+
+    if not sources:
+        return ()
+
+    sources_by_id = {source.source_ref_id: source for source in sources}
+    internet_sources_by_url = {
+        source.url: source.source_ref_id
+        for source in sources
+        if source.source_kind == "internet" and source.url
+    }
+    knowledge_sources_by_segment = {
+        (source.document_id, source.segment_id): source.source_ref_id
+        for source in sources
+        if source.source_kind in {"session", "project"}
+        and source.document_id is not None
+        and source.segment_id is not None
+    }
+    eligible: set[str] = set()
+
+    for message in messages:
+        if message.role != "tool":
+            continue
+        try:
+            payload = json.loads(message.content)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict) or payload.get("status") != "success":
+            continue
+
+        data = payload.get("data")
+        if data is None:
+            continue
+
+        tool_name = payload.get("tool_name")
+        if tool_name == "internet.search":
+            if not isinstance(data, dict):
+                continue
+            results = data.get("results")
+            if not isinstance(results, list):
+                continue
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                source_ref_id = result.get("source_ref_id")
+                if isinstance(source_ref_id, str) and source_ref_id in sources_by_id:
+                    eligible.add(source_ref_id)
+                    continue
+                url = result.get("url")
+                if isinstance(url, str):
+                    matched = internet_sources_by_url.get(url)
+                    if matched is not None:
+                        eligible.add(matched)
+            continue
+
+        if tool_name in {"knowledge.search", "knowledge.read"}:
+            if not isinstance(data, dict):
+                continue
+            segments = data.get("segments")
+            if not isinstance(segments, list):
+                continue
+            for segment in segments:
+                if not isinstance(segment, dict):
+                    continue
+                document = segment.get("document")
+                document_id = document.get("document_id") if isinstance(document, dict) else None
+                segment_id = segment.get("segment_id")
+                if isinstance(document_id, str) and isinstance(segment_id, str):
+                    matched = knowledge_sources_by_segment.get((document_id, segment_id))
+                    if matched is not None:
+                        eligible.add(matched)
+            continue
+
+        model_sources = payload.get("sources")
+        if not isinstance(model_sources, list):
+            continue
+        for source in model_sources:
+            source_ref_id = source.get("source_ref_id") if isinstance(source, dict) else None
+            if isinstance(source_ref_id, str) and source_ref_id in sources_by_id:
+                eligible.add(source_ref_id)
+
+    return tuple(source for source in sources if source.source_ref_id in eligible)
+
+
 def build_citation_aliases(sources: tuple[SourceRef, ...]) -> tuple[CitationAlias, ...]:
     """Assign dense S1..Sn aliases in first-visible-source order."""
 
@@ -46,10 +144,13 @@ def model_visible_citation_messages(
     """Hide canonical citation IDs at the model boundary.
 
     Orion-owned source/provenance fields are projected to request-local aliases.
-    Arbitrary ToolResult.data is preserved verbatim except for the Internet
-    runtime's own duplicated source-reference correlation fields.
-    Persisted assistant citation markers are removed from model history because
-    prior assistant prose is continuity, not evidence.
+    Sources without a surviving evidence alias are omitted from the model-visible
+    source envelope while remaining canonical in persistence. Arbitrary ToolResult.data
+    is preserved verbatim except for the Internet runtime's own duplicated
+    source-reference correlation fields.
+
+    Persisted assistant citation markers are removed from model history because prior
+    assistant prose is continuity, not evidence.
     """
 
     by_source_ref_id = {item.source_ref_id: item.alias for item in aliases}
@@ -113,9 +214,11 @@ def _project_tool_content(content: str, aliases: Mapping[str, str]) -> str:
     if not isinstance(payload, dict):
         return content
 
+    # Internet row correlation still contains canonical IDs at this boundary, so
+    # project it before pruning the top-level source envelope.
+    _project_internet_data(payload, aliases)
     _project_source_list(payload.get("sources"), aliases)
     _project_provenance(payload.get("_orion_provenance"), aliases)
-    _project_internet_data(payload, aliases)
 
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
@@ -123,14 +226,23 @@ def _project_tool_content(content: str, aliases: Mapping[str, str]) -> str:
 def _project_source_list(value: Any, aliases: Mapping[str, str]) -> None:
     if not isinstance(value, list):
         return
+
+    projected_sources: list[dict[str, Any]] = []
     for source in value:
         if not isinstance(source, dict):
             continue
-        source_ref_id = source.pop("source_ref_id", None)
-        if isinstance(source_ref_id, str):
-            alias = aliases.get(source_ref_id)
-            if alias is not None:
-                source["evidence_ref"] = alias
+        source_ref_id = source.get("source_ref_id")
+        if not isinstance(source_ref_id, str):
+            continue
+        alias = aliases.get(source_ref_id)
+        if alias is None:
+            continue
+        projected = dict(source)
+        projected.pop("source_ref_id", None)
+        projected["evidence_ref"] = alias
+        projected_sources.append(projected)
+
+    value[:] = projected_sources
 
 
 def _project_provenance(value: Any, aliases: Mapping[str, str]) -> None:
@@ -152,8 +264,21 @@ def _project_internet_data(payload: dict[str, Any], aliases: Mapping[str, str]) 
     if not isinstance(data, dict):
         return
 
+    aliases_by_url: dict[str, str] = {}
+    model_sources = payload.get("sources")
+    if isinstance(model_sources, list):
+        for source in model_sources:
+            if not isinstance(source, dict):
+                continue
+            source_ref_id = source.get("source_ref_id")
+            url = source.get("url")
+            if isinstance(source_ref_id, str) and isinstance(url, str):
+                alias = aliases.get(source_ref_id)
+                if alias is not None:
+                    aliases_by_url[url] = alias
+
     if tool_name == "internet.fetch":
-        _project_internet_source_ref(data, aliases)
+        _project_internet_source_ref(data, aliases, aliases_by_url)
         return
 
     if tool_name != "internet.search":
@@ -163,13 +288,19 @@ def _project_internet_data(payload: dict[str, Any], aliases: Mapping[str, str]) 
         return
     for result in results:
         if isinstance(result, dict):
-            _project_internet_source_ref(result, aliases)
+            _project_internet_source_ref(result, aliases, aliases_by_url)
 
 
-def _project_internet_source_ref(value: dict[str, Any], aliases: Mapping[str, str]) -> None:
+def _project_internet_source_ref(
+    value: dict[str, Any],
+    aliases: Mapping[str, str],
+    aliases_by_url: Mapping[str, str],
+) -> None:
     source_ref_id = value.pop("source_ref_id", None)
-    if not isinstance(source_ref_id, str):
-        return
-    alias = aliases.get(source_ref_id)
+    alias = aliases.get(source_ref_id) if isinstance(source_ref_id, str) else None
+    if alias is None:
+        url = value.get("url")
+        if isinstance(url, str):
+            alias = aliases_by_url.get(url)
     if alias is not None:
         value["evidence_ref"] = alias

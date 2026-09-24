@@ -72,10 +72,13 @@ separate byte-proxy-bounded projection of that record:
 - when a ToolResult exceeds its model projection budget, source metadata is reduced
   to `source_ref_id` plus non-null `label` and `url` before reducing evidence data.
   Every canonical source ID is preserved internally; `sources_compacted` reports this reduction.
-  At the final model boundary, canonical source-reference fields are replaced with request-local
-  `evidence_ref` aliases such as `S1`, while the canonical timeline and runtime
-  visibility/authorization retain full `SourceRef` objects, including document/project identity
-  and retrieval metadata;
+  At the final model boundary, only sources still backed by surviving projected evidence receive
+  request-local `evidence_ref` aliases such as `S1`. Provider-bound strict context sizing measures
+  that same alias/pruning projection rather than charging the model budget for longer canonical
+  source IDs that are never sent to the provider. Canonical sources whose row/segment-level evidence
+  was compacted away remain persisted but are not citation-eligible for that generation. The
+  canonical timeline and runtime authorization retain full `SourceRef` objects, including
+  document/project identity and retrieval metadata;
 - explicit projection metadata reports omitted keys, items, string characters, and
   the number of omission records hidden by the metadata cap;
 - checkpoint state plus its recent raw history share the same conversation byte

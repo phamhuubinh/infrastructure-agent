@@ -342,10 +342,14 @@ S1 -> canonical source_ref_id A
 S2 -> canonical source_ref_id B
 ```
 
-Model-visible ToolResult projections expose these aliases as `evidence_ref` values. The
-model selects evidence by alias; Orion resolves the alias back to canonical identity before
-terminal validation and persistence. Unknown aliases fail closed. A raw `source_id`,
-target/document identity, URL, or guessed canonical ID is not accepted as a model citation.
+Model-visible ToolResult projections expose these aliases as `evidence_ref` values only for
+sources whose evidence remains in that generation's projection. For row-addressable Internet
+search and Knowledge retrieval output, compacted-away rows/segments do not remain citation-eligible
+merely because their canonical `SourceRef` objects remain persisted. The model selects evidence by
+alias; Orion resolves the
+alias back to canonical identity before terminal validation and persistence. Unknown aliases fail
+closed. A raw `source_id`, target/document identity, URL, or guessed canonical ID is not accepted
+as a model citation.
 
 A final persisted citation remains a presentation-level reference to one or more canonical
 visible `source_ref_id` values. Citation rendering belongs to the UI/API presentation layer,

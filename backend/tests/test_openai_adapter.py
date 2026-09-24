@@ -117,12 +117,20 @@ async def test_strict_http_provider_accepts_runtime_tool_and_correction_turns(
     assert outcome.assistant_content == "5."
     assert len(requests) == (3 if correction else 2)
     if correction:
-        assert [message["role"] for message in requests[-1]["messages"][-2:]] == [
-            "assistant",
+        correction_messages = requests[-1]["messages"]
+        assert [message["role"] for message in correction_messages[-2:]] == [
+            "tool",
             "user",
         ]
+        assert correction_messages[-2]["tool_call_id"] == "calc"
+        assert "Re-answer the original user request" in correction_messages[-1]["content"]
+        assert all(
+            message.get("content") != "5. [[source:missing]]"
+            for message in correction_messages
+            if message["role"] == "assistant"
+        )
         assert requests[-1]["tools"] == requests[0]["tools"]
-        assert "Re-answer the original user request" not in requests[-1]["messages"][0]["content"]
+        assert "Re-answer the original user request" not in correction_messages[0]["content"]
 
 
 @pytest.mark.anyio

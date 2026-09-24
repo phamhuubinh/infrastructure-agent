@@ -28,28 +28,36 @@ Vietnamese citation/attribution output instructions. This conservative check rec
 commands and citation modifiers, excludes quoted examples/code, and honors later explicit opt-outs;
 it is not a general semantic intent classifier. Other wording remains governed by the model's
 citation policy. It runs after the model and does not affect tool exposure or execution.
-When such an instruction requires citations and the final model context has visible sources,
-the model cites request-local aliases such as `[[source:S1]]`; it never needs to copy a
-canonical `source_ref_id`. Before validation/persistence Orion resolves each visible alias back
-to its canonical source identity and rewrites the presentation marker. An answer without a
-required alias citation (including an answer with only Markdown links) enters the existing
-single citation-correction attempt. An ordinary answer or an answer without visible sources does
-not acquire this requirement. A second omission fails
-validation as `missing_citation`. The correction draft and user instruction remain ephemeral;
-the requirement does not carry over to subsequent requests.
+When such an instruction requires citations and the final model context has citation-eligible
+sources, the model cites request-local aliases such as `[[source:S1]]`; it never needs to copy a
+canonical `source_ref_id`. Citation eligibility is derived from evidence that actually survived
+model projection. For row-addressable Internet search and Knowledge retrieval results, a source
+whose row/segment was compacted away is not model-citable merely because its canonical `SourceRef`
+remains persisted. Before
+validation/persistence Orion resolves each visible alias back to its canonical source identity and
+rewrites the presentation marker.
+
+An answer without a required alias citation (including an answer with only Markdown links) enters
+the existing single citation-correction attempt. Once that rejection occurs, the citation
+obligation is sticky for the rest of the request: rebuilding a smaller correction context cannot
+erase the obligation by making the visible-source set empty. A second omission therefore fails
+closed as `missing_citation`. The obligation does not carry over to subsequent user requests.
 
 Citation correction asks the model to re-answer the original user request from the currently
 visible evidence while preserving all original requirements, including exact wording, scope,
-and format. It must reconsider the answer's content, not merely attach a marker to the draft.
-The original user request remains visible, and safe tools remain available when evidence is missing.
+and format. The rejected assistant draft is not replayed into the correction request because it
+is not evidence and must not consume the evidence budget. The correction instruction is fixed-size
+and tells the model to copy exact `evidence_ref` values already present in visible ToolResult
+messages; it does not duplicate them into a dynamic allowlist. The original user request remains
+visible, and safe tools remain available when evidence is missing.
 
-The synthetic citation-correction user message includes an explicit JSON allowlist of request-local
-`evidence_ref` aliases derived from the correction request's visible canonical sources. Its bytes
-are reserved before dispatch; if reserving that space changes visible sources, the allowlist and
-alias registry are rebuilt from the resulting context. The model never receives the canonical
-source identity through this correction path. Unknown aliases, `source_id`, target/document IDs,
-URLs, and raw canonical IDs do not resolve to a citation. An empty allowlist permits no citation.
-A second invalid answer still fails closed.
+The model never receives canonical source identity through the correction path. Strict
+provider-bound context sizing uses the same request-local alias/pruning projection that is later
+sent to the model, so canonical UUID length cannot by itself displace evidence that would fit in
+the actual request. Unknown aliases, `source_id`, target/document IDs, URLs, and raw canonical IDs
+do not resolve to a citation. If correction-time compaction leaves no citation-eligible evidence,
+the model may obtain fresh evidence with a safe tool, but an uncited terminal answer cannot become
+valid merely because the runtime's own correction projection dropped the prior source.
 
 Every citation rejection, including one followed by successful correction, emits an opt-in
 `citation_validation` diagnostic with the request/model-turn identity, error kind, canonical

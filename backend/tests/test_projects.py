@@ -204,12 +204,16 @@ async def test_citation_correction_reanswers_original_verbatim_request_from_visi
     messages, tools = backend.calls[-1]
     correction = messages[-1].content
     assert messages[-1].role == "user"
-    assert "Re-answer the original user request using the currently visible evidence." in correction
+    assert "Re-answer the original user request using the currently visible" in correction
     assert "Preserve all requirements from the original request" in correction
     assert "exact wording, scope, and format" in correction
-    assert messages[-2].role == "assistant"
-    assert "confirms its existence" in messages[-2].content
-    assert messages[-2].citation_source_ref_ids == ()
+    assert messages[-2].role == "tool"
+    assert messages[-2].tool_name == "knowledge.read"
+    assert all(
+        "confirms its existence" not in message.content
+        for message in messages
+        if message.role == "assistant"
+    )
     assert [m.content for m in messages if m.role == "user"] == [prompt, correction]
     read = next(json.loads(m.content) for m in messages if m.role == "tool")
     assert read["data"]["segments"][0]["text"] == fact
