@@ -133,9 +133,16 @@ class ToolRegistry:
                 str(error.validator or "schema"),
             ),
         )
-        return "; ".join(
-            f"{path_for(error)}: {error.validator or 'schema'}" for error in ordered[:3]
-        )
+
+        def issue_for(error) -> str:  # type: ignore[no-untyped-def]
+            validator = str(error.validator or "schema")
+            if validator in {"minimum", "maximum"} and isinstance(
+                error.validator_value, (int, float)
+            ):
+                return f"{path_for(error)}: {validator}={error.validator_value}"
+            return f"{path_for(error)}: {validator}"
+
+        return "; ".join(issue_for(error) for error in ordered[:3])
 
     def arguments_are_valid(self, tool_name: str, arguments: object) -> bool:
         return self.argument_validation_issue(tool_name, arguments) is None

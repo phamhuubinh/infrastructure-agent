@@ -4,7 +4,18 @@
 
 RAG is a **knowledge source used by the model**, not a mandatory stage applied before every user message.
 
-The model decides when document retrieval is useful.
+When an answer depends on session or Project document contents, current document evidence must be
+retrieved before synthesis. For discovery across Project or session knowledge, or when no exact
+document identity is visible, `knowledge.search` is the default retrieval step.
+
+When a current-session attachment exposes an exact `document_id` and the task clearly targets that
+attachment, `knowledge.read` may retrieve it directly. This is grounded retrieval, not prompt
+prefetching. `knowledge.read` also remains the deterministic path for whole-document,
+named-section, adjacent-context, and iterative reading. `knowledge.list_documents` is metadata
+discovery and is not a content-QA preflight.
+
+The model still decides the retrieval query and whether follow-on reads are needed. Orion does not
+add an application-side semantic pre-router.
 
 Orion binds deterministic session/project scope.
 
@@ -55,6 +66,10 @@ current attachment identities
 ```
 
 The Knowledge tool then searches only sources valid for that runtime scope.
+
+Attachment identities are runtime-bound scope. Current-session attachment metadata may also expose
+an exact `document_id` to the model so it can perform a deterministic read of that attachment
+without a metadata-listing preflight. The document contents themselves are not prefetched.
 
 This is not semantic routing. The model still decides whether retrieval is needed and what information to retrieve.
 
@@ -127,7 +142,9 @@ Retrieval must not assume "top-k vector chunks" is sufficient for every task.
 
 ### Local fact/question answering
 
-Search relevant segments, optionally rerank, and return source metadata.
+Search relevant segments first, optionally rerank, and return source metadata. Do not require a
+metadata-listing call before content retrieval. If the model already knows an exact document ID,
+constrain search to that document when appropriate.
 
 ### Whole-document understanding
 
@@ -139,7 +156,10 @@ Retrieve from multiple explicitly scoped documents and preserve document identit
 
 ### Exact document reading
 
-When the model already knows the document identity, allow deterministic read/section retrieval without semantic search.
+When the task requires whole-document, named-section, adjacent-context, or iterative reading and
+the model already knows the document identity, allow deterministic read/section retrieval. This is
+grounded retrieval but is distinct from ranked content search; it should not replace
+`knowledge.search` as the default fact/topic/quote discovery path.
 
 ## Hybrid retrieval
 

@@ -28,7 +28,7 @@ async def test_offline_benchmark_measures_direct_registry_baseline() -> None:
     assert all(item.status == "PASS" for item in report.measurements)
     assert all(item.summary_calls == 0 for item in report.measurements)
     assert [item.main_calls for item in report.measurements] == [1, 1, 2, 1, 2, 3]
-    assert all(item.catalog_bytes == 12_503 for item in report.measurements)
+    assert all(item.catalog_bytes == 12_233 for item in report.measurements)
     assert all(len(item.visible_tools_by_call[0]) == 25 for item in report.measurements)
     assert report.measurements[2].returned_tool_calls_by_call[0] == (
         "linux.system.inspect",

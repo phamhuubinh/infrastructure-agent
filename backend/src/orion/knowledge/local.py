@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import math
 import re
+import unicodedata
 
 from orion.knowledge.ports import Chunk, IndexedSegment, ParsedDocument, ParsedSection
 
-_WORD = re.compile(r"[a-z0-9]+")
+_WORD = re.compile(r"[^\W_]+", re.UNICODE)
+_VIETNAMESE_FOLD = str.maketrans({"đ": "d"})
 _SYNONYMS = {
     "automobile": "car",
     "vehicle": "car",
@@ -20,8 +22,16 @@ _SYNONYMS = {
 }
 
 
+def _fold_text(text: str) -> str:
+    normalized = unicodedata.normalize(
+        "NFKD",
+        text.casefold().translate(_VIETNAMESE_FOLD),
+    )
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
 def _terms(text: str) -> list[str]:
-    return [_SYNONYMS.get(term, term) for term in _WORD.findall(text.lower())]
+    return [_SYNONYMS.get(term, term) for term in _WORD.findall(_fold_text(text))]
 
 
 class PlainTextParser:

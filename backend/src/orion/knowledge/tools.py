@@ -9,10 +9,9 @@ from orion.knowledge.service import KnowledgeService
 from orion.tool_runtime.registry import ToolRegistration
 
 _EXACT_DOCUMENT_ID_DESCRIPTION = (
-    "Exact visible document_id already returned by knowledge.list_documents or "
-    "knowledge.search earlier in this session; never invent, guess, or infer one from the "
-    "request text, a document name, or a title. If no document_id is yet visible, call "
-    "knowledge.list_documents or knowledge.search first."
+    "Exact visible document_id from attachment metadata, knowledge.search, or "
+    "knowledge.list_documents; never invent one or use a name/title. For content lookup "
+    "without an ID, use knowledge.search."
 )
 
 
@@ -32,12 +31,9 @@ def list_documents_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.list_documents",
         description=(
-            "List metadata for ready documents visible in the current knowledge scope, including "
-            "session attachments and active Project documents. This does not read document "
-            "contents and returns no citation sources. To answer from or cite document contents, "
-            "call knowledge.read or knowledge.search using an exact returned "
-            "document_id. This tool takes no parameters; Orion binds session and Project scope "
-            "from the current runtime context and model arguments cannot override it."
+            "List visible document metadata only; returns no content/citations. metadata browsing "
+            "only: do not use as a prerequisite for content QA; use knowledge.search directly. "
+            "Orion binds current scope."
         ),
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         handler_key="knowledge.list_documents",
@@ -48,21 +44,30 @@ def search_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.search",
         description=(
-            "Search documents visible in the current knowledge scope, including session "
-            "attachments and active Project documents. "
-            "Successful matches return citable ToolResult sources. Use exact read for full "
-            "documents."
+            "Primary retrieval tool for fact/topic/quote/attribution questions in current scope. "
+            "Search directly without calling knowledge.list_documents first. Returns citable "
+            "ToolResult sources; use knowledge.read for sequential/full context."
         ),
         input_schema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "minLength": 1},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
+                "query": {
+                    "type": "string",
+                    "description": "Content query for evidence to retrieve.",
+                    "minLength": 1,
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max ranked segments (1-20; default 5).",
+                    "minimum": 1,
+                    "maximum": 20,
+                    "default": 5,
+                },
                 "document_ids": {
                     "type": "array",
                     "description": (
-                        "Optional exact visible document_ids from knowledge.list_documents or "
-                        "knowledge.search; do not use document names or titles."
+                        "Optional exact IDs from attachment metadata, search, or list; "
+                        "never names/titles."
                     ),
                     "items": {"type": "string", "minLength": 1},
                     "uniqueItems": True,
@@ -79,10 +84,10 @@ def read_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.read",
         description=(
-            "Read a bounded window from one exact document visible in the current knowledge "
-            "scope, including session attachments and active Project documents, or named section. "
-            "Successful reads return citable ToolResult sources. Continue with next_cursor until "
-            "complete for whole-document work."
+            "Read a bounded sequential window from one exact document in current scope. Use for "
+            "whole-document/section/adjacent/iterative reading; it is not the default "
+            "content-discovery tool. Use knowledge.search for discovery. Successful reads return "
+            "citable ToolResult sources; continue with next_cursor."
         ),
         input_schema={
             "type": "object",
@@ -94,7 +99,16 @@ def read_definition() -> ToolDefinition:
                 },
                 "section": {"type": "string", "minLength": 1},
                 "cursor": {"type": "integer", "minimum": 0, "default": 0},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Sequential segments this window (1-8; default 5); "
+                        "continue with next_cursor."
+                    ),
+                    "minimum": 1,
+                    "maximum": 8,
+                    "default": 5,
+                },
             },
             "required": ["document_id"],
             "additionalProperties": False,

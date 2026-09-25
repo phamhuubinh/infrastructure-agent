@@ -68,9 +68,13 @@ Orion itself does not infer semantic intent before the model with keyword rules,
 
 ## RAG behavior
 
-RAG is not always-on prompt augmentation.
+RAG is not always-on prompt augmentation for unrelated requests.
 
-The model can use document retrieval when it needs document evidence.
+When an answer depends on document contents, the model must retrieve current document evidence
+before synthesis. `knowledge.search` is the default discovery path when no exact target document
+is already visible or when retrieval spans the available knowledge scope. A current-session
+attachment with a visible exact `document_id` may be read directly. `knowledge.list_documents`
+is metadata browsing, not a content-QA preflight.
 
 Knowledge sources can include:
 

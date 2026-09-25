@@ -79,7 +79,22 @@ def _registry(
                 handler_key="internal.fake.bounded",
             ),
             {"value": 0},
-            "$.value: minimum",
+            "$.value: minimum=1",
+        ),
+        (
+            ToolDefinition(
+                name="fake.maximum",
+                description="Take a bounded integer.",
+                input_schema={
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "maximum": 8}},
+                    "required": ["limit"],
+                    "additionalProperties": False,
+                },
+                handler_key="internal.fake.maximum",
+            ),
+            {"limit": 100},
+            "$.limit: maximum=8",
         ),
     ),
 )

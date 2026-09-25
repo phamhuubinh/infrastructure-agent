@@ -38,7 +38,7 @@ def test_assistant_history_remains_text_never_tool_evidence(store):
     )
 
 
-def test_visible_attachment_id_is_direct_knowledge_read_input(store, knowledge):
+def test_attachment_metadata_exposes_exact_id_without_prefetching_content(store, knowledge):
     session = store.create_session()
     upload = knowledge.attach(session, "notes.txt", b"Untrusted document content")
     attachment_ids = (upload.attachment_id,)
@@ -49,14 +49,15 @@ def test_visible_attachment_id_is_direct_knowledge_read_input(store, knowledge):
         .messages[0]
         .content
     )
+    assert "Current session attachments" in system
     assert str(document["document_id"]) in system
-    assert (
-        "prefer knowledge.read directly with the document_id visible in attachment metadata"
-        in system
-    )
+    assert "name=notes.txt" in system
+    assert "media_type=text/plain" in system
+    assert "knowledge.search unless exact attachment document_id is visible" in system
+    assert "then knowledge.read may read it directly" in system
+    assert "Do not list first" in system
     assert "Attachment names/IDs are not infrastructure paths/target_refs" in system
     assert "Untrusted document content" not in system
-    assert "only use a document_id visible from knowledge.list_documents" not in system
 
 
 def test_language_precision_and_observation_limits_are_explicit(store):

@@ -56,18 +56,25 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
     )
 
     for definition in definitions:
-        assert "current knowledge scope" in definition.description
-        assert "session attachments" in definition.description
-        assert "active Project documents" in definition.description
+        assert "scope" in definition.description
 
     listing = list_documents_definition().description
-    assert "does not read document contents" in listing
-    assert "returns no citation sources" in listing
-    assert "knowledge.read or knowledge.search" in listing
-    assert "takes no parameters" in listing
-    assert "model arguments cannot override" in listing
-    assert "return citable ToolResult sources" in read_definition().description
-    assert "return citable ToolResult sources" in search_definition().description
+    assert "metadata only" in listing
+    assert "returns no content/citations" in listing
+    assert "do not use as a prerequisite for content QA" in listing
+    assert "use knowledge.search directly" in listing
+
+    search = search_definition().description
+    assert "Primary retrieval tool" in search
+    assert "without calling knowledge.list_documents first" in search
+    assert "Returns citable ToolResult sources" in search
+
+    read = read_definition().description
+    assert "not the default content-discovery tool" in read
+    assert "Use knowledge.search for discovery" in read
+    assert "Successful reads return citable ToolResult sources" in read
+    assert "continue with next_cursor" in read
+
     metadata = source_metadata_definition().description
     assert "metadata only" in metadata
     assert "returns no citable ToolResult sources" in metadata
@@ -100,30 +107,36 @@ def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -
     search_parameters = search_definition().provider_schema()["function"]["parameters"]
     metadata_parameters = source_metadata_definition().provider_schema()["function"]["parameters"]
 
+    exact_id_description = (
+        "Exact visible document_id from attachment metadata, knowledge.search, or "
+        "knowledge.list_documents; never invent one or use a name/title. For content lookup "
+        "without an ID, use knowledge.search."
+    )
     assert read_parameters["properties"]["document_id"] == {
         "type": "string",
-        "description": (
-            "Exact visible document_id already returned by knowledge.list_documents or "
-            "knowledge.search earlier in this session; never invent, guess, or infer one from "
-            "the request text, a document name, or a title. If no document_id is yet visible, "
-            "call knowledge.list_documents or knowledge.search first."
-        ),
+        "description": exact_id_description,
     }
     assert read_parameters["properties"]["limit"] == {
         "type": "integer",
+        "description": (
+            "Sequential segments this window (1-8; default 5); continue with next_cursor."
+        ),
         "minimum": 1,
         "maximum": 8,
     }
+    assert search_parameters["properties"]["query"]["description"] == (
+        "Content query for evidence to retrieve."
+    )
+    assert search_parameters["properties"]["limit"] == {
+        "type": "integer",
+        "description": "Max ranked segments (1-20; default 5).",
+        "minimum": 1,
+        "maximum": 20,
+    }
     assert search_parameters["properties"]["document_ids"]["description"] == (
-        "Optional exact visible document_ids from knowledge.list_documents or knowledge.search; "
-        "do not use document names or titles."
+        "Optional exact IDs from attachment metadata, search, or list; never names/titles."
     )
-    assert metadata_parameters["properties"]["document_id"]["description"] == (
-        "Exact visible document_id already returned by knowledge.list_documents or "
-        "knowledge.search earlier in this session; never invent, guess, or infer one from the "
-        "request text, a document name, or a title. If no document_id is yet visible, call "
-        "knowledge.list_documents or knowledge.search first."
-    )
+    assert metadata_parameters["properties"]["document_id"]["description"] == exact_id_description
 
 
 def test_upload_lifecycle_is_explicit_and_preserves_opaque_blob(knowledge, store) -> None:  # type: ignore[no-untyped-def]
@@ -272,6 +285,27 @@ def test_hybrid_local_retrieval_and_cross_document_identity(knowledge, store) ->
         cars.document.document_id,
         backups.document.document_id,
     }
+
+
+def test_local_retrieval_normalizes_vietnamese_diacritics(knowledge, store) -> None:  # type: ignore[no-untyped-def]
+    session = store.create_session()
+    policy = knowledge.attach(
+        session,
+        "chinh-sach.txt",
+        "Chính sách khôi phục dữ liệu yêu cầu giữ bản sao lưu trong ba mươi ngày.".encode(),
+    )
+    distractor = knowledge.attach(
+        session,
+        "mang.txt",
+        "Tài liệu này mô tả cấu hình mạng nội bộ.".encode(),
+    )
+    scope = _scope(session, policy.attachment_id, distractor.attachment_id)
+
+    results = knowledge.search(scope, "khoi phuc du lieu", 5)
+
+    assert results
+    assert results[0].document.document_id == policy.document.document_id
+    assert "ba mươi ngày" in results[0].text
 
 
 def test_tombstoned_document_stops_reads_and_searches(knowledge, store) -> None:  # type: ignore[no-untyped-def]

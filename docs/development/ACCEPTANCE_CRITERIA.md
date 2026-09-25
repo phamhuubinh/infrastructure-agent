@@ -31,6 +31,10 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Project documents are retrievable only in active project scope.
 - Exact document read works.
 - Semantic retrieval works.
+- Document-grounded factual/topic/quote answers retrieve current content evidence before synthesis.
+- `knowledge.search` is the default discovery path when no exact target document is visible or
+  retrieval spans knowledge sources; a visible exact session attachment may be read directly.
+- Document metadata listing is not required as a content-QA preflight.
 - Whole-document summarization is not limited to arbitrary top-k chunks.
 - Cross-document comparison preserves source identity.
 - PDF page, DOCX section/paragraph/table, and XLSX sheet/row provenance can survive to citations/source metadata where available.
