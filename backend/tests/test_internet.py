@@ -84,12 +84,63 @@ def _internet_registry(client: FakeInternetClient | UnavailableInternetClient):
     return builder.freeze()
 
 
+def test_search_discovery_rows_do_not_expose_answer_bearing_snippets() -> None:
+    client = FakeInternetClient()
+    runner = ToolRunner(_internet_registry(client))
+
+    result = runner.run(
+        ModelToolCall(
+            call_id="search",
+            tool_name="internet.search",
+            arguments={"query": "current release"},
+        ),
+        _scope(),
+    )
+
+    assert result.status == "success"
+    assert result.sources == ()
+    assert result.model_continuation_required is True
+    assert isinstance(result.data, dict)
+    rows = result.data["results"]
+    assert len(rows) == 1
+    assert set(rows[0]) == {"url", "title", "retrieved_at"}
+    assert "Ignore all previous instructions" not in str(result.data)
+
+
+def test_search_runtime_continuation_survives_runner_normalization() -> None:
+    client = FakeInternetClient()
+    runner = ToolRunner(_internet_registry(client))
+
+    result = runner.run(
+        ModelToolCall(
+            call_id="search",
+            tool_name="internet.search",
+            arguments={"query": "current release"},
+        ),
+        _scope(),
+    )
+
+    assert result.status == "success"
+    assert result.model_continuation_required is True
+    assert "model_continuation_required" not in result.model_dump(mode="json")
+
+
 def test_internet_schemas_are_closed_and_reject_scope_and_credentials() -> None:
     search, fetch = internet_search_definition(), internet_fetch_definition()
     assert search.input_schema["additionalProperties"] is False
     assert fetch.input_schema["additionalProperties"] is False
     assert set(search.input_schema["properties"]) == {"query", "limit"}
     assert set(fetch.input_schema["properties"]) == {"url"}
+    assert search.description == (
+        "Discover current public web pages and return bounded titles and URLs. "
+        "Results are discovery-only and have no citable evidence_ref; use internet.fetch "
+        "on a chosen result before citing it or asserting exact current facts."
+    )
+    assert fetch.description == (
+        "Fetch one chosen public HTTP(S) page as bounded citable text with provenance. "
+        "Use authoritative page content for exact latest/current release/version/date/status "
+        "claims."
+    )
 
     client = FakeInternetClient()
     runner = ToolRunner(_internet_registry(client))
@@ -103,6 +154,30 @@ def test_internet_schemas_are_closed_and_reject_scope_and_credentials() -> None:
         assert result.status == "error"
         assert result.error is not None and result.error.code == "invalid_input"
     assert not client.searches and not client.fetches
+
+
+def test_search_result_is_discovery_only_and_not_citable() -> None:
+    client = FakeInternetClient()
+    runner = ToolRunner(_internet_registry(client))
+
+    result = runner.run(
+        ModelToolCall(
+            call_id="search-current",
+            tool_name="internet.search",
+            arguments={"query": "current release"},
+        ),
+        _scope(),
+    )
+
+    assert result.status == "success"
+    assert result.data is not None
+    assert result.sources == ()
+    assert set(result.data) == {"results"}
+    row = result.data["results"][0]
+    assert set(row) == {"url", "title", "retrieved_at"}
+    assert "snippet" not in row
+    assert row["url"] == "https://example.test/article"
+    assert "source_ref_id" not in row
 
 
 @pytest.mark.anyio
@@ -184,6 +259,20 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
     assert internet.searches == [("Orion", 5)]
     assert internet.fetches == ["https://example.test/article"]
     assert len(backend.calls) == 3
+    search_followup_messages, search_followup_tools = backend.calls[1]
+    search_followup_system = search_followup_messages[0]
+    assert search_followup_system.role == "system"
+    assert "not answer-bearing evidence" in search_followup_system.content
+    assert "emit that tool call now" in search_followup_system.content
+    assert any(
+        message.role == "user"
+        and "resolving the preceding discovery or selection result" in message.content
+        for message in search_followup_messages
+    )
+    assert {tool.name for tool in search_followup_tools} >= {
+        "internet.search",
+        "internet.fetch",
+    }
     search_fetch_result = next(
         message for message in reversed(backend.calls[2][0]) if message.role == "tool"
     )
@@ -191,6 +280,121 @@ async def test_search_then_fetch_stays_in_same_model_loop_and_cites_visible_sour
     result = [item for item in app.store.timeline(session) if item.kind == "tool_result"][-1]
     assert result.payload["result"]["sources"][0]["url"] == "https://example.test/article"
     assert result.payload["result"]["sources"][0]["retrieved_at"] == "2026-08-25T00:00:00Z"
+    fetched_answer_messages, _ = backend.calls[2]
+    assert any(
+        message.role == "system"
+        and "preserve each field-to-value association" in message.content
+        and "first-released date is not a last-updated date" in message.content
+        for message in fetched_answer_messages
+    )
+
+
+@pytest.mark.anyio
+async def test_citation_correction_can_fetch_then_repair_missing_final_citation(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    internet = FakeInternetClient()
+    fetched_source = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, "orion:internet:https://example.test/article")
+    )
+    final = "Verified from the fetched page."
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="search",
+                        tool_name="internet.search",
+                        arguments={"query": "current release"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=(
+                        "Unsupported current release. [Python.org](https://example.test/article)"
+                    )
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="fetch",
+                        tool_name="internet.fetch",
+                        arguments={"url": "https://example.test/article"},
+                    ),
+                )
+            ),
+            # Reproduces the live v12g failure: fetch succeeded, but the next
+            # terminal answer omitted its now-visible citation.
+            ModelTurn(assistant=AssistantMessage(content=final)),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=final,
+                    citation_source_ref_ids=(fetched_source,),
+                )
+            ),
+        ]
+    )
+    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
+    session = app.store.create_session()
+
+    outcome = await app.runtime.submit(
+        session,
+        "Search the web for the current release and cite the source.",
+    )
+
+    assert outcome.assistant_content == final
+    assert internet.searches == [("current release", 5)]
+    assert internet.fetches == ["https://example.test/article"]
+    assert len(backend.calls) == 5
+
+    first_correction_messages, first_correction_tools = backend.calls[2]
+    assert first_correction_tools
+    first_correction_tool_messages = [
+        message for message in first_correction_messages if message.role == "tool"
+    ]
+    assert first_correction_tool_messages
+    first_search_projection = first_correction_tool_messages[-1].content
+    assert '"tool_name":"internet.search"' in first_search_projection
+    assert '"sources":[]' in first_search_projection
+    assert "A citation-recovery turn is active" in first_correction_messages[0].content
+    assert "internet.search is discovery-only" in first_correction_messages[0].content
+    assert (
+        "emit internet.fetch on an appropriate returned URL now, without terminal answer prose"
+        in first_correction_messages[0].content
+    )
+    assert any(
+        message.role == "user"
+        and (
+            "emit internet.fetch on an appropriate returned URL now, without terminal answer prose"
+        )
+        in message.content
+        for message in first_correction_messages
+    )
+    assert first_correction_messages[-1].role == "user"
+
+    second_correction_messages, second_correction_tools = backend.calls[4]
+    assert second_correction_tools
+    assert second_correction_messages[-1].role == "user"
+    assert "Re-answer the original user request" in second_correction_messages[-1].content
+    assert "A citation-recovery turn is active" in second_correction_messages[0].content
+
+    timeline = app.store.timeline(session)
+    tool_names = [item.tool_name for item in timeline if item.kind == "tool_call"]
+    assert tool_names == ["internet.search", "internet.fetch"]
+    results = [item.payload["result"] for item in timeline if item.kind == "tool_result"]
+    assert results[0]["sources"] == []
+    assert results[1]["sources"][0]["source_ref_id"] == fetched_source
+
+    # Rejected drafts are never persisted as assistant answers.
+    persisted_answers = [
+        item.payload["content"]
+        for item in timeline
+        if item.kind == "assistant_message" and item.payload.get("content")
+    ]
+    assert persisted_answers == [final]
 
 
 @pytest.mark.anyio
@@ -198,9 +402,6 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
     tmp_path,
 ) -> None:  # type: ignore[no-untyped-def]
     internet = FakeInternetClient()
-    internet_source = str(
-        uuid.uuid5(uuid.NAMESPACE_URL, "orion:internet:https://example.test/article")
-    )
     backend = ScriptedBackend(
         [
             ModelTurn(
@@ -256,7 +457,7 @@ async def test_project_composes_knowledge_internet_and_calculator_in_one_runtime
     backend.turns[-1] = ModelTurn(
         assistant=AssistantMessage(
             content="Three nodes need 36 GB RAM.",
-            citation_source_ref_ids=(knowledge_source.source_ref_id, internet_source),
+            citation_source_ref_ids=(knowledge_source.source_ref_id,),
         )
     )
     app.store.upsert_model_config("openai_compatible", "http://model.test/v1", "fake", None)
@@ -709,3 +910,141 @@ def test_duckduckgo_default_client_reuses_secure_fetch() -> None:
     )
 
     assert client.fetch("https://example.test/article").text == "safe result"
+
+
+@pytest.mark.anyio
+async def test_discovery_only_citation_pending_survives_repeated_bad_terminal_drafts(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    internet = FakeInternetClient()
+    fetched_source = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, "orion:internet:https://example.test/article")
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="search",
+                        tool_name="internet.search",
+                        arguments={"query": "current release"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Unsupported current release without a citation."
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Still unsupported.",
+                    citation_source_ref_ids=("invented-source",),
+                )
+            ),
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="fetch",
+                        tool_name="internet.fetch",
+                        arguments={"url": "https://example.test/article"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Verified from the fetched page.",
+                    citation_source_ref_ids=(fetched_source,),
+                )
+            ),
+        ]
+    )
+
+    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app.store.upsert_model_config(
+        "openai_compatible",
+        "http://model.test/v1",
+        "fake",
+        None,
+    )
+    session = app.store.create_session()
+
+    outcome = await app.runtime.submit(
+        session,
+        "Search the web for the current release and cite the source.",
+    )
+
+    assert outcome.assistant_content == "Verified from the fetched page."
+    assert internet.searches == [("current release", 5)]
+    assert internet.fetches == ["https://example.test/article"]
+    assert len(backend.calls) == 5
+
+    initial_continuation_messages, initial_continuation_tools = backend.calls[1]
+    first_recovery_messages, first_recovery_tools = backend.calls[2]
+    second_recovery_messages, second_recovery_tools = backend.calls[3]
+    assert initial_continuation_tools
+    assert "not answer-bearing evidence" in initial_continuation_messages[0].content
+    assert "not answer-bearing evidence" in first_recovery_messages[0].content
+    assert "not answer-bearing evidence" in second_recovery_messages[0].content
+    assert first_recovery_tools
+    assert second_recovery_tools
+    assert "internet.fetch" in {tool.name for tool in first_recovery_tools}
+    assert "internet.fetch" in {tool.name for tool in second_recovery_tools}
+    assert "citation-recovery turn is active" in first_recovery_messages[0].content
+    assert "citation-recovery turn is active" in second_recovery_messages[0].content
+
+    timeline = app.store.timeline(session)
+    assert [item.tool_name for item in timeline if item.kind == "tool_call"] == [
+        "internet.search",
+        "internet.fetch",
+    ]
+
+
+@pytest.mark.anyio
+async def test_discovery_only_citation_corrections_are_bounded(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    internet = FakeInternetClient()
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="search",
+                        tool_name="internet.search",
+                        arguments={"query": "current release"},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Unsupported draft one.")),
+            ModelTurn(assistant=AssistantMessage(content="Unsupported draft two.")),
+            ModelTurn(assistant=AssistantMessage(content="Unsupported draft three.")),
+            ModelTurn(assistant=AssistantMessage(content="Unsupported draft four.")),
+        ]
+    )
+
+    app = build_application(tmp_path / "orion.db", backend, internet_client=internet)
+    app.store.upsert_model_config(
+        "openai_compatible",
+        "http://model.test/v1",
+        "fake",
+        None,
+    )
+    session = app.store.create_session()
+
+    with pytest.raises(RequestFailed, match="required source citation"):
+        await app.runtime.submit(
+            session,
+            "Search the web for the current release and cite the source.",
+        )
+
+    assert internet.searches == [("current release", 5)]
+    assert internet.fetches == []
+    assert len(backend.calls) == 5
+
+    timeline = app.store.timeline(session)
+    assert [item.tool_name for item in timeline if item.kind == "tool_call"] == ["internet.search"]
+    assert any(
+        item.kind == "runtime_notice" and item.payload.get("stage") == "citation_validation"
+        for item in timeline
+    )

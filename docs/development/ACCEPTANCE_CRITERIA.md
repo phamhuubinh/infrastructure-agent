@@ -38,6 +38,7 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Whole-document summarization is not limited to arbitrary top-k chunks.
 - Cross-document comparison preserves source identity.
 - PDF page, DOCX section/paragraph/table, and XLSX sheet/row provenance can survive to citations/source metadata where available.
+- Model answers grounded in ToolResults preserve record/field associations: dates, statuses, versions, labels, retrieval times, and other attributes must not be transferred to neighboring records or renamed into unsupported claims; ancillary metadata is omitted when it is not explicitly tied to the requested record.
 - Deleted/tombstoned documents do not reappear in retrieval.
 - Incomplete persisted ingestion can reconcile after a normal restart.
 
@@ -53,10 +54,24 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 ## Tools
 
 - Knowledge/RAG, calculator, Internet, Linux, Grafana, and Zabbix families can register through the same tool system.
+- Internet search rows are discovery-only; citable web evidence comes from `internet.fetch`.
+- For an explicit citation request, a non-empty discovery-only `internet.search` result cannot terminate as an uncited answer; Orion resumes the model so it can fetch citable web evidence.
+- Exact latest/current web claims use authoritative fetched evidence; search-result rank or an
+  incidental snippet mention alone does not establish the requested current state.
 - A new registered tool becomes discoverable/model-visible without adding semantic router rules.
 - All registered model-callable schemas are visible on the first turn; schema visibility never grants mutation authorization.
 - Tool errors return explicitly to the model.
 - Repeated recoverable failures terminate only after an unchanged normalized failure state demonstrates no progress; corrected arguments may continue.
+- When citation recovery obtains new citable evidence through a successful tool call, Orion permits one bounded follow-up citation repair from that new evidence; the allowance cannot reopen repeatedly.
+- Citation recovery prefers already-visible supporting `evidence_ref` aliases and does not broaden into unrelated tool calls merely to repair a missing citation.
+- Under model-context pressure, retrieved knowledge segment text and segment identity are retained ahead of expendable result metadata so a visible hit does not degrade into metadata-only pseudo-evidence.
+- During citation recovery, discovery-only `internet.search` rows with no fetched web `evidence_ref` require an `internet.fetch` call before terminal answer prose.
+- Discovery-only tool results may request generic model continuation without becoming provider-visible control metadata; all registered tools remain available and the model still selects the follow-up action.
+- A successful ToolResult that explicitly requires model continuation receives request-local system/user guidance that it is not answer-bearing evidence and that the model must select an exposed follow-up read tool from returned locators/identifiers; the runtime does not select that tool for the model.
+- A model-continuation obligation is sticky across assistant-only drafts and citation repair turns; it clears only after the model emits a tool step whose results do not renew the continuation requirement.
+- Model-visible `internet.search` discovery rows contain only selection metadata (title, URL, retrieval time), not claim-bearing snippets; factual web evidence comes from `internet.fetch`.
+- While discovery-only Internet citation evidence is pending, terminal drafts remain ineligible even after a prior citation-correction draft fails; request-local correction continues subject to the bounded invalid-draft recovery limit and the existing request deadline. The runtime does not select or execute the follow-up tool for the model.
+- Repeated invalid terminal drafts while discovery-only Internet citation evidence is pending are bounded; Orion fails the citation contract instead of spinning until the request deadline.
 - Secrets do not appear in model-visible tool arguments/results unless intentionally processed as user data by a defined safe path.
 
 ## Models
@@ -81,3 +96,4 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Accepted ADRs, architecture rules, current-state docs, and executable behavior must not contradict the direct first-turn registry contract.
 - Operations docs describing current commands/configuration must be checked against current scripts/config files.
 - No stale current-state claim may be retained merely because it existed in an older deployment.
+- `knowledge.search.document_ids` is an optional narrowing filter, not a discovery prerequisite: the model must omit it unless exact visible document IDs are available; an out-of-scope filter remains source-free and returns recoverable feedback so the model can retry with valid visible IDs or, when the user did not require a specific document, search the current scope without the filter.

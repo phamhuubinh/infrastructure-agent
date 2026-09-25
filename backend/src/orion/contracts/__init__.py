@@ -370,6 +370,9 @@ class ToolResult(CanonicalModel):
     data: Any | None = None
     error: ToolError | None = None
     sources: tuple[SourceRef, ...] = ()
+    # Runtime-only control metadata. It is not provider/model input and is not
+    # persisted in canonical ToolResult JSON.
+    model_continuation_required: bool = Field(default=False, exclude=True)
 
     # Existing and third-party reads without a stable comparison contract stay
     # conservatively unknown; no result is discarded.

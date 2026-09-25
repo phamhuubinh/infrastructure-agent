@@ -79,6 +79,34 @@ def test_model_projection_rewrites_only_internet_owned_data_source_ref() -> None
     assert projected["sources"][0]["evidence_ref"] == "S1"
 
 
+def test_discovery_only_internet_search_has_no_citation_aliases() -> None:
+    payload = {
+        "call_id": "search",
+        "tool_name": "internet.search",
+        "status": "success",
+        "data": {
+            "results": [
+                {
+                    "url": "https://example.test/latest",
+                    "title": "Latest release",
+                    "retrieved_at": "2026-08-25T00:00:00+00:00",
+                }
+            ]
+        },
+        "sources": [],
+    }
+    message = ContextMessage(
+        role="tool",
+        tool_call_id="search",
+        tool_name="internet.search",
+        content=json.dumps(payload),
+    )
+
+    eligible = citation_eligible_sources((message,), ())
+    assert eligible == ()
+    assert build_citation_aliases(eligible) == ()
+
+
 def test_internet_search_only_retained_rows_are_citation_eligible() -> None:
     first = SourceRef(
         source_ref_id="internet-source-a",

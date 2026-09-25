@@ -36,10 +36,10 @@ from orion.tool_runtime.calculator import calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.internet import internet_fetch_definition, internet_search_definition
 
-EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 12_233
+EXPECTED_PROVIDER_TOOL_SCHEMA_BYTES = 12_464
 # Tool-result byte snapshots include provider-neutral grounding/freshness instructions;
 # these are measurements, not increased runtime/benchmark budget limits.
-EXPECTED_SIMPLE_PROXY_BYTES = 18_637
+EXPECTED_SIMPLE_PROXY_BYTES = 18_868
 SEMANTIC_CONTRACT_GROWTH_BYTES = 2_619
 BASELINE_ZABBIX_RESUME_PROXY_BYTES = 32_963
 BASELINE_HISTORY_PROXY_BYTES = 69_093
@@ -180,7 +180,7 @@ def test_realistic_resumed_turn_is_bounded_and_canonical_result_stays_full(store
     model_result = json.loads(context[-1].content)
     resumed_proxy = _provider_proxy(context)
 
-    assert resumed_proxy == 25_526
+    assert resumed_proxy == 25_757
     assert resumed_proxy < BASELINE_ZABBIX_RESUME_PROXY_BYTES
     assert (
         resumed_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES
@@ -249,7 +249,7 @@ def test_many_current_tool_results_share_one_aggregate_budget_and_keep_all_pairs
         assert collection["original_items"] == 40
         assert collection["included_items"] + collection["omitted_items"] == 40
     assert _messages_bytes(current_messages) == 11_998
-    assert _provider_proxy(context) == 31_120
+    assert _provider_proxy(context) == 31_351
 
 
 @pytest.mark.parametrize("scenario", ["retry_then_success", "success_then_blocked"])
@@ -920,9 +920,9 @@ def test_historical_growth_is_bounded_by_complete_recent_turns(store) -> None:  
     context = ContextBuilder(store).build(session_id)
     history_proxy = _provider_proxy(context)
 
-    assert history_proxy == 30_236
+    assert history_proxy == 30_467
     assert history_proxy < BASELINE_HISTORY_PROXY_BYTES
-    # The generic semantic contract adds 2,320 fixed bytes, not more history budget.
+    # The fixed semantic contract remains explicit without increasing history budget.
     assert history_proxy - SEMANTIC_CONTRACT_GROWTH_BYTES <= 28_000
     assert any("canonical session timeline remains complete" in item.content for item in context)
     users = [item.content for item in context if item.role == "user"]

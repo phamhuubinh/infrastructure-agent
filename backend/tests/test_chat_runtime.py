@@ -106,6 +106,44 @@ async def test_direct_answer_executes_no_tool(store) -> None:  # type: ignore[no
 
 
 @pytest.mark.anyio
+async def test_same_session_previous_user_message_is_visible_conversation_context(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    marker = "ORION_QA_CONTINUITY_7391"
+    first_prompt = f"For this conversation, the exact QA fact is: {marker}."
+    second_prompt = "What exact QA fact did I state in the previous message? Include it verbatim."
+    backend = ScriptedBackend(
+        [
+            ModelTurn(assistant=AssistantMessage(content="Acknowledged.")),
+            ModelTurn(assistant=AssistantMessage(content=marker)),
+        ]
+    )
+    session_id = store.create_session()
+    chat = runtime(store, backend)
+
+    first = await chat.submit(session_id, first_prompt)
+    second = await chat.submit(session_id, second_prompt)
+
+    assert first.assistant_content == "Acknowledged."
+    assert second.assistant_content == marker
+    assert len(backend.calls) == 2
+
+    first_system = backend.calls[0][0][0]
+    second_system = backend.calls[1][0][0]
+    assert first_system.role == "system"
+    assert second_system.role == "system"
+    continuity_instruction = (
+        "Visible earlier user messages in this same session are conversation context."
+    )
+    assert continuity_instruction not in first_system.content
+    assert continuity_instruction in second_system.content
+
+    second_messages = backend.calls[1][0]
+    user_messages = [message.content for message in second_messages if message.role == "user"]
+    assert user_messages == [first_prompt, second_prompt]
+
+
+@pytest.mark.anyio
 async def test_final_assistant_metrics_include_response_time_and_single_turn_usage(
     store,
 ) -> None:  # type: ignore[no-untyped-def]
@@ -1069,6 +1107,175 @@ async def test_structural_tool_exposure_does_not_spend_recovery_budget(
     assert len(backend.calls) == 5
     assert backend.calls[3][1]
     assert any(definition.name == "fake.second" for definition in backend.calls[3][1])
+
+
+@pytest.mark.anyio
+async def test_citation_recovery_system_instruction_is_request_local(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    source = SourceRef(
+        source_ref_id="citation-recovery-source",
+        source_kind="internet",
+        source_id="https://example.test/evidence",
+        url="https://example.test/evidence",
+    )
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="fake.read",
+            description="Read sourced evidence.",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            handler_key="fake.read",
+        ),
+        lambda call: ToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="success",
+            data={"text": "Evidence."},
+            sources=(source,),
+        ),
+    )
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(ModelToolCall(call_id="read", tool_name="fake.read", arguments={}),)
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Bad citation.",
+                    citation_source_ref_ids=("invented",),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Fixed.",
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+    chat = runtime(store, backend, builder.freeze())
+    session_id = store.create_session()
+
+    outcome = await chat.submit(session_id, "Read evidence and cite the source.")
+
+    assert outcome.assistant_content == "Fixed."
+    assert "A citation-recovery turn is active" not in backend.calls[0][0][0].content
+    correction_system = backend.calls[2][0][0]
+    assert correction_system.role == "system"
+    assert "A citation-recovery turn is active" in correction_system.content
+
+
+@pytest.mark.anyio
+async def test_citation_recovery_prefers_visible_noninternet_evidence_without_extra_tool(
+    store,
+) -> None:  # type: ignore[no-untyped-def]
+    source = SourceRef(
+        source_ref_id="linux-observation",
+        source_kind="linux",
+        source_id="monitor",
+        section="system.inspect",
+        label="monitor",
+    )
+    executions: list[str] = []
+
+    builder = ToolRegistryBuilder()
+    builder.register(
+        ToolDefinition(
+            name="linux.system.inspect",
+            description="Inspect one Linux target.",
+            input_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            handler_key="linux.system.inspect",
+        ),
+        lambda call: (
+            executions.append(call.tool_name)
+            or ToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="success",
+                data={"target_ref": "monitor", "sections": {"cpu": {"loadavg": ["0.03"]}}},
+                sources=(source,),
+            )
+        ),
+    )
+    builder.register(
+        ToolDefinition(
+            name="internet.fetch",
+            description="Fetch one webpage.",
+            input_schema={
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+                "additionalProperties": False,
+            },
+            handler_key="internet.fetch",
+        ),
+        lambda call: (
+            executions.append(call.tool_name)
+            or ToolResult.failure(
+                call.call_id,
+                call.tool_name,
+                "unexpected",
+                "internet.fetch must not be used to repair a Linux observation citation.",
+            )
+        ),
+    )
+
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="inspect",
+                        tool_name="linux.system.inspect",
+                        arguments={},
+                    ),
+                )
+            ),
+            ModelTurn(assistant=AssistantMessage(content="Observed load average 0.03.")),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="Observed load average 0.03.",
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+
+    chat = runtime(store, backend, builder.freeze())
+    session_id = store.create_session()
+    outcome = await chat.submit(
+        session_id,
+        "Inspect the Linux target, summarize only the reading, and cite the observation.",
+    )
+
+    assert outcome.assistant_content == "Observed load average 0.03."
+    assert executions == ["linux.system.inspect"]
+    assert len(backend.calls) == 3
+
+    correction_messages, correction_tools = backend.calls[2]
+    assert {tool.name for tool in correction_tools} == {
+        "linux.system.inspect",
+        "internet.fetch",
+    }
+    correction_system = correction_messages[0]
+    correction_request = correction_messages[-1]
+    assert correction_system.role == "system"
+    assert correction_request.role == "user"
+    assert "If an appropriate evidence_ref is already visible" in correction_system.content
+    assert "do not call any tool merely to repair the citation" in correction_system.content
+    assert "Never use an unrelated tool merely to repair a citation" in correction_system.content
+    assert "If an appropriate evidence_ref is already visible" in correction_request.content
+    assert "do not call a tool merely to fix the citation" in correction_request.content
+
+    tool_messages = [message for message in correction_messages if message.role == "tool"]
+    assert len(tool_messages) == 1
+    assert '"evidence_ref":"S1"' in tool_messages[0].content
+    assert '"tool_name":"linux.system.inspect"' in tool_messages[0].content
 
 
 @pytest.mark.anyio

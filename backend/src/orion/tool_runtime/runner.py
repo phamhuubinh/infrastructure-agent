@@ -148,4 +148,7 @@ class ToolRunner:
                 "upstream_error",
                 "Tool returned mismatched correlation metadata.",
             )
-        return ToolResult.model_validate(redact_public(result.model_dump(mode="json")))
+        model_continuation_required = result.model_continuation_required
+        sanitized = redact_public(result.model_dump(mode="json"))
+        sanitized["model_continuation_required"] = model_continuation_required
+        return ToolResult.model_validate(sanitized)

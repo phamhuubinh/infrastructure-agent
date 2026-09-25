@@ -66,8 +66,8 @@ def search_definition() -> ToolDefinition:
                 "document_ids": {
                     "type": "array",
                     "description": (
-                        "Optional exact IDs from attachment metadata, search, or list; "
-                        "never names/titles."
+                        "Optional exact visible IDs; omit unless exact document_id values "
+                        "are visible now."
                     ),
                     "items": {"type": "string", "minLength": 1},
                     "uniqueItems": True,
@@ -164,8 +164,16 @@ def _search(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
                 int(call.arguments.get("limit", 5)),
                 tuple(str(document_id) for document_id in call.arguments.get("document_ids", [])),
             )
-        except PermissionError as error:
-            return ToolResult.failure(call.call_id, call.tool_name, "scope_violation", str(error))
+        except PermissionError:
+            return ToolResult.failure(
+                call.call_id,
+                call.tool_name,
+                "scope_violation",
+                "One or more document_ids are outside the current knowledge scope. "
+                "Retry with only exact visible document_ids; if the request does not "
+                "require a specific document, omit document_ids to search the current scope.",
+                model_recovery_required=True,
+            )
         sources = tuple(service.source_for_segment(segment) for segment in segments)
         return ToolResult(
             call_id=call.call_id,

@@ -20,7 +20,11 @@ def internet_registrations(client: InternetClient) -> tuple[ToolRegistration, ..
 def internet_search_definition() -> ToolDefinition:
     return ToolDefinition(
         name="internet.search",
-        description="Search current Internet information and return bounded, source-aware results.",
+        description=(
+            "Discover current public web pages and return bounded titles and URLs. "
+            "Results are discovery-only and have no citable evidence_ref; use internet.fetch "
+            "on a chosen result before citing it or asserting exact current facts."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -38,7 +42,9 @@ def internet_fetch_definition() -> ToolDefinition:
     return ToolDefinition(
         name="internet.fetch",
         description=(
-            "Fetch one public HTTP(S) URL and return bounded textual content with provenance."
+            "Fetch one chosen public HTTP(S) page as bounded citable text with provenance. "
+            "Use authoritative page content for exact latest/current release/version/date/status "
+            "claims."
         ),
         input_schema={
             "type": "object",
@@ -58,26 +64,21 @@ def _search(client: InternetClient) -> Callable[[ToolCall], ToolResult]:
             )
         except InternetClientError as error:
             return _failure(call, error)
-        sources = tuple(
-            _source(result.url, result.title, result.retrieved_at) for result in results
-        )
         return ToolResult(
             call_id=call.call_id,
             tool_name=call.tool_name,
             status="success",
+            model_continuation_required=bool(results),
             data={
                 "results": [
                     {
-                        "source_ref_id": source.source_ref_id,
                         "url": result.url,
                         "title": result.title,
-                        "snippet": result.snippet,
                         "retrieved_at": result.retrieved_at.isoformat(),
                     }
-                    for result, source in zip(results, sources, strict=True)
+                    for result in results
                 ]
             },
-            sources=sources,
         )
 
     return handler

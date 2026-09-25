@@ -198,6 +198,21 @@ _RECOVERY_CONTINUATION_REQUEST = (
     "Do not treat the previous draft as the final answer."
 )
 
+_MODEL_CONTINUATION_INSTRUCTIONS = (
+    "The preceding ToolResult is a discovery or selection result that explicitly requires "
+    "another model-selected tool step. It is not answer-bearing evidence. Do not answer from "
+    "discovery metadata. Use only locators or identifiers returned by that ToolResult to choose "
+    "an appropriate exposed read tool and emit that tool call now. If no safe exposed tool can "
+    "resolve the result into answer-bearing evidence, state that the requested fact cannot be "
+    "verified from the available evidence."
+)
+
+_MODEL_CONTINUATION_REQUEST = (
+    "Continue the original request by resolving the preceding discovery or selection result "
+    "into answer-bearing evidence before answering. Do not treat discovery metadata as factual "
+    "evidence, and do not invent a citation."
+)
+
 _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
     "The same recoverable tool failure state has repeated without argument or error progress, "
     "so its bounded recovery budget is exhausted. Do not call tools again for that state. Give "
@@ -223,25 +238,58 @@ _POST_OBSERVATION_INSTRUCTIONS = (
     "inferring absence. Separate measured facts from unknowns. A low load average is not CPU "
     "utilization or proof of no contention. Free memory is not proof of sufficient capacity. "
     "Do not label readings normal/healthy or invent readiness scores or thresholds. Do not "
-    "turn an assumption into a finding, even if labeled as an assumption. If evidence is "
-    "omitted from context, report it as unavailable; do not reconstruct values or states."
+    "turn an assumption into a finding, even if labeled as an assumption. When evidence "
+    "contains neighboring records, rows, or fields, preserve each field-to-value association: "
+    "never transfer a date, status, version, label, or other attribute from one record to "
+    "another. Do not rename an evidence field into a different claim; for example, a "
+    "first-released date is not a last-updated date, and retrieval time is not an event or "
+    "release date. When the user asks for one exact current fact, answer that fact and omit "
+    "ancillary metadata unless the visible evidence explicitly ties that metadata to the same "
+    "record. If evidence is omitted from context, report it as unavailable; do not reconstruct "
+    "values or states."
+)
+
+_CITATION_CORRECTION_INSTRUCTIONS = (
+    "A citation-recovery turn is active because the previous terminal draft did not satisfy "
+    "Orion's evidence/citation contract. First inspect the currently visible ToolResult evidence. "
+    "If an appropriate evidence_ref is already visible and supports the requested claim, do not "
+    "call any tool merely to repair the citation; re-answer from that evidence and cite the exact "
+    "visible alias. Otherwise, if internet.search rows are visible but no fetched web evidence_ref "
+    "is visible for the requested web claim, internet.search is discovery-only: emit "
+    "internet.fetch "
+    "on an appropriate returned URL now, without terminal answer prose. After the fetched "
+    "ToolResult is visible, answer from that page and cite its exact evidence_ref. "
+    "Only when neither "
+    "branch applies and required citable evidence is absent may you call another appropriate "
+    "registered read tool. Never use an unrelated tool merely to repair a citation."
 )
 
 _CITATION_CORRECTION_REQUEST = (
     "Re-answer the original user request using the currently visible ToolResult evidence. "
     "Preserve all requirements from the original request, including requested exact wording, "
     "scope, and format. Meet citation requirements using only exact evidence_ref aliases that "
-    "are visible in the current ToolResult messages. When the user requested sources and an "
+    "are visible in the current ToolResult messages. Before calling any tool, inspect the "
+    "visible ToolResults. "
+    "If an appropriate "
+    "evidence_ref is already visible and supports the answer, repair the citation "
+    "from that evidence "
+    "and do not call a tool merely to fix the citation. When the user requested sources and an "
     "evidence_ref is visible, include exact [[source:<evidence_ref>]] markers by copying those "
     "aliases exactly. Never use source_id, target_ref, document_id, segment_id, URL, or "
-    "source_ref_id as a citation token. If required evidence is missing and an appropriate safe "
-    "tool is available, use it. Do not invent content or citations."
+    "source_ref_id as a citation token. Otherwise, if internet.search rows are visible but no "
+    "fetched web evidence_ref is visible for the requested web claim, internet.search is "
+    "discovery-only: emit internet.fetch on an appropriate returned URL now, without terminal "
+    "answer prose. After the fetched ToolResult is visible, answer from that page and cite its "
+    "exact evidence_ref. If required evidence is missing and an appropriate safe tool "
+    "is available, "
+    "use it. Do not invent content or citations."
 )
 
 # A recovery decision is only forced after terminal prose abandons an unresolved
 # recovery obligation. This bound is not a tool-call quota;
 # successful tool chains remain unrestricted by a fixed call count.
 _MAX_FORCED_RECOVERY_DECISIONS = 2
+_MAX_DISCOVERY_CITATION_CORRECTIONS = 3
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
 _INCOMPLETE_FALLBACK = "Orion could not complete a verified response before the request ended."
 _RecoveryFingerprint = RecoveryFingerprint
@@ -432,6 +480,10 @@ class ChatRuntime:
         output_tokens = 0
         has_complete_usage = True
         citation_correction_attempted = False
+        citation_tool_progress_repair_available = False
+        citation_tool_progress_repair_used = False
+        internet_discovery_citation_pending = False
+        discovery_citation_corrections_used = 0
         citation_failure_diagnostic: dict[str, object] | None = None
         active_model_phase: _ActiveModelPhase | None = None
         terminal_final_started = False
@@ -477,6 +529,7 @@ class ChatRuntime:
                 terminal_final_pending = False
                 observation_review_next = False
                 citation_correction_next: AssistantMessage | None = None
+                model_continuation_pending = False
                 model_turn_number = 0
                 while True:
                     self._ensure_not_cancelled(cancellation)
@@ -498,6 +551,7 @@ class ChatRuntime:
                     recovery_guidance_next = False
                     citation_correction = citation_correction_next
                     citation_correction_next = None
+                    model_continuation = model_continuation_pending
                     recovery_exhausted = recovery_exhausted_next
                     recovery_exhausted_next = False
                     observation_review = observation_review_next
@@ -515,6 +569,7 @@ class ChatRuntime:
                             recovery_decision=recovery_decision,
                             recovery_guidance=recovery_guidance,
                             citation_correction=citation_correction,
+                            model_continuation=model_continuation,
                             recovery_exhausted=recovery_exhausted or terminal_final,
                             terminal_final=terminal_final,
                             observation_review=observation_review,
@@ -573,7 +628,10 @@ class ChatRuntime:
                                 scope,
                                 visible_sources,
                                 content,
-                                citation_obligation_active=citation_correction_attempted,
+                                citation_obligation_active=(
+                                    citation_correction_attempted
+                                    or internet_discovery_citation_pending
+                                ),
                             )
                         except CitationValidationFailed as error:
                             citation_failure_diagnostic = self._record_citation_failure(
@@ -632,7 +690,10 @@ class ChatRuntime:
                                 scope,
                                 visible_sources,
                                 content,
-                                citation_obligation_active=citation_correction_attempted,
+                                citation_obligation_active=(
+                                    citation_correction_attempted
+                                    or internet_discovery_citation_pending
+                                ),
                             )
                         except CitationValidationFailed as error:
                             citation_failure_diagnostic = self._record_citation_failure(
@@ -644,14 +705,28 @@ class ChatRuntime:
                                 citation_correction_attempted,
                             )
                             assert turn.assistant is not None
-                            if (
-                                citation_correction_attempted
+                            discovery_citation_continuation = internet_discovery_citation_pending
+                            if discovery_citation_continuation:
+                                if (
+                                    discovery_citation_corrections_used
+                                    >= _MAX_DISCOVERY_CITATION_CORRECTIONS
+                                ):
+                                    raise
+                                discovery_citation_corrections_used += 1
+                            if not discovery_citation_continuation and (
+                                (
+                                    citation_correction_attempted
+                                    and not citation_tool_progress_repair_available
+                                )
                                 or self._citation_references_were_observed(
                                     session_id, turn.assistant.citation_source_ref_ids
                                 )
                             ):
                                 raise
                             citation_correction_attempted = True
+                            if citation_tool_progress_repair_available:
+                                citation_tool_progress_repair_available = False
+                                citation_tool_progress_repair_used = True
                             citation_correction_required = True
                     metrics: dict[str, int] | None = None
                     if not turn.tool_calls and not recovery_abandoned:
@@ -883,7 +958,37 @@ class ChatRuntime:
                         recoverable_failure_state,
                         read_progress=tuple(read_progress),
                     )
+                    model_continuation_required = any(
+                        result.model_continuation_required for _, result in results
+                    )
                     recovery_pending = _next_recovery_state(recovery_pending, results)
+                    fetched_web_evidence = any(
+                        tool_name == "internet.fetch"
+                        and result.status == "success"
+                        and bool(result.sources)
+                        for tool_name, result in results
+                    )
+                    discovered_web_rows = any(
+                        tool_name == "internet.search"
+                        and result.status == "success"
+                        and isinstance(result.data, dict)
+                        and bool(result.data.get("results"))
+                        for tool_name, result in results
+                    )
+                    if fetched_web_evidence:
+                        internet_discovery_citation_pending = False
+                        discovery_citation_corrections_used = 0
+                    elif discovered_web_rows:
+                        internet_discovery_citation_pending = True
+                    if (
+                        citation_correction is not None
+                        and citation_correction_attempted
+                        and not citation_tool_progress_repair_used
+                        and any(
+                            result.status == "success" and result.sources for _, result in results
+                        )
+                    ):
+                        citation_tool_progress_repair_available = True
                     if recovery_stall is not None:
                         recovery_pending = False
                         self._emit(
@@ -900,6 +1005,10 @@ class ChatRuntime:
                         terminal_final_pending = True
                     elif recovery_pending:
                         recovery_guidance_next = True
+                    if model_continuation_required:
+                        model_continuation_pending = True
+                    elif results:
+                        model_continuation_pending = False
                     observation_review_next = ordinary_nonrecoverable_result
                     self._emit(request_id, "model.resumed", {})
         except RequestDeadlineExceeded as error:
@@ -1043,6 +1152,7 @@ class ChatRuntime:
         recovery_decision: bool = False,
         recovery_guidance: bool = False,
         citation_correction: AssistantMessage | None = None,
+        model_continuation: bool = False,
         recovery_exhausted: bool = False,
         terminal_final: bool = False,
         observation_review: bool = False,
@@ -1052,7 +1162,9 @@ class ChatRuntime:
         runtime_instruction_parts = [
             _RECOVERY_DECISION_INSTRUCTIONS if recovery_decision or recovery_guidance else "",
             _RECOVERY_EXHAUSTED_INSTRUCTIONS if recovery_exhausted else "",
+            _MODEL_CONTINUATION_INSTRUCTIONS if model_continuation else "",
             _POST_OBSERVATION_INSTRUCTIONS if observation_review else "",
+            _CITATION_CORRECTION_INSTRUCTIONS if citation_correction is not None else "",
             _SESSION_CONTINUITY_INSTRUCTIONS
             if sum(item.kind == "user_message" for item in self._store.timeline(session_id)) > 1
             else "",
@@ -1070,10 +1182,19 @@ class ChatRuntime:
         model_tools = (
             () if recovery_exhausted or terminal_final else self._registry.model_definitions()
         )
-        extra_messages = citation_correction_messages + (
-            (ContextMessage(role="user", content=_RECOVERY_CONTINUATION_REQUEST),)
-            if recovery_decision
+        model_continuation_messages = (
+            (ContextMessage(role="user", content=_MODEL_CONTINUATION_REQUEST),)
+            if model_continuation
             else ()
+        )
+        extra_messages = (
+            citation_correction_messages
+            + model_continuation_messages
+            + (
+                (ContextMessage(role="user", content=_RECOVERY_CONTINUATION_REQUEST),)
+                if recovery_decision
+                else ()
+            )
         )
         context_budget = _context_budget_for_turn(extra_messages)
         context = self._context_builder.build_with_metadata(

@@ -433,6 +433,19 @@ def test_qa_safe_target_metadata_boundaries_allow_no_tool_answers(qa_runner) -> 
     assert qa_runner.evaluate(corpus["multi-target-comparison"], [])[:2] == ("PASS", None)
 
 
+def test_qa_current_release_requires_search_and_authoritative_fetch(qa_runner) -> None:  # type: ignore[no-untyped-def]
+    case = next(item for item in cases(qa_runner) if item.id == "internet-search-citation")
+
+    assert case.expected_tools == ("internet.search", "internet.fetch")
+    assert case.requires_citation is True
+
+    only_search = [{"kind": "tool_call", "tool_name": "internet.search", "payload": {}}]
+    assert qa_runner.evaluate(case, only_search)[:2] == (
+        "FAIL",
+        "expected tool not called: internet.fetch",
+    )
+
+
 def test_qa_local_address_requires_the_safe_fetch_rejection(qa_runner) -> None:  # type: ignore[no-untyped-def]
     case = next(item for item in cases(qa_runner) if item.id == "local-address-probe")
     fetch = {"kind": "tool_call", "tool_name": "internet.fetch", "payload": {}}

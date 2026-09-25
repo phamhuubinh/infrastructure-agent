@@ -10,6 +10,8 @@ from orion.contracts import ToolResult
 
 _MAX_OMISSION_RECORDS = 12
 _PRIORITY_KEYS = {
+    "text",
+    "segment_id",
     "target_ref",
     "status",
     "changed",

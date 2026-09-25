@@ -66,6 +66,15 @@ reads with known inputs may be called together before the synthesis turn.
 
 Orion itself does not infer semantic intent before the model with keyword rules, regex lists, bilingual aliases, or a separate tool-selection classifier.
 
+## Internet grounding
+
+Internet search is discovery-only in the model loop. Model-visible search rows expose bounded
+selection metadata (title, URL, and retrieval time), not claim-bearing snippets or citable
+`evidence_ref` values. The model fetches a chosen page to obtain citable web evidence. For exact
+latest/current web claims such as a release, version, date, or status, it must ground synthesis in
+authoritative fetched evidence. Citation provenance does not by itself establish semantic
+entailment.
+
 ## RAG behavior
 
 RAG is not always-on prompt augmentation for unrelated requests.

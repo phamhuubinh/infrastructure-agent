@@ -134,7 +134,7 @@ def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -
         "maximum": 20,
     }
     assert search_parameters["properties"]["document_ids"]["description"] == (
-        "Optional exact IDs from attachment metadata, search, or list; never names/titles."
+        "Optional exact visible IDs; omit unless exact document_id values are visible now."
     )
     assert metadata_parameters["properties"]["document_id"]["description"] == exact_id_description
 
@@ -268,7 +268,10 @@ def test_session_scope_and_model_document_filter_cannot_escape(knowledge, store)
     assert isolated.status == "success"
     assert isolated.data == {"segments": []}
     assert escaped.status == "error"
+    assert escaped.sources == ()
     assert escaped.error is not None and escaped.error.code == "scope_violation"
+    assert escaped.error.model_recovery_required is True
+    assert "omit document_ids to search the current scope" in escaped.error.message
 
 
 def test_hybrid_local_retrieval_and_cross_document_identity(knowledge, store) -> None:  # type: ignore[no-untyped-def]
