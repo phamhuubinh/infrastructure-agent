@@ -256,7 +256,6 @@ export function AppSidebar() {
         {chatSessions.map((s) => (
           <ChatRow
             key={s.id}
-            id={s.id}
             title={s.title}
             active={s.id === currentSessionId}
             isGenerating={generatingSessions.has(s.id)}
@@ -295,7 +294,6 @@ export function AppSidebar() {
               {conversations.map((conversation) => (
                 <ChatRow
                   key={conversation.id}
-                  id={conversation.id}
                   title={conversation.title}
                   active={conversation.id === currentSessionId}
                   isGenerating={generatingSessions.has(conversation.id)}
@@ -418,7 +416,6 @@ function ThemeToggle() {
 }
 
 function ChatRow({
-  id,
   title,
   active,
   isGenerating,
@@ -427,7 +424,6 @@ function ChatRow({
   onRename,
   onDelete,
 }: {
-  id: string;
   title: string;
   active: boolean;
   isGenerating: boolean;

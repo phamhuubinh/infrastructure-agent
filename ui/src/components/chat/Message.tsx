@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { Copy, Check, Clock3, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OrionIcon } from "@/components/OrionIcon";
 

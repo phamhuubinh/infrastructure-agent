@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import datetime
 
 from orion.contracts import SourceRef, ToolCall, ToolDefinition, ToolError, ToolResult
 from orion.integrations import InternetClient, InternetClientError
@@ -117,7 +118,7 @@ def _failure(call: ToolCall, error: InternetClientError) -> ToolResult:
     )
 
 
-def _source(url: str, title: str | None, retrieved_at) -> SourceRef:  # type: ignore[no-untyped-def]
+def _source(url: str, title: str | None, retrieved_at: datetime) -> SourceRef:
     return SourceRef(
         source_ref_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"orion:internet:{url}")),
         source_kind="internet",

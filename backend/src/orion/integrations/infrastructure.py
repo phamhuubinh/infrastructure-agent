@@ -11,7 +11,8 @@ import os
 import re
 import shlex
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -225,8 +226,6 @@ def _zabbix_jsonrpc_endpoint(value: object) -> str | None:
 
 
 def _target_ref_valid(value: str) -> bool:
-    import re
-
     return bool(re.fullmatch(r"[a-z][a-z0-9._-]{0,63}", value))
 
 
@@ -263,6 +262,15 @@ class LinuxExecutor(Protocol):
 class SshLinuxExecutor:
     """Concrete fixed-command SSH executor.  Model values never form a shell command."""
 
+    @contextmanager
+    def _operation_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except subprocess.TimeoutExpired as error:
+            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
+        except subprocess.CalledProcessError as error:
+            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
+
     def _argv(self, target: Target, credential: object, command: list[str]) -> list[str]:
         alias = target.connection.get("ssh_alias")
         if isinstance(alias, str) and alias:
@@ -292,7 +300,7 @@ class SshLinuxExecutor:
         return argv + [f"{user}@{host}", "--", " ".join(shlex.quote(part) for part in command)]
 
     def _run(self, target: Target, credential: object, command: list[str]) -> str:
-        try:
+        with self._operation_errors():
             return subprocess.run(
                 self._argv(target, credential, command),
                 check=True,
@@ -300,25 +308,17 @@ class SshLinuxExecutor:
                 text=True,
                 timeout=15,
             ).stdout
-        except subprocess.TimeoutExpired as error:
-            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
-        except subprocess.CalledProcessError as error:
-            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
 
     def _run_bytes(self, target: Target, credential: object, command: list[str]) -> bytes:
-        try:
+        with self._operation_errors():
             return subprocess.run(
                 self._argv(target, credential, command), check=True, capture_output=True, timeout=15
             ).stdout
-        except subprocess.TimeoutExpired as error:
-            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
-        except subprocess.CalledProcessError as error:
-            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
 
     def _run_input(
         self, target: Target, credential: object, command: list[str], content: bytes
     ) -> None:
-        try:
+        with self._operation_errors():
             subprocess.run(
                 self._argv(target, credential, command),
                 check=True,
@@ -326,10 +326,6 @@ class SshLinuxExecutor:
                 capture_output=True,
                 timeout=15,
             )
-        except subprocess.TimeoutExpired as error:
-            raise InfrastructureError("timeout", "Linux target timed out.", True) from error
-        except subprocess.CalledProcessError as error:
-            raise InfrastructureError("upstream_error", "Linux operation failed.") from error
 
     def inspect(
         self, target: Target, credential: object, sections: tuple[str, ...]

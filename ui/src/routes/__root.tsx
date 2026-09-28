@@ -114,7 +114,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<"light" | "dark">(
+  const [theme] = useState<"light" | "dark">(
     () =>
       (typeof localStorage !== "undefined"
         ? (localStorage.getItem("theme") as "light" | "dark")
