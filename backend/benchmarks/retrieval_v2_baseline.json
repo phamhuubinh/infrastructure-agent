@@ -1,0 +1,28 @@
+{
+  "corpus_version": 1,
+  "ranker": "production_lexical_plus_hash",
+  "query_count": 11,
+  "metrics": {
+    "recall@1": 0.4444444444444444,
+    "recall@5": 0.5555555555555556,
+    "recall@10": 0.5555555555555556,
+    "mrr@10": 0.4722222222222222,
+    "ndcg@10": 0.4922973953414881
+  },
+  "filename_top1_rate": 1.0,
+  "provenance_accuracy": 1.0,
+  "leakage_count": 0,
+  "first_relevant_rank": {
+    "english_paraphrase": 4,
+    "vietnamese_paraphrase": null,
+    "english_to_vietnamese": null,
+    "vietnamese_to_english": null,
+    "acronym_expansion": null,
+    "cross_document_distractors": 1,
+    "exact_filename": 1,
+    "provenance": 1,
+    "project_scope": 1,
+    "session_isolation": null,
+    "deleted_exclusion": null
+  }
+}

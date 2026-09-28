@@ -113,7 +113,7 @@ normalize source-location units
  ↓
 chunk with document/page/section metadata
  ↓
-lexical/vector index
+lexical/hash-overlap retrieval (current); persisted dense indexing (future activation)
  ↓
 ready (or explicit failed state)
 ```
@@ -135,6 +135,28 @@ same state machine off-request without changing the parser/index/source contract
 Parser, embedding, lexical, and vector implementations are replaceable components.
 
 A deployment does not need a specific vector database to satisfy the architecture.
+
+### RAG v2 foundation status
+
+The current production `knowledge.search` still fuses lexical overlap with a deterministic
+token-hash overlap ranker. Token hashing is **not learned semantic retrieval**. Phase 1–2 adds a
+provider-neutral `EmbeddingPort`, immutable model profiles, Orion-owned float32 vector encoding,
+SQLite segment-embedding storage, separate semantic indexing progress, and an offline retrieval
+benchmark. It does not activate dense ranking or install an embedding model.
+
+`documents.status = ready` retains its existing meaning: parsing, chunking, and segment storage
+completed, so lexical search and exact reading work. Semantic indexing has an independent
+`missing → indexing → ready` path and may enter `failed`; either `missing` or `failed` leaves
+the document available through lexical retrieval in an explicit semantic-degraded mode. A later
+local adapter and explicit model provisioning will activate dense retrieval. Normal startup and
+search must not download model weights or call an external embedding endpoint.
+
+An embedding profile identifies its implementation, pinned model revision and digests, precision,
+dimension, pooling, normalization, input prefixes, token limit, and windowing version. Its ID is
+derived from the canonical definition. Persisted vectors are keyed by original segment ID,
+profile ID, and window ordinal; a source-text digest prevents stale vectors from ranking.
+Backfill may resume from missing/stale segments without replacing document segments or changing
+source and citation identities. Application-owned scope filters candidate vectors before ranking.
 
 ## Retrieval task shapes
 

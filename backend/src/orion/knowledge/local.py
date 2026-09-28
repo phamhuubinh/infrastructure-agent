@@ -107,8 +107,8 @@ class ParagraphChunker:
         return tuple(chunks)
 
 
-class HashingEmbedding:
-    """A dependency-free local vector representation with a small semantic normalizer."""
+class TokenHashRepresentation:
+    """Legacy token counts used for lexical overlap ranking, not semantic embeddings."""
 
     def embed(self, text: str) -> dict[str, float]:
         vector: dict[str, float] = {}
@@ -133,8 +133,8 @@ class LocalLexicalIndex:
         return scores
 
 
-class LocalVectorIndex:
-    def __init__(self, embeddings: HashingEmbedding) -> None:
+class LocalHashOverlapIndex:
+    def __init__(self, embeddings: TokenHashRepresentation) -> None:
         self._embeddings = embeddings
 
     def search(self, query: str, segments: tuple[IndexedSegment, ...]) -> dict[str, float]:

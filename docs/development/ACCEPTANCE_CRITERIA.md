@@ -31,6 +31,11 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Project documents are retrievable only in active project scope.
 - Exact document read works.
 - Semantic retrieval works.
+- RAG v2 Phase 1–2 establishes semantic profiles, persistence, resumable indexing state, and a
+  frozen lexical/hash benchmark only. It does not satisfy the semantic-retrieval target above
+  until a local learned embedding adapter is provisioned and dense ranking is activated.
+- `ready` continues to mean lexical retrieval and exact reads work; missing or failed semantic
+  indexing cannot hide a ready document or silently present hashing as semantic retrieval.
 - Document-grounded factual/topic/quote answers retrieve current content evidence before synthesis.
 - `knowledge.search` is the default discovery path when no exact target document is visible or
   retrieval spans knowledge sources; a visible exact session attachment may be read directly.

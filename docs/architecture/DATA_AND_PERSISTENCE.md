@@ -45,6 +45,14 @@ or
 
 Deletion must remove or tombstone the corresponding index entries so deleted documents do not reappear in retrieval.
 
+Semantic indexing is separate from document ingestion status. A `ready` document remains
+queryable through lexical search and exact reads if its semantic profile is `missing`, `indexing`,
+or `failed`. `embedding_profiles` stores immutable canonical profile definitions;
+`segment_embeddings` stores little-endian float32 vectors keyed by segment/profile/window with
+source-text digests; `document_semantic_index` stores per-document/profile progress. Reindexing
+does not replace `document_segments` or their citation identities. Tombstoned documents are
+excluded from semantic queries immediately, and their vector rows are removed.
+
 ## Stores
 
 The implementation may use multiple physical stores:

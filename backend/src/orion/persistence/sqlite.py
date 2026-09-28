@@ -11,7 +11,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from orion.contracts import TimelineItem, TimelineKind
+from orion.contracts import RuntimeScope, TimelineItem, TimelineKind
+from orion.embeddings import (
+    EmbeddingProfile,
+    Vector,
+    decode_vector,
+    encode_vector,
+    text_digest,
+)
 
 MAX_SESSION_SUMMARIES = 100
 MODEL_CONTEXT_HISTORY_TURNS = 64
@@ -198,6 +205,44 @@ class SQLiteStore:
                 "ON model_configs(is_active) WHERE is_active = 1"
             )
         self._migrate_document_owners_if_needed()
+        self._create_embedding_schema()
+
+    def _create_embedding_schema(self) -> None:
+        """Additive migration: existing segment rows and public identities are untouched."""
+        with self._lock, self._connection:
+            self._connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS embedding_profiles (
+                    profile_id TEXT PRIMARY KEY,
+                    definition_json TEXT NOT NULL,
+                    dimension INTEGER NOT NULL CHECK (dimension > 0),
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS segment_embeddings (
+                    segment_id TEXT NOT NULL REFERENCES document_segments(segment_id)
+                        ON DELETE CASCADE,
+                    profile_id TEXT NOT NULL REFERENCES embedding_profiles(profile_id),
+                    window_ordinal INTEGER NOT NULL CHECK (window_ordinal >= 0),
+                    dimension INTEGER NOT NULL CHECK (dimension > 0),
+                    vector_blob BLOB NOT NULL,
+                    source_text_digest TEXT NOT NULL,
+                    PRIMARY KEY (segment_id, profile_id, window_ordinal)
+                );
+                CREATE INDEX IF NOT EXISTS segment_embeddings_profile
+                    ON segment_embeddings(profile_id, segment_id);
+                CREATE TABLE IF NOT EXISTS document_semantic_index (
+                    document_id TEXT NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+                    profile_id TEXT NOT NULL REFERENCES embedding_profiles(profile_id),
+                    status TEXT NOT NULL
+                        CHECK (status IN ('missing', 'indexing', 'ready', 'failed')),
+                    indexed_segments INTEGER NOT NULL DEFAULT 0 CHECK (indexed_segments >= 0),
+                    total_segments INTEGER NOT NULL DEFAULT 0 CHECK (total_segments >= 0),
+                    error_message TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (document_id, profile_id)
+                );
+                """
+            )
 
     def _normalize_active_model_config(self) -> None:
         """Make legacy saved configurations conform to the one-active-profile invariant."""
@@ -1022,6 +1067,11 @@ class SQLiteStore:
     ) -> None:
         with self._lock, self._connection:
             self._connection.execute(
+                "UPDATE document_semantic_index SET status = 'missing', indexed_segments = 0, "
+                "total_segments = ?, error_message = NULL, updated_at = ? WHERE document_id = ?",
+                (len(segments), _utc_now(), document_id),
+            )
+            self._connection.execute(
                 "UPDATE documents SET normalized_text = ?, updated_at = ? WHERE document_id = ?",
                 (normalized_text, _utc_now(), document_id),
             )
@@ -1122,8 +1172,264 @@ class SQLiteStore:
                 (_utc_now(), _utc_now(), document_id),
             )
             if cursor.rowcount:
+                self._connection.execute(
+                    "DELETE FROM segment_embeddings WHERE segment_id IN "
+                    "(SELECT segment_id FROM document_segments WHERE document_id = ?)",
+                    (document_id,),
+                )
+                self._connection.execute(
+                    "DELETE FROM document_semantic_index WHERE document_id = ?", (document_id,)
+                )
                 self._record_ingestion_event(document_id, "deleted", None)
             return cursor.rowcount == 1
+
+    def register_embedding_profile(self, profile: EmbeddingProfile) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT OR IGNORE INTO embedding_profiles"
+                "(profile_id, definition_json, dimension, created_at) VALUES (?, ?, ?, ?)",
+                (profile.profile_id, profile.canonical_json(), profile.dimension, _utc_now()),
+            )
+            row = self._connection.execute(
+                "SELECT definition_json, dimension FROM embedding_profiles WHERE profile_id = ?",
+                (profile.profile_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["definition_json"] != profile.canonical_json()
+                or row["dimension"] != profile.dimension
+            ):
+                raise ValueError("Embedding profile identity collision or incompatible definition")
+
+    def semantic_index_state(self, document_id: str, profile_id: str) -> dict[str, Any]:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT status, indexed_segments, total_segments, error_message, updated_at "
+                "FROM document_semantic_index WHERE document_id = ? AND profile_id = ?",
+                (document_id, profile_id),
+            ).fetchone()
+            total = self._connection.execute(
+                "SELECT COUNT(*) FROM document_segments WHERE document_id = ?", (document_id,)
+            ).fetchone()[0]
+        return (
+            dict(row)
+            if row
+            else {
+                "status": "missing",
+                "indexed_segments": 0,
+                "total_segments": total,
+                "error_message": None,
+                "updated_at": None,
+            }
+        )
+
+    def semantic_index_states(self, document_id: str) -> list[dict[str, Any]]:
+        """Expose explicit missing state for registered profiles with no index rows yet."""
+        with self._lock:
+            profiles = self._connection.execute(
+                "SELECT profile_id FROM embedding_profiles ORDER BY profile_id"
+            ).fetchall()
+        return [
+            {
+                "profile_id": str(row["profile_id"]),
+                **self.semantic_index_state(document_id, str(row["profile_id"])),
+            }
+            for row in profiles
+        ]
+
+    def set_semantic_index_state(
+        self,
+        document_id: str,
+        profile_id: str,
+        status: str,
+        indexed_segments: int,
+        total_segments: int,
+        error_message: str | None = None,
+    ) -> None:
+        if status not in {"missing", "indexing", "ready", "failed"}:
+            raise ValueError("Invalid semantic indexing state")
+        if indexed_segments < 0 or total_segments < 0 or indexed_segments > total_segments:
+            raise ValueError("Invalid semantic indexing progress")
+        with self._lock, self._connection:
+            document = self._connection.execute(
+                """SELECT d.status, d.deleted_at, p.deleted_at AS project_deleted_at
+                   FROM documents d LEFT JOIN projects p ON p.project_id = d.project_id
+                   WHERE d.document_id = ?""",
+                (document_id,),
+            ).fetchone()
+            if (
+                document is None
+                or document["status"] != "ready"
+                or document["deleted_at"] is not None
+                or document["project_deleted_at"] is not None
+            ):
+                raise LookupError("Document is not live and ready for semantic indexing")
+            self._connection.execute(
+                """INSERT INTO document_semantic_index
+                   (document_id, profile_id, status, indexed_segments, total_segments,
+                    error_message, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(document_id, profile_id) DO UPDATE SET
+                     status = excluded.status,
+                     indexed_segments = excluded.indexed_segments,
+                     total_segments = excluded.total_segments,
+                     error_message = excluded.error_message,
+                     updated_at = excluded.updated_at""",
+                (
+                    document_id,
+                    profile_id,
+                    status,
+                    indexed_segments,
+                    total_segments,
+                    error_message,
+                    _utc_now(),
+                ),
+            )
+
+    def put_segment_embeddings(
+        self,
+        segment_id: str,
+        profile: EmbeddingProfile,
+        source_text_digest: str,
+        windows: tuple[Vector, ...],
+    ) -> None:
+        """Replace one segment's windows atomically if its live source text still matches."""
+        if not windows:
+            raise ValueError("At least one embedding window is required")
+        encoded = tuple(encode_vector(vector, profile.dimension) for vector in windows)
+        with self._lock, self._connection:
+            row = self._connection.execute(
+                """SELECT s.text, d.status, d.deleted_at, p.deleted_at AS project_deleted_at
+                   FROM document_segments s JOIN documents d ON d.document_id = s.document_id
+                   LEFT JOIN projects p ON p.project_id = d.project_id
+                   WHERE s.segment_id = ?""",
+                (segment_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["status"] != "ready"
+                or row["deleted_at"] is not None
+                or row["project_deleted_at"] is not None
+            ):
+                raise LookupError("Segment is not in a live ready document")
+            if text_digest(str(row["text"])) != source_text_digest:
+                raise ValueError("Segment text changed before embedding commit")
+            registered = self._connection.execute(
+                "SELECT definition_json FROM embedding_profiles WHERE profile_id = ?",
+                (profile.profile_id,),
+            ).fetchone()
+            if registered is None or registered["definition_json"] != profile.canonical_json():
+                raise ValueError("Embedding profile is not registered or is incompatible")
+            self._connection.execute(
+                "DELETE FROM segment_embeddings WHERE segment_id = ? AND profile_id = ?",
+                (segment_id, profile.profile_id),
+            )
+            self._connection.executemany(
+                """INSERT INTO segment_embeddings
+                   (segment_id, profile_id, window_ordinal, dimension, vector_blob,
+                    source_text_digest) VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        segment_id,
+                        profile.profile_id,
+                        ordinal,
+                        profile.dimension,
+                        blob,
+                        source_text_digest,
+                    )
+                    for ordinal, blob in enumerate(encoded)
+                ],
+            )
+
+    def segments_needing_embeddings(
+        self, document_id: str, profile: EmbeddingProfile
+    ) -> list[dict[str, Any]]:
+        segments = self.document_segments(document_id)
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT segment_id, source_text_digest, dimension, vector_blob
+                   FROM segment_embeddings WHERE profile_id = ? AND segment_id IN
+                   (SELECT segment_id FROM document_segments WHERE document_id = ?)""",
+                (profile.profile_id, document_id),
+            ).fetchall()
+        valid: set[tuple[str, str]] = set()
+        for row in rows:
+            try:
+                decode_vector(row["vector_blob"], profile.dimension)
+            except ValueError:
+                continue
+            if row["dimension"] == profile.dimension:
+                valid.add((str(row["segment_id"]), str(row["source_text_digest"])))
+        return [
+            segment
+            for segment in segments
+            if (str(segment["segment_id"]), text_digest(str(segment["text"]))) not in valid
+        ]
+
+    def ready_documents_for_semantic_backfill(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT d.* FROM documents d LEFT JOIN projects p ON p.project_id = d.project_id
+                   WHERE d.status = 'ready' AND d.deleted_at IS NULL
+                     AND (d.project_id IS NULL OR p.deleted_at IS NULL)
+                   ORDER BY d.created_at, d.document_id"""
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def visible_embedding_rows(
+        self,
+        scope: RuntimeScope,
+        profile: EmbeddingProfile,
+        document_ids: tuple[str, ...] = (),
+        *,
+        limit: int = 256,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """SQL applies authorization before any vector BLOB leaves persistence."""
+        if limit <= 0 or offset < 0:
+            raise ValueError("Invalid embedding page")
+        allowed = self.validate_visible_document_ids(scope, document_ids)
+        if not allowed:
+            return []
+        selected = tuple(sorted(set(document_ids)))
+        document_filter = (
+            "AND s.document_id IN (" + ", ".join("?" for _ in selected) + ")" if selected else ""
+        )
+        with self._lock:
+            rows = self._connection.execute(
+                f"""SELECT e.segment_id, e.window_ordinal, e.dimension, e.vector_blob,
+                           e.source_text_digest, s.text, s.document_id
+                    FROM segment_embeddings e
+                    JOIN document_segments s ON s.segment_id = e.segment_id
+                    JOIN documents d ON d.document_id = s.document_id
+                    LEFT JOIN projects p ON p.project_id = d.project_id
+                    WHERE e.profile_id = ? {document_filter}
+                      AND d.status = 'ready' AND d.deleted_at IS NULL
+                      AND ((d.session_id = ? AND d.attachment_id IN
+                           ({", ".join("?" for _ in scope.attachment_ids) or "NULL"}))
+                           OR (d.project_id = ? AND p.deleted_at IS NULL))
+                    ORDER BY e.segment_id, e.window_ordinal LIMIT ? OFFSET ?""",
+                (
+                    profile.profile_id,
+                    *selected,
+                    scope.session_id,
+                    *scope.attachment_ids,
+                    scope.project_id,
+                    limit,
+                    offset,
+                ),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def validate_visible_document_ids(
+        self, scope: RuntimeScope, document_ids: tuple[str, ...] = ()
+    ) -> set[str]:
+        visible = self.visible_documents(scope.session_id, scope.attachment_ids)
+        if scope.project_id is not None:
+            visible.extend(self.visible_project_documents(scope.project_id))
+        allowed = {str(row["document_id"]) for row in visible}
+        if document_ids and not set(document_ids) <= allowed:
+            raise PermissionError("Requested document is outside the current knowledge scope")
+        return allowed
 
     def document_ingestion_events(self, document_id: str) -> list[dict[str, Any]]:
         with self._lock:

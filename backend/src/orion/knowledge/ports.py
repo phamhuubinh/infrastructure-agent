@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from orion.embeddings import EmbeddingProfile, Vector
+
 
 @dataclass(frozen=True)
 class ParsedSection:
@@ -43,13 +45,24 @@ class Chunker(Protocol):
     def chunk(self, parsed: ParsedDocument) -> tuple[Chunk, ...]: ...
 
 
-class EmbeddingProvider(Protocol):
-    def embed(self, text: str) -> dict[str, float]: ...
+class EmbeddingPort(Protocol):
+    @property
+    def profile(self) -> EmbeddingProfile: ...
+
+    @property
+    def dimension(self) -> int: ...
+
+    @property
+    def maximum_input_tokens(self) -> int | None: ...
+
+    def embed_passages(self, texts: tuple[str, ...]) -> tuple[Vector, ...]: ...
+
+    def embed_queries(self, texts: tuple[str, ...]) -> tuple[Vector, ...]: ...
 
 
 class LexicalIndex(Protocol):
     def search(self, query: str, segments: tuple[IndexedSegment, ...]) -> dict[str, float]: ...
 
 
-class VectorIndex(Protocol):
+class HashOverlapIndex(Protocol):
     def search(self, query: str, segments: tuple[IndexedSegment, ...]) -> dict[str, float]: ...

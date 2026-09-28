@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "documents": [
+    {
+      "key": "recovery_en",
+      "owner": "session_a",
+      "name": "runbook-omega.txt",
+      "text": "Following total hardware loss, operators reconstruct the service from replicated snapshots kept at the secondary site."
+    },
+    {
+      "key": "recovery_vi",
+      "owner": "session_a",
+      "name": "phuc-dung.txt",
+      "text": "Khi máy chủ hỏng hoàn toàn, quản trị viên phục dựng hệ thống từ bản sao dự phòng tại kho lưu trữ."
+    },
+    {
+      "key": "continuity",
+      "owner": "session_a",
+      "name": "continuity.txt",
+      "text": "Recovery point objective specifies the maximum amount of data that may be lost, measured in time."
+    },
+    {
+      "key": "acronym_distractor",
+      "owner": "session_a",
+      "name": "meeting.txt",
+      "text": "The RPO committee meets weekly to review hiring budgets."
+    },
+    {
+      "key": "recovery_distractor",
+      "owner": "session_a",
+      "name": "support.txt",
+      "text": "A server destroyed during testing requires an application support ticket. No restoration information is included."
+    },
+    {
+      "key": "storage",
+      "owner": "session_a",
+      "name": "storage.txt",
+      "text": "The current backup retention period is thirty days."
+    },
+    {
+      "key": "old_storage",
+      "owner": "session_a",
+      "name": "archive.txt",
+      "text": "An obsolete backup retention rule once allowed ninety days."
+    },
+    {
+      "key": "deleted",
+      "owner": "session_a",
+      "name": "obsolete.txt",
+      "text": "Nebula keycode for the retired cluster is violet.",
+      "delete_before_queries": true
+    },
+    {
+      "key": "project_a",
+      "owner": "project_a",
+      "name": "topology-a.txt",
+      "text": "Project A runs its primary database in the north rack."
+    },
+    {
+      "key": "project_b",
+      "owner": "project_b",
+      "name": "topology-b.txt",
+      "text": "Project B runs its primary database in the south rack."
+    },
+    {
+      "key": "session_b",
+      "owner": "session_b",
+      "name": "private.txt",
+      "text": "Secret comet architecture belongs only to another session."
+    }
+  ],
+  "queries": [
+    {
+      "key": "english_paraphrase",
+      "query": "How can the application return after a server is destroyed?",
+      "relevant": ["recovery_en"],
+      "category": "hard"
+    },
+    {
+      "key": "vietnamese_paraphrase",
+      "query": "Cách lấy lại dịch vụ sau sự cố nghiêm trọng?",
+      "relevant": ["recovery_vi"],
+      "category": "hard"
+    },
+    {
+      "key": "english_to_vietnamese",
+      "query": "Which document explains restoring a failed host from archived copies?",
+      "relevant": ["recovery_vi"],
+      "category": "hard"
+    },
+    {
+      "key": "vietnamese_to_english",
+      "query": "Tài liệu nào nói về mức mất dữ liệu được phép theo thời gian?",
+      "relevant": ["continuity"],
+      "category": "hard"
+    },
+    {
+      "key": "acronym_expansion",
+      "query": "What does RPO allow us to lose?",
+      "relevant": ["continuity"],
+      "category": "hard"
+    },
+    {
+      "key": "cross_document_distractors",
+      "query": "What is the current backup retention period?",
+      "relevant": ["storage"],
+      "category": "lexical"
+    },
+    {
+      "key": "exact_filename",
+      "query": "runbook-omega.txt",
+      "relevant": ["recovery_en"],
+      "category": "filename"
+    },
+    {
+      "key": "provenance",
+      "query": "secondary site snapshots",
+      "relevant": ["recovery_en"],
+      "category": "lexical"
+    },
+    {
+      "key": "project_scope",
+      "query": "north rack",
+      "relevant": ["project_a"],
+      "category": "scope"
+    },
+    {
+      "key": "session_isolation",
+      "query": "Secret comet architecture",
+      "relevant": [],
+      "category": "scope"
+    },
+    {
+      "key": "deleted_exclusion",
+      "query": "Nebula keycode",
+      "relevant": [],
+      "category": "deletion"
+    }
+  ]
+}

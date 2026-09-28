@@ -15,18 +15,18 @@ from orion.contracts import (
 )
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.local import (
-    HashingEmbedding,
+    LocalHashOverlapIndex,
     LocalLexicalIndex,
-    LocalVectorIndex,
     ParagraphChunker,
+    TokenHashRepresentation,
 )
 from orion.knowledge.parsers import CompositeDocumentParser
 from orion.knowledge.ports import (
     Chunker,
     DocumentParser,
+    HashOverlapIndex,
     IndexedSegment,
     LexicalIndex,
-    VectorIndex,
 )
 from orion.persistence.sqlite import SQLiteStore
 
@@ -63,14 +63,14 @@ class KnowledgeService:
         parser: DocumentParser | None = None,
         chunker: Chunker | None = None,
         lexical_index: LexicalIndex | None = None,
-        vector_index: VectorIndex | None = None,
+        hash_index: HashOverlapIndex | None = None,
     ) -> None:
         self._store = store
         self._blobs = blobs
         self._parser = parser or CompositeDocumentParser()
         self._chunker = chunker or ParagraphChunker()
         self._lexical_index = lexical_index or LocalLexicalIndex()
-        self._vector_index = vector_index or LocalVectorIndex(HashingEmbedding())
+        self._hash_index = hash_index or LocalHashOverlapIndex(TokenHashRepresentation())
 
     def attach(
         self, session_id: str, name: str, content: bytes, media_type: str | None = "text/plain"
@@ -151,6 +151,7 @@ class KnowledgeService:
             "error_message": row["error_message"],
             "deleted": row["deleted_at"] is not None,
             "ingestion": self._store.document_ingestion_events(document_id),
+            "semantic_indexing": self._store.semantic_index_states(document_id),
         }
 
     def delete(self, document_id: str, scope: RuntimeScope) -> bool:
@@ -200,8 +201,8 @@ class KnowledgeService:
             for segment in segments
         )
         lexical = self._lexical_index.search(query, indexed)
-        vector = self._vector_index.search(query, indexed)
-        score_by_segment = self._fuse(lexical, vector)
+        hash_overlap = self._hash_index.search(query, indexed)
+        score_by_segment = self._fuse(lexical, hash_overlap)
         by_id = {str(segment["segment_id"]): segment for segment in segments}
         ranked_ids = sorted(
             score_by_segment,
