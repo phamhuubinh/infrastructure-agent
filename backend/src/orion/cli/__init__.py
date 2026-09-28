@@ -24,8 +24,10 @@ from orion.paths import (
     database_path,
     log_path,
     packaged_ui_directory,
+    source_checkout_root,
 )
 from orion.security import redact_public
+from orion.ui_package import build_and_package_ui
 
 ORION_URL = f"http://{ORION_HOST}:{ORION_PORT}/"
 
@@ -71,6 +73,12 @@ def _configure_default_log_path() -> None:
 
 def _run_web() -> None:
     frontend = packaged_ui_directory()
+    checkout = source_checkout_root()
+    if checkout is not None and frontend.resolve() == (checkout / ".orion-ui").resolve():
+        try:
+            build_and_package_ui(checkout, frontend)
+        except RuntimeError as error:
+            raise SystemExit(str(error)) from error
     if not (frontend / PACKAGED_UI_SHELL).is_file():
         raise SystemExit(
             f"Orion's packaged UI is missing at {frontend}. Run ./install.sh to build it."

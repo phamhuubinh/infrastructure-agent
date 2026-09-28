@@ -85,47 +85,57 @@ export function ContextPanel({
         </Button>
       </div>
 
-      {(selectedSource || session.documents.length > 0) && (
+      {(selectedSource || session.documents.length > 0 || session.sources.length > 0) && (
         <div className="border-b border-border p-3">
-          <div className="mb-2 text-xs font-semibold">Nguồn phiên chat</div>
-          {selectedSource && (
-            <SourceCard
-              source={selectedSource}
-              selected
-              onClick={() => onOpenSource(selectedSource.sourceRefId)}
-            />
-          )}
-          <div className="space-y-1.5">
-            {session.documents.map((document) => (
-              <div
-                key={document.document.document_id}
-                className="flex items-center gap-2 rounded-md bg-surface-2/50 px-2 py-1.5 text-xs"
-              >
-                <FileText className="h-3.5 w-3.5 shrink-0 text-titanium" />
-                <span className="min-w-0 flex-1 truncate">{document.document.name}</span>
-                <span
-                  className={
-                    document.status === "ready"
-                      ? "text-success"
-                      : document.status === "failed"
-                        ? "text-destructive"
-                        : "text-amber-400"
-                  }
-                >
-                  {document.status}
-                </span>
+          {session.documents.length > 0 && (
+            <>
+              <div className="mb-2 text-xs font-semibold">
+                {session.projectId ? "Tài liệu Project" : "Tài liệu phiên chat"}
               </div>
-            ))}
-          </div>
-          {session.sources.length > 0 && !selectedSource && (
-            <div className="mt-2 space-y-1.5">
-              {session.sources.map((source) => (
+              <div className="space-y-1.5">
+                {session.documents.map((document) => (
+                  <div
+                    key={document.document.document_id}
+                    className="flex items-center gap-2 rounded-md bg-surface-2/50 px-2 py-1.5 text-xs"
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-titanium" />
+                    <span className="min-w-0 flex-1 truncate">{document.document.name}</span>
+                    <span
+                      className={
+                        document.status === "ready"
+                          ? "text-success"
+                          : document.status === "failed"
+                            ? "text-destructive"
+                            : "text-amber-400"
+                      }
+                    >
+                      {document.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {(selectedSource || session.sources.length > 0) && (
+            <div className={session.documents.length > 0 ? "mt-3" : ""}>
+              <div className="mb-2 text-xs font-semibold">Nguồn đã dùng</div>
+              {selectedSource ? (
                 <SourceCard
-                  key={source.sourceRefId}
-                  source={source}
-                  onClick={() => onOpenSource(source.sourceRefId)}
+                  source={selectedSource}
+                  selected
+                  onClick={() => onOpenSource(selectedSource.sourceRefId)}
                 />
-              ))}
+              ) : (
+                <div className="space-y-1.5">
+                  {session.sources.map((source) => (
+                    <SourceCard
+                      key={source.sourceRefId}
+                      source={source}
+                      onClick={() => onOpenSource(source.sourceRefId)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

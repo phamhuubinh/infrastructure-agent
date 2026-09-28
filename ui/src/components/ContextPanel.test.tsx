@@ -76,4 +76,47 @@ describe("ContextPanel", () => {
     );
     expect(screen.getByRole("button", { name: "Mở bảng chi tiết" })).toBeTruthy();
   });
+
+  it("separates available Project documents from evidence sources", () => {
+    render(
+      <ContextPanel
+        session={{
+          ...session,
+          documents: [
+            {
+              document: {
+                document_id: "doc-a",
+                source: { kind: "project", source_id: "project-a" },
+                name: "ready-a.txt",
+                media_type: "text/plain",
+              },
+              attachmentId: "attachment-a",
+              status: "ready",
+              errorMessage: null,
+              ingestion: [],
+            },
+          ],
+          sources: [
+            {
+              sourceRefId: "source-a",
+              sourceKind: "project",
+              documentId: "doc-a",
+              segmentId: "segment-a",
+              page: null,
+              section: null,
+              label: "ready-a.txt",
+              url: null,
+              retrievedAt: null,
+            },
+          ],
+        }}
+        selectedSourceRefId={null}
+        onOpenSource={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
+    expect(screen.getByText("Tài liệu Project")).toBeTruthy();
+    expect(screen.getByText("Nguồn đã dùng")).toBeTruthy();
+  });
 });

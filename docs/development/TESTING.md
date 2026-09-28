@@ -76,6 +76,10 @@ Frontend:
 make test-frontend
 ```
 
+For manual testing from an editable checkout, start or restart `orion web` after changing
+frontend source. Startup builds and replaces the packaged `.orion-ui` automatically; do not
+copy `ui/dist/client` by hand. Installed runtime uses the bundle prepared by `install.sh`.
+
 ## Required CI checks
 
 The main-branch delivery policy requires the existing `backend`, `ui`, and

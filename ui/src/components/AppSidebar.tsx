@@ -12,12 +12,13 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { listProjects, type Project } from "@/lib/api";
 import { sessionRoute, useChat, type Session } from "@/lib/chat-store";
-import { onProjectListInvalidated } from "@/lib/project-list";
+import { onProjectListInvalidated, type ProjectListChange } from "@/lib/project-list";
+import { removeProject, saveProject } from "@/lib/project-mutations";
 import { OrionIcon } from "@/components/OrionIcon";
 import {
   Dialog,
@@ -48,14 +49,17 @@ export function splitWorkspaceSessions(sessions: Session[]) {
   };
 }
 
+type ManagementTarget =
+  { kind: "conversation"; session: Session } | { kind: "project"; project: Project };
+
 export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [renameTarget, setRenameTarget] = useState<Session | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ManagementTarget | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ManagementTarget | null>(null);
   const [managementError, setManagementError] = useState<string | null>(null);
   const {
     sessions,
@@ -65,6 +69,7 @@ export function AppSidebar() {
     generatingSessions,
     renameSession,
     deleteSession,
+    removeProjectSessions,
   } = useChat();
 
   useEffect(() => {
@@ -73,14 +78,21 @@ export function AppSidebar() {
 
   useEffect(() => {
     let disposed = false;
-    const refreshProjects = () => {
+    const refreshProjects = (change?: ProjectListChange | null) => {
+      if (change?.type === "updated") {
+        setProjects((current) =>
+          current.map((item) =>
+            item.project_id === change.project.project_id ? change.project : item,
+          ),
+        );
+      } else if (change?.type === "deleted") {
+        setProjects((current) => current.filter((item) => item.project_id !== change.projectId));
+      }
       void listProjects()
         .then((loaded) => {
           if (!disposed) setProjects(loaded);
         })
-        .catch(() => {
-          if (!disposed) setProjects([]);
-        });
+        .catch(() => undefined);
     };
     refreshProjects();
     const unsubscribe = onProjectListInvalidated(refreshProjects);
@@ -107,10 +119,23 @@ export function AppSidebar() {
     if (!renameTarget || !renameTitle.trim()) return;
     setManagementError(null);
     try {
-      await renameSession(renameTarget.id, renameTitle.trim());
+      if (renameTarget.kind === "conversation") {
+        await renameSession(renameTarget.session.id, renameTitle.trim());
+      } else {
+        const project = renameTarget.project;
+        const updated = await saveProject(project.project_id, {
+          name: renameTitle.trim(),
+          description: project.description,
+          instructions: project.instructions,
+          metadata: project.metadata,
+        });
+        setProjects((current) =>
+          current.map((item) => (item.project_id === updated.project_id ? updated : item)),
+        );
+      }
       setRenameTarget(null);
     } catch (reason) {
-      setManagementError(reason instanceof Error ? reason.message : "Không thể đổi tên hội thoại.");
+      setManagementError(reason instanceof Error ? reason.message : "Không thể đổi tên.");
     }
   }
 
@@ -118,22 +143,44 @@ export function AppSidebar() {
     if (!deleteTarget) return;
     setManagementError(null);
     try {
-      await deleteSession(deleteTarget.id);
+      if (deleteTarget.kind === "conversation") {
+        await deleteSession(deleteTarget.session.id);
+      } else {
+        const projectId = deleteTarget.project.project_id;
+        await removeProject(projectId);
+        removeProjectSessions(projectId);
+        setProjects((current) => current.filter((item) => item.project_id !== projectId));
+        if (pathname === `/projects/${projectId}`) {
+          startNewChat();
+          await navigate({ to: "/projects" });
+        }
+      }
       setDeleteTarget(null);
     } catch (reason) {
-      setManagementError(reason instanceof Error ? reason.message : "Không thể xóa hội thoại.");
+      setManagementError(reason instanceof Error ? reason.message : "Không thể xóa.");
     }
   }
 
   function openRename(session: Session) {
     setManagementError(null);
     setRenameTitle(session.title);
-    setRenameTarget(session);
+    setRenameTarget({ kind: "conversation", session });
   }
 
   function openDelete(session: Session) {
     setManagementError(null);
-    setDeleteTarget(session);
+    setDeleteTarget({ kind: "conversation", session });
+  }
+
+  function openProjectRename(project: Project) {
+    setManagementError(null);
+    setRenameTitle(project.name);
+    setRenameTarget({ kind: "project", project });
+  }
+
+  function openProjectDelete(project: Project) {
+    setManagementError(null);
+    setDeleteTarget({ kind: "project", project });
   }
 
   const { chatSessions, projectSessions } = splitWorkspaceSessions(sessions);
@@ -231,24 +278,20 @@ export function AppSidebar() {
           );
           return (
             <div key={project.project_id} className="mb-1">
-              <button
-                type="button"
-                onClick={() =>
-                  void navigate({
+              <ManagedRow
+                title={project.name}
+                active={active}
+                leading={<FolderKanban className="h-4 w-4 shrink-0" />}
+                managementLabel={`Quản lý Project ${project.name}`}
+                onSelect={() =>
+                  navigate({
                     to: "/projects/$projectId",
                     params: { projectId: project.project_id },
                   })
                 }
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
-                  active
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
-                )}
-              >
-                <FolderKanban className="h-4 w-4 shrink-0" />
-                <span className="truncate">{project.name}</span>
-              </button>
+                onRename={() => openProjectRename(project)}
+                onDelete={() => openProjectDelete(project)}
+              />
               {conversations.map((conversation) => (
                 <ChatRow
                   key={conversation.id}
@@ -279,14 +322,20 @@ export function AppSidebar() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Đổi tên hội thoại</DialogTitle>
-            <DialogDescription>Đặt tên hiển thị cho hội thoại này.</DialogDescription>
+            <DialogTitle>
+              {renameTarget?.kind === "project" ? "Đổi tên Project" : "Đổi tên hội thoại"}
+            </DialogTitle>
+            <DialogDescription>
+              {renameTarget?.kind === "project"
+                ? "Đặt tên hiển thị cho Project này."
+                : "Đặt tên hiển thị cho hội thoại này."}
+            </DialogDescription>
           </DialogHeader>
           <Input
-            aria-label="Conversation title"
+            aria-label={renameTarget?.kind === "project" ? "Project title" : "Conversation title"}
             value={renameTitle}
             onChange={(event) => setRenameTitle(event.target.value)}
-            maxLength={120}
+            maxLength={renameTarget?.kind === "project" ? 200 : 120}
             onKeyDown={(event) => {
               if (event.key === "Enter") void saveRename();
             }}
@@ -314,9 +363,13 @@ export function AppSidebar() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Xóa hội thoại?</DialogTitle>
+            <DialogTitle>
+              {deleteTarget?.kind === "project" ? "Xóa Project?" : "Xóa hội thoại?"}
+            </DialogTitle>
             <DialogDescription>
-              Hội thoại và tài liệu chỉ thuộc hội thoại này sẽ bị xóa vĩnh viễn.
+              {deleteTarget?.kind === "project"
+                ? "Project cùng mọi hội thoại và tài liệu Project sẽ bị xóa vĩnh viễn."
+                : "Hội thoại và tài liệu chỉ thuộc hội thoại này sẽ bị xóa vĩnh viễn."}
             </DialogDescription>
           </DialogHeader>
           {managementError && (
@@ -384,6 +437,45 @@ function ChatRow({
   onDelete: () => void;
 }) {
   return (
+    <ManagedRow
+      title={title}
+      active={active}
+      nested={nested}
+      leading={
+        isGenerating ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-titanium" />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )
+      }
+      managementLabel={`Quản lý ${title}`}
+      onSelect={onSelect}
+      onRename={onRename}
+      onDelete={onDelete}
+    />
+  );
+}
+
+function ManagedRow({
+  title,
+  active,
+  nested = false,
+  leading,
+  managementLabel,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  title: string;
+  active: boolean;
+  nested?: boolean;
+  leading: ReactNode;
+  managementLabel: string;
+  onSelect: () => void | Promise<unknown>;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
     <div
       className={cn(
         "group w-full flex items-center gap-1 rounded-md px-1 text-sm transition-colors",
@@ -393,9 +485,9 @@ function ChatRow({
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/70",
       )}
     >
-      {isGenerating && <Loader2 className="ml-1 h-3.5 w-3.5 shrink-0 animate-spin text-titanium" />}
-      {!isGenerating && <span className="w-4 shrink-0" />}
+      <span className="ml-1 flex w-4 shrink-0 items-center justify-center">{leading}</span>
       <button
+        type="button"
         onClick={() => void onSelect()}
         className="flex-1 truncate text-left px-1.5 py-1.5 cursor-pointer"
       >
@@ -408,7 +500,7 @@ function ChatRow({
             variant="ghost"
             size="icon"
             className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-            aria-label={`Quản lý ${title}`}
+            aria-label={managementLabel}
           >
             <MoreHorizontal className="h-4 w-4" />
           </Button>

@@ -65,12 +65,20 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
     assert "use knowledge.search directly" in listing
 
     search = search_definition().description
+    assert search_definition().provider_schema()["function"]["description"] == search
     assert "Primary retrieval tool" in search
+    assert "fact/topic/quote/attribution" in search
+    assert "user-visible filename/title to document evidence" in search
+    assert "no exact document_id is visible" in search
+    assert "call knowledge.search with that filename directly" in search
+    assert "do not ask the user for document_id first" in search
     assert "without calling knowledge.list_documents first" in search
+    assert "listing is not a prerequisite" in search
     assert "Returns citable ToolResult sources" in search
 
     read = read_definition().description
     assert "not the default content-discovery tool" in read
+    assert "only after an exact document_id is available" in read
     assert "Use knowledge.search for discovery" in read
     assert "Successful reads return citable ToolResult sources" in read
     assert "continue with next_cursor" in read
@@ -125,7 +133,7 @@ def test_provider_knowledge_document_ids_are_exact_and_read_limit_is_bounded() -
         "maximum": 8,
     }
     assert search_parameters["properties"]["query"]["description"] == (
-        "Content query for evidence to retrieve."
+        "Content query or user-visible filename/title for evidence to retrieve."
     )
     assert search_parameters["properties"]["limit"] == {
         "type": "integer",
@@ -272,6 +280,20 @@ def test_session_scope_and_model_document_filter_cannot_escape(knowledge, store)
     assert escaped.error is not None and escaped.error.code == "scope_violation"
     assert escaped.error.model_recovery_required is True
     assert "omit document_ids to search the current scope" in escaped.error.message
+
+
+def test_search_can_select_visible_document_by_filename(knowledge, store) -> None:  # type: ignore[no-untyped-def]
+    session = store.create_session()
+    first = knowledge.attach(session, "ready-a.txt", b"ORION_READY_TEST_A_20260925")
+    second = knowledge.attach(session, "ready-b.txt", b"ORION_READY_TEST_B_20260925")
+    scope = _scope(session, first.attachment_id, second.attachment_id)
+
+    results = knowledge.search(scope, "ready-b.txt", 5)
+
+    assert results
+    assert results[0].document.document_id == second.document.document_id
+    assert results[0].document.name == "ready-b.txt"
+    assert "ORION_READY_TEST_B_20260925" in results[0].text
 
 
 def test_hybrid_local_retrieval_and_cross_document_identity(knowledge, store) -> None:  # type: ignore[no-untyped-def]

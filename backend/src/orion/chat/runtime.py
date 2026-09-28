@@ -743,6 +743,19 @@ class ChatRuntime:
                         citation_correction_next = turn.assistant
                         self._emit(request_id, "model.resumed", {})
                         continue
+                    if recovery_abandoned:
+                        assert turn.assistant is not None
+                        self._persist_assistant_turn(
+                            session_id,
+                            request_id,
+                            turn,
+                            intermediate=True,
+                        )
+                        recovery_pending = False
+                        forced_recovery_decisions_used += 1
+                        recovery_decision_next = True
+                        self._emit(request_id, "model.resumed", {})
+                        continue
                     assistant_item = self._persist_assistant_turn(
                         session_id, request_id, turn, metrics
                     )
@@ -758,12 +771,6 @@ class ChatRuntime:
                     if not turn.tool_calls:
                         if turn.assistant is None:
                             raise RuntimeError("Model returned an invalid terminal turn.")
-                        if recovery_abandoned:
-                            recovery_pending = False
-                            forced_recovery_decisions_used += 1
-                            recovery_decision_next = True
-                            self._emit(request_id, "model.resumed", {})
-                            continue
                         self._store.complete_request(request_id, "completed")
                         self._emit(request_id, "request.completed", {})
                         return RequestOutcome(
@@ -1340,6 +1347,8 @@ class ChatRuntime:
         request_id: str,
         turn: ModelTurn,
         metrics: dict[str, int] | None = None,
+        *,
+        intermediate: bool = False,
     ) -> TimelineItem:
         payload: dict[str, object] = {
             "content": redact_public(turn.assistant.content) if turn.assistant is not None else "",
@@ -1352,6 +1361,8 @@ class ChatRuntime:
         }
         if metrics is not None:
             payload["metrics"] = metrics
+        if intermediate:
+            payload["intermediate"] = True
         return self._store.append_timeline(
             session_id,
             request_id,

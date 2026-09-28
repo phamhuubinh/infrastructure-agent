@@ -1,5 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -25,7 +32,7 @@ import {
   attachProjectDocument,
   attachSessionDocument,
   deleteProjectDocument,
-  projectDocuments,
+  type DocumentStatus,
   type Project,
 } from "@/lib/api";
 import {
@@ -34,6 +41,7 @@ import {
   type Message,
   type RuntimeEvent,
   type Session,
+  type SessionDocument,
   type SourceReference,
   type TimelineItem,
 } from "@/lib/chat-store";
@@ -82,7 +90,25 @@ export function parseSseEvents(buffer: string): { events: RuntimeEvent[]; remain
   return { events, remainder };
 }
 
-export function ChatPage({ project }: { project?: Project }) {
+type ChatPageProps =
+  | {
+      project: Project;
+      projectDocuments: DocumentStatus[];
+      setProjectDocuments: Dispatch<SetStateAction<DocumentStatus[]>>;
+    }
+  | { project?: undefined; projectDocuments?: undefined; setProjectDocuments?: undefined };
+
+function sessionDocument(status: DocumentStatus): SessionDocument {
+  return {
+    document: status.document,
+    attachmentId: status.attachment_id,
+    status: status.status,
+    errorMessage: status.error_message,
+    ingestion: status.ingestion || [],
+  };
+}
+
+export function ChatPage({ project, projectDocuments, setProjectDocuments }: ChatPageProps) {
   const chat = useChat();
   const navigate = useNavigate();
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -96,18 +122,43 @@ export function ChatPage({ project }: { project?: Project }) {
       item.id === chat.currentSessionId &&
       (project ? item.projectId === project.project_id : !item.projectId),
   );
-  const [projectDocs, setProjectDocs] = useState<Session["documents"]>([]);
+  const projectDocs = (projectDocuments || [])
+    .filter((document) => !document.deleted)
+    .map(sessionDocument);
   const displayedSession =
     project && session
-      ? {
-          ...session,
-          sources: sessionFromTimeline(
+      ? (() => {
+          const documents = [
+            ...new Map(
+              [
+                ...session.documents.filter(
+                  (document) => document.document.source.kind !== "project",
+                ),
+                ...projectDocs,
+              ].map((document) => [document.document.document_id, document]),
+            ).values(),
+          ];
+          const projected = sessionFromTimeline(
             session.id,
             session.timeline,
-            [...session.documents, ...projectDocs],
+            documents,
             session.projectId,
-          ).sources,
-        }
+          );
+          const projectedMessages = new Map(
+            projected.messages.map((message) => [message.itemId, message]),
+          );
+          return {
+            ...session,
+            documents,
+            sources: projected.sources,
+            messages: session.messages.map((message) => {
+              const canonical = projectedMessages.get(message.itemId);
+              return canonical
+                ? { ...message, citationSourceRefIds: canonical.citationSourceRefIds }
+                : message;
+            }),
+          };
+        })()
       : session;
 
   useEffect(() => {
@@ -148,31 +199,6 @@ export function ChatPage({ project }: { project?: Project }) {
     if (!candidate) return;
     void chat.switchSession(candidate.id);
   }, [chat, project]);
-
-  useEffect(() => {
-    if (!project) return;
-    let disposed = false;
-    void projectDocuments(project.project_id)
-      .then((documents) => {
-        if (!disposed) {
-          setProjectDocs(
-            documents.map((document) => ({
-              document: document.document,
-              attachmentId: document.attachment_id,
-              status: document.status,
-              errorMessage: document.error_message,
-              ingestion: document.ingestion || [],
-            })),
-          );
-        }
-      })
-      .catch(() => {
-        if (!disposed) setProjectDocs([]);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [project]);
 
   const handleConversationScroll = useCallback(() => {
     const element = scrollAreaRef.current;
@@ -225,7 +251,7 @@ export function ChatPage({ project }: { project?: Project }) {
               loadingModels={loadingModels}
               projectId={project?.project_id}
               projectDocuments={projectDocs}
-              setProjectDocuments={setProjectDocs}
+              setProjectDocuments={setProjectDocuments}
             />
             <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
               <span>Orion — kết quả có thể sai, hãy xác minh thông tin quan trọng.</span>
@@ -426,7 +452,7 @@ function ChatInput({
   loadingModels: boolean;
   projectId?: string;
   projectDocuments: Session["documents"];
-  setProjectDocuments: (documents: Session["documents"]) => void;
+  setProjectDocuments?: Dispatch<SetStateAction<DocumentStatus[]>>;
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -441,6 +467,7 @@ function ChatInput({
     addOptimisticMessage,
     addOptimisticAssistant,
     appendAssistantDelta,
+    resetOptimisticAssistant,
     reconcileAssistantMessage,
     loadSession,
     recordEvent,
@@ -459,15 +486,11 @@ function ChatInput({
       try {
         if (projectId) {
           const uploaded = await attachProjectDocument(projectId, file);
-          setProjectDocuments([
-            ...activeProjectDocuments,
-            {
-              document: uploaded.document,
-              attachmentId: uploaded.attachment_id,
-              status: uploaded.status,
-              errorMessage: uploaded.error_message,
-              ingestion: [],
-            },
+          setProjectDocuments?.((current) => [
+            ...current.filter(
+              (document) => document.document.document_id !== uploaded.document.document_id,
+            ),
+            { ...uploaded, ingestion: [], deleted: false },
           ]);
         } else {
           let sessionId = currentSessionId;
@@ -486,14 +509,7 @@ function ChatInput({
         if (fileInput.current) fileInput.current.value = "";
       }
     },
-    [
-      activeProjectDocuments,
-      createSession,
-      currentSessionId,
-      loadSession,
-      projectId,
-      setProjectDocuments,
-    ],
+    [createSession, currentSessionId, loadSession, projectId, setProjectDocuments],
   );
 
   const submit = useCallback(async () => {
@@ -544,6 +560,9 @@ function ChatInput({
           if (event.type === "assistant.delta" && typeof event.payload.content === "string") {
             appendAssistantDelta(sessionId, event.payload.content);
           }
+          if (event.type === "model.resumed") {
+            resetOptimisticAssistant(sessionId);
+          }
           if (event.type === "assistant.message") {
             const item = event.payload.item;
             if (
@@ -588,6 +607,7 @@ function ChatInput({
     loadSession,
     recordEvent,
     reconcileAssistantMessage,
+    resetOptimisticAssistant,
     setSessionGenerating,
     session?.id,
     projectId,
@@ -697,13 +717,19 @@ function ChatInput({
                 document={document}
                 onDelete={() => {
                   if (projectId) {
-                    void deleteProjectDocument(projectId, document.document.document_id).then(() =>
-                      setProjectDocuments(
-                        activeProjectDocuments.filter(
-                          (item) => item.document.document_id !== document.document.document_id,
-                        ),
-                      ),
-                    );
+                    void deleteProjectDocument(projectId, document.document.document_id)
+                      .then(() => {
+                        setProjectDocuments?.((current) =>
+                          current.filter(
+                            (item) => item.document.document_id !== document.document.document_id,
+                          ),
+                        );
+                      })
+                      .catch((reason: unknown) => {
+                        setAttachmentError(
+                          reason instanceof Error ? reason.message : "Unable to delete document.",
+                        );
+                      });
                   } else if (session) {
                     void deleteDocument(session.id, document.document.document_id);
                   }

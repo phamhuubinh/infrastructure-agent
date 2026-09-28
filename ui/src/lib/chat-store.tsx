@@ -12,7 +12,6 @@ import {
   deleteSessionDocument,
   getSessionIdentity,
   listSessions,
-  projectDocuments,
   deleteSession as deletePersistedSession,
   renameSession as renamePersistedSession,
   type DocumentRef,
@@ -122,6 +121,7 @@ type ChatContextValue = {
   addOptimisticMessage: (sessionId: string, content: string) => void;
   addOptimisticAssistant: (sessionId: string) => void;
   appendAssistantDelta: (sessionId: string, content: string) => void;
+  resetOptimisticAssistant: (sessionId: string) => void;
   reconcileAssistantMessage: (sessionId: string, item: TimelineItem) => void;
   recordEvent: (sessionId: string, event: RuntimeEvent) => void;
   setSessionGenerating: (sessionId: string, generating: boolean) => void;
@@ -169,9 +169,12 @@ function publicActivity(
 
 export function assistantMessageFromTimelineItem(item: TimelineItem): Message | null {
   if (item.kind !== "assistant_message") return null;
+  if (item.payload.intermediate === true) return null;
+  const toolCalls = Array.isArray(item.payload.tool_calls) ? item.payload.tool_calls : [];
+  // Tool-dispatch turns remain canonical model-loop context, but their prose is intermediate
+  // runtime output rather than a user-visible answer. Only terminal assistant turns reach chat.
+  if (toolCalls.length > 0) return null;
   const content = typeof item.payload.content === "string" ? item.payload.content : "";
-  // Tool-call-only turns remain in the canonical timeline, but whitespace is not visible
-  // assistant content and must not produce a chat message in the presentation projection.
   if (!content.trim()) return null;
   const metrics = item.payload.metrics;
   const numeric = (key: string) =>
@@ -428,9 +431,10 @@ function upsertSession(sessions: Session[], next: Session): Session[] {
 async function reconcileSessionDocuments(
   sessionId: string,
   timeline: TimelineItem[],
-  projectId: string | null,
 ): Promise<SessionDocument[]> {
-  const candidates = attachmentCandidates(timeline);
+  const candidates = attachmentCandidates(timeline).filter(
+    (candidate) => candidate.document.source.kind === "session",
+  );
   const resolved = await Promise.all(
     candidates.map(async (candidate) => {
       const status = await sessionDocumentStatus(sessionId, candidate.document.document_id);
@@ -444,26 +448,7 @@ async function reconcileSessionDocuments(
       } satisfies SessionDocument;
     }),
   );
-  const sessionDocuments = resolved.filter(
-    (document): document is SessionDocument => document !== null,
-  );
-  if (projectId === null) return sessionDocuments;
-  const project = await projectDocuments(projectId);
-  return [
-    ...sessionDocuments,
-    ...project
-      .filter((document) => !document.deleted)
-      .map(
-        (document) =>
-          ({
-            document: document.document,
-            attachmentId: document.attachment_id,
-            status: document.status,
-            errorMessage: document.error_message,
-            ingestion: document.ingestion || [],
-          }) satisfies SessionDocument,
-      ),
-  ];
+  return resolved.filter((document): document is SessionDocument => document !== null);
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
@@ -478,7 +463,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       apiJson<TimelineItem[]>(`/api/sessions/${encodeURIComponent(id)}/timeline`),
     ]);
     const projectId = identity.project_id ?? null;
-    const documents = await reconcileSessionDocuments(id, timeline, projectId);
+    const documents = await reconcileSessionDocuments(id, timeline);
     const session = sessionFromTimeline(
       id,
       timeline,
@@ -662,6 +647,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const resetOptimisticAssistant = useCallback((sessionId: string) => {
+    setSessions((previous) =>
+      previous.map((session) => {
+        if (session.id !== sessionId) return session;
+        const last = session.messages.at(-1);
+        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
+          return { ...session, messages: session.messages.slice(0, -1) };
+        }
+        return session;
+      }),
+    );
+  }, []);
+
   const reconcileAssistantMessage = useCallback((sessionId: string, item: TimelineItem) => {
     const canonical = assistantMessageFromTimelineItem(item);
     if (canonical === null) {
@@ -669,11 +667,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         previous.map((session) => {
           if (session.id !== sessionId) return session;
           const last = session.messages.at(-1);
-          if (
-            last?.role === "assistant" &&
-            last.itemId.startsWith("optimistic-assistant-") &&
-            !last.content.trim()
-          ) {
+          if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
             return { ...session, messages: session.messages.slice(0, -1) };
           }
           return session;
@@ -868,6 +862,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       addOptimisticMessage,
       addOptimisticAssistant,
       appendAssistantDelta,
+      resetOptimisticAssistant,
       reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,
@@ -889,6 +884,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       addOptimisticMessage,
       addOptimisticAssistant,
       appendAssistantDelta,
+      resetOptimisticAssistant,
       reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,

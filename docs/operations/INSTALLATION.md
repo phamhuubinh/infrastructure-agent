@@ -9,7 +9,8 @@ orion
 ```
 
 The installer requires Python 3.12 or newer, Node.js 22.12 or newer, and npm. It builds and
-installs the UI with the API as one local application.
+installs the UI with the API as one local application. The installed runtime has no Node/npm
+dependency. An editable source checkout rebuilds its static UI when `orion web` starts.
 
 `ORION_PYTHON` selects an explicit Python interpreter. If it is unset, an existing valid
 `PREFIX/.venv/bin/python` is reused before system Python candidates are considered. A

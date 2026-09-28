@@ -44,16 +44,21 @@ def search_definition() -> ToolDefinition:
     return ToolDefinition(
         name="knowledge.search",
         description=(
-            "Primary retrieval tool for fact/topic/quote/attribution questions in current scope. "
-            "Search directly without calling knowledge.list_documents first. Returns citable "
-            "ToolResult sources; use knowledge.read for sequential/full context."
+            "Primary retrieval tool for fact/topic/quote/attribution questions and for resolving "
+            "a user-visible filename/title to document evidence in current scope. When the user "
+            "names a file but no exact document_id is visible, call knowledge.search with that "
+            "filename directly; do not ask the user for document_id first. Search directly "
+            "without calling knowledge.list_documents first; listing is not a prerequisite. "
+            "Returns citable ToolResult sources; use knowledge.read for sequential/full context."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Content query for evidence to retrieve.",
+                    "description": (
+                        "Content query or user-visible filename/title for evidence to retrieve."
+                    ),
                     "minLength": 1,
                 },
                 "limit": {
@@ -85,8 +90,9 @@ def read_definition() -> ToolDefinition:
         name="knowledge.read",
         description=(
             "Read a bounded sequential window from one exact document in current scope. Use for "
-            "whole-document/section/adjacent/iterative reading; it is not the default "
-            "content-discovery tool. Use knowledge.search for discovery. Successful reads return "
+            "whole-document/section/adjacent/iterative reading only after an exact document_id "
+            "is available; it is not the default content-discovery tool. Use knowledge.search "
+            "for discovery. Successful reads return "
             "citable ToolResult sources; continue with next_cursor."
         ),
         input_schema={
@@ -215,9 +221,9 @@ def _read(service: KnowledgeService) -> Callable[[ToolCall], ToolResult]:
                     call.call_id,
                     call.tool_name,
                     "not_found",
-                    "Document was not found. Obtain an exact visible document_id with "
-                    "knowledge.list_documents or knowledge.search, then retry; do not use "
-                    "a name or title as document_id.",
+                    "Document was not found. A name or title is not a document_id; search "
+                    "with that visible name or title directly using knowledge.search, then "
+                    "retry only with an exact visible document_id.",
                     model_recovery_required=True,
                 )
             return ToolResult.failure(call.call_id, call.tool_name, "not_found", str(error))

@@ -20,6 +20,10 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
       <button onClick={() => void chat.renameSession(sessionId, "My custom title")}>rename</button>
       <button onClick={() => chat.addOptimisticMessage(sessionId, "First message")}>message</button>
       <button onClick={() => chat.addOptimisticAssistant(sessionId)}>assistant-pending</button>
+      <button onClick={() => chat.appendAssistantDelta(sessionId, "I will check that.")}>
+        assistant-delta
+      </button>
+      <button onClick={() => chat.resetOptimisticAssistant(sessionId)}>assistant-reset</button>
       <button
         onClick={() =>
           chat.reconcileAssistantMessage(
@@ -343,16 +347,23 @@ describe("M1 session store", () => {
     expect(sessionFromTimeline("session-1", [item]).messages).toEqual([]);
   });
 
-  it("preserves visible assistant text when the turn also contains tool calls", () => {
+  it("does not hydrate canonical intermediate recovery drafts as chat answers", () => {
+    const item = assistantTimelineItem("Call another tool to recover.");
+    item.payload.intermediate = true;
+
+    expect(assistantMessageFromTimelineItem(item)).toBeNull();
+    expect(sessionFromTimeline("session-1", [item]).messages).toEqual([]);
+    expect(sessionFromTimeline("session-1", [item]).timeline).toEqual([item]);
+  });
+
+  it("does not project intermediate assistant prose when the turn also contains tool calls", () => {
     const item = assistantTimelineItem("I will check that.", [
       { id: "call-1", name: "calculator.evaluate" },
     ]);
 
-    expect(assistantMessageFromTimelineItem(item)).toMatchObject({
-      itemId: "assistant-1",
-      role: "assistant",
-      content: "I will check that.",
-    });
+    expect(assistantMessageFromTimelineItem(item)).toBeNull();
+    expect(sessionFromTimeline("session-1", [item]).messages).toEqual([]);
+    expect(sessionFromTimeline("session-1", [item]).timeline).toEqual([item]);
   });
 
   it("keeps ordinary assistant text unchanged", () => {
@@ -473,6 +484,78 @@ describe("M1 session store", () => {
     await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
   });
 
+  it("drops a streamed draft when the runtime resumes recovery", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("New chat");
+    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
+    fireEvent.click(screen.getByRole("button", { name: "assistant-delta" }));
+    expect(screen.getByText("I will check that.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "assistant-reset" }));
+
+    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
+    expect(screen.queryByText("I will check that.")).toBeNull();
+  });
+
+  it("removes streamed intermediate prose when the canonical turn dispatches tools", async () => {
+    const fetchMock = vi.fn((path: string) => {
+      if (path === "/api/sessions") {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              session_id: "session-1",
+              project_id: null,
+              custom_title: null,
+              title: "New chat",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]),
+        );
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <ChatProvider>
+        <Harness />
+      </ChatProvider>,
+    );
+
+    await screen.findByText("New chat");
+    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
+    fireEvent.click(screen.getByRole("button", { name: "assistant-delta" }));
+    expect(screen.getByText("I will check that.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "tool-only-assistant" }));
+
+    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
+    expect(screen.queryByText("I will check that.")).toBeNull();
+  });
+
   it("hydrates the canonical project identity and reopens the existing Project session", async () => {
     const fetchMock = vi.fn((path: string) => {
       if (path === "/api/sessions") {
@@ -542,24 +625,6 @@ describe("M1 session store", () => {
           ]),
         );
       }
-      if (path === "/api/projects/project-a/documents") {
-        return Promise.resolve(
-          jsonResponse([
-            {
-              document: {
-                document_id: "project-doc",
-                source: { kind: "project", source_id: "project-a" },
-                name: "requirements.md",
-                media_type: "text/markdown",
-              },
-              attachment_id: "project-upload",
-              status: "ready",
-              error_message: null,
-              ingestion: [],
-            },
-          ]),
-        );
-      }
       throw new Error(`unexpected endpoint ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -574,7 +639,8 @@ describe("M1 session store", () => {
     fireEvent.click(screen.getByRole("button", { name: "load" }));
     await waitFor(() => expect(screen.getByTestId("project-id").textContent).toBe("project-a"));
     expect(screen.getByTestId("project-id").textContent).toBe("project-a");
-    expect(screen.getByTestId("citations").textContent).toBe("project-source");
+    expect(screen.getByTestId("citations").textContent).toBe("none");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/projects/project-a/documents");
     expect(
       fetchMock.mock.calls.filter(([path]) => path === "/api/sessions/project-session"),
     ).toHaveLength(1);

@@ -164,6 +164,71 @@ async def test_project_uses_the_same_chat_runtime_for_knowledge_then_calculator(
 
 
 @pytest.mark.anyio
+async def test_named_project_document_searches_on_first_model_turn_and_cites_source(
+    store, project_knowledge
+) -> None:  # type: ignore[no-untyped-def]
+    projects, knowledge = project_knowledge
+    project = projects.create("Named documents")
+    session = projects.create_session(project["project_id"], "local", "local")
+    first = knowledge.attach_project(project["project_id"], "ready-a.txt", b"Fact A: alpha")
+    second = knowledge.attach_project(project["project_id"], "ready-b.txt", b"Fact B: beta")
+    assert first.status == second.status == "ready"
+    scope = _scope(session, project["project_id"])
+    source = knowledge.source_for_segment(knowledge.search(scope, "ready-b.txt", 1)[0])
+    prompt = (
+        "Đọc chính xác ready-b.txt trong Project hiện tại. Trả lại nguyên văn fact và cite nguồn."
+    )
+    answer = f"Fact B: beta [[source:{source.source_ref_id}]]"
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="named-file-search",
+                        tool_name="knowledge.search",
+                        arguments={"query": "ready-b.txt"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content=answer, citation_source_ref_ids=(source.source_ref_id,)
+                )
+            ),
+        ]
+    )
+    registry = _registry(knowledge)
+
+    outcome = await ChatRuntime(store, backend, registry, LocalAccessAdapter()).submit(
+        session, prompt
+    )
+
+    assert outcome.assistant_content == answer
+    assert len(backend.calls) == 2
+    assert backend.calls[0][1] == registry.model_definitions()
+    assert any(
+        message.role == "user" and message.content == prompt for message in backend.calls[0][0]
+    )
+    assert [item.tool_name for item in store.timeline(session) if item.kind == "tool_call"] == [
+        "knowledge.search"
+    ]
+    search_call = next(item for item in store.timeline(session) if item.kind == "tool_call")
+    assert search_call.payload["arguments"] == {"query": "ready-b.txt"}
+    search_result = next(
+        item.payload["result"] for item in store.timeline(session) if item.kind == "tool_result"
+    )
+    assert search_result["status"] == "success"
+    assert search_result["data"]["segments"][0]["document"]["document_id"] == (
+        second.document.document_id
+    )
+    assert search_result["sources"][0]["source_ref_id"] == source.source_ref_id
+    assert search_result["sources"][0]["source_kind"] == "project"
+    resumed_tool = next(message for message in backend.calls[1][0] if message.role == "tool")
+    assert json.loads(resumed_tool.content)["sources"][0]["evidence_ref"] == "S1"
+    assert first.document.document_id != second.document.document_id
+
+
+@pytest.mark.anyio
 async def test_citation_correction_reanswers_original_verbatim_request_from_visible_evidence(
     store, project_knowledge
 ) -> None:  # type: ignore[no-untyped-def]
@@ -395,9 +460,9 @@ async def test_project_runtime_recovers_from_invalid_read_arguments_with_documen
     assert results["read-invalid-limit"]["error"]["code"] == "invalid_input"
     assert results["read-document-name"]["error"]["code"] == "not_found"
     assert results["read-document-name"]["error"]["message"] == (
-        "Document was not found. Obtain an exact visible document_id with "
-        "knowledge.list_documents or knowledge.search, then retry; do not use a name or "
-        "title as document_id."
+        "Document was not found. A name or title is not a document_id; search "
+        "with that visible name or title directly using knowledge.search, then "
+        "retry only with an exact visible document_id."
     )
     assert results["list-initial"]["status"] == "success"
     assert results["list-project-documents"]["data"]["documents"][0]["document_id"] == (

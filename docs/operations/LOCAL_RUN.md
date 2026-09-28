@@ -8,6 +8,11 @@ orion
 ```
 
 Orion opens in your default browser when it is healthy. `orion web` has the same behavior.
+When the imported Python package is this repository's editable checkout, `orion web` builds
+`ui/dist/client` and replaces the repository's `.orion-ui` before serving it. After UI source
+changes, restart `orion web`; no manual build or copy into `.orion-ui` is needed. A failed
+development build stops startup with an error instead of serving an old bundle.
+Installed Orion continues to serve its packaged static UI without invoking npm at runtime.
 The only other public commands are:
 
 ```bash
@@ -15,7 +20,7 @@ orion log
 orion help
 ```
 
-## Frontend development only
+## Optional Vite frontend development
 
 The production application does not need a frontend development server. Contributors working
 on the UI may use:

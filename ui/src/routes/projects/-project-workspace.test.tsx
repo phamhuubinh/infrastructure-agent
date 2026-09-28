@@ -49,10 +49,223 @@ function renderWorkspace() {
   );
 }
 
+function readyDocument(id: string, name: string) {
+  return {
+    document: {
+      document_id: id,
+      source: { kind: "project", source_id: "project-a" },
+      name,
+      media_type: "text/plain",
+    },
+    attachment_id: `attachment-${id}`,
+    status: "ready",
+    error_message: null,
+    ingestion: [],
+  };
+}
+
 describe("Project workspace", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it("shares ready uploads and deletes across Details and composer before any chat request", async () => {
+    let documents: ReturnType<typeof readyDocument>[] = [];
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([model]);
+      if (path === "/api/sessions") return jsonResponse([]);
+      if (path === "/api/projects/project-a") return jsonResponse(project);
+      if (path === "/api/projects/project-a/documents" && !init?.method) {
+        return jsonResponse(documents);
+      }
+      if (path === "/api/projects/project-a/documents" && init?.method === "POST") {
+        const file = (init.body as FormData).get("file") as File;
+        const uploaded = readyDocument(`doc-${file.name}`, file.name);
+        documents = [...documents, uploaded];
+        return jsonResponse(uploaded, 201);
+      }
+      if (path.startsWith("/api/projects/project-a/documents/") && init?.method === "DELETE") {
+        const documentId = path.split("/").at(-1);
+        documents = documents.filter((document) => document.document.document_id !== documentId);
+        return jsonResponse({ status: "deleted" });
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await screen.findByRole("heading", { name: "Atlas rollout" });
+    expect(screen.queryByText("ready-a.txt")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/projects/project-a/sessions",
+      expect.anything(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    let details = await screen.findByRole("dialog");
+    fireEvent.change(within(details).getByLabelText("Add project document"), {
+      target: { files: [new File(["first fact"], "ready-a.txt", { type: "text/plain" })] },
+    });
+    await within(details).findByText("ready-a.txt");
+    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getAllByText("ready-a.txt")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    details = await screen.findByRole("dialog");
+    fireEvent.change(within(details).getByLabelText("Add project document"), {
+      target: { files: [new File(["second fact"], "ready-b.txt", { type: "text/plain" })] },
+    });
+    await within(details).findByText("ready-b.txt");
+    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getAllByText("ready-a.txt")).toHaveLength(1);
+    expect(screen.getAllByText("ready-b.txt")).toHaveLength(1);
+    expect(screen.getAllByText("Sẵn sàng")).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText("Attach document", { selector: "input" }), {
+      target: { files: [new File(["third fact"], "ready-c.txt", { type: "text/plain" })] },
+    });
+    await screen.findByText("ready-c.txt");
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    details = await screen.findByRole("dialog");
+    expect(within(details).getByText("ready-c.txt")).toBeTruthy();
+    fireEvent.click(within(details).getByRole("button", { name: "Delete ready-a.txt" }));
+    await waitFor(() => expect(within(details).queryByText("ready-a.txt")).toBeNull());
+    fireEvent.click(within(details).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText("ready-a.txt")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete ready-b.txt" }));
+    await waitFor(() => expect(screen.queryByText("ready-b.txt")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    details = await screen.findByRole("dialog");
+    expect(within(details).queryByText("ready-b.txt")).toBeNull();
+    expect(within(details).getByText("ready-c.txt")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path, init]) => path === "/api/projects/project-a/documents" && !init?.method,
+      ),
+    ).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([path]) => path.includes("/messages/stream"))).toBe(false);
+  });
+
+  it("combines mounted Project documents with session attachments once in context", async () => {
+    const projectDocs = [
+      readyDocument("doc-a", "ready-a.txt"),
+      readyDocument("doc-b", "ready-b.txt"),
+    ];
+    const localDocument = {
+      document: {
+        document_id: "local-doc",
+        source: { kind: "session", source_id: "project-session" },
+        name: "session-note.txt",
+        media_type: "text/plain",
+      },
+      attachment_id: "local-attachment",
+      status: "ready",
+      error_message: null,
+      ingestion: [],
+    };
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === "/api/models") return jsonResponse([model]);
+      if (path === "/api/sessions") {
+        return jsonResponse([
+          {
+            session_id: "project-session",
+            project_id: "project-a",
+            title: "Existing Project conversation",
+            created_at: "now",
+            last_activity_at: "now",
+          },
+        ]);
+      }
+      if (path === "/api/projects/project-a") return jsonResponse(project);
+      if (path === "/api/projects/project-a/documents") return jsonResponse(projectDocs);
+      if (path === "/api/sessions/project-session") {
+        return jsonResponse({ session_id: "project-session", project_id: "project-a" });
+      }
+      if (path === "/api/sessions/project-session/documents/local-doc") {
+        return jsonResponse(localDocument);
+      }
+      if (path === "/api/sessions/project-session/timeline") {
+        return jsonResponse([
+          {
+            item_id: "attachment",
+            session_id: "project-session",
+            created_at: "now",
+            kind: "attachment",
+            payload: localDocument,
+            call_id: null,
+            tool_name: null,
+          },
+          {
+            item_id: "user",
+            session_id: "project-session",
+            created_at: "now",
+            kind: "user_message",
+            payload: { content: "Read ready-b.txt" },
+            call_id: null,
+            tool_name: null,
+          },
+          {
+            item_id: "search",
+            session_id: "project-session",
+            created_at: "now",
+            kind: "tool_result",
+            payload: {
+              result: {
+                status: "success",
+                sources: [
+                  {
+                    source_ref_id: "project-source",
+                    source_kind: "project",
+                    source_id: "project-a",
+                    document_id: "doc-b",
+                    segment_id: "segment-b",
+                  },
+                ],
+              },
+            },
+            call_id: "search",
+            tool_name: "knowledge.search",
+          },
+          {
+            item_id: "answer",
+            session_id: "project-session",
+            created_at: "now",
+            kind: "assistant_message",
+            payload: {
+              content: "Grounded answer. [[source:project-source]]",
+              citation_source_ref_ids: ["project-source"],
+            },
+            call_id: null,
+            tool_name: null,
+          },
+        ]);
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWorkspace();
+
+    await screen.findByText("Grounded answer.");
+    expect(screen.getAllByRole("button", { name: "Delete ready-a.txt" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete ready-b.txt" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Delete session-note.txt" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open source ready-b.txt" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mở bảng chi tiết" }));
+    const documentList = screen.getByText("Tài liệu Project").nextElementSibling;
+    expect(documentList?.children).toHaveLength(3);
+    expect(within(documentList as HTMLElement).getAllByText("ready-a.txt")).toHaveLength(1);
+    expect(within(documentList as HTMLElement).getAllByText("ready-b.txt")).toHaveLength(1);
+    expect(within(documentList as HTMLElement).getAllByText("session-note.txt")).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([path]) => path === "/api/projects/project-a/documents"),
+    ).toHaveLength(1);
   });
 
   it("keeps administration in details while preserving the Project workspace and ownership APIs", async () => {
@@ -200,6 +413,7 @@ describe("Project workspace", () => {
 
     fireEvent.click(within(reopenedDetails).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await screen.findByText("shared.md");
     fireEvent.click(screen.getByRole("button", { name: "Hội thoại mới" }));
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/projects/project-a/sessions",

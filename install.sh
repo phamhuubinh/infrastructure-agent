@@ -130,19 +130,12 @@ if [[ ! -x "$venv/bin/python" ]]; then
 fi
 "$venv/bin/python" -m pip install -e "$source_root/backend$extras"
 
-# Build a deterministic client bundle. Only these static files are installed;
-# normal Orion has no Vite development server or separate Node runtime.
-npm ci --prefix "$source_root/ui"
-npm run build --prefix "$source_root/ui"
-ui_source="$source_root/ui/dist/client"
-ui_destination="$prefix/.orion-ui"
-if [[ ! -f "$ui_source/_shell.html" ]]; then
-  echo "UI build did not create $ui_source/_shell.html." >&2
-  exit 1
-fi
-rm -rf -- "$ui_destination"
-mkdir -p "$ui_destination"
-cp -a "$ui_source/." "$ui_destination/"
+# Install a deterministic static bundle through the same staging and replacement
+# path used by editable-development startup. Normal Orion needs no Node runtime.
+"$venv/bin/python" -m orion.ui_package \
+  --repository "$source_root" \
+  --destination "$prefix/.orion-ui" \
+  --npm-ci
 
 if [[ "$prefix_was_explicit" == false || "$global_launcher" == true ]]; then
   install_global_launcher

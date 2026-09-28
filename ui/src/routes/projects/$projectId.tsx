@@ -15,17 +15,16 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   attachProjectDocument,
-  deleteProject,
   deleteProjectDocument,
   getProject,
   projectDocumentStatus,
   projectDocuments,
-  updateProject,
   type DocumentStatus,
   type Project,
 } from "@/lib/api";
 import { useChat } from "@/lib/chat-store";
-import { invalidateProjectList } from "@/lib/project-list";
+import { onProjectListInvalidated } from "@/lib/project-list";
+import { removeProject as removePersistedProject, saveProject } from "@/lib/project-mutations";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +44,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
   const chat = useChat();
   const navigate = useNavigate();
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectUpdateVersion = useRef(0);
   const [project, setProject] = useState<Project | null>(null);
   const [documents, setDocuments] = useState<DocumentStatus[]>([]);
   const [name, setName] = useState("");
@@ -60,16 +60,19 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     let disposed = false;
+    const version = projectUpdateVersion.current;
     setLoading(true);
     setError(null);
     void Promise.all([getProject(projectId), projectDocuments(projectId)])
       .then(([loadedProject, loadedDocuments]) => {
         if (disposed) return;
-        setProject(loadedProject);
         setDocuments(loadedDocuments);
-        setName(loadedProject.name);
-        setDescription(loadedProject.description || "");
-        setInstructions(loadedProject.instructions || "");
+        if (version === projectUpdateVersion.current) {
+          setProject(loadedProject);
+          setName(loadedProject.name);
+          setDescription(loadedProject.description || "");
+          setInstructions(loadedProject.instructions || "");
+        }
       })
       .catch((reason: unknown) => {
         if (!disposed) {
@@ -83,6 +86,21 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
       disposed = true;
     };
   }, [projectId]);
+
+  useEffect(
+    () =>
+      onProjectListInvalidated((change) => {
+        if (change?.type !== "updated" || change.project.project_id !== projectId) return;
+        projectUpdateVersion.current += 1;
+        setProject(change.project);
+        setName(change.project.name);
+        if (!detailsOpen) {
+          setDescription(change.project.description || "");
+          setInstructions(change.project.instructions || "");
+        }
+      }),
+    [detailsOpen, projectId],
+  );
 
   useEffect(() => {
     const pending = documents.filter((document) =>
@@ -113,14 +131,13 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateProject(project.project_id, {
+      const updated = await saveProject(project.project_id, {
         name: name.trim(),
         description: description.trim() || null,
         instructions: instructions.trim() || null,
         metadata: project.metadata,
       });
       setProject(updated);
-      invalidateProjectList();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to save project.");
     } finally {
@@ -138,7 +155,12 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         content: await file.text(),
         media_type: file.type || "text/plain",
       });
-      setDocuments((current) => [...current, { ...uploaded, ingestion: [], deleted: false }]);
+      setDocuments((current) => [
+        ...current.filter(
+          (document) => document.document.document_id !== uploaded.document.document_id,
+        ),
+        { ...uploaded, ingestion: [], deleted: false },
+      ]);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to upload document.");
     } finally {
@@ -165,9 +187,9 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setDeleting(true);
     setError(null);
     try {
-      await deleteProject(project.project_id);
+      await removePersistedProject(project.project_id);
       chat.removeProjectSessions(project.project_id);
-      invalidateProjectList();
+      chat.startNewChat();
       setDeleteConfirmationOpen(false);
       setDetailsOpen(false);
       await navigate({ to: "/projects" });
@@ -225,7 +247,11 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <ChatPage project={project} />
+        <ChatPage
+          project={project}
+          projectDocuments={documents}
+          setProjectDocuments={setDocuments}
+        />
       </div>
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
         <SheetContent className="flex w-full flex-col sm:max-w-md">

@@ -3,11 +3,15 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { createProject, listProjects, type Project } from "@/lib/api";
-import { invalidateProjectList } from "@/lib/project-list";
+import {
+  invalidateProjectList,
+  onProjectListInvalidated,
+  type ProjectListChange,
+} from "@/lib/project-list";
 
 export const Route = createFileRoute("/projects/")({ component: ProjectsPage });
 
-function ProjectsPage() {
+export function ProjectsPage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [name, setName] = useState("");
@@ -16,16 +20,41 @@ function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void listProjects()
-      .then((loaded) => {
-        setProjects(loaded);
-        setError(null);
-      })
-      .catch((reason: unknown) => {
-        setProjects([]);
-        setError(reason instanceof Error ? reason.message : "Unable to load projects.");
-      })
-      .finally(() => setLoading(false));
+    let disposed = false;
+    let revision = 0;
+    const refresh = (change?: ProjectListChange | null) => {
+      const currentRevision = ++revision;
+      if (change?.type === "updated") {
+        setProjects((current) =>
+          current.map((project) =>
+            project.project_id === change.project.project_id ? change.project : project,
+          ),
+        );
+      } else if (change?.type === "deleted") {
+        setProjects((current) =>
+          current.filter((project) => project.project_id !== change.projectId),
+        );
+      }
+      void listProjects()
+        .then((loaded) => {
+          if (disposed || currentRevision !== revision) return;
+          setProjects(loaded);
+          setError(null);
+        })
+        .catch((reason: unknown) => {
+          if (disposed || currentRevision !== revision) return;
+          setError(reason instanceof Error ? reason.message : "Unable to load projects.");
+        })
+        .finally(() => {
+          if (!disposed && currentRevision === revision) setLoading(false);
+        });
+    };
+    refresh();
+    const unsubscribe = onProjectListInvalidated(refresh);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, []);
 
   async function create() {

@@ -53,7 +53,24 @@ def packaged_ui_directory() -> Path:
     configured = os.getenv("ORION_UI_DIR")
     if configured:
         return Path(configured).expanduser()
+    checkout = source_checkout_root()
+    if checkout is not None:
+        return checkout / ".orion-ui"
     # The installer owns ``<prefix>/.orion-ui`` while the Python package lives in
     # ``<prefix>/.venv``. This also makes an editable repository installation use
     # its own packaged bundle rather than a development Vite server.
     return Path(sys.prefix).parent / ".orion-ui"
+
+
+def source_checkout_root() -> Path | None:
+    """Identify the repository-owned editable environment, regardless of cwd."""
+    package_file = Path(__file__).resolve()
+    root = package_file.parents[3]
+    if (
+        package_file == root / "backend" / "src" / "orion" / "paths.py"
+        and (root / "backend" / "pyproject.toml").is_file()
+        and (root / "ui" / "package.json").is_file()
+        and Path(sys.prefix).resolve() == (root / ".venv").resolve()
+    ):
+        return root
+    return None

@@ -336,6 +336,19 @@ async def test_recovery_decision_usage_is_counted_once_on_the_final_answer(store
         "output_tokens": 20,
     }
     assert len(backend.calls) == 5
+    assistant_items = [
+        item
+        for item in store.timeline(session_id)
+        if item.kind == "assistant_message" and item.payload["content"]
+    ]
+    assert [item.payload["content"] for item in assistant_items] == [
+        "Use recovery.",
+        "Use recovery again.",
+        "Final answer.",
+    ]
+    assert assistant_items[0].payload["intermediate"] is True
+    assert assistant_items[1].payload["intermediate"] is True
+    assert "intermediate" not in assistant_items[2].payload
 
 
 @pytest.mark.anyio

@@ -193,7 +193,10 @@ class KnowledgeService:
             for segment in self._store.document_segments(str(document["document_id"]))
         ]
         indexed = tuple(
-            IndexedSegment(segment_id=str(segment["segment_id"]), text=str(segment["text"]))
+            IndexedSegment(
+                segment_id=str(segment["segment_id"]),
+                text=(f"{visible_by_id[str(segment['document_id'])]['name']}\n{segment['text']}"),
+            )
             for segment in segments
         )
         lexical = self._lexical_index.search(query, indexed)
