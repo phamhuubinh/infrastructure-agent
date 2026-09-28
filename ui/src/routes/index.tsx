@@ -116,6 +116,9 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [selectedSourceRefId, setSelectedSourceRefId] = useState<string | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const followMessagesRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const lastDisplayedSessionIdRef = useRef<string | null>(null);
   const loadedInitialScope = useRef<string | null>(null);
   const session = chat.sessions.find(
     (item) =>
@@ -161,6 +164,20 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
         })()
       : session;
 
+  const displayedSessionId = displayedSession?.id ?? null;
+  const displayedMessages = displayedSession?.messages;
+
+  useEffect(() => {
+    const scrollArea = scrollAreaRef.current;
+    if (!scrollArea) return;
+    if (lastDisplayedSessionIdRef.current !== displayedSessionId) {
+      lastDisplayedSessionIdRef.current = displayedSessionId;
+      followMessagesRef.current = true;
+    }
+    if (followMessagesRef.current) scrollArea.scrollTop = scrollArea.scrollHeight;
+    lastScrollTopRef.current = scrollArea.scrollTop;
+  }, [displayedSessionId, displayedMessages]);
+
   useEffect(() => {
     let disposed = false;
     void apiFetch("/api/models")
@@ -203,16 +220,25 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
   const handleConversationScroll = useCallback(() => {
     const element = scrollAreaRef.current;
     if (!element) return;
-    setShowScrollToBottom(element.scrollHeight - element.scrollTop - element.clientHeight > 140);
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    const awayFromBottom = distanceFromBottom > 140;
+    if (distanceFromBottom <= 2) followMessagesRef.current = true;
+    else if (element.scrollTop < lastScrollTopRef.current) followMessagesRef.current = false;
+    lastScrollTopRef.current = element.scrollTop;
+    setShowScrollToBottom(awayFromBottom);
   }, []);
 
   return (
     <>
-      <div className="flex-1 min-w-0 flex flex-col relative">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col relative">
         <div
           ref={scrollAreaRef}
           onScroll={handleConversationScroll}
-          className="flex-1 overflow-y-auto"
+          onWheel={(event) => {
+            if (event.deltaY < 0) followMessagesRef.current = false;
+          }}
+          data-testid="conversation-scroll-area"
+          className="min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
             {!displayedSession || displayedSession.messages.length === 0 ? (
@@ -233,12 +259,13 @@ export function ChatPage({ project, projectDocuments, setProjectDocuments }: Cha
               type="button"
               variant="outline"
               size="icon"
-              onClick={() =>
+              onClick={() => {
+                followMessagesRef.current = true;
                 scrollAreaRef.current?.scrollTo({
                   top: scrollAreaRef.current.scrollHeight,
                   behavior: "smooth",
-                })
-              }
+                });
+              }}
               className="absolute -top-12 left-1/2 z-20 h-9 w-9 -translate-x-1/2 rounded-full bg-background shadow-lg"
               aria-label="Đi đến cuối cuộc trò chuyện"
             >
@@ -307,13 +334,6 @@ function Conversation({
   sources: SourceReference[];
   onOpenSource: (sourceRefId: string) => void;
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (typeof bottomRef.current?.scrollIntoView === "function") {
-      bottomRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages]);
-
   return (
     <div className="space-y-8">
       {messages.map((message) => (
@@ -349,7 +369,6 @@ function Conversation({
         </div>
       ))}
       {generating && messages.at(-1)?.content.trim() !== "" && <ThinkingDots />}
-      <div ref={bottomRef} />
     </div>
   );
 }

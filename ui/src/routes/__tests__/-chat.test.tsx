@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ChatProvider } from "@/lib/chat-store";
+import { ChatProvider, useChat } from "@/lib/chat-store";
 import { ChatPage, parseSseEvents } from "@/routes/index";
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -159,6 +159,107 @@ describe("M1 Chat integration", () => {
       "/api/sessions/chat-1",
       "/api/sessions/chat-1/timeline",
     ]);
+  });
+
+  it("lets the reader scroll up during a streamed answer and resumes following at the bottom", async () => {
+    const timeline = [
+      {
+        item_id: "user-1",
+        session_id: "chat-1",
+        created_at: "2026-08-24T00:00:00Z",
+        kind: "user_message",
+        payload: { content: "Question" },
+        call_id: null,
+        tool_name: null,
+      },
+      {
+        item_id: "answer-1",
+        session_id: "chat-1",
+        created_at: "2026-08-24T00:00:01Z",
+        kind: "assistant_message",
+        payload: { content: "Earlier answer" },
+        call_id: null,
+        tool_name: null,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/models") return jsonResponse(configuredModels);
+        if (path === "/api/sessions") {
+          return jsonResponse([
+            {
+              session_id: "chat-1",
+              project_id: null,
+              custom_title: null,
+              title: "Question",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]);
+        }
+        if (path === "/api/sessions/chat-1") {
+          return jsonResponse({ session_id: "chat-1", project_id: null, custom_title: null });
+        }
+        if (path === "/api/sessions/chat-1/timeline") return jsonResponse(timeline);
+        throw new Error("unexpected endpoint " + path);
+      }),
+    );
+
+    function ScrollHarness() {
+      const chat = useChat();
+      return (
+        <>
+          <button
+            onClick={() => {
+              chat.setSessionGenerating("chat-1", true);
+              chat.addOptimisticAssistant("chat-1");
+            }}
+          >
+            Start response
+          </button>
+          <button onClick={() => chat.appendAssistantDelta("chat-1", " next chunk")}>
+            Append response
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    render(
+      <ChatProvider>
+        <ScrollHarness />
+      </ChatProvider>,
+    );
+    await screen.findByText("Earlier answer");
+    const scrollArea = screen.getByTestId("conversation-scroll-area");
+    Object.defineProperties(scrollArea, {
+      scrollHeight: { configurable: true, value: 1000 },
+      clientHeight: { configurable: true, value: 200 },
+    });
+
+    scrollArea.scrollTop = 800;
+    fireEvent.scroll(scrollArea);
+    fireEvent.click(screen.getByRole("button", { name: "Start response" }));
+    expect(scrollArea.scrollTop).toBe(1000);
+
+    scrollArea.scrollTop = 760;
+    fireEvent.wheel(scrollArea, { deltaY: -40 });
+    fireEvent.scroll(scrollArea);
+    fireEvent.click(screen.getByRole("button", { name: "Append response" }));
+    await screen.findByText("next chunk");
+    expect(scrollArea.scrollTop).toBe(760);
+
+    scrollArea.scrollTop = 200;
+    fireEvent.scroll(scrollArea);
+    expect(screen.getByRole("button", { name: "Đi đến cuối cuộc trò chuyện" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Append response" }));
+    expect(scrollArea.scrollTop).toBe(200);
+
+    scrollArea.scrollTop = 800;
+    fireEvent.scroll(scrollArea);
+    fireEvent.click(screen.getByRole("button", { name: "Append response" }));
+    expect(scrollArea.scrollTop).toBe(1000);
   });
 
   it("presents calculator tool started/completed activity after the canonical timeline reload", async () => {
