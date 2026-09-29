@@ -41,6 +41,231 @@ describe("M1 Chat integration", () => {
     vi.restoreAllMocks();
   });
 
+  it("creates a draft session on mode change and requires a warning before auto", async () => {
+    let savedMode = "read_only";
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
+      if (path === "/api/sessions") {
+        return jsonResponse(
+          { session_id: "chat-mode", project_id: null, mutation_mode: "read_only" },
+          201,
+        );
+      }
+      if (path === "/api/sessions/chat-mode/mutation-mode") {
+        savedMode = (JSON.parse(String(init?.body)) as { mutation_mode: string }).mutation_mode;
+        return jsonResponse({
+          session_id: "chat-mode",
+          project_id: null,
+          mutation_mode: savedMode,
+        });
+      }
+      throw new Error("unexpected endpoint " + path);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderChat();
+    const selector = await screen.findByRole("button", { name: "Quyền sửa cuộc hội thoại" });
+    expect(selector.textContent).toContain("Chỉ đọc");
+    fireEvent.pointerDown(selector);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    for (const label of ["Chỉ đọc", "Hỏi trước khi sửa", "Tự động sửa"]) {
+      expect(screen.getByRole("menuitem", { name: new RegExp(label) })).toBeTruthy();
+    }
+    expect(
+      screen.getByRole("menuitem", { name: /Chỉ đọc/ }).querySelector('[aria-label="Đang chọn"]'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Hỏi trước khi sửa/ }));
+    await waitFor(() => expect(selector.textContent).toContain("Hỏi trước khi sửa"));
+    expect(savedMode).toBe("confirm");
+    expect(
+      fetchMock.mock.calls.filter(
+        ([path, init]) => path === "/api/sessions" && init?.method === "POST",
+      ),
+    ).toHaveLength(1);
+    fireEvent.pointerDown(selector);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Tự động sửa/ }));
+    expect(await screen.findByRole("dialog", { name: "Bật tự động sửa?" })).toBeTruthy();
+    expect(savedMode).toBe("confirm");
+    fireEvent.click(screen.getByRole("button", { name: "Hủy" }));
+    expect(savedMode).toBe("confirm");
+    fireEvent.pointerDown(selector);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Tự động sửa/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Bật tự động sửa" }));
+    await waitFor(() => expect(selector.textContent).toContain("Tự động sửa"));
+    expect(savedMode).toBe("auto");
+  });
+
+  it("restores a saved conversation mode when Chat loads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => {
+        if (path === "/api/models") return jsonResponse(configuredModels);
+        if (path === "/api/sessions")
+          return jsonResponse([
+            {
+              session_id: "saved-chat",
+              project_id: null,
+              custom_title: null,
+              mutation_mode: "confirm",
+              title: "Saved",
+              created_at: "now",
+              last_activity_at: "now",
+            },
+          ]);
+        if (path === "/api/sessions/saved-chat")
+          return jsonResponse({
+            session_id: "saved-chat",
+            project_id: null,
+            custom_title: null,
+            mutation_mode: "confirm",
+          });
+        if (path === "/api/sessions/saved-chat/timeline") return jsonResponse([]);
+        throw new Error("unexpected endpoint " + path);
+      }),
+    );
+    renderChat();
+    const selector = await screen.findByRole("button", { name: "Quyền sửa cuộc hội thoại" });
+    await waitFor(() => expect(selector.textContent).toContain("Hỏi trước khi sửa"));
+  });
+
+  it.each(["allow", "deny"] as const)(
+    "keeps model-turn deltas provisional and resolves %s from the live card",
+    async (decision) => {
+      const stream = { controller: null as ReadableStreamDefaultController<Uint8Array> | null };
+      const sendEvent = (type: string, payload: Record<string, unknown>) => {
+        stream.controller?.enqueue(
+          new TextEncoder().encode(
+            `data: ${JSON.stringify({ type, created_at: "now", payload })}\n\n`,
+          ),
+        );
+      };
+      const answer = {
+        item_id: "final-answer",
+        session_id: "chat-live",
+        created_at: "now",
+        kind: "assistant_message",
+        payload: { content: "Verified result." },
+        call_id: null,
+        tool_name: null,
+      };
+      let completed = false;
+      const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/models") return jsonResponse(configuredModels);
+        if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
+        if (path === "/api/sessions")
+          return jsonResponse({ session_id: "chat-live", mutation_mode: "read_only" }, 201);
+        if (path === "/api/sessions/chat-live/messages/stream") {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(streamController) {
+                stream.controller = streamController;
+              },
+            }),
+            { headers: { "Content-Type": "text/event-stream" } },
+          );
+        }
+        if (path === "/api/sessions/chat-live/requests/req-live/tool-authorizations/call-live") {
+          expect(JSON.parse(String(init?.body))).toEqual({ decision });
+          return jsonResponse({ status: decision === "allow" ? "allowed" : "denied" });
+        }
+        if (path === "/api/sessions/chat-live")
+          return jsonResponse({
+            session_id: "chat-live",
+            project_id: null,
+            mutation_mode: "read_only",
+          });
+        if (path === "/api/sessions/chat-live/timeline") {
+          return jsonResponse(completed ? [answer] : []);
+        }
+        throw new Error("unexpected endpoint " + path);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      function SessionSwitchHarness() {
+        const chat = useChat();
+        return (
+          <>
+            <button onClick={() => chat.startNewChat()}>Switch to new chat</button>
+            <button onClick={() => void chat.switchSession("chat-live")}>
+              Return to pending chat
+            </button>
+            <ChatPage />
+          </>
+        );
+      }
+      render(
+        <ChatProvider>
+          <SessionSwitchHarness />
+        </ChatProvider>,
+      );
+      fireEvent.change(await screen.findByRole("textbox", { name: "Chat input" }), {
+        target: { value: "Change it" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+      await waitFor(() => expect(stream.controller).not.toBeNull());
+      sendEvent("request.accepted", { request_id: "req-live", session_id: "chat-live" });
+      sendEvent("assistant.delta", { content: "Draft prose that must never flash." });
+      sendEvent("assistant.message", {
+        item: {
+          item_id: "intermediate-1",
+          session_id: "chat-live",
+          created_at: "now",
+          kind: "assistant_message",
+          payload: {
+            content: "Draft prose that must never flash.",
+            intermediate: true,
+            tool_calls: [{ call_id: "call-live" }],
+          },
+          call_id: null,
+          tool_name: null,
+        },
+      });
+      sendEvent("model.resumed", {});
+      sendEvent("assistant.delta", { content: "Second transient draft." });
+      sendEvent("tool.authorization_required", {
+        call_id: "call-live",
+        tool_name: "linux.file.edit",
+        target_ref: "monitor",
+        summary: { label: "Sửa file trên máy chủ", path: "/etc/example.conf" },
+      });
+      expect(
+        await screen.findByRole("alertdialog", { name: "Xác nhận thao tác thay đổi" }),
+      ).toBeTruthy();
+      expect(screen.queryByText("Draft prose that must never flash.")).toBeNull();
+      expect(screen.queryByText("Second transient draft.")).toBeNull();
+      expect(screen.getByText("path: /etc/example.conf")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Switch to new chat" }));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("alertdialog", {
+            name: "Xác nhận thao tác thay đổi",
+          }),
+        ).toBeNull(),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Return to pending chat" }));
+      expect(
+        await screen.findByRole("alertdialog", {
+          name: "Xác nhận thao tác thay đổi",
+        }),
+      ).toBeTruthy();
+      fireEvent.click(
+        screen.getByRole("button", { name: decision === "allow" ? "Cho phép" : "Từ chối" }),
+      );
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([path]) => path.endsWith("/tool-authorizations/call-live")),
+        ).toBe(true),
+      );
+      sendEvent("assistant.message", { item: answer });
+      sendEvent("request.completed", {});
+      completed = true;
+      stream.controller?.close();
+      await screen.findByText("Verified result.");
+      expect(screen.getAllByText("Verified result.")).toHaveLength(1);
+      expect(screen.queryByText("Draft prose that must never flash.")).toBeNull();
+      expect(screen.queryByText("Second transient draft.")).toBeNull();
+    },
+  );
+
   it("parses complete SSE frames and retains an incomplete final frame", () => {
     const first = JSON.stringify({ type: "tool.started", created_at: "now", payload: {} });
     const second = JSON.stringify({ type: "tool.completed", created_at: "now", payload: {} });
@@ -206,21 +431,32 @@ describe("M1 Chat integration", () => {
       }),
     );
 
+    let answerIndex = 0;
     function ScrollHarness() {
       const chat = useChat();
+      const appendAcceptedAnswer = () => {
+        answerIndex += 1;
+        chat.reconcileAssistantMessage("chat-1", {
+          item_id: `accepted-${answerIndex}`,
+          session_id: "chat-1",
+          created_at: "now",
+          kind: "assistant_message",
+          payload: { content: `next chunk ${answerIndex}` },
+          call_id: null,
+          tool_name: null,
+        });
+      };
       return (
         <>
           <button
             onClick={() => {
               chat.setSessionGenerating("chat-1", true);
-              chat.addOptimisticAssistant("chat-1");
+              appendAcceptedAnswer();
             }}
           >
             Start response
           </button>
-          <button onClick={() => chat.appendAssistantDelta("chat-1", " next chunk")}>
-            Append response
-          </button>
+          <button onClick={appendAcceptedAnswer}>Append response</button>
           <ChatPage />
         </>
       );
@@ -247,7 +483,7 @@ describe("M1 Chat integration", () => {
     fireEvent.wheel(scrollArea, { deltaY: -40 });
     fireEvent.scroll(scrollArea);
     fireEvent.click(screen.getByRole("button", { name: "Append response" }));
-    await screen.findByText("next chunk");
+    await screen.findByText("next chunk 2");
     expect(scrollArea.scrollTop).toBe(760);
 
     scrollArea.scrollTop = 200;

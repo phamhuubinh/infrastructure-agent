@@ -7,6 +7,7 @@ import pytest
 from conftest import ScriptedBackend
 
 from orion.access import LocalAccessAdapter
+from orion.chat.context_builder import ContextBuilder
 from orion.chat.runtime import ChatRuntime, RequestFailed
 from orion.contracts import AssistantMessage, ModelToolCall, ModelTurn, RuntimeScope, ToolResult
 from orion.knowledge.blob_store import LocalBlobStore
@@ -18,6 +19,7 @@ from orion.knowledge.tools import (
     search_definition,
     source_metadata_definition,
 )
+from orion.tool_runtime.infrastructure import infrastructure_definitions
 from orion.tool_runtime.registry import ToolRegistryBuilder
 from orion.tool_runtime.runner import ToolRunner
 
@@ -69,7 +71,7 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
     assert "Primary retrieval tool" in search
     assert "fact/topic/quote/attribution" in search
     assert "user-visible filename/title to document evidence" in search
-    assert "no exact document_id is visible" in search
+    assert "Project metadata names are not document_id values" in search
     assert "call knowledge.search with that filename directly" in search
     assert "do not ask the user for document_id first" in search
     assert "without calling knowledge.list_documents first" in search
@@ -87,6 +89,92 @@ def test_knowledge_tool_descriptions_cover_session_and_project_scope() -> None:
     assert "metadata only" in metadata
     assert "returns no citable ToolResult sources" in metadata
     assert "cannot support quoting or citing document contents" in metadata
+
+
+@pytest.mark.anyio
+async def test_named_project_document_uses_knowledge_with_linux_tools_available(
+    knowledge, store
+) -> None:  # type: ignore[no-untyped-def]
+    project_a = store.create_project("alpha")
+    project_b = store.create_project("beta")
+    project_a_id, project_b_id = str(project_a["project_id"]), str(project_b["project_id"])
+    upload_a = knowledge.attach_project(
+        project_a_id, "ready-a.txt", b"Alpha document says BLUE-7711."
+    )
+    knowledge.attach_project(project_a_id, "alpha-only.txt", b"Only alpha has this document.")
+    knowledge.attach_project(project_b_id, "ready-a.txt", b"Beta document says RED-8822.")
+    session_a = store.create_session(project_id=project_a_id)
+    session_b = store.create_session(project_id=project_b_id)
+    context_a = ContextBuilder(store).build(session_a)[0].content
+    context_b = ContextBuilder(store).build(session_b)[0].content
+    assert '"name": "ready-a.txt"' in context_a
+    assert '"status": "ready"' in context_a
+    assert "not filesystem paths" in context_a
+    assert "knowledge.search" in context_a
+    assert "Project fact/topic questions, use knowledge.search first" in context_a
+    assert '"name": "alpha-only.txt"' in context_a
+    assert '"name": "alpha-only.txt"' not in context_b
+    assert upload_a.document.document_id not in context_a
+    assert upload_a.document.document_id not in context_b
+    assert "BLUE-7711" not in context_a  # Metadata never prefetches content.
+
+    scope = RuntimeScope(
+        session_id=session_a,
+        project_id=project_a_id,
+        principal_id="local",
+        workspace_id="local",
+    )
+    evidence = knowledge.search(scope, "đọc file ready a", 5)
+    assert evidence and evidence[0].document.document_id == upload_a.document.document_id
+    assert "BLUE-7711" in evidence[0].text
+    assert all(segment.document.source.source_id == project_a_id for segment in evidence)
+
+    source = knowledge.source_for_segment(evidence[0])
+    backend = ScriptedBackend(
+        [
+            ModelTurn(
+                tool_calls=(
+                    ModelToolCall(
+                        call_id="named-file-search",
+                        tool_name="knowledge.search",
+                        arguments={"query": "ready a"},
+                    ),
+                )
+            ),
+            ModelTurn(
+                assistant=AssistantMessage(
+                    content="ready-a.txt says BLUE-7711.",
+                    citation_source_ref_ids=(source.source_ref_id,),
+                )
+            ),
+        ]
+    )
+    builder = ToolRegistryBuilder()
+    for registration in knowledge_registrations(knowledge):
+        builder.register(registration.definition, registration.handler)
+    linux_calls: list[str] = []
+    for definition in infrastructure_definitions():
+        if definition.name in {"linux.file.read", "linux.system.inspect"}:
+
+            def handler(call, *, name=definition.name):  # type: ignore[no-untyped-def]
+                linux_calls.append(name)
+                return ToolResult.failure(call.call_id, name, "unexpected", "Linux tool called")
+
+            builder.register(definition, handler)
+    outcome = await ChatRuntime(store, backend, builder.freeze(), LocalAccessAdapter()).submit(
+        session_a, "đọc file ready a"
+    )
+    assert "BLUE-7711" in outcome.assistant_content
+    assert len(backend.calls) == 2
+    assert "ready-a.txt" in backend.calls[0][0][0].content
+    assert {definition.name for definition in backend.calls[0][1]} >= {
+        "knowledge.search",
+        "linux.file.read",
+        "linux.system.inspect",
+    }
+    assert not linux_calls
+    tool_results = [item for item in store.timeline(session_a) if item.kind == "tool_result"]
+    assert [item.tool_name for item in tool_results] == ["knowledge.search"]
 
 
 def test_source_metadata_result_is_not_serialized_as_citable_sources(knowledge, store) -> None:  # type: ignore[no-untyped-def]

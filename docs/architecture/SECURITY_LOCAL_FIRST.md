@@ -64,10 +64,9 @@ live safety QA checks both fact extraction and explicit instruction analysis.
 
 ## Local network/infrastructure tools
 
-The current product direction does not require a complex approval engine for every automatic tool call. Tool implementations still own their normal argument validation, configured targets, credentials, and operational safety.
-
-Infrastructure mutations are production read-only unless an exact operation and
-configured target are authorized in trusted server configuration. Credentials do not
-grant that product authority. See ADR 0013 for the bounded allowlist, failure,
-audit, and non-goals contract; it does not add a per-action approval engine to
-Chat/Project.
+Each Chat/Project conversation has a persisted mutation permission: read-only by
+default, confirm each action, or auto allow. Confirmation pauses a validated exact
+call before its handler and resumes the same request after a single user decision.
+Tool implementations still own configured targets, credentials, validation and
+operational safety. An explicitly configured `mutation_allowlist` is an additional
+server ceiling; its absence adds no restriction. See ADR 0014.

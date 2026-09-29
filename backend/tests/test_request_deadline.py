@@ -344,6 +344,9 @@ async def test_runtime_persists_mutation_outcome_before_deadline_terminalization
         mutation,
     )
     session_id = store.create_session()
+    from orion.tool_runtime.mutation_authorization import MutationMode
+
+    store.set_session_mutation_mode(session_id, MutationMode.AUTO)
     chat = ChatRuntime(
         store,
         Backend(),

@@ -46,8 +46,9 @@ def search_definition() -> ToolDefinition:
         description=(
             "Primary retrieval tool for fact/topic/quote/attribution questions and for resolving "
             "a user-visible filename/title to document evidence in current scope. When the user "
-            "names a file but no exact document_id is visible, call knowledge.search with that "
-            "filename directly; do not ask the user for document_id first. Search directly "
+            "names a file, call knowledge.search with that filename directly; Project metadata "
+            "names are not document_id values; do not ask the user for document_id first. "
+            "Search directly "
             "without calling knowledge.list_documents first; listing is not a prerequisite. "
             "Returns citable ToolResult sources; use knowledge.read for sequential/full context."
         ),

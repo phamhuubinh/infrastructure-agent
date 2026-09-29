@@ -103,6 +103,7 @@ def build_application(
     ):
         registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
+    store.expire_pending_authorizations()
     try:
         authorization = MutationAuthorizationPolicy.from_mapping(
             infrastructure_config or {},

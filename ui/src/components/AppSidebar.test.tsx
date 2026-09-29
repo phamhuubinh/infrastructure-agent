@@ -33,6 +33,7 @@ function session(id: string, projectId: string | null): Session {
   return {
     id,
     projectId,
+    mutationMode: "read_only",
     title: id,
     timeline: [],
     messages: [],

@@ -19,6 +19,7 @@ from orion.embeddings import (
     encode_vector,
     text_digest,
 )
+from orion.tool_runtime.mutation_authorization import MutationMode
 
 MAX_SESSION_SUMMARIES = 100
 MODEL_CONTEXT_HISTORY_TURNS = 64
@@ -87,6 +88,8 @@ class SQLiteStore:
                     workspace_id TEXT NOT NULL DEFAULT 'local',
                     project_id TEXT REFERENCES projects(project_id),
                     custom_title TEXT,
+                    mutation_mode TEXT NOT NULL DEFAULT 'read_only'
+                        CHECK (mutation_mode IN ('read_only', 'confirm', 'auto')),
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS projects (
@@ -123,6 +126,20 @@ class SQLiteStore:
                     created_at TEXT NOT NULL,
                     event_type TEXT NOT NULL,
                     payload_json TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS pending_tool_authorizations (
+                    request_id TEXT NOT NULL REFERENCES requests(request_id),
+                    call_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                    tool_name TEXT NOT NULL,
+                    target_ref TEXT NOT NULL,
+                    arguments_digest TEXT NOT NULL,
+                    safe_summary_json TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK (state IN
+                        ('pending', 'allowed', 'denied', 'cancelled', 'expired')),
+                    created_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    PRIMARY KEY (request_id, call_id)
                 );
                 CREATE TABLE IF NOT EXISTS conversation_state_checkpoints (
                     session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
@@ -187,6 +204,11 @@ class SQLiteStore:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
             if "custom_title" not in columns:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN custom_title TEXT")
+            if "mutation_mode" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN mutation_mode TEXT NOT NULL "
+                    "DEFAULT 'read_only'"
+                )
             model_columns = {
                 row["name"] for row in self._connection.execute("PRAGMA table_info(model_configs)")
             }
@@ -377,7 +399,8 @@ class SQLiteStore:
     def session_identity(self, session_id: str) -> dict[str, str | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT principal_id, workspace_id, project_id, custom_title FROM sessions "
+                "SELECT principal_id, workspace_id, project_id, custom_title, mutation_mode "
+                "FROM sessions "
                 "WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
@@ -392,6 +415,7 @@ class SQLiteStore:
             rows = self._connection.execute(
                 """
                 SELECT sessions.session_id, sessions.project_id, sessions.custom_title,
+                       sessions.mutation_mode,
                        sessions.created_at,
                        COALESCE(MAX(timeline.created_at), sessions.created_at) AS last_activity_at
                 FROM sessions
@@ -425,6 +449,7 @@ class SQLiteStore:
                         "session_id": str(row["session_id"]),
                         "project_id": row["project_id"],
                         "custom_title": row["custom_title"],
+                        "mutation_mode": str(row["mutation_mode"]),
                         "title": title,
                         "created_at": str(row["created_at"]),
                         "last_activity_at": str(row["last_activity_at"]),
@@ -438,6 +463,86 @@ class SQLiteStore:
                 "UPDATE sessions SET custom_title = ? WHERE session_id = ?", (title, session_id)
             )
         return cursor.rowcount == 1
+
+    def set_session_mutation_mode(self, session_id: str, mode: MutationMode) -> bool:
+        with self._lock, self._connection:
+            active = self._connection.execute(
+                "SELECT 1 FROM requests WHERE session_id = ? AND status IN ('queued', 'running')",
+                (session_id,),
+            ).fetchone()
+            if active is not None:
+                raise RuntimeError("active_request")
+            cursor = self._connection.execute(
+                "UPDATE sessions SET mutation_mode = ? WHERE session_id = ?",
+                (mode.value, session_id),
+            )
+        return cursor.rowcount == 1
+
+    def create_pending_authorization(
+        self,
+        request_id: str,
+        call_id: str,
+        session_id: str,
+        tool_name: str,
+        target_ref: str,
+        arguments_digest: str,
+        safe_summary: dict[str, str],
+    ) -> None:
+        with self._lock, self._connection:
+            self._connection.execute(
+                "INSERT INTO pending_tool_authorizations "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)",
+                (
+                    request_id,
+                    call_id,
+                    session_id,
+                    tool_name,
+                    target_ref,
+                    arguments_digest,
+                    json.dumps(safe_summary),
+                    _utc_now(),
+                ),
+            )
+
+    def pending_authorization(self, request_id: str, call_id: str) -> dict[str, str] | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM pending_tool_authorizations WHERE request_id = ? AND call_id = ?",
+                (request_id, call_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def resolve_pending_authorization(self, request_id: str, call_id: str, state: str) -> bool:
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "UPDATE pending_tool_authorizations SET state = ?, resolved_at = ? "
+                "WHERE request_id = ? AND call_id = ? AND state = 'pending'",
+                (state, _utc_now(), request_id, call_id),
+            )
+        return cursor.rowcount == 1
+
+    def expire_pending_authorizations(self) -> None:
+        """No model loop survives process restart, so unresolved calls never replay."""
+        with self._lock, self._connection:
+            rows = self._connection.execute(
+                "SELECT DISTINCT request_id FROM pending_tool_authorizations "
+                "WHERE state = 'pending'"
+            ).fetchall()
+            self._connection.execute(
+                "UPDATE pending_tool_authorizations SET state = 'expired', resolved_at = ? "
+                "WHERE state = 'pending'",
+                (_utc_now(),),
+            )
+            for row in rows:
+                self._connection.execute(
+                    "UPDATE requests SET status = 'failed', error_message = ?, completed_at = ? "
+                    "WHERE request_id = ? AND status IN ('queued', 'running')",
+                    (
+                        "Pending authorization expired after application restart.",
+                        _utc_now(),
+                        row["request_id"],
+                    ),
+                )
 
     def delete_session(self, session_id: str) -> tuple[str, ...] | None:
         """Delete session-owned rows atomically and return blobs for post-commit cleanup.
@@ -480,6 +585,10 @@ class SQLiteStore:
                 )
             if request_ids:
                 placeholders = ", ".join("?" for _ in request_ids)
+                self._connection.execute(
+                    f"DELETE FROM pending_tool_authorizations WHERE request_id IN ({placeholders})",
+                    request_ids,
+                )
                 self._connection.execute(
                     f"DELETE FROM request_events WHERE request_id IN ({placeholders})", request_ids
                 )
@@ -604,6 +713,11 @@ class SQLiteStore:
                 )
             if request_ids:
                 request_placeholders = ", ".join("?" for _ in request_ids)
+                self._connection.execute(
+                    "DELETE FROM pending_tool_authorizations "
+                    f"WHERE request_id IN ({request_placeholders})",
+                    request_ids,
+                )
                 self._connection.execute(
                     f"DELETE FROM request_events WHERE request_id IN ({request_placeholders})",
                     request_ids,
@@ -1127,6 +1241,21 @@ class SQLiteStore:
                    AND documents.deleted_at IS NULL AND projects.deleted_at IS NULL
                    ORDER BY documents.created_at, documents.document_id""",
                 (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def visible_project_document_metadata(
+        self, project_id: str, limit: int = 17
+    ) -> list[dict[str, Any]]:
+        """Bound model-visible names to one active Project and ready documents."""
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT documents.name, documents.media_type, documents.status
+                   FROM documents JOIN projects ON projects.project_id = documents.project_id
+                   WHERE documents.project_id = ? AND documents.status = 'ready'
+                   AND documents.deleted_at IS NULL AND projects.deleted_at IS NULL
+                   ORDER BY documents.created_at, documents.document_id LIMIT ?""",
+                (project_id, limit),
             ).fetchall()
         return [dict(row) for row in rows]
 

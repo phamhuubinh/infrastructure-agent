@@ -7,6 +7,7 @@ import type { Session } from "@/lib/chat-store";
 const session: Session = {
   id: "session-1",
   projectId: "project-a",
+  mutationMode: "read_only",
   title: "Project conversation",
   timeline: [],
   messages: [],

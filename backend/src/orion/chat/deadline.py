@@ -7,7 +7,7 @@ import contextlib
 import os
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, TypeVar
 
 
@@ -142,6 +142,14 @@ class RequestBudget:
 
     def elapsed_ms(self) -> int:
         return max(0, round((self.clock() - self.started_monotonic) * 1000))
+
+    def after_human_wait(self, seconds: float) -> RequestBudget:
+        """Human authorization pauses both work and mutation drain clocks."""
+        return replace(
+            self,
+            deadline_monotonic=self.deadline_monotonic + seconds,
+            work_deadline_monotonic=self.work_deadline_monotonic + seconds,
+        )
 
     def remaining_work_seconds(self) -> float:
         return self.work_deadline_monotonic - self.clock()

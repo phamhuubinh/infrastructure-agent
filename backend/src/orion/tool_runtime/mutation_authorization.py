@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 
 from orion.contracts import RuntimeScope, ToolDefinition
 
@@ -12,11 +13,18 @@ class MutationAuthorizationConfigurationError(ValueError):
     """A server-side mutation policy cannot be interpreted safely."""
 
 
+class MutationMode(StrEnum):
+    READ_ONLY = "read_only"
+    CONFIRM = "confirm"
+    AUTO = "auto"
+
+
 @dataclass(frozen=True)
 class MutationAuthorizationPolicy:
-    """Allow only exact configured mutation operation/target pairs."""
+    """Configured targets are mandatory; an explicit allowlist adds a server ceiling."""
 
-    allowed_pairs: frozenset[tuple[str, str]] = frozenset()
+    allowed_pairs: frozenset[tuple[str, str]] | None = frozenset()
+    target_is_configured: Callable[[str, str], bool] | None = None
 
     @classmethod
     def read_only(cls) -> MutationAuthorizationPolicy:
@@ -31,7 +39,7 @@ class MutationAuthorizationPolicy:
     ) -> MutationAuthorizationPolicy:
         """Validate the policy against the same bootstrap registry and target snapshot."""
         if "mutation_allowlist" not in raw:
-            return cls.read_only()
+            return cls(None, target_is_configured)
         entries = raw["mutation_allowlist"]
         if not isinstance(entries, list):
             raise MutationAuthorizationConfigurationError(
@@ -77,7 +85,7 @@ class MutationAuthorizationPolicy:
                     "Mutation allowlist contains a duplicate operation and target entry."
                 )
             allowed.add(pair)
-        return cls(frozenset(allowed))
+        return cls(frozenset(allowed), target_is_configured)
 
     def authorizes(
         self, definition: ToolDefinition, arguments: dict[str, object], scope: RuntimeScope
@@ -87,4 +95,11 @@ class MutationAuthorizationPolicy:
         if definition.operation_kind != "mutation":
             return True
         target_ref = arguments.get("target_ref")
-        return isinstance(target_ref, str) and (definition.name, target_ref) in self.allowed_pairs
+        return (
+            isinstance(target_ref, str)
+            and (
+                self.target_is_configured is None
+                or self.target_is_configured(definition.name.partition(".")[0], target_ref)
+            )
+            and (self.allowed_pairs is None or (definition.name, target_ref) in self.allowed_pairs)
+        )

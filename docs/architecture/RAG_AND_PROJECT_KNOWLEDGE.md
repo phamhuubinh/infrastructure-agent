@@ -7,6 +7,11 @@ RAG is a **knowledge source used by the model**, not a mandatory stage applied b
 When an answer depends on session or Project document contents, current document evidence must be
 retrieved before synthesis. For discovery across Project or session knowledge, or when no exact
 document identity is visible, `knowledge.search` is the default retrieval step.
+Orion exposes bounded ready-document names, media types, and status for the active Project in model
+context. A user-visible Project filename or title is resolved through `knowledge.search`, which
+returns the exact `document_id` and citable evidence. Session attachments and Project documents
+are Orion knowledge, never Linux paths or infrastructure targets. `linux.file.*` requires an
+explicit path on a configured Linux target.
 
 When a current-session attachment exposes an exact `document_id` and the task clearly targets that
 attachment, `knowledge.read` may retrieve it directly. This is grounded retrieval, not prompt

@@ -592,6 +592,35 @@ async def test_successful_read_per_family_is_sanitized_and_source_bearing() -> N
     assert "private" not in str(results) and "not-printed" not in str(results)
 
 
+@pytest.mark.anyio
+async def test_explicit_hosts_path_on_monitor_remains_a_linux_file_read() -> None:
+    catalog = TargetCatalog.from_mapping(
+        {
+            "credentials": {"linux-key": "test-credential"},
+            "targets": {
+                "linux": [
+                    {
+                        "target_ref": "monitor",
+                        "display_name": "Monitor",
+                        "credential_ref": "linux-key",
+                        "host": "internal",
+                    }
+                ]
+            },
+        }
+    )
+    linux = FakeLinux()
+    builder = ToolRegistryBuilder()
+    for registration in infrastructure_registrations(catalog, linux=linux):
+        builder.register(registration.definition, registration.handler)
+    result = await ToolRunner(builder.freeze()).run_async(
+        _call("linux.file.read", {"target_ref": "monitor", "path": "/etc/hosts"}), _scope()
+    )
+    assert result.status == "success"
+    assert result.data["target_ref"] == "monitor"
+    assert linux.calls == 1
+
+
 def test_linux_document_tools_edit_text_through_verified_same_directory_temporary_file() -> None:
     linux = FakeLinux()
     linux.files["/tmp/orion-qa.txt"] = b"before\nafter\n"
@@ -865,6 +894,9 @@ async def test_runtime_cancellation_is_observed_between_linux_preflight_and_disp
     )
     chat = runtime(store, backend, builder.freeze())
     session_id = store.create_session()
+    from orion.tool_runtime.mutation_authorization import MutationMode
+
+    store.set_session_mutation_mode(session_id, MutationMode.AUTO)
     request_id = chat.begin(session_id, "restart")
     task = asyncio.create_task(chat.run(session_id, request_id))
     await asyncio.wait_for(_wait_for_thread_event(linux.reached), 2)
@@ -907,6 +939,9 @@ async def test_runtime_cancellation_after_restart_preserves_verified_dispatch_re
     )
     chat = runtime(store, backend, builder.freeze())
     session_id = store.create_session()
+    from orion.tool_runtime.mutation_authorization import MutationMode
+
+    store.set_session_mutation_mode(session_id, MutationMode.AUTO)
     request_id = chat.begin(session_id, "restart")
     task = asyncio.create_task(chat.run(session_id, request_id))
 

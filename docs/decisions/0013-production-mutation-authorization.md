@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted target decision. This contract governs the separately reviewed
-implementation issue that follows; it does not itself change runtime behavior.
+Superseded in part by ADR 0014. The exact configured-target and optional server
+ceiling validation remains; its absent-allowlist read-only rule and deferred
+per-action approval position no longer apply.
 
 ## Context
 

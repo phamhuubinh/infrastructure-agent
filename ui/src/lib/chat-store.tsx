@@ -14,6 +14,8 @@ import {
   listSessions,
   deleteSession as deletePersistedSession,
   renameSession as renamePersistedSession,
+  setSessionMutationMode as persistSessionMutationMode,
+  type MutationMode,
   type DocumentRef,
   type DocumentStatus,
   apiJson,
@@ -89,6 +91,7 @@ export type SourceReference = {
 export type Session = {
   id: string;
   projectId: string | null;
+  mutationMode: MutationMode;
   title: string;
   customTitle?: string | null;
   timeline: TimelineItem[];
@@ -112,6 +115,7 @@ type ChatContextValue = {
   currentSessionId: string | null;
   generatingSessions: Set<string>;
   createSession: (projectId?: string) => Promise<string>;
+  setMutationMode: (sessionId: string, mode: MutationMode) => Promise<void>;
   startNewChat: () => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
@@ -119,9 +123,6 @@ type ChatContextValue = {
   switchSession: (id: string) => Promise<Session | null>;
   loadSession: (id: string) => Promise<Session>;
   addOptimisticMessage: (sessionId: string, content: string) => void;
-  addOptimisticAssistant: (sessionId: string) => void;
-  appendAssistantDelta: (sessionId: string, content: string) => void;
-  resetOptimisticAssistant: (sessionId: string) => void;
   reconcileAssistantMessage: (sessionId: string, item: TimelineItem) => void;
   recordEvent: (sessionId: string, event: RuntimeEvent) => void;
   setSessionGenerating: (sessionId: string, generating: boolean) => void;
@@ -317,6 +318,7 @@ export function sessionFromTimeline(
   documents: SessionDocument[] = attachmentCandidates(timeline),
   projectId: string | null = null,
   customTitle: string | null = null,
+  mutationMode: MutationMode = "read_only",
 ): Session {
   const sources = sourceReferences(timeline, documents);
   const availableSourceIds = new Set(sources.map((source) => source.sourceRefId));
@@ -414,6 +416,7 @@ export function sessionFromTimeline(
   return {
     id,
     projectId,
+    mutationMode,
     title: customTitle ?? (firstUser ? firstUser.content.slice(0, 60) : "New chat"),
     customTitle,
     timeline,
@@ -470,6 +473,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       documents,
       projectId,
       identity.custom_title ?? null,
+      identity.mutation_mode,
     );
     setSessions((previous) => upsertSession(previous, session));
     return session;
@@ -486,6 +490,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             projectId: summary.project_id,
             title: summary.title,
             customTitle: summary.custom_title ?? null,
+            mutationMode: summary.mutation_mode,
             timeline: [],
             messages: [],
             activity: [],
@@ -507,14 +512,33 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createSession = useCallback(async (projectId?: string) => {
-    const data = await apiJson<{ session_id: string; project_id: string | null }>(
-      projectId ? `/api/projects/${encodeURIComponent(projectId)}/sessions` : "/api/sessions",
-      { method: "POST" },
+    const data = await apiJson<{
+      session_id: string;
+      project_id: string | null;
+      mutation_mode: MutationMode;
+    }>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/sessions` : "/api/sessions", {
+      method: "POST",
+    });
+    const session = sessionFromTimeline(
+      data.session_id,
+      [],
+      [],
+      data.project_id ?? null,
+      null,
+      data.mutation_mode,
     );
-    const session = sessionFromTimeline(data.session_id, [], [], data.project_id ?? null, null);
     setSessions((previous) => upsertSession(previous, session));
     setCurrentSessionId(data.session_id);
     return data.session_id;
+  }, []);
+
+  const setMutationMode = useCallback(async (sessionId: string, mode: MutationMode) => {
+    const updated = await persistSessionMutationMode(sessionId, mode);
+    setSessions((previous) =>
+      previous.map((session) =>
+        session.id === sessionId ? { ...session, mutationMode: updated.mutation_mode } : session,
+      ),
+    );
   }, []);
 
   const startNewChat = useCallback(() => setCurrentSessionId(null), []);
@@ -603,78 +627,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const addOptimisticAssistant = useCallback((sessionId: string) => {
-    setSessions((previous) => {
-      const current = previous.find((session) => session.id === sessionId);
-      if (!current) return previous;
-      return upsertSession(previous, {
-        ...current,
-        messages: [
-          ...current.messages,
-          { itemId: `optimistic-assistant-${Date.now()}`, role: "assistant", content: "" },
-        ],
-      });
-    });
-  }, []);
-
-  const appendAssistantDelta = useCallback((sessionId: string, content: string) => {
-    if (!content) return;
-    setSessions((previous) =>
-      previous.map((session) => {
-        if (session.id !== sessionId) return session;
-        const last = session.messages.at(-1);
-        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
-          return {
-            ...session,
-            messages: [
-              ...session.messages.slice(0, -1),
-              { ...last, content: last.content + content },
-            ],
-          };
-        }
-        return {
-          ...session,
-          messages: [
-            ...session.messages,
-            {
-              itemId: `optimistic-assistant-${Date.now()}`,
-              role: "assistant",
-              content,
-            },
-          ],
-        };
-      }),
-    );
-  }, []);
-
-  const resetOptimisticAssistant = useCallback((sessionId: string) => {
-    setSessions((previous) =>
-      previous.map((session) => {
-        if (session.id !== sessionId) return session;
-        const last = session.messages.at(-1);
-        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
-          return { ...session, messages: session.messages.slice(0, -1) };
-        }
-        return session;
-      }),
-    );
-  }, []);
-
   const reconcileAssistantMessage = useCallback((sessionId: string, item: TimelineItem) => {
     const canonical = assistantMessageFromTimelineItem(item);
-    if (canonical === null) {
-      setSessions((previous) =>
-        previous.map((session) => {
-          if (session.id !== sessionId) return session;
-          const last = session.messages.at(-1);
-          if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
-            return { ...session, messages: session.messages.slice(0, -1) };
-          }
-          return session;
-        }),
-      );
-      return;
-    }
+    if (canonical === null) return;
     setSessions((previous) =>
       previous.map((session) => {
         if (session.id !== sessionId) return session;
@@ -684,17 +639,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           messages[existing] = canonical;
           return { ...session, messages };
         }
-        const last = session.messages.at(-1);
-        if (last?.role === "assistant" && last.itemId.startsWith("optimistic-assistant-")) {
-          return { ...session, messages: [...session.messages.slice(0, -1), canonical] };
-        }
         return { ...session, messages: [...session.messages, canonical] };
       }),
     );
   }, []);
 
   const recordEvent = useCallback((sessionId: string, event: RuntimeEvent) => {
-    if (!event.type.startsWith("tool.")) return;
+    if (!["tool.started", "tool.completed", "tool.failed"].includes(event.type)) return;
     const callId = typeof event.payload.call_id === "string" ? event.payload.call_id : "unknown";
     const toolName = typeof event.payload.tool_name === "string" ? event.payload.tool_name : "tool";
     const status =
@@ -853,6 +804,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       currentSessionId,
       generatingSessions,
       createSession,
+      setMutationMode,
       startNewChat,
       renameSession,
       deleteSession,
@@ -860,9 +812,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       switchSession,
       loadSession,
       addOptimisticMessage,
-      addOptimisticAssistant,
-      appendAssistantDelta,
-      resetOptimisticAssistant,
       reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,
@@ -875,6 +824,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       currentSessionId,
       generatingSessions,
       createSession,
+      setMutationMode,
       startNewChat,
       renameSession,
       deleteSession,
@@ -882,9 +832,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       switchSession,
       loadSession,
       addOptimisticMessage,
-      addOptimisticAssistant,
-      appendAssistantDelta,
-      resetOptimisticAssistant,
       reconcileAssistantMessage,
       recordEvent,
       setSessionGenerating,

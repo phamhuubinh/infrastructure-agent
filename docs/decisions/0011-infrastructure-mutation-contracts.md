@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted target decision.
+Accepted target decision. ADR 0014 supersedes the deferred approval-engine part.
 
 ## Decision
 
@@ -23,8 +23,8 @@ the operation contracts in `docs/tools/`.
 
 ## Consequences
 
-- no semantic pre-router, tool picker, enabled-tools field, infrastructure mode,
-  approval engine, separate infrastructure runtime, or integration-specific capability
+- no semantic pre-router, tool picker, enabled-tools field, separate infrastructure
+  runtime, or integration-specific capability
   protocol is introduced;
 - no model-facing generic shell, SSH command execution, generic Grafana HTTP request,
   or generic Zabbix JSON-RPC invocation is introduced;

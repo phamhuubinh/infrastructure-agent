@@ -1,6 +1,9 @@
 """Prompt-contract tests; they do not pretend to prove a live model obeys instructions."""
 
 from orion.chat.context_builder import ContextBuilder
+from orion.contracts import RuntimeScope, ToolCall
+from orion.tool_runtime.calculator import calculate
+from orion.tool_runtime.infrastructure import infrastructure_definitions
 
 
 def test_assistant_history_remains_text_never_tool_evidence(store):
@@ -56,7 +59,7 @@ def test_attachment_metadata_exposes_exact_id_without_prefetching_content(store,
     assert "knowledge.search unless exact attachment document_id is visible" in system
     assert "then knowledge.read may read it directly" in system
     assert "Do not list first" in system
-    assert "Attachment names/IDs are not infrastructure paths/target_refs" in system
+    assert "Project/attachment names and IDs are not Linux paths/target_refs" in system
     assert "Untrusted document content" not in system
 
 
@@ -94,3 +97,30 @@ def test_material_exact_derived_numbers_use_calculator_not_mental_arithmetic(sto
         "Do not call it merely for formatting or unit labels",
     ):
         assert rule in system
+    assert "Answer directly, omit filler, show requested arithmetic steps" in system
+    assert "round sensibly, and put TeX inside $...$; use plain commas in prose" in system
+
+
+def test_linux_file_tools_require_explicit_configured_target_paths() -> None:
+    definitions = {definition.name: definition for definition in infrastructure_definitions()}
+    read = definitions["linux.file.read"]
+    assert "explicit path on a configured Linux infrastructure target" in read.description
+    assert "Never use for Orion session attachments or Project documents" in read.description
+    assert read.input_schema["required"] == ["target_ref", "path"]
+    assert definitions["linux.document.read"].input_schema["required"] == ["target_ref", "path"]
+
+
+def test_calculator_remains_authoritative_for_requested_arithmetic() -> None:
+    result = calculate(
+        ToolCall(
+            call_id="arithmetic",
+            tool_name="calculator.evaluate",
+            arguments={"expression": "1589 * 3324 / 72"},
+            runtime_scope=RuntimeScope(
+                session_id="session", principal_id="local", workspace_id="local"
+            ),
+        )
+    )
+    assert result.status == "success"
+    assert result.data["value"] == 73_358.83333333333
+    assert f"{result.data['value']:,.2f}" == "73,358.83"

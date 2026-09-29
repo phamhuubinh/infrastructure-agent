@@ -86,8 +86,7 @@ Settings state.
     "linux": [{"target_ref": "production-node", "credential_ref": "linux-key", "host": "configured-host", "ssh_user": "configured-user"}],
     "grafana": [{"target_ref": "observability", "credential_ref": "monitoring-api", "base_url": "configured-url", "datasources": {"metrics": "prometheus"}}],
     "zabbix": [{"target_ref": "monitoring", "credential_ref": "monitoring-api", "base_url": "configured-url"}]
-  },
-  "mutation_allowlist": []
+  }
 }
 ```
 
@@ -96,14 +95,17 @@ registry used by Chat and Project. Unconfigured families are absent from that re
 Tool execution activity and controlled tool errors are the product-visible evidence of
 availability; Settings does not probe or toggle integrations.
 
-Infrastructure mutations are production read-only by default. To authorize one,
-`mutation_allowlist` must contain its exact registered `tool_name` and configured
-`target_ref`; an absent or empty list authorizes no mutations. Invalid or unreadable
+Every new conversation is read-only by default. Its composer offers confirm-each-action
+and auto modes. An absent `mutation_allowlist` adds no server ceiling; an explicit
+empty list denies every mutation even when the user selects auto. A nonempty list
+restricts eligible mutations to exact registered `tool_name` and configured
+`target_ref` pairs. Operators using a ceiling should tell users that a selected
+mode does not override it. Invalid or unreadable
 infrastructure configuration, malformed entries, unknown/non-mutation tool names, or
 unknown targets fail startup rather than widening access. This allowlist is server
 deployment authority, not per-action user confirmation; it is never supplied through
 chat requests, model tool arguments, or a manual tool picker. Legacy credential-only
-configuration has no implicit mutation permission.
+configuration has no implicit permission to change a conversation's mode.
 
 For example, an operator may add
 `{"tool_name":"linux.service.restart","target_ref":"production-node"}` to that

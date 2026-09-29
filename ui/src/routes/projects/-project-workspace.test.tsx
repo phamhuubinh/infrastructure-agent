@@ -70,6 +70,40 @@ describe("Project workspace", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows and persists the same mutation selector in a Project draft", async () => {
+    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse([model]);
+      if (path === "/api/sessions") return jsonResponse([]);
+      if (path === "/api/projects/project-a") return jsonResponse(project);
+      if (path === "/api/projects/project-a/documents") return jsonResponse([]);
+      if (path === "/api/projects/project-a/sessions") {
+        return jsonResponse(
+          { session_id: "project-mode", project_id: "project-a", mutation_mode: "read_only" },
+          201,
+        );
+      }
+      if (path === "/api/sessions/project-mode/mutation-mode" && init?.method === "PATCH") {
+        return jsonResponse({
+          session_id: "project-mode",
+          project_id: "project-a",
+          mutation_mode: "confirm",
+        });
+      }
+      throw new Error(`unexpected endpoint ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderWorkspace();
+    const selector = await screen.findByRole("button", { name: "Quyền sửa cuộc hội thoại" });
+    expect(selector.textContent).toContain("Chỉ đọc");
+    fireEvent.pointerDown(selector);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Hỏi trước khi sửa/ }));
+    await waitFor(() => expect(selector.textContent).toContain("Hỏi trước khi sửa"));
+    expect(fetchMock.mock.calls.some(([path]) => path === "/api/projects/project-a/sessions")).toBe(
+      true,
+    );
+  });
+
   it("shares ready uploads and deletes across Details and composer before any chat request", async () => {
     let documents: ReturnType<typeof readyDocument>[] = [];
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {

@@ -48,6 +48,7 @@ async def test_session_title_is_migrated_persisted_and_scope_safe(tmp_path) -> N
         "session_id": project_session,
         "project_id": project["project_id"],
         "custom_title": "Tiêu đề dự án",
+        "mutation_mode": "read_only",
         "title": "Tiêu đề dự án",
     }
     assert (
@@ -58,6 +59,57 @@ async def test_session_title_is_migrated_persisted_and_scope_safe(tmp_path) -> N
     assert empty.status_code == 422
     assert too_long.status_code == 422
     assert missing.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_mutation_mode_persists_per_chat_and_project_session(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "orion.db"
+    app = create_app(path, ScriptedBackend([]))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        chat_a = (await client.post("/api/sessions")).json()["session_id"]
+        chat_b = (await client.post("/api/sessions")).json()["session_id"]
+        project = (await client.post("/api/projects", json={"name": "Scoped"})).json()["project_id"]
+        project_a = (await client.post(f"/api/projects/{project}/sessions")).json()["session_id"]
+        project_b = (await client.post(f"/api/projects/{project}/sessions")).json()["session_id"]
+        assert (
+            await client.patch(
+                f"/api/sessions/{chat_a}/mutation-mode", json={"mutation_mode": "auto"}
+            )
+        ).status_code == 200
+        assert (
+            await client.patch(
+                f"/api/sessions/{project_a}/mutation-mode", json={"mutation_mode": "confirm"}
+            )
+        ).status_code == 200
+        assert (await client.patch(f"/api/sessions/{chat_a}", json={"title": "Renamed"})).json()[
+            "mutation_mode"
+        ] == "auto"
+        assert (
+            await client.patch(
+                f"/api/sessions/{chat_b}/mutation-mode", json={"mutation_mode": "invalid"}
+            )
+        ).status_code == 422
+    app.state.application.store.close()
+    reopened = create_app(path, ScriptedBackend([]))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=reopened), base_url="http://test"
+    ) as client:
+        modes = {
+            item["session_id"]: item["mutation_mode"]
+            for item in (await client.get("/api/sessions")).json()
+        }
+        assert modes == {
+            chat_a: "auto",
+            chat_b: "read_only",
+            project_a: "confirm",
+            project_b: "read_only",
+        }
+        assert (await client.get(f"/api/sessions/{chat_a}")).json()["mutation_mode"] == "auto"
+        assert (await client.delete(f"/api/sessions/{chat_b}")).status_code == 204
+        assert (await client.get(f"/api/sessions/{chat_a}")).json()["mutation_mode"] == "auto"
+    reopened.state.application.store.close()
 
 
 @pytest.mark.anyio

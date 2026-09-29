@@ -65,6 +65,10 @@ The target is acceptable when these product/runtime invariants are demonstrated.
   incidental snippet mention alone does not establish the requested current state.
 - A new registered tool becomes discoverable/model-visible without adding semantic router rules.
 - All registered model-callable schemas are visible on the first turn; schema visibility never grants mutation authorization.
+- New Chat and Project sessions persist `read_only`; a selector beside the composer model control switches to confirm or auto per conversation.
+- Confirm mode persists and audits one exact pending mutation, pauses before side effects, accepts one scoped decision, and resumes the same request; cancellation and restart never replay it.
+- Auto mode executes eligible configured mutations without a per-call dialog, subject to closed schemas, configured targets, any explicit server ceiling, and the existing mutation lifecycle.
+- Live assistant deltas remain provisional; one accepted terminal assistant answer is visible per user request through tool and recovery turns.
 - Tool errors return explicitly to the model.
 - Repeated recoverable failures terminate only after an unchanged normalized failure state demonstrates no progress; corrected arguments may continue.
 - When citation recovery obtains new citable evidence through a successful tool call, Orion permits one bounded follow-up citation repair from that new evidence; the allowance cannot reopen repeatedly.
@@ -102,7 +106,7 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Operations docs describing current commands/configuration must be checked against current scripts/config files.
 - No stale current-state claim may be retained merely because it existed in an older deployment.
 - `knowledge.search.document_ids` is an optional narrowing filter, not a discovery prerequisite: the model must omit it unless exact visible document IDs are available; an out-of-scope filter remains source-free and returns recoverable feedback so the model can retry with valid visible IDs or, when the user did not require a specific document, search the current scope without the filter.
-- A visible Project/session filename or title is a valid `knowledge.search.query` locator for document evidence. When the user names a visible file but no exact `document_id` is available, the model searches that filename directly and does not ask the user for `document_id` or list documents before normal content retrieval. `knowledge.read` still requires an exact visible `document_id` for sequential or full-document reading.
+- A visible Project/session filename or title is a valid `knowledge.search.query` locator for document evidence. Bounded active-Project metadata shows names, types, and ready status; `knowledge.search` resolves the exact ID and evidence. The model does not ask the user for an ID or list documents before normal content retrieval. `knowledge.read` still requires an exact visible `document_id` for sequential or full-document reading. Project A metadata never appears in Project B model context, and a Project filename never becomes a Linux path or target.
 - ProjectWorkspace owns one mounted Project document state shared by Details and ChatPage/composer/context. Upload, delete, and pending-status updates change that state directly; a backend-ready document appears on every mounted surface without a chat request or reload.
 - Assistant turns that also contain tool calls remain canonical model-loop context but are not rendered as user-visible answers; one user request produces only the terminal assistant answer in chat.
 - Project document `ready` is semantic, not a minimum-duration animation: parsing/indexing must already be complete and queryable, but a small synchronous upload may move directly from the upload spinner to `ready` without an artificial delay.

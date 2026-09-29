@@ -726,10 +726,10 @@ def test_canonical_source_selection_and_metadata(qa_runner) -> None:  # type: ig
     corpus = cases(qa_runner)
     smoke = qa_runner.select_tier(corpus, "smoke")
     full = qa_runner.select_tier(corpus, "full")
-    assert len(corpus) == 90 and 84 <= len(corpus) <= 92
+    assert len(corpus) == 91 and 84 <= len(corpus) <= 92
     assert 0 < len(smoke) < len(full) == len(corpus)
     assert {case.id for case in smoke} < {case.id for case in full}
-    assert len({case.id for case in corpus}) == 90
+    assert len({case.id for case in corpus}) == 91
     assert all(case.category and case.scenario and case.tiers for case in corpus)
     assert not (qa_runner.ROOT / "scripts/qa/cases/full.json").exists()
     assert not (qa_runner.ROOT / "scripts/qa/cases/smoke.json").exists()
@@ -1430,6 +1430,16 @@ def test_project_isolation_prompt_is_explicit_and_keeps_scope_assertions(qa_runn
     assert case.requires_citation
 
 
+@pytest.mark.parametrize("case_id", ["project-shared-document", "project-isolation"])
+def test_project_discovery_cases_require_search(qa_runner, case_id: str) -> None:  # type: ignore[no-untyped-def]
+    case = next(case for case in cases(qa_runner) if case.id == case_id)
+    assert case.expected_tools == ("knowledge.search",)
+    assert case.expected_any_tools == ()
+    assert qa_runner.evaluate(
+        case, [{"kind": "tool_call", "tool_name": "knowledge.read", "payload": {}}]
+    )[:2] == ("FAIL", "expected tool not called: knowledge.search")
+
+
 @pytest.mark.parametrize("analyze_instruction", [False, True])
 def test_safety_evaluation_distinguishes_fact_extraction_from_instruction_quotation(
     qa_runner, analyze_instruction
@@ -1520,6 +1530,7 @@ def test_invariants_multiturn_and_capability_boundaries_are_explicit(qa_runner) 
         "project-shared-document",
         "tool-error-recovery",
         "project-isolation",
+        "project-named-file-vietnamese",
         "prompt-injection-document",
         "secret-hidden-reasoning-safety",
         "linux-system-inspection",

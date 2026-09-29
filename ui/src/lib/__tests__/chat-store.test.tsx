@@ -19,11 +19,6 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
       <button onClick={() => void chat.switchSession(sessionId)}>load</button>
       <button onClick={() => void chat.renameSession(sessionId, "My custom title")}>rename</button>
       <button onClick={() => chat.addOptimisticMessage(sessionId, "First message")}>message</button>
-      <button onClick={() => chat.addOptimisticAssistant(sessionId)}>assistant-pending</button>
-      <button onClick={() => chat.appendAssistantDelta(sessionId, "I will check that.")}>
-        assistant-delta
-      </button>
-      <button onClick={() => chat.resetOptimisticAssistant(sessionId)}>assistant-reset</button>
       <button
         onClick={() =>
           chat.reconcileAssistantMessage(
@@ -33,6 +28,13 @@ function Harness({ sessionId = "session-1" }: { sessionId?: string }) {
         }
       >
         tool-only-assistant
+      </button>
+      <button
+        onClick={() =>
+          chat.reconcileAssistantMessage(sessionId, assistantTimelineItem("Final answer."))
+        }
+      >
+        final-assistant
       </button>
       <button
         onClick={() =>
@@ -452,7 +454,7 @@ describe("M1 session store", () => {
     });
   });
 
-  it("removes a pending empty assistant projection when the live turn is tool-only", async () => {
+  it("projects only a runtime-approved assistant answer", async () => {
     const fetchMock = vi.fn((path: string) => {
       if (path === "/api/sessions") {
         return Promise.resolve(
@@ -478,82 +480,11 @@ describe("M1 session store", () => {
     );
 
     await screen.findByText("New chat");
-    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
+    fireEvent.click(screen.getByRole("button", { name: "tool-only-assistant" }));
+    expect(screen.getByTestId("message-count").textContent).toBe("0");
+    fireEvent.click(screen.getByRole("button", { name: "final-assistant" }));
     expect(screen.getByTestId("message-count").textContent).toBe("1");
-    fireEvent.click(screen.getByRole("button", { name: "tool-only-assistant" }));
-    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
-  });
-
-  it("drops a streamed draft when the runtime resumes recovery", async () => {
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/sessions") {
-        return Promise.resolve(
-          jsonResponse([
-            {
-              session_id: "session-1",
-              project_id: null,
-              custom_title: null,
-              title: "New chat",
-              created_at: "now",
-              last_activity_at: "now",
-            },
-          ]),
-        );
-      }
-      throw new Error(`unexpected endpoint ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(
-      <ChatProvider>
-        <Harness />
-      </ChatProvider>,
-    );
-
-    await screen.findByText("New chat");
-    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
-    fireEvent.click(screen.getByRole("button", { name: "assistant-delta" }));
-    expect(screen.getByText("I will check that.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "assistant-reset" }));
-
-    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
-    expect(screen.queryByText("I will check that.")).toBeNull();
-  });
-
-  it("removes streamed intermediate prose when the canonical turn dispatches tools", async () => {
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/sessions") {
-        return Promise.resolve(
-          jsonResponse([
-            {
-              session_id: "session-1",
-              project_id: null,
-              custom_title: null,
-              title: "New chat",
-              created_at: "now",
-              last_activity_at: "now",
-            },
-          ]),
-        );
-      }
-      throw new Error(`unexpected endpoint ${path}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    render(
-      <ChatProvider>
-        <Harness />
-      </ChatProvider>,
-    );
-
-    await screen.findByText("New chat");
-    fireEvent.click(screen.getByRole("button", { name: "assistant-pending" }));
-    fireEvent.click(screen.getByRole("button", { name: "assistant-delta" }));
-    expect(screen.getByText("I will check that.")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "tool-only-assistant" }));
-
-    await waitFor(() => expect(screen.getByTestId("message-count").textContent).toBe("0"));
-    expect(screen.queryByText("I will check that.")).toBeNull();
+    expect(screen.getByText("Final answer.")).toBeTruthy();
   });
 
   it("hydrates the canonical project identity and reopens the existing Project session", async () => {

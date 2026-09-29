@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from functools import partial
+from typing import cast
 
 from orion.access import LocalAccessAdapter
 from orion.chat.citation_aliases import (
@@ -32,6 +33,7 @@ from orion.chat.recovery import (
     RecoverableFailureTracker,
     RecoveryFailureState,
     RecoveryFingerprint,
+    RecoveryStallEvidence,
 )
 from orion.contracts import (
     AssistantDelta,
@@ -55,7 +57,7 @@ from orion.models.backend import ModelBackend, ModelBackendError, ModelRequest, 
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_public
-from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy, MutationMode
 from orion.tool_runtime.registry import ToolRegistry
 from orion.tool_runtime.runner import PreparedTool, ToolRunner
 
@@ -217,7 +219,8 @@ _RECOVERY_EXHAUSTED_INSTRUCTIONS = (
     "The same recoverable tool failure state has repeated without argument or error progress, "
     "so its bounded recovery budget is exhausted. Do not call tools again for that state. Give "
     "a concise terminal answer stating what could not be verified and what input or evidence is "
-    "missing. Do not invent readings, identifiers, targets, or credentials."
+    "missing. For operation_blocked, explain the conversation or server permission restriction. "
+    "Do not invent readings, identifiers, targets, or credentials."
 )
 
 _POST_OBSERVATION_INSTRUCTIONS = (
@@ -293,6 +296,13 @@ _MAX_DISCOVERY_CITATION_CORRECTIONS = 3
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
 _INCOMPLETE_FALLBACK = "Orion could not complete a verified response before the request ended."
 _RecoveryFingerprint = RecoveryFingerprint
+_REPEATED_AUTHORIZATION_MESSAGES = {
+    "read_only": (
+        "This identical mutation was already blocked by this conversation's read-only mode."
+    ),
+    "user_denied": "The user already denied this identical mutation in this request.",
+    "server_policy": "The local server policy already blocked this identical mutation.",
+}
 
 
 def _tool_definitions_bytes(tools: tuple[ToolDefinition, ...]) -> int:
@@ -441,6 +451,12 @@ class ChatRuntime:
         self._pending_content: dict[str, str] = {}
         self._queued_at: dict[str, float] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._pending_authorizations: dict[tuple[str, str], asyncio.Future[bool]] = {}
+
+    @staticmethod
+    def _mutation_signature(call: ModelToolCall) -> tuple[str, str]:
+        canonical = json.dumps(call.arguments, sort_keys=True, separators=(",", ":"))
+        return call.tool_name, hashlib.sha256(canonical.encode()).hexdigest()
 
     async def submit(
         self, session_id: str, content: str, cancellation: asyncio.Event | None = None
@@ -465,6 +481,110 @@ class ChatRuntime:
             return False
         cancellation.set()
         return True
+
+    def resolve_authorization(
+        self, session_id: str, request_id: str, call_id: str, allow: bool
+    ) -> bool:
+        """Resolve one live, persisted call; a restart cannot replay its arguments."""
+        pending = self._store.pending_authorization(request_id, call_id)
+        future = self._pending_authorizations.get((request_id, call_id))
+        cancellation = self._cancellations.get(request_id)
+        if (
+            pending is None
+            or pending["session_id"] != session_id
+            or pending["state"] != "pending"
+            or future is None
+            or future.done()
+            or cancellation is None
+            or cancellation.is_set()
+        ):
+            return False
+        if not self._store.resolve_pending_authorization(
+            request_id, call_id, "allowed" if allow else "denied"
+        ):
+            return False
+        self._audit_authorization(
+            request_id,
+            ModelToolCall(
+                call_id=call_id,
+                tool_name=pending["tool_name"],
+                arguments={"target_ref": pending["target_ref"]},
+            ),
+            "allowed_by_user" if allow else "denied_by_user",
+            MutationMode.CONFIRM,
+        )
+        future.set_result(allow)
+        return True
+
+    async def _await_authorization(
+        self,
+        session_id: str,
+        request_id: str,
+        model_call: ModelToolCall,
+        cancellation: asyncio.Event,
+    ) -> bool:
+        target_ref = model_call.arguments.get("target_ref")
+        assert isinstance(target_ref, str)
+        digest = self._mutation_signature(model_call)[1]
+        summary = self._safe_mutation_summary(model_call)
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        key = (request_id, model_call.call_id)
+        self._store.create_pending_authorization(
+            request_id,
+            model_call.call_id,
+            session_id,
+            model_call.tool_name,
+            target_ref,
+            digest,
+            summary,
+        )
+        self._pending_authorizations[key] = future
+        self._audit_authorization(request_id, model_call, "pending", MutationMode.CONFIRM)
+        self._emit(
+            request_id,
+            "tool.authorization_required",
+            {
+                "request_id": request_id,
+                "session_id": session_id,
+                "call_id": model_call.call_id,
+                "tool_name": model_call.tool_name,
+                "target_ref": target_ref,
+                "summary": summary,
+            },
+        )
+        cancel_task = asyncio.create_task(cancellation.wait())
+        try:
+            waitables: set[asyncio.Future[bool]] = {future, cast(asyncio.Future[bool], cancel_task)}
+            done, _ = await asyncio.wait(waitables, return_when=asyncio.FIRST_COMPLETED)
+            if cancellation.is_set() or cancel_task in done:
+                raise asyncio.CancelledError
+            return future.result()
+        finally:
+            cancel_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cancel_task
+            self._pending_authorizations.pop(key, None)
+            if not future.done():
+                future.cancel()
+            self._store.resolve_pending_authorization(request_id, model_call.call_id, "cancelled")
+
+    @staticmethod
+    def _safe_mutation_summary(call: ModelToolCall) -> dict[str, str]:
+        labels = {
+            "linux.file.edit": "Sửa file trên máy chủ",
+            "linux.service.restart": "Khởi động lại dịch vụ",
+            "linux.package.install": "Cài đặt gói",
+        }
+        summary = {"label": labels.get(call.tool_name, "Thực hiện thao tác thay đổi")}
+        # Paths and identifiers are displayed only for specific registered schemas.
+        field = {
+            "linux.file.edit": "path",
+            "linux.service.restart": "service",
+            "linux.package.install": "package",
+        }.get(call.tool_name)
+        if field and isinstance(call.arguments.get(field), str):
+            summary[field] = str(call.arguments[field])[:240]
+        return summary
 
     async def run(self, session_id: str, request_id: str) -> RequestOutcome:
         cancellation = self._cancellations.get(request_id)
@@ -516,6 +636,10 @@ class ChatRuntime:
                 )
                 settings = self._settings()
                 scope = self._runtime_scope(session_id)
+                identity = self._store.session_identity(session_id)
+                assert identity is not None
+                mutation_mode = MutationMode(str(identity["mutation_mode"]))
+                blocked_mutations: set[tuple[str, str, str]] = set()
                 recovery_pending = False
                 forced_recovery_decisions_used = 0
                 recovery_tracker = RecoverableFailureTracker(
@@ -781,8 +905,9 @@ class ChatRuntime:
                         recovery_pending = True
                     results: list[tuple[str, ToolResult]] = []
                     recoverable_fingerprints: list[_RecoveryFingerprint] = []
+                    repeated_authorization_blocked = False
                     prepared_calls: list[
-                        tuple[ModelToolCall, ToolDefinition | None, PreparedTool]
+                        tuple[ModelToolCall, ToolDefinition | None, PreparedTool, str | None]
                     ] = []
                     # Complete canonical validation/authorization before any handler starts.
                     for model_call in turn.tool_calls:
@@ -792,9 +917,42 @@ class ChatRuntime:
                         prepared = self._runner.prepare(
                             model_call,
                             scope,
-                            lambda: cancellation.is_set() or budget.remaining_work_seconds() <= 0,
-                            partial(self._audit_authorization, request_id, model_call),
+                            lambda: (
+                                cancellation.is_set()
+                                or (budget is not None and budget.remaining_work_seconds() <= 0)
+                            ),
                         )
+                        block_reason: str | None = None
+                        if definition is not None and definition.operation_kind == "mutation":
+                            if isinstance(prepared, ToolResult):
+                                if (
+                                    prepared.error is not None
+                                    and prepared.error.code == "operation_blocked"
+                                ):
+                                    block_reason = "server_policy"
+                                    self._audit_authorization(
+                                        request_id, model_call, "blocked", mutation_mode
+                                    )
+                            elif mutation_mode == MutationMode.READ_ONLY:
+                                block_reason = "read_only"
+                                prepared = ToolResult.failure(
+                                    model_call.call_id,
+                                    model_call.tool_name,
+                                    "operation_blocked",
+                                    "This conversation is in read-only mode. Mutation operations "
+                                    "are not authorized. The user can change the conversation "
+                                    "permission mode in the Chat UI.",
+                                    model_recovery_required=True,
+                                )
+                                self._audit_authorization(
+                                    request_id, model_call, "blocked", mutation_mode
+                                )
+                            elif mutation_mode == MutationMode.AUTO:
+                                self._audit_authorization(
+                                    request_id, model_call, "auto_allowed", mutation_mode
+                                )
+                            elif mutation_mode == MutationMode.CONFIRM:
+                                block_reason = "user_denied"
                         self._store.append_timeline(
                             session_id,
                             request_id,
@@ -808,18 +966,69 @@ class ChatRuntime:
                             call_id=model_call.call_id,
                             tool_name=model_call.tool_name,
                         )
-                        prepared_calls.append((model_call, definition, prepared))
+                        prepared_calls.append((model_call, definition, prepared, block_reason))
 
                     async def execute(
                         index: int,
                         calls: list[
-                            tuple[ModelToolCall, ToolDefinition | None, PreparedTool]
+                            tuple[ModelToolCall, ToolDefinition | None, PreparedTool, str | None]
                         ] = prepared_calls,
                         turn_id: str = model_turn_id,
                     ) -> ToolResult:
-                        model_call, definition, prepared = calls[index]
+                        nonlocal budget, repeated_authorization_blocked
+                        assert budget is not None
+                        model_call, definition, prepared, block_reason = calls[index]
                         self._ensure_not_cancelled(cancellation)
                         budget.ensure_work_available("tool")
+                        block_key = (
+                            (*self._mutation_signature(model_call), block_reason)
+                            if block_reason is not None
+                            else None
+                        )
+                        authorization_blocked = (
+                            block_reason in {"read_only", "server_policy"}
+                            and isinstance(prepared, ToolResult)
+                            and prepared.error is not None
+                            and prepared.error.code == "operation_blocked"
+                        )
+                        if block_key is not None and block_key in blocked_mutations:
+                            assert block_reason is not None
+                            prepared = ToolResult.failure(
+                                model_call.call_id,
+                                model_call.tool_name,
+                                "operation_blocked",
+                                _REPEATED_AUTHORIZATION_MESSAGES[block_reason]
+                                + " Do not repeat it; choose a different permitted action.",
+                                model_recovery_required=True,
+                            )
+                            authorization_blocked = True
+                            repeated_authorization_blocked = True
+                            if block_reason == "user_denied":
+                                self._audit_authorization(
+                                    request_id, model_call, "blocked", MutationMode.CONFIRM
+                                )
+                        elif (
+                            definition is not None
+                            and definition.operation_kind == "mutation"
+                            and mutation_mode == MutationMode.CONFIRM
+                            and not isinstance(prepared, ToolResult)
+                        ):
+                            paused_at = self._monotonic_clock()
+                            allowed = await self._await_authorization(
+                                session_id, request_id, model_call, cancellation
+                            )
+                            budget = budget.after_human_wait(self._monotonic_clock() - paused_at)
+                            if not allowed:
+                                authorization_blocked = True
+                                prepared = ToolResult.failure(
+                                    model_call.call_id,
+                                    model_call.tool_name,
+                                    "operation_blocked",
+                                    "The user denied this exact mutation call. Do not repeat "
+                                    "it. You may continue with a different permitted action.",
+                                    model_recovery_required=True,
+                                )
+                            budget.ensure_work_available("tool")
                         started = self._monotonic_clock()
                         activity = self._tool_activity(
                             model_call.tool_name, model_call.call_id, model_call.arguments
@@ -841,6 +1050,13 @@ class ChatRuntime:
                             elapsed = self._elapsed_ms(started)
                             # Persist at completion, before subsequent work can fail or cancel.
                             self._persist_tool_result(session_id, request_id, result, elapsed)
+                            if (
+                                authorization_blocked
+                                and block_key is not None
+                                and result.error is not None
+                                and result.error.code == "operation_blocked"
+                            ):
+                                blocked_mutations.add(block_key)
                             self._record_diagnostic(
                                 {
                                     **diagnostic,
@@ -922,7 +1138,7 @@ class ChatRuntime:
                             raise
                         completed.update(zip(indexes, outcomes, strict=True))
 
-                    for index, (_, definition, _) in enumerate(prepared_calls):
+                    for index, (_, definition, _, _) in enumerate(prepared_calls):
                         if definition is None or definition.operation_kind == "read":
                             pending_reads.append(index)
                             continue
@@ -932,7 +1148,7 @@ class ChatRuntime:
                         budget.ensure_work_available("tool")
                     await flush_reads()
 
-                    for index, (model_call, definition, _) in enumerate(prepared_calls):
+                    for index, (model_call, definition, _, _) in enumerate(prepared_calls):
                         result = dispatched[index]
                         results.append((model_call.tool_name, result))
                         observed_source_ref_ids.update(
@@ -965,6 +1181,10 @@ class ChatRuntime:
                         recoverable_failure_state,
                         read_progress=tuple(read_progress),
                     )
+                    if repeated_authorization_blocked:
+                        recovery_stall = RecoveryStallEvidence(
+                            reason="repeated_authorization_block", occurrences=2
+                        )
                     model_continuation_required = any(
                         result.model_continuation_required for _, result in results
                     )
@@ -1427,12 +1647,15 @@ class ChatRuntime:
                 payload["target_ref"] = target_ref
         return payload
 
-    def _audit_authorization(self, request_id: str, call: ModelToolCall, allowed: bool) -> None:
+    def _audit_authorization(
+        self, request_id: str, call: ModelToolCall, outcome: str, mode: MutationMode
+    ) -> None:
         payload: dict[str, object] = {
             "call_id": call.call_id,
             "tool_name": call.tool_name,
             "operation_kind": "mutation",
-            "decision": "allow" if allowed else "deny",
+            "decision": outcome,
+            "mutation_mode": mode.value,
         }
         # Only a configured identity may appear in authorization audit output.
         family = call.tool_name.partition(".")[0]

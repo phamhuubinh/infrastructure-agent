@@ -145,6 +145,9 @@ async def test_completed_mutation_survives_a_later_interrupted_read(store, cance
     builder.register(_definition("test.first", mutation=True), handler)
     builder.register(_definition("test.second"), handler)
     session = store.create_session()
+    from orion.tool_runtime.mutation_authorization import MutationMode
+
+    store.set_session_mutation_mode(session, MutationMode.AUTO)
     sink = BoundedModelInputDiagnostics()
     chat = ChatRuntime(
         store,

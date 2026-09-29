@@ -147,7 +147,11 @@ def _definitions() -> dict[str, ToolDefinition]:
         ),
         "linux.file.read": ToolDefinition(
             name="linux.file.read",
-            description="Read one bounded range of a validated Linux file.",
+            description=(
+                "Read one bounded range from an explicit path on a configured Linux "
+                "infrastructure target. Never use for Orion session attachments or Project "
+                "documents."
+            ),
             handler_key="linux.file.read",
             input_schema={
                 "type": "object",
@@ -168,7 +172,10 @@ def _definitions() -> dict[str, ToolDefinition]:
         ),
         "linux.document.read": ToolDefinition(
             name="linux.document.read",
-            description="Read bounded structured text, Word DOCX, or Excel XLSX content.",
+            description=(
+                "Read bounded structured text, Word DOCX, or Excel XLSX at an explicit path on "
+                "a configured Linux infrastructure target, never an Orion document."
+            ),
             handler_key="linux.document.read",
             input_schema={
                 "type": "object",

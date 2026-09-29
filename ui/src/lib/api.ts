@@ -50,7 +50,38 @@ export type SessionIdentity = {
   session_id: string;
   project_id: string | null;
   custom_title: string | null;
+  mutation_mode: MutationMode;
 };
+
+export type MutationMode = "read_only" | "confirm" | "auto";
+
+export async function setSessionMutationMode(
+  sessionId: string,
+  mutationMode: MutationMode,
+): Promise<SessionIdentity> {
+  return apiJson<SessionIdentity>(`/api/sessions/${encodeURIComponent(sessionId)}/mutation-mode`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mutation_mode: mutationMode }),
+  });
+}
+
+export async function resolveToolAuthorization(
+  sessionId: string,
+  requestId: string,
+  callId: string,
+  decision: "allow" | "deny",
+): Promise<void> {
+  await apiJson<{ status: string }>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestId)}` +
+      `/tool-authorizations/${encodeURIComponent(callId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    },
+  );
+}
 
 export type SessionSummary = SessionIdentity & {
   title: string;

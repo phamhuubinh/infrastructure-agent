@@ -31,6 +31,7 @@ from orion.paths import (
 )
 from orion.persistence.sqlite import SQLiteStore
 from orion.security import redact_text, safe_endpoint
+from orion.tool_runtime.mutation_authorization import MutationMode
 
 _UPLOAD_CHUNK_BYTES = 64 * 1024
 
@@ -64,6 +65,7 @@ class SessionView(BaseModel):
     session_id: str
     project_id: str | None = None
     custom_title: str | None = None
+    mutation_mode: MutationMode = MutationMode.READ_ONLY
 
 
 class SessionSummaryView(SessionView):
@@ -74,6 +76,14 @@ class SessionSummaryView(SessionView):
 
 class SessionTitleUpdate(StrictRequest):
     title: str = Field(max_length=120)
+
+
+class SessionMutationModeUpdate(StrictRequest):
+    mutation_mode: MutationMode
+
+
+class ToolAuthorizationDecision(StrictRequest):
+    decision: str = Field(pattern=r"^(allow|deny)$")
 
 
 class SessionTitleView(SessionView):
@@ -211,6 +221,25 @@ def create_app(
             session_id=session_id,
             project_id=identity["project_id"],
             custom_title=identity["custom_title"],
+            mutation_mode=MutationMode(str(identity["mutation_mode"])),
+        )
+
+    @app.patch("/api/sessions/{session_id}/mutation-mode", response_model=SessionView)
+    async def set_mutation_mode(session_id: str, update: SessionMutationModeUpdate) -> SessionView:
+        identity = _require_session(store, assembled.access, session_id)
+        try:
+            store.set_session_mutation_mode(session_id, update.mutation_mode)
+        except RuntimeError as error:
+            if str(error) == "active_request":
+                raise HTTPException(
+                    status_code=409, detail="Finish or cancel the active request first."
+                ) from error
+            raise
+        return SessionView(
+            session_id=session_id,
+            project_id=identity["project_id"],
+            custom_title=identity["custom_title"],
+            mutation_mode=update.mutation_mode,
         )
 
     @app.patch("/api/sessions/{session_id}", response_model=SessionTitleView)
@@ -225,6 +254,7 @@ def create_app(
             session_id=session_id,
             project_id=identity["project_id"],
             custom_title=title,
+            mutation_mode=MutationMode(str(identity["mutation_mode"])),
             title=title,
         )
 
@@ -394,7 +424,13 @@ def create_app(
 
     @app.post("/api/sessions/{session_id}/messages", response_model=AssistantResponse)
     async def submit_message(session_id: str, message: SubmitMessage) -> AssistantResponse:
-        _require_session(store, assembled.access, session_id)
+        identity = _require_session(store, assembled.access, session_id)
+        if identity["mutation_mode"] == MutationMode.CONFIRM.value:
+            raise HTTPException(
+                status_code=409,
+                detail="Confirm mode requires the streaming message endpoint so the caller can "
+                "resolve a pending mutation.",
+            )
         try:
             outcome = await runtime.submit(session_id, message.content)
         except RequestCancelled as error:
@@ -448,6 +484,23 @@ def create_app(
         if not runtime.cancel(request_id):
             raise HTTPException(status_code=409, detail="Request is no longer running.")
         return {"status": "cancellation_requested"}
+
+    @app.post("/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}")
+    async def resolve_tool_authorization(
+        session_id: str,
+        request_id: str,
+        call_id: str,
+        decision: ToolAuthorizationDecision,
+    ) -> dict[str, str]:
+        _require_session(store, assembled.access, session_id)
+        request = store.request(request_id)
+        if request is None or request["session_id"] != session_id:
+            raise HTTPException(status_code=404, detail="Request not found in this conversation.")
+        if not runtime.resolve_authorization(
+            session_id, request_id, call_id, decision.decision == "allow"
+        ):
+            raise HTTPException(status_code=409, detail="Authorization is unavailable or resolved.")
+        return {"status": "allowed" if decision.decision == "allow" else "denied"}
 
     frontend = (ui_directory or packaged_ui_directory()).expanduser().resolve()
 

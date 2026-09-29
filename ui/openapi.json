@@ -179,6 +179,15 @@
         "title": "ModelConfigView",
         "type": "object"
       },
+      "MutationMode": {
+        "enum": [
+          "read_only",
+          "confirm",
+          "auto"
+        ],
+        "title": "MutationMode",
+        "type": "string"
+      },
       "ProjectInput": {
         "additionalProperties": false,
         "properties": {
@@ -294,6 +303,19 @@
         "title": "ReasoningMode",
         "type": "string"
       },
+      "SessionMutationModeUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "mutation_mode": {
+            "$ref": "#/components/schemas/MutationMode"
+          }
+        },
+        "required": [
+          "mutation_mode"
+        ],
+        "title": "SessionMutationModeUpdate",
+        "type": "object"
+      },
       "SessionSummaryView": {
         "properties": {
           "created_at": {
@@ -314,6 +336,10 @@
           "last_activity_at": {
             "title": "Last Activity At",
             "type": "string"
+          },
+          "mutation_mode": {
+            "$ref": "#/components/schemas/MutationMode",
+            "default": "read_only"
           },
           "project_id": {
             "anyOf": [
@@ -372,6 +398,10 @@
             ],
             "title": "Custom Title"
           },
+          "mutation_mode": {
+            "$ref": "#/components/schemas/MutationMode",
+            "default": "read_only"
+          },
           "project_id": {
             "anyOf": [
               {
@@ -412,6 +442,10 @@
             ],
             "title": "Custom Title"
           },
+          "mutation_mode": {
+            "$ref": "#/components/schemas/MutationMode",
+            "default": "read_only"
+          },
           "project_id": {
             "anyOf": [
               {
@@ -447,6 +481,21 @@
           "content"
         ],
         "title": "SubmitMessage",
+        "type": "object"
+      },
+      "ToolAuthorizationDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "pattern": "^(allow|deny)$",
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ToolAuthorizationDecision",
         "type": "object"
       },
       "ValidationError": {
@@ -1622,6 +1671,126 @@
           }
         },
         "summary": "Stream Message"
+      }
+    },
+    "/api/sessions/{session_id}/mutation-mode": {
+      "patch": {
+        "operationId": "set_mutation_mode_api_sessions__session_id__mutation_mode_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionMutationModeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Mutation Mode"
+      }
+    },
+    "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}": {
+      "post": {
+        "operationId": "resolve_tool_authorization_api_sessions__session_id__requests__request_id__tool_authorizations__call_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolAuthorizationDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Resolve Tool Authorization Api Sessions  Session Id  Requests  Request Id  Tool Authorizations  Call Id  Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Tool Authorization"
       }
     },
     "/api/sessions/{session_id}/timeline": {

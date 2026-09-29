@@ -25,6 +25,13 @@ The user's job is to state the task. The user should not need to choose whether 
 
 Chat is the default workspace.
 
+Each conversation exposes a mutation permission beside the composer model control:
+`Chỉ đọc` (default), `Hỏi trước khi sửa` (confirm each exact mutation), or
+`Tự động sửa` (auto allow eligible configured mutations after one warning). This is
+saved per conversation and applies equally in Project. A confirmation pauses the
+same request before the mutation handler; denial returns to the model. Tool choice
+stays with the model and hard target/schema/server restrictions still apply.
+
 It contains:
 
 - conversation history;
@@ -84,6 +91,9 @@ before synthesis. `knowledge.search` is the default discovery path when no exact
 is already visible or when retrieval spans the available knowledge scope. A current-session
 attachment with a visible exact `document_id` may be read directly. `knowledge.list_documents`
 is metadata browsing, not a content-QA preflight.
+The active Project contributes bounded ready-document names, types, and status to model context.
+A request by Project filename uses `knowledge.search` for content evidence and exact document ID.
+Orion documents are not infrastructure filesystem paths.
 
 Knowledge sources can include:
 

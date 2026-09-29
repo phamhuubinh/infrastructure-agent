@@ -10,7 +10,12 @@ import {
 import {
   AlertCircle,
   ArrowDown,
+  Check,
+  ChevronDown,
   FileText,
+  LockKeyhole,
+  Hand,
+  Zap,
   Loader2,
   Paperclip,
   Send,
@@ -18,8 +23,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { AssistantMarkdown } from "@/components/chat/AssistantMarkdown";
 
 import { ContextPanel } from "@/components/ContextPanel";
 import { OrionIcon } from "@/components/OrionIcon";
@@ -27,13 +31,29 @@ import { AssistantMessage, UserMessage } from "@/components/chat/Message";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   apiErrorMessage,
   apiFetch,
   attachProjectDocument,
   attachSessionDocument,
   deleteProjectDocument,
   type DocumentStatus,
+  type MutationMode,
   type Project,
+  resolveToolAuthorization,
 } from "@/lib/api";
 import {
   useChat,
@@ -67,7 +87,17 @@ type ModelInfo = {
 type Generation = {
   controller: AbortController;
   requestId: string | null;
+  sessionId: string | null;
   cancelled: boolean;
+};
+
+type PendingAuthorization = {
+  sessionId: string;
+  requestId: string;
+  callId: string;
+  toolName: string;
+  targetRef: string;
+  summary: Record<string, string>;
 };
 
 export function parseSseEvents(buffer: string): { events: RuntimeEvent[]; remainder: string } {
@@ -352,9 +382,7 @@ function Conversation({
             >
               <Card className="p-4 border-border/50">
                 <div className="prose prose-sm max-w-none dark:prose-invert [&_pre]:bg-surface-2 [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:p-3 [&_code]:text-mono [&_code]:text-[12.5px] [&_p]:leading-relaxed [&_p]:text-foreground/95">
-                  <Markdown remarkPlugins={[remarkGfm]}>
-                    {displayAssistantContent(message.content)}
-                  </Markdown>
+                  <AssistantMarkdown>{displayAssistantContent(message.content)}</AssistantMarkdown>
                 </div>
               </Card>
               <CitationCards
@@ -477,16 +505,21 @@ function ChatInput({
   const [error, setError] = useState<string | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [autoWarning, setAutoWarning] = useState(false);
+  const [changingMode, setChangingMode] = useState(false);
+  const [pendingAuthorization, setPendingAuthorization] = useState<PendingAuthorization | null>(
+    null,
+  );
+  const [resolvingAuthorization, setResolvingAuthorization] = useState(false);
   const generation = useRef<Generation | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => () => generation.current?.controller.abort(), []);
   const {
     currentSessionId,
     sessions,
     createSession,
+    setMutationMode,
     addOptimisticMessage,
-    addOptimisticAssistant,
-    appendAssistantDelta,
-    resetOptimisticAssistant,
     reconcileAssistantMessage,
     loadSession,
     recordEvent,
@@ -496,6 +529,55 @@ function ChatInput({
   const session = sessions.find(
     (item) =>
       item.id === currentSessionId && (projectId ? item.projectId === projectId : !item.projectId),
+  );
+
+  useEffect(() => setAutoWarning(false), [currentSessionId, projectId]);
+
+  const mutationMode = session?.mutationMode ?? "read_only";
+  const activePending =
+    pendingAuthorization?.sessionId === session?.id ? pendingAuthorization : null;
+
+  const changeMode = useCallback(
+    async (mode: MutationMode) => {
+      if (mode === mutationMode || changingMode || generation.current) return;
+      if (mode === "auto") {
+        setAutoWarning(true);
+        return;
+      }
+      setChangingMode(true);
+      setError(null);
+      try {
+        const sessionId = session?.id ?? (await createSession(projectId));
+        await setMutationMode(sessionId, mode);
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : "Không thể đổi quyền sửa.");
+      } finally {
+        setChangingMode(false);
+      }
+    },
+    [changingMode, createSession, mutationMode, projectId, session?.id, setMutationMode],
+  );
+
+  const resolveAuthorization = useCallback(
+    async (decision: "allow" | "deny") => {
+      const pending = activePending;
+      if (!pending || resolvingAuthorization) return;
+      setResolvingAuthorization(true);
+      try {
+        await resolveToolAuthorization(
+          pending.sessionId,
+          pending.requestId,
+          pending.callId,
+          decision,
+        );
+        setPendingAuthorization(null);
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : "Không thể quyết định thao tác.");
+      } finally {
+        setResolvingAuthorization(false);
+      }
+    },
+    [activePending, resolvingAuthorization],
   );
 
   const attachFile = useCallback(
@@ -537,12 +619,12 @@ function ChatInput({
     setError(null);
     let sessionId = session?.id || null;
     const controller = new AbortController();
-    const current: Generation = { controller, requestId: null, cancelled: false };
+    const current: Generation = { controller, requestId: null, sessionId, cancelled: false };
     generation.current = current;
     try {
       if (!sessionId) sessionId = await createSession(projectId);
+      current.sessionId = sessionId;
       addOptimisticMessage(sessionId, content);
-      addOptimisticAssistant(sessionId);
       setValue("");
       setSessionGenerating(sessionId, true);
       const response = await apiFetch(
@@ -576,11 +658,23 @@ function ChatInput({
                 ? event.payload.message
                 : "Yêu cầu thất bại.";
           }
-          if (event.type === "assistant.delta" && typeof event.payload.content === "string") {
-            appendAssistantDelta(sessionId, event.payload.content);
-          }
-          if (event.type === "model.resumed") {
-            resetOptimisticAssistant(sessionId);
+          if (event.type === "tool.authorization_required" && current.requestId) {
+            const { call_id, tool_name, target_ref, summary } = event.payload;
+            if (
+              typeof call_id === "string" &&
+              typeof tool_name === "string" &&
+              typeof target_ref === "string"
+            ) {
+              setPendingAuthorization({
+                sessionId,
+                requestId: current.requestId,
+                callId: call_id,
+                toolName: tool_name,
+                targetRef: target_ref,
+                summary:
+                  summary && typeof summary === "object" ? (summary as Record<string, string>) : {},
+              });
+            }
           }
           if (event.type === "assistant.message") {
             const item = event.payload.item;
@@ -615,18 +709,16 @@ function ChatInput({
         }
       }
     } finally {
+      setPendingAuthorization((pending) => (pending?.sessionId === sessionId ? null : pending));
       if (sessionId) setSessionGenerating(sessionId, false);
       generation.current = null;
     }
   }, [
-    addOptimisticAssistant,
     addOptimisticMessage,
-    appendAssistantDelta,
     createSession,
     loadSession,
     recordEvent,
     reconcileAssistantMessage,
-    resetOptimisticAssistant,
     setSessionGenerating,
     session?.id,
     projectId,
@@ -651,6 +743,81 @@ function ChatInput({
 
   return (
     <div className="relative rounded-2xl border bg-surface/80 backdrop-blur transition-all border-border-strong shadow-[var(--shadow-elegant)]">
+      {activePending && (
+        <div
+          className="m-3 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm"
+          role="alertdialog"
+          aria-label="Xác nhận thao tác thay đổi"
+        >
+          <p className="font-medium">
+            Orion muốn thực hiện: {activePending.summary.label || "Thao tác thay đổi"}
+          </p>
+          <p>Tool: {activePending.toolName}</p>
+          <p>Target: {activePending.targetRef}</p>
+          {Object.entries(activePending.summary)
+            .filter(([key]) => key !== "label")
+            .map(([key, detail]) => (
+              <p key={key}>
+                {key}: {detail}
+              </p>
+            ))}
+          <div className="mt-2 flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={resolvingAuthorization}
+              onClick={() => void resolveAuthorization("deny")}
+            >
+              Từ chối
+            </Button>
+            <Button
+              type="button"
+              disabled={resolvingAuthorization}
+              onClick={() => void resolveAuthorization("allow")}
+            >
+              Cho phép
+            </Button>
+          </div>
+        </div>
+      )}
+      <Dialog open={autoWarning} onOpenChange={setAutoWarning}>
+        <DialogContent className="max-w-md rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Bật tự động sửa?</DialogTitle>
+            <DialogDescription>
+              Orion có thể thực hiện thao tác thay đổi mà không hỏi lại trong cuộc hội thoại này.
+              Chỉ các tool và target được cấu hình mới được phép.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setAutoWarning(false)}>
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              disabled={changingMode}
+              onClick={() => {
+                setAutoWarning(false);
+                void (async () => {
+                  setChangingMode(true);
+                  try {
+                    const sessionId = session?.id ?? (await createSession(projectId));
+                    await setMutationMode(sessionId, "auto");
+                  } catch (failure) {
+                    setError(
+                      failure instanceof Error ? failure.message : "Không thể đổi quyền sửa.",
+                    );
+                  } finally {
+                    setChangingMode(false);
+                  }
+                })();
+              }}
+            >
+              Bật tự động sửa
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
@@ -667,6 +834,76 @@ function ChatInput({
       />
       <div className="flex items-center gap-1 px-2 pb-2">
         <ModelStatus models={models} loading={loadingModels} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="Quyền sửa cuộc hội thoại"
+              disabled={changingMode || Boolean(generation.current)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              {mutationMode === "read_only" ? (
+                <LockKeyhole className="h-3.5 w-3.5" />
+              ) : mutationMode === "confirm" ? (
+                <Hand className="h-3.5 w-3.5" />
+              ) : (
+                <Zap className="h-3.5 w-3.5 text-amber-500" />
+              )}
+              <span>
+                {mutationMode === "read_only"
+                  ? "Chỉ đọc"
+                  : mutationMode === "confirm"
+                    ? "Hỏi trước khi sửa"
+                    : "Tự động sửa"}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            sideOffset={8}
+            className="w-[min(17rem,calc(100vw-2rem))] rounded-xl p-1.5 shadow-lg"
+          >
+            {(
+              [
+                {
+                  mode: "read_only",
+                  label: "Chỉ đọc",
+                  description: "Chỉ cho phép các thao tác đọc.",
+                  Icon: LockKeyhole,
+                },
+                {
+                  mode: "confirm",
+                  label: "Hỏi trước khi sửa",
+                  description: "Xác nhận từng thao tác thay đổi.",
+                  Icon: Hand,
+                },
+                {
+                  mode: "auto",
+                  label: "Tự động sửa",
+                  description: "Cho phép thay đổi mà không hỏi lại.",
+                  Icon: Zap,
+                },
+              ] as const
+            ).map(({ mode, label, description, Icon }) => (
+              <DropdownMenuItem
+                key={mode}
+                onSelect={() => void changeMode(mode)}
+                className="min-h-14 items-start gap-2.5 rounded-lg p-2.5"
+              >
+                <Icon className="mt-0.5 h-4 w-4" />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{description}</span>
+                </span>
+                {mutationMode === mode && (
+                  <Check aria-label="Đang chọn" className="mt-0.5 h-4 w-4" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="ml-auto flex items-center gap-2">
           {generation.current ? (
             <Button
