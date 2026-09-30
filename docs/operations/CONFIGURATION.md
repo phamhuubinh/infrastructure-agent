@@ -1,5 +1,15 @@
 # Configuration
 
+## Browser access and bind
+
+The default `orion` command listens on `127.0.0.1:61888` without browser login.
+Remote browser access is opt-in through `ORION_REMOTE_ACCESS=1`,
+`ORION_PUBLIC_ORIGIN`, and `ORION_AUTH_PASSWORD_HASH`. `ORION_BIND_HOST` may set
+an explicit numeric bind address and defaults to `127.0.0.1`; non-loopback
+values require complete remote access configuration. Generate the encoded
+Argon2id hash with `orion auth hash-password`. See [Remote browser access](REMOTE_ACCESS.md)
+for TLS, origin, cookie, and proxy requirements.
+
 ## Local database
 
 `ORION_DATABASE_PATH` controls the SQLite database location. Otherwise Orion uses

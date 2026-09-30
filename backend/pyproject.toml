@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local-first conversational technical workbench"
 requires-python = ">=3.12"
 dependencies = [
+  "argon2-cffi>=23.1,<26",
   "fastembed==0.8.1",
   "numpy==2.5.3",
   "onnxruntime==1.30.0",

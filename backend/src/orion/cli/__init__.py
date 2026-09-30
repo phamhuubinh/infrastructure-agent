@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import shutil
@@ -10,12 +11,14 @@ import subprocess
 import sys
 import threading
 import time
+import warnings
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 import uvicorn
 
+from orion.access.remote import RemoteAccessConfig, hash_password
 from orion.paths import (
     ORION_HEALTH_IDENTITY,
     ORION_HOST,
@@ -46,6 +49,21 @@ def main() -> None:
     if command == ["help"]:
         _show_help()
         return
+    if command == ["auth", "hash-password"]:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", getpass.GetPassWarning)
+                password = getpass.getpass("Password: ")
+                confirmation = getpass.getpass("Confirm password: ")
+        except getpass.GetPassWarning:
+            raise SystemExit("A terminal that hides password input is required.") from None
+        if password != confirmation:
+            raise SystemExit("Passwords do not match.")
+        try:
+            print(hash_password(password))
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        return
     if command == ["model", "status", "embeddings"]:
         from orion.knowledge.local_embeddings import model_directory, model_status
 
@@ -71,6 +89,7 @@ def _show_help() -> None:
         "  orion          Start Orion\n"
         "  orion web      Start Orion\n"
         "  orion log      Show Orion logs\n"
+        "  orion auth hash-password  Generate an encoded Argon2id hash\n"
         "  orion model status embeddings   Show local E5 model status\n"
         "  orion model install embeddings  Provision pinned local E5 model\n"
         "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
@@ -127,6 +146,10 @@ def _configure_default_log_path() -> None:
 
 
 def _run_web() -> None:
+    try:
+        remote = RemoteAccessConfig.from_environment()
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     frontend = packaged_ui_directory()
     checkout = source_checkout_root()
     if checkout is not None and frontend.resolve() == (checkout / ".orion-ui").resolve():
@@ -138,7 +161,7 @@ def _run_web() -> None:
         raise SystemExit(
             f"Orion's packaged UI is missing at {frontend}. Run ./install.sh to build it."
         )
-    if _orion_is_healthy():
+    if not remote.enabled and _orion_is_healthy():
         print(f"Orion is already running at {ORION_URL}")
         _open_desktop_url(ORION_URL)
         return
@@ -147,17 +170,21 @@ def _run_web() -> None:
 
     config = uvicorn.Config(
         "orion.api.app:create_app",
-        host=ORION_HOST,
+        host=remote.bind_host,
         port=ORION_PORT,
         factory=True,
+        proxy_headers=False,
     )
     server = uvicorn.Server(config)
-    threading.Thread(
-        target=_open_when_healthy,
-        args=(server,),
-        daemon=True,
-        name="orion-url-opener",
-    ).start()
+    if remote.enabled:
+        print(f"Remote Orion origin: {remote.public_origin}")
+    else:
+        threading.Thread(
+            target=_open_when_healthy,
+            args=(server,),
+            daemon=True,
+            name="orion-url-opener",
+        ).start()
     try:
         server.run()
     except KeyboardInterrupt:

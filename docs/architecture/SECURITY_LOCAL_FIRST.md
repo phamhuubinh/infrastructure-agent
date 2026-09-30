@@ -6,6 +6,26 @@ Orion is primarily a local application with optional external integrations.
 
 The security model should stay simple but real.
 
+## Remote browser access v1
+
+Default `orion` binds `127.0.0.1:61888` and keeps the local browser login-free.
+Remote browser access is an explicit HTTP boundary. It authenticates one owner,
+then uses the existing `local/local` principal and unchanged Chat/Project runtime.
+No browser or model request chooses a principal.
+
+Remote mode requires `ORION_REMOTE_ACCESS=1`, an exact `ORION_PUBLIC_ORIGIN`,
+and `ORION_AUTH_PASSWORD_HASH` containing an Argon2id encoded hash. A
+non-loopback `ORION_BIND_HOST` fails startup unless remote mode validates. The
+preferred deployment keeps Orion on loopback behind an HTTPS private tunnel or
+reverse proxy. Orion does not manage TLS certificates.
+
+The HTTP boundary requires a server-side session for application APIs and
+requires an exact configured `Origin` on every state-changing request, including
+login and logout. The only public APIs are health, login, and safe session
+bootstrap. The browser cookie is HttpOnly, Secure, SameSite=Strict, and expires
+after 12 hours; logout or process restart invalidates it. No forwarded host or
+scheme header decides access or origin policy.
+
 ## Secrets
 
 Secrets belong outside model context:

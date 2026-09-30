@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   apiErrorMessage,
   apiFetch,
+  getAuthSession,
+  login,
+  logout,
+  AUTH_EXPIRED_EVENT,
   attachSessionDocument,
   attachProjectDocument,
   createProject,
@@ -13,6 +17,53 @@ import {
 } from "@/lib/api";
 
 describe("M1 API client", () => {
+  it("uses same-origin cookie login and signals an expired protected session", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"remote_access":true,"authenticated":false,"expires_at":null}'),
+      )
+      .mockResolvedValueOnce(new Response('{"authenticated":true}'))
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const expired = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired);
+    try {
+      expect((await getAuthSession()).authenticated).toBe(false);
+      await login("private-password");
+      await apiFetch("/api/projects");
+      await logout();
+      expect(expired).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+        "/api/auth/session",
+        "/api/auth/login",
+        "/api/projects",
+        "/api/auth/logout",
+      ]);
+      expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "POST" });
+      expect(fetchMock.mock.calls[1][1].body).toBe('{"password":"private-password"}');
+      expect(fetchMock.mock.calls[1][1].credentials).toBeUndefined();
+    } finally {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
+    }
+  });
+  it("treats logout 401 as already signed out", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const expired = vi.fn();
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired);
+    try {
+      await expect(logout()).resolves.toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/auth/logout",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(expired).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
+    }
+  });
   it("does not retain or attach browser credentials", async () => {
     const originalFetch = globalThis.fetch;
     let captured: Headers | undefined;

@@ -7,13 +7,14 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { AppSidebar } from "@/components/AppSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ChatProvider } from "@/lib/chat-store";
 import { reportLovableError } from "@/lib/lovable-error-reporting";
+import { AUTH_EXPIRED_EVENT, getAuthSession, login, logout, type AuthSession } from "@/lib/api";
 
 function NotFoundComponent() {
   return (
@@ -140,7 +141,107 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
-  const queryClient = new QueryClient();
+  const [queryClient] = useState(() => new QueryClient());
+  const [auth, setAuth] = useState<AuthSession | null>(null);
+  const [authError, setAuthError] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void getAuthSession()
+      .then((state) => {
+        if (active) setAuth(state);
+      })
+      .catch(() => {
+        if (active) setAuthError("Cannot reach Orion.");
+      });
+    const expired = () => {
+      setAuth((current) =>
+        current?.remote_access ? { ...current, authenticated: false } : current,
+      );
+      queryClient.clear();
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, expired);
+    return () => {
+      active = false;
+      window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
+    };
+  }, [queryClient]);
+  useEffect(() => {
+    if (!auth?.remote_access || !auth.authenticated || !auth.expires_at) return;
+    const remaining = Math.max(0, auth.expires_at * 1000 - Date.now());
+    const timer = window.setTimeout(() => {
+      setAuth({ remote_access: true, authenticated: false, expires_at: null });
+      queryClient.clear();
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [auth, queryClient]);
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setAuthError("");
+    try {
+      await login(password);
+      setPassword("");
+      setAuth(await getAuthSession());
+    } catch {
+      setAuthError("Invalid password or login temporarily unavailable.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function signOut() {
+    try {
+      await logout();
+      queryClient.clear();
+      setAuth({ remote_access: true, authenticated: false, expires_at: null });
+    } catch {
+      setAuthError("Could not sign out. Try again.");
+    }
+  }
+
+  if (!auth)
+    return (
+      <div className="flex h-screen items-center justify-center">
+        {authError || "Loading Orion…"}
+      </div>
+    );
+  if (auth.remote_access && !auth.authenticated) {
+    return (
+      <main className="flex h-screen items-center justify-center bg-background text-foreground">
+        <form
+          onSubmit={(event) => void submitLogin(event)}
+          className="flex w-full max-w-sm flex-col gap-4 rounded-lg border p-6"
+        >
+          <h1 className="text-2xl font-semibold">Sign in to Orion</h1>
+          <label htmlFor="orion-password">Password</label>
+          <input
+            id="orion-password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="rounded border bg-background p-2"
+          />
+          {authError && (
+            <p role="alert" className="text-sm text-destructive">
+              {authError}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded bg-primary p-2 text-primary-foreground"
+          >
+            Sign in
+          </button>
+        </form>
+      </main>
+    );
+  }
   return (
     <QueryClientProvider client={queryClient}>
       <ChatProvider>
@@ -150,6 +251,22 @@ function RootComponent() {
             <Outlet />
           </div>
           <CommandPalette />
+          {auth.remote_access && (
+            <div className="fixed bottom-16 left-3 z-50 flex flex-col gap-1">
+              {authError && (
+                <span role="alert" className="text-xs text-destructive">
+                  {authError}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="rounded border bg-background px-2 py-1 text-xs"
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </ChatProvider>
     </QueryClientProvider>

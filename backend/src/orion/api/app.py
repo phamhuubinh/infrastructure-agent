@@ -9,11 +9,15 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.routing import Match
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from orion.access import LocalAccessAdapter
+from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
 from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import (
     ChatRuntime,
@@ -34,10 +38,124 @@ from orion.security import redact_text, safe_endpoint
 from orion.tool_runtime.mutation_authorization import MutationMode
 
 _UPLOAD_CHUNK_BYTES = 64 * 1024
+_PUBLIC_ROOT_STATIC = {
+    "_shell.html",
+    "favicon.ico",
+    "orion-icon.png",
+    "orion-icon-light.png",
+    "orion-icon-dark.png",
+}
 
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+# Explicit API inventory. The test compares this set with every registered API route.
+PUBLIC_API_ROUTES = {
+    ("GET", "/api/health"),
+    ("POST", "/api/auth/login"),
+    ("GET", "/api/auth/session"),
+}
+PROTECTED_API_ROUTES = {
+    ("POST", "/api/auth/logout"),
+    ("GET", "/api/models"),
+    ("POST", "/api/models"),
+    ("PUT", "/api/models/{model_config_id}"),
+    ("POST", "/api/models/{model_config_id}/activate"),
+    ("DELETE", "/api/models/{model_config_id}"),
+    ("POST", "/api/sessions"),
+    ("GET", "/api/sessions"),
+    ("GET", "/api/sessions/{session_id}"),
+    ("PATCH", "/api/sessions/{session_id}/mutation-mode"),
+    ("PATCH", "/api/sessions/{session_id}"),
+    ("DELETE", "/api/sessions/{session_id}"),
+    ("GET", "/api/projects"),
+    ("POST", "/api/projects"),
+    ("GET", "/api/projects/{project_id}"),
+    ("PUT", "/api/projects/{project_id}"),
+    ("DELETE", "/api/projects/{project_id}"),
+    ("POST", "/api/projects/{project_id}/sessions"),
+    ("POST", "/api/projects/{project_id}/documents"),
+    ("GET", "/api/projects/{project_id}/documents"),
+    ("GET", "/api/projects/{project_id}/documents/{document_id}"),
+    ("DELETE", "/api/projects/{project_id}/documents/{document_id}"),
+    ("GET", "/api/sessions/{session_id}/timeline"),
+    ("POST", "/api/sessions/{session_id}/attachments"),
+    ("GET", "/api/sessions/{session_id}/documents/{document_id}"),
+    ("DELETE", "/api/sessions/{session_id}/documents/{document_id}"),
+    ("POST", "/api/sessions/{session_id}/messages"),
+    ("POST", "/api/sessions/{session_id}/messages/stream"),
+    ("GET", "/api/requests/{request_id}/events"),
+    ("GET", "/api/requests/{request_id}/diagnostics"),
+    ("POST", "/api/requests/{request_id}/cancel"),
+    ("POST", "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}"),
+}
+
+
+class RemoteAccessMiddleware:
+    """Pure ASGI boundary so authenticated SSE responses are never interrupted."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        routes_app: FastAPI,
+        sessions: BrowserSessions,
+        public_origin: str,
+    ) -> None:
+        self._app = app
+        self._routes_app = routes_app
+        self._sessions = sessions
+        self._public_origin = public_origin
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        request = Request(scope, receive)
+        path, method = request.url.path, request.method
+
+        async def send_remote(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                message = dict(message)
+                headers = [
+                    *message.get("headers", []),
+                    (b"content-security-policy", b"frame-ancestors 'none'"),
+                    (b"x-frame-options", b"DENY"),
+                ]
+                if path.startswith("/api/"):
+                    headers.append((b"cache-control", b"no-store"))
+                message["headers"] = headers
+            await send(message)
+
+        if (
+            method not in {"GET", "HEAD", "OPTIONS"}
+            and request.headers.get("origin") != self._public_origin
+        ):
+            await Response(status_code=403)(scope, receive, send_remote)
+            return
+        if path.startswith("/api/"):
+            classification = None
+            for route in self._routes_app.routes:
+                if isinstance(route, APIRoute) and route.path.startswith("/api/"):
+                    match, _ = route.matches(scope)
+                    if match == Match.FULL:
+                        classification = (method, route.path)
+                        break
+            if classification not in PUBLIC_API_ROUTES:
+                if classification not in PROTECTED_API_ROUTES:
+                    await Response(status_code=404)(scope, receive, send_remote)
+                    return
+                if self._sessions.expiry(request.cookies.get(COOKIE_NAME)) is None:
+                    await Response(status_code=401)(scope, receive, send_remote)
+                    return
+        elif path in {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}:
+            if self._sessions.expiry(request.cookies.get(COOKIE_NAME)) is None:
+                await Response(status_code=401)(scope, receive, send_remote)
+                return
+
+        await self._app(scope, receive, send_remote)
 
 
 class ModelConfigInput(StrictRequest):
@@ -121,13 +239,28 @@ def create_app(
     backend: ModelBackend | None = None,
     application: OrionApplication | None = None,
     ui_directory: Path | None = None,
+    remote_config: RemoteAccessConfig | None = None,
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
+    remote = remote_config or RemoteAccessConfig.from_environment()
     assembled = application or build_application(database_path, backend)
     store, runtime = assembled.store, assembled.runtime
     max_upload_bytes = document_upload_limit()
     app = FastAPI(title="Orion", version="0.1.0")
     app.state.application = assembled
+    sessions = (
+        BrowserSessions(remote.password_hash) if remote.enabled and remote.password_hash else None
+    )
+    app.state.browser_sessions = sessions
+
+    if remote.enabled:
+        assert sessions is not None and remote.public_origin is not None
+        app.add_middleware(
+            RemoteAccessMiddleware,
+            routes_app=app,
+            sessions=sessions,
+            public_origin=remote.public_origin,
+        )
 
     def model_config_view(config: dict[str, str | int | None]) -> ModelConfigView:
         return ModelConfigView(
@@ -145,6 +278,78 @@ def create_app(
             "status": "ok",
             "identity": ORION_HEALTH_IDENTITY,
         }
+
+    @app.post(
+        "/api/auth/login",
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {"password": {"type": "string", "format": "password"}},
+                            "required": ["password"],
+                            "additionalProperties": False,
+                        }
+                    }
+                },
+            }
+        },
+    )
+    async def login(request: Request) -> Response:
+        if sessions is None:
+            raise HTTPException(status_code=404, detail="Not found.")
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > 2048:
+                raise HTTPException(status_code=400, detail="Invalid login request.")
+            body.extend(chunk)
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            raise HTTPException(status_code=400, detail="Invalid login request.") from None
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"password"}
+            or not isinstance(payload["password"], str)
+            or not 1 <= len(payload["password"]) <= 1024
+        ):
+            raise HTTPException(status_code=400, detail="Invalid login request.")
+        result = await asyncio.to_thread(sessions.login, payload["password"])
+        if result is None:
+            raise HTTPException(status_code=401, detail="Invalid credentials.")
+        token, expiry = result
+        response = Response(
+            content=json.dumps({"authenticated": True, "expires_at": expiry}),
+            media_type="application/json",
+        )
+        response.set_cookie(
+            COOKIE_NAME,
+            token,
+            max_age=SESSION_SECONDS,
+            httponly=True,
+            secure=True,
+            samesite="strict",
+            path="/",
+        )
+        return response
+
+    @app.get("/api/auth/session")
+    async def auth_session(request: Request) -> dict[str, object]:
+        if sessions is None:
+            return {"remote_access": False, "authenticated": True, "expires_at": None}
+        expiry = sessions.expiry(request.cookies.get(COOKIE_NAME))
+        return {"remote_access": True, "authenticated": expiry is not None, "expires_at": expiry}
+
+    @app.post("/api/auth/logout")
+    async def logout(request: Request) -> Response:
+        if sessions is None:
+            raise HTTPException(status_code=404, detail="Not found.")
+        sessions.logout(request.cookies.get(COOKIE_NAME))
+        response = Response(status_code=204)
+        response.delete_cookie(COOKIE_NAME, path="/", secure=True, httponly=True, samesite="strict")
+        return response
 
     @app.get("/api/models", response_model=list[ModelConfigView])
     async def get_models() -> list[ModelConfigView]:
@@ -515,6 +720,11 @@ def create_app(
             raise HTTPException(status_code=404, detail="Not found.")
         requested = (frontend / frontend_path).resolve()
         if requested.is_relative_to(frontend) and requested.is_file():
+            if remote.enabled and not (
+                frontend_path in _PUBLIC_ROOT_STATIC
+                or requested.is_relative_to(frontend / "assets")
+            ):
+                raise HTTPException(status_code=404, detail="Not found.")
             return _static_file_response(requested)
         shell = frontend / PACKAGED_UI_SHELL
         if not shell.is_file():

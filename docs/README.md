@@ -67,6 +67,7 @@ There is no tool picker in Chat or Project.
 - `operations/CONFIGURATION.md`
 - `operations/MODELS.md`
 - `operations/RAG_SERVICE.md`
+- `operations/REMOTE_ACCESS.md`
 - `operations/TROUBLESHOOTING.md`
 
 Operations pages that say **current** must be verified against the actual scripts/Compose configuration when they are changed.

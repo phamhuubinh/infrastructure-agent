@@ -1,5 +1,33 @@
 export const API_URL = import.meta.env.VITE_API_URL || "";
 
+export const AUTH_EXPIRED_EVENT = "orion-auth-expired";
+export type AuthSession = {
+  remote_access: boolean;
+  authenticated: boolean;
+  expires_at: number | null;
+};
+
+export async function getAuthSession(): Promise<AuthSession> {
+  const response = await fetch(`${API_URL}/api/auth/session`);
+  if (!response.ok) throw new Error("Unable to check Orion access.");
+  return (await response.json()) as AuthSession;
+}
+
+export async function login(password: string): Promise<void> {
+  const response = await fetch(`${API_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
+export async function logout(): Promise<void> {
+  const response = await apiFetch("/api/auth/logout", { method: "POST" });
+  if (response.status === 401) return;
+  if (!response.ok) throw new Error(await apiErrorMessage(response));
+}
+
 const PUBLIC_SECRET_MARKERS = [
   "ORION_TEST_SECRET_TOKEN",
   "ORION_TEST_PRIVATE_URL",
@@ -99,9 +127,13 @@ type TextAttachment = {
 
 type DocumentUpload = File | TextAttachment;
 
-export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  return fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (response.status === 401 && path !== "/api/auth/logout" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+  return response;
 }
 
 export async function apiErrorMessage(response: Response): Promise<string> {

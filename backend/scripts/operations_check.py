@@ -260,6 +260,7 @@ def main() -> None:
                 "  orion          Start Orion\n"
                 "  orion web      Start Orion\n"
                 "  orion log      Show Orion logs\n"
+                "  orion auth hash-password  Generate an encoded Argon2id hash\n"
                 "  orion model status embeddings   Show local E5 model status\n"
                 "  orion model install embeddings  Provision pinned local E5 model\n"
                 "  orion knowledge semantic-index [--max-documents N]  "

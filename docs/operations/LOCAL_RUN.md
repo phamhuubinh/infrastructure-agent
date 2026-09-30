@@ -17,8 +17,11 @@ The only other public commands are:
 
 ```bash
 orion log
+orion auth hash-password
 orion help
 ```
+
+For browser access from another device, see [Remote browser access](REMOTE_ACCESS.md).
 
 ## Optional Vite frontend development
 
