@@ -1,0 +1,1183 @@
+{
+  "candidate_depth": 50,
+  "corpus_version": 1,
+  "document_segment_counts": {
+    "cobalt_single": 5,
+    "deleted_record": 1,
+    "foreign_project": 1,
+    "foreign_session": 1,
+    "meridian_alpha": 1,
+    "meridian_beta": 1,
+    "meridian_gamma": 1,
+    "saturn_dominant": 6,
+    "saturn_exception": 1,
+    "saturn_weak": 1
+  },
+  "modes": {
+    "baseline": {
+      "cases": [
+        {
+          "candidate_count": 8,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_exception"
+          ],
+          "category": "dominance",
+          "document_filter": [],
+          "key": "dominant_repetition",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 2,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 0.6131471927654584,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_dominant#5"
+            ],
+            "recall@1": 0.5,
+            "recall@k": 0.5,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.03200204813108039,
+              0.03149801587301587
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [
+            "saturn_dominant",
+            "saturn_exception"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_weak",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 2,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 0.9197207891481876,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_weak#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": 0.5,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 2,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.03131881575727918,
+              0.029411764705882353
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 5,
+          "candidate_documents": [
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single"
+          ],
+          "category": "single",
+          "document_filter": [
+            "cobalt_single"
+          ],
+          "key": "single_document_fill",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "cobalt_single",
+              "cobalt_single",
+              "cobalt_single"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "cobalt_single#1",
+              "cobalt_single#0",
+              "cobalt_single#3"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.03225806451612903,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [
+            "cobalt_single"
+          ],
+          "selected": {
+            "documents": [
+              "cobalt_single",
+              "cobalt_single",
+              "cobalt_single"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "cobalt_single#1",
+              "cobalt_single#0",
+              "cobalt_single#3"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.03225806451612903,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 1
+          }
+        },
+        {
+          "candidate_count": 3,
+          "candidate_documents": [
+            "meridian_gamma",
+            "meridian_alpha",
+            "meridian_beta"
+          ],
+          "category": "cross_document",
+          "document_filter": [],
+          "key": "three_relevant_documents",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "meridian_gamma",
+              "meridian_alpha",
+              "meridian_beta"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 3,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "meridian_gamma#0",
+              "meridian_alpha#0",
+              "meridian_beta#0"
+            ],
+            "recall@1": 0.3333333333333333,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 3,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.032266458495966696,
+              0.03200204813108039
+            ],
+            "unique_documents@k": 3
+          },
+          "relevant": [
+            "meridian_alpha",
+            "meridian_beta",
+            "meridian_gamma"
+          ],
+          "selected": {
+            "documents": [
+              "meridian_gamma",
+              "meridian_alpha",
+              "meridian_beta"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 3,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "meridian_gamma#0",
+              "meridian_alpha#0",
+              "meridian_beta#0"
+            ],
+            "recall@1": 0.3333333333333333,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 3,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.032266458495966696,
+              0.03200204813108039
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 8,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_exception",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant"
+          ],
+          "category": "distractor",
+          "document_filter": [],
+          "key": "weak_distractor",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 3,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 2,
+            "mrr@k": 0.3333333333333333,
+            "ndcg@k": 0.5,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": 0.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.032266458495966696,
+              0.031754032258064516,
+              0.03131881575727918
+            ],
+            "unique_documents@k": 2
+          },
+          "relevant": [
+            "saturn_exception"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_exception",
+              "saturn_weak"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 2,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 0.5,
+            "ndcg@k": 0.6309297535714575,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_exception#0",
+              "saturn_weak#0"
+            ],
+            "recall@1": 0.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.032266458495966696,
+              0.03131881575727918,
+              0.030834914611005692
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_dominant",
+            "saturn_exception",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "meridian_gamma",
+            "meridian_beta",
+            "meridian_alpha",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single"
+          ],
+          "category": "filename",
+          "document_filter": [],
+          "key": "exact_filename",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_weak"
+            ],
+            "exact_filename_top_one": true,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 2,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_weak#0"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.032266458495966696,
+              0.031754032258064516,
+              0.03131881575727918
+            ],
+            "unique_documents@k": 2
+          },
+          "relevant": [
+            "saturn_dominant"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_weak",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": true,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_weak#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.032266458495966696,
+              0.03131881575727918,
+              0.030834914611005692
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 0,
+          "candidate_documents": [],
+          "category": "scope",
+          "document_filter": [],
+          "key": "project_session_scope",
+          "limit": 3,
+          "raw": {
+            "documents": [],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 0,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 0,
+            "scores": [],
+            "unique_documents@k": 0
+          },
+          "relevant": [],
+          "selected": {
+            "documents": [],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 0,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 0,
+            "scores": [],
+            "unique_documents@k": 0
+          }
+        },
+        {
+          "candidate_count": 0,
+          "candidate_documents": [],
+          "category": "deletion",
+          "document_filter": [],
+          "key": "deleted_exclusion",
+          "limit": 3,
+          "raw": {
+            "documents": [],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 0,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 0,
+            "scores": [],
+            "unique_documents@k": 0
+          },
+          "relevant": [],
+          "selected": {
+            "documents": [],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 0,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 0,
+            "scores": [],
+            "unique_documents@k": 0
+          }
+        }
+      ],
+      "summary": {
+        "raw": {
+          "exact_filename_top_one": true,
+          "leakage_count": 0,
+          "max_segments_from_one_document@k": 3,
+          "mean_unique_documents@k": 1.2857142857142858,
+          "mrr@k": 0.8666666666666666,
+          "multi_document_coverage@k": 0.75,
+          "multi_document_represented_count@k": 4,
+          "ndcg@k": 0.8226294385530917,
+          "provenance_accuracy": 1.0,
+          "recall@1": 0.5666666666666667,
+          "recall@k": 0.9
+        },
+        "selected": {
+          "exact_filename_top_one": true,
+          "leakage_count": 0,
+          "max_segments_from_one_document@k": 3,
+          "mean_unique_documents@k": 1.8571428571428572,
+          "mrr@k": 0.9,
+          "multi_document_coverage@k": 1.0,
+          "multi_document_represented_count@k": 5,
+          "ndcg@k": 0.9101301085439291,
+          "provenance_accuracy": 1.0,
+          "recall@1": 0.5666666666666667,
+          "recall@k": 1.0
+        }
+      }
+    },
+    "hybrid": {
+      "cases": [
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_dominant",
+            "saturn_exception",
+            "meridian_beta",
+            "meridian_alpha",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "meridian_gamma"
+          ],
+          "category": "dominance",
+          "document_filter": [],
+          "key": "dominant_repetition",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 2,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 0.6131471927654584,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_dominant#5"
+            ],
+            "recall@1": 0.5,
+            "recall@k": 0.5,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.03225806451612903,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [
+            "saturn_dominant",
+            "saturn_exception"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_weak",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 2,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 0.9197207891481876,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_weak#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": 0.5,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 2,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.030330882352941176,
+              0.029631255487269532
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 5,
+          "candidate_documents": [
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single"
+          ],
+          "category": "single",
+          "document_filter": [
+            "cobalt_single"
+          ],
+          "key": "single_document_fill",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "cobalt_single",
+              "cobalt_single",
+              "cobalt_single"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "cobalt_single#1",
+              "cobalt_single#0",
+              "cobalt_single#3"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.03225806451612903,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [
+            "cobalt_single"
+          ],
+          "selected": {
+            "documents": [
+              "cobalt_single",
+              "cobalt_single",
+              "cobalt_single"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "cobalt_single#1",
+              "cobalt_single#0",
+              "cobalt_single#3"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03278688524590164,
+              0.03225806451612903,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 1
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "meridian_alpha",
+            "meridian_gamma",
+            "meridian_beta",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_exception"
+          ],
+          "category": "cross_document",
+          "document_filter": [],
+          "key": "three_relevant_documents",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "meridian_alpha",
+              "meridian_gamma",
+              "meridian_beta"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 3,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "meridian_alpha#0",
+              "meridian_gamma#0",
+              "meridian_beta#0"
+            ],
+            "recall@1": 0.3333333333333333,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 3,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.03252247488101534,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 3
+          },
+          "relevant": [
+            "meridian_alpha",
+            "meridian_beta",
+            "meridian_gamma"
+          ],
+          "selected": {
+            "documents": [
+              "meridian_alpha",
+              "meridian_gamma",
+              "meridian_beta"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 3,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "meridian_alpha#0",
+              "meridian_gamma#0",
+              "meridian_beta#0"
+            ],
+            "recall@1": 0.3333333333333333,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 3,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.03252247488101534,
+              0.031746031746031744
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_exception",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_dominant",
+            "saturn_dominant",
+            "meridian_beta",
+            "meridian_alpha",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "meridian_gamma"
+          ],
+          "category": "distractor",
+          "document_filter": [],
+          "key": "weak_distractor",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_exception",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 2,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 2,
+            "mrr@k": 0.5,
+            "ndcg@k": 0.6309297535714575,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_exception#0",
+              "saturn_dominant#0"
+            ],
+            "recall@1": 0.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.032266458495966696,
+              0.03200204813108039
+            ],
+            "unique_documents@k": 2
+          },
+          "relevant": [
+            "saturn_exception"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_exception",
+              "saturn_weak"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 2,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 0.5,
+            "ndcg@k": 0.6309297535714575,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_exception#0",
+              "saturn_weak#0"
+            ],
+            "recall@1": 0.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.03252247488101534,
+              0.032266458495966696,
+              0.030090497737556562
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "saturn_exception",
+            "meridian_alpha",
+            "meridian_gamma",
+            "meridian_beta",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single"
+          ],
+          "category": "filename",
+          "document_filter": [],
+          "key": "exact_filename",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": true,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_dominant#5"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.08278688524590164,
+              0.08225806451612903,
+              0.08149801587301587
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [
+            "saturn_dominant"
+          ],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_weak",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": true,
+            "expected_relevant_documents": 1,
+            "first_relevant_rank": 1,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": 1.0,
+            "ndcg@k": 1.0,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_weak#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": 1.0,
+            "recall@k": 1.0,
+            "relevant_documents_represented@k": 1,
+            "result_count": 3,
+            "scores": [
+              0.08278688524590164,
+              0.03057889822595705,
+              0.030309988518943745
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "meridian_gamma",
+            "saturn_exception",
+            "meridian_beta",
+            "meridian_alpha",
+            "saturn_weak",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single"
+          ],
+          "category": "scope",
+          "document_filter": [],
+          "key": "project_session_scope",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_dominant#5"
+            ],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 3,
+            "scores": [
+              0.01639344262295082,
+              0.016129032258064516,
+              0.015873015873015872
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "meridian_gamma",
+              "saturn_exception"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "meridian_gamma#0",
+              "saturn_exception#0"
+            ],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 3,
+            "scores": [
+              0.01639344262295082,
+              0.014925373134328358,
+              0.014705882352941176
+            ],
+            "unique_documents@k": 3
+          }
+        },
+        {
+          "candidate_count": 16,
+          "candidate_documents": [
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_dominant",
+            "saturn_weak",
+            "meridian_gamma",
+            "meridian_alpha",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "cobalt_single",
+            "saturn_exception",
+            "meridian_beta"
+          ],
+          "category": "deletion",
+          "document_filter": [],
+          "key": "deleted_exclusion",
+          "limit": 3,
+          "raw": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_dominant",
+              "saturn_dominant"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 3,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_dominant#0",
+              "saturn_dominant#5"
+            ],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 3,
+            "scores": [
+              0.01639344262295082,
+              0.016129032258064516,
+              0.015873015873015872
+            ],
+            "unique_documents@k": 1
+          },
+          "relevant": [],
+          "selected": {
+            "documents": [
+              "saturn_dominant",
+              "saturn_weak",
+              "meridian_gamma"
+            ],
+            "exact_filename_top_one": null,
+            "expected_relevant_documents": 0,
+            "first_relevant_rank": null,
+            "leakage_count": 0,
+            "max_segments_from_one_document@k": 1,
+            "mrr@k": null,
+            "ndcg@k": null,
+            "provenance_accuracy": 1.0,
+            "ranked_segments": [
+              "saturn_dominant#4",
+              "saturn_weak#0",
+              "meridian_gamma#0"
+            ],
+            "recall@1": null,
+            "recall@k": null,
+            "relevant_documents_represented@k": 0,
+            "result_count": 3,
+            "scores": [
+              0.01639344262295082,
+              0.014925373134328358,
+              0.014705882352941176
+            ],
+            "unique_documents@k": 3
+          }
+        }
+      ],
+      "summary": {
+        "raw": {
+          "exact_filename_top_one": true,
+          "leakage_count": 0,
+          "max_segments_from_one_document@k": 3,
+          "mean_unique_documents@k": 1.4285714285714286,
+          "mrr@k": 0.9,
+          "multi_document_coverage@k": 0.75,
+          "multi_document_represented_count@k": 4,
+          "ndcg@k": 0.8488153892673832,
+          "provenance_accuracy": 1.0,
+          "recall@1": 0.5666666666666667,
+          "recall@k": 0.9
+        },
+        "selected": {
+          "exact_filename_top_one": true,
+          "leakage_count": 0,
+          "max_segments_from_one_document@k": 3,
+          "mean_unique_documents@k": 2.7142857142857144,
+          "mrr@k": 0.9,
+          "multi_document_coverage@k": 1.0,
+          "multi_document_represented_count@k": 5,
+          "ndcg@k": 0.9101301085439291,
+          "provenance_accuracy": 1.0,
+          "recall@1": 0.5666666666666667,
+          "recall@k": 1.0
+        }
+      }
+    }
+  }
+}

@@ -222,6 +222,12 @@ source-aware results
 There is no reranker in Phase 3B. The lexical baseline remains available whenever semantic
 retrieval is off or unavailable.
 
+Phase 3C measures a deterministic document-balanced evidence selector after the existing bounded
+ranking. It first takes each document's best candidate in upstream order, then fills remaining
+slots in original order. It keeps original segments, scores, and citations, requires no new model
+or resource, and is **not active** in production `knowledge.search`. Phase 3B remains the production
+behavior; any activation decision is deferred. There is still no learned reranker.
+
 GraphRAG, RAPTOR, HyDE, and similar techniques are optional optimizations.
 
 ## Citations

@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "candidate_depth": 50,
+  "documents": [
+    {
+      "key": "saturn_dominant",
+      "owner": "project_a",
+      "name": "saturn-runbook.md",
+      "sections": [
+        {
+          "title": "Saturn audit procedure",
+          "paragraph": "Saturn audit evidence is retained in the primary ledger. Saturn audit evidence includes the signed daily checkpoint, the operator record, and the verification receipt. This paragraph describes the primary ledger procedure in detail.",
+          "repeat": 18
+        }
+      ]
+    },
+    {
+      "key": "saturn_exception",
+      "owner": "project_a",
+      "name": "saturn-exception.md",
+      "sections": [
+        {
+          "title": "Saturn exception",
+          "paragraph": "Saturn audit evidence for the separate financial exception is retained for seven years in the compliance archive.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "saturn_weak",
+      "owner": "project_a",
+      "name": "saturn-meeting.md",
+      "sections": [
+        {
+          "title": "Meeting agenda",
+          "paragraph": "The Saturn audit committee discusses catering and staff rotations. This agenda contains no evidence retention rule.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "cobalt_single",
+      "owner": "session_a",
+      "name": "cobalt-protocol.md",
+      "sections": [
+        {
+          "title": "Cobalt protocol",
+          "paragraph": "Cobalt handshake quorum requires two independent signers before a key rotation. Cobalt handshake quorum verification records both signer identities and the approved rotation window.",
+          "repeat": 20
+        }
+      ]
+    },
+    {
+      "key": "meridian_alpha",
+      "owner": "project_a",
+      "name": "meridian-alpha.md",
+      "sections": [
+        {
+          "title": "Alpha gate",
+          "paragraph": "Meridian release gate alpha requires the deployment manifest and checksum before rollout.",
+          "repeat": 6
+        }
+      ]
+    },
+    {
+      "key": "meridian_beta",
+      "owner": "project_a",
+      "name": "meridian-beta.md",
+      "sections": [
+        {
+          "title": "Beta gate",
+          "paragraph": "Meridian release gate beta requires a signed operator review before rollout.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "meridian_gamma",
+      "owner": "project_a",
+      "name": "meridian-gamma.md",
+      "sections": [
+        {
+          "title": "Gamma gate",
+          "paragraph": "Meridian release gate gamma requires a recovery drill before rollout.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "foreign_project",
+      "owner": "project_b",
+      "name": "private-project.md",
+      "sections": [
+        {
+          "title": "Private project",
+          "paragraph": "Private stellar reserve belongs to Project B. Saturn audit evidence in this project is never visible in Project A.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "foreign_session",
+      "owner": "session_b",
+      "name": "private-session.md",
+      "sections": [
+        {
+          "title": "Private session",
+          "paragraph": "Private stellar reserve belongs to another session. Saturn audit evidence in this session is never visible in Session A.",
+          "repeat": 1
+        }
+      ]
+    },
+    {
+      "key": "deleted_record",
+      "owner": "project_a",
+      "name": "deleted-record.md",
+      "sections": [
+        {
+          "title": "Retired record",
+          "paragraph": "Retired nebula code was violet. This record has been deleted and must not return.",
+          "repeat": 1
+        }
+      ],
+      "delete_before_queries": true
+    }
+  ],
+  "queries": [
+    {"key": "dominant_repetition", "category": "dominance", "query": "Saturn audit evidence", "relevant": ["saturn_dominant", "saturn_exception"], "limit": 3},
+    {"key": "single_document_fill", "category": "single", "query": "Cobalt handshake quorum", "relevant": ["cobalt_single"], "document_filter": ["cobalt_single"], "limit": 3},
+    {"key": "three_relevant_documents", "category": "cross_document", "query": "Meridian release gate", "relevant": ["meridian_alpha", "meridian_beta", "meridian_gamma"], "limit": 3},
+    {"key": "weak_distractor", "category": "distractor", "query": "Saturn audit exception evidence", "relevant": ["saturn_exception"], "limit": 3},
+    {"key": "exact_filename", "category": "filename", "query": "saturn-runbook.md", "relevant": ["saturn_dominant"], "limit": 3},
+    {"key": "project_session_scope", "category": "scope", "query": "Private stellar reserve", "relevant": [], "limit": 3},
+    {"key": "deleted_exclusion", "category": "deletion", "query": "Retired nebula code", "relevant": [], "limit": 3}
+  ]
+}

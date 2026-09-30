@@ -103,5 +103,29 @@ Peak RSS is reported when the platform provides the Unix resource counter; it is
 These retained timing/storage samples predate the bounded-cursor change; the frozen ranking
 metrics and every first-relevant rank were rerun after it and remained unchanged.
 
+## Phase 3C evidence-selection experiment
+
+Phase 3C measures a pure document-balanced selector on a separate real-ingestion corpus with
+multi-chunk documents. It consumes at most 50 already ranked candidates, takes the first segment
+from each document in upstream order, then fills remaining slots in upstream order. It preserves
+segment scores and provenance and adds no model or runtime resource dependency. It is **not wired
+into production**; Phase 3B ranking and fallback remain unchanged. There is no learned reranker.
+
+Run the deterministic offline measurement with `cd backend && PYTHONPATH=src ../.venv/bin/python
+scripts/document_balance_benchmark.py`. Its corpus and baseline artifact are
+`backend/benchmarks/retrieval_v2_document_balance_phase3c_corpus.json` and
+`backend/benchmarks/retrieval_v2_document_balance_phase3c.json`. On a machine where E5 is already
+installed, add `--with-hybrid` to measure the same selector after Phase 3B hybrid ranking; the
+optional result is recorded in `backend/benchmarks/retrieval_v2_document_balance_phase3c_hybrid.json`.
+The command never downloads a model. The frozen Phase 3A corpus and artifacts are unchanged.
+
+At a three-segment evidence window, relevant-document coverage on the two multi-document cases
+rose from 75% to 100% for both baseline and hybrid candidates. Baseline Recall@3 rose from 90%
+to 100%, MRR@3 from .867 to .900, and nDCG@3 from .823 to .910. Hybrid Recall@3 rose from 90%
+to 100%, MRR@3 stayed .900, and nDCG@3 rose from .849 to .910. Exact-filename top-one remained
+correct; provenance accuracy was 100%, and scope/deletion leakage was zero. The single-document
+filtered case returned three segments before and after selection. These results describe this
+small corpus only; production activation is deferred.
+
 The target architecture remains: RAG is a model-callable knowledge source, not an
 always-on pre-model stage, and project scope is runtime-bound.
