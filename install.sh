@@ -137,6 +137,8 @@ fi
   --destination "$prefix/.orion-ui" \
   --npm-ci
 
+"$venv/bin/orion" model install embeddings
+
 if [[ "$prefix_was_explicit" == false || "$global_launcher" == true ]]; then
   install_global_launcher
   echo "Installed Orion in $venv. Run: orion"

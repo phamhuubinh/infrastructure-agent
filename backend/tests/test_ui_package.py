@@ -104,6 +104,23 @@ def test_build_and_package_uses_npm_then_syncs_the_new_bundle(monkeypatch, tmp_p
     assert (destination / "_shell.html").read_text(encoding="utf-8") == "new shell"
 
 
+def test_packaged_ui_uses_windows_npm_command(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    repository = tmp_path / "checkout"
+    source = repository / "ui" / "dist" / "client"
+    source.mkdir(parents=True)
+    (source / "_shell.html").write_text("new shell", encoding="utf-8")
+    commands: list[list[str]] = []
+    monkeypatch.setattr(ui_package, "NPM_EXECUTABLE", "npm.cmd")
+    monkeypatch.setattr(ui_package, "_run_npm", commands.append)
+
+    ui_package.build_and_package_ui(repository, repository / ".orion-ui", npm_ci=True)
+
+    assert commands == [
+        ["npm.cmd", "ci", "--prefix", str(repository / "ui")],
+        ["npm.cmd", "run", "build", "--prefix", str(repository / "ui")],
+    ]
+
+
 def test_failed_swap_restores_previous_complete_bundle(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
     source = tmp_path / "dist" / "client"
     source.mkdir(parents=True)

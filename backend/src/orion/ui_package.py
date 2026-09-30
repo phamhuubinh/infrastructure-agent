@@ -6,17 +6,20 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 from orion.paths import PACKAGED_UI_SHELL
 
+NPM_EXECUTABLE = "npm.cmd" if sys.platform == "win32" else "npm"
+
 
 def build_and_package_ui(repository: Path, destination: Path, *, npm_ci: bool = False) -> None:
     ui = repository / "ui"
     if npm_ci:
-        _run_npm(["npm", "ci", "--prefix", str(ui)])
-    _run_npm(["npm", "run", "build", "--prefix", str(ui)])
+        _run_npm([NPM_EXECUTABLE, "ci", "--prefix", str(ui)])
+    _run_npm([NPM_EXECUTABLE, "run", "build", "--prefix", str(ui)])
     try:
         replace_ui_bundle(ui / "dist" / "client", destination)
     except OSError as error:

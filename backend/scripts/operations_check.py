@@ -219,6 +219,21 @@ def main() -> None:
             "ORION_TEST_SECRET_TOKEN": "operations-marker-secret",
             "ORION_API_KEY": "operations-ui-secret-marker",
         }
+        # This lifecycle check exercises the real installer and CLI, but never fetches
+        # the large model. Installer-focused tests verify the provisioning command and
+        # failure ordering; the model module has its own digest/staging tests.
+        mock_directory = root / "installer-model-mock"
+        mock_directory.mkdir()
+        (mock_directory / "sitecustomize.py").write_text(
+            "import sys\n"
+            "from pathlib import Path\n"
+            "if Path(sys.argv[0]).name == 'orion' and "
+            "sys.argv[1:] == ['model', 'install', 'embeddings']:\n"
+            "    from orion.knowledge import local_embeddings\n"
+            "    local_embeddings.install_model = lambda: 'installed'\n",
+            encoding="utf-8",
+        )
+        installer_environment = {**environment, "PYTHONPATH": str(mock_directory)}
         subprocess.run(
             [
                 str(repository / "install.sh"),
@@ -229,7 +244,7 @@ def main() -> None:
             ],
             check=True,
             cwd=repository,
-            env=environment,
+            env=installer_environment,
             stdout=subprocess.DEVNULL,
         )
         command = [str(launcher)]
@@ -247,7 +262,8 @@ def main() -> None:
                 "  orion log      Show Orion logs\n"
                 "  orion model status embeddings   Show local E5 model status\n"
                 "  orion model install embeddings  Provision pinned local E5 model\n"
-                "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
+                "  orion knowledge semantic-index [--max-documents N]  "
+                "Inspect up to N ready documents\n"
                 "  orion help     Show this help\n"
             )
             or rejected_help.returncode == 0

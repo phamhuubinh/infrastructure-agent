@@ -68,10 +68,25 @@ Read:
 
 ## Install and run the current repository
 
+Linux:
+
 ```bash
 ./install.sh
 orion
 ```
+
+Windows PowerShell:
+
+```powershell
+.\install.ps1
+orion
+```
+
+Both installers require Python 3.12+, Node.js 22.12+, and npm. A normal install provisions the
+pinned ~487 MB E5 embeddings asset, so the first install needs network access if the asset is
+absent. Model data stays in Orion's application-data directory outside the repository; reruns
+reuse a verified cache. Installation does not run semantic indexing or enable hybrid retrieval.
+Use `orion model install embeddings` later to repair or reprovision the model.
 
 This starts the packaged UI and API at `http://127.0.0.1:61888/`; the browser opens once Orion is ready.
 

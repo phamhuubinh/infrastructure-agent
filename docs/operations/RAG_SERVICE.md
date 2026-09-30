@@ -28,8 +28,9 @@ success; this incurs the measured roughly 1.1 GiB peak process memory cost at th
 
 ## Local semantic model
 
-`orion model status embeddings` reports `missing`, `installed`, or `corrupt`. Provision explicitly
-with `orion model install embeddings`. The command downloads the five files needed by
+`orion model status embeddings` reports `missing`, `installed`, or `corrupt`. Normal Linux and
+Windows installation provisions the pinned model. Use `orion model install embeddings` to repair
+or reprovision it later. The command downloads the five files needed by
 FastEmbed/ONNX from the pinned `intfloat/multilingual-e5-small` revision
 `614241f622f53c4eeff9890bdc4f31cfecc418b3`, verifies their SHA-256 digests, and publishes
 the verified directory only after all files are complete. Repeating install is idempotent.
