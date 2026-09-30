@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 
 from orion.contracts import RuntimeScope
-from orion.embeddings import EmbeddingProfile, decode_vector, text_digest, validate_vector
+from orion.embeddings import EmbeddingProfile, Vector, decode_vector, text_digest, validate_vector
 from orion.knowledge.ports import EmbeddingPort
 from orion.persistence.sqlite import SQLiteStore
 
@@ -15,6 +15,19 @@ from orion.persistence.sqlite import SQLiteStore
 class SemanticHit:
     segment_id: str
     score: float
+
+
+@dataclass(frozen=True)
+class BackfillProgress:
+    inspected: int
+    reindexed: int
+    failed: int
+    wrapped: bool
+    cursor_document_id: str | None
+
+
+class SemanticIndexingError(RuntimeError):
+    """A document-local embedding failure whose failed state was persisted."""
 
 
 class SemanticIndexService:
@@ -48,50 +61,106 @@ class SemanticIndexService:
             document_id, self._profile.profile_id, "indexing", completed, total
         )
         try:
+            try:
+                windows = {
+                    str(row["segment_id"]): self._embeddings.passage_windows(str(row["text"]))
+                    for row in missing
+                }
+                if any(not window for window in windows.values()):
+                    raise ValueError("Embedding adapter returned no passage windows")
+            except (RuntimeError, ValueError) as error:
+                raise SemanticIndexingError(str(error)) from error
             for start in range(0, len(missing), batch_size):
                 batch = missing[start : start + batch_size]
-                vectors = self._embeddings.embed_passages(tuple(str(row["text"]) for row in batch))
-                if len(vectors) != len(batch):
-                    raise ValueError("Embedding adapter returned the wrong passage count")
-                for row, vector in zip(batch, vectors, strict=True):
-                    validated = validate_vector(vector, self._profile.dimension)
+                try:
+                    passage_texts = tuple(
+                        text for row in batch for text in windows[str(row["segment_id"])]
+                    )
+                    vectors: list[Vector] = []
+                    for offset in range(0, len(passage_texts), batch_size):
+                        texts = passage_texts[offset : offset + batch_size]
+                        embedded = self._embeddings.embed_passages(texts)
+                        if len(embedded) != len(texts):
+                            raise ValueError("Embedding adapter returned the wrong passage count")
+                        vectors.extend(embedded)
+                    position = 0
+                    validated_batches: list[tuple[str, str, tuple[Vector, ...]]] = []
+                    for row in batch:
+                        count = len(windows[str(row["segment_id"])])
+                        validated = tuple(
+                            validate_vector(vector, self._profile.dimension)
+                            for vector in vectors[position : position + count]
+                        )
+                        position += count
+                        validated_batches.append(
+                            (str(row["segment_id"]), str(row["text"]), validated)
+                        )
+                except (RuntimeError, ValueError) as error:
+                    raise SemanticIndexingError(str(error)) from error
+                for segment_id, text, validated in validated_batches:
                     self._store.put_segment_embeddings(
-                        str(row["segment_id"]),
+                        segment_id,
                         self._profile,
-                        text_digest(str(row["text"])),
-                        (validated,),
+                        text_digest(text),
+                        validated,
                     )
                     completed += 1
                 self._store.set_semantic_index_state(
                     document_id, self._profile.profile_id, "indexing", completed, total
                 )
-        except Exception as error:
+        except SemanticIndexingError as error:
             try:
                 self._store.set_semantic_index_state(
                     document_id, self._profile.profile_id, "failed", completed, total, str(error)
                 )
             except LookupError:
                 # A concurrent tombstone remains authoritative.
-                pass
+                raise
             raise
         self._store.set_semantic_index_state(
             document_id, self._profile.profile_id, "ready", total, total
         )
 
-    def reconcile_missing(self, *, batch_size: int = 16) -> None:
-        """Explicit resumable backfill; Phase 3 may schedule this in a bounded worker."""
-        for document in self._store.ready_documents_for_semantic_backfill():
+    def reconcile_missing(
+        self, *, batch_size: int = 16, max_documents: int = 100
+    ) -> BackfillProgress:
+        """Inspect one bounded profile cursor page and persist progress per document."""
+        if max_documents <= 0:
+            raise ValueError("Backfill document limit must be positive")
+        if batch_size <= 0:
+            raise ValueError("Embedding batch size must be positive")
+        page, wrapped = self._store.semantic_backfill_page(self._profile.profile_id, max_documents)
+        inspected = 0
+        reindexed = 0
+        failed = 0
+        last_id: str | None = None
+        for document in page:
             document_id = str(document["document_id"])
-            state = self._store.semantic_index_state(document_id, self._profile.profile_id)
-            if state["status"] == "failed":
-                continue
-            if self._store.segments_needing_embeddings(document_id, self._profile):
-                self.index_document(document_id, batch_size=batch_size)
-            elif state["status"] != "ready":
-                total = len(self._store.document_segments(document_id))
-                self._store.set_semantic_index_state(
-                    document_id, self._profile.profile_id, "ready", total, total
-                )
+            inspected += 1
+            try:
+                missing = self._store.segments_needing_embeddings(document_id, self._profile)
+                if missing:
+                    self.index_document(document_id, batch_size=batch_size)
+                    reindexed += 1
+                else:
+                    state = self._store.semantic_index_state(document_id, self._profile.profile_id)
+                    if state["status"] != "ready":
+                        total = len(self._store.document_segments(document_id))
+                        self._store.set_semantic_index_state(
+                            document_id, self._profile.profile_id, "ready", total, total
+                        )
+            except SemanticIndexingError:
+                # The document's failed state is persisted; a later cursor pass retries it.
+                failed += 1
+            except LookupError:
+                # A concurrent tombstone is final; an unexpected lookup failure is not.
+                if self._store.document(document_id) is not None:
+                    raise
+            self._store.advance_semantic_backfill_cursor(
+                self._profile.profile_id, str(document["created_at"]), document_id
+            )
+            last_id = document_id
+        return BackfillProgress(inspected, reindexed, failed, wrapped, last_id)
 
     def search(
         self,

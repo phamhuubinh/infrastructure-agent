@@ -344,7 +344,7 @@ async def test_runtime_terminal_requests_clear_cancellation_registries(tmp_path)
     assert not cancelled.runtime._cancellations and not cancelled.runtime._pending_content  # noqa: SLF001
 
 
-def test_public_cli_has_only_web_log_and_help(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+def test_public_cli_help_lists_operator_commands(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     from orion import cli
 
     started: list[str] = []
@@ -362,6 +362,9 @@ def test_public_cli_has_only_web_log_and_help(monkeypatch, capsys) -> None:  # t
         "  orion          Start Orion\n"
         "  orion web      Start Orion\n"
         "  orion log      Show Orion logs\n"
+        "  orion model status embeddings   Show local E5 model status\n"
+        "  orion model install embeddings  Provision pinned local E5 model\n"
+        "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help\n"
     )
     monkeypatch.setattr(sys, "argv", ["orion", "--help"])

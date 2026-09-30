@@ -46,6 +46,22 @@ def main() -> None:
     if command == ["help"]:
         _show_help()
         return
+    if command == ["model", "status", "embeddings"]:
+        from orion.knowledge.local_embeddings import model_directory, model_status
+
+        print(f"embeddings: {model_status()} ({model_directory()})")
+        return
+    if command == ["model", "install", "embeddings"]:
+        from orion.knowledge.local_embeddings import install_model, model_directory
+
+        try:
+            print(f"embeddings: {install_model()} ({model_directory()})")
+        except RuntimeError as error:
+            raise SystemExit(str(error)) from error
+        return
+    if command[:2] == ["knowledge", "semantic-index"]:
+        _semantic_backfill(command[2:])
+        return
     _invalid_command(command)
 
 
@@ -55,8 +71,47 @@ def _show_help() -> None:
         "  orion          Start Orion\n"
         "  orion web      Start Orion\n"
         "  orion log      Show Orion logs\n"
+        "  orion model status embeddings   Show local E5 model status\n"
+        "  orion model install embeddings  Provision pinned local E5 model\n"
+        "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help"
     )
+
+
+def _semantic_backfill(arguments: list[str]) -> None:
+    if not arguments:
+        max_documents = 100
+    elif len(arguments) == 2 and arguments[0] == "--max-documents":
+        try:
+            max_documents = int(arguments[1])
+        except ValueError as error:
+            raise SystemExit("--max-documents must be a positive integer") from error
+    else:
+        _invalid_command(["knowledge", "semantic-index", *arguments])
+        return
+    if max_documents <= 0:
+        raise SystemExit("--max-documents must be a positive integer")
+    from orion.knowledge.local_embeddings import LocalE5Embeddings
+    from orion.knowledge.semantic import SemanticIndexService
+    from orion.persistence.sqlite import SQLiteStore
+
+    try:
+        embeddings = LocalE5Embeddings()
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error
+    store = SQLiteStore(database_path())
+    try:
+        progress = SemanticIndexService(store, embeddings).reconcile_missing(
+            max_documents=max_documents
+        )
+        print(
+            "semantic indexing: "
+            f"inspected={progress.inspected} reindexed={progress.reindexed} "
+            f"failed={progress.failed} wrapped={progress.wrapped} "
+            f"cursor={progress.cursor_document_id or 'none'}"
+        )
+    finally:
+        store.close()
 
 
 def _invalid_command(command: list[str]) -> None:

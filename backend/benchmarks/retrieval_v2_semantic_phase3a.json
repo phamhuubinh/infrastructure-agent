@@ -1,0 +1,598 @@
+{
+  "baseline": {
+    "cases": [
+      {
+        "category": "hard",
+        "first_relevant_rank": 4,
+        "key": "english_paraphrase",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_distractor",
+          "project_a",
+          "storage",
+          "recovery_en",
+          "acronym_distractor",
+          "continuity"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": null,
+        "key": "vietnamese_paraphrase",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": []
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": null,
+        "key": "english_to_vietnamese",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": [
+          "project_a",
+          "recovery_distractor",
+          "recovery_en"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": null,
+        "key": "vietnamese_to_english",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "recovery_vi"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": null,
+        "key": "acronym_expansion",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "cross_document_distractors",
+        "relevant": [
+          "storage"
+        ],
+        "retrieved": [
+          "storage",
+          "old_storage",
+          "recovery_en",
+          "acronym_distractor",
+          "project_a",
+          "continuity",
+          "recovery_distractor"
+        ]
+      },
+      {
+        "category": "filename",
+        "first_relevant_rank": 1,
+        "key": "exact_filename",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_en",
+          "storage",
+          "acronym_distractor",
+          "old_storage",
+          "project_a",
+          "continuity",
+          "recovery_distractor",
+          "recovery_vi"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "provenance",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_en"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": 1,
+        "key": "project_scope",
+        "relevant": [
+          "project_a"
+        ],
+        "retrieved": [
+          "project_a"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": null,
+        "key": "session_isolation",
+        "relevant": [],
+        "retrieved": []
+      },
+      {
+        "category": "deletion",
+        "first_relevant_rank": null,
+        "key": "deleted_exclusion",
+        "relevant": [],
+        "retrieved": []
+      }
+    ],
+    "corpus_version": 1,
+    "filename_top1_rate": 1.0,
+    "leakage_count": 0,
+    "metrics": {
+      "mrr@10": 0.4722222222222222,
+      "ndcg@10": 0.4922973953414881,
+      "recall@1": 0.4444444444444444,
+      "recall@10": 0.5555555555555556,
+      "recall@5": 0.5555555555555556
+    },
+    "provenance_accuracy": 1.0,
+    "query_count": 11,
+    "ranker": "production_lexical_plus_hash"
+  },
+  "corpus_version": 1,
+  "dense": {
+    "cases": [
+      {
+        "category": "hard",
+        "first_relevant_rank": 2,
+        "key": "english_paraphrase",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_en",
+          "continuity",
+          "recovery_vi",
+          "old_storage",
+          "storage",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 1,
+        "key": "vietnamese_paraphrase",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": [
+          "recovery_vi",
+          "recovery_en",
+          "recovery_distractor",
+          "storage",
+          "continuity",
+          "old_storage",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 5,
+        "key": "english_to_vietnamese",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_en",
+          "continuity",
+          "old_storage",
+          "recovery_vi",
+          "storage",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 2,
+        "key": "vietnamese_to_english",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "recovery_vi",
+          "continuity",
+          "old_storage",
+          "storage",
+          "recovery_distractor",
+          "recovery_en",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 1,
+        "key": "acronym_expansion",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "continuity",
+          "recovery_en",
+          "recovery_distractor",
+          "acronym_distractor",
+          "old_storage",
+          "storage",
+          "recovery_vi",
+          "project_a"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "cross_document_distractors",
+        "relevant": [
+          "storage"
+        ],
+        "retrieved": [
+          "storage",
+          "old_storage",
+          "recovery_distractor",
+          "continuity",
+          "recovery_en",
+          "recovery_vi",
+          "acronym_distractor",
+          "project_a"
+        ]
+      },
+      {
+        "category": "filename",
+        "first_relevant_rank": 7,
+        "key": "exact_filename",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "project_a",
+          "recovery_distractor",
+          "recovery_vi",
+          "continuity",
+          "storage",
+          "old_storage",
+          "recovery_en",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "provenance",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_en",
+          "recovery_distractor",
+          "project_a",
+          "continuity",
+          "storage",
+          "recovery_vi",
+          "old_storage",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": 1,
+        "key": "project_scope",
+        "relevant": [
+          "project_a"
+        ],
+        "retrieved": [
+          "project_a",
+          "recovery_en",
+          "recovery_distractor",
+          "old_storage",
+          "continuity",
+          "storage",
+          "acronym_distractor",
+          "recovery_vi"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": null,
+        "key": "session_isolation",
+        "relevant": [],
+        "retrieved": [
+          "recovery_en",
+          "project_a",
+          "recovery_distractor",
+          "continuity",
+          "old_storage",
+          "recovery_vi",
+          "acronym_distractor",
+          "storage"
+        ]
+      },
+      {
+        "category": "deletion",
+        "first_relevant_rank": null,
+        "key": "deleted_exclusion",
+        "relevant": [],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_vi",
+          "project_a",
+          "recovery_en",
+          "continuity",
+          "old_storage",
+          "storage",
+          "acronym_distractor"
+        ]
+      }
+    ],
+    "filename_top1_rate": 0.0,
+    "leakage_count": 0,
+    "metrics": {
+      "mrr@10": 0.7047619047619047,
+      "ndcg@10": 0.7757828497456434,
+      "recall@1": 0.5555555555555556,
+      "recall@10": 1.0,
+      "recall@5": 0.8888888888888888
+    },
+    "provenance_accuracy": 1.0,
+    "ranker": "e5_dense_only"
+  },
+  "fusion": {
+    "cases": [
+      {
+        "category": "hard",
+        "first_relevant_rank": 2,
+        "key": "english_paraphrase",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_en",
+          "project_a",
+          "storage",
+          "continuity",
+          "acronym_distractor",
+          "recovery_vi",
+          "old_storage"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 1,
+        "key": "vietnamese_paraphrase",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": [
+          "recovery_vi",
+          "recovery_en",
+          "recovery_distractor",
+          "storage",
+          "continuity",
+          "old_storage",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 6,
+        "key": "english_to_vietnamese",
+        "relevant": [
+          "recovery_vi"
+        ],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_en",
+          "project_a",
+          "continuity",
+          "old_storage",
+          "recovery_vi",
+          "storage",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 2,
+        "key": "vietnamese_to_english",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "recovery_vi",
+          "continuity",
+          "old_storage",
+          "storage",
+          "recovery_distractor",
+          "recovery_en",
+          "project_a",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "hard",
+        "first_relevant_rank": 2,
+        "key": "acronym_expansion",
+        "relevant": [
+          "continuity"
+        ],
+        "retrieved": [
+          "acronym_distractor",
+          "continuity",
+          "recovery_en",
+          "recovery_distractor",
+          "old_storage",
+          "storage",
+          "recovery_vi",
+          "project_a"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "cross_document_distractors",
+        "relevant": [
+          "storage"
+        ],
+        "retrieved": [
+          "storage",
+          "old_storage",
+          "recovery_en",
+          "recovery_distractor",
+          "continuity",
+          "acronym_distractor",
+          "project_a",
+          "recovery_vi"
+        ]
+      },
+      {
+        "category": "filename",
+        "first_relevant_rank": 1,
+        "key": "exact_filename",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_en",
+          "project_a",
+          "storage",
+          "recovery_distractor",
+          "old_storage",
+          "continuity",
+          "recovery_vi",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "lexical",
+        "first_relevant_rank": 1,
+        "key": "provenance",
+        "relevant": [
+          "recovery_en"
+        ],
+        "retrieved": [
+          "recovery_en",
+          "recovery_distractor",
+          "project_a",
+          "continuity",
+          "storage",
+          "recovery_vi",
+          "old_storage",
+          "acronym_distractor"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": 1,
+        "key": "project_scope",
+        "relevant": [
+          "project_a"
+        ],
+        "retrieved": [
+          "project_a",
+          "recovery_en",
+          "recovery_distractor",
+          "old_storage",
+          "continuity",
+          "storage",
+          "acronym_distractor",
+          "recovery_vi"
+        ]
+      },
+      {
+        "category": "scope",
+        "first_relevant_rank": null,
+        "key": "session_isolation",
+        "relevant": [],
+        "retrieved": [
+          "recovery_en",
+          "project_a",
+          "recovery_distractor",
+          "continuity",
+          "old_storage",
+          "recovery_vi",
+          "acronym_distractor",
+          "storage"
+        ]
+      },
+      {
+        "category": "deletion",
+        "first_relevant_rank": null,
+        "key": "deleted_exclusion",
+        "relevant": [],
+        "retrieved": [
+          "recovery_distractor",
+          "recovery_vi",
+          "project_a",
+          "recovery_en",
+          "continuity",
+          "old_storage",
+          "storage",
+          "acronym_distractor"
+        ]
+      }
+    ],
+    "filename_top1_rate": 1.0,
+    "leakage_count": 0,
+    "metrics": {
+      "mrr@10": 0.7407407407407408,
+      "ndcg@10": 0.805444049758044,
+      "recall@1": 0.5555555555555556,
+      "recall@10": 1.0,
+      "recall@5": 0.8888888888888888
+    },
+    "provenance_accuracy": 1.0,
+    "ranker": "rrf_60_lexical_dense_filename"
+  },
+  "performance": {
+    "backfill_seconds": 0.1679162330692634,
+    "backfilled_documents": 10,
+    "batch_size": 16,
+    "bytes_per_vector_payload": 1536,
+    "cold_load_seconds": 3.9151583849452436,
+    "first_query_latencies_ms": [
+      14.596862951293588,
+      14.329166035167873,
+      15.434567001648247,
+      14.836319955065846,
+      14.310789061710238,
+      13.313497067429125,
+      12.45305989868939,
+      12.412108946591616,
+      11.9094830006361,
+      11.996145942248404,
+      12.059631058946252
+    ],
+    "model_cache_bytes": 487352567,
+    "passage_sample_count": 64,
+    "passage_throughput_per_second": 428.7387182064026,
+    "peak_rss_kb": 1179940,
+    "segments": 11,
+    "sqlite_growth_bytes": 20480,
+    "warm_query_p50_ms": 6.389470014255494,
+    "warm_query_p95_ms": 6.545883952639997,
+    "windows": 10
+  }
+}

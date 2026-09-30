@@ -245,11 +245,14 @@ def main() -> None:
                 "  orion          Start Orion\n"
                 "  orion web      Start Orion\n"
                 "  orion log      Show Orion logs\n"
+                "  orion model status embeddings   Show local E5 model status\n"
+                "  orion model install embeddings  Provision pinned local E5 model\n"
+                "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
                 "  orion help     Show this help\n"
             )
             or rejected_help.returncode == 0
         ):
-            raise SystemExit("installed CLI help surface is not minimal")
+            raise SystemExit("installed CLI help surface does not match documented commands")
         packaged_ui = prefix / ".orion-ui"
         shell = packaged_ui / "_shell.html"
         if not shell.is_file() or not (packaged_ui / "orion-icon.png").is_file():

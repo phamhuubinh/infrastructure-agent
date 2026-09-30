@@ -44,7 +44,9 @@ class SQLiteStore:
     """Persistence boundary; rows map to canonical public timeline semantics."""
 
     @classmethod
-    def read_active_model_config(cls, database_path: Path) -> dict[str, str | int | None] | None:
+    def read_active_model_config(
+        cls, database_path: Path
+    ) -> dict[str, str | int | None] | None:
         """Read a deployed profile without creating a database or running migrations."""
         instance = cls.__new__(cls)
         instance._connection = sqlite3.connect(
@@ -69,8 +71,7 @@ class SQLiteStore:
 
     def _create_schema(self) -> None:
         with self._lock, self._connection:
-            self._connection.executescript(
-                """
+            self._connection.executescript("""
                 CREATE TABLE IF NOT EXISTS model_configs (
                     model_config_id TEXT PRIMARY KEY,
                     provider_type TEXT NOT NULL,
@@ -187,10 +188,10 @@ class SQLiteStore:
                     error_message TEXT,
                     created_at TEXT NOT NULL
                 );
-                """
-            )
+                """)
             columns = {
-                row["name"] for row in self._connection.execute("PRAGMA table_info(sessions)")
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(sessions)")
             }
             if "principal_id" not in columns:
                 self._connection.execute(
@@ -201,16 +202,21 @@ class SQLiteStore:
                     "ALTER TABLE sessions ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local'"
                 )
             if "project_id" not in columns:
-                self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+                self._connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN project_id TEXT"
+                )
             if "custom_title" not in columns:
-                self._connection.execute("ALTER TABLE sessions ADD COLUMN custom_title TEXT")
+                self._connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN custom_title TEXT"
+                )
             if "mutation_mode" not in columns:
                 self._connection.execute(
                     "ALTER TABLE sessions ADD COLUMN mutation_mode TEXT NOT NULL "
                     "DEFAULT 'read_only'"
                 )
             model_columns = {
-                row["name"] for row in self._connection.execute("PRAGMA table_info(model_configs)")
+                row["name"]
+                for row in self._connection.execute("PRAGMA table_info(model_configs)")
             }
             if "is_active" not in model_columns:
                 self._connection.execute(
@@ -232,8 +238,7 @@ class SQLiteStore:
     def _create_embedding_schema(self) -> None:
         """Additive migration: existing segment rows and public identities are untouched."""
         with self._lock, self._connection:
-            self._connection.executescript(
-                """
+            self._connection.executescript("""
                 CREATE TABLE IF NOT EXISTS embedding_profiles (
                     profile_id TEXT PRIMARY KEY,
                     definition_json TEXT NOT NULL,
@@ -248,6 +253,7 @@ class SQLiteStore:
                     dimension INTEGER NOT NULL CHECK (dimension > 0),
                     vector_blob BLOB NOT NULL,
                     source_text_digest TEXT NOT NULL,
+                    window_count INTEGER NOT NULL DEFAULT 1 CHECK (window_count > 0),
                     PRIMARY KEY (segment_id, profile_id, window_ordinal)
                 );
                 CREATE INDEX IF NOT EXISTS segment_embeddings_profile
@@ -263,8 +269,26 @@ class SQLiteStore:
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (document_id, profile_id)
                 );
-                """
-            )
+                CREATE TABLE IF NOT EXISTS semantic_backfill_cursors (
+                    profile_id TEXT PRIMARY KEY REFERENCES embedding_profiles(profile_id),
+                    last_created_at TEXT NOT NULL,
+                    last_document_id TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS documents_semantic_backfill_page
+                    ON documents(status, deleted_at, created_at, document_id);
+                """)
+            columns = {
+                str(row["name"])
+                for row in self._connection.execute(
+                    "PRAGMA table_info(segment_embeddings)"
+                )
+            }
+            if "window_count" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE segment_embeddings ADD COLUMN window_count INTEGER "
+                    "NOT NULL DEFAULT 1 CHECK (window_count > 0)"
+                )
 
     def _normalize_active_model_config(self) -> None:
         """Make legacy saved configurations conform to the one-active-profile invariant."""
@@ -302,8 +326,7 @@ class SQLiteStore:
             self._connection.execute("PRAGMA foreign_keys=OFF")
             try:
                 with self._connection:
-                    self._connection.executescript(
-                        """
+                    self._connection.executescript("""
                         CREATE TABLE documents_new (
                             document_id TEXT PRIMARY KEY,
                             attachment_id TEXT NOT NULL UNIQUE,
@@ -361,8 +384,7 @@ class SQLiteStore:
                             ON documents(session_id, status, deleted_at);
                         CREATE INDEX document_segments_document
                             ON document_segments(document_id, ordinal);
-                        """
-                    )
+                        """)
             finally:
                 self._connection.execute("PRAGMA foreign_keys=ON")
 
@@ -437,11 +459,19 @@ class SQLiteStore:
                     """,
                     (row["session_id"],),
                 ).fetchall()
-                title = str(row["custom_title"]) if row["custom_title"] is not None else "New chat"
+                title = (
+                    str(row["custom_title"])
+                    if row["custom_title"] is not None
+                    else "New chat"
+                )
                 if row["custom_title"] is None:
                     for title_candidate in title_row:
-                        content = json.loads(title_candidate["payload_json"]).get("content")
-                        if isinstance(content, str) and (normalized := " ".join(content.split())):
+                        content = json.loads(title_candidate["payload_json"]).get(
+                            "content"
+                        )
+                        if isinstance(content, str) and (
+                            normalized := " ".join(content.split())
+                        ):
                             title = normalized[:120]
                             break
                 summaries.append(
@@ -460,7 +490,8 @@ class SQLiteStore:
     def rename_session(self, session_id: str, title: str) -> bool:
         with self._lock, self._connection:
             cursor = self._connection.execute(
-                "UPDATE sessions SET custom_title = ? WHERE session_id = ?", (title, session_id)
+                "UPDATE sessions SET custom_title = ? WHERE session_id = ?",
+                (title, session_id),
             )
         return cursor.rowcount == 1
 
@@ -504,7 +535,9 @@ class SQLiteStore:
                 ),
             )
 
-    def pending_authorization(self, request_id: str, call_id: str) -> dict[str, str] | None:
+    def pending_authorization(
+        self, request_id: str, call_id: str
+    ) -> dict[str, str] | None:
         with self._lock:
             row = self._connection.execute(
                 "SELECT * FROM pending_tool_authorizations WHERE request_id = ? AND call_id = ?",
@@ -512,7 +545,9 @@ class SQLiteStore:
             ).fetchone()
         return dict(row) if row is not None else None
 
-    def resolve_pending_authorization(self, request_id: str, call_id: str, state: str) -> bool:
+    def resolve_pending_authorization(
+        self, request_id: str, call_id: str, state: str
+    ) -> bool:
         with self._lock, self._connection:
             cursor = self._connection.execute(
                 "UPDATE pending_tool_authorizations SET state = ?, resolved_at = ? "
@@ -590,15 +625,25 @@ class SQLiteStore:
                     request_ids,
                 )
                 self._connection.execute(
-                    f"DELETE FROM request_events WHERE request_id IN ({placeholders})", request_ids
+                    f"DELETE FROM request_events WHERE request_id IN ({placeholders})",
+                    request_ids,
                 )
-            self._connection.execute("DELETE FROM documents WHERE session_id = ?", (session_id,))
             self._connection.execute(
-                "DELETE FROM conversation_state_checkpoints WHERE session_id = ?", (session_id,)
+                "DELETE FROM documents WHERE session_id = ?", (session_id,)
             )
-            self._connection.execute("DELETE FROM timeline WHERE session_id = ?", (session_id,))
-            self._connection.execute("DELETE FROM requests WHERE session_id = ?", (session_id,))
-            self._connection.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+            self._connection.execute(
+                "DELETE FROM conversation_state_checkpoints WHERE session_id = ?",
+                (session_id,),
+            )
+            self._connection.execute(
+                "DELETE FROM timeline WHERE session_id = ?", (session_id,)
+            )
+            self._connection.execute(
+                "DELETE FROM requests WHERE session_id = ?", (session_id,)
+            )
+            self._connection.execute(
+                "DELETE FROM sessions WHERE session_id = ?", (session_id,)
+            )
         return tuple(str(row["blob_id"]) for row in blob_rows)
 
     def create_project(
@@ -613,14 +658,24 @@ class SQLiteStore:
             self._connection.execute(
                 """INSERT INTO projects(project_id, name, description, instructions, metadata_json,
                    created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (project_id, name, description, instructions, json.dumps(metadata or {}), now, now),
+                (
+                    project_id,
+                    name,
+                    description,
+                    instructions,
+                    json.dumps(metadata or {}),
+                    now,
+                    now,
+                ),
             )
         project = self.project(project_id)
         if project is None:
             raise RuntimeError("Project was not persisted")
         return project
 
-    def project(self, project_id: str, include_deleted: bool = False) -> dict[str, Any] | None:
+    def project(
+        self, project_id: str, include_deleted: bool = False
+    ) -> dict[str, Any] | None:
         query = "SELECT * FROM projects WHERE project_id = ?"
         if not include_deleted:
             query += " AND deleted_at IS NULL"
@@ -648,7 +703,14 @@ class SQLiteStore:
                 """UPDATE projects SET name = ?, description = ?, instructions = ?,
                    metadata_json = ?,
                    updated_at = ? WHERE project_id = ? AND deleted_at IS NULL""",
-                (name, description, instructions, json.dumps(metadata), _utc_now(), project_id),
+                (
+                    name,
+                    description,
+                    instructions,
+                    json.dumps(metadata),
+                    _utc_now(),
+                    project_id,
+                ),
             )
         return self.project(project_id) if cursor.rowcount else None
 
@@ -660,7 +722,8 @@ class SQLiteStore:
         """
         with self._lock, self._connection:
             project = self._connection.execute(
-                "SELECT 1 FROM projects WHERE project_id = ? AND deleted_at IS NULL", (project_id,)
+                "SELECT 1 FROM projects WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
             ).fetchone()
             if project is None:
                 return None
@@ -691,7 +754,8 @@ class SQLiteStore:
                 request_ids = tuple(str(row["request_id"]) for row in request_rows)
             else:
                 document_rows = self._connection.execute(
-                    "SELECT document_id, blob_id FROM documents WHERE project_id = ?", (project_id,)
+                    "SELECT document_id, blob_id FROM documents WHERE project_id = ?",
+                    (project_id,),
                 ).fetchall()
                 request_ids = ()
 
@@ -828,7 +892,9 @@ class SQLiteStore:
             ).fetchall()
         return self._timeline_items(rows)
 
-    def conversation_state_checkpoint(self, session_id: str) -> ConversationStateCheckpoint | None:
+    def conversation_state_checkpoint(
+        self, session_id: str
+    ) -> ConversationStateCheckpoint | None:
         with self._lock:
             row = self._connection.execute(
                 "SELECT session_id, state, covered_item_id, updated_at, version "
@@ -864,7 +930,9 @@ class SQLiteStore:
                 "WHERE state.session_id = ?",
                 (session_id,),
             ).fetchone()
-            if previous is not None and int(boundary["rowid"]) <= int(previous["boundary_rowid"]):
+            if previous is not None and int(boundary["rowid"]) <= int(
+                previous["boundary_rowid"]
+            ):
                 raise ValueError("conversation state boundary must advance")
             version = 1 if previous is None else int(previous["version"]) + 1
             self._connection.execute(
@@ -927,7 +995,9 @@ class SQLiteStore:
                 "WHERE session_id = ? AND kind = 'user_message'",
                 (session_id,),
             ).fetchone()
-            latest_user_rowid = latest_user["rowid"] if latest_user is not None else None
+            latest_user_rowid = (
+                latest_user["rowid"] if latest_user is not None else None
+            )
             if latest_user_rowid is None:
                 return [], 0
             boundary = int(latest_user_rowid)
@@ -937,7 +1007,9 @@ class SQLiteStore:
                 (session_id, boundary, after_rowid, MODEL_CONTEXT_HISTORY_TURNS),
             ).fetchall()
             oldest_boundary = (
-                int(historical_user_rows[-1]["rowid"]) if historical_user_rows else boundary
+                int(historical_user_rows[-1]["rowid"])
+                if historical_user_rows
+                else boundary
             )
             historical_rows = (
                 self._connection.execute(
@@ -945,7 +1017,13 @@ class SQLiteStore:
                     "tool_name, rowid FROM timeline WHERE session_id = ? "
                     f"AND kind IN ({placeholders}) AND rowid >= ? AND rowid < ? "
                     "AND rowid > ? ORDER BY rowid",
-                    (session_id, *relevant_kinds, oldest_boundary, boundary, after_rowid),
+                    (
+                        session_id,
+                        *relevant_kinds,
+                        oldest_boundary,
+                        boundary,
+                        after_rowid,
+                    ),
                 ).fetchall()
                 if historical_user_rows
                 else []
@@ -983,13 +1061,21 @@ class SQLiteStore:
             for row in rows
         ]
 
-    def emit_event(self, request_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    def emit_event(
+        self, request_id: str, event_type: str, payload: dict[str, Any]
+    ) -> None:
         with self._lock, self._connection:
             self._connection.execute(
                 "INSERT INTO request_events(event_id, request_id, created_at, event_type, "
                 "payload_json) "
                 "VALUES (?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), request_id, _utc_now(), event_type, json.dumps(payload)),
+                (
+                    str(uuid.uuid4()),
+                    request_id,
+                    _utc_now(),
+                    event_type,
+                    json.dumps(payload),
+                ),
             )
 
     def events(self, request_id: str) -> list[dict[str, Any]]:
@@ -1048,7 +1134,9 @@ class SQLiteStore:
         reasoning_mode: str = "auto",
     ) -> str:
         """Compatibility name for callers that previously created the one active configuration."""
-        return self.create_model_config(provider_type, base_url, model_id, api_key, reasoning_mode)
+        return self.create_model_config(
+            provider_type, base_url, model_id, api_key, reasoning_mode
+        )
 
     def model_configs(self) -> list[dict[str, str | int | None]]:
         with self._lock:
@@ -1097,11 +1185,14 @@ class SQLiteStore:
     def activate_model_config(self, model_config_id: str) -> bool:
         with self._lock, self._connection:
             exists = self._connection.execute(
-                "SELECT 1 FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+                "SELECT 1 FROM model_configs WHERE model_config_id = ?",
+                (model_config_id,),
             ).fetchone()
             if exists is None:
                 return False
-            self._connection.execute("UPDATE model_configs SET is_active = 0 WHERE is_active = 1")
+            self._connection.execute(
+                "UPDATE model_configs SET is_active = 0 WHERE is_active = 1"
+            )
             self._connection.execute(
                 "UPDATE model_configs SET is_active = 1 WHERE model_config_id = ?",
                 (model_config_id,),
@@ -1111,14 +1202,16 @@ class SQLiteStore:
     def delete_model_config(self, model_config_id: str) -> str:
         with self._lock, self._connection:
             row = self._connection.execute(
-                "SELECT is_active FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+                "SELECT is_active FROM model_configs WHERE model_config_id = ?",
+                (model_config_id,),
             ).fetchone()
             if row is None:
                 return "missing"
             if row["is_active"]:
                 return "active"
             self._connection.execute(
-                "DELETE FROM model_configs WHERE model_config_id = ?", (model_config_id,)
+                "DELETE FROM model_configs WHERE model_config_id = ?",
+                (model_config_id,),
             )
         return "deleted"
 
@@ -1209,7 +1302,9 @@ class SQLiteStore:
                 ],
             )
 
-    def document(self, document_id: str, include_deleted: bool = False) -> dict[str, Any] | None:
+    def document(
+        self, document_id: str, include_deleted: bool = False
+    ) -> dict[str, Any] | None:
         query = "SELECT * FROM documents WHERE document_id = ?"
         if not include_deleted:
             query += " AND deleted_at IS NULL"
@@ -1307,7 +1402,8 @@ class SQLiteStore:
                     (document_id,),
                 )
                 self._connection.execute(
-                    "DELETE FROM document_semantic_index WHERE document_id = ?", (document_id,)
+                    "DELETE FROM document_semantic_index WHERE document_id = ?",
+                    (document_id,),
                 )
                 self._record_ingestion_event(document_id, "deleted", None)
             return cursor.rowcount == 1
@@ -1317,7 +1413,12 @@ class SQLiteStore:
             self._connection.execute(
                 "INSERT OR IGNORE INTO embedding_profiles"
                 "(profile_id, definition_json, dimension, created_at) VALUES (?, ?, ?, ?)",
-                (profile.profile_id, profile.canonical_json(), profile.dimension, _utc_now()),
+                (
+                    profile.profile_id,
+                    profile.canonical_json(),
+                    profile.dimension,
+                    _utc_now(),
+                ),
             )
             row = self._connection.execute(
                 "SELECT definition_json, dimension FROM embedding_profiles WHERE profile_id = ?",
@@ -1328,7 +1429,9 @@ class SQLiteStore:
                 or row["definition_json"] != profile.canonical_json()
                 or row["dimension"] != profile.dimension
             ):
-                raise ValueError("Embedding profile identity collision or incompatible definition")
+                raise ValueError(
+                    "Embedding profile identity collision or incompatible definition"
+                )
 
     def semantic_index_state(self, document_id: str, profile_id: str) -> dict[str, Any]:
         with self._lock:
@@ -1338,7 +1441,8 @@ class SQLiteStore:
                 (document_id, profile_id),
             ).fetchone()
             total = self._connection.execute(
-                "SELECT COUNT(*) FROM document_segments WHERE document_id = ?", (document_id,)
+                "SELECT COUNT(*) FROM document_segments WHERE document_id = ?",
+                (document_id,),
             ).fetchone()[0]
         return (
             dict(row)
@@ -1377,7 +1481,11 @@ class SQLiteStore:
     ) -> None:
         if status not in {"missing", "indexing", "ready", "failed"}:
             raise ValueError("Invalid semantic indexing state")
-        if indexed_segments < 0 or total_segments < 0 or indexed_segments > total_segments:
+        if (
+            indexed_segments < 0
+            or total_segments < 0
+            or indexed_segments > total_segments
+        ):
             raise ValueError("Invalid semantic indexing progress")
         with self._lock, self._connection:
             document = self._connection.execute(
@@ -1392,7 +1500,9 @@ class SQLiteStore:
                 or document["deleted_at"] is not None
                 or document["project_deleted_at"] is not None
             ):
-                raise LookupError("Document is not live and ready for semantic indexing")
+                raise LookupError(
+                    "Document is not live and ready for semantic indexing"
+                )
             self._connection.execute(
                 """INSERT INTO document_semantic_index
                    (document_id, profile_id, status, indexed_segments, total_segments,
@@ -1446,8 +1556,13 @@ class SQLiteStore:
                 "SELECT definition_json FROM embedding_profiles WHERE profile_id = ?",
                 (profile.profile_id,),
             ).fetchone()
-            if registered is None or registered["definition_json"] != profile.canonical_json():
-                raise ValueError("Embedding profile is not registered or is incompatible")
+            if (
+                registered is None
+                or registered["definition_json"] != profile.canonical_json()
+            ):
+                raise ValueError(
+                    "Embedding profile is not registered or is incompatible"
+                )
             self._connection.execute(
                 "DELETE FROM segment_embeddings WHERE segment_id = ? AND profile_id = ?",
                 (segment_id, profile.profile_id),
@@ -1455,7 +1570,7 @@ class SQLiteStore:
             self._connection.executemany(
                 """INSERT INTO segment_embeddings
                    (segment_id, profile_id, window_ordinal, dimension, vector_blob,
-                    source_text_digest) VALUES (?, ?, ?, ?, ?, ?)""",
+                    source_text_digest, window_count) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         segment_id,
@@ -1464,45 +1579,116 @@ class SQLiteStore:
                         profile.dimension,
                         blob,
                         source_text_digest,
+                        len(encoded),
                     )
                     for ordinal, blob in enumerate(encoded)
                 ],
             )
 
     def segments_needing_embeddings(
-        self, document_id: str, profile: EmbeddingProfile
+        self,
+        document_id: str,
+        profile: EmbeddingProfile,
+        expected_windows: dict[str, int] | None = None,
     ) -> list[dict[str, Any]]:
         segments = self.document_segments(document_id)
         with self._lock:
             rows = self._connection.execute(
-                """SELECT segment_id, source_text_digest, dimension, vector_blob
+                """SELECT segment_id, window_ordinal, source_text_digest, dimension,
+                          vector_blob, window_count
                    FROM segment_embeddings WHERE profile_id = ? AND segment_id IN
                    (SELECT segment_id FROM document_segments WHERE document_id = ?)""",
                 (profile.profile_id, document_id),
             ).fetchall()
-        valid: set[tuple[str, str]] = set()
+        valid: dict[tuple[str, str], set[int]] = {}
+        counts: dict[tuple[str, str], set[int]] = {}
+        row_counts: dict[str, int] = {}
         for row in rows:
+            segment_id = str(row["segment_id"])
+            row_counts[segment_id] = row_counts.get(segment_id, 0) + 1
+            key = (segment_id, str(row["source_text_digest"]))
+            counts.setdefault(key, set()).add(int(row["window_count"]))
             try:
                 decode_vector(row["vector_blob"], profile.dimension)
             except ValueError:
                 continue
             if row["dimension"] == profile.dimension:
-                valid.add((str(row["segment_id"]), str(row["source_text_digest"])))
-        return [
-            segment
-            for segment in segments
-            if (str(segment["segment_id"]), text_digest(str(segment["text"]))) not in valid
-        ]
+                valid.setdefault(key, set()).add(int(row["window_ordinal"]))
+        missing: list[dict[str, Any]] = []
+        for segment in segments:
+            segment_id = str(segment["segment_id"])
+            key = (segment_id, text_digest(str(segment["text"])))
+            observed_counts = counts.get(key, set())
+            if len(observed_counts) != 1:
+                missing.append(segment)
+                continue
+            expected_count = (expected_windows or {}).get(
+                segment_id, next(iter(observed_counts))
+            )
+            if row_counts.get(segment_id) != expected_count or valid.get(key) != set(
+                range(expected_count)
+            ):
+                missing.append(segment)
+        return missing
 
-    def ready_documents_for_semantic_backfill(self) -> list[dict[str, Any]]:
+    def semantic_backfill_page(
+        self, profile_id: str, limit: int
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Return at most limit live ready documents after the persisted profile cursor.
+
+        An exhausted pass wraps once to the beginning. Each invocation reads one SQL page.
+        """
+        if limit <= 0:
+            raise ValueError("Semantic backfill page limit must be positive")
         with self._lock:
-            rows = self._connection.execute(
-                """SELECT d.* FROM documents d LEFT JOIN projects p ON p.project_id = d.project_id
-                   WHERE d.status = 'ready' AND d.deleted_at IS NULL
-                     AND (d.project_id IS NULL OR p.deleted_at IS NULL)
-                   ORDER BY d.created_at, d.document_id"""
-            ).fetchall()
-        return [dict(row) for row in rows]
+            cursor = self._connection.execute(
+                "SELECT last_created_at, last_document_id FROM semantic_backfill_cursors "
+                "WHERE profile_id = ?",
+                (profile_id,),
+            ).fetchone()
+
+            def page(after: Any | None) -> list[dict[str, Any]]:
+                condition = (
+                    "AND (d.created_at, d.document_id) > (?, ?)"
+                    if after is not None
+                    else ""
+                )
+                parameters: tuple[Any, ...] = (
+                    (after["last_created_at"], after["last_document_id"])
+                    if after is not None
+                    else ()
+                )
+                rows = self._connection.execute(
+                    f"""SELECT d.document_id, d.created_at FROM documents d
+                        LEFT JOIN projects p ON p.project_id = d.project_id
+                        WHERE d.status = 'ready' AND d.deleted_at IS NULL
+                          AND (d.project_id IS NULL OR p.deleted_at IS NULL)
+                          {condition}
+                        ORDER BY d.created_at, d.document_id LIMIT ?""",
+                    (*parameters, limit),
+                ).fetchall()
+                return [dict(row) for row in rows]
+
+            selected = page(cursor)
+            if not selected and cursor is not None:
+                return page(None), True
+            return selected, False
+
+    def advance_semantic_backfill_cursor(
+        self, profile_id: str, created_at: str, document_id: str
+    ) -> None:
+        """Persist progress after each completed inspection, including recoverable failures."""
+        with self._lock, self._connection:
+            self._connection.execute(
+                """INSERT INTO semantic_backfill_cursors
+                   (profile_id, last_created_at, last_document_id, updated_at)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(profile_id) DO UPDATE SET
+                     last_created_at = excluded.last_created_at,
+                     last_document_id = excluded.last_document_id,
+                     updated_at = excluded.updated_at""",
+                (profile_id, created_at, document_id, _utc_now()),
+            )
 
     def visible_embedding_rows(
         self,
@@ -1521,7 +1707,9 @@ class SQLiteStore:
             return []
         selected = tuple(sorted(set(document_ids)))
         document_filter = (
-            "AND s.document_id IN (" + ", ".join("?" for _ in selected) + ")" if selected else ""
+            "AND s.document_id IN (" + ", ".join("?" for _ in selected) + ")"
+            if selected
+            else ""
         )
         with self._lock:
             rows = self._connection.execute(
@@ -1557,7 +1745,9 @@ class SQLiteStore:
             visible.extend(self.visible_project_documents(scope.project_id))
         allowed = {str(row["document_id"]) for row in visible}
         if document_ids and not set(document_ids) <= allowed:
-            raise PermissionError("Requested document is outside the current knowledge scope")
+            raise PermissionError(
+                "Requested document is outside the current knowledge scope"
+            )
         return allowed
 
     def document_ingestion_events(self, document_id: str) -> list[dict[str, Any]]:

@@ -42,3 +42,6 @@ class FakeEmbeddingPort:
     def embed_queries(self, texts: tuple[str, ...]) -> tuple[Vector, ...]:
         self.query_batches.append(texts)
         return tuple(validate_vector(self._queries[text], self.dimension) for text in texts)
+
+    def passage_windows(self, text: str) -> tuple[str, ...]:
+        return (text,)

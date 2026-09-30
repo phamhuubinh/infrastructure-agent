@@ -141,20 +141,27 @@ Parser, embedding, lexical, and vector implementations are replaceable component
 
 A deployment does not need a specific vector database to satisfy the architecture.
 
-### RAG v2 foundation status
+### RAG v2 Phase 3A status
 
 The current production `knowledge.search` still fuses lexical overlap with a deterministic
 token-hash overlap ranker. Token hashing is **not learned semantic retrieval**. Phase 1–2 adds a
 provider-neutral `EmbeddingPort`, immutable model profiles, Orion-owned float32 vector encoding,
 SQLite segment-embedding storage, separate semantic indexing progress, and an offline retrieval
-benchmark. It does not activate dense ranking or install an embedding model.
+benchmark. Phase 3A adds an explicitly provisioned local FastEmbed/ONNX E5 adapter and bounded
+semantic backfill. Production `knowledge.search` still uses exactly the lexical/token-hash path;
+the E5 dense and fused rankers exist only in the offline benchmark and internal semantic service.
 
 `documents.status = ready` retains its existing meaning: parsing, chunking, and segment storage
 completed, so lexical search and exact reading work. Semantic indexing has an independent
 `missing → indexing → ready` path and may enter `failed`; either `missing` or `failed` leaves
 the document available through lexical retrieval in an explicit semantic-degraded mode. A later
-local adapter and explicit model provisioning will activate dense retrieval. Normal startup and
-search must not download model weights or call an external embedding endpoint.
+explicit operator provisioning enables semantic indexing, but does not activate dense production
+retrieval. Normal startup and search never download model weights or call an external embedding
+endpoint.
+
+These are independent states: document `ready` means canonical text can be searched/read; model
+`installed` means verified local weights are present; document semantic `ready` means its current
+segments have current-profile vectors; production semantic ranking is **inactive** in Phase 3A.
 
 An embedding profile identifies its implementation, pinned model revision and digests, precision,
 dimension, pooling, normalization, input prefixes, token limit, and windowing version. Its ID is
