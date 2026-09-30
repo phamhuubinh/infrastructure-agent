@@ -46,6 +46,14 @@ PROFILE = EmbeddingProfile(
 )
 
 
+class LocalEmbeddingUnavailable(RuntimeError):
+    """The operator-provisioned local model cannot be loaded."""
+
+
+class LocalEmbeddingQueryError(RuntimeError):
+    """Local query inference failed without affecting persisted knowledge."""
+
+
 def model_directory() -> Path:
     return data_directory() / "models" / "embeddings" / PROFILE.profile_id
 
@@ -71,10 +79,13 @@ def model_status(directory: Path | None = None) -> str:
         return "corrupt"
     if marker != PROFILE.profile_id:
         return "corrupt"
-    for name, expected in FILES.items():
-        path = root / name
-        if not path.is_file() or _file_digest(path) != expected:
-            return "corrupt"
+    try:
+        for name, expected in FILES.items():
+            path = root / name
+            if not path.is_file() or _file_digest(path) != expected:
+                return "corrupt"
+    except OSError:
+        return "corrupt"
     return "installed"
 
 
@@ -114,7 +125,9 @@ class LocalE5Embeddings:
         root = directory or model_directory()
         status = model_status(root)
         if status != "installed":
-            raise RuntimeError(f"Embedding model {status}; run 'orion model install embeddings'")
+            raise LocalEmbeddingUnavailable(
+                f"Embedding model {status}; run 'orion model install embeddings'"
+            )
         try:
             fastembed = importlib.import_module("fastembed")
             descriptions = importlib.import_module("fastembed.common.model_description")
@@ -141,8 +154,10 @@ class LocalE5Embeddings:
             self._tokenizer: Any = tokenizers.Tokenizer.from_file(str(root / "tokenizer.json"))
             self._tokenizer.no_truncation()
             self._tokenizer.no_padding()
-        except Exception as error:
-            raise RuntimeError(f"Could not load local E5 embedding model: {error}") from error
+        except (ImportError, OSError, RuntimeError, ValueError) as error:
+            raise LocalEmbeddingUnavailable(
+                f"Could not load local E5 embedding model: {error}"
+            ) from error
 
     @property
     def profile(self) -> EmbeddingProfile:
@@ -199,8 +214,8 @@ class LocalE5Embeddings:
             return ()
         try:
             results = tuple(self._model.embed((prefix + text for text in texts), batch_size=16))
-        except Exception as error:
-            raise RuntimeError(f"Local E5 inference failed: {error}") from error
+        except (OSError, RuntimeError) as error:
+            raise LocalEmbeddingQueryError(f"Local E5 inference failed: {error}") from error
         if len(results) != len(texts):
             raise ValueError("Embedding inference returned the wrong vector count")
         vectors: list[Vector] = []

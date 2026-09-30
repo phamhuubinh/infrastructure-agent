@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from conftest import ScriptedBackend
 
+from orion import bootstrap
 from orion.bootstrap import _internet_client_from_environment, build_application
 from orion.contracts import (
     AssistantMessage,
@@ -86,6 +87,42 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
     ]
     assert not hasattr(app.registry, "register")
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.
+
+
+@pytest.mark.parametrize("mode", (None, "off", "hybrid"))
+def test_semantic_composition_is_opt_in_and_lazy(tmp_path, monkeypatch, mode: str | None) -> None:  # type: ignore[no-untyped-def]
+    if mode is None:
+        monkeypatch.delenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", raising=False)
+    else:
+        monkeypatch.setenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", mode)
+    initializations = 0
+
+    def load_model() -> object:
+        nonlocal initializations
+        initializations += 1
+        raise AssertionError("E5 load was attempted")
+
+    monkeypatch.setattr(bootstrap, "LocalE5Embeddings", load_model)
+    app = build_application(tmp_path / "orion.db", ScriptedBackend([]))
+    try:
+        assert initializations == 0
+        session = app.store.create_session()
+        upload = app.knowledge.attach(session, "ready.txt", b"ready knowledge")
+        scope = RuntimeScope(
+            session_id=session,
+            attachment_ids=(upload.attachment_id,),
+            principal_id="local",
+            workspace_id="local",
+        )
+        if mode == "hybrid":
+            with pytest.raises(AssertionError, match="E5 load was attempted"):
+                app.knowledge.search(scope, "ready", 1)
+            assert initializations == 1
+        else:
+            assert app.knowledge.search(scope, "ready", 1)
+            assert initializations == 0
+    finally:
+        app.store.close()
 
 
 @pytest.mark.parametrize("configured", ("not-a-number", "0", "301"))

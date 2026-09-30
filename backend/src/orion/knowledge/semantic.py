@@ -1,4 +1,4 @@
-"""Opt-in dense indexing/search services; production search does not use them yet."""
+"""Explicit dense indexing and scoped search for opt-in production retrieval."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class SemanticIndexingError(RuntimeError):
 
 
 class SemanticIndexService:
-    """Builds and reads one isolated embedding profile without changing KnowledgeService.search."""
+    """Builds and reads one isolated embedding profile."""
 
     def __init__(self, store: SQLiteStore, embeddings: EmbeddingPort) -> None:
         if embeddings.dimension != embeddings.profile.dimension:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from orion.contracts import (
     DocumentRef,
@@ -20,6 +21,7 @@ from orion.knowledge.local import (
     ParagraphChunker,
     TokenHashRepresentation,
 )
+from orion.knowledge.local_embeddings import LocalEmbeddingQueryError, LocalEmbeddingUnavailable
 from orion.knowledge.parsers import CompositeDocumentParser
 from orion.knowledge.ports import (
     Chunker,
@@ -28,9 +30,17 @@ from orion.knowledge.ports import (
     IndexedSegment,
     LexicalIndex,
 )
+from orion.knowledge.ranking import HYBRID_CANDIDATE_DEPTH, fuse_hybrid_ranks
+from orion.knowledge.semantic import SemanticHit
 from orion.persistence.sqlite import SQLiteStore
 
 _READ_WINDOW_MAX_SEGMENTS = 8
+
+
+class SemanticRetriever(Protocol):
+    def search(
+        self, scope: RuntimeScope, query: str, limit: int, document_ids: tuple[str, ...] = ()
+    ) -> tuple[SemanticHit, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -64,6 +74,7 @@ class KnowledgeService:
         chunker: Chunker | None = None,
         lexical_index: LexicalIndex | None = None,
         hash_index: HashOverlapIndex | None = None,
+        semantic_retriever_factory: Callable[[], SemanticRetriever] | None = None,
     ) -> None:
         self._store = store
         self._blobs = blobs
@@ -71,6 +82,8 @@ class KnowledgeService:
         self._chunker = chunker or ParagraphChunker()
         self._lexical_index = lexical_index or LocalLexicalIndex()
         self._hash_index = hash_index or LocalHashOverlapIndex(TokenHashRepresentation())
+        self._semantic_retriever_factory = semantic_retriever_factory
+        self._semantic_retriever: SemanticRetriever | None = None
 
     def attach(
         self, session_id: str, name: str, content: bytes, media_type: str | None = "text/plain"
@@ -208,6 +221,32 @@ class KnowledgeService:
             score_by_segment,
             key=lambda segment_id: (-score_by_segment[segment_id], segment_id),
         )
+        if self._semantic_retriever_factory is not None and by_id:
+            try:
+                retriever = self._semantic_retriever
+                if retriever is None:
+                    retriever = self._semantic_retriever_factory()
+                    self._semantic_retriever = retriever
+                dense = retriever.search(scope, query, HYBRID_CANDIDATE_DEPTH, document_ids)
+            except (LocalEmbeddingUnavailable, LocalEmbeddingQueryError):
+                pass  # Preserve the exact baseline ranking and scores.
+            else:
+                # The production-visible snapshot is authoritative even for an injected retriever.
+                dense_ids = [hit.segment_id for hit in dense if hit.segment_id in by_id]
+                if dense_ids:
+                    exact_filename_ids = {
+                        str(segment["segment_id"])
+                        for segment in segments
+                        if query.casefold().strip()
+                        == str(visible_by_id[str(segment["document_id"])]["name"]).casefold()
+                    }
+                    fused = fuse_hybrid_ranks(
+                        ranked_ids[:HYBRID_CANDIDATE_DEPTH], dense_ids, exact_filename_ids
+                    )
+                    ranked_ids = sorted(
+                        fused, key=lambda segment_id: (-fused[segment_id], segment_id)
+                    )
+                    score_by_segment = fused
         return tuple(
             self._retrieved_segment(by_id[segment_id], visible_by_id, score_by_segment[segment_id])
             for segment_id in ranked_ids[:limit]

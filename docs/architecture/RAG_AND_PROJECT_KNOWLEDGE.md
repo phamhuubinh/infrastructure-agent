@@ -118,7 +118,7 @@ normalize source-location units
  ↓
 chunk with document/page/section metadata
  ↓
-lexical/hash-overlap retrieval (current); persisted dense indexing (future activation)
+lexical/hash-overlap retrieval; optional, explicitly backfilled dense index
  ↓
 ready (or explicit failed state)
 ```
@@ -141,27 +141,37 @@ Parser, embedding, lexical, and vector implementations are replaceable component
 
 A deployment does not need a specific vector database to satisfy the architecture.
 
-### RAG v2 Phase 3A status
+### RAG v2 Phase 3B production retrieval
 
-The current production `knowledge.search` still fuses lexical overlap with a deterministic
+The default production `knowledge.search` fuses lexical overlap with a deterministic
 token-hash overlap ranker. Token hashing is **not learned semantic retrieval**. Phase 1–2 adds a
 provider-neutral `EmbeddingPort`, immutable model profiles, Orion-owned float32 vector encoding,
 SQLite segment-embedding storage, separate semantic indexing progress, and an offline retrieval
 benchmark. Phase 3A adds an explicitly provisioned local FastEmbed/ONNX E5 adapter and bounded
-semantic backfill. Production `knowledge.search` still uses exactly the lexical/token-hash path;
-the E5 dense and fused rankers exist only in the offline benchmark and internal semantic service.
+semantic backfill. Phase 3B adds operator opt-in hybrid ranking to the same model-called
+`knowledge.search`. With `ORION_KNOWLEDGE_SEMANTIC_SEARCH=hybrid`, the service lazily loads the
+local model on the first search with visible segments, obtains up to 50 scoped dense candidates
+from `SemanticIndexService.search`, and fuses their rank with the existing production baseline
+rank. Fusion uses reciprocal rank with `k=60`, a 0.05 score bonus for an exact case-insensitive
+filename match, and canonical segment ID tie-breaking. The requested result limit still applies.
+No model-visible routing or new retrieval service is introduced.
 
 `documents.status = ready` retains its existing meaning: parsing, chunking, and segment storage
 completed, so lexical search and exact reading work. Semantic indexing has an independent
 `missing → indexing → ready` path and may enter `failed`; either `missing` or `failed` leaves
-the document available through lexical retrieval in an explicit semantic-degraded mode. A later
-explicit operator provisioning enables semantic indexing, but does not activate dense production
-retrieval. Normal startup and search never download model weights or call an external embedding
-endpoint.
+the document available through lexical retrieval. A ready document may have no current vectors,
+or only some current vectors. Hybrid mode uses only existing valid current-profile vectors;
+it does not imply complete semantic coverage. Absent or `off` mode retains the exact Phase 3A
+production ranking and scores. A missing/corrupt/unavailable local model, a recoverable query
+inference failure, or no visible dense hits falls back to that same lexical ranking. Unexpected
+persistence, scope, and programming failures propagate. Normal startup and search never download
+model weights, backfill vectors, or call an external embedding endpoint.
 
 These are independent states: document `ready` means canonical text can be searched/read; model
-`installed` means verified local weights are present; document semantic `ready` means its current
-segments have current-profile vectors; production semantic ranking is **inactive** in Phase 3A.
+`installed` means verified local weights are present (otherwise `missing` or `corrupt`); document
+semantic `ready` means its current segments have current-profile vectors (otherwise `missing` or
+`failed`); production mode `off` or `hybrid` controls whether dense ranking is attempted. Model
+memory is incurred only when an enabled search first loads E5, and the loaded service is reused.
 
 An embedding profile identifies its implementation, pinned model revision and digests, precision,
 dimension, pooling, normalization, input prefixes, token limit, and windowing version. Its ID is
@@ -197,21 +207,20 @@ grounded retrieval but is distinct from ranked content search; it should not rep
 
 ## Hybrid retrieval
 
-A possible implementation pipeline is:
+The opt-in Phase 3B production pipeline is:
 
 ```text
-query
- ├── lexical/BM25
- └── dense/vector
+model-called knowledge.search(query)
+ ├── current lexical + token-hash baseline rank
+ └── scoped E5 dense segment rank (at most 50, when available)
         ↓
-fusion
-        ↓
-optional rerank
+Phase 3A RRF fusion (k=60, exact-filename protection)
         ↓
 source-aware results
 ```
 
-This is an implementation option, not a mandatory dependency list.
+There is no reranker in Phase 3B. The lexical baseline remains available whenever semantic
+retrieval is off or unavailable.
 
 GraphRAG, RAPTOR, HyDE, and similar techniques are optional optimizations.
 

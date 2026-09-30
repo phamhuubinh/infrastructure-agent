@@ -173,6 +173,38 @@ def test_stale_vectors_and_lexical_fallback(store: SQLiteStore, tmp_path: Path) 
     assert store.document(upload.document.document_id)["status"] == "ready"
 
 
+def test_production_hybrid_retains_missing_and_failed_documents(
+    store: SQLiteStore, tmp_path: Path
+) -> None:
+    blobs = LocalBlobStore(tmp_path / "blobs")
+    baseline = KnowledgeService(store, blobs)
+    session = store.create_session()
+    indexed = baseline.attach(session, "indexed.txt", b"retention policy indexed")
+    failed = baseline.attach(session, "failed.txt", b"retention policy failed")
+    missing = baseline.attach(session, "missing.txt", b"retention policy missing")
+    runtime_scope = scope(
+        session, indexed.attachment_id, failed.attachment_id, missing.attachment_id
+    )
+    index = SemanticIndexService(
+        store,
+        FakeEmbeddingPort(
+            profile(),
+            passages={"retention policy indexed": (1.0, 0.0)},
+            queries={"retention": (1.0, 0.0)},
+        ),
+    )
+    index.index_document(indexed.document.document_id)
+    store.set_semantic_index_state(
+        failed.document.document_id, profile().profile_id, "failed", 0, 1
+    )
+    hybrid = KnowledgeService(store, blobs, semantic_retriever_factory=lambda: index)
+    assert {hit.document.document_id for hit in hybrid.search(runtime_scope, "retention", 10)} == {
+        indexed.document.document_id,
+        failed.document.document_id,
+        missing.document.document_id,
+    }
+
+
 def test_embedding_windows_reparse_and_explicit_backfill(
     store: SQLiteStore, tmp_path: Path
 ) -> None:

@@ -21,7 +21,9 @@ from orion.integrations import (
 )
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
+from orion.knowledge.local_embeddings import LocalE5Embeddings
 from orion.knowledge.ports import Chunker, DocumentParser
+from orion.knowledge.semantic import SemanticIndexService
 from orion.models.backend import ModelBackend, ModelStreamSettings, ReasoningMode
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.observability import ApplicationLog
@@ -78,6 +80,9 @@ def build_application(
         LocalBlobStore(resolved_path.parent / "blobs"),
         parser=knowledge_parser,
         chunker=knowledge_chunker,
+        semantic_retriever_factory=(lambda: SemanticIndexService(store, LocalE5Embeddings()))
+        if os.getenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", "off") == "hybrid"
+        else None,
     )
     knowledge.reconcile_incomplete()
     projects = ProjectService(store)

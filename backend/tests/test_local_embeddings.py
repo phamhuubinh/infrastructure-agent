@@ -10,6 +10,8 @@ import pytest
 from orion.bootstrap import build_application
 from orion.contracts import RuntimeScope
 from orion.knowledge import local_embeddings as local
+from orion.knowledge.blob_store import LocalBlobStore
+from orion.knowledge.service import KnowledgeService
 
 
 def test_missing_and_corrupt_model_never_provision_at_runtime(
@@ -47,6 +49,35 @@ def test_missing_model_keeps_startup_search_and_read_offline(
         assert application.knowledge.search(scope, "knowledge", 5)
         assert application.knowledge.read(scope, upload.document.document_id).segments
         assert local.model_status() == "missing"
+    finally:
+        application.store.close()
+
+
+@pytest.mark.parametrize("model_state", ("missing", "corrupt"))
+def test_hybrid_missing_or_corrupt_model_falls_back_offline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, model_state: str
+) -> None:
+    monkeypatch.setenv("ORION_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", "hybrid")
+    monkeypatch.setattr(local, "urlopen", lambda *_args, **_kwargs: pytest.fail("network call"))
+    if model_state == "corrupt":
+        local.model_directory().mkdir(parents=True)
+    application = build_application(tmp_path / "orion.db")
+    try:
+        session = application.store.create_session()
+        upload = application.knowledge.attach(session, "offline.txt", b"offline knowledge fact")
+        scope = RuntimeScope(
+            session_id=session,
+            attachment_ids=(upload.attachment_id,),
+            project_id=None,
+            principal_id="local",
+            workspace_id="local",
+        )
+        baseline = KnowledgeService(application.store, LocalBlobStore(tmp_path / "blobs"))
+        assert application.knowledge.search(scope, "knowledge", 5) == baseline.search(
+            scope, "knowledge", 5
+        )
+        assert application.knowledge.read(scope, upload.document.document_id).segments
     finally:
         application.store.close()
 

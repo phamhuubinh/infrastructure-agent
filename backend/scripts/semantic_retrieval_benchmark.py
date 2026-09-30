@@ -15,6 +15,7 @@ from retrieval_quality_benchmark import CORPUS, _metrics, _scope, run_baseline
 
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.local_embeddings import LocalE5Embeddings, model_directory
+from orion.knowledge.ranking import HYBRID_CANDIDATE_DEPTH, fuse_hybrid_ranks
 from orion.knowledge.semantic import SemanticIndexService
 from orion.knowledge.service import KnowledgeService
 from orion.persistence.sqlite import SQLiteStore
@@ -124,6 +125,9 @@ def run_experiment(corpus_path: Path = CORPUS) -> dict[str, Any]:
                 if spec["owner"] in {"session_a", "project_a"} and spec["key"] not in deleted
             }
             index = SemanticIndexService(store, embeddings)
+            production_hybrid = KnowledgeService(
+                store, LocalBlobStore(root / "blobs"), semantic_retriever_factory=lambda: index
+            )
             store._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             before_bytes = database.stat().st_size
             indexing_started = time.perf_counter()
@@ -151,28 +155,32 @@ def run_experiment(corpus_path: Path = CORPUS) -> dict[str, Any]:
             query_latencies: list[float] = []
             for spec in corpus["queries"]:
                 start = time.perf_counter()
-                dense = index.search(scope, spec["query"], 50)
+                dense = index.search(scope, spec["query"], HYBRID_CANDIDATE_DEPTH)
                 query_latencies.append((time.perf_counter() - start) * 1000)
-                lexical = knowledge.search(scope, spec["query"], 50)
+                lexical = knowledge.search(scope, spec["query"], HYBRID_CANDIDATE_DEPTH)
                 dense_ids = [hit.segment_id for hit in dense]
                 lexical_ids = [hit.segment_id for hit in lexical]
-                # RRF over segment ranks, with a small exact filename signal.
-                scores: dict[str, float] = {}
-                for ranked in (dense_ids, lexical_ids):
-                    for rank, segment_id in enumerate(ranked, 1):
-                        scores[segment_id] = scores.get(segment_id, 0.0) + 1 / (60 + rank)
-                for segment_id in scores:
-                    key = document_to_key[segment_to_document[segment_id]]
-                    if spec["query"].casefold().strip() == names[key].casefold():
-                        scores[segment_id] += 0.05
+                exact_filename_ids = {
+                    segment_id
+                    for segment_id in (*dense_ids, *lexical_ids)
+                    if spec["query"].casefold().strip()
+                    == names[document_to_key[segment_to_document[segment_id]]].casefold()
+                }
+                scores = fuse_hybrid_ranks(lexical_ids, dense_ids, exact_filename_ids)
                 fused_ids = sorted(scores, key=lambda item: (-scores[item], item))
+                production_ids = [
+                    hit.segment_id
+                    for hit in production_hybrid.search(scope, spec["query"], HYBRID_CANDIDATE_DEPTH)
+                ]
+                if production_ids != fused_ids[:HYBRID_CANDIDATE_DEPTH]:
+                    raise AssertionError(f"Production hybrid rank differs for {spec['key']}")
                 for target, ids in ((dense_cases, dense_ids), (fusion_cases, fused_ids)):
                     keys = _ranked_documents(ids, segment_to_document, document_to_key)
                     target.append(
                         {
                             "key": spec["key"],
                             "category": spec["category"],
-                            "segment_ids": ids[:50],
+                            "segment_ids": ids[:HYBRID_CANDIDATE_DEPTH],
                             "retrieved": keys,
                             "relevant": list(spec["relevant"]),
                             "first_relevant_rank": min(
@@ -209,6 +217,7 @@ def run_experiment(corpus_path: Path = CORPUS) -> dict[str, Any]:
                     "rrf_60_lexical_dense_filename",
                     set(segment_to_document),
                 ),
+                "production_hybrid_matches_fusion": True,
                 "performance": {
                     "model_cache_bytes": model_bytes,
                     "cold_load_seconds": cold_load_seconds,

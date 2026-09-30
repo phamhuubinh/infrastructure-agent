@@ -7,11 +7,24 @@ separate RAG service. SQLite persists document metadata and normalized segments,
 the local blob directory persists original bytes. On a normal restart Orion reconciles
 non-terminal `uploaded`, `parsing`, or `indexing` records without resurrecting tombstones.
 
-RAG v2 Phase 3A stores embedding profiles, vectors, and per-document semantic progress in SQLite.
-The current production search still combines lexical and token-hash overlap. Dense ranking is
-available only to the explicit benchmark/internal service. Documents stay searchable and readable
-when semantic progress is missing or failed. Startup does not load, download, or index an
-embedding model.
+RAG v2 stores embedding profiles, vectors, and per-document semantic progress in SQLite.
+Production `knowledge.search` defaults to the Phase 3A lexical plus token-hash ranking. Set
+`ORION_KNOWLEDGE_SEMANTIC_SEARCH=hybrid` before starting Orion to opt into hybrid ranking;
+absent or `off` keeps the exact baseline ranking and scores. Other values also leave it off.
+The enabled path obtains up to 50 dense candidates from the existing semantic service and fuses
+their segment ranks with the top 50 baseline ranks using RRF (`k=60`), the Phase 3A exact-filename
+bonus, and segment-ID tie-breaking. It returns no more than the requested limit. No tool-routing
+behavior changes.
+
+Document `ready`, model `installed`/`missing`/`corrupt`, semantic index
+`ready`/`missing`/`failed`, and production mode `off`/`hybrid` are independent states. A ready
+document remains lexically searchable and readable with missing, failed, or partial vectors.
+Hybrid uses only valid current-profile vectors already present; enabling it does not imply full
+semantic coverage. Missing/corrupt/unavailable model files, recoverable query inference failure,
+or no visible dense hits fall back to the exact lexical result. Unexpected SQLite, scope, and
+programming failures propagate. Startup does not load E5, download weights, or backfill vectors.
+The first enabled search with visible segments loads the local E5 model lazily and reuses it after
+success; this incurs the measured roughly 1.1 GiB peak process memory cost at that time.
 
 ## Local semantic model
 
@@ -50,7 +63,7 @@ again to build new vectors. Old profile rows remain isolated until explicitly cl
 Passage windows use the pinned tokenizer without truncation. They reserve special and `passage: `
 prefix tokens within E5's 512-token model limit, overlap 32 source tokens, and have stable
 zero-based ordinals. Empty text gets one empty window. Windows rank independently, but the
-experimental search aggregates by maximum cosine score per original segment and returns that
+semantic search aggregates by maximum cosine score per original segment and returns that
 segment's canonical citation identity. There is no cross-segment windowing.
 
 ## Frozen Phase 3A measurement
@@ -85,7 +98,7 @@ The model cache is 487,352,567 bytes. Cold load was 3.92 s; warm query embedding
 Peak process RSS was 1,179,940 KiB. Backfill of 10 live benchmark documents and 10 windows took
 0.168 s; SQLite grew 20,480 bytes (vectors have 1,536-byte float32 payloads). The small corpus
 does not establish large-library scan cost. Dense-only filename regression and roughly 1.1 GiB
-peak RSS warrant more evaluation before any Phase 3B production activation.
+peak RSS are why Phase 3B production activation is explicit and defaults off.
 Peak RSS is reported when the platform provides the Unix resource counter; it is omitted on Windows.
 These retained timing/storage samples predate the bounded-cursor change; the frozen ranking
 metrics and every first-relevant rank were rerun after it and remained unchanged.

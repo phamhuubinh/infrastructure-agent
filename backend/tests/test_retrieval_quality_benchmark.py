@@ -43,6 +43,7 @@ def test_experimental_semantic_benchmark_matches_frozen_ranking(
     benchmark = importlib.import_module("semantic_retrieval_benchmark")
     frozen = json.loads((root / "benchmarks" / "retrieval_v2_semantic_phase3a.json").read_text())
     measured = benchmark.run_experiment()
+    assert measured["production_hybrid_matches_fusion"] is True
     for ranker in ("baseline", "dense", "fusion"):
         for field in (
             "metrics",
