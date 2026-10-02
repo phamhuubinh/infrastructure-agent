@@ -19,6 +19,7 @@ from orion.embeddings import (
     encode_vector,
     text_digest,
 )
+from orion.persistence.scheduler import SchedulerPersistence
 from orion.tool_runtime.mutation_authorization import MutationMode
 
 MAX_SESSION_SUMMARIES = 100
@@ -40,7 +41,7 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class SQLiteStore:
+class SQLiteStore(SchedulerPersistence):
     """Persistence boundary; rows map to canonical public timeline semantics."""
 
     @classmethod
@@ -226,6 +227,7 @@ class SQLiteStore:
             )
         self._migrate_document_owners_if_needed()
         self._create_embedding_schema()
+        self._create_scheduler_schema()
 
     def _create_embedding_schema(self) -> None:
         """Additive migration: existing segment rows and public identities are untouched."""
@@ -575,6 +577,15 @@ class SQLiteStore:
             ).fetchone()
             if active is not None:
                 raise RuntimeError("active_request")
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM scheduled_runs r JOIN scheduled_tasks t USING(task_id) "
+                    "WHERE t.execution_session_id = ? AND r.status = 'running'",
+                    (session_id,),
+                ).fetchone()
+                is not None
+            ):
+                raise RuntimeError("active_request")
             blob_rows = self._connection.execute(
                 "SELECT blob_id FROM documents WHERE session_id = ?", (session_id,)
             ).fetchall()
@@ -695,6 +706,15 @@ class SQLiteStore:
             ).fetchone()
             if project is None:
                 return None
+            if (
+                self._connection.execute(
+                    "SELECT 1 FROM scheduled_runs r JOIN scheduled_tasks t USING(task_id) "
+                    "WHERE t.project_id = ? AND r.status = 'running'",
+                    (project_id,),
+                ).fetchone()
+                is not None
+            ):
+                raise RuntimeError("active_request")
             session_rows = self._connection.execute(
                 "SELECT session_id FROM sessions WHERE project_id = ?", (project_id,)
             ).fetchall()

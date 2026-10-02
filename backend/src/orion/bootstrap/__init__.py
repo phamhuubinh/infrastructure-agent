@@ -30,6 +30,9 @@ from orion.observability import ApplicationLog
 from orion.paths import database_path as default_database_path
 from orion.persistence.sqlite import SQLiteStore
 from orion.projects import ProjectService
+from orion.scheduler.engine import SchedulerEngine
+from orion.scheduler.service import SchedulerService
+from orion.scheduler.tools import scheduler_registrations
 from orion.tool_runtime.calculator import calculate, calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_registrations
 from orion.tool_runtime.internet import internet_registrations
@@ -52,6 +55,8 @@ class OrionApplication:
     projects: ProjectService
     internet: InternetClient
     runtime: ChatRuntime
+    scheduler: SchedulerService
+    scheduler_engine: SchedulerEngine
 
 
 def build_application(
@@ -107,6 +112,9 @@ def build_application(
         zabbix=zabbix_client,
     ):
         registry_builder.register(registration.definition, registration.handler)
+    scheduler = SchedulerService(store)
+    for registration in scheduler_registrations(scheduler):
+        registry_builder.register(registration.definition, registration.handler)
     registry = registry_builder.freeze()
     store.expire_pending_authorizations()
     try:
@@ -144,6 +152,8 @@ def build_application(
         projects=projects,
         internet=internet,
         runtime=runtime,
+        scheduler=scheduler,
+        scheduler_engine=SchedulerEngine(store, runtime, scheduler),
     )
 
 

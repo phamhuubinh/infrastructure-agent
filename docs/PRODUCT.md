@@ -15,6 +15,7 @@ It provides one conversational surface for:
 - Linux inspection/actions exposed by the installed tool;
 - Grafana queries;
 - Zabbix queries;
+- persisted one-time and recurring read-only executions;
 - future technical integrations.
 
 The user's job is to state the task. The user should not need to choose whether Orion needs RAG, Internet, calculator, Linux, Grafana, or Zabbix.
@@ -102,6 +103,20 @@ Knowledge sources can include:
 - an optional global/local knowledge library if configured.
 
 Project knowledge must remain isolated by project.
+
+## Scheduled tasks
+
+Chat and Project can create, inspect, pause, resume and delete scheduled tasks through
+model-callable scheduler tools. One-time schedules use an aware timestamp; recurring
+schedules use minute-precision cron with an explicit timezone. Task creation and
+management mutations obey the conversation's permissions. Each task has its own
+execution conversation and persisted history linked to ordinary Chat requests.
+
+Scheduled execution is always read-only, even when the task conversation's saved
+permission allows mutations. Project tasks retain their Project knowledge and
+instructions; ordinary conversation attachments are not copied. After downtime,
+one-time tasks run once and recurring tasks coalesce missed occurrences into one
+catch-up run. There is no dedicated Scheduler UI in v1.
 
 ## Current scope priority
 

@@ -46,6 +46,13 @@ jobs:
           node-version: '22.23.2'
           cache: npm
           cache-dependency-path: source checkout with spaces/ui/package-lock.json
+      - name: Check scheduler contracts on native Windows
+        shell: powershell
+        run: |
+          python -m pip install -e "./backend[dev]"
+          if ($LASTEXITCODE -ne 0) { throw 'Backend installation failed' }
+          python -m pytest backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py
+          if ($LASTEXITCODE -ne 0) { throw 'Scheduler and remote route-policy tests failed' }
       - name: Parse native PowerShell scripts
         shell: powershell
         run: ./scripts/windows/installer-check.ps1 -ParseOnly

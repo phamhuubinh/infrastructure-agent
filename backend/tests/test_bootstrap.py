@@ -84,6 +84,13 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
         "knowledge.read",
         "knowledge.search",
         "knowledge.source_metadata",
+        "scheduler.create",
+        "scheduler.delete",
+        "scheduler.get",
+        "scheduler.history",
+        "scheduler.list",
+        "scheduler.pause",
+        "scheduler.resume",
     ]
     assert not hasattr(app.registry, "register")
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.

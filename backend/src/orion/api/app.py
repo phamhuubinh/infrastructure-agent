@@ -6,6 +6,7 @@ import asyncio
 import json
 import mimetypes
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -18,6 +19,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from orion.access import LocalAccessAdapter
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
+from orion.api.scheduler import install_scheduler_routes
 from orion.bootstrap import OrionApplication, build_application
 from orion.chat.runtime import (
     ChatRuntime,
@@ -58,6 +60,13 @@ PUBLIC_API_ROUTES = {
     ("GET", "/api/auth/session"),
 }
 PROTECTED_API_ROUTES = {
+    ("POST", "/api/scheduler/tasks"),
+    ("GET", "/api/scheduler/tasks"),
+    ("GET", "/api/scheduler/tasks/{task_id}"),
+    ("POST", "/api/scheduler/tasks/{task_id}/pause"),
+    ("POST", "/api/scheduler/tasks/{task_id}/resume"),
+    ("DELETE", "/api/scheduler/tasks/{task_id}"),
+    ("GET", "/api/scheduler/tasks/{task_id}/history"),
     ("POST", "/api/auth/logout"),
     ("GET", "/api/models"),
     ("POST", "/api/models"),
@@ -246,7 +255,21 @@ def create_app(
     assembled = application or build_application(database_path, backend)
     store, runtime = assembled.store, assembled.runtime
     max_upload_bytes = document_upload_limit()
-    app = FastAPI(title="Orion", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        assembled.scheduler_engine.start()
+        try:
+            yield
+        finally:
+            await assembled.scheduler_engine.stop()
+
+    app = FastAPI(title="Orion", version="0.1.0", lifespan=lifespan)
+    install_scheduler_routes(
+        app,
+        assembled.scheduler,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+    )
     app.state.application = assembled
     sessions = (
         BrowserSessions(remote.password_hash) if remote.enabled and remote.password_hash else None

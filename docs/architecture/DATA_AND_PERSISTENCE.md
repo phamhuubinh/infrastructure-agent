@@ -68,3 +68,10 @@ Cross-store operations require recovery-safe semantics. A failed index update mu
 ## Local-first durability
 
 Default deployment should persist data on local volumes. Rebuilding containers must not delete user sessions/projects/documents unless the user explicitly removes persistent data.
+
+## Scheduled executions
+
+The canonical SQLite store additively persists `scheduled_tasks` and `scheduled_runs`.
+Each task owns a dedicated ordinary session; run rows reference ordinary requests
+and preserve UTC occurrence identity. See [Scheduler v1](SCHEDULER.md) for exact
+columns, atomic claim, coalescing, crash recovery and deletion semantics.

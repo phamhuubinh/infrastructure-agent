@@ -45,6 +45,7 @@ There is no tool picker in Chat or Project.
 13. `architecture/OBSERVABILITY.md`
 14. `architecture/FAILURE_RECOVERY.md`
 15. `architecture/SECURITY_LOCAL_FIRST.md`
+16. `architecture/SCHEDULER.md`
 
 `CONTRACTS.md` defines the canonical identities shared by the runtime. Other architecture documents should refer to these concepts rather than inventing competing representations.
 

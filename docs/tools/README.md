@@ -15,6 +15,7 @@ Internet
 Linux
 Grafana
 Zabbix
+Scheduler
 ```
 
 The exact callable functions/capabilities should come from tool registration code, not a duplicated hard-coded semantic router.
@@ -44,3 +45,7 @@ Examples:
 ```
 
 Orion dispatches what the model chooses.
+
+Scheduler tools create and manage persisted tasks in the current Chat/Project scope.
+Their unattended executions always use the same Chat runtime in read-only mode.
+See [Scheduler v1](../architecture/SCHEDULER.md) for tool schemas and scheduling rules.

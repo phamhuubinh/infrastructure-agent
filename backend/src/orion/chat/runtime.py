@@ -449,6 +449,7 @@ class ChatRuntime:
         )
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
+        self._scheduled_requests: set[str] = set()
         self._queued_at: dict[str, float] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._pending_authorizations: dict[tuple[str, str], asyncio.Future[bool]] = {}
@@ -463,6 +464,22 @@ class ChatRuntime:
     ) -> RequestOutcome:
         request_id = self.begin(session_id, content, cancellation)
         return await self.run(session_id, request_id)
+
+    def begin_scheduled(self, session_id: str, content: str, request_id: str) -> str:
+        """Adopt an atomically linked request; the caller cannot select a mutation mode."""
+        request = self._store.request(request_id)
+        if (
+            request is None
+            or request["session_id"] != session_id
+            or request["status"] != "queued"
+            or not self._store.is_active_scheduled_request(request_id, session_id)
+        ):
+            raise ValueError("Scheduled request is unavailable.")
+        self._cancellations[request_id] = asyncio.Event()
+        self._pending_content[request_id] = content
+        self._queued_at[request_id] = self._monotonic_clock()
+        self._scheduled_requests.add(request_id)
+        return request_id
 
     def begin(
         self, session_id: str, content: str, cancellation: asyncio.Event | None = None
@@ -523,7 +540,12 @@ class ChatRuntime:
         model_call: ModelToolCall,
         cancellation: asyncio.Event,
     ) -> bool:
-        target_ref = model_call.arguments.get("target_ref")
+        target_ref = (
+            "scheduler"
+            if model_call.tool_name
+            in {"scheduler.create", "scheduler.pause", "scheduler.resume", "scheduler.delete"}
+            else model_call.arguments.get("target_ref")
+        )
         assert isinstance(target_ref, str)
         digest = self._mutation_signature(model_call)[1]
         summary = self._safe_mutation_summary(model_call)
@@ -574,6 +596,10 @@ class ChatRuntime:
             "linux.file.edit": "Sửa file trên máy chủ",
             "linux.service.restart": "Khởi động lại dịch vụ",
             "linux.package.install": "Cài đặt gói",
+            "scheduler.create": "Tạo tác vụ theo lịch",
+            "scheduler.pause": "Tạm dừng tác vụ theo lịch",
+            "scheduler.resume": "Tiếp tục tác vụ theo lịch",
+            "scheduler.delete": "Xóa tác vụ theo lịch",
         }
         summary = {"label": labels.get(call.tool_name, "Thực hiện thao tác thay đổi")}
         # Paths and identifiers are displayed only for specific registered schemas.
@@ -581,6 +607,10 @@ class ChatRuntime:
             "linux.file.edit": "path",
             "linux.service.restart": "service",
             "linux.package.install": "package",
+            "scheduler.create": "schedule_kind",
+            "scheduler.pause": "task_id",
+            "scheduler.resume": "task_id",
+            "scheduler.delete": "task_id",
         }.get(call.tool_name)
         if field and isinstance(call.arguments.get(field), str):
             summary[field] = str(call.arguments[field])[:240]
@@ -638,7 +668,11 @@ class ChatRuntime:
                 scope = self._runtime_scope(session_id)
                 identity = self._store.session_identity(session_id)
                 assert identity is not None
-                mutation_mode = MutationMode(str(identity["mutation_mode"]))
+                mutation_mode = (
+                    MutationMode.READ_ONLY
+                    if request_id in self._scheduled_requests
+                    else MutationMode(str(identity["mutation_mode"]))
+                )
                 blocked_mutations: set[tuple[str, str, str]] = set()
                 recovery_pending = False
                 forced_recovery_decisions_used = 0
@@ -939,9 +973,16 @@ class ChatRuntime:
                                     model_call.call_id,
                                     model_call.tool_name,
                                     "operation_blocked",
-                                    "This conversation is in read-only mode. Mutation operations "
-                                    "are not authorized. The user can change the conversation "
-                                    "permission mode in the Chat UI.",
+                                    (
+                                        "Scheduled executions are read-only. Perform mutations "
+                                        "in an interactive conversation "
+                                        "with appropriate permissions."
+                                        if request_id in self._scheduled_requests
+                                        else "This conversation is in read-only mode. "
+                                        "Mutation operations are not authorized. "
+                                        "The user can change "
+                                        "the conversation permission mode in the Chat UI."
+                                    ),
                                     model_recovery_required=True,
                                 )
                                 self._audit_authorization(
@@ -1364,6 +1405,7 @@ class ChatRuntime:
             self._cancellations.pop(request_id, None)
             self._pending_content.pop(request_id, None)
             self._queued_at.pop(request_id, None)
+            self._scheduled_requests.discard(request_id)
 
     async def _stream_turn(
         self,
@@ -1660,6 +1702,8 @@ class ChatRuntime:
         # Only a configured identity may appear in authorization audit output.
         family = call.tool_name.partition(".")[0]
         target_ref = call.arguments.get("target_ref")
+        if family == "scheduler":
+            payload["target_ref"] = "scheduler"
         if any(
             target_family == family and target == target_ref
             for target_family, target, _ in self._infrastructure_targets

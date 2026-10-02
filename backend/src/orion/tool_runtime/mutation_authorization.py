@@ -91,9 +91,17 @@ class MutationAuthorizationPolicy:
         self, definition: ToolDefinition, arguments: dict[str, object], scope: RuntimeScope
     ) -> bool:
         """Return whether this policy authorizes a validated mutation call."""
-        del scope
         if definition.operation_kind != "mutation":
             return True
+        if definition.name in {
+            "scheduler.create",
+            "scheduler.pause",
+            "scheduler.resume",
+            "scheduler.delete",
+        }:
+            # Local mutations have runtime-owned scope rather than a remote configured target.
+            # A configured infrastructure ceiling still fails closed for this tool family.
+            return self.allowed_pairs is None and bool(scope.principal_id and scope.workspace_id)
         target_ref = arguments.get("target_ref")
         return (
             isinstance(target_ref, str)

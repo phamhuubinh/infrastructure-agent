@@ -93,7 +93,9 @@ establish live model stability or answer quality.
 The **Windows CI / windows-smoke** job runs on `windows-latest` for PRs and
 pushes to `main` affecting backend, UI, installers, smoke helpers, or the relevant
 workflows. It can also be dispatched manually. It does not rerun Linux unit suites
-or change the existing branch-protection requirements.
+or change the existing branch-protection requirements. It additionally runs the
+focused scheduler and Remote Access route-policy tests on native Windows, including
+IANA/DST behavior backed by the packaged `tzdata` dependency.
 
 The job parses the source/release installers with Windows PowerShell, then exercises
 the source installer with real Python 3.12 discovery, venv creation/reuse, `npm.cmd`
@@ -148,3 +150,12 @@ python scripts/release/smoke.py 'C:\Extracted Release With Spaces\orion-<version
 
 Linux/static checks do not establish Windows acceptance. Issue #159 requires a
 successful native GitHub Actions run of these scenarios before it can be closed.
+
+## Scheduler v1 deterministic checks
+
+```bash
+PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py
+```
+
+These tests use injected UTC clocks, wake waiters and the scripted model backend;
+they do not wait on real schedule minutes or call a live external model.
