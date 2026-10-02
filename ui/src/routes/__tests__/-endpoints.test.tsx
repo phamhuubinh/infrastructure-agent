@@ -18,9 +18,32 @@ const device = {
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 describe("Endpoints", () => {
+  it("expires a temporary pairing code without storing it", async () => {
+    vi.useFakeTimers();
+    mocks.json.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith("pairing-tokens")
+          ? { token: "expiring-code", expires_at: Date.now() / 1000 + 2 }
+          : url.endsWith("artifacts")
+            ? { available: false, artifacts: [] }
+            : [device],
+      ),
+    );
+    render(<EndpointsPage />);
+    await act(async () => {
+      fireEvent.click(screen.getByText("Tạo mã ghép nối tạm thời"));
+    });
+    expect(screen.getByText("expiring-code")).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.queryByText("expiring-code")).toBeNull();
+    expect(localStorage.getItem("pairing-token")).toBeNull();
+  });
   it("offers exact-version portable downloads with checksum and a separate endpoint workspace", async () => {
     mocks.json.mockImplementation((url: string) =>
       Promise.resolve(

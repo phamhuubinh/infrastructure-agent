@@ -12,8 +12,14 @@ vi.mock("@tanstack/react-router", async () => {
     await vi.importActual<typeof import("@tanstack/react-router")>("@tanstack/react-router");
   return {
     ...actual,
-    Link: ({ children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
-      <a {...props}>{children}</a>
+    Link: ({
+      children,
+      to,
+      ...props
+    }: AnchorHTMLAttributes<HTMLAnchorElement> & { to?: string }) => (
+      <a href={to} {...props}>
+        {children}
+      </a>
     ),
     useNavigate: () => navigateMock,
     useRouterState: ({
@@ -317,6 +323,9 @@ describe("Project workspace navigation", () => {
 
     await screen.findByText("Existing conversation");
     expect(screen.getAllByText("Trò chuyện")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "Remote Control" }).getAttribute("href")).toBe(
+      "/endpoints",
+    );
     expect(screen.queryByText("Đoạn chat mới")).toBeNull();
     expect(screen.getByText("Gần đây")).toBeTruthy();
     fireEvent.click(screen.getByText("Trò chuyện"));
