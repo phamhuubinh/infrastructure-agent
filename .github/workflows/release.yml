@@ -84,8 +84,8 @@ jobs:
         working-directory: ui
       - name: Backend and architecture checks
         run: |
-          ruff check backend/src backend/tests scripts/release
-          ruff format --check backend/src backend/tests scripts/release
+          ruff check backend/src backend/tests scripts/release scripts/windows
+          ruff format --check backend/src backend/tests scripts/release scripts/windows
           mypy backend/src
           pytest backend/tests
           python backend/scripts/openapi.py
@@ -123,11 +123,18 @@ jobs:
   smoke-windows:
     needs: build
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Parse native PowerShell scripts
+        shell: powershell
+        run: ./scripts/windows/installer-check.ps1 -ParseOnly
+      - name: Check launcher creation and replacement without dependencies
+        shell: powershell
+        run: ./scripts/windows/test-launcher.ps1
       - uses: actions/download-artifact@v4
         with:
           name: orion-release-candidate
@@ -141,6 +148,7 @@ jobs:
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Archive checksum mismatch' }
           Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
           python "$env:GITHUB_WORKSPACE/scripts/release/smoke.py" (Join-Path $env:RUNNER_TEMP $name) windows-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Release Windows smoke failed' }
 
   publish:
     needs: [build, validate, smoke-linux, smoke-windows]
