@@ -76,6 +76,8 @@ class Executor:
                 "version": 1,
                 "platform": "windows" if os.name == "nt" else "linux",
                 "worker_version": __version__,
+                "architecture": platform.machine()[:32],
+                "os_release": platform.release()[:100],
                 "capabilities": sorted(enabled),
                 "geometry": geometry,
             }

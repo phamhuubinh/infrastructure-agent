@@ -18,7 +18,14 @@ def endpoint_registrations(manager: EndpointManager) -> tuple[ToolRegistration, 
             call_id=call.call_id,
             tool_name=call.tool_name,
             status="success",
-            data={"endpoints": manager.list()},
+            data={
+                "endpoints": [
+                    row
+                    for row in manager.list()
+                    if call.runtime_scope.endpoint_id is None
+                    or row["endpoint_id"] == call.runtime_scope.endpoint_id
+                ]
+            },
         )
 
     result.append(

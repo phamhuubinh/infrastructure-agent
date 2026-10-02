@@ -9,5 +9,6 @@
   "desktop_capture": false,
   "desktop_control": false,
   "max_fps": 2,
-  "max_resolution": 1280
+  "max_resolution": 1280,
+  "browser_download_directory": null
 }

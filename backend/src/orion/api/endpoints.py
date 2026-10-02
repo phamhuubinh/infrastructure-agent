@@ -16,12 +16,18 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import Field
 
 from orion.access.remote import COOKIE_NAME, BrowserSessions, RemoteAccessConfig
+from orion.contracts import RuntimeScope
 from orion.endpoints.manager import EndpointError, EndpointManager
 from orion_endpoint.protocol import CHUNK_SIZE, MAX_TRANSFER, OPERATIONS, Capture, Strict
 
 PAIRING_API_ROUTES = {("POST", "/api/endpoints/pair")}
+DEVICE_API_ROUTES = {("POST", "/api/endpoints/{endpoint_id}/end")}
 DEVICE_WS_ROUTES = {("WEBSOCKET", "/api/endpoints/{endpoint_id}/worker")}
 ENDPOINT_OWNER_ROUTES = {
+    ("GET", "/api/endpoints/artifacts"),
+    ("POST", "/api/endpoints/{endpoint_id}/chat"),
+    ("POST", "/api/endpoints/{endpoint_id}/forget"),
+    ("POST", "/api/endpoints/{endpoint_id}/operation"),
     ("POST", "/api/endpoints/pairing-tokens"),
     ("GET", "/api/endpoints"),
     ("GET", "/api/endpoints/{endpoint_id}"),
@@ -40,6 +46,16 @@ ENDPOINT_OWNER_ROUTES = {
 class PairInput(Strict):
     token: str = Field(min_length=32, max_length=128)
     name: str = Field(min_length=1, max_length=120, pattern=r"^[^\x00-\x1f\x7f]+$")
+    temporary: bool = True
+
+
+class Forget(Strict):
+    confirmed: bool
+
+
+class ManualOperation(Strict):
+    operation: str = Field(max_length=64)
+    arguments: dict[str, Any]
 
 
 class Rename(Strict):
@@ -103,6 +119,24 @@ def install_endpoint_routes(
         return row
 
     async def rpc(endpoint_id: str, operation: str, args: dict[str, Any]) -> dict[str, Any]:
+        application = app.state.application
+        public_operation = (
+            "file.write"
+            if operation in {"transfer.begin", "transfer.chunk", "transfer.finish"}
+            else operation
+        )
+        definition = application.registry.definition(f"endpoint.{public_operation}")
+        policy = application.mutation_authorization
+        if definition is not None and policy is not None:
+            principal = application.access.current_principal()
+            scope = RuntimeScope(
+                session_id="manual-endpoint-control",
+                endpoint_id=endpoint_id,
+                principal_id=principal.principal_id,
+                workspace_id=principal.workspace_id,
+            )
+            if not policy.authorizes(definition, {"target_ref": endpoint_id, **args}, scope):
+                raise HTTPException(403, "Server endpoint execution policy denied.")
         try:
             return await manager.dispatch(endpoint_id, operation, args)
         except EndpointError as error:
@@ -151,7 +185,7 @@ def install_endpoint_routes(
             raise HTTPException(403, "Device bootstrap only.")
         try:
             body = PairInput.model_validate_json(await bounded_body(request, 2048))
-            identity = manager.store.pair(body.token, body.name)
+            identity = manager.store.pair(body.token, body.name, temporary=body.temporary)
         except ValueError:
             raise HTTPException(401, "Pairing rejected.") from None
         return Response(
@@ -159,6 +193,74 @@ def install_endpoint_routes(
             media_type="application/json",
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.post("/api/endpoints/{endpoint_id}/end")
+    async def end_device(endpoint_id: str, request: Request) -> dict[str, bool]:
+        available()
+        credential = request.headers.get("authorization", "")
+        if (
+            request.headers.get("origin") is not None
+            or request.url.query
+            or not credential.startswith("Bearer ")
+            or len(credential) > 256
+            or not manager.store.authenticate(endpoint_id, credential[7:])
+        ):
+            raise HTTPException(401, "Device authentication required.")
+        await manager.revoke(endpoint_id)
+        return {"ended": True}
+
+    @app.get("/api/endpoints/artifacts")
+    async def worker_artifacts(request: Request) -> dict[str, Any]:
+        owner(request)
+        from orion.endpoints.artifacts import compatible_artifacts
+
+        return await compatible_artifacts()
+
+    @app.post("/api/endpoints/{endpoint_id}/chat")
+    async def device_chat(endpoint_id: str, request: Request) -> dict[str, Any]:
+        owner(request, True)
+        endpoint(endpoint_id)
+        application = app.state.application
+        principal = application.access.current_principal()
+        session_id = manager.store.device_chat(
+            endpoint_id, principal.principal_id, principal.workspace_id
+        )
+        identity = application.store.session_identity(session_id)
+        return {"session_id": session_id, **identity}
+
+    @app.post("/api/endpoints/{endpoint_id}/forget")
+    async def forget(endpoint_id: str, request: Request) -> dict[str, bool]:
+        owner(request, True)
+        endpoint(endpoint_id)
+        try:
+            body = Forget.model_validate_json(await bounded_body(request, 256))
+            if not body.confirmed:
+                raise ValueError("confirmation_required")
+        except ValueError:
+            raise HTTPException(422, "Explicit confirmation required.") from None
+        await manager.revoke(endpoint_id)
+        try:
+            manager.store.forget(endpoint_id)
+        except RuntimeError:
+            raise HTTPException(
+                409, "Finish or cancel Device Chat requests before forgetting."
+            ) from None
+        return {"forgotten": True}
+
+    @app.post("/api/endpoints/{endpoint_id}/operation")
+    async def manual_operation(endpoint_id: str, request: Request) -> dict[str, Any]:
+        owner(request, True)
+        endpoint(endpoint_id)
+        try:
+            body = ManualOperation.model_validate_json(await bounded_body(request, 65536))
+            # Desktop input requires the separate exclusive control session.
+            if body.operation not in OPERATIONS or body.operation.startswith("desktop."):
+                raise ValueError("invalid_operation")
+            OPERATIONS[body.operation][0].model_validate(body.arguments)
+        except ValueError:
+            raise HTTPException(422, "Invalid endpoint operation.") from None
+        manager.store.audit(endpoint_id, "manual_operation")
+        return await rpc(endpoint_id, body.operation, body.arguments)
 
     @app.websocket("/api/endpoints/{endpoint_id}/worker")
     async def worker(socket: WebSocket, endpoint_id: str) -> None:

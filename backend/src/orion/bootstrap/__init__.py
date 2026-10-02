@@ -66,6 +66,7 @@ class OrionApplication:
     endpoints: EndpointManager
     endpoint_enabled: bool = False
     mcp: MCPManager | None = None
+    mutation_authorization: MutationAuthorizationPolicy | None = None
 
 
 def build_application(
@@ -170,6 +171,9 @@ def build_application(
             blocked_tool_operation_kinds,
             diagnostic_sink,
             mutation_authorization=authorization,
+            endpoint_summary=lambda target: next(
+                (row for row in endpoints.list() if row["endpoint_id"] == target), None
+            ),
         )
         return OrionApplication(
             store=store,
@@ -184,6 +188,7 @@ def build_application(
             scheduler_engine=SchedulerEngine(store, runtime, scheduler),
             endpoints=endpoints,
             endpoint_enabled=enabled,
+            mutation_authorization=authorization,
             mcp=mcp_manager,
         )
     except BaseException:

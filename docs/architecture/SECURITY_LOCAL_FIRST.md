@@ -96,3 +96,15 @@ server ceiling; its absence adds no restriction. See ADR 0014.
 See [endpoint runtime and threat model](ENDPOINTS.md) and
 [ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
 transport, identity persistence, fixed tool family and independent policy ceiling.
+
+Remote Endpoint v1's primary mode is a zero-install **Remote Control** portable
+worker with temporary in-memory credentials, foreground Disconnect/Exit and
+explicit remembered mode. Its endpoint workspace contains Device Chat, Desktop,
+Files, Processes, Browser and Connection. Device Chat uses the same canonical
+ChatRuntime with persisted server-owned endpoint binding, separate history/mutation
+mode and no Project/attachments. Cross-device endpoint calls are rejected.
+Portable platform artifacts carry version/source SHA/checksums; source builds
+without compatible release metadata show unavailable. Confirmed End & forget
+removes endpoint-owned metadata/history under existing active-request safeguards.
+See the endpoint operations/architecture reference for platform prerequisites,
+cleanup/expiry, download integrity and native artifact smoke coverage.

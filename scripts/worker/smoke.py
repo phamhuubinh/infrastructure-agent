@@ -163,7 +163,14 @@ def smoke(root: Path) -> None:
             assert not manager.configured(target)
         finally:
             if worker is not None:
-                worker.terminate()
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(worker.pid), "/T", "/F"],
+                        capture_output=True,
+                        check=False,
+                    )
+                else:
+                    worker.terminate()
                 try:
                     worker.wait(timeout=10)
                 except subprocess.TimeoutExpired:

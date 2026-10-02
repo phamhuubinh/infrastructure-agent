@@ -25,6 +25,7 @@ class Policy(Strict):
     clipboard_read: bool = False
     clipboard_write: bool = False
     browser: bool = False
+    browser_download_directory: str | None = Field(default=None, max_length=2048)
     desktop_capture: bool = False
     desktop_control: bool = False
     max_fps: int = Field(default=2, ge=1, le=5)

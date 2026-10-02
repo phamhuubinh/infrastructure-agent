@@ -51,11 +51,12 @@ jobs:
           cache: npm
           cache-dependency-path: source checkout with spaces/ui/package-lock.json
       - name: Check scheduler and MCP contracts on native Windows
+        timeout-minutes: 10
         shell: powershell
         run: |
           python -m pip install -e "./backend[dev]"
           if ($LASTEXITCODE -ne 0) { throw 'Backend installation failed' }
-          python -m pytest backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py backend/tests/test_mcp.py backend/tests/test_endpoints.py
+          python -m pytest -vv -o faulthandler_timeout=120 backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py backend/tests/test_mcp.py backend/tests/test_endpoints.py backend/tests/test_device_chat.py
           if ($LASTEXITCODE -ne 0) { throw 'Scheduler, MCP and remote route-policy tests failed' }
       - name: Parse native PowerShell scripts
         shell: powershell
@@ -129,3 +130,16 @@ jobs:
           $bundle = (Get-ChildItem "$work/extracted" -Directory).FullName
           python scripts/worker/smoke.py "$bundle"
           if ($LASTEXITCODE -ne 0) { throw 'Windows worker smoke failed' }
+      - name: Build and smoke zero-install portable Windows worker
+        shell: powershell
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'portable worker candidate'
+          $releaseSource = Join-Path $env:GITHUB_WORKSPACE 'release source checkout'
+          python "$releaseSource/scripts/worker/portable.py" --repository "$releaseSource" --output "$work/artifacts"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Windows build failed' }
+          $archive = (Get-ChildItem "$work/artifacts/OrionRemote-*-windows-x64.zip").FullName
+          Expand-Archive -LiteralPath $archive -DestinationPath "$work/extracted"
+          $bundle = (Get-ChildItem "$work/extracted" -Directory).FullName
+          $env:ORION_PORTABLE_BROWSER_TESTS = '1'
+          python scripts/worker/portable_smoke.py "$bundle"
+          if ($LASTEXITCODE -ne 0) { throw 'Portable Windows smoke failed' }

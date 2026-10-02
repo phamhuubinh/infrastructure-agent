@@ -48,9 +48,11 @@ def test_route_policy_inventory_is_exact(tmp_path) -> None:  # type: ignore[no-u
         for method in route.methods
     }
     assert PUBLIC_API_ROUTES.isdisjoint(PROTECTED_API_ROUTES)
-    from orion.api.endpoints import PAIRING_API_ROUTES
+    from orion.api.endpoints import DEVICE_API_ROUTES, PAIRING_API_ROUTES
 
-    assert actual == PUBLIC_API_ROUTES | PROTECTED_API_ROUTES | PAIRING_API_ROUTES
+    assert (
+        actual == PUBLIC_API_ROUTES | PROTECTED_API_ROUTES | PAIRING_API_ROUTES | DEVICE_API_ROUTES
+    )
 
 
 def test_default_bind_and_fail_closed_configuration(monkeypatch: pytest.MonkeyPatch) -> None:

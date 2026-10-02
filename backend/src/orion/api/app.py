@@ -20,6 +20,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from orion.access import LocalAccessAdapter
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
 from orion.api.endpoints import (
+    DEVICE_API_ROUTES,
     ENDPOINT_OWNER_ROUTES,
     PAIRING_API_ROUTES,
     install_endpoint_routes,
@@ -149,22 +150,23 @@ class RemoteAccessMiddleware:
                 message["headers"] = headers
             await send(message)
 
-        if (
-            (method, path) not in PAIRING_API_ROUTES
-            and method not in {"GET", "HEAD", "OPTIONS"}
-            and request.headers.get("origin") != self._public_origin
-        ):
-            await Response(status_code=403)(scope, receive, send_remote)
-            return
+        classification = None
         if path.startswith("/api/"):
-            classification = None
             for route in self._routes_app.routes:
                 if isinstance(route, APIRoute) and route.path.startswith("/api/"):
                     match, _ = route.matches(scope)
                     if match == Match.FULL:
                         classification = (method, route.path)
                         break
-            if classification not in PUBLIC_API_ROUTES | PAIRING_API_ROUTES:
+        if (
+            classification not in PAIRING_API_ROUTES | DEVICE_API_ROUTES
+            and method not in {"GET", "HEAD", "OPTIONS"}
+            and request.headers.get("origin") != self._public_origin
+        ):
+            await Response(status_code=403)(scope, receive, send_remote)
+            return
+        if path.startswith("/api/"):
+            if classification not in PUBLIC_API_ROUTES | PAIRING_API_ROUTES | DEVICE_API_ROUTES:
                 if classification not in PROTECTED_API_ROUTES:
                     await Response(status_code=404)(scope, receive, send_remote)
                     return
@@ -203,6 +205,8 @@ class SubmitMessage(StrictRequest):
 class SessionView(BaseModel):
     session_id: str
     project_id: str | None = None
+    surface_kind: str = "chat"
+    endpoint_id: str | None = None
     custom_title: str | None = None
     mutation_mode: MutationMode = MutationMode.READ_ONLY
 
@@ -486,6 +490,8 @@ def _install_application_routes(
         return SessionView(
             session_id=session_id,
             project_id=identity["project_id"],
+            surface_kind=str(identity["surface_kind"]),
+            endpoint_id=identity["endpoint_id"],
             custom_title=identity["custom_title"],
             mutation_mode=MutationMode(str(identity["mutation_mode"])),
         )
@@ -506,6 +512,8 @@ def _install_application_routes(
             project_id=identity["project_id"],
             custom_title=identity["custom_title"],
             mutation_mode=update.mutation_mode,
+            surface_kind=str(identity["surface_kind"]),
+            endpoint_id=identity["endpoint_id"],
         )
 
     @app.patch("/api/sessions/{session_id}", response_model=SessionTitleView)
@@ -522,11 +530,15 @@ def _install_application_routes(
             custom_title=title,
             mutation_mode=MutationMode(str(identity["mutation_mode"])),
             title=title,
+            surface_kind=str(identity["surface_kind"]),
+            endpoint_id=identity["endpoint_id"],
         )
 
     @app.delete("/api/sessions/{session_id}", status_code=204)
     async def delete_session(session_id: str) -> Response:
-        _require_session(store, assembled.access, session_id)
+        identity = _require_session(store, assembled.access, session_id)
+        if identity["endpoint_id"] is not None:
+            raise HTTPException(409, "Use confirmed End & forget for Device Chat.")
         try:
             blob_ids = store.delete_session(session_id)
         except RuntimeError as error:
@@ -600,7 +612,7 @@ def _install_application_routes(
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Project not found.") from error
-        return SessionView(session_id=session_id, project_id=project_id)
+        return SessionView(session_id=session_id, project_id=project_id, surface_kind="project")
 
     @app.post(
         "/api/projects/{project_id}/documents", response_model=AttachmentView, status_code=201
@@ -659,7 +671,9 @@ def _install_application_routes(
     async def attach_document(
         session_id: str, file: Annotated[UploadFile, File()]
     ) -> AttachmentView:
-        _require_session(store, assembled.access, session_id)
+        identity = _require_session(store, assembled.access, session_id)
+        if identity["endpoint_id"] is not None:
+            raise HTTPException(409, "Device Chat does not accept attachments.")
         name, content, media_type = await _read_document_upload(file, max_upload_bytes)
         uploaded = assembled.knowledge.attach(session_id, name, content, media_type)
         return AttachmentView(
@@ -874,7 +888,8 @@ def _session_scope(store: SQLiteStore, access: LocalAccessAdapter, session_id: s
     return RuntimeScope(
         session_id=session_id,
         project_id=identity["project_id"],
-        attachment_ids=store.session_attachment_ids(session_id),
+        endpoint_id=identity["endpoint_id"],
+        attachment_ids=() if identity["endpoint_id"] else store.session_attachment_ids(session_id),
         principal_id=principal.principal_id,
         workspace_id=principal.workspace_id,
     )

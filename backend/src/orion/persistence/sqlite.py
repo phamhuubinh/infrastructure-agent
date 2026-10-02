@@ -201,6 +201,19 @@ class SQLiteStore(SchedulerPersistence):
                 )
             if "project_id" not in columns:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN project_id TEXT")
+            if "surface_kind" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN surface_kind TEXT NOT NULL DEFAULT 'chat'"
+                )
+                self._connection.execute(
+                    "UPDATE sessions SET surface_kind = 'project' WHERE project_id IS NOT NULL"
+                )
+            if "endpoint_id" not in columns:
+                self._connection.execute("ALTER TABLE sessions ADD COLUMN endpoint_id TEXT")
+            self._connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS device_chat_endpoint ON sessions(endpoint_id) "
+                "WHERE surface_kind = 'device'"
+            )
             if "custom_title" not in columns:
                 self._connection.execute("ALTER TABLE sessions ADD COLUMN custom_title TEXT")
             if "mutation_mode" not in columns:
@@ -388,16 +401,27 @@ class SQLiteStore(SchedulerPersistence):
         principal_id: str = "local",
         workspace_id: str = "local",
         project_id: str | None = None,
+        endpoint_id: str | None = None,
     ) -> str:
+        if endpoint_id is not None and project_id is not None:
+            raise ValueError("Device Chat cannot have Project scope")
         if project_id is not None and self.project(project_id) is None:
             raise KeyError(project_id)
         session_id = str(uuid.uuid4())
         with self._lock, self._connection:
             self._connection.execute(
                 "INSERT INTO sessions(session_id, principal_id, workspace_id, project_id, "
-                "created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (session_id, principal_id, workspace_id, project_id, _utc_now()),
+                "created_at, surface_kind, endpoint_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    principal_id,
+                    workspace_id,
+                    project_id,
+                    _utc_now(),
+                    "device" if endpoint_id else "project" if project_id else "chat",
+                    endpoint_id,
+                ),
             )
         return session_id
 
@@ -413,7 +437,8 @@ class SQLiteStore(SchedulerPersistence):
     def session_identity(self, session_id: str) -> dict[str, str | None] | None:
         with self._lock:
             row = self._connection.execute(
-                "SELECT principal_id, workspace_id, project_id, custom_title, mutation_mode "
+                "SELECT principal_id, workspace_id, project_id, custom_title, mutation_mode, "
+                "surface_kind, endpoint_id "
                 "FROM sessions "
                 "WHERE session_id = ?",
                 (session_id,),
@@ -429,12 +454,13 @@ class SQLiteStore(SchedulerPersistence):
             rows = self._connection.execute(
                 """
                 SELECT sessions.session_id, sessions.project_id, sessions.custom_title,
-                       sessions.mutation_mode,
+                       sessions.mutation_mode, sessions.surface_kind, sessions.endpoint_id,
                        sessions.created_at,
                        COALESCE(MAX(timeline.created_at), sessions.created_at) AS last_activity_at
                 FROM sessions
                 LEFT JOIN timeline ON timeline.session_id = sessions.session_id
                 WHERE sessions.principal_id = ? AND sessions.workspace_id = ?
+                  AND sessions.endpoint_id IS NULL
                 GROUP BY sessions.session_id
                 ORDER BY last_activity_at DESC, sessions.session_id DESC
                 LIMIT ?
@@ -464,6 +490,8 @@ class SQLiteStore(SchedulerPersistence):
                         "project_id": row["project_id"],
                         "custom_title": row["custom_title"],
                         "mutation_mode": str(row["mutation_mode"]),
+                        "surface_kind": str(row["surface_kind"]),
+                        "endpoint_id": row["endpoint_id"],
                         "title": title,
                         "created_at": str(row["created_at"]),
                         "last_activity_at": str(row["last_activity_at"]),

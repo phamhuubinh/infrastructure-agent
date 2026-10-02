@@ -22,7 +22,8 @@ unbounded frames. Disconnect drops RPC state and manual controllers; reconnect
 accepts only new requests. No automatic retry of any dispatched operation.
 
 SQLite tables are additive: `endpoint_identities` (opaque ID, name, digest,
-created/paired/last-seen/revoked times, platform/version/capabilities, safe category),
+created/paired/last-seen/revoked times, platform/version/architecture/OS/capabilities,
+temporary flag/expiry, safe category),
 `endpoint_pairing_tokens` (digest/expiry/created/consumed) and `endpoint_audit`
 (payload-free bounded lifecycle history). Active sockets, futures, browser handles,
 transfer staging and desktop sessions are process-local. Restart does not infer
@@ -35,7 +36,7 @@ and conditional consume; ten failures/minute and at most sixteen token records,
 | Stolen pairing token | Five-minute expiry, one-use atomic consume, owner-issued and bounded; revoke unexpected enrollment. |
 | Stolen device credential | TLS, protected local storage, digest-only server persistence, exact endpoint binding; explicit revoke closes/rejects reconnect. |
 | Compromised worker | Closed protocol, fixed capabilities, bounded untrusted result data; no registry/model/scope authority accepted. Observations may still be false. |
-| Malicious webpage | Isolated profile and untrusted snapshots; no JS RPC, normal mutation authorization, downloads denied and popups bounded. |
+| Malicious webpage | Isolated profile and untrusted snapshots; no JS RPC, normal mutation authorization, downloads require a controlled policy directory and bounded size/count; popups bounded. |
 | Traversal/symlink escape | Absolute canonical root ceiling; traversal/ADS/device namespaces denied, final publication revalidated. Protect roots/config against other local writers. |
 | Replayed mutation | Random correlation, worker connection replay window; single execution, no automatic mutation retries. |
 | Disconnect after mutation | `outcome_unknown` retained through ToolResult/runtime; reconnect never claims success or repeats work. |
@@ -56,3 +57,22 @@ examples. Manual uploads stage at the endpoint; browser/server/model memory neve
 buffers an unbounded file. Chunk ordering/offset/size is checked and final publish
 uses atomic replace or no-overwrite link; failed/cancelled staging is cleaned on
 abort/disconnect, with bounded stale-stage cleanup before subsequent transfers.
+
+Device Chat adds `surface_kind` and `endpoint_id` to existing sessions, with one
+unique device session per endpoint. Ordinary session discovery excludes device
+sessions; API attachment ingestion and generic session deletion reject them.
+Endpoint-bound RuntimeScope and ToolRunner enforce every endpoint read/mutation
+target before dispatch; endpoint.list is filtered to that binding. The same
+ChatRuntime, model, timeline and exact-call authorization run these sessions.
+Temporary identities have a renewable two-minute credential lease, explicit device
+End route, restart invalidation and confirmed owner End & forget. Remembered
+identities use durable protected credentials. Portable Exit removes session files;
+no OS or security telemetry is touched. Exact-version portable metadata is fetched
+from the fixed project release origin, schema/size bounded and source-SHA matched
+against the installed server manifest. Unmatched/dev builds show unavailable.
+Scheduled executions created in Device Chat retain the server-owned endpoint binding
+in their dedicated execution session, remain hidden from ordinary Chat discovery,
+and retain scheduler forced-read-only execution. End & forget preflights all bound
+sessions before deletion and rejects active requests/runs without partial history deletion.
+Direct owner operations/transfers also obey the configured server mutation ceiling;
+desktop input additionally requires its exclusive manual control session.

@@ -79,3 +79,15 @@ Enable `ORION_ENDPOINTS=1`, create a token in Thiết bị, install the matching
 run configure, pair (interactive token prompt), then run. Ask Chat: “List endpoints
 and inspect the system on Lab Linux.” Enable only the local roots/capabilities
 needed; see [endpoint quickstart](operations/ENDPOINTS.md).
+
+Remote Endpoint v1's primary mode is a zero-install **Remote Control** portable
+worker with temporary in-memory credentials, foreground Disconnect/Exit and
+explicit remembered mode. Its endpoint workspace contains Device Chat, Desktop,
+Files, Processes, Browser and Connection. Device Chat uses the same canonical
+ChatRuntime with persisted server-owned endpoint binding, separate history/mutation
+mode and no Project/attachments. Cross-device endpoint calls are rejected.
+Portable platform artifacts carry version/source SHA/checksums; source builds
+without compatible release metadata show unavailable. Confirmed End & forget
+removes endpoint-owned metadata/history under existing active-request safeguards.
+See the endpoint operations/architecture reference for platform prerequisites,
+cleanup/expiry, download integrity and native artifact smoke coverage.

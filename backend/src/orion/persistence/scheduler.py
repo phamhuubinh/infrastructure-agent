@@ -82,10 +82,14 @@ class SchedulerPersistence:
         with self._lock, self._connection:
             self._connection.execute("BEGIN IMMEDIATE")
             identity = self._connection.execute(
-                "SELECT principal_id, workspace_id, project_id FROM sessions WHERE session_id = ?",
+                "SELECT principal_id, workspace_id, project_id, endpoint_id FROM sessions "
+                "WHERE session_id = ?",
                 (scope.session_id,),
             ).fetchone()
-            if identity is None or tuple(identity) != self._scheduler_owner(scope):
+            if identity is None or tuple(identity) != (
+                *self._scheduler_owner(scope),
+                scope.endpoint_id,
+            ):
                 raise KeyError("scope")
             if (
                 scope.project_id is not None
@@ -98,8 +102,18 @@ class SchedulerPersistence:
                 raise KeyError("scope")
             self._connection.execute(
                 "INSERT INTO sessions(session_id, principal_id, workspace_id, project_id, "
-                "created_at) VALUES (?, ?, ?, ?, ?)",
-                (session_id, *self._scheduler_owner(scope), timestamp),
+                "created_at, surface_kind, endpoint_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    *self._scheduler_owner(scope),
+                    timestamp,
+                    "device_task"
+                    if scope.endpoint_id
+                    else "project"
+                    if scope.project_id
+                    else "chat",
+                    scope.endpoint_id,
+                ),
             )
             self._connection.execute(
                 "INSERT INTO scheduled_tasks(task_id, principal_id, workspace_id, project_id, "

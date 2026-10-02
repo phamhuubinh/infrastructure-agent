@@ -188,6 +188,8 @@ class Hello(Strict):
     version: Literal[1] = VERSION
     platform: Literal["windows", "linux"]
     worker_version: str = Field(min_length=1, max_length=32)
+    architecture: str = Field(default="unknown", max_length=32, pattern=r"^[A-Za-z0-9_-]+$")
+    os_release: str = Field(default="unknown", max_length=100, pattern=r"^[^\x00-\x1f\x7f]+$")
     capabilities: list[str] = Field(max_length=32)
     geometry: list[Geometry] = Field(default_factory=list, max_length=16)
 

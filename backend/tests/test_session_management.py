@@ -50,6 +50,8 @@ async def test_session_title_is_migrated_persisted_and_scope_safe(tmp_path) -> N
         "custom_title": "Tiêu đề dự án",
         "mutation_mode": "read_only",
         "title": "Tiêu đề dự án",
+        "surface_kind": "project",
+        "endpoint_id": None,
     }
     assert (
         next(item for item in listed.json() if item["session_id"] == project_session)["title"]

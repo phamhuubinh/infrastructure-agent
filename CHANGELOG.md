@@ -4,6 +4,8 @@
 
 - Paired Windows/Linux model-free worker, isolated browser automation and authenticated Remote Desktop.
 - Lightweight worker artifacts with native Linux/Windows CI and release smoke coverage.
+- Zero-install portable Windows/Linux binaries, temporary in-memory credentials and explicit remembered mode.
+- Remote Control downloads with exact-build checksums and endpoint-bound Device Chat on the canonical runtime.
 
 ## Unreleased — Local-first Chat + Project architecture
 

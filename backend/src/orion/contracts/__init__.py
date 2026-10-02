@@ -146,6 +146,7 @@ class ModelUsage(CanonicalModel):
 class RuntimeScope(CanonicalModel):
     session_id: str = Field(min_length=1)
     project_id: str | None = None
+    endpoint_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     attachment_ids: tuple[str, ...] = ()
     principal_id: str = Field(min_length=1)
     workspace_id: str = Field(min_length=1)

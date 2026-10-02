@@ -16,7 +16,8 @@ nor publish registry definitions or prompts. Endpoint results are untrusted data
 
 An owner issues a random five-minute one-use pairing token. SQLite retains only
 SHA-256 digests, atomically consumes the token and issues a random per-device
-credential once. The worker retains that credential in protected local state.
+credential once. Portable temporary mode retains the credential only in memory and ends/expires
+it on Exit. Explicit remembered mode retains it in protected local state.
 Browser cookies and device credentials authenticate separate routes. TLS is
 required outside explicit loopback development. Re-pairing requires owner action;
 revocation invalidates reconnect and closes the current channel.
@@ -37,7 +38,7 @@ controller, monotonic input sequence and payload-free lifecycle audit. Stale
 queued desktop events are rejected; disconnect invalidates control sessions.
 
 Browser automation uses one isolated Playwright Chromium context, never the user's
-profile. Provisioning is explicit. Downloads are denied in v1. Windows desktop
+profile. Provisioning is explicit. Downloads require an explicit worker-controlled writable directory and are bounded. Windows desktop
 capture/input uses MSS and pynput's native APIs with secure-desktop denial. Linux
 supports X11; Wayland/headless environments fail closed. No UAC/portal privilege
 bypass is added. Frames are bounded JPEGs and are never persisted by transport.
@@ -47,9 +48,17 @@ in memory; no URL or browser storage carries them.
 
 ## Consequences
 
-Workers need Python 3.12+ and executor dependencies, but no Orion server, model,
-embeddings, UI or npm. A separate wheel and two install archives share Orion's
-version/source SHA. Full server releases remain independently installable. Local
+Primary workers are unobfuscated PyInstaller onedir executables with bundled
+Python/executor libraries, requiring no Python/pip/Node/npm installation. Linux
+portable releases target glibc 2.35+. A separate Python wheel/install archive is
+secondary. All platform artifacts share Orion's version/source SHA. Device Chat
+uses persisted sessions.surface_kind=device plus one endpoint_id; the canonical
+RuntimeScope carries that server-owned binding and ToolRunner rejects cross-device
+endpoint targets before authorization. Device Chat has no Project/documents/ordinary
+Chat history and retains its independent mutation mode. Temporary identity expiry,
+confirmed End & forget and exact-version trusted artifact discovery are part of
+this decision. Foreground Exit removes only worker-owned temporary state, never OS
+or security history. Full server releases remain independently installable. Local
 policy is not an OS sandbox: an owner must protect worker configuration and roots
 from other local writers. A compromised paired worker may falsify observations;
 server policy can limit operations but cannot make a compromised host trustworthy.

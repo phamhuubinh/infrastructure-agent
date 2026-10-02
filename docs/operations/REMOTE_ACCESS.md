@@ -75,3 +75,15 @@ file transfer and desktop lifecycle APIs; pairing-token-authenticated
 browser cookies as authority. Pair bootstrap denies browser Origin; worker denies
 Origin/query credentials. Owner mutations retain exact Origin. See
 [endpoint threat model](../architecture/ENDPOINTS.md).
+
+Remote Endpoint v1's primary mode is a zero-install **Remote Control** portable
+worker with temporary in-memory credentials, foreground Disconnect/Exit and
+explicit remembered mode. Its endpoint workspace contains Device Chat, Desktop,
+Files, Processes, Browser and Connection. Device Chat uses the same canonical
+ChatRuntime with persisted server-owned endpoint binding, separate history/mutation
+mode and no Project/attachments. Cross-device endpoint calls are rejected.
+Portable platform artifacts carry version/source SHA/checksums; source builds
+without compatible release metadata show unavailable. Confirmed End & forget
+removes endpoint-owned metadata/history under existing active-request safeguards.
+See the endpoint operations/architecture reference for platform prerequisites,
+cleanup/expiry, download integrity and native artifact smoke coverage.

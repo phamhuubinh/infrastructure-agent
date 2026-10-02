@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 from orion.access import LocalAccessAdapter
 from orion.chat.citation_aliases import (
@@ -426,6 +426,7 @@ class ChatRuntime:
         monotonic_clock: Callable[[], float] = time.monotonic,
         deadline_sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         mutation_authorization: MutationAuthorizationPolicy | None = None,
+        endpoint_summary: Callable[[str], dict[str, Any] | None] | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
@@ -433,7 +434,7 @@ class ChatRuntime:
         self._access = access
         self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
         self._infrastructure_targets = infrastructure_targets
-        self._context_builder = ContextBuilder(store, infrastructure_targets)
+        self._context_builder = ContextBuilder(store, infrastructure_targets, endpoint_summary)
         self._application_log = application_log
         self._diagnostic_sink = diagnostic_sink
         self._request_budget_settings = (
@@ -1596,7 +1597,10 @@ class ChatRuntime:
         return RuntimeScope(
             session_id=session_id,
             project_id=identity["project_id"],
-            attachment_ids=self._store.session_attachment_ids(session_id),
+            endpoint_id=identity["endpoint_id"],
+            attachment_ids=()
+            if identity["endpoint_id"]
+            else self._store.session_attachment_ids(session_id),
             principal_id=principal.principal_id,
             workspace_id=principal.workspace_id,
         )

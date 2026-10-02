@@ -64,6 +64,7 @@ class EndpointManager:
         self.connections: dict[str, Connection] = {}
         self.controllers: dict[str, str] = {}
         self.views: dict[str, dict[str, Any]] = {}
+        self.observations: dict[str, tuple[float, dict[str, int]]] = {}
         self.closed = False
 
     def list(self) -> list[dict[str, Any]]:
@@ -71,6 +72,10 @@ class EndpointManager:
             {
                 **row,
                 "target_ref": row["endpoint_id"],
+                "system_summary": self.observations[row["endpoint_id"]][1]
+                if row["endpoint_id"] in self.observations
+                and self.clock() - self.observations[row["endpoint_id"]][0] < 300
+                else None,
                 "online": row["endpoint_id"] in self.connections and row["revoked_at"] is None,
                 "geometry": [
                     display.model_dump()
@@ -119,6 +124,7 @@ class EndpointManager:
                 incoming = decode(await asyncio.wait_for(socket.receive_text(), self.heartbeat * 4))
                 if isinstance(incoming, Ping) and incoming.type == "pong":
                     connection.last_pong = self.clock()
+                    self.store.update_connection(endpoint_id, None, "connected")
                 elif isinstance(incoming, Result):
                     waiting = connection.pending.get(incoming.request_id)
                     if waiting is not None and not waiting[0].done():
@@ -141,6 +147,7 @@ class EndpointManager:
         if self.connections.get(endpoint_id) is connection:
             del self.connections[endpoint_id]
             self.controllers.pop(endpoint_id, None)
+            self.observations.pop(endpoint_id, None)
             for key, row in list(self.views.items()):
                 if row["endpoint_id"] == endpoint_id:
                     del self.views[key]
@@ -212,6 +219,13 @@ class EndpointManager:
             result = future.result()
             if result.error:
                 raise EndpointError(result.error)
+            if operation == "system.inspect":
+                safe = {
+                    key: result.data[key]
+                    for key in ("cpu_count", "memory_total", "memory_available")
+                    if type(result.data.get(key)) is int and 0 <= result.data[key] <= 2**63 - 1
+                }
+                self.observations[endpoint_id] = (self.clock(), safe)
             if operation == "screen.capture":
                 frame = ScreenFrame.model_validate(result.data)
                 raw = base64.b64decode(frame.image_b64, validate=True)

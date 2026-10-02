@@ -172,3 +172,15 @@ examples, schema restrictions, lifecycle and safe troubleshooting.
 
 `ORION_ENDPOINTS=1` enables the stable endpoint family. Worker JSON configuration
 and `ORION_WORKER_DATA` are independent local ceilings; see [ENDPOINTS.md](ENDPOINTS.md).
+
+Remote Endpoint v1's primary mode is a zero-install **Remote Control** portable
+worker with temporary in-memory credentials, foreground Disconnect/Exit and
+explicit remembered mode. Its endpoint workspace contains Device Chat, Desktop,
+Files, Processes, Browser and Connection. Device Chat uses the same canonical
+ChatRuntime with persisted server-owned endpoint binding, separate history/mutation
+mode and no Project/attachments. Cross-device endpoint calls are rejected.
+Portable platform artifacts carry version/source SHA/checksums; source builds
+without compatible release metadata show unavailable. Confirmed End & forget
+removes endpoint-owned metadata/history under existing active-request safeguards.
+See the endpoint operations/architecture reference for platform prerequisites,
+cleanup/expiry, download integrity and native artifact smoke coverage.

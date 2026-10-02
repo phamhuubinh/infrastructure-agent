@@ -101,6 +101,18 @@ class ToolRunner:
                 "Retry using only values allowed by the currently exposed schema.",
                 model_recovery_required=True,
             )
+        if (
+            scope.endpoint_id is not None
+            and model_call.tool_name.startswith("endpoint.")
+            and model_call.tool_name != "endpoint.list"
+            and model_call.arguments.get("target_ref") != scope.endpoint_id
+        ):
+            return ToolResult.failure(
+                model_call.call_id,
+                model_call.tool_name,
+                "operation_blocked",
+                "Device Chat endpoint binding does not permit this target.",
+            )
         authorized = definition.operation_kind not in self._blocked_operation_kinds and (
             self._mutation_authorization is None
             or self._mutation_authorization.authorizes(definition, model_call.arguments, scope)

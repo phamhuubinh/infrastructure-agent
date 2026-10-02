@@ -38,6 +38,26 @@ class EndpointStore:
                     event TEXT NOT NULL, created_at REAL NOT NULL
                 );
             """)
+            columns = {
+                row["name"]
+                for row in store._connection.execute("PRAGMA table_info(endpoint_identities)")
+            }
+            for name, declaration in (
+                ("temporary", "INTEGER NOT NULL DEFAULT 0"),
+                ("expires_at", "REAL"),
+                ("architecture", "TEXT"),
+                ("os_release", "TEXT"),
+            ):
+                if name not in columns:
+                    store._connection.execute(
+                        f"ALTER TABLE endpoint_identities ADD COLUMN {name} {declaration}"
+                    )
+            # A temporary identity cannot be revived after control-plane restart.
+            store._connection.execute(
+                "UPDATE endpoint_identities SET revoked_at = ?, last_category = 'expired' "
+                "WHERE temporary = 1 AND revoked_at IS NULL",
+                (self.clock(),),
+            )
 
     @staticmethod
     def digest(secret: str) -> str:
@@ -59,7 +79,7 @@ class EndpointStore:
             self._audit(None, "pairing_token_created")
             return {"token": token, "expires_at": now + 300}
 
-    def pair(self, token: str, name: str) -> dict[str, str]:
+    def pair(self, token: str, name: str, *, temporary: bool = False) -> dict[str, str]:
         now = self.clock()
         with self.store._lock, self.store._connection:
             self.failures = [when for when in self.failures if now - when < 60]
@@ -95,8 +115,16 @@ class EndpointStore:
             endpoint_id, credential = uuid.uuid4().hex, secrets.token_urlsafe(48)
             self.store._connection.execute(
                 "INSERT INTO endpoint_identities (endpoint_id, name, credential_digest, "
-                "created_at, paired_at) VALUES (?, ?, ?, ?, ?)",
-                (endpoint_id, name, self.digest(credential), now, now),
+                "created_at, paired_at, temporary, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    endpoint_id,
+                    name,
+                    self.digest(credential),
+                    now,
+                    now,
+                    int(temporary),
+                    now + 120 if temporary else None,
+                ),
             )
             self._audit(endpoint_id, "paired")
             return {"endpoint_id": endpoint_id, "credential": credential}
@@ -104,19 +132,30 @@ class EndpointStore:
     def authenticate(self, endpoint_id: str, credential: str) -> bool:
         with self.store._lock:
             row = self.store._connection.execute(
-                "SELECT credential_digest, revoked_at FROM endpoint_identities "
+                "SELECT credential_digest, revoked_at, expires_at FROM endpoint_identities "
                 "WHERE endpoint_id = ?",
                 (endpoint_id,),
             ).fetchone()
             expected = row["credential_digest"] if row else "0" * 64
             valid = hmac.compare_digest(expected, self.digest(credential))
-            return bool(row and valid and row["revoked_at"] is None)
+            return bool(
+                row
+                and valid
+                and row["revoked_at"] is None
+                and (row["expires_at"] is None or row["expires_at"] > self.clock())
+            )
 
     def list(self) -> list[dict[str, Any]]:
-        with self.store._lock:
+        with self.store._lock, self.store._connection:
+            self.store._connection.execute(
+                "UPDATE endpoint_identities SET revoked_at = ?, last_category = 'expired' "
+                "WHERE temporary = 1 AND revoked_at IS NULL AND expires_at <= ?",
+                (self.clock(), self.clock()),
+            )
             rows = self.store._connection.execute(
                 "SELECT endpoint_id, name, created_at, paired_at, last_seen, revoked_at, "
-                "platform, worker_version, capabilities, last_category FROM endpoint_identities "
+                "platform, worker_version, capabilities, last_category, temporary, expires_at, "
+                "architecture, os_release FROM endpoint_identities "
                 "ORDER BY created_at LIMIT 256"
             ).fetchall()
         return [{**dict(row), "capabilities": json.loads(row["capabilities"])} for row in rows]
@@ -127,18 +166,21 @@ class EndpointStore:
     def update_connection(self, endpoint_id: str, hello: Hello | None, category: str) -> None:
         with self.store._lock, self.store._connection:
             self.store._connection.execute(
-                "UPDATE endpoint_identities SET last_seen = ?, last_category = ? "
+                "UPDATE endpoint_identities SET last_seen = ?, last_category = ?, "
+                "expires_at = CASE WHEN temporary = 1 THEN ? ELSE NULL END "
                 "WHERE endpoint_id = ?",
-                (self.clock(), category, endpoint_id),
+                (self.clock(), category, self.clock() + 120, endpoint_id),
             )
             if hello is not None:
                 self.store._connection.execute(
                     "UPDATE endpoint_identities SET platform = ?, worker_version = ?, "
-                    "capabilities = ? WHERE endpoint_id = ?",
+                    "capabilities = ?, architecture = ?, os_release = ? WHERE endpoint_id = ?",
                     (
                         hello.platform,
                         hello.worker_version,
                         json.dumps(hello.capabilities),
+                        hello.architecture,
+                        hello.os_release,
                         endpoint_id,
                     ),
                 )
@@ -157,6 +199,46 @@ class EndpointStore:
                 (self.clock(), endpoint_id),
             )
             self._audit(endpoint_id, "revoked")
+
+    def device_chat(self, endpoint_id: str, principal_id: str, workspace_id: str) -> str:
+        with self.store._lock:
+            row = self.store._connection.execute(
+                "SELECT session_id FROM sessions WHERE surface_kind = 'device' AND endpoint_id = ?",
+                (endpoint_id,),
+            ).fetchone()
+            if row:
+                return str(row["session_id"])
+            return self.store.create_session(principal_id, workspace_id, endpoint_id=endpoint_id)
+
+    def forget(self, endpoint_id: str) -> None:
+        with self.store._lock, self.store._connection:
+            if (
+                self.store._connection.execute(
+                    "SELECT 1 FROM requests r JOIN sessions s USING(session_id) "
+                    "WHERE s.endpoint_id = ? AND r.status IN ('queued', 'running')",
+                    (endpoint_id,),
+                ).fetchone()
+                is not None
+                or self.store._connection.execute(
+                    "SELECT 1 FROM scheduled_runs r JOIN scheduled_tasks t USING(task_id) "
+                    "JOIN sessions s ON s.session_id = t.execution_session_id "
+                    "WHERE s.endpoint_id = ? AND r.status = 'running'",
+                    (endpoint_id,),
+                ).fetchone()
+                is not None
+            ):
+                raise RuntimeError("active_request")
+            rows = self.store._connection.execute(
+                "SELECT session_id FROM sessions WHERE endpoint_id = ?", (endpoint_id,)
+            ).fetchall()
+            for row in rows:
+                self.store.delete_session(str(row["session_id"]))
+            self.store._connection.execute(
+                "DELETE FROM endpoint_audit WHERE endpoint_id = ?", (endpoint_id,)
+            )
+            self.store._connection.execute(
+                "DELETE FROM endpoint_identities WHERE endpoint_id = ?", (endpoint_id,)
+            )
 
     def audit(self, endpoint_id: str, event: str) -> None:
         with self.store._lock, self.store._connection:

@@ -19,20 +19,35 @@ from orion_endpoint.policy import Policy
 class FixtureHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         self.send_response(200)
+        if self.path == "/download":
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", 'attachment; filename="fixture.txt"')
+            self.end_headers()
+            self.wfile.write(b"controlled-download")
+            return
         self.send_header("Content-Type", "text/html")
         self.end_headers()
         self.wfile.write(
             b'<title>Local fixture</title><label>Name<input id="name"></label>'
             b'<button id="button">Click me</button><p>Untrusted webpage data</p>'
+            b'<a id="download" href="/download">Download fixture</a>'
         )
 
     def log_message(self, format: str, *args: object) -> None:
         pass
 
 
-def test_isolated_browser_local_fixture() -> None:
+def test_isolated_browser_local_fixture(tmp_path: Path) -> None:
     async def scenario() -> None:
-        browser = Browser(Policy(browser=True))
+        downloads = tmp_path / "controlled downloads"
+        downloads.mkdir()
+        browser = Browser(
+            Policy(
+                browser=True,
+                write_roots=[str(downloads)],
+                browser_download_directory=str(downloads),
+            )
+        )
         if not await browser.available():
             if os.getenv("ORION_NATIVE_TESTS") == "1":
                 pytest.fail("Required provisioned browser unavailable")
@@ -51,6 +66,10 @@ def test_isolated_browser_local_fixture() -> None:
             await browser.execute("click", {"selector": "#button"})
             assert "Click me" in (await browser.execute("snapshot", {}))["snapshot"]
             await browser.execute("navigate", {"url": url})
+            await browser.execute("click", {"selector": "#download"})
+            await asyncio.gather(*browser.download_tasks)
+            saved = list(downloads.glob("download-*"))
+            assert len(saved) == 1 and saved[0].read_bytes() == b"controlled-download"
             with pytest.raises(ValueError):
                 await browser.execute("navigate", {"url": "file:///etc/passwd"})
         finally:

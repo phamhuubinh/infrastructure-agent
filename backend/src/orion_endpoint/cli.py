@@ -100,7 +100,7 @@ def main() -> None:
                 with client.stream(
                     "POST",
                     f"{server}/api/endpoints/pair",
-                    json={"token": token, "name": args.name},
+                    json={"token": token, "name": args.name, "temporary": False},
                 ) as response:
                     if response.status_code != 200:
                         parser.exit(1, "Pairing rejected.\n")

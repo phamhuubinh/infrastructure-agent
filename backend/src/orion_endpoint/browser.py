@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from orion_endpoint.policy import Policy
+from orion_endpoint.protocol import MAX_TRANSFER
 
 
 class Browser:
@@ -16,6 +20,9 @@ class Browser:
         self.browser: Any = None
         self.context: Any = None
         self.page: Any = None
+        self.download_tasks: set[asyncio.Task[None]] = set()
+        self.download_count = 0
+        self.download_limit_task: asyncio.Task[None] | None = None
 
     async def available(self) -> bool:
         if not self.policy.browser:
@@ -38,10 +45,18 @@ class Browser:
 
             self.playwright = await async_playwright().start()
             try:
-                self.browser = await self.playwright.chromium.launch(headless=True)
-                self.context = await self.browser.new_context(accept_downloads=False)
-                # Downloads are denied; no browser-origin files leave the controlled context.
+                directory = None
+                if self.policy.browser_download_directory:
+                    directory = Path(self.policy.browser_download_directory).resolve(strict=True)
+                    self.policy.path(str(directory / ".download-check"), write=True)
+                self.browser = await self.playwright.chromium.launch(
+                    headless=True, downloads_path=str(directory) if directory else None
+                )
+                self.context = await self.browser.new_context(
+                    accept_downloads=directory is not None
+                )
                 self.page = await self.context.new_page()
+                self.page.on("download", self.download)
                 self.context.on("page", lambda page: page.close())
                 self.page.set_default_timeout(10_000)
             except BaseException:
@@ -77,8 +92,63 @@ class Browser:
             "untrusted_external_content": True,
         }
 
+    def download(self, download: Any) -> None:
+        if self.download_count >= 2 or not self.policy.browser_download_directory:
+            # Close once instead of allocating one cancellation task per hostile download.
+            if self.download_limit_task is None:
+                self.download_limit_task = asyncio.create_task(self.context.close())
+            return
+        self.download_count += 1
+
+        async def save() -> None:
+            assert self.policy.browser_download_directory is not None
+            directory = Path(self.policy.browser_download_directory)
+            try:
+                async with asyncio.timeout(30):
+                    pending = asyncio.create_task(download.path())
+                    try:
+                        while not pending.done():
+                            if (
+                                sum(
+                                    path.stat().st_size
+                                    for path in directory.iterdir()
+                                    if path.is_file()
+                                )
+                                > MAX_TRANSFER
+                            ):
+                                await download.cancel()
+                                return
+                            await asyncio.sleep(0.1)
+                        downloaded = await pending
+                        if downloaded is None or downloaded.stat().st_size > MAX_TRANSFER:
+                            await download.cancel()
+                            return
+                        destination = self.policy.path(
+                            str(directory / f"download-{uuid.uuid4().hex}"), write=True
+                        )
+                        await download.save_as(destination)
+                        await download.delete()
+                    finally:
+                        pending.cancel()
+                        await asyncio.gather(pending, return_exceptions=True)
+            except Exception:
+                with contextlib.suppress(Exception):
+                    await download.cancel()
+
+        task = asyncio.create_task(save())
+        self.download_tasks.add(task)
+        task.add_done_callback(self.download_tasks.discard)
+
     async def close(self) -> None:
         try:
+            for task in self.download_tasks:
+                task.cancel()
+            await asyncio.gather(*self.download_tasks, return_exceptions=True)
+            self.download_tasks.clear()
+            self.download_count = 0
+            if self.download_limit_task is not None:
+                await asyncio.gather(self.download_limit_task, return_exceptions=True)
+                self.download_limit_task = None
             if self.browser is not None:
                 await self.browser.close()
         finally:

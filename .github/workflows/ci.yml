@@ -88,3 +88,8 @@ jobs:
           mkdir -p release-work/extracted
           tar -xzf release-work/worker-artifacts/orion-worker-*-linux-x86_64.tar.gz -C release-work/extracted
           python scripts/worker/smoke.py release-work/extracted/orion-worker-*-linux-x86_64
+      - name: Build and smoke zero-install portable Linux worker
+        run: |
+          python scripts/worker/portable.py --output release-work/portable
+          tar -xzf release-work/portable/OrionRemote-*-linux-x86_64.tar.gz -C release-work/extracted
+          ORION_PORTABLE_BROWSER_TESTS=1 python scripts/worker/portable_smoke.py release-work/extracted/OrionRemote-*-linux-x86_64

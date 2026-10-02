@@ -401,6 +401,17 @@
             ],
             "title": "Custom Title"
           },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
           "last_activity_at": {
             "title": "Last Activity At",
             "type": "string"
@@ -422,6 +433,11 @@
           },
           "session_id": {
             "title": "Session Id",
+            "type": "string"
+          },
+          "surface_kind": {
+            "default": "chat",
+            "title": "Surface Kind",
             "type": "string"
           },
           "title": {
@@ -466,6 +482,17 @@
             ],
             "title": "Custom Title"
           },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
           "mutation_mode": {
             "$ref": "#/components/schemas/MutationMode",
             "default": "read_only"
@@ -483,6 +510,11 @@
           },
           "session_id": {
             "title": "Session Id",
+            "type": "string"
+          },
+          "surface_kind": {
+            "default": "chat",
+            "title": "Surface Kind",
             "type": "string"
           },
           "title": {
@@ -510,6 +542,17 @@
             ],
             "title": "Custom Title"
           },
+          "endpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Id"
+          },
           "mutation_mode": {
             "$ref": "#/components/schemas/MutationMode",
             "default": "read_only"
@@ -527,6 +570,11 @@
           },
           "session_id": {
             "title": "Session Id",
+            "type": "string"
+          },
+          "surface_kind": {
+            "default": "chat",
+            "title": "Surface Kind",
             "type": "string"
           }
         },
@@ -709,6 +757,26 @@
         "summary": "List Endpoints"
       }
     },
+    "/api/endpoints/artifacts": {
+      "get": {
+        "operationId": "worker_artifacts_api_endpoints_artifacts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Worker Artifacts Api Endpoints Artifacts Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Worker Artifacts"
+      }
+    },
     "/api/endpoints/pair": {
       "post": {
         "operationId": "pair_api_endpoints_pair_post",
@@ -823,6 +891,47 @@
           }
         },
         "summary": "Rename"
+      }
+    },
+    "/api/endpoints/{endpoint_id}/chat": {
+      "post": {
+        "operationId": "device_chat_api_endpoints__endpoint_id__chat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Device Chat Api Endpoints  Endpoint Id  Chat Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Device Chat"
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/control": {
@@ -1065,6 +1174,133 @@
           }
         },
         "summary": "Download"
+      }
+    },
+    "/api/endpoints/{endpoint_id}/end": {
+      "post": {
+        "operationId": "end_device_api_endpoints__endpoint_id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response End Device Api Endpoints  Endpoint Id  End Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "End Device"
+      }
+    },
+    "/api/endpoints/{endpoint_id}/forget": {
+      "post": {
+        "operationId": "forget_api_endpoints__endpoint_id__forget_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Forget Api Endpoints  Endpoint Id  Forget Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Forget"
+      }
+    },
+    "/api/endpoints/{endpoint_id}/operation": {
+      "post": {
+        "operationId": "manual_operation_api_endpoints__endpoint_id__operation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "endpoint_id",
+            "required": true,
+            "schema": {
+              "title": "Endpoint Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Manual Operation Api Endpoints  Endpoint Id  Operation Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Manual Operation"
       }
     },
     "/api/endpoints/{endpoint_id}/revoke": {

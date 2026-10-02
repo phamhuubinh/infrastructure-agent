@@ -4,14 +4,55 @@ Enable server support with `ORION_ENDPOINTS=1` and restart Orion. Existing local
 loopback mode remains login-free. Remote deployment uses the HTTPS Remote Access
 origin and owner login described in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
 
-Open **Thiết bị** in Orion and create a pairing token. It expires in five minutes,
-is usable once and is shown only transiently. Install the native worker archive
-from the same release as Orion:
+Open **Remote Control** and choose the Windows/Linux portable download for the
+running server version. The UI shows expected SHA-256 from trusted release metadata
+bound to the installed server's exact source SHA. Source/dev builds without an
+installed release manifest show **Artifact unavailable for this build**.
 
 ```text
-orion-worker-<version>-windows-x64.zip
-orion-worker-<version>-linux-x86_64.tar.gz
+OrionRemote-<version>-windows-x64.zip  → OrionRemote.exe + _internal/
+OrionRemote-<version>-linux-x86_64.tar.gz → orion-remote + _internal/
 ```
+
+Extract and run the executable directly. It includes Python and executor libraries;
+no Python/pip, Node/npm, Git, source checkout, installer or administrator rights are
+required. Linux portable releases target x86_64 glibc 2.35+; desktop input/capture
+also requires an available X11 session. OS libraries/display policies still apply.
+The Playwright driver is bundled; managed Chromium provisioning remains explicit:
+`OrionRemote.exe browser install` / `./orion-remote browser install`.
+This explicit command retains the managed runtime under `~/.orion-worker/browsers`
+(`PLAYWRIGHT_BROWSERS_PATH` can override it). That separately provisioned runtime
+cache is not session-temporary data and is not erased on Exit.
+
+Create a temporary pairing code (one-use, five-minute countdown). The foreground
+console prompts for server URL, display name, pairing code and local permissions.
+Default temporary mode retains the issued device credential only in process memory.
+Enter **Disconnect** or **Exit**, or Ctrl+C. Clean exit closes the worker channel,
+invalidates the temporary credential server-side and removes the worker-owned
+session temporary directory (browser downloads/staging). If the server is unreachable,
+the credential expires within two minutes of its last heartbeat; abrupt process
+exit likewise expires. Server restart invalidates temporary identities. A new
+process requires a fresh pairing code. No installer, PATH/registry/Start Menu
+mutation, service, task, autostart or inbound firewall rule is added. Orion does
+not erase downloads, OS/EDR/audit/prefetch history or other security telemetry.
+
+`--remember` is explicit persistent mode in the same binary. It retains a protected
+identity at `--data` / `~/.orion-worker`; Exit disconnects but does not revoke that
+remembered device. `--policy` loads strict local JSON; without it the operator makes
+conservative foreground permission choices. No server request widens these ceilings.
+
+Each endpoint opens its own workspace: **Chat | Desktop | Files | Processes |
+Browser | Connection**. Device Chat has persistent endpoint-owned history and its
+own read_only/confirm/auto mode. It reuses the canonical ChatRuntime/ToolRunner;
+server-owned endpoint binding rejects calls to another device, and there is no
+Project/RAG/attachment scope or ordinary Chat history. History remains available
+offline; tools return bounded offline errors. **End & forget** explicitly confirms
+revocation/deletion of endpoint metadata/audit and Device Chat, using normal active
+request deletion safeguards. Cancel/finish any active request first.
+
+Secondary developer/owner installation mode remains available as separate lightweight
+`orion-worker-<version>-windows-x64.zip` / `orion-worker-<version>-linux-x86_64.tar.gz`.
+The following Python-based commands describe only this optional mode.
 
 Verify SHA256SUMS and `worker-manifest.json` source commit/file hashes. Extract
 outside Orion and run:
@@ -34,7 +75,7 @@ is mode 0700/files 0600. Windows installs an explicit user DACL before secret wr
 `configure` creates a conservative `policy.json` and refuses replacement. Edit it
 locally; unknown fields fail validation. `worker/policy.example.json` documents all
 fields: separate absolute read/write roots (up to 16 each), configured application
-aliases, terminate, clipboard read/write, browser, desktop capture/control,
+aliases, terminate, clipboard read/write, browser/download directory, desktop capture/control,
 maximum frame rate (1–5 FPS) and resolution (320–1920 px). Paths with spaces work.
 Roots must exist; access outside them, traversal, escaping symlinks, Windows UNC,
 device namespace and alternate data streams are denied. Root deletion is denied.
@@ -46,7 +87,10 @@ To enable browser automation, set `browser: true`, then explicitly run
 `orion-worker browser install`. This provisions managed Chromium. Installation
 never downloads a browser implicitly. Each worker run uses one isolated ephemeral
 context with bounded semantic accessibility snapshots; user cookies/passwords are
-never imported, downloads are denied, and popups close immediately. Automation
+never imported. Downloads are disabled until `browser_download_directory` is
+configured inside a writable root; then at most two per context are stored under
+random names there, with a 32 MiB directory ceiling and 30-second deadline. Popups
+close immediately. Portable temporary browser mode uses its own session directory. Automation
 navigation, click, fill, key and close are mutations under normal Chat permissions.
 Use a local HTML fixture for testing; no public site/model is required.
 
