@@ -126,7 +126,9 @@ def test_malformed_configuration_fails_safe(tmp_path, monkeypatch, raw):  # type
 
 
 @pytest.mark.parametrize(
-    "payload", [b"{broken", b'{"servers":[],"servers":[]}', b"null", b"\xff", b" " * 131073]
+    "payload",
+    [b"{broken", b'{"servers":[],"servers":[]}', b"null", b"\xff", b" " * 131073],
+    ids=["malformed_json", "duplicate_keys", "null", "invalid_utf8", "oversized"],
 )
 def test_config_encoding_duplicate_keys_and_bounds(tmp_path, monkeypatch, payload):  # type: ignore[no-untyped-def]
     path = write_config(tmp_path, monkeypatch, {})
