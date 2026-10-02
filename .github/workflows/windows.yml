@@ -66,16 +66,23 @@ jobs:
         run: |
           python scripts/windows/installer_smoke.py "$PWD"
           if ($LASTEXITCODE -ne 0) { throw 'Source Windows smoke failed' }
+          git status --short
+      - name: Check out clean source for release assembly
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: release source checkout
       - name: Assemble release candidate using the existing payload builder
         shell: powershell
         run: |
           python -m pip install build
           if ($LASTEXITCODE -ne 0) { throw 'Build tooling installation failed' }
           $work = Join-Path $env:RUNNER_TEMP 'windows release candidate'
-          python -m build --wheel backend --outdir "$work/dist"
+          $releaseSource = Join-Path $env:GITHUB_WORKSPACE 'release source checkout'
+          python -m build --wheel "$releaseSource/backend" --outdir "$work/dist"
           if ($LASTEXITCODE -ne 0) { throw 'Wheel build failed' }
           $wheel = (Get-ChildItem "$work/dist/orion-*-py3-none-any.whl").FullName
-          python scripts/release/payload.py build --repository . --wheel "$wheel" --ui ui/dist/client --output "$work/artifacts"
+          python "$releaseSource/scripts/release/payload.py" build --repository "$releaseSource" --wheel "$wheel" --ui ui/dist/client --output "$work/artifacts"
           if ($LASTEXITCODE -ne 0) { throw 'Release payload build failed' }
           $archive = Get-ChildItem "$work/artifacts/orion-*-windows-x64.zip"
           $expected = (Get-Content "$work/artifacts/SHA256SUMS" | Where-Object { $_.EndsWith($archive.Name) }).Split(' ')[0]

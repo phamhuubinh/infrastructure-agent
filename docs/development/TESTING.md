@@ -99,7 +99,8 @@ The job parses the source/release installers with Windows PowerShell, then exerc
 the source installer with real Python 3.12 discovery, venv creation/reuse, `npm.cmd`
 UI builds, and installation/data paths containing spaces. The source checkout also
 lives in a path containing spaces. It builds a wheel and archives with the
-existing release payload builder, verifies the Windows archive checksum, extracts
+existing release payload builder from a separate clean checkout of the same commit,
+using the UI already built by source smoke. It verifies the Windows archive checksum, extracts
 it outside the checkout, and runs the same installer/runtime probes on that bundle.
 The **Release bundles / smoke-windows** job uses the same probes.
 
