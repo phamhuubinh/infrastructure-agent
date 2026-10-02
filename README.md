@@ -66,7 +66,34 @@ Read:
 6. [`docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md`](docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md)
 7. [`docs/operations/INSTALLATION.md`](docs/operations/INSTALLATION.md)
 
-## Install and run the current repository
+## Install a release
+
+Download the matching platform archive from GitHub Releases. Python 3.12+ is required;
+Node.js, npm, Git, and a source checkout are not required for release installation.
+
+Linux x86_64:
+
+```bash
+tar -xzf orion-<version>-linux-x86_64.tar.gz
+cd orion-<version>-linux-x86_64
+./install.sh
+orion
+```
+
+Windows x64 PowerShell:
+
+```powershell
+Expand-Archive .\orion-<version>-windows-x64.zip -DestinationPath .
+cd .\orion-<version>-windows-x64
+.\install.ps1
+orion
+```
+
+The installer verifies the wheel and UI manifest, then provisions the pinned E5 model
+when it is not already cached and verified. The first install needs network access for
+dependencies and the model. See [installation details](docs/operations/INSTALLATION.md).
+
+## Install from source for development
 
 Linux:
 

@@ -266,6 +266,7 @@ def main() -> None:
                 "  orion knowledge semantic-index [--max-documents N]  "
                 "Inspect up to N ready documents\n"
                 "  orion help     Show this help\n"
+                "  orion --version  Show installed Orion version\n"
             )
             or rejected_help.returncode == 0
         ):

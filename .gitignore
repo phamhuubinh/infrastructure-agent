@@ -17,6 +17,7 @@ __pycache__/
 .venv/
 build/
 dist/
+release-work/
 /scripts/qa/reports/
 
 .vscode/

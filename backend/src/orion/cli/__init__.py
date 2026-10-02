@@ -18,6 +18,7 @@ from urllib.request import urlopen
 
 import uvicorn
 
+from orion._version import __version__
 from orion.access.remote import RemoteAccessConfig, hash_password
 from orion.paths import (
     ORION_HEALTH_IDENTITY,
@@ -38,6 +39,9 @@ ORION_URL = f"http://{ORION_HOST}:{ORION_PORT}/"
 def main() -> None:
     """Run one of Orion's four public commands without exposing dev switches."""
     command = sys.argv[1:]
+    if command in (["--version"], ["version"]):
+        print(f"Orion {__version__}")
+        return
     if command in ([], ["web"]):
         _configure_default_log_path()
         _run_web()
@@ -94,6 +98,7 @@ def _show_help() -> None:
         "  orion model install embeddings  Provision pinned local E5 model\n"
         "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help"
+        "\n  orion --version  Show installed Orion version"
     )
 
 
@@ -163,7 +168,8 @@ def _run_web() -> None:
         )
     if not remote.enabled and _orion_is_healthy():
         print(f"Orion is already running at {ORION_URL}")
-        _open_desktop_url(ORION_URL)
+        if not _browser_open_suppressed():
+            _open_desktop_url(ORION_URL)
         return
     if _port_is_occupied():
         raise SystemExit("Port 61888 is already in use by another application.")
@@ -178,7 +184,7 @@ def _run_web() -> None:
     server = uvicorn.Server(config)
     if remote.enabled:
         print(f"Remote Orion origin: {remote.public_origin}")
-    else:
+    elif not _browser_open_suppressed():
         threading.Thread(
             target=_open_when_healthy,
             args=(server,),
@@ -219,13 +225,21 @@ def _port_is_occupied() -> bool:
 def _open_when_healthy(server: uvicorn.Server) -> None:
     while not server.should_exit:
         if _orion_is_healthy():
-            _open_desktop_url(ORION_URL)
+            if not _browser_open_suppressed():
+                _open_desktop_url(ORION_URL)
             return
         time.sleep(0.05)
 
 
+def _browser_open_suppressed() -> bool:
+    """Internal automation switch; interactive Orion keeps its normal desktop behavior."""
+    return os.getenv("ORION_INTERNAL_NO_BROWSER") == "1"
+
+
 def _open_desktop_url(url: str) -> None:
     """Ask the OS to open a URL; an unavailable desktop never stops Orion."""
+    if _browser_open_suppressed():
+        return
     print(f"Open Orion at {url}")
     if sys.platform == "darwin":
         command = ["open", url]

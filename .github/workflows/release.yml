@@ -1,0 +1,185 @@
+name: Release bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Orion release version from backend/src/orion/_version.py
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Record version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          version="$(python -c 'import ast; print(ast.literal_eval(open("backend/src/orion/_version.py").read().split("__version__ = ")[1].splitlines()[0]))')"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([a-z][0-9]+)?$ ]] || exit 1
+          [[ "$version" == "$REQUESTED_VERSION" ]] || {
+            echo 'Requested release version differs from the authoritative version source.' >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+      - name: Build wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel backend --outdir release-work/dist
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+      - name: Assemble and checksum clean release
+        run: |
+          python scripts/release/payload.py build \
+            --repository . \
+            --wheel "release-work/dist/orion-${{ steps.version.outputs.version }}-py3-none-any.whl" \
+            --ui ui/dist/client \
+            --output release-work/artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: orion-release-candidate
+          path: |
+            release-work/artifacts/*.zip
+            release-work/artifacts/*.tar.gz
+            release-work/artifacts/SHA256SUMS
+          if-no-files-found: error
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: python -m pip install -e "./backend[dev]"
+      - run: npm ci
+        working-directory: ui
+      - name: Backend and architecture checks
+        run: |
+          ruff check backend/src backend/tests scripts/release
+          ruff format --check backend/src backend/tests scripts/release
+          mypy backend/src
+          pytest backend/tests
+          python backend/scripts/openapi.py
+          python backend/scripts/architecture_check.py
+          python backend/scripts/operations_check.py
+          git diff --check
+      - name: UI checks
+        working-directory: ui
+        run: |
+          npm run lint
+          npx tsc --noEmit
+          npm test -- --run
+          npm run test:packaged-ui
+
+  smoke-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: orion-release-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: Exercise archived Linux bundle
+        run: |
+          cd "$RUNNER_TEMP/candidate"
+          sha256sum -c SHA256SUMS
+          cd "$RUNNER_TEMP"
+          tar -xzf "candidate/orion-${{ needs.build.outputs.version }}-linux-x86_64.tar.gz"
+          python "$GITHUB_WORKSPACE/scripts/release/smoke.py" "$RUNNER_TEMP/orion-${{ needs.build.outputs.version }}-linux-x86_64" linux-x86_64
+
+  smoke-windows:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: orion-release-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: Exercise archived Windows bundle
+        shell: pwsh
+        run: |
+          $name = 'orion-${{ needs.build.outputs.version }}-windows-x64'
+          $archive = Join-Path $env:RUNNER_TEMP "candidate/$name.zip"
+          $expected = (Get-Content (Join-Path $env:RUNNER_TEMP 'candidate/SHA256SUMS') | Where-Object { $_ -like "*$name.zip" }).Split(' ')[0]
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Archive checksum mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:RUNNER_TEMP
+          python "$env:GITHUB_WORKSPACE/scripts/release/smoke.py" (Join-Path $env:RUNNER_TEMP $name) windows-x64
+
+  publish:
+    needs: [build, validate, smoke-linux, smoke-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: orion-release-candidate
+          path: release
+      - name: Publish validated artifacts from exact source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v${{ needs.build.outputs.version }}"
+          git fetch --tags --force origin
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            test "$(git rev-list -n 1 "$tag")" = "${{ github.sha }}" || {
+              echo "Existing tag $tag points to another commit." >&2
+              exit 1
+            }
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              release/*.zip \
+              release/*.tar.gz \
+              release/SHA256SUMS \
+              --clobber
+          else
+            gh release create "$tag" \
+              release/*.zip \
+              release/*.tar.gz \
+              release/SHA256SUMS \
+              --target "${{ github.sha }}" \
+              --title "Orion $tag" \
+              --generate-notes
+          fi

@@ -1,8 +1,10 @@
 # Quickstart
 
-Install and start Orion on Linux:
+Download the matching archive from GitHub Releases, then install and start Orion on Linux:
 
 ```bash
+tar -xzf orion-<version>-linux-x86_64.tar.gz
+cd orion-<version>-linux-x86_64
 ./install.sh
 orion
 ```
@@ -10,17 +12,22 @@ orion
 On Windows PowerShell:
 
 ```powershell
+Expand-Archive .\orion-<version>-windows-x64.zip -DestinationPath .
+cd .\orion-<version>-windows-x64
 .\install.ps1
 orion
 ```
 
-Python 3.12+, Node.js 22.12+, and npm are required during installation. A normal install
+Python 3.12+ is required during release installation. A normal install
 downloads and verifies the pinned ~487 MB E5 embeddings asset when it is absent, so the first
 install needs network access. The model is stored as application data outside the repository;
 reruns reuse the verified cache. Installation does not run semantic indexing or enable hybrid
 retrieval. `orion model install embeddings` remains available to repair or reprovision the model.
 
 Orion opens in your default browser when it is ready.
+
+Developers using a source checkout can run the root `install.sh` or `install.ps1` instead;
+those scripts require Node.js 22.12+ and npm to build the UI.
 
 Common commands are:
 
@@ -29,6 +36,7 @@ orion          Start Orion
 orion web      Start Orion
 orion log      Show Orion logs
 orion help     Show this help
+orion --version  Show installed Orion version
 ```
 
 

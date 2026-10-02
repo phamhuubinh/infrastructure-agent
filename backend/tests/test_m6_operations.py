@@ -367,6 +367,7 @@ def test_public_cli_help_lists_operator_commands(monkeypatch, capsys) -> None:  
         "  orion model install embeddings  Provision pinned local E5 model\n"
         "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help\n"
+        "  orion --version  Show installed Orion version\n"
     )
     monkeypatch.setattr(sys, "argv", ["orion", "--help"])
     with pytest.raises(SystemExit, match="Unknown Orion command"):
@@ -391,6 +392,54 @@ def test_web_reuses_healthy_orion_and_rejects_other_port_occupants(monkeypatch, 
     monkeypatch.setattr(cli, "_port_is_occupied", lambda: True)
     with pytest.raises(SystemExit, match="Port 61888 is already in use by another application"):
         cli._run_web()
+
+
+def test_automated_startup_never_invokes_desktop_openers(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    from orion import cli
+
+    frontend = tmp_path / "ui"
+    frontend.mkdir()
+    (frontend / "_shell.html").write_text("<title>Orion</title>", encoding="utf-8")
+    monkeypatch.setenv("ORION_UI_DIR", str(frontend))
+    monkeypatch.setenv("ORION_INTERNAL_NO_BROWSER", "1")
+
+    def forbidden(*args, **kwargs):  # type: ignore[no-untyped-def]
+        pytest.fail("desktop opener was invoked during automated startup")
+
+    monkeypatch.setattr(cli.shutil, "which", forbidden)
+    monkeypatch.setattr(cli.subprocess, "run", forbidden)
+    monkeypatch.setattr(cli.os, "startfile", forbidden, raising=False)
+    monkeypatch.setattr(cli.threading, "Thread", forbidden)
+    original_platform = sys.platform
+    for platform in ("linux", "darwin", "win32"):
+        monkeypatch.setattr(cli.sys, "platform", platform)
+        cli._open_desktop_url("http://127.0.0.1:61888/")
+
+    monkeypatch.setattr(cli.sys, "platform", original_platform)
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: True)
+    monkeypatch.setattr(cli.uvicorn, "Server", forbidden)
+    cli._run_web()
+
+    class Server:
+        should_exit = True
+
+        def __init__(self, config) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: False)
+    monkeypatch.setattr(cli, "_port_is_occupied", lambda: False)
+    monkeypatch.setattr(cli.uvicorn, "Server", Server)
+    cli._run_web()
+
+    monkeypatch.delenv("ORION_INTERNAL_NO_BROWSER")
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "_orion_is_healthy", lambda: True)
+    monkeypatch.setattr(cli, "_open_desktop_url", opened.append)
+    cli._run_web()
+    assert opened == ["http://127.0.0.1:61888/"]
 
 
 def test_web_binds_only_the_fixed_loopback_address(monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
