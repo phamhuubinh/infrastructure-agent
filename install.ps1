@@ -157,7 +157,7 @@ try {
     if (-not $node -or -not $npm) {
         throw "Node.js >=22.12 and npm are required to build Orion's packaged UI. Install both and retry."
     }
-    $nodeVersion = (& $node.Source --version | Select-Object -First 1)
+    $nodeVersion = (& $node.Source --version)
     if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(\d+)\.(\d+)\.') {
         throw "Node.js >=22.12 is required to build Orion's packaged UI (found $nodeVersion)."
     }

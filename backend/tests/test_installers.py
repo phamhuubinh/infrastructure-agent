@@ -131,6 +131,38 @@ def test_windows_launcher_filesystem_regressions() -> None:
     )
 
 
+def test_windows_node_version_probe_waits_for_native_exit() -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if powershell is None or shutil.which("node") is None:
+        pytest.skip("PowerShell and Node.js are required for the native version probe")
+    subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-Command",
+            r"""
+$ErrorActionPreference = 'Stop'
+$ast = [Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PWD 'install.ps1'), [ref]$null, [ref]$null
+)
+$assignment = $ast.Find({ param($candidate)
+    $candidate -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $candidate.Left.Extent.Text -eq '$nodeVersion'
+}, $true)
+$node = Get-Command node -CommandType Application | Select-Object -First 1
+$LASTEXITCODE = 42
+. ([scriptblock]::Create($assignment.Extent.Text))
+if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v\d+\.\d+\.') {
+    throw 'Node version probe did not record a completed native process'
+}
+""",
+        ],
+        cwd=REPOSITORY,
+        check=True,
+        timeout=60,
+    )
+
+
 @pytest.mark.parametrize("installer", ("install.sh", "install.ps1"))
 def test_installers_leave_semantic_activation_and_indexing_explicit(installer: str) -> None:
     script = (REPOSITORY / installer).read_text(encoding="utf-8")
