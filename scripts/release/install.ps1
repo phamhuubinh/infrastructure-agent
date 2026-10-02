@@ -89,7 +89,12 @@ try {
         $temporary = Join-Path $launcherDir ('.orion-launcher-' + [Guid]::NewGuid().ToString('N') + '.cmd')
         try {
             [IO.File]::WriteAllText($temporary, $content, [Text.Encoding]::Default)
-            Move-Item -LiteralPath $temporary -Destination $launcher -Force
+            if (Test-Path -LiteralPath $launcher) {
+                # Pass a true null backup filename; PowerShell coerces $null to ''.
+                [IO.File]::Replace($temporary, $launcher, [NullString]::Value)
+            } else {
+                [IO.File]::Move($temporary, $launcher)
+            }
         } finally {
             if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
         }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -109,6 +110,25 @@ def test_windows_launcher_and_path_contracts() -> None:
     assert "$env:PATH = (@($launcherDirectory) + $processEntries.ToArray()) -join ';'" in script
     assert "[Environment]::SetEnvironmentVariable('Path', $updatedUserPath, 'User')" in script
     assert "if (-not $prefixWasExplicit -or $GlobalLauncher)" in script
+
+
+def test_windows_launcher_filesystem_regressions() -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if powershell is None:
+        pytest.skip("PowerShell is unavailable; native Windows CI runs this regression directly")
+    subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(REPOSITORY / "scripts/windows/test-launcher.ps1"),
+        ],
+        cwd=REPOSITORY,
+        check=True,
+        timeout=60,
+    )
 
 
 @pytest.mark.parametrize("installer", ("install.sh", "install.ps1"))
