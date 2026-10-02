@@ -541,7 +541,9 @@ class ChatRuntime:
         cancellation: asyncio.Event,
     ) -> bool:
         target_ref = (
-            "scheduler"
+            model_call.tool_name.split(".")[1]
+            if model_call.tool_name.startswith("mcp.")
+            else "scheduler"
             if model_call.tool_name
             in {"scheduler.create", "scheduler.pause", "scheduler.resume", "scheduler.delete"}
             else model_call.arguments.get("target_ref")
@@ -602,6 +604,8 @@ class ChatRuntime:
             "scheduler.delete": "Xóa tác vụ theo lịch",
         }
         summary = {"label": labels.get(call.tool_name, "Thực hiện thao tác thay đổi")}
+        if call.tool_name.startswith("mcp."):
+            summary["server_id"] = call.tool_name.split(".")[1]
         # Paths and identifiers are displayed only for specific registered schemas.
         field = {
             "linux.file.edit": "path",
@@ -1702,6 +1706,8 @@ class ChatRuntime:
         # Only a configured identity may appear in authorization audit output.
         family = call.tool_name.partition(".")[0]
         target_ref = call.arguments.get("target_ref")
+        if family == "mcp":
+            payload["server_id"] = call.tool_name.split(".")[1]
         if family == "scheduler":
             payload["target_ref"] = "scheduler"
         if any(

@@ -93,6 +93,10 @@ class MutationAuthorizationPolicy:
         """Return whether this policy authorizes a validated mutation call."""
         if definition.operation_kind != "mutation":
             return True
+        if definition.name.startswith("mcp."):
+            # Locally allowlisted MCP operations are governed by the same generic
+            # conversation modes and fail-closed server ceiling as scheduler tools.
+            return self.allowed_pairs is None and bool(scope.principal_id and scope.workspace_id)
         if definition.name in {
             "scheduler.create",
             "scheduler.pause",

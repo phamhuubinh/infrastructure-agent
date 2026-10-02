@@ -2,6 +2,14 @@
 
 ## Unreleased — Local-first Chat + Project architecture
 
+MCP v1 client/host integration:
+
+- added explicit local stdio/Streamable HTTP server configuration and tool allowlists;
+- registered namespaced MCP tools in the existing canonical runtime with local operation policy;
+- retained conversation confirmation, server ceilings and scheduler forced-read-only behavior;
+- added bounded results, secret redaction, protected inspection and owned async SDK cleanup;
+- added deterministic official-SDK tests on Linux and native Windows.
+
 Architecture and implementation alignment:
 
 - redefined Orion as a local-first AI technical workbench;

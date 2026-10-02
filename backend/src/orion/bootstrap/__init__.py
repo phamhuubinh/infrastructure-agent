@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from orion.integrations import (
     TargetCatalog,
     ZabbixClient,
 )
+from orion.integrations.mcp import MCPConfigurationError, MCPManager, load_config
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.local_embeddings import LocalE5Embeddings
@@ -57,6 +60,7 @@ class OrionApplication:
     runtime: ChatRuntime
     scheduler: SchedulerService
     scheduler_engine: SchedulerEngine
+    mcp: MCPManager | None = None
 
 
 def build_application(
@@ -71,53 +75,59 @@ def build_application(
     knowledge_parser: DocumentParser | None = None,
     knowledge_chunker: Chunker | None = None,
     blocked_tool_operation_kinds: frozenset[str] = frozenset(),
+    mcp_manager: MCPManager | None = None,
+    mcp_registrations: tuple[ToolRegistration, ...] = (),
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
+    if mcp_manager is None and load_config().servers:
+        raise MCPConfigurationError("async_lifecycle_required")
     stream_settings = ModelStreamSettings.from_environment()
     infrastructure_config = _infrastructure_configuration()
     resolved_path = database_path or default_database_path()
     store = SQLiteStore(resolved_path)
-    _configure_model_from_environment(store)
-    access = LocalAccessAdapter()
-    registry_builder = ToolRegistryBuilder()
-    knowledge = KnowledgeService(
-        store,
-        LocalBlobStore(resolved_path.parent / "blobs"),
-        parser=knowledge_parser,
-        chunker=knowledge_chunker,
-        semantic_retriever_factory=(lambda: SemanticIndexService(store, LocalE5Embeddings()))
-        if os.getenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", "off") == "hybrid"
-        else None,
-    )
-    knowledge.reconcile_incomplete()
-    projects = ProjectService(store)
-    internet = internet_client or _internet_client_from_environment()
-    infrastructure_catalog = infrastructure_catalog or (
-        TargetCatalog.from_mapping(infrastructure_config)
-        if infrastructure_config is not None
-        else TargetCatalog.from_environment()
-    )
-    for registration in tool_registrations or (
-        ToolRegistration(definition=calculator_definition(), handler=calculate),
-    ):
-        registry_builder.register(registration.definition, registration.handler)
-    for registration in knowledge_registrations(knowledge):
-        registry_builder.register(registration.definition, registration.handler)
-    for registration in internet_registrations(internet):
-        registry_builder.register(registration.definition, registration.handler)
-    for registration in infrastructure_registrations(
-        infrastructure_catalog,
-        linux=linux_executor,
-        grafana=grafana_client,
-        zabbix=zabbix_client,
-    ):
-        registry_builder.register(registration.definition, registration.handler)
-    scheduler = SchedulerService(store)
-    for registration in scheduler_registrations(scheduler):
-        registry_builder.register(registration.definition, registration.handler)
-    registry = registry_builder.freeze()
-    store.expire_pending_authorizations()
     try:
+        _configure_model_from_environment(store)
+        access = LocalAccessAdapter()
+        registry_builder = ToolRegistryBuilder()
+        knowledge = KnowledgeService(
+            store,
+            LocalBlobStore(resolved_path.parent / "blobs"),
+            parser=knowledge_parser,
+            chunker=knowledge_chunker,
+            semantic_retriever_factory=(lambda: SemanticIndexService(store, LocalE5Embeddings()))
+            if os.getenv("ORION_KNOWLEDGE_SEMANTIC_SEARCH", "off") == "hybrid"
+            else None,
+        )
+        knowledge.reconcile_incomplete()
+        projects = ProjectService(store)
+        internet = internet_client or _internet_client_from_environment()
+        infrastructure_catalog = infrastructure_catalog or (
+            TargetCatalog.from_mapping(infrastructure_config)
+            if infrastructure_config is not None
+            else TargetCatalog.from_environment()
+        )
+        for registration in tool_registrations or (
+            ToolRegistration(definition=calculator_definition(), handler=calculate),
+        ):
+            registry_builder.register(registration.definition, registration.handler)
+        for registration in knowledge_registrations(knowledge):
+            registry_builder.register(registration.definition, registration.handler)
+        for registration in internet_registrations(internet):
+            registry_builder.register(registration.definition, registration.handler)
+        for registration in infrastructure_registrations(
+            infrastructure_catalog,
+            linux=linux_executor,
+            grafana=grafana_client,
+            zabbix=zabbix_client,
+        ):
+            registry_builder.register(registration.definition, registration.handler)
+        scheduler = SchedulerService(store)
+        for registration in scheduler_registrations(scheduler):
+            registry_builder.register(registration.definition, registration.handler)
+        for registration in mcp_registrations:
+            registry_builder.register(registration.definition, registration.handler)
+        registry = registry_builder.freeze()
+        store.expire_pending_authorizations()
         authorization = MutationAuthorizationPolicy.from_mapping(
             infrastructure_config or {},
             registry.definitions(),
@@ -125,36 +135,83 @@ def build_application(
                 infrastructure_catalog, family, target_ref
             ),
         )
-    except MutationAuthorizationConfigurationError:
+        selected_backend = backend or OpenAICompatibleBackend(stream_settings)
+        diagnostic_sink = (
+            BoundedModelInputDiagnostics()
+            if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa"
+            else None
+        )
+        runtime = ChatRuntime(
+            store,
+            selected_backend,
+            registry,
+            access,
+            infrastructure_catalog.model_context(),
+            ApplicationLog(Path(os.environ["ORION_LOG_PATH"]))
+            if os.getenv("ORION_LOG_PATH")
+            else None,
+            blocked_tool_operation_kinds,
+            diagnostic_sink,
+            mutation_authorization=authorization,
+        )
+        return OrionApplication(
+            store=store,
+            access=access,
+            backend=selected_backend,
+            registry=registry,
+            knowledge=knowledge,
+            projects=projects,
+            internet=internet,
+            runtime=runtime,
+            scheduler=scheduler,
+            scheduler_engine=SchedulerEngine(store, runtime, scheduler),
+            mcp=mcp_manager,
+        )
+    except BaseException:
         store.close()
         raise
-    selected_backend = backend or OpenAICompatibleBackend(stream_settings)
-    diagnostic_sink = (
-        BoundedModelInputDiagnostics() if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa" else None
-    )
-    runtime = ChatRuntime(
-        store,
-        selected_backend,
-        registry,
-        access,
-        infrastructure_catalog.model_context(),
-        ApplicationLog(Path(os.environ["ORION_LOG_PATH"])) if os.getenv("ORION_LOG_PATH") else None,
-        blocked_tool_operation_kinds,
-        diagnostic_sink,
-        mutation_authorization=authorization,
-    )
-    return OrionApplication(
-        store=store,
-        access=access,
-        backend=selected_backend,
-        registry=registry,
-        knowledge=knowledge,
-        projects=projects,
-        internet=internet,
-        runtime=runtime,
-        scheduler=scheduler,
-        scheduler_engine=SchedulerEngine(store, runtime, scheduler),
-    )
+
+
+def prepare_mcp_manager() -> MCPManager | None:
+    """Validate administrative config and resolve secrets before any application state."""
+    config = load_config()
+    return MCPManager(config) if config.servers else None
+
+
+@asynccontextmanager
+async def application_context(
+    database_path: Path | None = None,
+    backend: ModelBackend | None = None,
+    *,
+    application: OrionApplication | None = None,
+    mcp_manager: MCPManager | None = None,
+) -> AsyncIterator[OrionApplication]:
+    """Own async discovery before composition/freeze and close all integration resources."""
+    if application is not None:
+        yield application
+        return
+    manager = mcp_manager or prepare_mcp_manager()
+    if manager is None:
+        local_application = build_application(database_path, backend)
+        try:
+            yield local_application
+        finally:
+            local_application.store.close()
+        return
+    assembled: OrionApplication | None = None
+    try:
+        registrations = await manager.start()
+        try:
+            assembled = build_application(
+                database_path, backend, mcp_manager=manager, mcp_registrations=registrations
+            )
+        except ValueError:
+            raise MCPConfigurationError("composition") from None
+        yield assembled
+    finally:
+        await manager.close()
+        if assembled is not None:
+            assembled.store.close()
 
 
 def _configure_model_from_environment(store: SQLiteStore) -> None:

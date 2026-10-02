@@ -141,3 +141,14 @@ The current target does not introduce:
 - `capability.search`;
 - user-selected or integration-routed tool exposure;
 - product-level per-request tool-call quotas.
+
+## MCP client/host composition
+
+Configured MCP v1 clients use the official Python SDK v2 for stdio and Streamable
+HTTP. Async application startup discovers and validates local allowlists before
+freezing the canonical registry. Each proxy is an ordinary namespaced ToolDefinition
+with local read/mutation classification and the existing ToolRunner authorization.
+The owner task closes all SDK resources on failed startup and shutdown. Server
+catalog notifications do not alter the live snapshot; restart is required. Scope
+authority stays in Orion, and MCP instructions/prompts/resources are not injected.
+See [MCP contracts and operations](../operations/MCP.md).

@@ -193,6 +193,16 @@ class RequestBudget:
                 await _cancel_and_drain(operation_task)
                 raise RequestDeadlineExceeded(phase)
             return await operation_task
+        except asyncio.CancelledError:
+            # A boundary task can itself be cancelled (for example bounded shutdown).
+            # Drain its child dispatch so no detached mutation/read survives shutdown.
+            cancellation.set()
+            await _cancel_and_drain(operation_task)
+            if preserve_on_interrupt:
+                if not operation_task.cancelled() and operation_task.exception() is None:
+                    return operation_task.result()
+                raise MutationOutcomeUnknown(phase, cancelled=True) from None
+            raise
         finally:
             for task in (cancellation_task, deadline_task):
                 if not task.done():

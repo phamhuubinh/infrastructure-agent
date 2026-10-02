@@ -706,6 +706,29 @@
         "summary": "Health"
       }
     },
+    "/api/mcp/servers": {
+      "get": {
+        "operationId": "mcp_servers_api_mcp_servers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Mcp Servers Api Mcp Servers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mcp Servers"
+      }
+    },
     "/api/models": {
       "get": {
         "operationId": "get_models_api_models_get",

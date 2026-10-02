@@ -20,7 +20,12 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from orion.access import LocalAccessAdapter
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
 from orion.api.scheduler import install_scheduler_routes
-from orion.bootstrap import OrionApplication, build_application
+from orion.bootstrap import (
+    OrionApplication,
+    application_context,
+    build_application,
+    prepare_mcp_manager,
+)
 from orion.chat.runtime import (
     ChatRuntime,
     CitationValidationFailed,
@@ -60,6 +65,7 @@ PUBLIC_API_ROUTES = {
     ("GET", "/api/auth/session"),
 }
 PROTECTED_API_ROUTES = {
+    ("GET", "/api/mcp/servers"),
     ("POST", "/api/scheduler/tasks"),
     ("GET", "/api/scheduler/tasks"),
     ("GET", "/api/scheduler/tasks/{task_id}"),
@@ -252,30 +258,29 @@ def create_app(
 ) -> FastAPI:
     """Adapt bootstrap-owned application dependencies to the public HTTP API."""
     remote = remote_config or RemoteAccessConfig.from_environment()
-    assembled = application or build_application(database_path, backend)
-    store, runtime = assembled.store, assembled.runtime
-    max_upload_bytes = document_upload_limit()
+    manager = prepare_mcp_manager() if application is None else None
+    assembled = application or (
+        build_application(database_path, backend) if manager is None else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        assembled.scheduler_engine.start()
-        try:
-            yield
-        finally:
-            await assembled.scheduler_engine.stop()
+        async with application_context(
+            database_path, backend, application=assembled, mcp_manager=manager
+        ) as running:
+            if assembled is None:
+                _install_application_routes(app, running, ui_directory, sessions, remote)
+            running.scheduler_engine.start()
+            try:
+                yield
+            finally:
+                await running.scheduler_engine.stop()
 
     app = FastAPI(title="Orion", version="0.1.0", lifespan=lifespan)
-    install_scheduler_routes(
-        app,
-        assembled.scheduler,
-        lambda session_id: _session_scope(store, assembled.access, session_id),
-    )
-    app.state.application = assembled
     sessions = (
         BrowserSessions(remote.password_hash) if remote.enabled and remote.password_hash else None
     )
     app.state.browser_sessions = sessions
-
     if remote.enabled:
         assert sessions is not None and remote.public_origin is not None
         app.add_middleware(
@@ -284,6 +289,31 @@ def create_app(
             sessions=sessions,
             public_origin=remote.public_origin,
         )
+    if assembled is not None:
+        _install_application_routes(app, assembled, ui_directory, sessions, remote)
+    return app
+
+
+def _install_application_routes(
+    app: FastAPI,
+    assembled: OrionApplication,
+    ui_directory: Path | None,
+    sessions: BrowserSessions | None,
+    remote: RemoteAccessConfig,
+) -> None:
+    """Install boundary adapters only after the single canonical snapshot is ready."""
+    store, runtime = assembled.store, assembled.runtime
+    max_upload_bytes = document_upload_limit()
+    app.state.application = assembled
+    install_scheduler_routes(
+        app,
+        assembled.scheduler,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+    )
+
+    @app.get("/api/mcp/servers")
+    async def mcp_servers() -> list[dict[str, object]]:
+        return assembled.mcp.status() if assembled.mcp else []
 
     def model_config_view(config: dict[str, str | int | None]) -> ModelConfigView:
         return ModelConfigView(
@@ -756,8 +786,6 @@ def create_app(
                 detail="Orion's packaged UI is missing. Run ./install.sh to build it.",
             )
         return _static_file_response(shell)
-
-    return app
 
 
 async def _read_document_upload(

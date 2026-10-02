@@ -61,3 +61,7 @@ identity. The login bootstrap and packaged static UI are public. Chat, Project,
 model configuration, documents, uploads, streams, authorization decisions,
 OpenAPI, and all other application APIs require a valid session. Unknown API
 paths return 404 and never receive the UI shell.
+
+MCP administrative inspection (`GET /api/mcp/servers`) is explicitly protected in
+the route inventory. It exposes bounded server IDs, transport/state and catalog
+names, without URLs, arguments, environment values or headers. See [MCP v1](MCP.md).

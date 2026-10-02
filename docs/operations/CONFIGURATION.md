@@ -159,3 +159,11 @@ Linux targets may be ordinary OpenSSH aliases. Orion uses `ORION_SSH_TARGET_REFS
 the alias from `ORION_SSH_CONFIG_PATH` (defaulting to the local OpenSSH config).
 This avoids duplicating SSH host, user, or identity-file information into model-visible
 configuration.
+
+## External MCP tools
+
+Set `ORION_MCP_CONFIG` to strict local JSON for explicitly allowlisted MCP servers and
+tools. Orion supports stdio and Streamable HTTP using environment-referenced secrets,
+local read/mutation classification and its existing conversation permissions. Catalog
+changes require restart. See [MCP client/host configuration](MCP.md) for complete
+examples, schema restrictions, lifecycle and safe troubleshooting.

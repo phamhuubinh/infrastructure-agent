@@ -370,3 +370,30 @@ async def test_runtime_persists_mutation_outcome_before_deadline_terminalization
     assert result["error"]["code"] == "outcome_unknown"
     assert outcome.status == "incomplete"
     assert store.request(request_id)["status"] == "incomplete"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mutation", [False, True])
+async def test_external_boundary_cancellation_drains_dispatch_and_preserves_uncertainty(
+    mutation: bool,
+) -> None:
+    budget = RequestBudget.start(RequestBudgetSettings(request_deadline_seconds=10))
+    cancellation = asyncio.Event()
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def dispatch() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    running = asyncio.create_task(
+        budget.await_work(dispatch(), cancellation, phase="tool", preserve_on_interrupt=mutation)
+    )
+    await started.wait()
+    running.cancel()
+    with pytest.raises(MutationOutcomeUnknown if mutation else asyncio.CancelledError):
+        await running
+    assert stopped.is_set() and cancellation.is_set()
