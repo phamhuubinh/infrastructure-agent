@@ -81,7 +81,12 @@ try {
         $launcher = Join-Path $launcherDir 'orion.cmd'
         New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
         if (Test-Path -LiteralPath $launcher) {
-            $first = [IO.File]::ReadLines($launcher) | Select-Object -First 1
+            $reader = [IO.File]::OpenText($launcher)
+            try {
+                $first = $reader.ReadLine()
+            } finally {
+                $reader.Dispose()
+            }
             if ($first -cne '@REM Orion managed launcher') { throw "Refusing to overwrite unrelated launcher: $launcher" }
         }
         $escaped = $venvOrion.Replace('%', '%%')
