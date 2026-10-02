@@ -19,6 +19,11 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from orion.access import LocalAccessAdapter
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
+from orion.api.endpoints import (
+    ENDPOINT_OWNER_ROUTES,
+    PAIRING_API_ROUTES,
+    install_endpoint_routes,
+)
 from orion.api.scheduler import install_scheduler_routes
 from orion.bootstrap import (
     OrionApplication,
@@ -64,7 +69,7 @@ PUBLIC_API_ROUTES = {
     ("POST", "/api/auth/login"),
     ("GET", "/api/auth/session"),
 }
-PROTECTED_API_ROUTES = {
+PROTECTED_API_ROUTES = ENDPOINT_OWNER_ROUTES | {
     ("GET", "/api/mcp/servers"),
     ("POST", "/api/scheduler/tasks"),
     ("GET", "/api/scheduler/tasks"),
@@ -145,7 +150,8 @@ class RemoteAccessMiddleware:
             await send(message)
 
         if (
-            method not in {"GET", "HEAD", "OPTIONS"}
+            (method, path) not in PAIRING_API_ROUTES
+            and method not in {"GET", "HEAD", "OPTIONS"}
             and request.headers.get("origin") != self._public_origin
         ):
             await Response(status_code=403)(scope, receive, send_remote)
@@ -158,7 +164,7 @@ class RemoteAccessMiddleware:
                     if match == Match.FULL:
                         classification = (method, route.path)
                         break
-            if classification not in PUBLIC_API_ROUTES:
+            if classification not in PUBLIC_API_ROUTES | PAIRING_API_ROUTES:
                 if classification not in PROTECTED_API_ROUTES:
                     await Response(status_code=404)(scope, receive, send_remote)
                     return
@@ -275,6 +281,7 @@ def create_app(
                 yield
             finally:
                 await running.scheduler_engine.stop()
+                await running.endpoints.close()
 
     app = FastAPI(title="Orion", version="0.1.0", lifespan=lifespan)
     sessions = (
@@ -305,6 +312,7 @@ def _install_application_routes(
     store, runtime = assembled.store, assembled.runtime
     max_upload_bytes = document_upload_limit()
     app.state.application = assembled
+    install_endpoint_routes(app, assembled.endpoints, sessions, remote)
     install_scheduler_routes(
         app,
         assembled.scheduler,

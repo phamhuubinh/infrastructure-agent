@@ -12,6 +12,9 @@ from pathlib import Path
 from orion.access import LocalAccessAdapter
 from orion.chat.diagnostics import BoundedModelInputDiagnostics
 from orion.chat.runtime import ChatRuntime
+from orion.endpoints.manager import EndpointManager
+from orion.endpoints.persistence import EndpointStore
+from orion.endpoints.tools import endpoint_registrations
 from orion.integrations import (
     DuckDuckGoInternetClient,
     GrafanaClient,
@@ -60,6 +63,8 @@ class OrionApplication:
     runtime: ChatRuntime
     scheduler: SchedulerService
     scheduler_engine: SchedulerEngine
+    endpoints: EndpointManager
+    endpoint_enabled: bool = False
     mcp: MCPManager | None = None
 
 
@@ -75,6 +80,7 @@ def build_application(
     knowledge_parser: DocumentParser | None = None,
     knowledge_chunker: Chunker | None = None,
     blocked_tool_operation_kinds: frozenset[str] = frozenset(),
+    endpoint_enabled: bool | None = None,
     mcp_manager: MCPManager | None = None,
     mcp_registrations: tuple[ToolRegistration, ...] = (),
 ) -> OrionApplication:
@@ -88,6 +94,12 @@ def build_application(
     try:
         _configure_model_from_environment(store)
         access = LocalAccessAdapter()
+        enabled = (
+            endpoint_enabled
+            if endpoint_enabled is not None
+            else os.getenv("ORION_ENDPOINTS", "0") == "1"
+        )
+        endpoints = EndpointManager(EndpointStore(store))
         registry_builder = ToolRegistryBuilder()
         knowledge = KnowledgeService(
             store,
@@ -126,13 +138,18 @@ def build_application(
             registry_builder.register(registration.definition, registration.handler)
         for registration in mcp_registrations:
             registry_builder.register(registration.definition, registration.handler)
+        if enabled:
+            for registration in endpoint_registrations(endpoints):
+                registry_builder.register(registration.definition, registration.handler)
         registry = registry_builder.freeze()
         store.expire_pending_authorizations()
         authorization = MutationAuthorizationPolicy.from_mapping(
             infrastructure_config or {},
             registry.definitions(),
-            lambda family, target_ref: _target_is_configured(
-                infrastructure_catalog, family, target_ref
+            lambda family, target_ref: (
+                _target_is_configured(infrastructure_catalog, family, target_ref)
+                if family != "endpoint"
+                else endpoints.configured(target_ref)
             ),
         )
         selected_backend = backend or OpenAICompatibleBackend(stream_settings)
@@ -165,6 +182,8 @@ def build_application(
             runtime=runtime,
             scheduler=scheduler,
             scheduler_engine=SchedulerEngine(store, runtime, scheduler),
+            endpoints=endpoints,
+            endpoint_enabled=enabled,
             mcp=mcp_manager,
         )
     except BaseException:
@@ -196,6 +215,7 @@ async def application_context(
         try:
             yield local_application
         finally:
+            await local_application.endpoints.close()
             local_application.store.close()
         return
     assembled: OrionApplication | None = None
@@ -211,6 +231,7 @@ async def application_context(
     finally:
         await manager.close()
         if assembled is not None:
+            await assembled.endpoints.close()
             assembled.store.close()
 
 

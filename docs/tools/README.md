@@ -54,3 +54,5 @@ See [Scheduler v1](../architecture/SCHEDULER.md) for tool schemas and scheduling
 [MCP v1](../operations/MCP.md) connects explicitly allowlisted external tools through
 the same canonical registry and mutation authorization. Orion is the MCP client/host;
 server prompts/resources are not a Chat context or RAG plane.
+
+- [Endpoint tools](ENDPOINTS.md): paired Windows/Linux system, files, processes, browser and desktop.

@@ -65,3 +65,9 @@ UI may render these events but does not use them to choose tools.
 ## OpenAPI
 
 Generate OpenAPI from the implemented backend. Do not treat a hand-written stale schema as architectural authority.
+
+## Remote Endpoint v1
+
+See [endpoint runtime and threat model](ENDPOINTS.md) and
+[ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
+transport, identity persistence, fixed tool family and independent policy ceiling.

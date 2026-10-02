@@ -8,6 +8,8 @@ on:
       - '.github/workflows/release.yml'
       - 'install.ps1'
       - 'backend/**'
+      - 'worker/**'
+      - 'scripts/worker/**'
       - 'ui/**'
       - 'scripts/windows/**'
       - 'scripts/release/**'
@@ -18,6 +20,8 @@ on:
       - '.github/workflows/release.yml'
       - 'install.ps1'
       - 'backend/**'
+      - 'worker/**'
+      - 'scripts/worker/**'
       - 'ui/**'
       - 'scripts/windows/**'
       - 'scripts/release/**'
@@ -51,7 +55,7 @@ jobs:
         run: |
           python -m pip install -e "./backend[dev]"
           if ($LASTEXITCODE -ne 0) { throw 'Backend installation failed' }
-          python -m pytest backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py backend/tests/test_mcp.py
+          python -m pytest backend/tests/test_scheduler.py backend/tests/test_scheduler_api.py backend/tests/test_remote_access.py backend/tests/test_mcp.py backend/tests/test_endpoints.py
           if ($LASTEXITCODE -ne 0) { throw 'Scheduler, MCP and remote route-policy tests failed' }
       - name: Parse native PowerShell scripts
         shell: powershell
@@ -101,3 +105,27 @@ jobs:
           $bundle = (Get-ChildItem (Join-Path $env:RUNNER_TEMP 'windows release candidate/extracted') -Directory).FullName
           python scripts/release/smoke.py "$bundle" windows-x64
           if ($LASTEXITCODE -ne 0) { throw 'Release Windows smoke failed' }
+
+      - name: Native endpoint browser and desktop fixture
+        shell: powershell
+        run: |
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Browser provisioning failed' }
+          $env:ORION_NATIVE_TESTS = '1'
+          python -m pytest backend/tests/test_endpoint_native.py
+          if ($LASTEXITCODE -ne 0) { throw 'Native endpoint tests failed' }
+      - name: Build and smoke archived Windows worker
+        shell: powershell
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'worker release candidate'
+          $releaseSource = Join-Path $env:GITHUB_WORKSPACE 'release source checkout'
+          python -m build --wheel "$releaseSource/worker" --outdir "$work/dist"
+          if ($LASTEXITCODE -ne 0) { throw 'Worker wheel failed' }
+          $wheel = (Get-ChildItem "$work/dist/orion_worker-*.whl").FullName
+          python "$releaseSource/scripts/worker/payload.py" --repository "$releaseSource" --wheel "$wheel" --output "$work/artifacts"
+          if ($LASTEXITCODE -ne 0) { throw 'Worker artifacts failed' }
+          $archive = (Get-ChildItem "$work/artifacts/orion-worker-*-windows-x64.zip").FullName
+          Expand-Archive -LiteralPath $archive -DestinationPath "$work/extracted"
+          $bundle = (Get-ChildItem "$work/extracted" -Directory).FullName
+          python scripts/worker/smoke.py "$bundle"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows worker smoke failed' }

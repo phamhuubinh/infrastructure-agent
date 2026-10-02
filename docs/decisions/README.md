@@ -17,3 +17,5 @@ These decisions define the current target.
 - `0013-production-mutation-authorization.md`
 
 A future change to these principles should be explicit rather than introduced indirectly through implementation convenience.
+
+- [ADR 0015: Paired endpoint execution](0015-paired-endpoint-execution.md) — outbound workers, independent policy and mutation uncertainty.

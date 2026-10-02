@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Paired Windows/Linux model-free worker, isolated browser automation and authenticated Remote Desktop.
+- Lightweight worker artifacts with native Linux/Windows CI and release smoke coverage.
+
 ## Unreleased — Local-first Chat + Project architecture
 
 MCP v1 client/host integration:

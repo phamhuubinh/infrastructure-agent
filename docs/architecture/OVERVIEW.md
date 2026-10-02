@@ -105,3 +105,9 @@ Project = base runtime + project-scoped knowledge
 ```
 
 Do not fork the agent/tool implementation for Project.
+
+## Remote Endpoint v1
+
+See [endpoint runtime and threat model](ENDPOINTS.md) and
+[ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
+transport, identity persistence, fixed tool family and independent policy ceiling.

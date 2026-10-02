@@ -65,3 +65,13 @@ paths return 404 and never receive the UI shell.
 MCP administrative inspection (`GET /api/mcp/servers`) is explicitly protected in
 the route inventory. It exposes bounded server IDs, transport/state and catalog
 names, without URLs, arguments, environment values or headers. See [MCP v1](MCP.md).
+
+## Endpoint trust boundaries
+
+The authoritative inventory adds browser-authenticated endpoint administration,
+file transfer and desktop lifecycle APIs; pairing-token-authenticated
+`POST /api/endpoints/pair`; and device-credential-authenticated
+`/api/endpoints/{endpoint_id}/worker` WebSocket. Pair/device routes never use
+browser cookies as authority. Pair bootstrap denies browser Origin; worker denies
+Origin/query credentials. Owner mutations retain exact Origin. See
+[endpoint threat model](../architecture/ENDPOINTS.md).

@@ -57,3 +57,9 @@ htmlcov/
 
 # Generated benchmark results
 /benchmark_results/
+
+# Private endpoint credentials, policy state and browser runtime data
+.orion-worker/
+worker-state/
+playwright-report/
+test-results/

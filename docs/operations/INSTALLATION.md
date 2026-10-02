@@ -63,3 +63,9 @@ requires a clean checkout of that commit, builds one wheel and one UI, assembles
 checks the full backend and UI suites, exercises each extracted archive on its native runner,
 and publishes the GitHub Release only after all checks pass. An existing release tag must point
 to the same source commit before its assets can be updated.
+
+## Lightweight endpoint installation
+
+Windows/Linux `orion-worker` archives use Python 3.12+, one executor-only wheel
+and `install.py`. No full server, UI, Node or E5 installation is required. Updates
+preserve worker data; see [ENDPOINTS.md](ENDPOINTS.md).

@@ -152,3 +152,9 @@ The owner task closes all SDK resources on failed startup and shutdown. Server
 catalog notifications do not alter the live snapshot; restart is required. Scope
 authority stays in Orion, and MCP instructions/prompts/resources are not injected.
 See [MCP contracts and operations](../operations/MCP.md).
+
+## Remote Endpoint v1
+
+See [endpoint runtime and threat model](ENDPOINTS.md) and
+[ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
+transport, identity persistence, fixed tool family and independent policy ceiling.

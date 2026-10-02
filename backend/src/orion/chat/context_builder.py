@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -161,6 +162,7 @@ class ContextBuilder:
         strict_total_budget: bool = False,
         model_visible_citation_sizing: bool = False,
         runtime_instructions: str = "",
+        transient_results: Mapping[str, ToolResult] | None = None,
     ) -> BuiltContext:
         messages: list[ContextMessage] = [
             ContextMessage(
@@ -277,6 +279,21 @@ class ContextBuilder:
         # Persisted legacy checkpoints remain for data compatibility, but synchronous
         # model summaries and checkpoint content are intentionally absent from requests.
         timeline, omitted_timeline_turns = self._store.model_context_timeline(session_id, None)
+
+        if transient_results:
+            timeline = [
+                item.model_copy(
+                    update={
+                        "payload": {
+                            **item.payload,
+                            "result": transient_results[item.item_id].model_dump(mode="json"),
+                        }
+                    }
+                )
+                if item.kind == "tool_result" and item.item_id in transient_results
+                else item
+                for item in timeline
+            ]
 
         compacted_current_blocks = 0
 

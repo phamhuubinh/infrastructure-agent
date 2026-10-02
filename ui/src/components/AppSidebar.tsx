@@ -39,6 +39,7 @@ import { Input } from "@/components/ui/input";
 const navItems = [
   { to: "/", label: "Trò chuyện", icon: MessageSquare },
   { to: "/projects", label: "Projects", icon: FolderKanban },
+  { to: "/endpoints", label: "Thiết bị", icon: Settings },
   { to: "/settings", label: "Cài đặt", icon: Settings },
 ];
 

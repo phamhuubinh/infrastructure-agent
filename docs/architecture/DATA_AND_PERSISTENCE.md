@@ -75,3 +75,9 @@ The canonical SQLite store additively persists `scheduled_tasks` and `scheduled_
 Each task owns a dedicated ordinary session; run rows reference ordinary requests
 and preserve UTC occurrence identity. See [Scheduler v1](SCHEDULER.md) for exact
 columns, atomic claim, coalescing, crash recovery and deletion semantics.
+
+## Remote Endpoint v1
+
+See [endpoint runtime and threat model](ENDPOINTS.md) and
+[ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
+transport, identity persistence, fixed tool family and independent policy ceiling.

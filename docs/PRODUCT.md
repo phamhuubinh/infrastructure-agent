@@ -139,3 +139,10 @@ Infrastructure automation can grow from the same tool loop, but it must not dist
 - Document-grounded answers should identify their sources.
 - If a tool/source fails, Orion should explain the missing information instead of pretending it succeeded.
 - Local operation is the default deployment assumption.
+
+## Paired remote endpoints
+
+Chat/Project can operate explicitly paired Windows/Linux devices with the same
+runtime and mutation modes. The authenticated Thiết bị page adds pairing, identity
+management, bounded file transfer and optional manual Remote Desktop. Capabilities
+remain limited by local worker policy. See [endpoint operations](operations/ENDPOINTS.md).

@@ -73,7 +73,7 @@ class MutationAuthorizationPolicy:
                     "Mutation allowlist requires a closed schema with a required target_ref."
                 )
             family = tool_name.partition(".")[0]
-            if family not in {"linux", "grafana", "zabbix"} or not target_is_configured(
+            if family not in {"linux", "grafana", "zabbix", "endpoint"} or not target_is_configured(
                 family, target_ref
             ):
                 raise MutationAuthorizationConfigurationError(

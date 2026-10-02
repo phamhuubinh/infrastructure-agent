@@ -67,3 +67,24 @@ jobs:
         run: python backend/scripts/architecture_check.py
       - name: Check operations lifecycle
         run: python backend/scripts/operations_check.py
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e "./backend[dev]"
+      - run: python -m playwright install --with-deps chromium
+      - name: Native Linux browser and X11 fixture
+        run: ORION_NATIVE_TESTS=1 xvfb-run -a python -m pytest backend/tests/test_endpoints.py backend/tests/test_endpoint_native.py
+      - name: Build lightweight worker artifacts
+        run: |
+          python -m build --wheel worker --outdir release-work/worker-dist
+          python scripts/worker/payload.py --wheel release-work/worker-dist/orion_worker-*-py3-none-any.whl --output release-work/worker-artifacts
+      - name: Smoke archived Linux worker
+        run: |
+          mkdir -p release-work/extracted
+          tar -xzf release-work/worker-artifacts/orion-worker-*-linux-x86_64.tar.gz -C release-work/extracted
+          python scripts/worker/smoke.py release-work/extracted/orion-worker-*-linux-x86_64

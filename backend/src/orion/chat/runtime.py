@@ -449,6 +449,7 @@ class ChatRuntime:
         )
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
+        self._transient_endpoint_results: dict[str, dict[str, ToolResult]] = {}
         self._scheduled_requests: set[str] = set()
         self._queued_at: dict[str, float] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -603,6 +604,11 @@ class ChatRuntime:
             "scheduler.resume": "Tiếp tục tác vụ theo lịch",
             "scheduler.delete": "Xóa tác vụ theo lịch",
         }
+        if call.tool_name.startswith("endpoint."):
+            return {
+                "label": call.tool_name,
+                "target_ref": str(call.arguments.get("target_ref", ""))[:32],
+            }
         summary = {"label": labels.get(call.tool_name, "Thực hiện thao tác thay đổi")}
         if call.tool_name.startswith("mcp."):
             summary["server_id"] = call.tool_name.split(".")[1]
@@ -1003,7 +1009,7 @@ class ChatRuntime:
                             request_id,
                             "tool_call",
                             {
-                                "arguments": model_call.arguments,
+                                "arguments": self._persistable_arguments(model_call),
                                 "operation_kind": definition.operation_kind
                                 if definition
                                 else "read",
@@ -1410,6 +1416,7 @@ class ChatRuntime:
             self._pending_content.pop(request_id, None)
             self._queued_at.pop(request_id, None)
             self._scheduled_requests.discard(request_id)
+            self._transient_endpoint_results.pop(request_id, None)
 
     async def _stream_turn(
         self,
@@ -1479,6 +1486,7 @@ class ChatRuntime:
             strict_total_budget=True,
             model_visible_citation_sizing=True,
             runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
+            transient_results=self._transient_endpoint_results.get(request_id),
         )
         citation_sources = citation_eligible_sources(
             context.messages,
@@ -1607,6 +1615,12 @@ class ChatRuntime:
             }
         )
 
+    @staticmethod
+    def _persistable_arguments(call: ModelToolCall) -> dict[str, object]:
+        if call.tool_name.startswith("endpoint."):
+            return {"target_ref": call.arguments.get("target_ref", ""), "payload_omitted": True}
+        return dict(call.arguments)
+
     def _persist_assistant_turn(
         self,
         session_id: str,
@@ -1623,7 +1637,10 @@ class ChatRuntime:
                 if turn.assistant is not None
                 else []
             ),
-            "tool_calls": [call.model_dump(mode="json") for call in turn.tool_calls],
+            "tool_calls": [
+                {**call.model_dump(mode="json"), "arguments": self._persistable_arguments(call)}
+                for call in turn.tool_calls
+            ],
         }
         if metrics is not None:
             payload["metrics"] = metrics
@@ -1639,14 +1656,22 @@ class ChatRuntime:
     def _persist_tool_result(
         self, session_id: str, request_id: str, result: ToolResult, elapsed_ms: int
     ) -> None:
-        self._store.append_timeline(
+        persisted = result.model_dump(mode="json")
+        if result.tool_name.startswith("endpoint.") and result.status == "success":
+            persisted["data"] = {"payload_omitted": True}
+        item = self._store.append_timeline(
             session_id,
             request_id,
             "tool_result",
-            {"result": result.model_dump(mode="json"), "elapsed_ms": elapsed_ms},
+            {"result": persisted, "elapsed_ms": elapsed_ms},
             call_id=result.call_id,
             tool_name=result.tool_name,
         )
+        if result.tool_name.startswith("endpoint.") and result.status == "success":
+            cache = self._transient_endpoint_results.setdefault(request_id, {})
+            cache[item.item_id] = result
+            while len(cache) > 8:
+                del cache[next(iter(cache))]
         event_type = "tool.completed" if result.status == "success" else "tool.failed"
         payload: dict[str, object] = {
             "call_id": result.call_id,
@@ -1661,9 +1686,10 @@ class ChatRuntime:
             "linux",
             "grafana",
             "zabbix",
+            "endpoint",
         }:
             payload["operation_kind"] = definition.operation_kind
-            if isinstance(result.data, dict):
+            if isinstance(result.data, dict) and not result.tool_name.startswith("endpoint."):
                 target_ref = result.data.get("target_ref")
                 if isinstance(target_ref, str):
                     payload["target_ref"] = target_ref
@@ -1686,6 +1712,7 @@ class ChatRuntime:
             "linux",
             "grafana",
             "zabbix",
+            "endpoint",
         }:
             payload["operation_kind"] = definition.operation_kind
             target_ref = arguments.get("target_ref")
@@ -1708,6 +1735,8 @@ class ChatRuntime:
         target_ref = call.arguments.get("target_ref")
         if family == "mcp":
             payload["server_id"] = call.tool_name.split(".")[1]
+        if family == "endpoint":
+            payload["target_ref"] = str(target_ref)[:32]
         if family == "scheduler":
             payload["target_ref"] = "scheduler"
         if any(
@@ -1732,6 +1761,35 @@ class ChatRuntime:
     def _record_diagnostic(self, record: dict[str, object]) -> None:
         if self._diagnostic_sink is None:
             return
+        canonical = record.get("canonical_result")
+        if isinstance(canonical, dict) and str(canonical.get("tool_name", "")).startswith(
+            "endpoint."
+        ):
+            record = {
+                **record,
+                "canonical_result": {**canonical, "data": {"payload_omitted": True}},
+            }
+        snapshot = record.get("model_input")
+        if isinstance(snapshot, dict):
+            projections = snapshot.get("tool_result_projections")
+            if isinstance(projections, list):
+                record = {
+                    **record,
+                    "model_input": {
+                        **snapshot,
+                        "tool_result_projections": [
+                            {
+                                **item,
+                                "content": "[endpoint payload omitted]",
+                                "projection_omissions": [],
+                            }
+                            if isinstance(item, dict)
+                            and str(item.get("tool_name", "")).startswith("endpoint.")
+                            else item
+                            for item in projections
+                        ],
+                    },
+                }
         try:
             self._diagnostic_sink.record(record)
         except Exception:

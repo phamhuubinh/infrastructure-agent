@@ -46,6 +46,7 @@ jobs:
         run: |
           python -m pip install build
           python -m build --wheel backend --outdir release-work/dist
+          python -m build --wheel worker --outdir release-work/dist
       - name: Build UI
         working-directory: ui
         run: |
@@ -58,6 +59,8 @@ jobs:
             --wheel "release-work/dist/orion-${{ steps.version.outputs.version }}-py3-none-any.whl" \
             --ui ui/dist/client \
             --output release-work/artifacts
+      - name: Assemble worker bundles
+        run: python scripts/worker/payload.py --wheel "release-work/dist/orion_worker-${{ steps.version.outputs.version }}-py3-none-any.whl" --output release-work/artifacts
       - uses: actions/upload-artifact@v4
         with:
           name: orion-release-candidate
@@ -84,9 +87,9 @@ jobs:
         working-directory: ui
       - name: Backend and architecture checks
         run: |
-          ruff check backend/src backend/tests scripts/release scripts/windows
-          ruff format --check backend/src backend/tests scripts/release scripts/windows
-          mypy backend/src
+          ruff check backend/src backend/tests scripts/release scripts/windows scripts/worker
+          ruff format --check backend/src backend/tests scripts/release scripts/windows scripts/worker
+          mypy --config-file backend/pyproject.toml backend/src
           pytest backend/tests
           python backend/scripts/openapi.py
           python backend/scripts/architecture_check.py
@@ -112,12 +115,15 @@ jobs:
         with:
           name: orion-release-candidate
           path: ${{ runner.temp }}/candidate
+      - run: python -m pip install -e "./backend[dev]"
       - name: Exercise archived Linux bundle
         run: |
           cd "$RUNNER_TEMP/candidate"
           sha256sum -c SHA256SUMS
           cd "$RUNNER_TEMP"
           tar -xzf "candidate/orion-${{ needs.build.outputs.version }}-linux-x86_64.tar.gz"
+          tar -xzf "candidate/orion-worker-${{ needs.build.outputs.version }}-linux-x86_64.tar.gz"
+          python "$GITHUB_WORKSPACE/scripts/worker/smoke.py" "$RUNNER_TEMP/orion-worker-${{ needs.build.outputs.version }}-linux-x86_64"
           python "$GITHUB_WORKSPACE/scripts/release/smoke.py" "$RUNNER_TEMP/orion-${{ needs.build.outputs.version }}-linux-x86_64" linux-x86_64
 
   smoke-windows:
@@ -139,9 +145,14 @@ jobs:
         with:
           name: orion-release-candidate
           path: ${{ runner.temp }}/candidate
+      - run: python -m pip install -e "./backend[dev]"
       - name: Exercise archived Windows bundle
         shell: pwsh
         run: |
+          $workerName = 'orion-worker-${{ needs.build.outputs.version }}-windows-x64'
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP "candidate/$workerName.zip") -DestinationPath $env:RUNNER_TEMP
+          python scripts/worker/smoke.py (Join-Path $env:RUNNER_TEMP $workerName)
+          if ($LASTEXITCODE -ne 0) { throw 'Worker Windows smoke failed' }
           $name = 'orion-${{ needs.build.outputs.version }}-windows-x64'
           $archive = Join-Path $env:RUNNER_TEMP "candidate/$name.zip"
           $expected = (Get-Content (Join-Path $env:RUNNER_TEMP 'candidate/SHA256SUMS') | Where-Object { $_ -like "*$name.zip" }).Split(' ')[0]

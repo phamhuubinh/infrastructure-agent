@@ -90,3 +90,9 @@ call before its handler and resumes the same request after a single user decisio
 Tool implementations still own configured targets, credentials, validation and
 operational safety. An explicitly configured `mutation_allowlist` is an additional
 server ceiling; its absence adds no restriction. See ADR 0014.
+
+## Remote Endpoint v1
+
+See [endpoint runtime and threat model](ENDPOINTS.md) and
+[ADR 0015](../decisions/0015-paired-endpoint-execution.md) for the additive worker
+transport, identity persistence, fixed tool family and independent policy ceiling.

@@ -24,3 +24,10 @@ after tool-result messages. Orion sends all registered model-callable tool schem
 
 Read `GET /api/requests/{request_id}/events` to reconstruct model and tool activity,
 or `GET /api/sessions/{session_id}/timeline` for the persisted public conversation.
+
+## Endpoint unavailable or uncertain
+
+Check worker online state, local policy, managed Chromium provisioning and an
+interactive Windows/X11 desktop. Wayland fails closed. A revoked credential cannot
+reconnect; explicitly re-pair. After `outcome_unknown`, inspect state before issuing
+a new mutation. See [ENDPOINTS.md](ENDPOINTS.md).

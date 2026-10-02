@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orion-worker"
+dynamic = ["version"]
+description = "Model-free outbound Orion Windows/Linux endpoint worker"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.9,<3", "httpx>=0.28,<1", "websockets>=15,<17",
+  "psutil>=7,<8", "Pillow>=11,<13", "mss>=10,<11",
+  "pynput>=1.8,<2", "pyperclip>=1.9,<2", "playwright>=1.56,<2",
+]
+
+[project.scripts]
+orion-worker = "orion_endpoint.cli:main"
+
+[tool.hatch.version]
+path = "../backend/src/orion_endpoint/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = []
+
+[tool.hatch.build.targets.wheel.force-include]
+"../backend/src/orion_endpoint" = "orion_endpoint"

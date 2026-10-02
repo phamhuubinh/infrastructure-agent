@@ -1,0 +1,13 @@
+{
+  "read_roots": [],
+  "write_roots": [],
+  "applications": {},
+  "terminate": false,
+  "clipboard_read": false,
+  "clipboard_write": false,
+  "browser": false,
+  "desktop_capture": false,
+  "desktop_control": false,
+  "max_fps": 2,
+  "max_resolution": 1280
+}

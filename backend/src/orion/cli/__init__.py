@@ -180,6 +180,9 @@ def _run_web() -> None:
         port=ORION_PORT,
         factory=True,
         proxy_headers=False,
+        ws_max_size=1_500_000,
+        ws_max_queue=4,
+        ws_per_message_deflate=False,
     )
     server = uvicorn.Server(config)
     if remote.enabled:

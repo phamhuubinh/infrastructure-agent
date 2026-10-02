@@ -25,3 +25,6 @@ See `../architecture/BACKEND_API.md`.
 
 The protected [Scheduler v1 API](../architecture/SCHEDULER.md#protected-api) derives
 task scope from a visible session and bounds task/history result limits to 100.
+
+Endpoint administration/transfer/desktop routes and separate pairing/device
+authentication are described in [the endpoint runtime](../architecture/ENDPOINTS.md).

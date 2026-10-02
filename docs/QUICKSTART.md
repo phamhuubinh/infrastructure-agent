@@ -72,3 +72,10 @@ message
 ```
 
 There is no manual tool selection step in Chat or Project.
+
+## Pair a remote device
+
+Enable `ORION_ENDPOINTS=1`, create a token in Thiết bị, install the matching worker,
+run configure, pair (interactive token prompt), then run. Ask Chat: “List endpoints
+and inspect the system on Lab Linux.” Enable only the local roots/capabilities
+needed; see [endpoint quickstart](operations/ENDPOINTS.md).

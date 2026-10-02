@@ -159,3 +159,13 @@ PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests/test_scheduler.p
 
 These tests use injected UTC clocks, wake waiters and the scripted model backend;
 they do not wait on real schedule minutes or call a live external model.
+
+## Endpoint gates
+
+`pytest backend/tests/test_endpoints.py backend/tests/test_endpoint_native.py`
+checks deterministic pairing/protocol/policy/worker contracts. Provision Chromium
+explicitly with `python -m playwright install chromium`; native integration uses
+`ORION_NATIVE_TESTS=1` and Xvfb on Linux or Windows desktop in CI. CI installs/builds
+the executor wheel, then `scripts/worker/smoke.py` tests the extracted artifact
+through real pairing/WebSocket/system/file/revoke/update/uninstall flows. Release
+workflow smokes both worker archives and existing full Orion bundles before publish.

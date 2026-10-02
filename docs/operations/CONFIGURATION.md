@@ -167,3 +167,8 @@ tools. Orion supports stdio and Streamable HTTP using environment-referenced sec
 local read/mutation classification and its existing conversation permissions. Catalog
 changes require restart. See [MCP client/host configuration](MCP.md) for complete
 examples, schema restrictions, lifecycle and safe troubleshooting.
+
+## Endpoint configuration
+
+`ORION_ENDPOINTS=1` enables the stable endpoint family. Worker JSON configuration
+and `ORION_WORKER_DATA` are independent local ceilings; see [ENDPOINTS.md](ENDPOINTS.md).
