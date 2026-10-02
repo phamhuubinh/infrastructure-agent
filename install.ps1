@@ -134,12 +134,12 @@ try {
         }
         $pythonExecutable = $venvPython
     } else {
-        $launcher = Get-Command py -CommandType Application -ErrorAction SilentlyContinue
+        $launcher = Get-Command py -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($launcher -and (Test-PythonVersion $launcher.Source @('-3.12'))) {
             $pythonExecutable = $launcher.Source
             $pythonLeadingArguments = @('-3.12')
         } else {
-            $fallback = Get-Command python -CommandType Application -ErrorAction SilentlyContinue
+            $fallback = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($fallback -and (Test-PythonVersion $fallback.Source)) {
                 $pythonExecutable = $fallback.Source
             }
@@ -149,10 +149,10 @@ try {
         throw 'Python 3.12 or newer is required. Set ORION_PYTHON, install Python 3.12+, or create a supported .venv.'
     }
 
-    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
-    $npm = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue
+    $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    $npm = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $npm) {
-        $npm = Get-Command npm -CommandType Application -ErrorAction SilentlyContinue
+        $npm = Get-Command npm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     }
     if (-not $node -or -not $npm) {
         throw "Node.js >=22.12 and npm are required to build Orion's packaged UI. Install both and retry."

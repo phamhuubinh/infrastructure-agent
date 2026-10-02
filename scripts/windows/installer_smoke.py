@@ -160,9 +160,18 @@ def check_listener(pid: int, env: dict[str, str]) -> None:
             "-Command",
             (
                 "$listeners = @(Get-NetTCPConnection -State Listen -LocalPort 61888); "
-                "if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne '127.0.0.1' -or "
-                f"$listeners[0].OwningProcess -ne {pid}) "
-                "{ throw 'Orion did not bind only loopback' }"
+                "if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne '127.0.0.1') "
+                "{ throw 'Orion did not bind only loopback' }; "
+                # Windows console-script and venv launchers spawn Python children.
+                # Require the listener to belong to the exact launched process tree.
+                "$ownerProcessId = $listeners[0].OwningProcess; "
+                "$visited = [Collections.Generic.HashSet[uint32]]::new(); "
+                f"while ($ownerProcessId -ne {pid}) "
+                "{ if (-not $ownerProcessId -or -not $visited.Add($ownerProcessId)) "
+                "{ throw 'Listener is outside the Orion process tree' }; "
+                '$owner = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerProcessId"; '
+                "if (-not $owner) { throw 'Listener process is unavailable' }; "
+                "$ownerProcessId = $owner.ParentProcessId }"
             ),
         ],
         env=env,

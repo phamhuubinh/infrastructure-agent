@@ -113,6 +113,8 @@ PowerShell's `[NullString]::Value` supplies the null backup filename required by
 `File.Replace` rather than an empty string.
 The ownership check explicitly disposes its reader before replacement, avoiding
 Windows PowerShell 5's lazy `ReadLines` pipeline holding the destination open.
+Interpreter and source build-tool discovery uses the first PATH match when
+Windows has several copies of an executable installed.
 
 Both installers are run twice successfully, then with a deterministic model
 provisioning failure and an unrelated launcher. Checks cover the managed

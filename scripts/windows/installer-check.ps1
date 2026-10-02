@@ -26,7 +26,9 @@ try {
     $env:PATH = "$duplicates;$env:PATH"
     $options = @{ Prefix = $env:ORION_SMOKE_PREFIX; GlobalLauncher = $true }
     if ($env:ORION_SMOKE_SOURCE -eq '1') { $options.NoDev = $true }
+    $LASTEXITCODE = 0
     . $env:ORION_SMOKE_INSTALLER @options
+    if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE" }
 
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $matches = @($userPath -split ';' | Where-Object {

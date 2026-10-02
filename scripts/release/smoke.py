@@ -131,14 +131,7 @@ def main(*, source: bool = False) -> None:
         subprocess.run([str(cli), "help"], cwd=root, env=env, check=True)
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 61888))
-        # Use the installed Python module on Windows to own the listening PID
-        # directly rather than leaving a child behind a console-script launcher.
-        server_command = (
-            [str(prefix / ".venv/Scripts/python.exe"), "-m", "orion.cli", "web"]
-            if platform == "windows-x64"
-            else [str(cli), "web"]
-        )
-        server = subprocess.Popen(server_command, cwd=root, env=env)
+        server = subprocess.Popen([str(cli), "web"], cwd=root, env=env)
         try:
             for _ in range(100):
                 if server.poll() is not None:
@@ -171,7 +164,15 @@ def main(*, source: bool = False) -> None:
             else:
                 raise RuntimeError("Orion health endpoint did not start")
         finally:
-            server.terminate()
+            if platform == "windows-x64":
+                # Stop Python children behind Windows console/venv launchers too.
+                subprocess.run(
+                    ["taskkill", "/PID", str(server.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                server.terminate()
             try:
                 server.wait(timeout=10)
             except subprocess.TimeoutExpired:

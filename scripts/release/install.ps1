@@ -48,7 +48,7 @@ try {
         if (-not (Test-Python $venvPython)) { throw 'Existing Orion environment requires Python 3.12+.' }
         $python = $venvPython
     } else {
-        $py = Get-Command py -CommandType Application -ErrorAction SilentlyContinue
+        $py = Get-Command py -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($py -and (Test-Python $py.Source @('-3.12'))) {
             $python = $py.Source
             $leading = @('-3.12')
@@ -56,7 +56,7 @@ try {
             $python = $py.Source
             $leading = @('-3')
         } else {
-            $fallback = Get-Command python -CommandType Application -ErrorAction SilentlyContinue
+            $fallback = Get-Command python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($fallback -and (Test-Python $fallback.Source)) { $python = $fallback.Source }
         }
     }
