@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s [--prefix DIRECTORY] [--no-dev] [--global-launcher]\n' "$0"
+  printf 'Usage: %s [--prefix DIRECTORY] [--no-dev] [--global-launcher] [--with-embeddings]\n' "$0"
 }
 
 source_root="$(cd "$(dirname "$0")" && pwd)"
@@ -10,6 +10,7 @@ prefix="$source_root"
 extras='[dev]'
 prefix_was_explicit=false
 global_launcher=false
+with_embeddings=false
 
 while (($#)); do
   case "$1" in
@@ -27,6 +28,10 @@ while (($#)); do
       global_launcher=true
       shift
       ;;
+    --with-embeddings)
+      with_embeddings=true
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -37,6 +42,10 @@ while (($#)); do
       ;;
   esac
 done
+
+if [[ "$with_embeddings" == true ]]; then
+  if [[ -z "$extras" ]]; then extras='[semantic]'; else extras='[dev,semantic]'; fi
+fi
 
 mkdir -p "$prefix"
 prefix="$(cd "$prefix" && pwd)"
@@ -137,7 +146,9 @@ fi
   --destination "$prefix/.orion-ui" \
   --npm-ci
 
-"$venv/bin/orion" model install embeddings
+if [[ "$with_embeddings" == true ]]; then
+  "$venv/bin/orion" model install embeddings
+fi
 
 if [[ "$prefix_was_explicit" == false || "$global_launcher" == true ]]; then
   install_global_launcher

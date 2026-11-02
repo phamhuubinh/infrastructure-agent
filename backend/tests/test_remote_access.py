@@ -167,6 +167,9 @@ async def test_remote_login_origin_cookie_protection_logout_and_restart(
         assert (await client.get("/api/requests/fake/events")).status_code == 401
         assert (await client.get("/api/sessions/fake/timeline")).status_code == 401
         assert (
+            await client.get("/api/sessions/fake/requests/fake/tool-authorizations/fake/payload")
+        ).status_code == 401
+        assert (
             await client.post(
                 "/api/projects/fake/documents",
                 headers={"Origin": ORIGIN},
@@ -285,11 +288,15 @@ async def test_remote_login_origin_cookie_protection_logout_and_restart(
         await client.post(
             "/api/auth/login", headers={"Origin": ORIGIN}, json={"password": PASSWORD}
         )
-        restarted = create_app(tmp_path / "orion.db", ScriptedBackend([]), remote_config=config)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=restarted), base_url=ORIGIN, cookies=client.cookies
-        ) as after:
-            assert (await after.get("/api/models")).status_code == 401
+    # ASGITransport does not run application lifespan. A restart must release the
+    # old store/runtime lease explicitly, just as normal server shutdown does.
+    app.state.application.store.close()
+    restarted = create_app(tmp_path / "orion.db", ScriptedBackend([]), remote_config=config)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restarted), base_url=ORIGIN, cookies=client.cookies
+    ) as after:
+        assert (await after.get("/api/models")).status_code == 401
+    restarted.state.application.store.close()
 
 
 @pytest.mark.anyio

@@ -253,14 +253,16 @@ async def run(directory, *, case_id_only=None, case_ids=None):
         app = build_application(
             database_path=Path(temporary) / "requests.db",
             blocked_tool_operation_kinds=frozenset({"mutation"}),
+            seed_model_from_environment=False,
         )
         try:
             profile_id = app.store.upsert_model_config(
                 settings.provider_type,
                 settings.base_url,
                 settings.model_id,
-                settings.api_key,
+                None,
                 settings.reasoning_mode,
+                profile=settings.profile,
             )
             app.store.activate_model_config(profile_id)
             targets = app.runtime._infrastructure_targets
@@ -301,6 +303,7 @@ async def run(directory, *, case_id_only=None, case_ids=None):
                     targets,
                     diagnostic_sink=sink,
                     blocked_tool_operation_kinds=frozenset({"mutation"}),
+                    settings_provider=lambda: settings,
                 )
                 started = time.monotonic()
                 request_id = runtime.begin(session, prompt)
@@ -494,8 +497,8 @@ def summarize(report):
 
 
 def apply_reviews(directory, path):
-    report = json.loads((directory / "metrics.json").read_text())
-    adjudication = json.loads(path.read_text())
+    report = json.loads((directory / "metrics.json").read_text(encoding="utf-8"))
+    adjudication = json.loads(path.read_text(encoding="utf-8"))
     expected_ids = set(report.get("executed_case_ids", range(1, 25)))
     assert {case["case_id"] for case in report["cases"]} == expected_ids
     assert set(adjudication["cases"]) == {str(case_id) for case_id in expected_ids}

@@ -288,7 +288,7 @@ async def test_public_marker_boundaries_cover_errors_sources_citations_apis_logs
             )
         ),
     )
-    app.runtime._emit(request_id, "marker.event", {"message": "ORION_TEST_PRIVATE_URL"})  # noqa: SLF001
+    app.runtime._emit(request_id, "request.failed", {"message": "ORION_TEST_PRIVATE_URL"})  # noqa: SLF001
     context = app.runtime._context_builder.build(session)  # noqa: SLF001
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=create_app(application=app)), base_url="http://test"
@@ -367,6 +367,14 @@ def test_public_cli_help_lists_operator_commands(monkeypatch, capsys) -> None:  
         "  orion model install embeddings  Provision pinned local E5 model\n"
         "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help\n"
+        "  orion data export DIRECTORY   Offline managed-data backup\n"
+        "  orion data import BUNDLE NEW_DIRECTORY   Restore without overwriting data\n"
+        "  orion data retain DIRECTORY --keep N   Prune validated managed-data backups\n"
+        "  orion skill list [--project ID]   Show the offline scoped skill catalog\n"
+        "  orion skill install DIRECTORY [--source user|project] [--project ID]\n"
+        "  orion skill update NAME DIRECTORY   Replace an installed package revision\n"
+        "  orion skill enable|disable|remove NAME [--source bundled|user|project]\n"
+        "  orion mcp list|doctor|test [SERVER_ID]   Inspect configured MCP servers\n"
         "  orion --version  Show installed Orion version\n"
     )
     monkeypatch.setattr(sys, "argv", ["orion", "--help"])

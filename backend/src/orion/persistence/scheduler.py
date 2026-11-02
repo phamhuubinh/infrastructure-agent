@@ -140,8 +140,11 @@ class SchedulerPersistence:
         with self._lock:
             row = self._connection.execute(
                 "SELECT * FROM scheduled_tasks WHERE task_id = ? AND principal_id = ? "
-                "AND workspace_id = ? AND project_id IS ? AND deleted_at IS NULL",
-                (task_id, *self._scheduler_owner(scope)),
+                "AND workspace_id = ? AND project_id IS ? AND deleted_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM sessions s "
+                "WHERE s.session_id = scheduled_tasks.execution_session_id "
+                "AND s.endpoint_id IS ?)",
+                (task_id, *self._scheduler_owner(scope), scope.endpoint_id),
             ).fetchone()
         if row is None:
             raise KeyError(task_id)
@@ -151,9 +154,12 @@ class SchedulerPersistence:
         with self._lock:
             rows = self._connection.execute(
                 "SELECT * FROM scheduled_tasks WHERE principal_id = ? AND workspace_id = ? "
-                "AND project_id IS ? AND deleted_at IS NULL ORDER BY created_at DESC, task_id "
+                "AND project_id IS ? AND deleted_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM sessions s "
+                "WHERE s.session_id = scheduled_tasks.execution_session_id "
+                "AND s.endpoint_id IS ?) ORDER BY created_at DESC, task_id "
                 "LIMIT ?",
-                (*self._scheduler_owner(scope), min(MAX_RESULTS, max(1, limit))),
+                (*self._scheduler_owner(scope), scope.endpoint_id, min(MAX_RESULTS, max(1, limit))),
             ).fetchall()
         return [dict(row) for row in rows]
 

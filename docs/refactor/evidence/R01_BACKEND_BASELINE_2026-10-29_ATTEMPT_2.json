@@ -1,0 +1,19 @@
+{
+  "scope": "Current legacy backend baseline with full conftest; isolated temporary application state, no inherited Orion credentials/config. Not refactor acceptance.",
+  "argv": [
+    "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "backend/tests",
+    "-x",
+    "-q",
+    "-o",
+    "addopts=",
+    "-o",
+    "cache_dir=F:/Orion-toolchains/pytest-cache"
+  ],
+  "exit_code": 1,
+  "stdout": "................................................. [  4%]\n........................................................................ [ 11%]\n............................................s............ss............. [ 18%]\n..................F\n================================== FAILURES ===================================\n_______________ test_worker_heartbeat_liveness_and_safe_failure _______________\n\ntmp_path = WindowsPath('C:/Users/phamg/AppData/Local/Temp/pytest-of-phamg/pytest-5/test_worker_heartbeat_liveness0')\n\n    def test_worker_heartbeat_liveness_and_safe_failure(tmp_path: Path) -> None:\n        app = create_app(tmp_path / \"heartbeat.db\", ScriptedBackend([]))\n        manager = app.state.application.endpoints\n        manager.heartbeat = 0.01\n        identity = paired(manager.store)\n        with TestClient(app) as client:\n            with client.websocket_connect(\n                f\"/api/endpoints/{identity['endpoint_id']}/worker\",\n                headers={\"Authorization\": f\"Bearer {identity['credential']}\"},\n            ) as socket:\n                socket.send_text(\n                    Hello(platform=\"linux\", worker_version=\"test\", capabilities=[]).model_dump_json()\n                )\n                assert socket.receive_json()[\"type\"] == \"welcome\"\n>               with pytest.raises(WebSocketDisconnect):\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE               Failed: DID NOT RAISE WebSocketDisconnect\n\nbackend\\tests\\test_endpoints.py:696: Failed\n=========================== short test summary info ===========================\nFAILED backend\\tests\\test_endpoints.py::test_worker_heartbeat_liveness_and_safe_failure\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 208 passed, 3 skipped, 23 subtests passed in 48.29s\n",
+  "stderr": ""
+}

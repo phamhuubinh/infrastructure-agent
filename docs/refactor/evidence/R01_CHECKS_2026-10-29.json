@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "local_date": "2026-10-29",
+  "source_commit": "3a51f3dcf7bff334f44929f29d3501f931195676",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "scope": "Focused audit and runtime regression tests only; --noconftest avoids unrelated full application fixtures; not a backend full-suite, provider-live, native, client or packaging acceptance result.",
+  "results": [
+    {
+      "name": "audit_regressions",
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "scripts/refactor",
+        "-p",
+        "test_tools.py",
+        "-v"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "test_changed_file_invalidates_approval (test_tools.AuditGateTests.test_changed_file_invalidates_approval) ... ok\ntest_directory_link_boundary_is_never_followed (test_tools.AuditGateTests.test_directory_link_boundary_is_never_followed) ... ok\ntest_done_audit_cannot_unlock_tasks_with_unreviewed_files (test_tools.AuditGateTests.test_done_audit_cannot_unlock_tasks_with_unreviewed_files) ... ok\ntest_duplicate_ledger_is_not_silently_overwritten (test_tools.AuditGateTests.test_duplicate_ledger_is_not_silently_overwritten) ... ok\ntest_inventory_is_not_semantic_approval (test_tools.AuditGateTests.test_inventory_is_not_semantic_approval) ... ok\ntest_linked_output_directory_is_rejected_without_external_writes (test_tools.AuditGateTests.test_linked_output_directory_is_rejected_without_external_writes) ... ok\ntest_mandatory_gates_cannot_be_dropped_from_state (test_tools.AuditGateTests.test_mandatory_gates_cannot_be_dropped_from_state) ... ok\ntest_planned_removal_is_allowed_in_initial_audit_but_not_final_cleanup (test_tools.AuditGateTests.test_planned_removal_is_allowed_in_initial_audit_but_not_final_cleanup) ... ok\ntest_private_data_is_not_hashed_and_requires_preservation (test_tools.AuditGateTests.test_private_data_is_not_hashed_and_requires_preservation) ... ok\ntest_retired_record_is_preserved_and_requires_removal_reason (test_tools.AuditGateTests.test_retired_record_is_preserved_and_requires_removal_reason) ... ok\ntest_traversal_errors_fail_closed (test_tools.AuditGateTests.test_traversal_errors_fail_closed) ... ok\ntest_unmet_dependencies_and_external_blockers_are_enforced (test_tools.AuditGateTests.test_unmet_dependencies_and_external_blockers_are_enforced) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 10.194s\n\nOK\n"
+    },
+    {
+      "name": "focused_runtime_regressions",
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "--noconftest",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache",
+        "backend/tests/test_calculator.py",
+        "backend/tests/test_tool_system.py",
+        "backend/tests/test_security.py",
+        "backend/tests/test_contracts.py",
+        "-q"
+      ],
+      "exit_code": 0,
+      "stdout": ".....................................             [100%]\n37 passed, 23 subtests passed in 0.62s\n",
+      "stderr": ""
+    },
+    {
+      "name": "lint_changed_python",
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "--no-cache",
+        "scripts/refactor",
+        "backend/src/orion/tool_runtime/calculator.py",
+        "backend/src/orion/contracts/__init__.py",
+        "backend/tests/test_calculator.py",
+        "backend/tests/test_contracts.py",
+        "backend/tests/test_tool_system.py"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "name": "whitespace",
+      "argv": [
+        "git",
+        "-c",
+        "core.autocrlf=false",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "tested_file_sha256": {
+    "scripts/refactor/inventory.py": "b92bc41067eaf7aa23198a6db23becc423d2a63f6dfc13720bc849684971af49",
+    "scripts/refactor/plan.py": "33ecf6bba59ba1c195e39e482a7f51836b134bb7418d0366cf18b6cafbf46e47",
+    "scripts/refactor/test_tools.py": "89dcea3ca338836eb40f18ce3922586bce0aa2562bf75e00054f8540dceb5181",
+    "backend/src/orion/contracts/__init__.py": "7cd0f3a518b4196982184d2a5014712f0cd95b1d3dbbeac6c6c5f6fc8aebaa7c",
+    "backend/src/orion/tool_runtime/calculator.py": "6ef07a82ba8a0fb3505d594245e091c526c71c489ed1caecb5b13d723ec00ec1",
+    "backend/src/orion/tool_runtime/registry.py": "71647ccb03888ef05758d225c2f766874427a0a3ef011b41411229e8e47ecd7e",
+    "backend/src/orion/tool_runtime/runner.py": "92fb7ed74f8938812fb9b592ca48ce4c571afa074c8fa104de2310fe6925965d",
+    "backend/src/orion/tool_runtime/mutation_authorization.py": "3041daf56255567655abc29538c165f72d71c944659aaf22a96b082b9bf99432",
+    "backend/src/orion/security.py": "a0091748220a31c6211fdc4825913a53aa4684f0fad648752e71dd89e4eac47d",
+    "backend/tests/test_calculator.py": "f1427412702d95d9265ed01a6ccd435af5fd46bfee1d8c7b548e219b5fd09867",
+    "backend/tests/test_contracts.py": "df761e40b66298bd50cc7dbda8f575174b75e61cc8bcadeda6fae7fa2ba33fa4",
+    "backend/tests/test_tool_system.py": "8df2eb6a948db5ab98e691509861ddab5d648ffc660d17a7c02d3c0dd9b8fff2",
+    "backend/tests/test_security.py": "9de95b291e9e8d5ff9ae4d4812c7634ed10dd4cda2ab49d93d946612c09a5157"
+  },
+  "hash_capture": "Captured after the recorded tests; tested source and test files were unchanged between run and capture. Git commit alone does not identify the dirty working tree."
+}

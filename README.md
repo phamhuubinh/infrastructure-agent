@@ -1,75 +1,73 @@
 # Orion
 
-Orion is a **local-first AI technical workbench** for technical work.
+> Current full-refactor request: [REFACTOR_REQUEST.md](REFACTOR_REQUEST.md).
+> Design/providers/tasks: [docs/refactor](docs/refactor/DESIGN.md).
+> Required AI vendors are DeepSeek, Claude and OpenAI. Windows app, Linux CLI/service,
+> Android/iOS clients, real skills and MCP are target deliverables, not implemented
+> by the specification-writing phase. Older installation text describes existing source.
 
-The primary interface is conversation. Users chat normally; Orion gives the configured model access to every registered/configured tool automatically. There is no per-chat tool picker and no requirement for the user to decide whether RAG, Internet, Linux, Grafana, Zabbix, calculator, or another registered tool should be used.
+Orion is a local-first AI technical workbench accessed through a web interface.
+One main model/runtime handles conversation and calls tools or skills as needed.
+Projects hold context, documents and history. Remote machines run model-free
+workers; they do not run separate AI agents.
 
-A **Project** uses the same Chat/runtime and the same automatic tool system, while adding persistent project metadata and a project-scoped knowledge/RAG source.
+## Product
 
-## Product shape
+| Surface | Purpose | Runtime and data |
+| --- | --- | --- |
+| Chat | General conversation, attachments and technical tasks | Canonical ChatRuntime; conversation-owned history |
+| Projects | Work with project instructions and documents | Same runtime; project-scoped knowledge and conversations |
+| Remote Control | Download/pair workers and operate connected devices | Same runtime; endpoint-owned Device Chat plus manual controls |
 
-```text
-Chat
-  = conversation
-  + session context
-  + attachments
-  + all registered tools
+Each Remote Control device workspace contains **Chat, Desktop, Files, Processes,
+Browser and Connection**. Device Chat has separate history and a server-owned
+endpoint binding. It inherits no ordinary Chat attachments or Project knowledge.
 
-Project
-  = Chat
-  + active project metadata
-  + persistent project documents
-  + project-scoped RAG source
-```
-
-The model makes semantic decisions:
-
-```text
-answer directly
-or
-use one or more registered tools
-or
-retrieve documents
-or
-combine several sources
-```
-
-Orion owns deterministic application behavior:
+The user states the task without a tool picker. Chat, Project and Device Chat
+receive all registered model-callable tool schemas on the first model turn from
+the canonical registry. The model decides whether and which tools to call;
+schema visibility does not grant execution permission. There is no semantic
+pre-router or separate Project/device agent.
 
 ```text
-assemble context
-→ bind session/project runtime scope
-→ expose the registry-derived discovery control plus request-local selected schemas
-→ validate/dispatch model tool calls against the canonical registry
-→ normalize ToolResult
-→ return results to the same model
-→ persist public conversation state
+Web UI → authenticated API → ChatRuntime → configured ModelBackend
+                                  │
+                                  ├── scoped context and Knowledge/RAG
+                                  └── ToolRegistry / ToolRunner
+                                           ├── calculator / Internet
+                                           ├── Windows/Linux commands (target)
+                                           ├── MCP and scheduler tools
+                                           └── endpoint gateway ← outbound WSS ← worker
 ```
 
-There is intentionally **no semantic pre-router** that classifies the user's prompt into "RAG", "Internet", "Linux", or another intent before the model sees it.
+## Design and implementation status
 
-## Current tool families
+The [2026-10-29 baseline](docs/architecture/BASELINE_2026-10-29.md) consolidates the
+redesign. [ADR 0016](docs/decisions/0016-single-runtime-redesign.md) defines its
+relationship to earlier decisions; [ADR 0017](docs/decisions/0017-windows-linux-command-focus.md)
+focuses OS work on Windows/Linux commands. Read [Product](docs/PRODUCT.md),
+[Architecture](docs/architecture/OVERVIEW.md) and the
+[implementation inventory](docs/development/IMPLEMENTATION_STATUS.md) next.
 
-The current executable registry includes calculator, Knowledge/RAG, and Internet tools. Linux, Grafana, and Zabbix tool families are registered when their infrastructure targets are configured.
+Runtime, Knowledge/RAG, MCP, scheduler, endpoint worker and endpoint UI code are
+present in this repository. Source presence does not establish that a deployment,
+release artifact or test suite is working. The documentation update does not
+rewrite application code or certify issue completion.
 
-Tool availability is registry-derived. Chat and Project receive all registered model-callable tool schemas on the first model turn (ADR 0007). The model calls ordinary tools directly and receives their ToolResults before synthesis. Validation, runtime scope, and execution use the canonical registry; schema visibility does not grant mutation permission.
+The target OS interface is real PowerShell/cmd or sh/bash commands through workers
+or configured SSH; see [the command contract](docs/architecture/SYSTEM_COMMANDS.md).
+Dedicated Grafana/Zabbix adapters are outside the target product. Their legacy
+code still exists; the generic command family is not yet implemented.
 
-## Start here
-
-Read:
-
-1. [`docs/PRODUCT.md`](docs/PRODUCT.md)
-2. [`docs/architecture/OVERVIEW.md`](docs/architecture/OVERVIEW.md)
-3. [`docs/architecture/CONTRACTS.md`](docs/architecture/CONTRACTS.md)
-4. [`docs/architecture/MODEL_TOOL_LOOP.md`](docs/architecture/MODEL_TOOL_LOOP.md)
-5. [`docs/architecture/PROJECT_RUNTIME.md`](docs/architecture/PROJECT_RUNTIME.md)
-6. [`docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md`](docs/architecture/RAG_AND_PROJECT_KNOWLEDGE.md)
-7. [`docs/operations/INSTALLATION.md`](docs/operations/INSTALLATION.md)
+Skills are reusable task instructions over existing tools. The target skill
+contract is documented in [Skills](docs/architecture/SKILLS.md); an executable
+skill loader has not been established by this source inventory.
 
 ## Install a release
 
-Download the matching platform archive from GitHub Releases. Python 3.12+ is required;
-Node.js, npm, Git, and a source checkout are not required for release installation.
+Download the matching platform archive from GitHub Releases. Full Orion server
+installation requires Python 3.12+; Node.js, npm, Git and a source checkout are
+not required for a server release installation.
 
 Linux x86_64:
 
@@ -89,49 +87,37 @@ cd .\orion-<version>-windows-x64
 orion
 ```
 
-The installer verifies the wheel and UI manifest, then provisions the pinned E5 model
-when it is not already cached and verified. The first install needs network access for
-dependencies and the model. See [installation details](docs/operations/INSTALLATION.md).
+The server installer verifies the wheel and UI manifest. E5 semantic retrieval is
+optional: add `--with-embeddings` on Linux or `-WithEmbeddings` on Windows to
+install its dependencies and provision the pinned model. Initial installation
+needs network access for uncached dependencies. See
+[installation](docs/operations/INSTALLATION.md).
 
-## Install from source for development
+The portable **remote worker** is a separate artifact with its Python runtime
+bundled. Customer-machine use requires no Python/Node/npm installation, service,
+autostart or inbound port. Browser provisioning, platform policies and capability
+limits are described in [endpoint operations](docs/operations/ENDPOINTS.md).
 
-Linux:
+## Develop from source
 
-```bash
-./install.sh
-orion
-```
+Run `./install.sh` on Linux or `.\install.ps1` in Windows PowerShell, then
+`orion`. Source installers require Python 3.12+, Node.js 22.12+ and npm.
+Optional model assets stay outside the repository and verified cached assets are
+reused. Default installation neither installs E5 dependencies nor downloads its
+model. The same opt-in flags apply to source installers; they do not activate hybrid retrieval.
 
-Windows PowerShell:
+The default local UI/API is `http://127.0.0.1:61888/`. Optional remote browser
+access uses owner authentication through an HTTPS tunnel/reverse proxy or private
+network; a browser alone cannot grant Orion access to that browser's host OS.
 
-```powershell
-.\install.ps1
-orion
-```
-
-Both installers require Python 3.12+, Node.js 22.12+, and npm. A normal install provisions the
-pinned ~487 MB E5 embeddings asset, so the first install needs network access if the asset is
-absent. Model data stays in Orion's application-data directory outside the repository; reruns
-reuse a verified cache. Installation does not run semantic indexing or enable hybrid retrieval.
-Use `orion model install embeddings` later to repair or reprovision the model.
-
-This starts the packaged UI and API at `http://127.0.0.1:61888/`; the browser opens once Orion is ready.
-
-Useful commands:
-
-```bash
-orion log
-orion help
-make test
-make lint
-```
-
-See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) and [`docs/operations/`](docs/operations/).
+See [Quickstart](docs/QUICKSTART.md), [Testing](docs/development/TESTING.md) and
+[Remote Access](docs/operations/REMOTE_ACCESS.md).
 
 ## Documentation authority
 
-The architecture/product `docs/` tree describes the **target product and architecture**. Accepted ADRs in `docs/decisions/` have the highest documentation authority. Existing source code and tests are implementation evidence and should remain aligned with those decisions.
-
-Operations pages that describe current commands, ports, services, or installer behavior must match the current repository implementation.
-
-Reading these docs does not itself authorize code changes, migrations, commits, or repository operations.
+Current user instructions take precedence. ADR 0016 and the consolidated baseline
+define the current product boundary; compatible earlier ADRs retain their detailed
+contracts. Operations documents describe implemented commands and configuration;
+source/tests establish implementation evidence. Run the relevant checks before
+claiming behavior works. Reading a design does not authorize a migration, deletion,
+commit or push.

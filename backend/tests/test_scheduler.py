@@ -341,19 +341,32 @@ def test_scheduler_owned_request_crash_recovery(
     restarted = build_application(path, ScriptedBackend([]))
     store = restarted.store
     assert not restarted.runtime._pending_content
-    recovered_at = NOW + timedelta(minutes=1)
-    store.reconcile_scheduled_runs(recovered_at)
+    # The composition root now recovers all stale work atomically under its OS
+    # runtime lease, before a scheduler can start or ordinary requests can run.
     run = store.scheduled_history(owner, task["task_id"], 10)[0]
     assert run["status"] == "interrupted"
     assert run["error_kind"] == "process_interrupted"
-    assert run["completed_at"] == recovered_at.isoformat()
+    assert run["completed_at"] is not None
     request = store.request(request_id)
     assert request["status"] == "failed"
-    assert request["error_message"] == "Scheduled execution interrupted."
-    assert request["completed_at"] == recovered_at.isoformat()
-    assert store.timeline(task["execution_session_id"]) == []
+    assert "not replayed" in request["error_message"]
+    assert request["completed_at"] == run["completed_at"]
+    assert [item.kind for item in store.timeline(task["execution_session_id"])] == [
+        "runtime_notice"
+    ]
+    assert [event["type"] for event in store.events(request_id)] == ["request.failed"]
+    ordinary_after = [store.request(ordinary_queued), store.request(ordinary_running)]
+    assert all(item["status"] == "failed" for item in ordinary_after)
+    assert [item["request_id"] for item in ordinary_after] == [
+        item["request_id"] for item in ordinary_before
+    ]
+    assert not restarted.backend.calls
+    recovered_at = NOW + timedelta(minutes=1)
+    store.reconcile_scheduled_runs(recovered_at)
+    assert store.request(request_id) == request
+    assert store.scheduled_history(owner, task["task_id"], 10)[0] == run
     assert store.claim_scheduled_run(recovered_at + timedelta(days=1)) is None
-    assert [store.request(ordinary_queued), store.request(ordinary_running)] == ordinary_before
+    assert [store.request(ordinary_queued), store.request(ordinary_running)] == ordinary_after
     store.reconcile_scheduled_runs(recovered_at + timedelta(minutes=1))
     assert store.request(request_id) == request
     assert store.scheduled_history(owner, task["task_id"], 10)[0] == run
@@ -362,7 +375,7 @@ def test_scheduler_owned_request_crash_recovery(
     else:
         assert store.delete_project(project) == ()
     assert not store.session_exists(task["execution_session_id"])
-    assert [store.request(ordinary_queued), store.request(ordinary_running)] == ordinary_before
+    assert [store.request(ordinary_queued), store.request(ordinary_running)] == ordinary_after
     store.close()
 
 

@@ -110,6 +110,20 @@ def test_runner_normalizes_invalid_handler_results() -> None:
     assert result.error.code == "upstream_error"
 
 
+def test_runner_rejects_handler_error_without_error_metadata() -> None:
+    registry = ToolRegistryBuilder()
+    registry.register(
+        _definition({"type": "object", "properties": {}, "additionalProperties": False}),
+        lambda call: {"call_id": call.call_id, "tool_name": call.tool_name, "status": "error"},
+    )
+    result = ToolRunner(registry.freeze()).run(
+        ModelToolCall(call_id="invalid-error", tool_name="fake.structured", arguments={}),
+        RuntimeScope(session_id="session", principal_id="local", workspace_id="local"),
+    )
+    assert result.error is not None
+    assert result.error.code == "upstream_error"
+
+
 def test_runner_execution_guard_blocks_mutation_before_handler_dispatch() -> None:
     executions = 0
 

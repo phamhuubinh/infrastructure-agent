@@ -1,0 +1,695 @@
+{
+  "schema_version": 1,
+  "phase": "implementation_in_progress",
+  "scope": "R00-R13 complete at documented source/fixture/static-web scope. R13 final115 UI tests/type/lint/packaged web and actual browser Stop pass; full backend1600pass6Windows-hostPOSIXfail17skip23subtests, backend unchanged after final UI repair. Native/live/mobile/signing and R14-R21 implementation remain open.",
+  "providers": [
+    "deepseek",
+    "claude",
+    "openai"
+  ],
+  "current_task": null,
+  "next_action": "User requested R13 closure and commit/push only. R13 complete; R14/R18 are ready for a future continuation. Do not start R14 as part of this closure. Preserve native/live/mobile/signing gates and exact six Windows-host POSIX failures.",
+  "work_items": [
+    {
+      "id": "R00",
+      "title": "Bá»™ yÃªu cáº§u/thiáº¿t káº¿/kiá»ƒm kÃª",
+      "depends_on": [],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "specification",
+          "path": "REFACTOR_REQUEST.md",
+          "result": "written and cross-referenced"
+        },
+        {
+          "kind": "validation",
+          "path": "docs/refactor/SPEC_VALIDATION.json",
+          "result": "passed"
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R01",
+      "title": "Audit ngá»¯ nghÄ©a tá»«ng file",
+      "depends_on": [
+        "R00"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "partial_semantic_audit",
+          "path": "docs/refactor/evidence/R01_SESSION_2026-10-29.md",
+          "result": "Partial per-file review and findings recorded; not whole-repository completion."
+        },
+        {
+          "kind": "focused_regression",
+          "path": "docs/refactor/evidence/R01_CHECKS_2026-10-29.json",
+          "result": "12 audit tests and 37 focused runtime/contract/security tests plus 23 subtests pass; lint/whitespace pass. No full-suite/native/live claim."
+        },
+        {
+          "kind": "resumed_semantic_audit",
+          "path": "docs/refactor/evidence/R01_RESUME_2026-10-29.md",
+          "result": "Per-file audit and reproduced/fixed defects; R01 remains incomplete."
+        },
+        {
+          "kind": "full_legacy_backend",
+          "path": "docs/refactor/evidence/R01_BACKEND_FINAL_2026-10-29.json",
+          "result": "1019 passed, 4 Linux-on-Windows failures, 5 skipped, 23 subtests passed; no deselection. Not refactor/native/live acceptance."
+        },
+        {
+          "kind": "focused_safety",
+          "path": "docs/refactor/evidence/R01_INTERNET_CHECKS_2026-10-29.json",
+          "result": "12 audit and 48 backend tests plus23subtests pass, lint/format/whitespace pass; bounded tracking URL regression."
+        },
+        {
+          "kind": "ui_protocol_and_binary",
+          "path": "docs/refactor/evidence/R01_UI_PROTOCOL_CHECKS_2026-10-29.json",
+          "result": "83 UI tests, TypeScript and ESLint pass on exact external mirror; unit/protocol evidence, not native artifact acceptance."
+        },
+        {
+          "kind": "bounded_diagnostics",
+          "path": "docs/refactor/evidence/R01_DIAGNOSTICS_CHECKS_2026-10-29.json",
+          "result": "68 focused backend tests pass; request capture LRU cap and invalid-limit regression; not live acceptance."
+        },
+        {
+          "kind": "web_bundle",
+          "path": "docs/refactor/evidence/R01_PACKAGED_UI_CHECKS_2026-10-29.json",
+          "result": "Windows-host production web build and packaged assertions passed; harness console encoding failed after report write, child build exit0 retained. Not native app proof."
+        },
+        {
+          "kind": "packaged_gate_fail_closed",
+          "path": "docs/refactor/evidence/R01_PACKAGED_UI_GATE_2026-10-29.json",
+          "result": "Native Node fault injection verifies EACCES/EPERM and unexpected bind error all exit nonzero; syntax pass, focused ESLint exit0. Earlier positive build retained separately."
+        },
+        {
+          "kind": "qa_evidence_safety",
+          "path": "docs/refactor/evidence/R01_QA_GATE_CHECKS_2026-10-29.json",
+          "result": "Full quality verdict/API evidence/request identity suites exit0, lint/format/whitespace0. Seven new cases reproduced false-green/overwrite failures before fix; fresh output works."
+        },
+        {
+          "kind": "complete_semantic_ledger",
+          "path": "docs/refactor/audit/FILE_REVIEW.csv",
+          "result": "Every current inventoried source/docs/test/config/build/fixture/generated/visual asset and relocated cache record has individual disposition, rationale/callers/replacement/verification. Initial audit only; rewrite/remove implementation and R19 final review remain."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R02",
+      "title": "Core contracts",
+      "depends_on": [
+        "R01"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "partial_core_implementation",
+          "path": "docs/refactor/evidence/R02_SESSION_2026-10-29.md",
+          "result": "Implemented request-private continuation, strict normalized streams, portable command domain contracts and architecture boundaries; R02 remains incomplete."
+        },
+        {
+          "kind": "focused_core_regression",
+          "path": "docs/refactor/evidence/R02_CORE_CHECKS_2026-10-29.json",
+          "result": "161 focused tests plus lint/format/architecture/whitespace exit0; historical hashes before subsequent protocol validation change."
+        },
+        {
+          "kind": "normalized_stream_regression",
+          "path": "docs/refactor/evidence/R02_PROTOCOL_CHECKS_2026-10-29.json",
+          "result": "179 focused tests pass; lint/format/architecture exit0. Invalid normalized streams cannot dispatch tools. No live/native acceptance."
+        },
+        {
+          "kind": "expanded_backend_regression",
+          "path": "docs/refactor/evidence/R02_EXPANDED_CHECKS_2026-10-29.json",
+          "result": "Full backend1123passed/5failed/5skipped/23subtests; four Linux host baseline failures plus synthetic unknown-event fixture migrated afterward. Lint/format/mypy5/architecture/OpenAPI0. Not current full/native/live pass."
+        },
+        {
+          "kind": "final_core_regression",
+          "path": "docs/refactor/evidence/R02_FINAL_CHECKS_2026-10-29.json",
+          "result": "400 focused tests pass, including fixed full-run synthetic-event fixture and default option immutability. Lint/format/mypy6/architecture/OpenAPI/whitespace0, unchanged source hashes. Full prior1123pass/5fail report retained; four native Linux baseline gates remain open."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R03",
+      "title": "Provider registry/conformance",
+      "depends_on": [
+        "R02"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "partial_registry_implementation",
+          "path": "docs/refactor/evidence/R03_SESSION_2026-10-29.md",
+          "result": "Active default registry, typed saved-profile metadata, atomic settings/credential snapshot service; R03 remains in_progress with explicit remaining requirements."
+        },
+        {
+          "kind": "registry_regression",
+          "path": "docs/refactor/evidence/R03_REGISTRY_CHECKS_2026-10-29.json",
+          "result": "159 focused tests and lint/format/mypy3/architecture/OpenAPI0 before later storage/config changes."
+        },
+        {
+          "kind": "profile_binding_regression",
+          "path": "docs/refactor/evidence/R03_BINDING_CHECKS_2026-10-29.json",
+          "result": "217 focused tests pass; lint/format/mypy4/architecture/OpenAPI0, unchanged source hashes. Typed profile restart, private env keys frozen through actual mock HTTP tool loop and direct native misroute guard. Not native/live acceptance."
+        },
+        {
+          "kind": "typed_api_profile_limits",
+          "path": "docs/refactor/evidence/R03_API_LIMIT_CHECKS_2026-10-29.json",
+          "result": "262focused tests pass incl typed CRUD/activation/no key echo/capability schema visibility, request/context/transport/deadline bounds and unsupported retry/reasoning controls. Mypy5/architecture/OpenAPI0; lint/format failed then fixed separately."
+        },
+        {
+          "kind": "api_limit_static_repair",
+          "path": "docs/refactor/evidence/R03_API_STATIC_FIX_2026-10-30.json",
+          "result": "Static-only explicit optional-hook returnNone and formatting repair; Ruff/mypy5/architecture/OpenAPI0. Not a new full/native/live pass."
+        },
+        {
+          "kind": "readonly_binding_regression",
+          "path": "docs/refactor/evidence/R03_READONLY_CHECKS_2026-10-30.json",
+          "result": "123focused tests pass, lint/format/mypy3/architecture/OpenAPI0; no DB/parent creation or migration, no resolved key copy to temporary request DB."
+        },
+        {
+          "kind": "protected_credentials_and_full_backend",
+          "path": "docs/refactor/evidence/R03_CREDENTIAL_CHECKS_2026-10-30.json",
+          "result": "Full backend1174passed/4knownLinuxhostfailed/6skipped/23subtests; audit13pass, static gates0. Actual Windows DPAPI roundtrip and recovery fault tests; Linux-platform typing static only. Python hashes unchanged; recorded generator updated OpenAPI."
+        },
+        {
+          "kind": "protocol_conformance_and_repaired_full_regression",
+          "path": "docs/refactor/evidence/R03_PROTOCOL_REPAIRED_2026-10-30.json",
+          "result": "244 focused passes; full1239pass/4unchangedLinuxhostfail/6skip/23subtests; audit13pass; lint/format/mypy8/architecture/OpenAPI0; source unchanged. Request/key/scope private envelopes, bounded SSE/strict JSON, cleanup and safe no-mutation-replay retries verified. Not native/live provider acceptance."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R04",
+      "title": "DeepSeek",
+      "depends_on": [
+        "R03"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "native_wire_fixture_and_regression",
+          "path": "docs/refactor/evidence/R04_DEEPSEEK_CHECKS_2026-10-30.json",
+          "result": "316 passed/1POSIXskip; audit13pass; Ruff/format/mypy11/architecture/OpenAPI0; source unchanged. Native DeepSeek HTTP/SSE thinking/multi-tool/history/error/cancel/no-mutation-replay conformance, not live API proof."
+        },
+        {
+          "kind": "implementation_scope_and_protocol_sources",
+          "path": "docs/refactor/evidence/R04_SESSION_2026-10-30.md",
+          "result": "Explicit request-local private state and quoted historical public-data strategy; no persisted native reasoning resume; live environment assessment and limitations recorded."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R05",
+      "title": "Claude",
+      "depends_on": [
+        "R03"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "native_messages_conformance_and_regression",
+          "path": "docs/refactor/evidence/R05_CLAUDE_CHECKS_2026-10-30.json",
+          "result": "351passed/1POSIXskip; audit13pass; Ruff/format/mypy13/architecture/OpenAPI0; source unchanged. Native Messages block/signature/tool-result/usage/error/cancel/no-mutation-replay HTTP fixtures, not live or native-app acceptance."
+        },
+        {
+          "kind": "protocol_scope_and_sources",
+          "path": "docs/refactor/evidence/R05_SESSION_2026-10-30.md",
+          "result": "Native serialization/parser, explicit adaptive options, request-local private protocol and quoted public history strategy; actual scope and external live configuration needs."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R06",
+      "title": "OpenAI",
+      "depends_on": [
+        "R03"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "native_responses_and_full_backend_regression",
+          "path": "docs/refactor/evidence/R06_RESPONSES_CHECKS_2026-10-30.json",
+          "result": "404focusedpass1POSIXskip; full1356pass4unchangedLinuxhostfail6skip23subtests; audit13pass; Ruff/format/mypy16/architecture/OpenAPI0; source unchanged. Native Responses and cross-vendor no-replay/history preflight fixtures; no paid-live/native-app proof."
+        },
+        {
+          "kind": "protocol_scope_and_sources",
+          "path": "docs/refactor/evidence/R06_SESSION_2026-10-30.md",
+          "result": "Typed native Responses, stateless encrypted continuation, private history limits, consistent tool-result exchanges, credential preflight and official sources/live configuration limitations."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R07",
+      "title": "Data/scope/RAG/lifecycle",
+      "depends_on": [
+        "R02"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "partial_restart_lifecycle_regression",
+          "path": "docs/refactor/evidence/R07_RESTART_CHECKS_2026-10-30.json",
+          "result": "534 focused passes, one POSIX skip, audit13pass; Ruff/format/mypy19/architecture/OpenAPI0. Native Windows lease and crash/recovery fixtures, rollback, monotonic terminal states. Predates later finalizer follow-up; no native Linux proof or R07 completion."
+        },
+        {
+          "kind": "ownership_finalizer_follow_up",
+          "path": "docs/refactor/evidence/R07_LEASE_FINALIZER_2026-10-30.json",
+          "result": "Current ownership.py and restart test hashes unchanged across 12pass focused tests, Ruff/format/mypy and Linux-platform static mypy exit0. Linux platform check is static only."
+        },
+        {
+          "kind": "partial_migration_and_scope_regression",
+          "path": "docs/refactor/evidence/R07_SESSION_2026-10-30.md",
+          "result": "Current focused restart/knowledge/scheduler/document migration run 99pass; Ruff/format5 and mypy3 exit0. Windows ACL readback, verified pre-migration SQLite snapshot, atomic success and rollback failure, forged knowledge scope denial. No full export/import/retention or current full backend claim."
+        },
+        {
+          "kind": "managed_data_scope_full_regression",
+          "path": "docs/refactor/evidence/R07_DATA_REPAIRED_2026-10-30.json",
+          "result": "Full1400pass6Linuxhostfail7skip23subtests with no deselection and unchanged source. Ruff/format199/mypy107/Linux-static9/architecture/OpenAPI/audit13/PowerShell-parse/whitespace pass. Managed SQLite/blob/protected-credential export/import/retention, native Windows ACL/junction/DPAPI, optional semantic dependencies and knowledge scope regressions. Not native Linux/app/live acceptance."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R08",
+      "title": "Windows/Linux command worker",
+      "depends_on": [
+        "R02"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "command_implementation_source_fixtures",
+          "path": "docs/refactor/evidence/R08_SESSION_2026-10-30.md",
+          "result": "Canonical scoped command service/worker, exact remote approval, transient protocol, native Windows source-process lifecycle and conservative private-script crash cleanup implemented; not packaged/native Linux acceptance."
+        },
+        {
+          "kind": "current_backend_regression",
+          "path": "docs/refactor/evidence/R08_REPAIRED_CHECKS_2026-10-30.json",
+          "result": "1437passed6Linuxhostfail7skip23subtests; source unchanged; Ruff/format219/mypy113/Linuxstatic8/architecture/OpenAPI/audit13/whitespace pass. Initial1435pass7fail retained."
+        },
+        {
+          "kind": "ui_regression",
+          "path": "docs/refactor/evidence/R08_UI_CHECKS_2026-10-30.json",
+          "result": "Exact73-file UI mirror:87tests, TypeScript and corrected focused ESLint pass; initial wrong-path harness failure retained."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R09",
+      "title": "SSH command transport",
+      "depends_on": [
+        "R08"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "partial_components",
+          "path": "docs/refactor/evidence/R09_COMPONENT_CHECKS_2026-10-30.json",
+          "result": "62 config/stdio/supervisor/private-marker/protocol component tests, full Ruff/format230/mypy119 and Linux-static SSH mypy6 pass. No running remote helper/composition or native Linux filesystem/process acceptance."
+        },
+        {
+          "kind": "native_local_ssh_parser",
+          "path": "docs/refactor/evidence/R09_SSH_PARSER_2026-10-30.json",
+          "result": "Windows OpenSSH9.5p2 -G parses explicit empty config/space paths/hardened options. No network/account/real remote command."
+        },
+        {
+          "kind": "production_source_and_current_regression",
+          "path": "docs/refactor/evidence/R09_REPAIRED_CHECKS_2026-10-31.json",
+          "result": "Helper/supervisor/router wired;1510pass6knownLinuxhostfail12skip23subtests; source unchanged and all static/audit checks pass. Five new native Linux cases not executed on Windows; no real SSH proof."
+        },
+        {
+          "kind": "continuation",
+          "path": "docs/refactor/evidence/R09_SESSION_2026-10-31.md",
+          "result": "Current source scope, unexecuted Linux behaviors and owned QEMU fixture preparation recorded; R09 remains in progress."
+        },
+        {
+          "kind": "actual_linux_guest_ssh_process",
+          "path": "docs/refactor/evidence/R09_QEMU_LINUX_2026-10-31.json",
+          "result": "Five native Linux source process fixtures passed;16 source hashes verified. Separate real Windows OpenSSH guest smoke3pass; POSIX fixture failures and mode/tooling repairs retained. Not packaged artifact acceptance."
+        },
+        {
+          "kind": "current_combined_source_regression",
+          "path": "docs/refactor/evidence/R11_REPAIRED_CHECKS_2026-10-31.json",
+          "result": "1564pass6Linuxhostfail17skip23subtests; Ruff/format/mypy/Linux-static/architecture/OpenAPI/audit/whitespace pass. Only changed path during run: Linux-only PID-disappearance fixture, separately corrected and Linux10pass; no product source change or native artifact claim."
+        },
+        {
+          "kind": "actual_linux_detached_containment_repair",
+          "path": "docs/refactor/evidence/R09_QEMU_SUBREAPER_2026-10-31.json",
+          "result": "Detached double-fork false-success reproduced then repaired with per-command subreaper/pidfd/ECHILD and independent private cleanup proof; actual Linux10pass/11 matched hashes. Updated actual SSH3pass retained separately."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R10",
+      "title": "Skill loader/workflows",
+      "depends_on": [
+        "R07",
+        "R08"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "source_runtime_lifecycle",
+          "path": "docs/refactor/evidence/R10_SESSION_2026-10-31.md",
+          "result": "Immutable scoped packages/catalog/SQLite/runtime/transient reads/CLI/wheel implemented.40 focused tests pass after final two bounds; repaired full1549pass6Linuxhostfail12skip23subtests predates those bounds."
+        },
+        {
+          "kind": "current_combined_source_regression",
+          "path": "docs/refactor/evidence/R11_REPAIRED_CHECKS_2026-10-31.json",
+          "result": "1564pass6Linuxhostfail17skip23subtests; Ruff/format/mypy/Linux-static/architecture/OpenAPI/audit/whitespace pass. Only changed path during run: Linux-only PID-disappearance fixture, separately corrected and Linux10pass; no product source change or native artifact claim."
+        },
+        {
+          "kind": "installed_wheel_resources",
+          "path": "docs/refactor/evidence/R10_WHEEL_CHECKS_2026-10-31.json",
+          "result": "Actual wheel build/hash and5 matching bundled resource hashes, separate installation and product catalog initialized without checkout; no development packages."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R11",
+      "title": "MCP",
+      "depends_on": [
+        "R02"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "implementation_progress",
+          "path": "docs/refactor/evidence/R11_SESSION_2026-10-31.md",
+          "result": "Revision/snapshot/operator lifecycle implementation and focused fixtures; current full regression and final source review still required."
+        },
+        {
+          "kind": "current_combined_source_regression",
+          "path": "docs/refactor/evidence/R11_REPAIRED_CHECKS_2026-10-31.json",
+          "result": "1564pass6Linuxhostfail17skip23subtests; Ruff/format/mypy/Linux-static/architecture/OpenAPI/audit/whitespace pass. Only changed path during run: Linux-only PID-disappearance fixture, separately corrected and Linux10pass; no product source change or native artifact claim."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R12",
+      "title": "API/native auth/SDK",
+      "depends_on": [
+        "R03",
+        "R07"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "implementation_source_fixtures",
+          "path": "docs/refactor/evidence/R12_SESSION_2026-10-31.md",
+          "result": "Hash-only native owner auth/rotation/replay/revoke/restore; durable scope-owned admission/resume; skill/command/discovery resources and generated shared SDK implemented. Native bridges and consumer integrations remain R13-R17, not native artifacts."
+        },
+        {
+          "kind": "full_backend_windows",
+          "path": "docs/refactor/evidence/R12_CHECKS_2026-10-31.json",
+          "result": "Unchanged full snapshot1597pass6Windows-hostPOSIXfail17skip23subtests, all static checks pass; predates final SDK lint and malformed-DEFLATE error repair."
+        },
+        {
+          "kind": "final_repair_fixtures_static",
+          "path": "docs/refactor/evidence/R12_REPAIRED_CHECKS_2026-10-31.json",
+          "result": "Unchanged repair snapshot38focused backend/12SDK tests, TypeScript/ESLint/Ruff/format/mypy/OpenAPI/SDK drift pass; mirrored SDK source equality. Earlier full UI99 pass separate."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R13",
+      "title": "Shared UI",
+      "depends_on": [
+        "R12"
+      ],
+      "status": "done",
+      "evidence": [
+        {
+          "kind": "shared_ui_implementation",
+          "path": "docs/refactor/evidence/R13_SESSION_2026-11-01.md",
+          "result": "Static React/generated SDK/server profiles and context isolation/durable Chat+Device Chat/Commands/vendor Settings/scoped skills+jobs/MCP/native session UI; source, bundle and browser-fixture scope complete. Native bridges/artifacts remain separate."
+        },
+        {
+          "kind": "full_backend_windows",
+          "path": "docs/refactor/evidence/R13_BACKEND_CHECKS_2026-11-01.json",
+          "result": "Unchanged full1600pass6POSIX-host-fail17skip23subtests; static checks pass. This snapshot predates final UI-only Stop/context guard repair."
+        },
+        {
+          "kind": "clean_static_web",
+          "path": "docs/refactor/evidence/R13_UI_CHECKS_2026-11-01.json",
+          "result": "Clean npm ci/packaged production/TypeScript/full UI lint pass, unchanged source/mirror. Earlier full UI110 pass precedes final UI-only guard repair."
+        },
+        {
+          "kind": "actual_web_fixture",
+          "path": "docs/refactor/evidence/R13_WEB_SMOKE_2026-11-01.json",
+          "result": "Actual desktop Chat/reload/Settings/mobile390x844/Commands/skills view; one admission/request/model turn and zero command/credential records. Web fixture only, no deployed TLS/native/mobile artifact pass."
+        },
+        {
+          "kind": "final_ui_guards",
+          "path": "docs/refactor/evidence/R13_UI_GUARDS_2026-11-01.json",
+          "result": "Final115 UI tests pass; production/type/full lint pass; source unchanged/mirror equal. Stop-completion race, old-context cleanup and legacy body abort covered."
+        },
+        {
+          "kind": "actual_web_stop",
+          "path": "docs/refactor/evidence/R13_WEB_STOP_SMOKE_2026-11-01.json",
+          "result": "Actual browser Stop reaches canonical cancelled:1request/1admission/1model.started/1request.cancelled/no assistant answer. Initial completed-before-click attempt retained separately."
+        },
+        {
+          "kind": "closure_verification",
+          "path": "docs/refactor/evidence/R13_CLOSURE_2026-11-02.json",
+          "result": "Fresh115 UI passes and current code hash comparisons confirm exact final bundle/mirror/backend evidence; local AST graph updated; explicit file/removal audit and plan checks run before commit."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R14",
+      "title": "Linux CLI/service",
+      "depends_on": [
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R15",
+      "title": "Windows app",
+      "depends_on": [
+        "R08",
+        "R12",
+        "R13"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R16",
+      "title": "Android app",
+      "depends_on": [
+        "R12",
+        "R13"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R17",
+      "title": "iOS app",
+      "depends_on": [
+        "R12",
+        "R13"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R18",
+      "title": "Automation/CI/artifacts",
+      "depends_on": [
+        "R02"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R19",
+      "title": "Cleanup/file audit cuá»‘i",
+      "depends_on": [
+        "R04",
+        "R05",
+        "R06",
+        "R07",
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12",
+        "R13",
+        "R14",
+        "R15",
+        "R16",
+        "R17",
+        "R18"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R20",
+      "title": "E2E/native verification",
+      "depends_on": [
+        "R19"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R21",
+      "title": "BÃ¡o cÃ¡o cuá»‘i vÃ  nghiá»‡m thu toÃ n scope",
+      "depends_on": [
+        "R20",
+        "R22",
+        "R23",
+        "R24",
+        "R25",
+        "R26",
+        "R27",
+        "R28",
+        "R29"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R22",
+      "title": "DeepSeek live smoke",
+      "depends_on": [
+        "R04"
+      ],
+      "status": "needs_external",
+      "evidence": [],
+      "blockers": [
+        "Presence-only assessment: current process has no DEEPSEEK_API_KEY/ORION_DEEPSEEK_API_KEY/DEEPSEEK_MODEL/ORION_DEEPSEEK_MODEL/ORION_MODEL_API_KEY/ORION_MODEL_ID. Provide an explicitly owner-configured live DeepSeek model/profile and credential reference. No external account or private user-store inventory performed; no live call/pass claimed."
+      ]
+    },
+    {
+      "id": "R23",
+      "title": "Claude live smoke",
+      "depends_on": [
+        "R05"
+      ],
+      "status": "needs_external",
+      "evidence": [],
+      "blockers": [
+        "Presence-only assessment: current process has no ANTHROPIC_API_KEY/CLAUDE_API_KEY/ORION_CLAUDE_API_KEY/ANTHROPIC_MODEL/CLAUDE_MODEL/ORION_CLAUDE_MODEL. An owner-configured live Claude model/profile and credential reference are required. No external account/private user-store inventory or live call/pass claimed."
+      ]
+    },
+    {
+      "id": "R24",
+      "title": "OpenAI live smoke",
+      "depends_on": [
+        "R06"
+      ],
+      "status": "needs_external",
+      "evidence": [],
+      "blockers": [
+        "No openai-platform-api-key tool available. Presence-only assessment: current process has no OPENAI_API_KEY/ORION_OPENAI_API_KEY/OPENAI_MODEL/ORION_OPENAI_MODEL/ORION_MODEL_API_KEY/ORION_MODEL_ID. An owner-configured live OpenAI model/profile and credential reference are required. No external account/private-user-store inventory or live call/pass claimed."
+      ]
+    },
+    {
+      "id": "R25",
+      "title": "Windows app/worker native artifact smoke",
+      "depends_on": [
+        "R15",
+        "R18"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R26",
+      "title": "Linux CLI/service/worker native smoke",
+      "depends_on": [
+        "R14",
+        "R18"
+      ],
+      "status": "todo",
+      "evidence": [
+        {
+          "kind": "runner_available_source_fixtures",
+          "path": "docs/refactor/evidence/R09_QEMU_LINUX_2026-10-31.json",
+          "result": "Owned actual Linux guest now available; source SSH/process/POSIX credential fixtures executed. Exact CLI/service/worker artifacts await R14/R18; gate remains incomplete."
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R27",
+      "title": "Android build/emulator smoke",
+      "depends_on": [
+        "R16",
+        "R18"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R28",
+      "title": "iOS macOS simulator build/test",
+      "depends_on": [
+        "R17",
+        "R18"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    },
+    {
+      "id": "R29",
+      "title": "Signing/release credential gates",
+      "depends_on": [
+        "R25",
+        "R27",
+        "R28"
+      ],
+      "status": "todo",
+      "evidence": [],
+      "blockers": []
+    }
+  ],
+  "checkpoint": {
+    "local_date": "2026-11-02",
+    "recovery_path": "F:/Orion-recovery/20261029-before-refactor",
+    "test_python": "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+    "report": "docs/refactor/evidence/R13_CLOSURE_2026-11-02.json",
+    "unresolved": [
+      "R14-R21 implementation and native/live/mobile/signing gates remain open; R13 closure does not implement later tasks.",
+      "Six POSIX installer/discovery failures and17skips on Windows remain visible. Historical Linux10/SSH3 fixtures are not a full Linux/native artifact pass."
+    ],
+    "reproduction": "R13 final115 UI tests, type/lint/package and actual browser Stop pass. Full backend1600pass6Windows-hostPOSIXfail17skip23subtests; backend source matches report. R13 source/web scope complete.",
+    "reviewed_files_at_checkpoint": 611,
+    "inventory_files_at_checkpoint": 594,
+    "next_task": "R14"
+  }
+}

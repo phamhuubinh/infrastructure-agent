@@ -1,0 +1,60 @@
+{
+  "scope": "Actual Windows OpenSSH to private disposable Ubuntu24.04 QEMU TCG guest; source helper, not packaged native acceptance",
+  "started_utc": "2026-10-31T05:43:44.720506+00:00",
+  "payload_sha256": "66849b6b4c4213466d14c9acdad3e6fa0dd282b680742129477fec5839b8ce23",
+  "cases": [
+    {
+      "command_id": "00000000000000000000000000000001",
+      "shell": "sh",
+      "state": "failed",
+      "exit_code": 7,
+      "stdout": "你好 stdout\n/home/orionfixture\n",
+      "stderr": "stderr\n",
+      "duration_seconds": 2.0937637669999845,
+      "omitted_output_bytes": 0,
+      "process_tree_terminated": true,
+      "stdout_offset": 0,
+      "stderr_offset": 0,
+      "next_stdout_offset": 33,
+      "next_stderr_offset": 7,
+      "captured_output_bytes": 40
+    },
+    {
+      "command_id": "00000000000000000000000000000002",
+      "shell": "bash",
+      "state": "succeeded",
+      "exit_code": 0,
+      "stdout": "bash-ok",
+      "stderr": "",
+      "duration_seconds": 2.646815699000001,
+      "omitted_output_bytes": 0,
+      "process_tree_terminated": true,
+      "stdout_offset": 0,
+      "stderr_offset": 0,
+      "next_stdout_offset": 7,
+      "next_stderr_offset": 0,
+      "captured_output_bytes": 7
+    }
+  ],
+  "hello": {
+    "type": "hello",
+    "version": 1,
+    "platform": "linux",
+    "worker_version": "ssh-stdlib-v1",
+    "architecture": "unknown",
+    "os_release": "unknown",
+    "capabilities": [
+      "command.run",
+      "command.status",
+      "command.cancel"
+    ],
+    "geometry": [],
+    "command_shells": [
+      "sh",
+      "bash"
+    ]
+  },
+  "passed": false,
+  "error": "{'command_id': '00000000000000000000000000000002', 'shell': 'bash', 'state': 'succeeded', 'exit_code': 0, 'stdout': 'bash-ok', 'stderr': '', 'duration_seconds': 2.646815699000001, 'omitted_output_bytes': 0, 'process_tree_terminated': True, 'stdout_offset': 0, 'stderr_offset': 0, 'next_stdout_offset': 7, 'next_stderr_offset': 0, 'captured_output_bytes': 7}",
+  "finished_utc": "2026-10-31T05:43:57.600412+00:00"
+}

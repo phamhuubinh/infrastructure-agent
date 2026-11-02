@@ -1,0 +1,26 @@
+{
+  "scope": "Focused diagnostics retention regression with full conftest. Opt-in diagnostics only, not provider/native/live acceptance.",
+  "source_sha256": {
+    "backend/src/orion/chat/diagnostics.py": "1c26fa7065b7864dccd4ea69b9b48976c32848bd687d7b393401b499cc727acd",
+    "backend/tests/test_runtime_diagnostics.py": "86e772db7901771dd7d26aecb8bda3e9a8fe8dfe0547deec21f94d8305073cd2",
+    "backend/tests/test_semantic_stream_diagnostics.py": "8d5b33171eb6d140b4fdee347df90ccacb4a89e4c3b96e61898f834930062c8d",
+    "backend/tests/test_qa_request_identity.py": "ce223a90857ecfa41fb842ed5959b551c31efff0df7c78f95985032f36fd6938"
+  },
+  "argv": [
+    "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "backend/tests/test_runtime_diagnostics.py",
+    "backend/tests/test_semantic_stream_diagnostics.py",
+    "backend/tests/test_qa_request_identity.py",
+    "-q",
+    "-o",
+    "addopts=",
+    "-o",
+    "cache_dir=F:/Orion-toolchains/pytest-cache"
+  ],
+  "exit_code": 0,
+  "terminal_stdout": ".............................     [100%]\r\n68 passed in 10.72s\r\n",
+  "lint": "ruff check: All checks passed!; ruff format --check: 2 files already formatted; exit0; RUFF_CACHE_DIR=F:/Orion-toolchains/ruff-cache"
+}

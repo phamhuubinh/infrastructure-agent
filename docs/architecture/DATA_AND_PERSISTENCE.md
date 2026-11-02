@@ -14,15 +14,21 @@ ProjectDocument
 DocumentIngestionState
 KnowledgeSource
 ToolCall/ToolResult metadata
+ScheduledTask / ScheduledRun
+EndpointIdentity / PairingToken / EndpointAudit
+PendingMutationAuthorization
 ```
 
 ## Session
 
-A Session owns a conversation and session-scoped attachments.
+A Session owns a conversation, surface kind and mutation mode. Ordinary Chat and
+Project sessions can own attachments; Device Chat instead binds endpoint_id and
+has no Project/attachment scope. Device sessions are excluded from ordinary
+conversation discovery.
 
-It may also own one derived rolling conversation-state checkpoint. This cache records
-a bounded state text and the stable canonical timeline boundary it covers; it is not
-a timeline message and cannot replace or rewrite canonical history.
+Legacy derived checkpoint rows remain for storage compatibility. The current
+request path does not read them or generate a preparatory model summary; they are
+not a second source of conversation truth.
 
 ## Project
 
@@ -55,19 +61,52 @@ excluded from semantic queries immediately, and their vector rows are removed.
 
 ## Stores
 
-The implementation may use multiple physical stores:
-
-- relational store for metadata/session/project state;
-- object/filesystem store for uploaded files;
-- vector database for embeddings;
-- lexical index for BM25;
-- optional caches.
+The inspected implementation uses SQLite for metadata/session/project/index state
+and local blob storage for uploads, with lexical/exact retrieval and configured
+semantic indexing. Preserve this baseline. A separate vector database, broker or
+new storage service is not required by the redesign.
 
 Cross-store operations require recovery-safe semantics. A failed index update must not make metadata claim a document is ready when it is not.
 
+## Offline backup and restore
+
+Stop Orion, create an owner-controlled backup parent, then use:
+
+```text
+orion data export BACKUP_DIRECTORY
+orion data import BACKUP_DIRECTORY/orion-backup-UUID NEW_DATA_DIRECTORY
+orion data retain BACKUP_DIRECTORY --keep 5
+```
+
+Export acquires the runtime lease and includes a SQLite online snapshot, original
+UUID blobs and protected provider-credential records, with a versioned checksum
+manifest. Import validates the complete bundle and publishes into a new directory;
+it refuses an existing target. Set `ORION_DATA_DIR` to that new directory, or
+`ORION_DATABASE_PATH` to its `orion.db`, before starting Orion. Existing explicit
+database-path configuration takes precedence over the data directory.
+
+Windows DPAPI records require the original Windows account/machine. Environment
+credential references require reconfiguration; their values are never exported.
+External SSH/tool/MCP configuration, remote worker state, OS key material, logs,
+models and binaries are outside the managed-data backup. Only restore trusted
+bundles. Retention preflights all matching bundles and deletes only validated owned
+files; it does not purge application history or migration snapshots. Failed
+exports/imports leave private unpublished staging directories for diagnosis.
+See [the v1 lifecycle contract](../refactor/DATA_LIFECYCLE.md) for exact boundaries.
+
+Local blob operations reject redirected ancestors, symlinks, Windows reparse
+points, hard links and replacement of the open store's root. New bytes receive
+private permissions before writing; legacy owned blobs are protected at store open.
+These checks do not isolate a hostile process running as the same OS account.
+
+Lexical/exact retrieval and data operations require no semantic model or packages.
+The `semantic` extra and installer embedding flag opt into local E5 support.
+
 ## Local-first durability
 
-Default deployment should persist data on local volumes. Rebuilding containers must not delete user sessions/projects/documents unless the user explicitly removes persistent data.
+Default deployment persists data in local application-data storage. Reinstalling
+or rebuilding an application must not delete sessions/projects/documents unless
+the user explicitly removes persistent data.
 
 ## Scheduled executions
 

@@ -119,8 +119,9 @@ Windows PowerShell 5's lazy `ReadLines` pipeline holding the destination open.
 Interpreter and source build-tool discovery uses the first PATH match when
 Windows has several copies of an executable installed.
 
-Both installers are run twice successfully, then with a deterministic model
-provisioning failure and an unrelated launcher. Checks cover the managed
+Both installers are run twice with default settings and no model provisioning,
+then with explicit embedding opt-in, a deterministic provisioning failure and an
+unrelated launcher. Checks cover the managed
 `%LOCALAPPDATA%\Orion\bin\orion.cmd`, launcher `help`, current-process PATH,
 case/quote/environment-variable/trailing-slash user PATH deduplication, retention
 of unrelated PATH entries, and failure before publishing a launcher. A snapshot

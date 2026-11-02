@@ -4,13 +4,21 @@ Orion is an MCP **client/host**: administrators configure external servers, and
 allowlisted tools join the existing frozen canonical registry. The model sees them
 on the first Chat/Project turn alongside built-in tools. MCP does not create another
 agent, registry, model loop, authorization system, or knowledge pipeline. Orion is
-not an MCP server. No MCP UI, marketplace or server installer is included.
+not an MCP server. Owner lifecycle APIs and offline diagnostics are available;
+a dedicated MCP UI, marketplace or server installer is not included.
 
 Orion uses the official Python SDK, pinned to `mcp==2.0.0` (the stable v2 line).
 External server runtimes and packages are the operator's responsibility. Installing
 Orion does not install arbitrary MCP servers or add a Node/npm requirement to the
 release installer. A configured server may independently require Node, Python, or
 another executable.
+
+Orion accepts negotiated revisions `2025-11-25` and `2026-07-28` only. Official SDK
+stdio and HTTP fixtures exercise both. `protocol_mode` defaults to `auto`; set
+`legacy` for the initialize handshake. Older/future SDK-supported revisions are
+not silently claimed as Orion-supported. Status reports the actual negotiated
+revision and immutable snapshot SHA256. Administrative config is copied before
+startup so caller-owned nested dictionaries cannot change authority afterward.
 
 ## Local configuration
 
@@ -142,9 +150,11 @@ scoped by Orion's knowledge tools.
 Server instructions, prompts, resources, roots, sampling and elicitation are not
 added to Chat context or resolved as a second model loop. SDK compatibility
 handshakes can read capabilities without granting them Orion authority. Server
-catalog-change notifications never alter the live canonical registry. **Restart
-Orion after configuration or server catalog changes** to create a newly validated
-snapshot.
+catalog-change notifications never alter the live canonical registry. Restart
+Orion after configuration or server catalog changes to create a newly validated
+snapshot. Explicit reconnect is allowed only if the revision, canonical input/
+output schemas, descriptions and operation policy match the original snapshot.
+Mismatch leaves the connection unavailable; the active registry is never patched.
 
 Successful tool results contain `data.text` (text blocks) and `data.structured`
 (optional structured content). These are ordinary untrusted tool data returning to
@@ -156,6 +166,20 @@ citations. Resolved secret values are redacted recursively, including values fro
 environment names without words such as TOKEN or PASSWORD.
 
 ## Authorization, failures and lifecycle
+
+Owner routes are `GET /api/mcp/servers`, `GET /api/mcp/doctor` and
+`POST /api/mcp/servers/{server_id}/connect|disconnect|test`. They use the existing
+owner-cookie and exact-Origin protections when remote access is enabled. Active
+calls block connection changes. `test` reads and validates discovery only; it never
+invokes a configured tool. Schema/revision drift makes the connection unavailable.
+These administrative actions are not model tools.
+
+`orion mcp list [SERVER_ID]` inspects configuration without resolving credentials.
+`orion mcp doctor|test [SERVER_ID]` opens temporary configured connections, validates
+discovery against their startup snapshot, reports the result and closes them.
+It does not change a running Orion process or leave a background connection.
+Persistent connection changes use the owner routes above; headless client CLI
+integration belongs to R14. Raw endpoint/argv/environment values are not printed.
 
 MCP mutations pass through the existing `ToolRunner` server policy and conversation
 permissions. `read_only` blocks them; `confirm` binds an exact request/session/call
@@ -175,11 +199,13 @@ administrative errors. A known unavailable connection fails before dispatch. Rea
 transport failures/timeouts return bounded errors for normal model recovery. A
 mutation transport failure/timeout after dispatch returns `outcome_unknown`; a
 malformed mutation result is also treated conservatively as unverifiable. Do not
-repeat such mutations blindly. Orion performs no mutation retries or reconnects;
-a failed transport remains unavailable until restart. User cancellation follows
+repeat such mutations blindly. Orion performs no automatic mutation retries or
+automatic reconnects. Owner reconnect does not replay any pending/previous call.
+User cancellation follows
 the existing runtime boundary, which records mutation uncertainty when interrupted.
 
-The composition root owns one SDK-client task on Orion's event loop. It connects
+The composition root owns one lifecycle task and a task per configured server on
+Orion's event loop. Each server task enters/exits its own SDK contexts. It connects
 and discovers before building/freezing the one canonical registry and Chat runtime.
 Scheduler starts after that snapshot is ready. The same owner enters/exits SDK
 contexts once; failed startup closes already opened clients. Shutdown stops
@@ -204,7 +230,10 @@ administrative errors, without a partially serving application.
 | `connection` | Check the executable/runtime or explicit endpoint, network and timeout. |
 | `discovery`, `missing_tool`, `description`, `schema` | Check catalog names, allowlist and supported schema subset. |
 | `composition` | Resolve canonical name/handler collisions or local policy errors. |
-| `call_transport` | Inspect the external service independently; restart Orion after resolving failure. |
+| `call_transport` | Inspect the service, then explicitly reconnect; a changed snapshot requires restart. |
+| `protocol_revision` | Use one of Orion's two explicitly supported revisions. |
+| `snapshot_changed` | Restart to create a newly validated canonical registry snapshot. |
+| `busy` | Wait for active calls to finish or use normal request Stop before changing the connection. |
 | `result` | Fix the server's bounded text/structured result contract. |
 
 SDK wire/exception logs are suppressed while clients are owned because they can

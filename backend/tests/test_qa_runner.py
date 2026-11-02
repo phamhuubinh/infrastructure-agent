@@ -2455,7 +2455,9 @@ def test_existing_untrusted_exception_categories_keep_prior_report_shape(
 
 
 def test_mapping_accounts_for_386_rows_and_references_canonical_ids(qa_runner) -> None:  # type: ignore[no-untyped-def]
-    mapping = (qa_runner.ROOT / "docs/qa/HISTORICAL_CORPUS_MIGRATION.md").read_text()
+    mapping = (qa_runner.ROOT / "docs/qa/HISTORICAL_CORPUS_MIGRATION.md").read_text(
+        encoding="utf-8"
+    )
     expected = {
         "historical-default.txt": 193,
         "cauhoi_kiemtra_v2.txt": 66,

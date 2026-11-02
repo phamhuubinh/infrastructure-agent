@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orion.access import LocalAccessAdapter
+from orion.access.native import NativeAuthService
+from orion.application.command_tools import command_registrations
+from orion.application.commands import CommandService
+from orion.application.models import ModelConfigurationService
+from orion.application.requests import RequestService
 from orion.chat.diagnostics import BoundedModelInputDiagnostics
 from orion.chat.runtime import ChatRuntime
 from orion.endpoints.manager import EndpointManager
@@ -25,20 +30,27 @@ from orion.integrations import (
     ZabbixClient,
 )
 from orion.integrations.mcp import MCPConfigurationError, MCPManager, load_config
+from orion.integrations.ssh.config import load_configuration as load_ssh_configuration
+from orion.integrations.ssh.transport import CommandRouter
 from orion.knowledge import KnowledgeService, knowledge_registrations
 from orion.knowledge.blob_store import LocalBlobStore
 from orion.knowledge.local_embeddings import LocalE5Embeddings
 from orion.knowledge.ports import Chunker, DocumentParser
 from orion.knowledge.semantic import SemanticIndexService
 from orion.models.backend import ModelBackend, ModelStreamSettings, ReasoningMode
-from orion.models.providers.openai_compatible import OpenAICompatibleBackend
+from orion.models.credential_store import credentials_for_database
+from orion.models.providers.factory import default_provider_registry
+from orion.models.registry import ProviderRegistry
 from orion.observability import ApplicationLog
 from orion.paths import database_path as default_database_path
+from orion.persistence.ownership import RuntimeLease
 from orion.persistence.sqlite import SQLiteStore
 from orion.projects import ProjectService
 from orion.scheduler.engine import SchedulerEngine
 from orion.scheduler.service import SchedulerService
 from orion.scheduler.tools import scheduler_registrations
+from orion.skills.service import SkillService
+from orion.skills.tools import skill_registrations
 from orion.tool_runtime.calculator import calculate, calculator_definition
 from orion.tool_runtime.infrastructure import infrastructure_registrations
 from orion.tool_runtime.internet import internet_registrations
@@ -64,9 +76,14 @@ class OrionApplication:
     scheduler: SchedulerService
     scheduler_engine: SchedulerEngine
     endpoints: EndpointManager
+    native_auth: NativeAuthService
+    requests: RequestService
     endpoint_enabled: bool = False
     mcp: MCPManager | None = None
     mutation_authorization: MutationAuthorizationPolicy | None = None
+    model_configurations: ModelConfigurationService | None = None
+    commands: CommandService | None = None
+    skills: SkillService | None = None
 
 
 def build_application(
@@ -84,6 +101,7 @@ def build_application(
     endpoint_enabled: bool | None = None,
     mcp_manager: MCPManager | None = None,
     mcp_registrations: tuple[ToolRegistration, ...] = (),
+    seed_model_from_environment: bool = True,
 ) -> OrionApplication:
     """Build the complete local application with one registry snapshot."""
     if mcp_manager is None and load_config().servers:
@@ -91,9 +109,15 @@ def build_application(
     stream_settings = ModelStreamSettings.from_environment()
     infrastructure_config = _infrastructure_configuration()
     resolved_path = database_path or default_database_path()
-    store = SQLiteStore(resolved_path)
+    ownership = RuntimeLease(resolved_path)
     try:
-        _configure_model_from_environment(store)
+        store = SQLiteStore(resolved_path, on_close=ownership.close)
+    except BaseException:
+        ownership.close()
+        raise
+    try:
+        if seed_model_from_environment:
+            _configure_model_from_environment(store)
         access = LocalAccessAdapter()
         enabled = (
             endpoint_enabled
@@ -101,7 +125,15 @@ def build_application(
             else os.getenv("ORION_ENDPOINTS", "0") == "1"
         )
         endpoints = EndpointManager(EndpointStore(store))
+        command_transport = CommandRouter(
+            endpoints, load_ssh_configuration(), worker_enabled=enabled
+        )
+        ssh_enabled = bool(command_transport.model_context())
+        commands = CommandService(store, command_transport)
         registry_builder = ToolRegistryBuilder()
+        skills = SkillService(store)
+        for registration in skill_registrations(skills):
+            registry_builder.register(registration.definition, registration.handler)
         knowledge = KnowledgeService(
             store,
             LocalBlobStore(resolved_path.parent / "blobs"),
@@ -142,29 +174,48 @@ def build_application(
         if enabled:
             for registration in endpoint_registrations(endpoints):
                 registry_builder.register(registration.definition, registration.handler)
+        if enabled or ssh_enabled:
+            for registration in command_registrations(commands):
+                registry_builder.register(registration.definition, registration.handler)
         registry = registry_builder.freeze()
-        store.expire_pending_authorizations()
+        skills.capabilities = frozenset(
+            definition.name for definition in registry.definitions()
+        ) | (
+            frozenset({"mcp-host"})
+            if any(definition.name.startswith("mcp.") for definition in registry.definitions())
+            else frozenset()
+        )
         authorization = MutationAuthorizationPolicy.from_mapping(
             infrastructure_config or {},
             registry.definitions(),
             lambda family, target_ref: (
                 _target_is_configured(infrastructure_catalog, family, target_ref)
-                if family != "endpoint"
-                else endpoints.configured(target_ref)
+                if family not in {"endpoint", "system"}
+                else command_transport.configured(target_ref)
+                if family == "system"
+                else enabled and endpoints.configured(target_ref)
             ),
         )
-        selected_backend = backend or OpenAICompatibleBackend(stream_settings)
+        selected_backend = backend or default_provider_registry(stream_settings)
         diagnostic_sink = (
             BoundedModelInputDiagnostics()
             if os.getenv("ORION_RUNTIME_DIAGNOSTICS") == "qa"
             else None
+        )
+        configuration_registry = (
+            selected_backend
+            if isinstance(selected_backend, ProviderRegistry)
+            else default_provider_registry(stream_settings, compatible_backend=selected_backend)
+        )
+        model_configurations = ModelConfigurationService(
+            store, configuration_registry, credentials_for_database(resolved_path)
         )
         runtime = ChatRuntime(
             store,
             selected_backend,
             registry,
             access,
-            infrastructure_catalog.model_context(),
+            infrastructure_catalog.model_context() + command_transport.model_context(),
             ApplicationLog(Path(os.environ["ORION_LOG_PATH"]))
             if os.getenv("ORION_LOG_PATH")
             else None,
@@ -174,7 +225,15 @@ def build_application(
             endpoint_summary=lambda target: next(
                 (row for row in endpoints.list() if row["endpoint_id"] == target), None
             ),
+            settings_provider=model_configurations.active_settings
+            if model_configurations
+            else None,
+            on_request_interrupt=commands.cancel_request,
+            skill_request_start=skills.begin_request,
+            skill_context=skills.context,
+            skill_request_end=skills.end_request,
         )
+        store.recover_interrupted_requests(ownership)
         return OrionApplication(
             store=store,
             access=access,
@@ -187,9 +246,14 @@ def build_application(
             scheduler=scheduler,
             scheduler_engine=SchedulerEngine(store, runtime, scheduler),
             endpoints=endpoints,
+            native_auth=NativeAuthService(store),
+            requests=RequestService(store, runtime, access),
             endpoint_enabled=enabled,
             mutation_authorization=authorization,
             mcp=mcp_manager,
+            model_configurations=model_configurations,
+            commands=commands,
+            skills=skills,
         )
     except BaseException:
         store.close()
@@ -220,6 +284,9 @@ async def application_context(
         try:
             yield local_application
         finally:
+            await local_application.requests.close()
+            if local_application.commands:
+                await local_application.commands.close()
             await local_application.endpoints.close()
             local_application.store.close()
         return
@@ -234,8 +301,12 @@ async def application_context(
             raise MCPConfigurationError("composition") from None
         yield assembled
     finally:
+        if assembled is not None:
+            await assembled.requests.close()
         await manager.close()
         if assembled is not None:
+            if assembled.commands:
+                await assembled.commands.close()
             await assembled.endpoints.close()
             assembled.store.close()
 
@@ -249,8 +320,9 @@ def _configure_model_from_environment(store: SQLiteStore) -> None:
             "openai_compatible",
             base_url,
             model_id,
-            os.getenv("ORION_MODEL_API_KEY"),
+            None,
             ReasoningMode(os.getenv("ORION_MODEL_REASONING_MODE", "auto")).value,
+            credential_ref="env:ORION_MODEL_API_KEY" if os.getenv("ORION_MODEL_API_KEY") else None,
         )
 
 

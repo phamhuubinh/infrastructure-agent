@@ -1,0 +1,39 @@
+{
+  "scope": "Actual in-app browser web smoke against a private disposable loopback database and ScriptedBackend only. No real user data, provider call, worker/SSH command, deployed HTTPS auth or native/mobile artifact acceptance.",
+  "observed_utc": "2026-11-01T01:38:09.035934+00:00",
+  "origin": "http://127.0.0.1:61889",
+  "browser_observations": [
+    "Desktop Chat submitted Vietnamese fixture content and displayed the exact scripted assistant response.",
+    "After a full reload the response remained visible; navigation to Settings and back preserved the same history.",
+    "Settings showed configuration-only doctor, empty MCP/native session configuration, scoped bundled skills and the read_only jobs notice; no connect/test/credential generation/job creation button was invoked.",
+    "A390x844 viewport showed mobile navigation and Commands; selecting the fixture session showed empty command metadata. Viewport was reset to its default afterward.",
+    "Final browser error-level console log list was empty."
+  ],
+  "database_counts": {
+    "sessions": 1,
+    "requests": 1,
+    "request_admissions": 1,
+    "command_records": 0,
+    "native_sessions": 0,
+    "native_enrollments": 0
+  },
+  "request_states": {
+    "completed": 1
+  },
+  "event_counts": {
+    "assistant.message": 1,
+    "model.completed": 1,
+    "model.started": 1,
+    "request.accepted": 1,
+    "request.completed": 1
+  },
+  "timeline_counts": {
+    "assistant_message": 1,
+    "user_message": 1
+  },
+  "screenshots": {
+    "R13_WEB_CHAT_2026-11-01.jpg": "d2672f747964ffd8cadc1dbbc55ba1f609b79d233b0a42227730e520a068b2d9",
+    "R13_WEB_MOBILE_2026-11-01.jpg": "993516ef3baa1216c26bd4dbdc4d1b572ef9b78b6551259bd3231a28e68a9f02"
+  },
+  "limits": "Web-only source/bundle fixture. Native OS HTTP/secure-vault, keyboard/background lifecycle, deployed remote TLS/cookie and native packages remain dependent platform/gate work."
+}

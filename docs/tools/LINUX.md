@@ -1,5 +1,7 @@
 # Linux tools
 
+> Legacy fixed-operation implementation reference. The current target uses [Windows/Linux command execution](../architecture/SYSTEM_COMMANDS.md) under ADR 0017. The no-generic-shell statements below describe current old code, not a prohibition in the new design.
+
 ## Purpose and availability
 
 These are the initial model-facing Linux operation contracts. A successfully

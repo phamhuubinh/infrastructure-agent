@@ -6,6 +6,18 @@ Orion is primarily a local application with optional external integrations.
 
 The security model should stay simple but real.
 
+## Windows/Linux command boundary (target)
+
+ADR 0017 permits explicit PowerShell/cmd/sh/bash command execution. This capability
+is not implemented yet; see [the contract](SYSTEM_COMMANDS.md). Raw command text is
+mutation-capable and is blocked by read_only/scheduler, approved exactly in confirm,
+or run in auto within explicit target capability and OS rights. No keyword/model
+classifier establishes read-only safety. cwd/file-tool roots do not sandbox a
+shell. No automatic privilege escalation or target substitution is added.
+
+Dedicated monitoring adapters are retired from the target; any still-configured
+legacy adapter in current source has not been disabled by documentation changes.
+
 ## Remote browser access v1
 
 Default `orion` binds `127.0.0.1:61888` and keeps the local browser login-free.
@@ -64,7 +76,7 @@ Treat as untrusted:
 - uploaded files;
 - project documents;
 - Internet pages;
-- Grafana/Zabbix text fields;
+- Windows/Linux command stdout/stderr;
 - Linux command output;
 - logs.
 

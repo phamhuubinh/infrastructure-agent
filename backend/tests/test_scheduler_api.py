@@ -23,6 +23,49 @@ ORIGIN = "https://orion.example.test"
 INPUT = {"prompt": "Read current status.", "schedule_kind": "once", "run_at": NOW.isoformat()}
 
 
+@pytest.mark.anyio
+async def test_device_task_api_cannot_cross_into_other_device_or_ordinary_chat(
+    tmp_path: Path,
+) -> None:
+    api = create_app(tmp_path / "isolated.db", ScriptedBackend([]))
+    app = api.state.application
+    app.scheduler.clock = lambda: NOW
+    sessions = [
+        app.store.create_session(endpoint_id=endpoint) for endpoint in (None, "a" * 32, "b" * 32)
+    ]
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=api), base_url="http://test"
+        ) as client:
+            tasks = []
+            for session in sessions:
+                response = await client.post(
+                    "/api/scheduler/tasks", json={**INPUT, "session_id": session}
+                )
+                assert response.status_code == 201
+                tasks.append(response.json())
+            for index, session in enumerate(sessions):
+                params = {"session_id": session}
+                listed = await client.get("/api/scheduler/tasks", params=params)
+                assert listed.status_code == 200
+                assert listed.json() == [tasks[index]]
+                for other_index, task in enumerate(tasks):
+                    if index == other_index:
+                        continue
+                    url = f"/api/scheduler/tasks/{task['task_id']}"
+                    for method, suffix in (
+                        ("GET", ""),
+                        ("GET", "/history"),
+                        ("POST", "/pause"),
+                        ("POST", "/resume"),
+                        ("DELETE", ""),
+                    ):
+                        response = await client.request(method, url + suffix, params=params)
+                        assert response.status_code == 404
+    finally:
+        app.store.close()
+
+
 def _scope(app, project_id=None) -> RuntimeScope:  # type: ignore[no-untyped-def]
     return RuntimeScope(
         session_id=app.store.create_session(project_id=project_id),

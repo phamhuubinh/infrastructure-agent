@@ -1,0 +1,71 @@
+{
+  "scope": "QA gate/evidence preservation regressions; real temporary API/SQLite with outbound networking forbidden; no live provider acceptance",
+  "red_regression_observed": {
+    "new_cases": 8,
+    "failed_before_fix": 7,
+    "passed_before_fix": 1,
+    "detail": "Three empty/unknown aggregate and four overwrite protection cases failed before fix; new separate output case passed."
+  },
+  "checks": [
+    {
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_qa_quality_verdicts.py",
+        "backend/tests/test_qa_evidence_integration.py",
+        "backend/tests/test_qa_request_identity.py",
+        "-q"
+      ],
+      "returncode": 0,
+      "stdout": "........................................................................ [ 87%]\n..........                                                               [100%]\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "scripts/qa/quality_verdicts.py",
+        "backend/tests/test_qa_quality_verdicts.py"
+      ],
+      "returncode": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "scripts/qa/quality_verdicts.py",
+        "backend/tests/test_qa_quality_verdicts.py"
+      ],
+      "returncode": 0,
+      "stdout": "2 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "warning: in the working copy of 'AGENTS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/scripts/architecture_check.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/scripts/targeted_semantic_qa.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/src/orion/chat/diagnostics.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/src/orion/contracts/__init__.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/src/orion/integrations/internet.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/src/orion/persistence/scheduler.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/src/orion/tool_runtime/calculator.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_architecture_check.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_bootstrap.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_contracts.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_endpoints.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_internet.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_qa_quality_verdicts.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_qa_runner.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_runtime_diagnostics.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_scheduler_api.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_targeted_live_validation.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_targeted_semantic_qa.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_tool_system.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'backend/tests/test_ui_package.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/PRODUCT.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/README.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/BACKEND_API.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/CHAT_RUNTIME.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/CONTEXT_AND_MEMORY.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/CONTRACTS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/DATA_AND_PERSISTENCE.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/ENDPOINTS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/MODEL_BACKENDS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/MODEL_TOOL_LOOP.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/OVERVIEW.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/PROJECT_RUNTIME.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/SCHEDULER.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/SECURITY_LOCAL_FIRST.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/TOOL_SYSTEM.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/architecture/UI_UX.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/decisions/0005-no-manual-tool-picker.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/decisions/0011-infrastructure-mutation-contracts.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/decisions/0013-production-mutation-authorization.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/decisions/0015-paired-endpoint-execution.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/decisions/README.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/development/ACCEPTANCE_CRITERIA.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/development/REBUILD_GUIDE.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/development/TARGET_CODE_LAYOUT.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/operations/CONFIGURATION.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/operations/ENDPOINTS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/reference/ARCHITECTURE_PRINCIPLES.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/reference/GLOSSARY.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/tools/ENDPOINTS.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/tools/GRAFANA.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/tools/LINUX.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/tools/README.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'docs/tools/ZABBIX.md', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'scripts/qa/quality_verdicts.py', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/scripts/test-packaged-ui.mjs', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/components/chat/DeviceChat.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/components/chat/DeviceChat.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/routes/__tests__/-endpoints.test.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/routes/endpoints.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/routes/projects/$projectId.tsx', LF will be replaced by CRLF the next time Git touches it\nwarning: in the working copy of 'ui/src/routes/projects/-project-workspace.test.tsx', LF will be replaced by CRLF the next time Git touches it\n"
+    }
+  ],
+  "sources": {
+    "scripts/qa/quality_verdicts.py": "aa68c8bb7a00e353de6ed9e4341fee242432e693f6464778411e77e4e2869c53",
+    "backend/tests/test_qa_quality_verdicts.py": "846e1ac2f25e1f2e9026f63009510176ab6dd4e51814c76b96135564dff0d4cd",
+    "backend/tests/test_qa_evidence_integration.py": "f4fb82acc27787b72ff407ffd32b219d4d83f8a30b775315c6bd4dbe47794b0e",
+    "backend/tests/test_qa_request_identity.py": "ce223a90857ecfa41fb842ed5959b551c31efff0df7c78f95985032f36fd6938"
+  }
+}

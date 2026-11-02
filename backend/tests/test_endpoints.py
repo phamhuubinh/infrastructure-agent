@@ -7,6 +7,7 @@ import base64
 import json
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -250,7 +251,13 @@ def test_registry_stable_runner_scheduler_and_target_policy(tmp_path: Path) -> N
     before = tuple(application.registry.definitions())
     assert {
         definition.name for definition in before if definition.name.startswith("endpoint.")
-    } == {"endpoint.list", *(f"endpoint.{name}" for name in OPERATIONS)}
+    } == {
+        "endpoint.list",
+        *(f"endpoint.{name}" for name in OPERATIONS if not name.startswith("command.")),
+    }
+    assert {"system.command.run", "system.command.status", "system.command.cancel"} <= {
+        definition.name for definition in before
+    }
     target = paired(application.endpoints.store)["endpoint_id"]
     scope = RuntimeScope(session_id="chat", principal_id="local", workspace_id="local")
     call = ModelToolCall(
@@ -359,6 +366,9 @@ def test_api_auth_route_categories_and_real_websocket(
                 ).status_code
                 == 200
             )
+        deadline = time.monotonic() + 1
+        while client.get("/api/endpoints").json()[0]["online"] and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert not client.get("/api/endpoints").json()[0]["online"]
         assert (
             client.post(f"/api/endpoints/{target}/revoke", headers={"Origin": origin}).status_code
@@ -683,6 +693,10 @@ def test_worker_heartbeat_liveness_and_safe_failure(tmp_path: Path) -> None:
     app = create_app(tmp_path / "heartbeat.db", ScriptedBackend([]))
     manager = app.state.application.endpoints
     manager.heartbeat = 0.01
+    # Windows event-loop timer resolution can emit many pings inside 30ms.
+    # Test liveness against an injected monotonic clock, not a ping count.
+    heartbeat_times = iter((0.0, 0.02, 0.04))
+    manager.clock = lambda: next(heartbeat_times, 0.04)
     identity = paired(manager.store)
     with TestClient(app) as client:
         with client.websocket_connect(
@@ -693,9 +707,9 @@ def test_worker_heartbeat_liveness_and_safe_failure(tmp_path: Path) -> None:
                 Hello(platform="linux", worker_version="test", capabilities=[]).model_dump_json()
             )
             assert socket.receive_json()["type"] == "welcome"
+            assert socket.receive_json()["type"] == "ping"
             with pytest.raises(WebSocketDisconnect):
-                for _ in range(10):
-                    assert socket.receive_json()["type"] == "ping"
+                socket.receive_json()
         assert not manager.connections
 
 

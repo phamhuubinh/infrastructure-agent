@@ -1,0 +1,142 @@
+{
+  "scope": "R03 read-only profile binding and isolated compatible QA/benchmark credential retention regression. No real live/native calls. Existing read-only semantics preserved and resolved keys not copied into isolated request databases. Native legacy measurement is explicitly rejected, not misrouted.",
+  "source_before": {
+    "backend/src/orion/application/models.py": "e93b0cc53c152104f5b95a730c5226f9450160e79657354c924949673d621282",
+    "backend/src/orion/persistence/sqlite.py": "9d4da71824a2dd3ca9c698f0a9f35b53d52d24315e4d9bdef835f3696a48a542",
+    "backend/src/orion/models/providers/factory.py": "f06e638ab1bfe54ad31766d5e217333f5db5e1c7423a4f467d570d22d4edb31b",
+    "backend/src/orion/bootstrap/__init__.py": "1c43d6584350b47b874b7d54817317db6736ca270bc4c21e5501d15fe2f7260b",
+    "backend/src/orion/benchmarks/model_context.py": "7990775b7c04b2eebc00464c1a97c0e734c140afe48ac3e5288b20768c6b918f",
+    "backend/scripts/targeted_live_validation.py": "1fbae580101d4e940fb8cd08e0269a3da32f714c61cd87861a6fc1fcbdd4f14e",
+    "backend/scripts/targeted_semantic_qa.py": "9397e03edd3bbab67459191c2c8752171c541b3a185fa9711ef2c4ccad08ea5e",
+    "backend/tests/test_model_context_benchmark.py": "2a68987f4f4e2dd4dfcc3168322aa76dd7cbe986daf08eb1f40d3897c32e3434",
+    "backend/tests/test_model_profile_readonly.py": "4c0f3b87bf4c3c3b189f350557eba9d3f710073c38094609531a8871e9126c5f"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_model_profile_readonly.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "backend/tests/test_targeted_live_validation.py",
+        "backend/tests/test_targeted_semantic_qa.py",
+        "backend/tests/test_profile_api.py",
+        "backend/tests/test_profile_limits.py",
+        "backend/tests/test_provider_registry.py",
+        "backend/tests/test_bootstrap.py",
+        "backend/tests/test_model_configs.py",
+        "backend/tests/test_chat_runtime.py",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 24.422,
+      "stdout": "........................................................................ [ 58%]\n...................................................                      [100%]\n123 passed in 19.26s\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/src/orion/models/providers/factory.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/benchmarks/model_context.py",
+        "backend/scripts/targeted_live_validation.py",
+        "backend/scripts/targeted_semantic_qa.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "backend/tests/test_model_profile_readonly.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.11,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/src/orion/models/providers/factory.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/benchmarks/model_context.py",
+        "backend/scripts/targeted_live_validation.py",
+        "backend/scripts/targeted_semantic_qa.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "backend/tests/test_model_profile_readonly.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.203,
+      "stdout": "9 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/models/providers/factory.py",
+        "backend/src/orion/benchmarks/model_context.py",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 0.875,
+      "stdout": "Success: no issues found in 3 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 2.062,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/openapi.py"
+      ],
+      "exit_code": 0,
+      "seconds": 4.407,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "source_after": {
+    "backend/src/orion/application/models.py": "e93b0cc53c152104f5b95a730c5226f9450160e79657354c924949673d621282",
+    "backend/src/orion/persistence/sqlite.py": "9d4da71824a2dd3ca9c698f0a9f35b53d52d24315e4d9bdef835f3696a48a542",
+    "backend/src/orion/models/providers/factory.py": "f06e638ab1bfe54ad31766d5e217333f5db5e1c7423a4f467d570d22d4edb31b",
+    "backend/src/orion/bootstrap/__init__.py": "1c43d6584350b47b874b7d54817317db6736ca270bc4c21e5501d15fe2f7260b",
+    "backend/src/orion/benchmarks/model_context.py": "7990775b7c04b2eebc00464c1a97c0e734c140afe48ac3e5288b20768c6b918f",
+    "backend/scripts/targeted_live_validation.py": "1fbae580101d4e940fb8cd08e0269a3da32f714c61cd87861a6fc1fcbdd4f14e",
+    "backend/scripts/targeted_semantic_qa.py": "9397e03edd3bbab67459191c2c8752171c541b3a185fa9711ef2c4ccad08ea5e",
+    "backend/tests/test_model_context_benchmark.py": "2a68987f4f4e2dd4dfcc3168322aa76dd7cbe986daf08eb1f40d3897c32e3434",
+    "backend/tests/test_model_profile_readonly.py": "4c0f3b87bf4c3c3b189f350557eba9d3f710073c38094609531a8871e9126c5f"
+  },
+  "source_unchanged_during_checks": true
+}

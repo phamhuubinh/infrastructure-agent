@@ -11,7 +11,9 @@ const client = join(ui, "dist", "client");
 const secretMarker = "packaged-ui-test-secret-marker";
 
 if (await loopbackAvailable()) {
-  const build = spawnSync("npm", ["run", "build"], {
+  const npmCli = process.env.npm_execpath;
+  assert.ok(npmCli, "Run this check using npm run test:packaged-ui.");
+  const build = spawnSync(process.execPath, [npmCli, "run", "build"], {
     cwd: ui,
     env: {
       ...process.env,
@@ -34,7 +36,7 @@ if (await loopbackAvailable()) {
   );
 
   const html = readFileSync(shell, "utf8");
-  const stylesheet = assetReference(html, /\/assets\/styles-[^"]+\.css/);
+  const stylesheet = assetReference(html, /\/assets\/[^" ]+\.css/);
   const entrypoint = assetReference(html, /\/assets\/index-[^"]+\.js/);
   const stylesheetPath = join(client, stylesheet.slice(1));
   const entrypointPath = join(client, entrypoint.slice(1));
@@ -45,7 +47,7 @@ if (await loopbackAvailable()) {
 
   process.stdout.write("packaged UI assertions passed\n");
 } else {
-  process.stdout.write("packaged UI test skipped: loopback sockets are unavailable\n");
+  throw new Error("Packaged UI verification requires available loopback sockets.");
 }
 
 function assetReference(html, pattern) {

@@ -1,0 +1,78 @@
+{
+  "closed_local_date": "2026-11-02",
+  "verified_utc": "2026-11-02T01:52:43.986424+00:00",
+  "scope": "R13 source/static web/browser fixture closure; accumulated R00-R13 commit/push authorized. No R14 implementation or release/native/live/mobile acceptance.",
+  "final_ui_checks": {
+    "packaged_ui": 0,
+    "typescript": 0,
+    "ui_lint": 0
+  },
+  "fresh_ui_tests": {
+    "passed": 115,
+    "failed": 0,
+    "pending": 0,
+    "report_sha256": "9104885ec32a0da9b421a7286ef1d5107c28c044512ee3cd58293ac5f1746f4a"
+  },
+  "ui_source_matches_final_build": true,
+  "ui_source_matches_fresh_test_mirror": true,
+  "backend_source_matches_full_run": true,
+  "backend_full": {
+    "passed": 1600,
+    "failed": 6,
+    "skipped": 17,
+    "subtests_passed": 23,
+    "limits": "Six POSIX installer/discovery tests fail on Windows. Full backend run predates final UI-only guard repair. No deselection."
+  },
+  "backend_static_checks": {
+    "format": 0,
+    "ruff": 0,
+    "linux_static": 0,
+    "architecture": 0,
+    "mypy": 0,
+    "sdk": 0,
+    "openapi": 0,
+    "whitespace": 0,
+    "audit_tools": 0
+  },
+  "web_stop": {
+    "states": {
+      "cancelled": 1
+    },
+    "events": {
+      "model.started": 1,
+      "request.accepted": 1,
+      "request.cancelled": 1
+    },
+    "timeline": {
+      "user_message": 1
+    }
+  },
+  "graphify": {
+    "mode": "local AST only; no remote backend or labels",
+    "nodes": 6310,
+    "links": 19996
+  },
+  "reports": [
+    "R13_UI_CHECKS_2026-11-01.json",
+    "R13_UI_GUARDS_2026-11-01.json",
+    "R13_BACKEND_CHECKS_2026-11-01.json",
+    "R13_WEB_SMOKE_2026-11-01.json",
+    "R13_WEB_STOP_SMOKE_2026-11-01.json"
+  ],
+  "remaining_gates": [
+    "R14 headless CLI/service",
+    "R15-R17 native host/secure vault and platform lifecycle",
+    "R18-R21 build/cleanup/final acceptance",
+    "R22-R24 live providers",
+    "R25+ native artifacts/signing/mobile/remote TLS as specified in STATE.json"
+  ],
+  "known_build_warning": "Shared Markdown/math chunk exceeds500kB; warning threshold unchanged.",
+  "file_audit": {
+    "current_files": 594,
+    "removed_records": 17,
+    "total_records": 611,
+    "semantic_review_remaining": 0,
+    "inventory_check_exit": 0,
+    "plan_check_errors": []
+  }
+}

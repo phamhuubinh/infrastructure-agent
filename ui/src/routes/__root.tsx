@@ -5,16 +5,15 @@ import {
   createRootRouteWithContext,
   useRouter,
   HeadContent,
-  Scripts,
 } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import appCss from "../styles.css?url";
 import { AppSidebar } from "@/components/AppSidebar";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ChatProvider } from "@/lib/chat-store";
-import { reportLovableError } from "@/lib/lovable-error-reporting";
 import { AUTH_EXPIRED_EVENT, getAuthSession, login, logout, type AuthSession } from "@/lib/api";
+import { SERVER_CHANGED_EVENT, isNativeHost } from "@/lib/server-profiles";
+import { ServerConnections } from "@/components/ServerConnections";
 
 function NotFoundComponent() {
   return (
@@ -39,11 +38,7 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
@@ -80,16 +75,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Orion" },
-      { name: "description", content: "Orion — Infrastructure Investigation Platform" },
+      { name: "description", content: "Orion — Chat, Projects and remote commands" },
     ],
     links: [
-      { rel: "stylesheet", href: appCss },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap",
-      },
       {
         rel: "icon",
         href: "/orion-icon-light.png",
@@ -108,13 +96,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "apple-touch-icon", href: "/orion-icon.png" },
     ],
   }),
-  shellComponent: RootShell,
   component: RootComponent,
   notFoundComponent: NotFoundComponent,
   errorComponent: ErrorComponent,
 });
 
-function RootShell({ children }: { children: ReactNode }) {
+function useTheme() {
   const [theme] = useState<"light" | "dark">(
     () =>
       (typeof localStorage !== "undefined"
@@ -126,26 +113,27 @@ function RootShell({ children }: { children: ReactNode }) {
     document.documentElement.className = theme;
     localStorage.setItem("theme", theme);
   }, [theme]);
-
-  return (
-    <html lang="vi" className={theme}>
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  );
 }
 
 function RootComponent() {
-  const [queryClient] = useState(() => new QueryClient());
+  const { queryClient } = Route.useRouteContext();
+  useTheme();
   const [auth, setAuth] = useState<AuthSession | null>(null);
   const [authError, setAuthError] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [serverGeneration, setServerGeneration] = useState(0);
+  useEffect(() => {
+    const changed = () => {
+      queryClient.clear();
+      setAuth(null);
+      setPassword("");
+      setAuthError("");
+      setServerGeneration((value) => value + 1);
+    };
+    window.addEventListener(SERVER_CHANGED_EVENT, changed);
+    return () => window.removeEventListener(SERVER_CHANGED_EVENT, changed);
+  }, [queryClient]);
   useEffect(() => {
     let active = true;
     void getAuthSession()
@@ -166,7 +154,7 @@ function RootComponent() {
       active = false;
       window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
     };
-  }, [queryClient]);
+  }, [queryClient, serverGeneration]);
   useEffect(() => {
     if (!auth?.remote_access || !auth.authenticated || !auth.expires_at) return;
     const remaining = Math.max(0, auth.expires_at * 1000 - Date.now());
@@ -204,11 +192,18 @@ function RootComponent() {
 
   if (!auth)
     return (
-      <div className="flex h-screen items-center justify-center">
-        {authError || "Loading Orion…"}
-      </div>
+      <main className="min-h-screen bg-background text-foreground p-6 space-y-4">
+        <p role="status">{authError || "Loading Orion…"}</p>
+        {authError && <ServerConnections />}
+      </main>
     );
   if (auth.remote_access && !auth.authenticated) {
+    if (isNativeHost())
+      return (
+        <main className="min-h-screen bg-background text-foreground p-6">
+          <ServerConnections />
+        </main>
+      );
     return (
       <main className="flex h-screen items-center justify-center bg-background text-foreground">
         <form
@@ -244,13 +239,37 @@ function RootComponent() {
   }
   return (
     <QueryClientProvider client={queryClient}>
-      <ChatProvider>
-        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground grain">
+      <HeadContent />
+      <ChatProvider key={serverGeneration}>
+        <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground grain">
           <AppSidebar />
-          <div className="flex-1 min-w-0 flex">
+          <div className="flex-1 min-w-0 flex pb-14 md:pb-0">
             <Outlet />
           </div>
           <CommandPalette />
+          <nav
+            aria-label="Điều hướng mobile"
+            className="fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden"
+          >
+            {(
+              [
+                { to: "/", label: "Chat" },
+                { to: "/projects", label: "Projects" },
+                { to: "/endpoints", label: "Remote" },
+                { to: "/commands", label: "Commands" },
+                { to: "/settings", label: "Settings" },
+              ] as const
+            ).map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                className="flex min-h-12 items-center justify-center px-1 text-xs focus-visible:outline focus-visible:outline-2"
+                activeProps={{ className: "font-semibold bg-accent" }}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
           {auth.remote_access && (
             <div className="fixed bottom-16 left-3 z-50 flex flex-col gap-1">
               {authError && (

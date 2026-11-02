@@ -6,12 +6,15 @@ import json
 import sqlite3
 import threading
 import uuid
+from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-from orion.contracts import RuntimeScope, TimelineItem, TimelineKind
+from orion.contracts import MutationMode, RuntimeScope, TimelineItem, TimelineKind
+from orion.contracts.profiles import ModelProfile
 from orion.embeddings import (
     EmbeddingProfile,
     Vector,
@@ -19,8 +22,13 @@ from orion.embeddings import (
     encode_vector,
     text_digest,
 )
+from orion.persistence.admissions import RequestAdmissionPersistence
+from orion.persistence.commands import CommandPersistence
+from orion.persistence.native_auth import NativeAuthPersistence
+from orion.persistence.ownership import RuntimeLease
+from orion.persistence.private_files import create_private_directory, create_private_file
 from orion.persistence.scheduler import SchedulerPersistence
-from orion.tool_runtime.mutation_authorization import MutationMode
+from orion.persistence.skills import SkillPersistence
 
 MAX_SESSION_SUMMARIES = 100
 MODEL_CONTEXT_HISTORY_TURNS = 64
@@ -41,7 +49,13 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class SQLiteStore(SchedulerPersistence):
+class SQLiteStore(
+    SchedulerPersistence,
+    CommandPersistence,
+    SkillPersistence,
+    NativeAuthPersistence,
+    RequestAdmissionPersistence,
+):
     """Persistence boundary; rows map to canonical public timeline semantics."""
 
     @classmethod
@@ -58,15 +72,44 @@ class SQLiteStore(SchedulerPersistence):
         finally:
             instance.close()
 
-    def __init__(self, database_path: Path) -> None:
+    @classmethod
+    def read_active_model_binding(
+        cls, database_path: Path
+    ) -> tuple[dict[str, Any], ModelProfile | None] | None:
+        """Read profile metadata without creating data or applying migrations."""
+        instance = cls.__new__(cls)
+        instance._connection = sqlite3.connect(
+            database_path.resolve().as_uri() + "?mode=ro", uri=True
+        )
+        instance._connection.row_factory = sqlite3.Row
+        instance._lock = threading.RLock()
+        try:
+            columns = {
+                row["name"]
+                for row in instance._connection.execute("PRAGMA table_info(model_configs)")
+            }
+            if "profile_json" not in columns:
+                legacy = instance.active_model_config()
+                return (legacy, None) if legacy else None
+            return instance.active_model_binding()
+        finally:
+            instance.close()
+
+    def __init__(self, database_path: Path, *, on_close: Callable[[], None] | None = None) -> None:
+        self._on_close = on_close
+        self._database_path = database_path.resolve()
         database_path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(database_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.RLock()
-        with self._connection:
-            self._connection.execute("PRAGMA journal_mode=WAL")
-            self._connection.execute("PRAGMA foreign_keys=ON")
-        self._create_schema()
+        try:
+            with self._connection:
+                self._connection.execute("PRAGMA journal_mode=WAL")
+                self._connection.execute("PRAGMA foreign_keys=ON")
+            self._create_schema()
+        except BaseException:
+            self.close()
+            raise
 
     def _create_schema(self) -> None:
         with self._lock, self._connection:
@@ -233,6 +276,10 @@ class SQLiteStore(SchedulerPersistence):
                     "ALTER TABLE model_configs "
                     "ADD COLUMN reasoning_mode TEXT NOT NULL DEFAULT 'auto'"
                 )
+            if "profile_json" not in model_columns:
+                self._connection.execute("ALTER TABLE model_configs ADD COLUMN profile_json TEXT")
+            if "credential_ref" not in model_columns:
+                self._connection.execute("ALTER TABLE model_configs ADD COLUMN credential_ref TEXT")
             self._normalize_active_model_config()
             self._connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS model_configs_one_active "
@@ -241,6 +288,10 @@ class SQLiteStore(SchedulerPersistence):
         self._migrate_document_owners_if_needed()
         self._create_embedding_schema()
         self._create_scheduler_schema()
+        self._create_command_schema()
+        self._create_skill_schema()
+        self._create_native_auth_schema()
+        self._create_admission_schema()
 
     def _create_embedding_schema(self) -> None:
         """Additive migration: existing segment rows and public identities are untouched."""
@@ -328,10 +379,12 @@ class SQLiteStore(SchedulerPersistence):
             }
             if "project_id" in columns and columns.get("session_id") == 0:
                 return
+            self._backup_before_document_migration()
             self._connection.execute("PRAGMA foreign_keys=OFF")
             try:
-                with self._connection:
+                try:
                     self._connection.executescript("""
+                        BEGIN IMMEDIATE;
                         CREATE TABLE documents_new (
                             document_id TEXT PRIMARY KEY,
                             attachment_id TEXT NOT NULL UNIQUE,
@@ -390,11 +443,37 @@ class SQLiteStore(SchedulerPersistence):
                         CREATE INDEX document_segments_document
                             ON document_segments(document_id, ordinal);
                         """)
+                    violation = self._connection.execute("PRAGMA foreign_key_check").fetchone()
+                    if violation is not None:
+                        raise sqlite3.IntegrityError("Document migration violated a foreign key")
+                    self._connection.commit()
+                except BaseException:
+                    if self._connection.in_transaction:
+                        self._connection.rollback()
+                    raise
             finally:
                 self._connection.execute("PRAGMA foreign_keys=ON")
 
+    def _backup_before_document_migration(self) -> Path:
+        """Keep an online, private, verified SQLite snapshot before table replacement."""
+        directory = self._database_path.parent / (".orion-migration-" + uuid.uuid4().hex)
+        create_private_directory(directory)
+        backup_path = directory / self._database_path.name
+        create_private_file(backup_path)
+        with closing(sqlite3.connect(backup_path)) as destination:
+            self._connection.backup(destination)
+            if destination.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("Migration backup integrity check failed")
+        return backup_path
+
     def close(self) -> None:
-        self._connection.close()
+        try:
+            self._connection.close()
+        finally:
+            callback = getattr(self, "_on_close", None)
+            self._on_close = None
+            if callback is not None:
+                callback()
 
     def create_session(
         self,
@@ -564,28 +643,112 @@ class SQLiteStore(SchedulerPersistence):
             )
         return cursor.rowcount == 1
 
-    def expire_pending_authorizations(self) -> None:
-        """No model loop survives process restart, so unresolved calls never replay."""
+    def recover_interrupted_requests(self, ownership: RuntimeLease) -> tuple[str, ...]:
+        """Terminate stale work under exclusive runtime ownership, never replay it."""
+        database = self._connection.execute("PRAGMA database_list").fetchone()[2]
+        if not ownership.owns(Path(database)):
+            raise RuntimeError("Request recovery requires exclusive Orion runtime ownership.")
         with self._lock, self._connection:
+            self._connection.execute("BEGIN IMMEDIATE")
             rows = self._connection.execute(
-                "SELECT DISTINCT request_id FROM pending_tool_authorizations "
-                "WHERE state = 'pending'"
+                "SELECT request_id, session_id FROM requests WHERE status IN ('queued', 'running')"
             ).fetchall()
+            now = _utc_now()
+            self._recover_commands()
             self._connection.execute(
                 "UPDATE pending_tool_authorizations SET state = 'expired', resolved_at = ? "
                 "WHERE state = 'pending'",
-                (_utc_now(),),
+                (now,),
             )
+            recovered: list[str] = []
             for row in rows:
+                unknown = self._interrupted_outcome_unknown(str(row["request_id"]))
+                message = "Request interrupted by application restart; it was not replayed."
+                if unknown:
+                    message += " A tool outcome is unknown; verify its target before retrying."
                 self._connection.execute(
                     "UPDATE requests SET status = 'failed', error_message = ?, completed_at = ? "
                     "WHERE request_id = ? AND status IN ('queued', 'running')",
+                    (message, now, row["request_id"]),
+                )
+                payload = {
+                    "message": message,
+                    "error_kind": "process_interrupted",
+                    "outcome_unknown": unknown,
+                }
+                self._connection.execute(
+                    "INSERT INTO timeline(item_id, session_id, request_id, created_at, kind, "
+                    "payload_json) VALUES (?, ?, ?, ?, 'runtime_notice', ?)",
                     (
-                        "Pending authorization expired after application restart.",
-                        _utc_now(),
+                        str(uuid.uuid4()),
+                        row["session_id"],
                         row["request_id"],
+                        now,
+                        json.dumps({"stage": "recovery", "status": "failed", **payload}),
                     ),
                 )
+                self._connection.execute(
+                    "INSERT INTO request_events(event_id, request_id, created_at, event_type, "
+                    "payload_json) VALUES (?, ?, ?, 'request.failed', ?)",
+                    (str(uuid.uuid4()), row["request_id"], now, json.dumps(payload)),
+                )
+                recovered.append(str(row["request_id"]))
+            self._connection.execute(
+                "UPDATE scheduled_runs SET status = 'interrupted', completed_at = ?, "
+                "error_kind = 'process_interrupted', error_message = 'Execution interrupted.' "
+                "WHERE status = 'running'",
+                (now,),
+            )
+        return tuple(recovered)
+
+    def _interrupted_outcome_unknown(self, request_id: str) -> bool:
+        if self._connection.execute(
+            "SELECT 1 FROM command_records WHERE request_id=? AND state='outcome_unknown' LIMIT 1",
+            (request_id,),
+        ).fetchone():
+            return True
+        pending: set[str] = set()
+        untracked = False
+        events = self._connection.execute(
+            "SELECT event_type, payload_json FROM request_events WHERE request_id = ? "
+            "AND event_type IN ('tool.started', 'tool.completed', 'tool.failed') ORDER BY rowid",
+            (request_id,),
+        )
+        for event in events:
+            try:
+                call_id = json.loads(event["payload_json"]).get("call_id")
+                if not isinstance(call_id, str):
+                    untracked = True
+                elif event["event_type"] == "tool.started":
+                    pending.add(call_id)
+                else:
+                    pending.discard(call_id)
+            except (ValueError, AttributeError):
+                untracked = True
+            if len(pending) > 4096:
+                return True
+        # A result committed immediately before a crash is still authoritative
+        # even when its later public tool.completed event was not committed.
+        for row in self._connection.execute(
+            "SELECT call_id, payload_json FROM timeline WHERE request_id = ? "
+            "AND kind = 'tool_result'",
+            (request_id,),
+        ):
+            try:
+                result = json.loads(row["payload_json"])["result"]
+                error = result.get("error") or {}
+                data = result.get("data") or {}
+                if (
+                    error.get("code") == "outcome_unknown"
+                    or isinstance(data, dict)
+                    and data.get("outcome_unknown") is True
+                ):
+                    untracked = True
+                elif result.get("status") in {"success", "error"}:
+                    pending.discard(row["call_id"])
+            except (ValueError, KeyError, TypeError, AttributeError):
+                untracked = True
+        return bool(pending) or untracked
 
     def delete_session(self, session_id: str) -> tuple[str, ...] | None:
         """Delete session-owned rows atomically and return blobs for post-commit cleanup.
@@ -838,22 +1001,26 @@ class SQLiteStore(SchedulerPersistence):
             )
         return request_id
 
-    def start_request(self, request_id: str) -> None:
+    def start_request(self, request_id: str) -> bool:
         with self._lock, self._connection:
-            self._connection.execute(
+            cursor = self._connection.execute(
                 "UPDATE requests SET status = ? WHERE request_id = ? AND status = ?",
                 ("running", request_id, "queued"),
             )
+        return cursor.rowcount == 1
 
     def complete_request(
         self, request_id: str, status: str, error_message: str | None = None
-    ) -> None:
+    ) -> bool:
+        if status not in {"completed", "incomplete", "failed", "cancelled"}:
+            raise ValueError("Invalid terminal request status")
         with self._lock, self._connection:
-            self._connection.execute(
+            cursor = self._connection.execute(
                 "UPDATE requests SET status = ?, error_message = ?, completed_at = ? "
-                "WHERE request_id = ?",
+                "WHERE request_id = ? AND status IN ('queued', 'running')",
                 (status, error_message, _utc_now(), request_id),
             )
+        return cursor.rowcount == 1
 
     def request(self, request_id: str) -> dict[str, Any] | None:
         with self._lock:
@@ -1107,8 +1274,22 @@ class SQLiteStore(SchedulerPersistence):
         model_id: str,
         api_key: str | None,
         reasoning_mode: str = "auto",
+        *,
+        profile: ModelProfile | None = None,
+        credential_ref: str | None = None,
     ) -> str:
-        model_config_id = str(uuid.uuid4())
+        if credential_ref is not None and (api_key is not None or profile is not None):
+            raise ValueError("Credential reference cannot shadow an inline key or typed profile.")
+        if profile is not None and (
+            provider_type != profile.provider_id
+            or base_url.rstrip("/") != profile.endpoint.rstrip("/")
+            or model_id != profile.model_id
+            or api_key is not None
+        ):
+            raise ValueError(
+                "Typed profile configuration must match and use a credential reference."
+            )
+        model_config_id = profile.profile_id if profile is not None else str(uuid.uuid4())
         with self._lock, self._connection:
             active_exists = self._connection.execute(
                 "SELECT 1 FROM model_configs WHERE is_active = 1 LIMIT 1"
@@ -1116,8 +1297,8 @@ class SQLiteStore(SchedulerPersistence):
             self._connection.execute(
                 """INSERT INTO model_configs(
                    model_config_id, provider_type, base_url, model_id, api_key, reasoning_mode,
-                   is_active, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   is_active, created_at, profile_json, credential_ref
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     model_config_id,
                     provider_type,
@@ -1127,6 +1308,8 @@ class SQLiteStore(SchedulerPersistence):
                     reasoning_mode,
                     0 if active_exists else 1,
                     _utc_now(),
+                    profile.model_dump_json() if profile is not None else None,
+                    credential_ref,
                 ),
             )
         return model_config_id
@@ -1138,9 +1321,20 @@ class SQLiteStore(SchedulerPersistence):
         model_id: str,
         api_key: str | None,
         reasoning_mode: str = "auto",
+        *,
+        profile: ModelProfile | None = None,
+        credential_ref: str | None = None,
     ) -> str:
         """Compatibility name for callers that previously created the one active configuration."""
-        return self.create_model_config(provider_type, base_url, model_id, api_key, reasoning_mode)
+        return self.create_model_config(
+            provider_type,
+            base_url,
+            model_id,
+            api_key,
+            reasoning_mode,
+            profile=profile,
+            credential_ref=credential_ref,
+        )
 
     def model_configs(self) -> list[dict[str, str | int | None]]:
         with self._lock:
@@ -1169,22 +1363,127 @@ class SQLiteStore(SchedulerPersistence):
         model_id: str,
         api_key: str | None,
         reasoning_mode: str | None = None,
+        *,
+        credential_ref: str | None = None,
     ) -> bool:
+        if credential_ref is not None and api_key is not None:
+            raise ValueError("Credential reference cannot shadow an inline key.")
         with self._lock, self._connection:
             updated = self._connection.execute(
                 "UPDATE model_configs SET provider_type = ?, base_url = ?, model_id = ?, "
-                "api_key = COALESCE(?, api_key), reasoning_mode = COALESCE(?, reasoning_mode) "
-                "WHERE model_config_id = ?",
+                "api_key = CASE WHEN ? IS NOT NULL THEN NULL ELSE COALESCE(?, api_key) END, "
+                "credential_ref = CASE WHEN ? IS NOT NULL THEN NULL "
+                "ELSE COALESCE(?, credential_ref) END, "
+                "reasoning_mode = COALESCE(?, reasoning_mode) "
+                "WHERE model_config_id = ? AND profile_json IS NULL",
                 (
                     provider_type,
                     base_url.rstrip("/"),
                     model_id,
+                    credential_ref,
                     api_key,
+                    api_key,
+                    credential_ref,
                     reasoning_mode,
                     model_config_id,
                 ),
             )
         return updated.rowcount == 1
+
+    def model_profile(self, model_config_id: str) -> ModelProfile | None:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT profile_json FROM model_configs WHERE model_config_id = ?",
+                (model_config_id,),
+            ).fetchone()
+        return (
+            ModelProfile.model_validate_json(row["profile_json"])
+            if row and row["profile_json"]
+            else None
+        )
+
+    def update_model_profile(self, profile: ModelProfile, reasoning_mode: str = "auto") -> bool:
+        """Replace typed metadata atomically; never erase an unmigrated legacy key."""
+        with self._lock, self._connection:
+            updated = self._connection.execute(
+                "UPDATE model_configs SET provider_type = ?, base_url = ?, model_id = ?, "
+                "reasoning_mode = ?, profile_json = ? WHERE model_config_id = ? "
+                "AND profile_json IS NOT NULL AND api_key IS NULL",
+                (
+                    profile.provider_id,
+                    profile.endpoint.rstrip("/"),
+                    profile.model_id,
+                    reasoning_mode,
+                    profile.model_dump_json(),
+                    profile.profile_id,
+                ),
+            )
+        return updated.rowcount == 1
+
+    def active_model_binding(self) -> tuple[dict[str, Any], ModelProfile | None] | None:
+        """Read one atomic configuration snapshot for a runtime request."""
+        with self._lock:
+            columns = {
+                item["name"]
+                for item in self._connection.execute("PRAGMA table_info(model_configs)")
+            }
+            reference_column = (
+                "credential_ref" if "credential_ref" in columns else "NULL AS credential_ref"
+            )
+            row = self._connection.execute(
+                "SELECT model_config_id, provider_type, base_url, model_id, api_key, "
+                f"reasoning_mode, is_active, profile_json, {reference_column} FROM model_configs "
+                "WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        config = dict(row)
+        raw = config.pop("profile_json")
+        return config, ModelProfile.model_validate_json(raw) if raw else None
+
+    def legacy_model_credentials(self) -> tuple[tuple[str, str], ...]:
+        with self._lock:
+            return tuple(
+                (str(row["model_config_id"]), str(row["api_key"]))
+                for row in self._connection.execute(
+                    "SELECT model_config_id, api_key FROM model_configs WHERE api_key IS NOT NULL "
+                    "AND credential_ref IS NULL AND profile_json IS NULL"
+                )
+            )
+
+    def migrate_model_credential(self, identity: str, expected: str, reference: str) -> bool:
+        with self._lock, self._connection:
+            result = self._connection.execute(
+                "UPDATE model_configs SET api_key = NULL, credential_ref = ? "
+                "WHERE model_config_id = ? AND api_key = ? "
+                "AND credential_ref IS NULL AND profile_json IS NULL",
+                (reference, identity, expected),
+            )
+        return result.rowcount == 1
+
+    def legacy_credential_count(self) -> int:
+        with self._lock:
+            return int(
+                self._connection.execute(
+                    "SELECT COUNT(*) FROM model_configs WHERE api_key IS NOT NULL"
+                ).fetchone()[0]
+            )
+
+    def credential_in_use(self, reference: str) -> bool:
+        with self._lock:
+            rows = self._connection.execute(
+                "SELECT credential_ref, profile_json FROM model_configs"
+            ).fetchall()
+        for row in rows:
+            if row["credential_ref"] == reference:
+                return True
+            if (
+                row["profile_json"]
+                and ModelProfile.model_validate_json(row["profile_json"]).credential_ref
+                == reference
+            ):
+                return True
+        return False
 
     def activate_model_config(self, model_config_id: str) -> bool:
         with self._lock, self._connection:

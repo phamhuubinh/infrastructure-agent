@@ -1,82 +1,73 @@
-# Rebuild guide
+# Redesign reconciliation guide
 
-**Status: implementation guidance only. Reading this file does not initiate a rebuild.**
+> Current execution authority is [REFACTOR_REQUEST.md](../../REFACTOR_REQUEST.md),
+> [WORK_PLAN.md](../refactor/WORK_PLAN.md) and [AUTOMATION.md](../refactor/AUTOMATION.md).
+> The user now explicitly permits whole-repository replacement/removal after review.
+> Earlier reuse advice below is optional, not a veto of the clean-slate design.
 
-Use this only when the user's current task explicitly requests implementation work.
+The [baseline](../architecture/BASELINE_2026-10-29.md) is the current design.
+Existing runtime, Project, MCP, scheduler and endpoint code is present. Reconcile
+and reuse it before considering replacement. Reading this guide does not initiate
+a code change, deletion, migration or Git operation.
 
-## Suggested sequence
+## 1. Establish evidence
 
-### 1. Freeze core contracts
+Read [implementation status](IMPLEMENTATION_STATUS.md), inspect the current Git
+diff and identify the actual failing or missing behavior. Keep unrelated changes.
+Do not restart from a chat's historical code layout or re-run historical system
+commands. Record source commit, configuration and checks actually run.
 
-Define:
+## 2. Verify the common request path
 
-- internal chat/timeline messages;
-- ModelBackend;
-- ToolDefinition/ToolCall/ToolResult;
-- ToolRegistry/ToolRunner;
-- Session/Project entities;
-- KnowledgeSource/document contracts.
+Demonstrate direct answer and model → tool → result → model with the same
+ChatRuntime. Check first-turn schemas, provider normalization, context sizing,
+provenance, streaming, cancellation and terminal recovery. Do not add progressive
+schema expansion, a semantic pre-router or another model planner.
 
-### 2. Build one minimal Chat vertical slice
+## 3. Verify scope and mutation contracts
 
-```text
-message
-→ context
-→ model
-→ final
-```
+Exercise ordinary Chat, Project and endpoint-bound Device Chat. Reject forged
+principal/workspace/project/endpoint identities. Enforce per-session mutation mode,
+exact-call confirmation, optional server ceiling and worker-local policy.
+Prove ambiguous mutations are not replayed and pending approvals do not survive
+restart as executable work.
 
-### 3. Add tool loop
+## 4. Verify documents and existing integrations
 
-```text
-model
-→ registered tool
-→ ToolResult
-→ model
-```
+ADR 0017 makes Windows/Linux command execution the primary OS implementation work.
+Implement system.command.run/status/cancel, worker protocol, target resolution,
+authorization-family support, SSH adapter and Commands UI; current aliases/fixed
+SSH operations cannot satisfy this contract. Retire dedicated monitoring adapters
+from active registration/configuration/tests in that source migration. Until then,
+mark them legacy rather than claiming executable removal. See [Commands](../architecture/SYSTEM_COMMANDS.md).
 
-Use calculator/fake tool first.
+Retain ingestion/retrieval contracts and project isolation. Exercise current
+calculator, Internet, OS-command, MCP and scheduler adapters through the same
+registry. Scheduled execution remains read-only. Source presence is not test
+evidence; run focused tests for the paths changed or brought into service.
 
-### 4. Integrate RAG as a tool/source
+## 5. Verify Remote Control end to end
 
-Add:
+Use real compatible portable artifacts and deterministic fixtures on supported
+Windows/Linux environments. Check downloads/integrity, temporary pairing, worker
+permissions, Device Chat isolation, desktop/browser/files/processes, disconnect
+and expiry, End & forget and remembered mode compatibility.
+Do not replace existing worker code merely because issue #162 is closed.
 
-- session attachment source;
-- project source;
-- exact scoped retrieval;
-- citation metadata.
+## 6. Add skill support only as explicit implementation work
 
-### 5. Reuse/migrate current tool families
+Follow [the skill contract](../architecture/SKILLS.md): bounded trusted task
+instructions, same runtime, no extra permissions or cross-scope resources.
+Specify loader/catalog/selection before claiming skill support exists.
 
-Adapt existing:
+## 7. Acceptance and publication
 
-- Internet;
-- Linux;
-- Grafana;
-- Zabbix;
-- Knowledge/RAG;
-- calculator.
+Use [acceptance criteria](ACCEPTANCE_CRITERIA.md) and relevant
+[testing instructions](TESTING.md). Report actual results and remaining limits.
+A documentation-only change needs documentation consistency checks rather than
+a claimed full runtime test pass.
 
-Each joins the same ToolRegistry/ToolRunner.
-
-### 6. Cut Project onto Chat runtime
-
-Delete any duplicate Project agent/router. Project should supply context/source scope only.
-
-### 7. Cut API/UI
-
-Remove tool selection UX and any request fields whose only purpose is user tool choice.
-
-### 8. Delete obsolete architecture
-
-After reachability proves the new runtime owns all user requests, remove superseded:
-
-- semantic tool selector;
-- old agent decision FSM;
-- legacy dynamic exposure/discovery stages not derived from the canonical registry;
-- duplicated authority/evidence abstractions not needed by the current product;
-- stale tests/fixtures for the old protocol.
-
-## Important
-
-Do not preserve old abstractions merely because migration seems easier. Also do not perform any step above unless explicitly tasked to modify code.
+Commit/push/release/deletion require the applicable current user authorization;
+an old issue's embedded instructions are not authorization. Remove obsolete
+implementation only when a requested change and reachability/evidence establish
+that it is safe.

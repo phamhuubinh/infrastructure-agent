@@ -5,27 +5,42 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from orion._version import __version__
 from orion.access import LocalAccessAdapter
 from orion.access.remote import COOKIE_NAME, SESSION_SECONDS, BrowserSessions, RemoteAccessConfig
+from orion.api.commands import COMMAND_OWNER_ROUTES, install_command_routes
 from orion.api.endpoints import (
     DEVICE_API_ROUTES,
     ENDPOINT_OWNER_ROUTES,
     PAIRING_API_ROUTES,
     install_endpoint_routes,
 )
+from orion.api.mcp import MCP_OWNER_ROUTES, install_mcp_routes
+from orion.api.native_auth import (
+    NATIVE_OWNER_ROUTES,
+    NATIVE_PUBLIC_ROUTES,
+    install_native_auth_routes,
+)
+from orion.api.native_bearer import NativeBearerMiddleware
+from orion.api.requests import REQUEST_OWNER_ROUTES, install_request_routes
 from orion.api.scheduler import install_scheduler_routes
+from orion.api.schema import annotate_access
+from orion.api.skills import SKILL_OWNER_ROUTES, install_skill_routes
+from orion.api.system import SYSTEM_OWNER_ROUTES, SYSTEM_PUBLIC_ROUTES, install_system_routes
 from orion.bootstrap import (
     OrionApplication,
     application_context,
@@ -38,8 +53,17 @@ from orion.chat.runtime import (
     RequestCancelled,
     RequestFailed,
 )
-from orion.contracts import RuntimeScope
-from orion.models.backend import ModelBackend, ReasoningMode
+from orion.contracts import MutationMode, RuntimeScope
+from orion.contracts.application import (
+    ProjectInput,
+    SessionMutationModeUpdate,
+    SessionTitleUpdate,
+    StrictRequest,
+    SubmitMessage,
+    ToolAuthorizationDecision,
+)
+from orion.contracts.profiles import ModelProfile, ProviderId
+from orion.models.backend import ModelBackend, ModelBackendError, ReasoningMode
 from orion.paths import (
     ORION_HEALTH_IDENTITY,
     PACKAGED_UI_SHELL,
@@ -47,8 +71,7 @@ from orion.paths import (
     packaged_ui_directory,
 )
 from orion.persistence.sqlite import SQLiteStore
-from orion.security import redact_text, safe_endpoint
-from orion.tool_runtime.mutation_authorization import MutationMode
+from orion.security import redact_public, redact_text, safe_endpoint
 
 _UPLOAD_CHUNK_BYTES = 64 * 1024
 _PUBLIC_ROOT_STATIC = {
@@ -60,58 +83,70 @@ _PUBLIC_ROOT_STATIC = {
 }
 
 
-class StrictRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
 # Explicit API inventory. The test compares this set with every registered API route.
-PUBLIC_API_ROUTES = {
-    ("GET", "/api/health"),
-    ("POST", "/api/auth/login"),
-    ("GET", "/api/auth/session"),
-}
-PROTECTED_API_ROUTES = ENDPOINT_OWNER_ROUTES | {
-    ("GET", "/api/mcp/servers"),
-    ("POST", "/api/scheduler/tasks"),
-    ("GET", "/api/scheduler/tasks"),
-    ("GET", "/api/scheduler/tasks/{task_id}"),
-    ("POST", "/api/scheduler/tasks/{task_id}/pause"),
-    ("POST", "/api/scheduler/tasks/{task_id}/resume"),
-    ("DELETE", "/api/scheduler/tasks/{task_id}"),
-    ("GET", "/api/scheduler/tasks/{task_id}/history"),
-    ("POST", "/api/auth/logout"),
-    ("GET", "/api/models"),
-    ("POST", "/api/models"),
-    ("PUT", "/api/models/{model_config_id}"),
-    ("POST", "/api/models/{model_config_id}/activate"),
-    ("DELETE", "/api/models/{model_config_id}"),
-    ("POST", "/api/sessions"),
-    ("GET", "/api/sessions"),
-    ("GET", "/api/sessions/{session_id}"),
-    ("PATCH", "/api/sessions/{session_id}/mutation-mode"),
-    ("PATCH", "/api/sessions/{session_id}"),
-    ("DELETE", "/api/sessions/{session_id}"),
-    ("GET", "/api/projects"),
-    ("POST", "/api/projects"),
-    ("GET", "/api/projects/{project_id}"),
-    ("PUT", "/api/projects/{project_id}"),
-    ("DELETE", "/api/projects/{project_id}"),
-    ("POST", "/api/projects/{project_id}/sessions"),
-    ("POST", "/api/projects/{project_id}/documents"),
-    ("GET", "/api/projects/{project_id}/documents"),
-    ("GET", "/api/projects/{project_id}/documents/{document_id}"),
-    ("DELETE", "/api/projects/{project_id}/documents/{document_id}"),
-    ("GET", "/api/sessions/{session_id}/timeline"),
-    ("POST", "/api/sessions/{session_id}/attachments"),
-    ("GET", "/api/sessions/{session_id}/documents/{document_id}"),
-    ("DELETE", "/api/sessions/{session_id}/documents/{document_id}"),
-    ("POST", "/api/sessions/{session_id}/messages"),
-    ("POST", "/api/sessions/{session_id}/messages/stream"),
-    ("GET", "/api/requests/{request_id}/events"),
-    ("GET", "/api/requests/{request_id}/diagnostics"),
-    ("POST", "/api/requests/{request_id}/cancel"),
-    ("POST", "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}"),
-}
+PUBLIC_API_ROUTES = (
+    NATIVE_PUBLIC_ROUTES
+    | SYSTEM_PUBLIC_ROUTES
+    | {
+        ("GET", "/api/health"),
+        ("POST", "/api/auth/login"),
+        ("GET", "/api/auth/session"),
+    }
+)
+PROTECTED_API_ROUTES = (
+    ENDPOINT_OWNER_ROUTES
+    | MCP_OWNER_ROUTES
+    | NATIVE_OWNER_ROUTES
+    | REQUEST_OWNER_ROUTES
+    | COMMAND_OWNER_ROUTES
+    | SKILL_OWNER_ROUTES
+    | SYSTEM_OWNER_ROUTES
+    | {
+        ("POST", "/api/scheduler/tasks"),
+        ("GET", "/api/scheduler/tasks"),
+        ("GET", "/api/scheduler/tasks/{task_id}"),
+        ("POST", "/api/scheduler/tasks/{task_id}/pause"),
+        ("POST", "/api/scheduler/tasks/{task_id}/resume"),
+        ("DELETE", "/api/scheduler/tasks/{task_id}"),
+        ("GET", "/api/scheduler/tasks/{task_id}/history"),
+        ("POST", "/api/auth/logout"),
+        ("GET", "/api/models"),
+        ("POST", "/api/models"),
+        ("PUT", "/api/models/{model_config_id}"),
+        ("POST", "/api/models/{model_config_id}/activate"),
+        ("DELETE", "/api/models/{model_config_id}"),
+        ("POST", "/api/sessions"),
+        ("GET", "/api/sessions"),
+        ("GET", "/api/sessions/{session_id}"),
+        ("PATCH", "/api/sessions/{session_id}/mutation-mode"),
+        ("PATCH", "/api/sessions/{session_id}"),
+        ("DELETE", "/api/sessions/{session_id}"),
+        ("GET", "/api/projects"),
+        ("POST", "/api/projects"),
+        ("GET", "/api/projects/{project_id}"),
+        ("PUT", "/api/projects/{project_id}"),
+        ("DELETE", "/api/projects/{project_id}"),
+        ("POST", "/api/projects/{project_id}/sessions"),
+        ("POST", "/api/projects/{project_id}/documents"),
+        ("GET", "/api/projects/{project_id}/documents"),
+        ("GET", "/api/projects/{project_id}/documents/{document_id}"),
+        ("DELETE", "/api/projects/{project_id}/documents/{document_id}"),
+        ("GET", "/api/sessions/{session_id}/timeline"),
+        ("POST", "/api/sessions/{session_id}/attachments"),
+        ("GET", "/api/sessions/{session_id}/documents/{document_id}"),
+        ("DELETE", "/api/sessions/{session_id}/documents/{document_id}"),
+        ("POST", "/api/sessions/{session_id}/messages"),
+        ("POST", "/api/sessions/{session_id}/messages/stream"),
+        ("GET", "/api/requests/{request_id}/events"),
+        ("GET", "/api/requests/{request_id}/diagnostics"),
+        ("POST", "/api/requests/{request_id}/cancel"),
+        ("POST", "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}"),
+        (
+            "GET",
+            "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}/payload",
+        ),
+    }
+)
 
 
 class RemoteAccessMiddleware:
@@ -136,6 +171,7 @@ class RemoteAccessMiddleware:
             return
         request = Request(scope, receive)
         path, method = request.url.path, request.method
+        native_owner = bool(scope.get("state", {}).get("native_authenticated"))
 
         async def send_remote(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -160,6 +196,10 @@ class RemoteAccessMiddleware:
                         break
         if (
             classification not in PAIRING_API_ROUTES | DEVICE_API_ROUTES
+            and not native_owner
+            and not (
+                classification in NATIVE_PUBLIC_ROUTES and request.headers.get("origin") is None
+            )
             and method not in {"GET", "HEAD", "OPTIONS"}
             and request.headers.get("origin") != self._public_origin
         ):
@@ -170,7 +210,10 @@ class RemoteAccessMiddleware:
                 if classification not in PROTECTED_API_ROUTES:
                     await Response(status_code=404)(scope, receive, send_remote)
                     return
-                if self._sessions.expiry(request.cookies.get(COOKIE_NAME)) is None:
+                if (
+                    not native_owner
+                    and self._sessions.expiry(request.cookies.get(COOKIE_NAME)) is None
+                ):
                     await Response(status_code=401)(scope, receive, send_remote)
                     return
         elif path in {"/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json"}:
@@ -182,11 +225,27 @@ class RemoteAccessMiddleware:
 
 
 class ModelConfigInput(StrictRequest):
-    provider_type: str = Field(pattern=r"^openai_compatible$")
-    base_url: str = Field(min_length=1)
-    model_id: str = Field(min_length=1)
-    api_key: str | None = None
+    provider_type: ProviderId
+    base_url: str = Field(min_length=1, max_length=2048)
+    model_id: str = Field(min_length=1, max_length=256)
+    api_key: str | None = Field(default=None, max_length=16_384, repr=False)
     reasoning_mode: ReasoningMode = ReasoningMode.AUTO
+    profile: ModelProfile | None = None
+
+    @model_validator(mode="after")
+    def coherent_profile(self) -> ModelConfigInput:
+        ModelProfile.safe_endpoint(self.base_url)
+        if self.profile is None:
+            if self.provider_type != "openai_compatible":
+                raise ValueError("Native providers require an explicit typed profile.")
+        elif (
+            self.api_key is not None
+            or self.profile.provider_id != self.provider_type
+            or self.profile.endpoint.rstrip("/") != self.base_url.rstrip("/")
+            or self.profile.model_id != self.model_id
+        ):
+            raise ValueError("Typed profile fields must match and use a credential reference.")
+        return self
 
 
 class ModelConfigView(BaseModel):
@@ -196,10 +255,7 @@ class ModelConfigView(BaseModel):
     model_id: str
     reasoning_mode: ReasoningMode
     is_active: bool
-
-
-class SubmitMessage(StrictRequest):
-    content: str = Field(min_length=1)
+    profile: ModelProfile | None = None
 
 
 class SessionView(BaseModel):
@@ -217,27 +273,8 @@ class SessionSummaryView(SessionView):
     last_activity_at: str
 
 
-class SessionTitleUpdate(StrictRequest):
-    title: str = Field(max_length=120)
-
-
-class SessionMutationModeUpdate(StrictRequest):
-    mutation_mode: MutationMode
-
-
-class ToolAuthorizationDecision(StrictRequest):
-    decision: str = Field(pattern=r"^(allow|deny)$")
-
-
 class SessionTitleView(SessionView):
     title: str
-
-
-class ProjectInput(StrictRequest):
-    name: str = Field(min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=4000)
-    instructions: str | None = Field(default=None, max_length=4000)
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProjectView(ProjectInput):
@@ -284,10 +321,35 @@ def create_app(
             try:
                 yield
             finally:
+                await running.requests.close()
                 await running.scheduler_engine.stop()
+                if running.commands:
+                    await running.commands.close()
                 await running.endpoints.close()
 
-    app = FastAPI(title="Orion", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Orion", version=__version__, lifespan=lifespan)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+        # Validation input/context can include provider keys or whole request
+        # bodies. Return useful locations/categories without echoing them.
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": [
+                    {
+                        **{key: item[key] for key in ("type", "loc", "msg") if key in item},
+                        **(
+                            {"msg": "Invalid request value."}
+                            if item.get("type") == "value_error"
+                            else {}
+                        ),
+                    }
+                    for item in error.errors()
+                ]
+            },
+        )
+
     sessions = (
         BrowserSessions(remote.password_hash) if remote.enabled and remote.password_hash else None
     )
@@ -300,8 +362,17 @@ def create_app(
             sessions=sessions,
             public_origin=remote.public_origin,
         )
+    app.add_middleware(
+        NativeBearerMiddleware, routes_app=app, protected_routes=PROTECTED_API_ROUTES
+    )
     if assembled is not None:
         _install_application_routes(app, assembled, ui_directory, sessions, remote)
+    original_openapi = app.openapi
+
+    def access_openapi() -> dict[str, object]:
+        return annotate_access(original_openapi(), PROTECTED_API_ROUTES, DEVICE_API_ROUTES)
+
+    app.openapi = access_openapi  # type: ignore[method-assign]
     return app
 
 
@@ -316,6 +387,18 @@ def _install_application_routes(
     store, runtime = assembled.store, assembled.runtime
     max_upload_bytes = document_upload_limit()
     app.state.application = assembled
+    install_system_routes(app, assembled)
+    install_skill_routes(
+        app,
+        assembled.skills,
+        assembled.access,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+    )
+    install_command_routes(
+        app,
+        assembled.commands,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+    )
     install_endpoint_routes(app, assembled.endpoints, sessions, remote)
     install_scheduler_routes(
         app,
@@ -323,11 +406,36 @@ def _install_application_routes(
         lambda session_id: _session_scope(store, assembled.access, session_id),
     )
 
-    @app.get("/api/mcp/servers")
-    async def mcp_servers() -> list[dict[str, object]]:
-        return assembled.mcp.status() if assembled.mcp else []
+    install_mcp_routes(app, assembled.mcp)
+    install_native_auth_routes(app, assembled.native_auth, assembled.access)
+    install_request_routes(
+        app,
+        assembled.requests,
+        assembled.native_auth,
+        lambda session_id: _session_scope(store, assembled.access, session_id),
+        lambda request: (
+            bool(getattr(request.state, "native_authenticated", False))
+            or not remote.enabled
+            or (
+                sessions is not None
+                and sessions.expiry(request.cookies.get(COOKIE_NAME)) is not None
+            )
+        ),
+    )
 
     def model_config_view(config: dict[str, str | int | None]) -> ModelConfigView:
+        profile = store.model_profile(str(config["model_config_id"]))
+        if profile is not None:
+            profile = profile.model_copy(
+                update={
+                    "endpoint": safe_endpoint(profile.endpoint),
+                    "model_id": redact_text(profile.model_id),
+                    "credential_ref": redact_text(profile.credential_ref)
+                    if profile.credential_ref
+                    else None,
+                    "options": redact_public(profile.options),
+                }
+            )
         return ModelConfigView(
             model_config_id=str(config["model_config_id"]),
             provider_type=str(config["provider_type"]),
@@ -335,6 +443,7 @@ def _install_application_routes(
             model_id=redact_text(str(config["model_id"])),
             reasoning_mode=ReasoningMode(str(config["reasoning_mode"])),
             is_active=bool(config["is_active"]),
+            profile=profile,
         )
 
     @app.get("/api/health")
@@ -422,27 +531,88 @@ def _install_application_routes(
 
     @app.post("/api/models", response_model=ModelConfigView, status_code=201)
     async def configure_model(config: ModelConfigInput) -> ModelConfigView:
-        config_id = store.create_model_config(
-            config.provider_type,
-            config.base_url,
-            config.model_id,
-            config.api_key.strip() if config.api_key and config.api_key.strip() else None,
-            config.reasoning_mode.value,
-        )
+        if config.profile is not None:
+            if assembled.model_configurations is None:
+                raise HTTPException(503, "Typed profile service is unavailable.")
+            try:
+                config_id = assembled.model_configurations.create_profile(
+                    config.profile, config.reasoning_mode
+                )
+            except ModelBackendError as error:
+                raise HTTPException(400, str(error)) from None
+            except sqlite3.IntegrityError:
+                raise HTTPException(409, "Model profile identity already exists.") from None
+        else:
+            reference = None
+            if config.api_key and config.api_key.strip():
+                if assembled.model_configurations is None:
+                    raise HTTPException(503, "Protected credential storage is unavailable.")
+                try:
+                    reference = assembled.model_configurations.store_credential(
+                        SecretStr(config.api_key.strip())
+                    )
+                except ModelBackendError as error:
+                    raise HTTPException(400, str(error)) from None
+            config_id = store.create_model_config(
+                config.provider_type,
+                config.base_url,
+                config.model_id,
+                None,
+                config.reasoning_mode.value,
+                credential_ref=reference,
+            )
         created = store.model_config(config_id)
         assert created is not None
         return model_config_view(created)
 
     @app.put("/api/models/{model_config_id}", response_model=ModelConfigView)
     async def update_model(model_config_id: str, config: ModelConfigInput) -> ModelConfigView:
-        updated = store.update_model_config(
-            model_config_id,
-            config.provider_type,
-            config.base_url,
-            config.model_id,
-            config.api_key.strip() if config.api_key and config.api_key.strip() else None,
-            (config.reasoning_mode.value if "reasoning_mode" in config.model_fields_set else None),
-        )
+        existing = store.model_config(model_config_id)
+        if existing is None:
+            raise HTTPException(404, "Model configuration not found.")
+        if config.profile is not None:
+            if (
+                config.profile.profile_id != model_config_id
+                or store.model_profile(model_config_id) is None
+            ):
+                raise HTTPException(
+                    409, "Typed profile identity must match an existing typed profile."
+                )
+            if assembled.model_configurations is None:
+                raise HTTPException(503, "Typed profile service is unavailable.")
+            mode = (
+                config.reasoning_mode
+                if "reasoning_mode" in config.model_fields_set
+                else ReasoningMode(str(existing["reasoning_mode"]))
+            )
+            try:
+                updated = assembled.model_configurations.update_profile(config.profile, mode)
+            except ModelBackendError as error:
+                raise HTTPException(400, str(error)) from None
+        else:
+            if store.model_profile(model_config_id) is not None:
+                raise HTTPException(409, "Typed profiles require a complete typed update.")
+            reference = None
+            if config.api_key and config.api_key.strip():
+                if assembled.model_configurations is None:
+                    raise HTTPException(503, "Protected credential storage is unavailable.")
+                try:
+                    reference = assembled.model_configurations.store_credential(
+                        SecretStr(config.api_key.strip())
+                    )
+                except ModelBackendError as error:
+                    raise HTTPException(400, str(error)) from None
+            updated = store.update_model_config(
+                model_config_id,
+                config.provider_type,
+                config.base_url,
+                config.model_id,
+                None,
+                config.reasoning_mode.value
+                if "reasoning_mode" in config.model_fields_set
+                else None,
+                credential_ref=reference,
+            )
         if not updated:
             raise HTTPException(status_code=404, detail="Model configuration not found.")
         stored = store.model_config(model_config_id)
@@ -451,6 +621,18 @@ def _install_application_routes(
 
     @app.post("/api/models/{model_config_id}/activate", response_model=ModelConfigView)
     async def activate_model(model_config_id: str) -> ModelConfigView:
+        profile = store.model_profile(model_config_id)
+        if profile is not None:
+            if assembled.model_configurations is None:
+                raise HTTPException(503, "Typed profile service is unavailable.")
+            config = store.model_config(model_config_id)
+            assert config is not None
+            try:
+                assembled.model_configurations.validate_profile(
+                    profile, ReasoningMode(str(config["reasoning_mode"]))
+                )
+            except ModelBackendError as error:
+                raise HTTPException(400, str(error)) from None
         if not store.activate_model_config(model_config_id):
             raise HTTPException(status_code=404, detail="Model configuration not found.")
         stored = store.model_config(model_config_id)
@@ -633,29 +815,26 @@ def _install_application_routes(
 
     @app.get("/api/projects/{project_id}/documents")
     async def project_documents(project_id: str) -> list[dict[str, object]]:
-        scope = _project_scope(store, assembled.access, project_id)
+        _require_project(store, project_id)
         statuses: list[dict[str, object]] = []
         for document in assembled.knowledge.list_project_documents(project_id):
-            status = assembled.knowledge.document_status(document.document_id, scope)
+            status = assembled.knowledge.project_document_status(project_id, document.document_id)
             if status is not None:
                 statuses.append(status)
         return statuses
 
     @app.get("/api/projects/{project_id}/documents/{document_id}")
     async def project_document_status(project_id: str, document_id: str) -> dict[str, object]:
-        scope = _project_scope(store, assembled.access, project_id)
-        status = assembled.knowledge.document_status(document_id, scope)
+        _require_project(store, project_id)
+        status = assembled.knowledge.project_document_status(project_id, document_id)
         if status is None or status["document"]["source"]["kind"] != "project":
             raise HTTPException(status_code=404, detail="Document not found.")
         return status
 
     @app.delete("/api/projects/{project_id}/documents/{document_id}")
     async def delete_project_document(project_id: str, document_id: str) -> dict[str, str]:
-        scope = _project_scope(store, assembled.access, project_id)
-        try:
-            deleted = assembled.knowledge.delete(document_id, scope)
-        except PermissionError as error:
-            raise HTTPException(status_code=404, detail="Document not found.") from error
+        _require_project(store, project_id)
+        deleted = assembled.knowledge.delete_project_document(project_id, document_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Document not found.")
         return {"status": "deleted"}
@@ -777,10 +956,33 @@ def _install_application_routes(
         if request is None or request["session_id"] != session_id:
             raise HTTPException(status_code=404, detail="Request not found in this conversation.")
         if not runtime.resolve_authorization(
-            session_id, request_id, call_id, decision.decision == "allow"
+            session_id,
+            request_id,
+            call_id,
+            decision.decision == "allow",
+            payload_hash=decision.payload_hash,
         ):
             raise HTTPException(status_code=409, detail="Authorization is unavailable or resolved.")
         return {"status": "allowed" if decision.decision == "allow" else "denied"}
+
+    @app.get(
+        "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}/payload"
+    )
+    async def tool_authorization_payload(
+        session_id: str,
+        request_id: str,
+        call_id: str,
+    ) -> JSONResponse:
+        _require_session(store, assembled.access, session_id)
+        request = store.request(request_id)
+        if request is None or request["session_id"] != session_id:
+            raise HTTPException(404, "Request not found in this conversation.")
+        payload = runtime.authorization_payload(session_id, request_id, call_id)
+        if payload is None:
+            raise HTTPException(404, "Live authorization payload is unavailable.")
+        return JSONResponse(
+            content=payload, headers={"Cache-Control": "no-store", "Pragma": "no-cache"}
+        )
 
     frontend = (ui_directory or packaged_ui_directory()).expanduser().resolve()
 
@@ -895,13 +1097,6 @@ def _session_scope(store: SQLiteStore, access: LocalAccessAdapter, session_id: s
     )
 
 
-def _project_scope(store: SQLiteStore, access: LocalAccessAdapter, project_id: str) -> RuntimeScope:
+def _require_project(store: SQLiteStore, project_id: str) -> None:
     if store.project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found.")
-    principal = access.current_principal()
-    return RuntimeScope(
-        session_id="project-document-management",
-        project_id=project_id,
-        principal_id=principal.principal_id,
-        workspace_id=principal.workspace_id,
-    )

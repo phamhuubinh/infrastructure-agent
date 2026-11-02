@@ -750,8 +750,9 @@ def test_restart_expires_pending_without_replaying(tmp_path) -> None:  # type: i
         request_id, "change", session, "linux.service.restart", "monitor", "a" * 64, {}
     )
     store.close()
-    reopened = SQLiteStore(path)
-    reopened.expire_pending_authorizations()
+    reopened = bootstrap.build_application(
+        path, ScriptedBackend([]), seed_model_from_environment=False
+    ).store
     assert reopened.pending_authorization(request_id, "change")["state"] == "expired"
     assert reopened.request(request_id)["status"] == "failed"
     reopened.close()

@@ -25,7 +25,7 @@ Persist canonical public conversation state:
 - tool results;
 - attachments;
 - active project relation;
-- session-scoped derived checkpoints.
+- legacy checkpoint rows only for persistence compatibility, not active model memory.
 
 Do not persist private hidden reasoning.
 
@@ -58,7 +58,8 @@ separate byte-proxy-bounded projection of that record:
   complete user message and system context, then considers the latest failed tool
   block for recovery and other evidence. A later failure does not automatically
   replace an earlier success. Selected blocks stay in chronological order, with
-  exact sources and call/result pairings; their original data remains persisted;
+  exact sources and call/result pairings; ordinary original data remains persisted,
+  while endpoint payloads follow their explicit transient-evidence retention contract;
 - a non-null projected `data` object is not proof that evidence survived: it may
   contain document metadata after all segment text was removed. Any reduction of
   successful source-bearing data triggers reconsideration of the strict-budget
@@ -81,8 +82,8 @@ separate byte-proxy-bounded projection of that record:
   document/project identity and retrieval metadata;
 - explicit projection metadata reports omitted keys, items, string characters, and
   the number of omission records hidden by the metadata cap;
-- checkpoint state plus its recent raw history share the same conversation byte
-  budget; a checkpoint never creates an additional unbounded history allowance.
+- legacy checkpoint state is not injected into the current model loop; retained
+  complete history turns share the ordinary conversation context bound.
 
 Projection never mutates the canonical `ToolResult`. Assistant/tool protocol envelopes,
 errors, and source identities remain structurally valid. The Orion-owned
@@ -100,6 +101,18 @@ is large enough.
 ## Project memory
 
 Project documents/metadata are not conversation memory. They are durable project knowledge and should be queried through the project source when needed.
+
+## Device Chat and skill context
+
+Device Chat reads its endpoint-owned history and safe bound-device metadata. It
+inherits no Project instructions/documents, ordinary Chat history or attachment
+source. Endpoint tool payloads are current-request transient evidence, not a durable
+raw payload archive; see [Endpoints](ENDPOINTS.md).
+
+Future skill guidance must come from configured trusted packages or explicit user
+instructions, fit the same bounded context path and respect that scope. Retrieved
+documents/webpages do not become skills or system instructions by naming themselves
+as such. See [Skills](SKILLS.md).
 
 ## Context window pressure
 

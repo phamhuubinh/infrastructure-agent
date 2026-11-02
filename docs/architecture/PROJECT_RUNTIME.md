@@ -85,14 +85,14 @@ Orion assembles deterministic context:
 - active Project A metadata
 - current attachments
         ↓
-Model sees the registry-derived structural discovery enum
+Model sees all registered model-callable schemas from the first turn
         ↓
 Model may:
 - answer directly
 - search/read project knowledge
 - search the Internet
 - calculate
-- query Linux/Grafana/Zabbix
+- run Windows/Linux commands on explicitly configured machines
 - combine these sources
         ↓
 Final answer
@@ -108,7 +108,7 @@ A Project question may legitimately require several sources:
 project requirement
 + Internet vendor documentation
 + calculator sizing
-+ Grafana actual metrics
++ current Windows/Linux command observations
 → recommendation
 ```
 

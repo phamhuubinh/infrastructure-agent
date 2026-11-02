@@ -74,7 +74,7 @@ async def test_semantic_harness_isolated_sessions_history_and_labeled_fault(
     else:
         assert all(not row["fault_injection"] for row in rows)
     assert by_id[24]["terminal_citation_source_ref_ids"] == []
-    serialized = (tmp_path / "metrics.json").read_text()
+    serialized = (tmp_path / "metrics.json").read_text(encoding="utf-8")
     assert "do-not-log-this-secret" not in serialized
     assert json.loads(serialized)["semantic_review_complete"] is False
     assert (tmp_path / "cases.csv").is_file()
@@ -93,7 +93,7 @@ async def test_semantic_harness_isolated_sessions_history_and_labeled_fault(
         )
     )
     module.apply_reviews(tmp_path, review_path)
-    reviewed = json.loads((tmp_path / "metrics.json").read_text())
+    reviewed = json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))
     assert reviewed["requested_case_summary"]["verdict_counts"] == {
         "INCONCLUSIVE": 24 if case_ids is None else 8
     }

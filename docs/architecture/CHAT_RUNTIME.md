@@ -1,7 +1,9 @@
 # Chat runtime
 
-Chat is Orion's universal interaction runtime; Project uses this exact runtime with a
-project-scoped knowledge source. Neither surface has a mode selector or tool picker.
+Chat is Orion's universal interaction runtime. Project uses it with a bound
+project knowledge source; Device Chat uses it with a bound endpoint and separate
+history, without Project/attachment knowledge. None has a tool picker or a separate
+AI agent. Mutation mode remains an independent per-conversation permission.
 
 Each request builds deterministic bounded context with one leading system instruction, the full
 current user message, recent complete conversation turns, current attachment/project identity,
@@ -14,9 +16,10 @@ tool:   user -> model -> validate/execute ToolResults -> model -> terminal answe
 ```
 
 Independent read-only calls returned together are validated and executed concurrently. Mutations
-remain serialized and blocked by default unless the application-owned authorization policy grants
-the exact `(tool_name, target_ref)` permission. The model decides semantically whether tools are
-useful; Orion does not keyword-route requests.
+remain serialized and subject to the conversation's read_only/confirm/auto mode.
+An optional server allowlist is an additional exact operation/target ceiling;
+worker policy remains independent (ADR 0014). The model decides semantically
+whether tools are useful; Orion does not keyword-route requests.
 
 Current-request `ToolResults` are factual evidence. Assistant history supplies conversational
 continuity but cannot substitute for refreshed infrastructure evidence. A request normally has

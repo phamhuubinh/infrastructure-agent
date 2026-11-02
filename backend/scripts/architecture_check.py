@@ -87,14 +87,25 @@ def _tool_names(tree: ast.AST) -> set[str]:
     return names
 
 
-def _imports(tree: ast.AST) -> set[str]:
+def _imports(tree: ast.AST, package: str = "") -> set[str]:
     imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level and package:
+                parts = package.split(".")
+                parent = parts[: len(parts) - node.level + 1]
+                module = ".".join((*parent, *([module] if module else [])))
+            if module:
+                imported.add(module)
+                imported.update(f"{module}.{alias.name}" for alias in node.names)
     return imported
+
+
+def _within(module: str, prefixes: tuple[str, ...]) -> bool:
+    return any(module == prefix or module.startswith(prefix + ".") for prefix in prefixes)
 
 
 def _is_public_boundary(root: Path, path: Path) -> bool:
@@ -142,13 +153,37 @@ def check(root: Path, ui_root: Path | None = None) -> list[str]:
             violations.append(f"{path}: generic model-facing tool present")
         if _is_public_boundary(root, path) and names & {"enabled_tools", "handler_key"}:
             violations.append(f"{path}: public boundary exposes internal tool routing metadata")
-        imported = _imports(tree)
+        relative = path.relative_to(root)
+        package = ".".join(("orion", *relative.parts[:-1]))
+        imported = _imports(tree, package)
+        # Core is usable by headless/native application adapters without HTTP.
+        if relative.parts[0] in {"contracts", "chat", "models", "tool_runtime"}:
+            if any(_within(name, ("orion.api", "fastapi", "starlette")) for name in imported):
+                violations.append(f"{path}: core imports HTTP/API boundary")
+        if relative.parts[0] == "contracts":
+            if any(
+                _within(
+                    name,
+                    (
+                        "orion.bootstrap",
+                        "orion.persistence",
+                        "orion.integrations",
+                        "orion.models",
+                        "orion.chat",
+                        "orion.tool_runtime",
+                    ),
+                )
+                for name in imported
+            ):
+                violations.append(f"{path}: domain contracts import implementation")
+        if relative.parts[0] == "chat" and any(
+            _within(name, ("orion.models.providers",)) for name in imported
+        ):
+            violations.append(f"{path}: runtime imports concrete provider adapter")
         if any(name.startswith(("agent", "legacy")) for name in imported):
             violations.append(f"{path}: legacy import present")
-        if any(
-            name.startswith(("openai", "anthropic", "google.generativeai")) for name in imported
-        ):
-            if "models/providers" not in str(path):
+        if any(_within(name, ("openai", "anthropic", "google.generativeai")) for name in imported):
+            if not path.is_relative_to(root / "models" / "providers"):
                 violations.append(f"{path}: provider-native import outside provider adapter")
     if chat_runtimes != 1:
         violations.append(f"expected one ChatRuntime, found {chat_runtimes}")

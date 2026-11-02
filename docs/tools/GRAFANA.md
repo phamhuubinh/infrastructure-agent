@@ -1,5 +1,7 @@
 # Grafana tools
 
+> Retired from the target product by [ADR 0017](../decisions/0017-windows-linux-command-focus.md). The remaining text records legacy implementation contracts only; do not treat it as an active requirement or roadmap. Executable code has not yet been removed.
+
 ## Purpose and availability
 
 These are the initial model-facing Grafana contracts. A successfully configured

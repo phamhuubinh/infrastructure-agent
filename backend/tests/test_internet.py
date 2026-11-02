@@ -879,6 +879,20 @@ def test_duckduckgo_default_search_has_bounded_zero_result_and_failure_behavior(
     assert error.value.retryable
 
 
+def test_duckduckgo_nested_tracking_urls_are_bounded_without_recursion() -> None:
+    destination = "https://example.test/article"
+    deeply_nested = "https://duckduckgo.com/l/?uddg=" * 1_200 + destination
+    assert _duckduckgo_destination(deeply_nested) is None
+    assert (
+        _duckduckgo_destination(
+            "https://duckduckgo.com/l/?uddg=https://duckduckgo.com/l/?uddg=" + destination
+        )
+        == destination
+    )
+    assert _duckduckgo_destination("https://duckduckgo.com/l/?uddg=") is None
+    assert _duckduckgo_destination("https://[malformed/l/?uddg=x") is None
+
+
 @pytest.mark.parametrize(
     "challenge_html",
     [

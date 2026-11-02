@@ -1,4 +1,6 @@
-export const API_URL = import.meta.env.VITE_API_URL || "";
+import { operations, type OperationId, type Operations } from "./sdk/generated";
+import { ClientError } from "./sdk/client";
+import { isNativeHost, logoutServer, serverResponse } from "./server-profiles";
 
 export const AUTH_EXPIRED_EVENT = "orion-auth-expired";
 export type AuthSession = {
@@ -8,13 +10,25 @@ export type AuthSession = {
 };
 
 export async function getAuthSession(): Promise<AuthSession> {
-  const response = await fetch(`${API_URL}/api/auth/session`);
+  if (isNativeHost()) {
+    try {
+      const response = await serverResponse("doctor_api_doctor_get", {});
+      await response.body?.cancel().catch(() => {});
+      return { remote_access: true, authenticated: response.ok, expires_at: null };
+    } catch (error) {
+      if (error instanceof ClientError && error.category === "authentication") {
+        return { remote_access: true, authenticated: false, expires_at: null };
+      }
+      throw error;
+    }
+  }
+  const response = await apiFetch("/api/auth/session");
   if (!response.ok) throw new Error("Unable to check Orion access.");
   return (await response.json()) as AuthSession;
 }
 
 export async function login(password: string): Promise<void> {
-  const response = await fetch(`${API_URL}/api/auth/login`, {
+  const response = await apiFetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),
@@ -23,6 +37,10 @@ export async function login(password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
+  if (isNativeHost()) {
+    await logoutServer();
+    return;
+  }
   const response = await apiFetch("/api/auth/logout", { method: "POST" });
   if (response.status === 401) return;
   if (!response.ok) throw new Error(await apiErrorMessage(response));
@@ -99,6 +117,7 @@ export async function resolveToolAuthorization(
   requestId: string,
   callId: string,
   decision: "allow" | "deny",
+  payloadHash?: string,
 ): Promise<void> {
   await apiJson<{ status: string }>(
     `/api/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestId)}` +
@@ -106,8 +125,22 @@ export async function resolveToolAuthorization(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, payload_hash: payloadHash }),
     },
+  );
+}
+
+export type ToolAuthorizationPayload = {
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  payload_hash: string;
+};
+
+export function getToolAuthorizationPayload(sessionId: string, requestId: string, callId: string) {
+  return apiJson<ToolAuthorizationPayload>(
+    `/api/sessions/${encodeURIComponent(sessionId)}/requests/${encodeURIComponent(requestId)}` +
+      `/tool-authorizations/${encodeURIComponent(callId)}/payload`,
+    { cache: "no-store" },
   );
 }
 
@@ -128,8 +161,55 @@ type TextAttachment = {
 type DocumentUpload = File | TextAttachment;
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  // Compatibility adapter resolves only generated operations. New code uses typed serverRequest.
+  if (!path.startsWith("/api/") || path.includes("#")) throw new ClientError("configuration");
+  const [pathname, query = ""] = path.split("?");
+  const method = (init.method ?? "GET").toUpperCase();
+  const actual = pathname.split("/");
+  let found: OperationId | null = null;
+  const parameters: Record<string, string> = {};
+  for (const [name, descriptor] of Object.entries(operations)) {
+    if (descriptor.method !== method) continue;
+    const pattern = descriptor.path.split("/");
+    if (
+      pattern.length !== actual.length ||
+      pattern.some((part, index) => !part.startsWith("{") && part !== actual[index])
+    )
+      continue;
+    for (const [index, part] of pattern.entries()) {
+      if (part.startsWith("{")) parameters[part.slice(1, -1)] = decodeURIComponent(actual[index]);
+    }
+    found = name as OperationId;
+    break;
+  }
+  if (!found) throw new ClientError("configuration");
+  const values: Record<string, unknown> = { path: parameters };
+  const queryValues: Record<string, string | string[]> = {};
+  for (const key of new Set(new URLSearchParams(query).keys())) {
+    const entries = new URLSearchParams(query).getAll(key);
+    queryValues[key] = entries.length > 1 ? entries : entries[0];
+  }
+  values.query = queryValues;
+  if (init.body instanceof FormData) values.body = Object.fromEntries(init.body.entries());
+  else if (typeof init.body === "string") values.body = JSON.parse(init.body);
+  else if (init.body !== undefined && init.body !== null) values.body = init.body;
   const headers = new Headers(init.headers);
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  headers.delete("Content-Type");
+  values.headers = Object.fromEntries(headers.entries());
+  let response: Response;
+  try {
+    response = await serverResponse(
+      found,
+      values as Operations[OperationId]["input"],
+      init.signal ?? undefined,
+    );
+  } catch (error) {
+    if (error instanceof ClientError && error.category === "authentication") {
+      response = new Response(null, { status: 401 });
+    } else {
+      throw error;
+    }
+  }
   if (response.status === 401 && path !== "/api/auth/logout" && typeof window !== "undefined") {
     window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
   }

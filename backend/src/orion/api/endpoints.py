@@ -16,6 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import Field
 
 from orion.access.remote import COOKIE_NAME, BrowserSessions, RemoteAccessConfig
+from orion.api.schema import request_body_schema
 from orion.contracts import RuntimeScope
 from orion.endpoints.manager import EndpointError, EndpointManager
 from orion_endpoint.protocol import CHUNK_SIZE, MAX_TRANSFER, OPERATIONS, Capture, Strict
@@ -103,6 +104,15 @@ def install_endpoint_routes(
 
     def owner(request: Request, mutation: bool = False) -> None:
         available()
+        native = bool(getattr(request.state, "native_authenticated", False))
+        if native:
+            application = app.state.application
+            if not application.native_auth.session_active(
+                getattr(request.state, "native_session_id", ""),
+                application.access.current_principal(),
+            ):
+                raise HTTPException(401, "Authentication required.")
+            return
         if remote.enabled and (
             sessions is None or sessions.expiry(request.cookies.get(COOKIE_NAME)) is None
         ):
@@ -111,6 +121,11 @@ def install_endpoint_routes(
             origin = remote.public_origin if remote.enabled else str(request.base_url).rstrip("/")
             if request.headers.get("origin") != origin:
                 raise HTTPException(403, "Trusted origin required.")
+
+    def owner_binding(request: Request) -> tuple[str, str | None]:
+        if getattr(request.state, "native_authenticated", False):
+            return "native", getattr(request.state, "native_session_id", None)
+        return "browser", request.cookies.get(COOKIE_NAME)
 
     def endpoint(endpoint_id: str) -> dict[str, Any]:
         row = next((item for item in manager.list() if item["endpoint_id"] == endpoint_id), None)
@@ -150,7 +165,7 @@ def install_endpoint_routes(
         if (
             row is None
             or row["endpoint_id"] != endpoint_id
-            or row["cookie"] != request.cookies.get(COOKIE_NAME)
+            or row["owner_binding"] != owner_binding(request)
             or row["expires"] < time.monotonic()
         ):
             raise HTTPException(409, "Desktop session unavailable.")
@@ -177,7 +192,7 @@ def install_endpoint_routes(
         except ValueError:
             raise HTTPException(429, "Pairing capacity reached.") from None
 
-    @app.post("/api/endpoints/pair")
+    @app.post("/api/endpoints/pair", openapi_extra=request_body_schema(PairInput))
     async def pair(request: Request) -> Response:
         available()
         # This device bootstrap never accepts browser Origin or browser-cookie authority.
@@ -228,7 +243,7 @@ def install_endpoint_routes(
         identity = application.store.session_identity(session_id)
         return {"session_id": session_id, **identity}
 
-    @app.post("/api/endpoints/{endpoint_id}/forget")
+    @app.post("/api/endpoints/{endpoint_id}/forget", openapi_extra=request_body_schema(Forget))
     async def forget(endpoint_id: str, request: Request) -> dict[str, bool]:
         owner(request, True)
         endpoint(endpoint_id)
@@ -247,7 +262,9 @@ def install_endpoint_routes(
             ) from None
         return {"forgotten": True}
 
-    @app.post("/api/endpoints/{endpoint_id}/operation")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/operation", openapi_extra=request_body_schema(ManualOperation)
+    )
     async def manual_operation(endpoint_id: str, request: Request) -> dict[str, Any]:
         owner(request, True)
         endpoint(endpoint_id)
@@ -288,7 +305,7 @@ def install_endpoint_routes(
         owner(request)
         return endpoint(endpoint_id)
 
-    @app.patch("/api/endpoints/{endpoint_id}")
+    @app.patch("/api/endpoints/{endpoint_id}", openapi_extra=request_body_schema(Rename))
     async def rename(endpoint_id: str, request: Request) -> dict[str, Any]:
         owner(request, True)
         endpoint(endpoint_id)
@@ -309,7 +326,30 @@ def install_endpoint_routes(
                 stop(key)
         return {"revoked": True}
 
-    @app.post("/api/endpoints/{endpoint_id}/upload")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/upload",
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                },
+            },
+            "parameters": [
+                {
+                    "name": "x-endpoint-path",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string", "minLength": 1, "maxLength": 2048},
+                },
+                {
+                    "name": "x-overwrite",
+                    "in": "header",
+                    "schema": {"type": "string", "enum": ["true", "false"], "default": "false"},
+                },
+            ],
+        },
+    )
     async def upload(endpoint_id: str, request: Request) -> dict[str, Any]:
         owner(request, True)
         path = request.headers.get("x-endpoint-path", "")
@@ -345,7 +385,18 @@ def install_endpoint_routes(
                     manager.dispatch(endpoint_id, "transfer.abort", {"transfer_id": transfer_id})
                 )
 
-    @app.post("/api/endpoints/{endpoint_id}/download")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/download",
+        response_class=StreamingResponse,
+        openapi_extra=request_body_schema(Download),
+        responses={
+            200: {
+                "content": {
+                    "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+                }
+            }
+        },
+    )
     async def download(endpoint_id: str, request: Request) -> StreamingResponse:
         owner(request, True)
         try:
@@ -393,7 +444,10 @@ def install_endpoint_routes(
             },
         )
 
-    @app.post("/api/endpoints/{endpoint_id}/desktop/session")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/desktop/session",
+        openapi_extra=request_body_schema(Capture, required=False),
+    )
     async def desktop_session(endpoint_id: str, request: Request) -> dict[str, Any]:
         owner(request, True)
         try:
@@ -413,7 +467,7 @@ def install_endpoint_routes(
         key = uuid.uuid4().hex
         views[key] = {
             "endpoint_id": endpoint_id,
-            "cookie": request.cookies.get(COOKIE_NAME),
+            "owner_binding": owner_binding(request),
             "expires": time.monotonic() + 1800,
             "sequence": 0,
             "streaming": False,
@@ -423,7 +477,21 @@ def install_endpoint_routes(
         manager.store.audit(endpoint_id, "manual_session_started")
         return {"session_id": key, "control_available": "desktop.click" in target["capabilities"]}
 
-    @app.get("/api/endpoints/{endpoint_id}/desktop/frames")
+    @app.get(
+        "/api/endpoints/{endpoint_id}/desktop/frames",
+        response_class=StreamingResponse,
+        openapi_extra={
+            "parameters": [
+                {
+                    "name": "x-desktop-session",
+                    "in": "header",
+                    "required": True,
+                    "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                }
+            ]
+        },
+        responses={200: {"content": {"application/x-ndjson": {"schema": {"type": "string"}}}}},
+    )
     async def frames(endpoint_id: str, request: Request) -> StreamingResponse:
         session_id = request.headers.get("x-desktop-session", "")
         row = view(endpoint_id, session_id, request)
@@ -447,7 +515,9 @@ def install_endpoint_routes(
             stream(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store"}
         )
 
-    @app.post("/api/endpoints/{endpoint_id}/desktop/control")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/desktop/control", openapi_extra=request_body_schema(Control)
+    )
     async def control(endpoint_id: str, request: Request) -> dict[str, bool]:
         owner(request, True)
         try:
@@ -468,7 +538,9 @@ def install_endpoint_routes(
         )
         return {"enabled": body.enabled}
 
-    @app.post("/api/endpoints/{endpoint_id}/desktop/input")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/desktop/input", openapi_extra=request_body_schema(Input)
+    )
     async def desktop_input(endpoint_id: str, request: Request) -> dict[str, Any]:
         owner(request, True)
         try:
@@ -488,7 +560,10 @@ def install_endpoint_routes(
             raise HTTPException(422, "Invalid desktop input.") from None
         return await rpc(endpoint_id, body.operation, body.arguments)
 
-    @app.post("/api/endpoints/{endpoint_id}/desktop/stop")
+    @app.post(
+        "/api/endpoints/{endpoint_id}/desktop/stop",
+        openapi_extra=request_body_schema(DesktopSession),
+    )
     async def desktop_stop(endpoint_id: str, request: Request) -> dict[str, bool]:
         owner(request, True)
         try:
@@ -497,7 +572,7 @@ def install_endpoint_routes(
             raise HTTPException(422, "Invalid desktop request.") from None
         row = views.get(body.session_id)
         if row and (
-            row["endpoint_id"] != endpoint_id or row["cookie"] != request.cookies.get(COOKIE_NAME)
+            row["endpoint_id"] != endpoint_id or row["owner_binding"] != owner_binding(request)
         ):
             raise HTTPException(403, "Desktop session unavailable.")
         stop(body.session_id)

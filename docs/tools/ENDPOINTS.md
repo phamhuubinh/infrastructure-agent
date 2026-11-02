@@ -1,5 +1,7 @@
 # Endpoint tools
 
+> Current structured-operation implementation reference. [ADR 0017](../decisions/0017-windows-linux-command-focus.md) adds a primary Windows/Linux command path and supersedes its old no-shell target restriction. The generic command family and Commands UI are not implemented; the operation catalog below describes existing source.
+
 All tools are ordinary canonical registry definitions. Model semantic selection,
 ToolRunner schema validation, RuntimeScope and Chat/Project authorization apply.
 Use `endpoint.list` to discover paired opaque `target_ref` values. The registry is

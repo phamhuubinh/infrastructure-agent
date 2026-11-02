@@ -1,6 +1,6 @@
 # Model-tool loop
 
-Chat and Project use the same model-driven loop and the same canonical `ToolRegistry`.
+Chat, Project and Device Chat use the same model-driven loop and canonical `ToolRegistry`.
 There is no manual picker or semantic pre-router.
 
 ```text
@@ -25,7 +25,9 @@ execution, not the wait for the slowest member of its batch.
 
 All registered model-callable schemas are supplied on every normal turn. Schema visibility never
 authorizes execution: `ToolRunner` validates arguments, binds `RuntimeScope`, and enforces the
-mutation allowlist/default deny policy.
+conversation mutation mode and any additional server/worker policy ceilings.
+read_only is the default conversation mode; an absent server allowlist does not
+independently deny all mutations in confirm/auto (ADR 0014).
 
 The provider-neutral input has one `system_instructions` value plus user/assistant/tool messages.
 The OpenAI-compatible adapter emits at most one leading system message and never a system role

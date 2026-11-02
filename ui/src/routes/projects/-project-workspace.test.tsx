@@ -17,8 +17,14 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
-function sseResponse(events: unknown[]): Response {
-  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+function sseResponse(): Response {
+  const event = {
+    event_id: "da5a27de-360a-49f5-98f9-a38c9e29c638",
+    type: "request.completed",
+    created_at: "2026-10-31T00:00:00Z",
+    payload: {},
+  };
+  return new Response(`id: ${event.event_id}\ndata: ${JSON.stringify(event)}\n\n`, {
     headers: { "Content-Type": "text/event-stream" },
   });
 }
@@ -68,6 +74,39 @@ describe("Project workspace", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it("preserves binary document bytes uploaded from Project Details", async () => {
+    const bytes = new Uint8Array([0, 255, 254, 80, 75, 3, 4]);
+    let uploaded: File | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string, init?: RequestInit) => {
+        if (path === "/api/models") return jsonResponse([model]);
+        if (path === "/api/sessions") return jsonResponse([]);
+        if (path === "/api/projects/project-a") return jsonResponse(project);
+        if (path === "/api/projects/project-a/documents") {
+          if (init?.method === "POST") {
+            uploaded = (init.body as FormData).get("file") as File;
+            return jsonResponse(readyDocument("binary", uploaded.name), 201);
+          }
+          return jsonResponse([]);
+        }
+        throw new Error(`unexpected endpoint ${path}`);
+      }),
+    );
+    renderWorkspace();
+    await screen.findByRole("heading", { name: "Atlas rollout" });
+    fireEvent.click(screen.getByRole("button", { name: "Chi tiết" }));
+    const details = await screen.findByRole("dialog");
+    const mediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    fireEvent.change(within(details).getByLabelText("Add project document"), {
+      target: { files: [new File([bytes], "binary.xlsx", { type: mediaType })] },
+    });
+    await within(details).findByText("binary.xlsx");
+    expect(uploaded?.name).toBe("binary.xlsx");
+    expect(uploaded?.type).toBe(mediaType);
+    expect(new Uint8Array(await uploaded!.arrayBuffer())).toEqual(bytes);
   });
 
   it("shows and persists the same mutation selector in a Project draft", async () => {
@@ -466,7 +505,9 @@ describe("Project workspace", () => {
       if (path === "/api/projects/project-a/sessions" && init?.method === "POST") {
         return jsonResponse({ session_id: "new-project-session", project_id: "project-a" }, 201);
       }
-      if (path === "/api/sessions/new-project-session/messages/stream") return sseResponse([]);
+      if (path === "/api/sessions/new-project-session/requests")
+        return jsonResponse({ request_id: "project-request", status: "running" }, 202);
+      if (path === "/api/requests/project-request/stream") return sseResponse();
       if (path === "/api/sessions/new-project-session") {
         return jsonResponse({ session_id: "new-project-session", project_id: "project-a" });
       }
@@ -506,17 +547,24 @@ describe("Project workspace", () => {
       ).toHaveLength(1),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/sessions/new-project-session/messages/stream",
+      "/api/sessions/new-project-session/requests",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ content: "First Project message" }),
+        body: expect.any(String),
       }),
     );
+    const admission = fetchMock.mock.calls.find(
+      ([path]) => path === "/api/sessions/new-project-session/requests",
+    )!;
+    expect(JSON.parse(String(admission[1]?.body))).toEqual({
+      content: "First Project message",
+      client_request_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
 
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.filter(
-          ([path]) => path === "/api/sessions/new-project-session/messages/stream",
+          ([path]) => path === "/api/sessions/new-project-session/requests",
         ),
       ).toHaveLength(1),
     );
@@ -530,7 +578,7 @@ describe("Project workspace", () => {
     await waitFor(() =>
       expect(
         fetchMock.mock.calls.filter(
-          ([path]) => path === "/api/sessions/new-project-session/messages/stream",
+          ([path]) => path === "/api/sessions/new-project-session/requests",
         ),
       ).toHaveLength(2),
     );

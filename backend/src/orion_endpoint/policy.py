@@ -22,6 +22,7 @@ class Policy(Strict):
     write_roots: list[str] = Field(default_factory=list, max_length=16)
     applications: dict[str, ApplicationAlias] = Field(default_factory=dict, max_length=16)
     terminate: bool = False
+    commands: bool = False
     clipboard_read: bool = False
     clipboard_write: bool = False
     browser: bool = False

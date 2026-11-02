@@ -1,6 +1,7 @@
 param(
     [string]$Prefix,
-    [switch]$GlobalLauncher
+    [switch]$GlobalLauncher,
+    [switch]$WithEmbeddings
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,12 +71,15 @@ try {
         Invoke-Required $python ($leading + @('-m', 'venv', $venv))
     }
     if (-not (Test-Python $venvPython)) { throw 'Orion environment requires Python 3.12+.' }
-    Invoke-Required $venvPython @('-m', 'pip', 'install', $wheel)
+    $package = if ($WithEmbeddings) { $wheel + '[semantic]' } else { $wheel }
+    Invoke-Required $venvPython @('-m', 'pip', 'install', $package)
     $buildMetadata = @{ version = $manifest.version; source_sha = $manifest.commit } | ConvertTo-Json -Compress
     [IO.File]::WriteAllText((Join-Path $venv '.orion-build.json'), $buildMetadata, [Text.UTF8Encoding]::new($false))
     $copyCode = 'import orion.ui_package,sys; from pathlib import Path; orion.ui_package.replace_ui_bundle(Path(sys.argv[1]),Path(sys.argv[2]))'
     Invoke-Required $venvPython @('-c', $copyCode, (Join-Path $bundle 'ui'), (Join-Path $prefixPath '.orion-ui'))
-    Invoke-Required $venvOrion @('model', 'install', 'embeddings')
+    if ($WithEmbeddings) {
+        Invoke-Required $venvOrion @('model', 'install', 'embeddings')
+    }
 
     if (-not $explicit -or $GlobalLauncher) {
         $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath('LocalApplicationData') }

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -13,13 +15,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from orion.contracts import (
     AssistantDelta,
+    AssistantMessage,
     ContextMessage,
     ModelTurn,
     ModelTurnCompleted,
+    ProviderContinuation,
     ReasoningDelta,
+    RuntimeScope,
     ToolCallDelta,
     ToolDefinition,
 )
+from orion.contracts.profiles import ModelProfile
+from orion.security import SecretStreamRedactor, protected_value_present, redact_text
 
 ModelStreamEvent = AssistantDelta | ReasoningDelta | ToolCallDelta | ModelTurnCompleted
 
@@ -85,13 +92,20 @@ class ReasoningMode(StrEnum):
 
 
 class ModelSettings(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
-    provider_type: str = Field(pattern=r"^openai_compatible$")
+    provider_type: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     base_url: str = Field(min_length=1)
     model_id: str = Field(min_length=1)
-    api_key: str | None = None
+    api_key: str | None = Field(default=None, exclude=True, repr=False)
     reasoning_mode: ReasoningMode = ReasoningMode.AUTO
+    profile: ModelProfile | None = None
+    # Request-local protocol data only; never profile persistence or diagnostics.
+    provider_continuation: ProviderContinuation | None = Field(
+        default=None, exclude=True, repr=False
+    )
+    request_binding: str = Field(default_factory=lambda: uuid.uuid4().hex, exclude=True, repr=False)
+    runtime_scope: RuntimeScope | None = Field(default=None, exclude=True, repr=False)
 
 
 class ModelBackendErrorKind(StrEnum):
@@ -102,6 +116,7 @@ class ModelBackendErrorKind(StrEnum):
     INCOMPLETE_STREAM = "incomplete_stream"
     MALFORMED_STREAM = "malformed_stream"
     PROTOCOL = "protocol"
+    UNSUPPORTED = "unsupported"
     TIMEOUT = "timeout"
     UNKNOWN = "unknown"
     UPSTREAM_HTTP = "upstream_http"
@@ -116,12 +131,85 @@ class ModelBackendError(RuntimeError):
         message: str,
         *,
         kind: ModelBackendErrorKind = ModelBackendErrorKind.UNKNOWN,
+        retry_safe: bool = False,
     ) -> None:
         super().__init__(message)
         self.kind = kind
+        # Only adapters can attest that no request reached the upstream service.
+        self.retry_safe = retry_safe
+
+
+async def validated_model_stream(
+    events: AsyncIterator[ModelStreamEvent],
+    *,
+    credential: str | None = None,
+) -> AsyncGenerator[ModelStreamEvent, None]:
+    """Validate normalized streams, including structurally compatible backends."""
+    completed = False
+    sensitive = (credential,) if credential else ()
+    redactor = SecretStreamRedactor(sensitive)
+    try:
+        async for event in events:
+            if completed or not isinstance(
+                event, (AssistantDelta, ReasoningDelta, ToolCallDelta, ModelTurnCompleted)
+            ):
+                raise ModelBackendError(
+                    "Model stream violated the normalized event protocol.",
+                    kind=ModelBackendErrorKind.PROTOCOL,
+                )
+            if isinstance(event, AssistantDelta):
+                visible = redactor.feed(event.content)
+                if visible:
+                    yield AssistantDelta(content=visible)
+                continue
+            completed = isinstance(event, ModelTurnCompleted)
+            if isinstance(event, ModelTurnCompleted):
+                if protected_value_present(
+                    [call.model_dump(mode="json") for call in event.turn.tool_calls], sensitive
+                ):
+                    raise ModelBackendError(
+                        "Model tool call contains protected credential material.",
+                        kind=ModelBackendErrorKind.PROTOCOL,
+                    )
+                tail = redactor.finish()
+                if tail:
+                    yield AssistantDelta(content=tail)
+                assistant = event.turn.assistant
+                if assistant is not None:
+                    safe = AssistantMessage(
+                        content=redact_text(assistant.content, sensitive=sensitive),
+                        citation_source_ref_ids=tuple(
+                            redact_text(v, sensitive=sensitive)
+                            for v in assistant.citation_source_ref_ids
+                        ),
+                        citation_evidence_refs=tuple(
+                            redact_text(v, sensitive=sensitive)
+                            for v in assistant.citation_evidence_refs
+                        ),
+                    )
+                    event = event.model_copy(
+                        update={"turn": event.turn.model_copy(update={"assistant": safe})}
+                    )
+            yield event
+        if not completed:
+            raise ModelBackendError(
+                "Model stream ended without a completed turn.",
+                kind=ModelBackendErrorKind.INCOMPLETE_STREAM,
+            )
+    finally:
+        # Rejecting a malformed stream must also release its HTTP/process context.
+        close = getattr(events, "aclose", None)
+        if close is not None:
+            await close()
 
 
 class ModelBackend(ABC):
+    requires_credential: bool = False
+
+    def validate_settings(self, settings: ModelSettings) -> None:
+        """Adapters may reject unsupported controls before credentials/transport."""
+        return None
+
     @abstractmethod
     def stream(
         self,
@@ -132,6 +220,22 @@ class ModelBackend(ABC):
     ) -> AsyncIterator[ModelStreamEvent]:
         """Yield normalized deltas and finish with one canonical reconstructed turn."""
 
+    async def validated_stream(
+        self,
+        messages: tuple[ContextMessage, ...],
+        tools: tuple[ToolDefinition, ...],
+        settings: ModelSettings,
+        cancellation: asyncio.Event,
+    ) -> AsyncIterator[ModelStreamEvent]:
+        """Enforce the normalized protocol before a caller may dispatch tools."""
+        async with aclosing(
+            validated_model_stream(
+                self.stream(messages, tools, settings, cancellation), credential=settings.api_key
+            )
+        ) as events:
+            async for event in events:
+                yield event
+
     async def complete(
         self,
         messages: tuple[ContextMessage, ...],
@@ -140,7 +244,9 @@ class ModelBackend(ABC):
         cancellation: asyncio.Event,
     ) -> ModelTurn:
         """Convenience collector for callers that do not need public streaming."""
-        async for event in self.stream(messages, tools, settings, cancellation):
+        turn: ModelTurn | None = None
+        async for event in self.validated_stream(messages, tools, settings, cancellation):
             if isinstance(event, ModelTurnCompleted):
-                return event.turn
-        raise ModelBackendError("Model stream ended without a completed turn.")
+                turn = event.turn
+        assert turn is not None  # validated_stream rejects a missing terminal event.
+        return turn

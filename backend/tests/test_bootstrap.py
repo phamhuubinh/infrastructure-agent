@@ -51,7 +51,7 @@ def test_backend_package_exists_only_in_approved_backend_layout() -> None:
     assert list((repository / "src" / "orion").rglob("*.py")) == []
     import orion
 
-    assert "/backend/src/orion/" in str(Path(orion.__file__).resolve())
+    assert Path(orion.__file__).resolve() == repository / "backend/src/orion/__init__.py"
 
 
 def test_registry_builder_rejects_duplicate_names_handler_keys_and_invalid_schemas() -> None:
@@ -91,6 +91,9 @@ def test_bootstrap_builds_one_immutable_registry_snapshot(tmp_path) -> None:  # 
         "scheduler.list",
         "scheduler.pause",
         "scheduler.resume",
+        "skill.list",
+        "skill.load",
+        "skill.read",
     ]
     assert not hasattr(app.registry, "register")
     assert app.runtime._registry is app.registry  # noqa: SLF001 - verifies composition identity.

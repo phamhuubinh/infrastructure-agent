@@ -1,0 +1,137 @@
+{
+  "scope": "Partial R09 administrative config, stdio-channel, supervisor inputs, private-marker parser and remote protocol fixtures. Linux filesystem/process behavior and remote helper/production composition are not executed/complete. R08 full backend predates isolated R09 files.",
+  "source_sha256": {
+    "backend/src/orion/integrations/ssh/channel.py": "bf464d6c0234e9901695c98f5ae3b18c0457d43a9cc5cca6406708c9f6121bab",
+    "backend/src/orion/integrations/ssh/config.py": "703d23d434ddb306abe463dc228625b5ceba26ac98288548cb1c99e1fb10cf6e",
+    "backend/src/orion/integrations/ssh/remote_files.py": "54318c4080fd955c4a5d855cbdcfd0887ec0dcaeea690718a06e94aaf55fe1b6",
+    "backend/src/orion/integrations/ssh/remote_protocol.py": "17e23d9b11b01a1a06f59bb40c7330167eb892248128beddc3c94b39ed5d1525",
+    "backend/src/orion/integrations/ssh/supervisor.py": "a2721001dc44be631208e9db903022f872f6677c67c9fc021bc2a2e22e4c790e",
+    "backend/src/orion/integrations/ssh/__init__.py": "4f8871da783e606c3687abe10a88fe13a192cc219798e31cec81bca7372fc397",
+    "backend/tests/test_ssh_command_channel.py": "01474570636a8f22e1262c534592587f2041cdcce88d6274ab1bbcc3bc4938cd",
+    "backend/tests/test_ssh_command_config.py": "b7752506f286dbfb7e27ceac69cc1c9ed58847a93a9debea054f7f4a954d91ac",
+    "backend/tests/test_ssh_linux_executor.py": "7683088de34f87c8b230506990550a4033924aff74344a0a606b14aa674e90f5",
+    "backend/tests/test_ssh_remote_files.py": "78eeda6e246135d59e91fad03e87d2a90ed8abf11344f6f7ac1279c1fc81a9cc",
+    "backend/tests/test_ssh_remote_protocol.py": "732b5bffa7a4b3a8bc647a0465739d7633edcc7bd05e9f9e27d58ede000a26a6",
+    "backend/tests/test_ssh_supervisor.py": "d51158e697ae948c37c3346cb158d98f9b4870739b127bc1556cf717d4469c5c"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_ssh_command_config.py",
+        "backend/tests/test_ssh_command_channel.py",
+        "backend/tests/test_ssh_supervisor.py",
+        "backend/tests/test_ssh_remote_files.py",
+        "backend/tests/test_ssh_remote_protocol.py",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "stdout": "..............................................................           [100%]\n62 passed in 4.25s\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src",
+        "backend/tests",
+        "backend/scripts"
+      ],
+      "exit_code": 0,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src",
+        "backend/tests",
+        "backend/scripts"
+      ],
+      "exit_code": 0,
+      "stdout": "230 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache",
+        "backend/src"
+      ],
+      "exit_code": 0,
+      "stdout": "Success: no issues found in 119 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "--platform",
+        "linux",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache-linux",
+        "backend/src/orion/integrations/ssh"
+      ],
+      "exit_code": 0,
+      "stdout": "Success: no issues found in 6 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:/Orion-toolchains/refactor-python/Scripts/python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr_summary": "Repository native newline conversion warnings only."
+    }
+  ],
+  "initial_repair": "Initial stdio fixture incorrectly added version to Result/Ping; strict protocol rejected it. Corrected fixture to shared closed wire schema; 18 pass.",
+  "prior_component_count": 18,
+  "prior_component_counts": [
+    18,
+    31
+  ],
+  "repairs": [
+    "Strict protocol rejected initial Result/Ping fixture version fields; corrected simulated wire, not relaxed protocol.",
+    "Linux-only cache functions needed explicit platform-gated UID/O_NOFOLLOW wrappers for Windows static typing; no missing-attribute ignores or runtime Windows file access."
+  ],
+  "ad_hoc_harness_note": "A separate git -c core.autocrlf=false diff --check treated existing Windows CRLF as trailing whitespace. The repository-native git diff --check passes; no newline normalization or Git configuration mutation performed."
+}

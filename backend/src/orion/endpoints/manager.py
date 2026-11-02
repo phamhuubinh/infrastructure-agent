@@ -77,6 +77,7 @@ class EndpointManager:
                 and self.clock() - self.observations[row["endpoint_id"]][0] < 300
                 else None,
                 "online": row["endpoint_id"] in self.connections and row["revoked_at"] is None,
+                "command_shells": list(self.command_shells(row["endpoint_id"])),
                 "geometry": [
                     display.model_dump()
                     for display in self.connections[row["endpoint_id"]].hello.geometry
@@ -90,6 +91,15 @@ class EndpointManager:
     def configured(self, target_ref: str) -> bool:
         row = self.store.get(target_ref)
         return row is not None and row["revoked_at"] is None
+
+    def command_connection(self, target_ref: str) -> object | None:
+        return self.connections.get(target_ref)
+
+    def command_shells(self, target_ref: str) -> tuple[str, ...]:
+        connection = self.connections.get(target_ref)
+        if connection is None or "command.run" not in connection.hello.capabilities:
+            return ()
+        return tuple(connection.hello.command_shells)
 
     async def attach(self, endpoint_id: str, socket: WebSocket) -> None:
         if self.closed or endpoint_id in self.connections:
@@ -162,6 +172,29 @@ class EndpointManager:
             await connection.socket.close(code=1001)
 
     async def dispatch(
+        self,
+        endpoint_id: str,
+        operation: str,
+        arguments: dict[str, Any],
+        cancellation: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        if operation.startswith("command."):
+            raise EndpointError("policy_denied")
+        return await self._dispatch(endpoint_id, operation, arguments, cancellation)
+
+    async def dispatch_command(
+        self,
+        endpoint_id: str,
+        operation: str,
+        arguments: dict[str, Any],
+        cancellation: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Internal command-service port; public endpoint APIs cannot bypass ownership."""
+        if operation not in {"command.run", "command.status", "command.cancel"}:
+            raise EndpointError("policy_denied")
+        return await self._dispatch(endpoint_id, operation, arguments, cancellation)
+
+    async def _dispatch(
         self,
         endpoint_id: str,
         operation: str,

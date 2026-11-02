@@ -40,6 +40,8 @@ def endpoint_registrations(manager: EndpointManager) -> tuple[ToolRegistration, 
         )
     )
     for operation, (model, kind) in OPERATIONS.items():
+        if operation.startswith("command."):
+            continue  # Canonical system.command tools require server-owned handles/scope.
         schema: dict[str, Any] = model.model_json_schema()
         schema["properties"]["target_ref"] = {"type": "string", "pattern": "^[0-9a-f]{32}$"}
         schema["required"] = [*schema.get("required", []), "target_ref"]

@@ -96,14 +96,16 @@ async def validate(output: Path) -> list[dict[str, Any]]:
         app = build_application(
             database_path=Path(temporary) / "requests.db",
             blocked_tool_operation_kinds=frozenset({"mutation"}),
+            seed_model_from_environment=False,
         )
         try:
             profile_id = app.store.upsert_model_config(
                 settings.provider_type,
                 settings.base_url,
                 settings.model_id,
-                settings.api_key,
+                None,
                 settings.reasoning_mode,
+                profile=settings.profile,
             )
             # Explicitly activate the persisted profile if environment seeding created another row.
             app.store.activate_model_config(profile_id)
@@ -207,6 +209,7 @@ async def validate(output: Path) -> list[dict[str, Any]]:
                     targets,
                     diagnostic_sink=sink,
                     blocked_tool_operation_kinds=frozenset({"mutation"}),
+                    settings_provider=lambda: settings,
                 )
                 timeline_start = len(app.store.timeline(session))
                 request_id = runtime.begin(session, prompt)

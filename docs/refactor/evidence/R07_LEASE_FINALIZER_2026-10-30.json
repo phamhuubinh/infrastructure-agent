@@ -1,0 +1,103 @@
+{
+  "scope": "R07 ownership descriptor lifecycle follow-up: weakref finalizer releases otherwise unreferenced kernel lease; explicit close detaches finalizer to avoid double-close; constructor failure always closes descriptor. Earlier R07_RESTART534 focused passes predate this change. No Linux native proof.",
+  "started_utc": "2026-10-30T02:41:46.619961+00:00",
+  "source_before": {
+    "backend/src/orion/persistence/ownership.py": "42432755d0c73ab0dea9c5070802a97e63ce44afbf3f0bfbf653659b63234c0b",
+    "backend/tests/test_request_restart.py": "a3e154318b56293e2a111f469bdd68cb33efb393cacaa624cd65637262dbd573"
+  },
+  "checks": [
+    {
+      "name": "focused",
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_request_restart.py",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 8.28,
+      "stdout": "............                                                             [100%]\n12 passed in 5.26s\n",
+      "stderr": ""
+    },
+    {
+      "name": "ruff",
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/persistence/ownership.py",
+        "backend/tests/test_request_restart.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.2,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "name": "format",
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/persistence/ownership.py",
+        "backend/tests/test_request_restart.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.22,
+      "stdout": "2 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "name": "mypy",
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache",
+        "backend/src/orion/persistence/ownership.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.8,
+      "stdout": "Success: no issues found in 1 source file\n",
+      "stderr": ""
+    },
+    {
+      "name": "linux_static_only",
+      "command": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--platform",
+        "linux",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache-linux",
+        "backend/src/orion/persistence/ownership.py"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 0.75,
+      "stdout": "Success: no issues found in 1 source file\n",
+      "stderr": ""
+    }
+  ],
+  "source_after": {
+    "backend/src/orion/persistence/ownership.py": "42432755d0c73ab0dea9c5070802a97e63ce44afbf3f0bfbf653659b63234c0b",
+    "backend/tests/test_request_restart.py": "a3e154318b56293e2a111f469bdd68cb33efb393cacaa624cd65637262dbd573"
+  },
+  "source_unchanged_during_checks": true,
+  "finished_utc": "2026-10-30T02:41:56.874764+00:00"
+}

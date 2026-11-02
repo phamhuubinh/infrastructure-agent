@@ -37,7 +37,7 @@ ORION_URL = f"http://{ORION_HOST}:{ORION_PORT}/"
 
 
 def main() -> None:
-    """Run one of Orion's four public commands without exposing dev switches."""
+    """Dispatch the public operator commands."""
     command = sys.argv[1:]
     if command in (["--version"], ["version"]):
         print(f"Orion {__version__}")
@@ -84,6 +84,21 @@ def main() -> None:
     if command[:2] == ["knowledge", "semantic-index"]:
         _semantic_backfill(command[2:])
         return
+    if command[:1] == ["mcp"]:
+        from orion.cli.mcp import run_mcp_command
+
+        run_mcp_command(command[1:])
+        return
+    if command[:1] == ["data"]:
+        from orion.cli.data import run_data_command
+
+        run_data_command(command[1:])
+        return
+    if command[:1] == ["skill"]:
+        from orion.cli.skills import run_skill_command
+
+        run_skill_command(command[1:])
+        return
     _invalid_command(command)
 
 
@@ -98,6 +113,14 @@ def _show_help() -> None:
         "  orion model install embeddings  Provision pinned local E5 model\n"
         "  orion knowledge semantic-index [--max-documents N]  Inspect up to N ready documents\n"
         "  orion help     Show this help"
+        "\n  orion data export DIRECTORY   Offline managed-data backup"
+        "\n  orion data import BUNDLE NEW_DIRECTORY   Restore without overwriting data"
+        "\n  orion data retain DIRECTORY --keep N   Prune validated managed-data backups"
+        "\n  orion skill list [--project ID]   Show the offline scoped skill catalog"
+        "\n  orion skill install DIRECTORY [--source user|project] [--project ID]"
+        "\n  orion skill update NAME DIRECTORY   Replace an installed package revision"
+        "\n  orion skill enable|disable|remove NAME [--source bundled|user|project]"
+        "\n  orion mcp list|doctor|test [SERVER_ID]   Inspect configured MCP servers"
         "\n  orion --version  Show installed Orion version"
     )
 
@@ -244,11 +267,12 @@ def _open_desktop_url(url: str) -> None:
     if _browser_open_suppressed():
         return
     print(f"Open Orion at {url}")
+    command: list[str]
     if sys.platform == "darwin":
         command = ["open", url]
-    elif sys.platform.startswith("win"):
+    elif sys.platform == "win32":
         try:
-            os.startfile(url)  # type: ignore[attr-defined]  # noqa: S606 - URL association.
+            os.startfile(url)  # noqa: S606 - URL association.
         except OSError:
             pass
         return

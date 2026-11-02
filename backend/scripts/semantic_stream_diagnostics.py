@@ -77,13 +77,13 @@ class DiagnosticProvider(OpenAICompatibleBackend):
             if len(self.diagnostics) < 32:
                 self.diagnostics.append(record)
 
-    async def _next_line_or_cancel(self, lines, cancellation):
-        line = await super()._next_line_or_cancel(lines, cancellation)
-        if line is None:
+    async def _next_frame_or_cancel(self, frames, cancellation):
+        frame = await super()._next_frame_or_cancel(frames, cancellation)
+        if frame is None:
             self._record["sse_eof"] = True
-        elif line.startswith("data:") and line[5:].strip() == "[DONE]":
+        elif frame.data.strip() == "[DONE]":
             self._record["sse_done"] = True
-        return line
+        return frame
 
     def _parse_chunk(self, raw_chunk):
         self._record["stage"] = "parse_chunk"

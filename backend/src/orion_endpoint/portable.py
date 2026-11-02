@@ -137,6 +137,13 @@ def main() -> None:
         )
         policy = Policy.load(args.policy) if args.policy else Policy()
         if args.policy is None:
+            policy.commands = (
+                input(
+                    "Permit shell commands using this OS account's rights "
+                    "(not confined to file roots)? [y/N]: "
+                ).lower()
+                == "y"
+            )
             root = input("Optional allowed folder (blank disables files): ").strip()
             if root:
                 root = str(Path(root).resolve(strict=True))

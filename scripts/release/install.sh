@@ -5,11 +5,13 @@ bundle="$(cd "$(dirname "$0")" && pwd)"
 prefix="${HOME}/.local/share/orion-install"
 explicit=false
 global_launcher=false
+with_embeddings=false
 while (($#)); do
   case "$1" in
     --prefix) (($# >= 2)) || { echo '--prefix requires a directory' >&2; exit 2; }; prefix="$2"; explicit=true; shift 2 ;;
     --global-launcher) global_launcher=true; shift ;;
-    -h|--help) echo 'Usage: install.sh [--prefix DIRECTORY] [--global-launcher]'; exit 0 ;;
+    --with-embeddings) with_embeddings=true; shift ;;
+    -h|--help) echo 'Usage: install.sh [--prefix DIRECTORY] [--global-launcher] [--with-embeddings]'; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -43,10 +45,14 @@ fi
 "$venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info < (3, 12))' || {
   echo 'Existing Orion virtual environment requires Python 3.12+.' >&2; exit 1;
 }
-"$venv/bin/python" -m pip install "$wheel"
+package="$wheel"
+if [[ "$with_embeddings" == true ]]; then package="$wheel[semantic]"; fi
+"$venv/bin/python" -m pip install "$package"
 "$venv/bin/python" -c 'import json,sys; from pathlib import Path; m=json.loads(Path(sys.argv[1]).read_text()); Path(sys.prefix,".orion-build.json").write_text(json.dumps({"version":m["version"],"source_sha":m["commit"]}))' "$bundle/release-manifest.json"
 "$venv/bin/python" -c 'import orion.ui_package,sys; from pathlib import Path; orion.ui_package.replace_ui_bundle(Path(sys.argv[1]),Path(sys.argv[2]))' "$bundle/ui" "$prefix/.orion-ui"
-"$venv/bin/orion" model install embeddings
+if [[ "$with_embeddings" == true ]]; then
+  "$venv/bin/orion" model install embeddings
+fi
 
 if [[ "$explicit" == false || "$global_launcher" == true ]]; then
   launcher_dir="${XDG_BIN_HOME:-$HOME/.local/bin}"

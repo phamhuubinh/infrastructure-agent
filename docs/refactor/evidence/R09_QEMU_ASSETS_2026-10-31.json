@@ -1,0 +1,19 @@
+{
+  "scope": "Local-only extracted QEMU and checksum-verified Ubuntu image; no Windows installer executed.",
+  "assets": [
+    {
+      "file": "qemu-20260811.exe",
+      "url": "https://qemu.weilnetz.de/w64/2026/qemu-w64-setup-20260811.exe",
+      "algorithm": "sha512",
+      "digest": "5bcf9eed634e8575a37b74f445af41a2fe4106da512d0c30c368301d4c105037fdfab40a5287367a28a957624cddebbc8c07e16c88ab6634f554cdf3d16bf543"
+    },
+    {
+      "file": "ubuntu-24.04-minimal-amd64.img",
+      "url": "https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img",
+      "algorithm": "sha256",
+      "digest": "3839f148c5a3b4a736e7dbb0af75594743fa5ebee2a202424ba1a32e5d3b5d2c",
+      "bytes": 260177920,
+      "etag": "\"f820000-65ed8caef0895\""
+    }
+  ]
+}

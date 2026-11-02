@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from orion.access import LocalAccessAdapter
+from orion.application.models import ModelSettingsResolver
 from orion.chat.runtime import ChatRuntime
 from orion.contracts import (
     AssistantMessage,
@@ -29,6 +30,8 @@ from orion.knowledge.tools import (
     source_metadata_definition,
 )
 from orion.models.backend import ModelBackend, ModelSettings, ModelStreamEvent
+from orion.models.credential_store import credentials_for_database
+from orion.models.providers.factory import default_provider_registry
 from orion.models.providers.openai_compatible import OpenAICompatibleBackend
 from orion.paths import database_path
 from orion.persistence.sqlite import SQLiteStore
@@ -165,19 +168,19 @@ def active_model_settings() -> ModelSettings:
     """Resolve the application's persisted profile without touching its data."""
     path = database_path()
     try:
-        profile = SQLiteStore.read_active_model_config(path)
+        binding = SQLiteStore.read_active_model_binding(path)
     except (OSError, sqlite3.Error) as error:
         raise RuntimeError(
             f"Cannot read Orion model profile at resolved database {path}"
         ) from error
-    if profile is None:
+    if binding is None:
         raise RuntimeError(f"No active Orion model profile in resolved database {path}")
-    return ModelSettings.model_validate(
-        {
-            key: profile[key]
-            for key in ("provider_type", "base_url", "model_id", "api_key", "reasoning_mode")
-        }
-    )
+    settings = ModelSettingsResolver(
+        default_provider_registry(), credentials_for_database(path)
+    ).resolve_binding(binding)
+    if settings.provider_type != "openai_compatible":
+        raise RuntimeError("This legacy measurement requires an explicitly compatible profile.")
+    return settings
 
 
 class _RecordingBackend(ModelBackend):
@@ -275,12 +278,13 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
         for scenario in _SCENARIOS:
             store = SQLiteStore(Path(temporary) / (scenario.name + ".db"))
             try:
-                store.upsert_model_config(
+                store.create_model_config(
                     settings.provider_type,
                     settings.base_url,
                     settings.model_id,
-                    settings.api_key,
+                    None,
                     settings.reasoning_mode,
+                    profile=settings.profile,
                 )
                 builder = ToolRegistryBuilder()
                 for definition in complete_tool_definitions():
@@ -294,6 +298,7 @@ async def _run_benchmark(live: bool) -> BenchmarkReport:
                     builder.freeze(),
                     LocalAccessAdapter(),
                     blocked_tool_operation_kinds=frozenset({"mutation"}),
+                    settings_provider=lambda: settings,
                 )
                 session = store.create_session()
                 if scenario.name == "ten_turn_ordinary":

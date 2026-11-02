@@ -110,9 +110,8 @@ def main(*, source: bool = False) -> None:
             subprocess.run(installer, cwd=root, env=env, check=True)
             assert cli.is_file() and launcher.is_file()
         if platform == "linux-x86_64":
-            assert (
-                Path(env["ORION_SMOKE_MODEL_TRACE"]).read_text().splitlines()
-                == ["model install embeddings"] * 2
+            assert not Path(env["ORION_SMOKE_MODEL_TRACE"]).exists(), (
+                "Default install invoked optional model provisioning"
             )
         installed_ui = prefix / ".orion-ui"
         assert (installed_ui / "_shell.html").is_file()

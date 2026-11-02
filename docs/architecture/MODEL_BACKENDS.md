@@ -1,61 +1,31 @@
 # Model backends
 
-## Provider-neutral core
+Current target: DeepSeek, Claude and OpenAI through provider-neutral adapters.
+[Provider specification](../refactor/PROVIDERS.md) and
+[ADR 0018](../decisions/0018-clean-slate-cross-platform-refactor.md) supersede the
+earlier single OpenAI-compatible target.
 
-The Chat/Project runtime should depend on a small provider-neutral interface.
+## Core contract
 
-Conceptually, model input separates one system instruction from conversation data:
+The runtime sends normalized system/conversation/tool definitions and receives
+normalized stream events/turns. Vendor wire messages, stream deltas, opaque
+continuation state and SDK objects remain behind adapters. A provider may require
+state to survive a tool loop; keep it adapter-owned and separate from public
+conversation/reasoning/log data.
 
-```python
-class ModelRequest:
-    system_instructions: str
-    messages: tuple[ContextMessage, ...]  # user/assistant/tool only
-    tools: tuple[ToolDefinition, ...]
-```
+Model profiles declare vendor, protocol, endpoint, model ID, credential reference,
+capabilities, option schema and transport/context bounds. No vendor/model-name
+heuristic substitutes for declared capabilities. Unsupported features return
+explicit errors; no silent provider switch or fake tool support.
 
-Adapters translate provider-native messages/tool calls to and from Orion's internal contracts.
+DeepSeek has its own tested profile/options; Claude uses native Messages;
+OpenAI uses native Responses with a separate Chat Completions-compatible path.
+The shared conformance suite covers tool roundtrip, stream reconstruction,
+cancellation, errors/usage/state and no tool-mutation replay.
 
-## Local-first model support
+## Current source gap
 
-OpenAI-compatible local serving is a first-class target, including vLLM-compatible endpoints.
-
-Remote providers may also be supported, but the core runtime must not depend on provider-specific response object types.
-
-## Tool calling
-
-Preferred order:
-
-1. reliable native provider tool calling;
-2. reliable structured tool-call format supported by an OpenAI-compatible endpoint;
-3. a small strict JSON compatibility adapter only when native tool calls are unavailable.
-
-Do not rebuild an Orion-specific multi-stage state protocol for weak providers.
-
-## Model configuration
-
-Model configuration should include only what is needed to connect/invoke:
-
-- provider type;
-- base URL;
-- model ID;
-- API key reference where required;
-- context window or known model limits;
-- temperature/reasoning settings where supported;
-- timeout/retry transport settings.
-
-Model identity comes from configuration, not from asking the model to identify itself.
-
-### Request deadline settings
-
-`ORION_MODEL_STREAM_TIMEOUT_SECONDS` remains an adapter-local provider transport
-inactivity timeout. It is distinct from the monotonic request budget enforced by
-`ChatRuntime`: `ORION_REQUEST_DEADLINE_SECONDS` defaults to 120 seconds (10–900),
-and `ORION_REQUEST_FINALIZATION_RESERVE_SECONDS` defaults to 5 seconds (1–60 and
-strictly less than the request deadline). The stream timeout defaults to 30 seconds
-and must be in the inclusive 1–300 second range. Invalid values fail startup
-validation; Orion does not clamp them.
-
-The runtime derives a work deadline by subtracting the reserve. Ordinary model/tool work and
-required verification must finish before that boundary; the reserve is only for terminal
-persistence, terminal events, and a
-future deterministic incomplete fallback. `ORION_QA_REQUEST_TIMEOUT_SECONDS` is a
+The inspected source ModelSettings accepts only openai_compatible and bootstrap
+chooses one OpenAICompatibleBackend calling /chat/completions. These facts do not
+satisfy the new three-vendor target. R03–R06 in
+[WORK_PLAN.md](../refactor/WORK_PLAN.md) implement and verify the changes.

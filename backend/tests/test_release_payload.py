@@ -91,7 +91,10 @@ def test_dirty_checkout_rejected(tmp_path: Path, monkeypatch) -> None:  # type: 
         payload.build(REPOSITORY, tmp_path / "missing.whl", tmp_path / "ui", tmp_path / "output")
 
 
-def test_linux_release_installer_orders_model_and_launcher(tmp_path: Path) -> None:
+@pytest.mark.parametrize("with_embeddings", [False, True])
+def test_linux_release_installer_optional_model_and_launcher(
+    tmp_path: Path, with_embeddings: bool
+) -> None:
     root = tmp_path / "bundle"
     root.mkdir()
     wheel = root / "orion-0.1.0-py3-none-any.whl"
@@ -140,7 +143,14 @@ def test_linux_release_installer_orders_model_and_launcher(tmp_path: Path) -> No
         "ORION_MODEL_EXIT": "23",
     }
     command = ["bash", str(root / "install.sh"), "--prefix", str(prefix), "--global-launcher"]
+    if with_embeddings:
+        command.append("--with-embeddings")
     first = subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+    if not with_embeddings:
+        assert first.returncode == 0 and "Installed Orion" in first.stdout
+        assert "orion:model install embeddings" not in trace.read_text()
+        assert "[semantic]" not in trace.read_text()
+        return
     assert first.returncode == 23 and "Installed Orion" not in first.stdout
     assert not (tmp_path / "bin/orion").exists()
     assert trace.read_text().splitlines()[-1] == "orion:model install embeddings"

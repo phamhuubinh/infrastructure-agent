@@ -13,7 +13,7 @@ REPOSITORY = Path(__file__).parents[2]
 
 
 def _mock_linux_install(
-    tmp_path: Path, *, model_exit: int = 0
+    tmp_path: Path, *, model_exit: int = 0, with_embeddings: bool = False
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     prefix = tmp_path / "prefix with spaces"
     scripts = prefix / ".venv" / "bin"
@@ -39,6 +39,12 @@ def _mock_linux_install(
     global_orion = tmp_path / "orion"
     global_orion.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
     global_orion.chmod(0o755)
+    # Source installer checks frontend tooling even though the package command is
+    # mocked. Keep this fixture independent of the developer host's Node install.
+    for name, output in (("node", "v22.12.0"), ("npm", "10.9.0")):
+        executable = tmp_path / name
+        executable.write_text(f"#!/usr/bin/env bash\nprintf '%s\\n' '{output}'\n", encoding="utf-8")
+        executable.chmod(0o755)
     environment = {
         **os.environ,
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
@@ -47,35 +53,45 @@ def _mock_linux_install(
     }
     environment.pop("ORION_PYTHON", None)
     result = subprocess.run(
-        [str(REPOSITORY / "install.sh"), "--prefix", str(prefix), "--no-dev"],
+        [
+            str(REPOSITORY / "install.sh"),
+            "--prefix",
+            str(prefix),
+            "--no-dev",
+            *(["--with-embeddings"] if with_embeddings else []),
+        ],
         cwd=REPOSITORY,
         env=environment,
         text=True,
         capture_output=True,
         check=False,
     )
+    assert trace.exists(), result.stderr
     return result, trace.read_text(encoding="utf-8")
 
 
-def test_linux_install_provisions_after_ui_and_reuses_successful_rerun(tmp_path: Path) -> None:
-    first, first_trace = _mock_linux_install(tmp_path)
+@pytest.mark.parametrize("with_embeddings", [False, True])
+def test_linux_install_optional_provisioning_and_rerun(
+    tmp_path: Path, with_embeddings: bool
+) -> None:
+    first, first_trace = _mock_linux_install(tmp_path, with_embeddings=with_embeddings)
     assert first.returncode == 0
     assert "Installed Orion" in first.stdout
     assert first_trace.splitlines() == [
-        f"python:-m pip install -e {REPOSITORY / 'backend'}",
+        f"python:-m pip install -e {REPOSITORY / 'backend'}"
+        + ("[semantic]" if with_embeddings else ""),
         f"python:-m orion.ui_package --repository {REPOSITORY} "
         f"--destination {tmp_path / 'prefix with spaces' / '.orion-ui'} --npm-ci",
-        "orion:model install embeddings",
-    ]
+    ] + (["orion:model install embeddings"] if with_embeddings else [])
 
-    second, second_trace = _mock_linux_install(tmp_path)
+    second, second_trace = _mock_linux_install(tmp_path, with_embeddings=with_embeddings)
     assert second.returncode == 0
-    assert "embeddings: installed" in second.stdout
-    assert second_trace.splitlines()[-3:] == first_trace.splitlines()
+    assert ("embeddings: installed" in second.stdout) == with_embeddings
+    assert second_trace.splitlines()[-len(first_trace.splitlines()) :] == first_trace.splitlines()
 
 
 def test_linux_install_fails_before_success_when_model_provisioning_fails(tmp_path: Path) -> None:
-    result, trace = _mock_linux_install(tmp_path, model_exit=23)
+    result, trace = _mock_linux_install(tmp_path, model_exit=23, with_embeddings=True)
     assert result.returncode == 23
     assert trace.splitlines()[-1] == "orion:model install embeddings"
     assert "Installed Orion" not in result.stdout

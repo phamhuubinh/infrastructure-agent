@@ -22,9 +22,27 @@ const configuredModels = [
 ];
 
 function sseResponse(events: unknown[]): Response {
-  return new Response(events.map((event) => "data: " + JSON.stringify(event) + "\n\n").join(""), {
-    headers: { "Content-Type": "text/event-stream" },
-  });
+  // Completed fixtures include a terminal semantic event; live cases keep an open stream.
+  if (
+    !events.some((event) =>
+      ["request.completed", "request.failed", "request.cancelled", "request.incomplete"].includes(
+        String((event as { type?: string }).type),
+      ),
+    )
+  ) {
+    events = [...events, { type: "request.completed", created_at: "now", payload: {} }];
+  }
+  return new Response(
+    events
+      .map((event) => {
+        const record = { ...(event as Record<string, unknown>), event_id: crypto.randomUUID() };
+        return "id: " + record.event_id + "\ndata: " + JSON.stringify(record) + "\n\n";
+      })
+      .join(""),
+    {
+      headers: { "Content-Type": "text/event-stream" },
+    },
+  );
 }
 
 function renderChat() {
@@ -37,6 +55,7 @@ function renderChat() {
 
 describe("M1 Chat integration", () => {
   beforeEach(() => {
+    window.dispatchEvent(new Event("orion-server-changed"));
     window.localStorage.clear();
     vi.restoreAllMocks();
   });
@@ -133,9 +152,10 @@ describe("M1 Chat integration", () => {
     async (decision) => {
       const stream = { controller: null as ReadableStreamDefaultController<Uint8Array> | null };
       const sendEvent = (type: string, payload: Record<string, unknown>) => {
+        const event_id = crypto.randomUUID();
         stream.controller?.enqueue(
           new TextEncoder().encode(
-            `data: ${JSON.stringify({ type, created_at: "now", payload })}\n\n`,
+            `id: ${event_id}\ndata: ${JSON.stringify({ event_id, type, created_at: "now", payload })}\n\n`,
           ),
         );
       };
@@ -154,7 +174,9 @@ describe("M1 Chat integration", () => {
         if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
         if (path === "/api/sessions")
           return jsonResponse({ session_id: "chat-live", mutation_mode: "read_only" }, 201);
-        if (path === "/api/sessions/chat-live/messages/stream") {
+        if (path === "/api/sessions/chat-live/requests")
+          return jsonResponse({ request_id: "req-live", status: "running" }, 202);
+        if (path === "/api/requests/req-live/stream") {
           return new Response(
             new ReadableStream<Uint8Array>({
               start(streamController) {
@@ -309,7 +331,9 @@ describe("M1 Chat integration", () => {
       if (path === "/api/models") return jsonResponse(configuredModels);
       if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
-      if (path === "/api/sessions/chat-1/messages/stream") {
+      if (path === "/api/sessions/chat-1/requests")
+        return jsonResponse({ request_id: "req-1", status: "running" }, 202);
+      if (path === "/api/requests/req-1/stream") {
         return sseResponse([
           {
             type: "request.accepted",
@@ -380,7 +404,8 @@ describe("M1 Chat integration", () => {
       "/api/models",
       "/api/sessions",
       "/api/sessions",
-      "/api/sessions/chat-1/messages/stream",
+      "/api/sessions/chat-1/requests",
+      "/api/requests/req-1/stream",
       "/api/sessions/chat-1",
       "/api/sessions/chat-1/timeline",
     ]);
@@ -503,7 +528,9 @@ describe("M1 Chat integration", () => {
       if (path === "/api/models") return jsonResponse(configuredModels);
       if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
-      if (path === "/api/sessions/chat-1/messages/stream") {
+      if (path === "/api/sessions/chat-1/requests")
+        return jsonResponse({ request_id: "req-1", status: "running" }, 202);
+      if (path === "/api/requests/req-1/stream") {
         return sseResponse([
           {
             type: "request.accepted",
@@ -641,7 +668,9 @@ describe("M1 Chat integration", () => {
       if (path === "/api/models") return jsonResponse(configuredModels);
       if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
-      if (path === "/api/sessions/chat-1/messages/stream") {
+      if (path === "/api/sessions/chat-1/requests")
+        return jsonResponse({ request_id: "req-1", status: "running" }, 202);
+      if (path === "/api/requests/req-1/stream") {
         return sseResponse([
           {
             type: "assistant.message",
@@ -692,8 +721,12 @@ describe("M1 Chat integration", () => {
       if (path === "/api/models") return jsonResponse(configuredModels);
       if (path === "/api/sessions" && !init?.method) return jsonResponse([]);
       if (path === "/api/sessions") return jsonResponse({ session_id: "chat-1" }, 201);
-      if (path === "/api/sessions/chat-1/messages/stream") {
-        return jsonResponse({ detail: "Model unavailable" }, 502);
+      if (path === "/api/sessions/chat-1/requests")
+        return jsonResponse({ request_id: "req-1", status: "running" }, 202);
+      if (path === "/api/requests/req-1/stream") {
+        return sseResponse([
+          { type: "request.failed", created_at: "now", payload: { message: "Model unavailable" } },
+        ]);
       }
       if (path === "/api/sessions/chat-1")
         return jsonResponse({ session_id: "chat-1", project_id: null });
@@ -717,13 +750,17 @@ describe("M1 Chat integration", () => {
       if (path === "/api/sessions" && !init?.method) return Promise.resolve(jsonResponse([]));
       if (path === "/api/sessions")
         return Promise.resolve(jsonResponse({ session_id: "chat-1" }, 201));
-      if (path === "/api/sessions/chat-1/messages/stream") {
+      if (path === "/api/sessions/chat-1/requests")
+        return jsonResponse({ request_id: "req-1", status: "running" }, 202);
+      if (path === "/api/requests/req-1/stream") {
+        let timer: ReturnType<typeof setTimeout>;
         const body = new ReadableStream({
           start(controller) {
             controller.enqueue(
               new TextEncoder().encode(
-                "data: " +
+                "id: 3b6cadf4-41b3-4f8c-bafc-d1c09d3176ca\ndata: " +
                   JSON.stringify({
+                    event_id: "3b6cadf4-41b3-4f8c-bafc-d1c09d3176ca",
                     type: "request.accepted",
                     created_at: "now",
                     payload: { request_id: "req-1", session_id: "chat-1" },
@@ -731,15 +768,18 @@ describe("M1 Chat integration", () => {
                   "\n\n",
               ),
             );
-            setTimeout(() => controller.close(), 100);
+            timer = setTimeout(() => controller.close(), 100);
+          },
+          cancel() {
+            clearTimeout(timer);
           },
         });
         return Promise.resolve(
           new Response(body, { headers: { "Content-Type": "text/event-stream" } }),
         );
       }
-      if (path === "/api/requests/req-1/cancel")
-        return Promise.resolve(jsonResponse({ status: "cancellation_requested" }));
+      if (path === "/api/sessions/chat-1/request-cancellations")
+        return Promise.resolve(jsonResponse({ request_id: "req-1", status: "cancelled" }));
       if (path === "/api/sessions/chat-1")
         return Promise.resolve(jsonResponse({ session_id: "chat-1", project_id: null }));
       if (path === "/api/sessions/chat-1/timeline") return Promise.resolve(jsonResponse([]));
@@ -756,11 +796,77 @@ describe("M1 Chat integration", () => {
     fireEvent.click(stopButton);
 
     await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([path]) => path === "/api/requests/req-1/cancel")).toBe(
-        true,
-      ),
+      expect(
+        fetchMock.mock.calls.some(
+          ([path]) => path === "/api/sessions/chat-1/request-cancellations",
+        ),
+      ).toBe(true),
     );
     await screen.findByText(/Yêu cầu đã được hủy/);
+  });
+
+  it("does not label a request cancelled when completion wins the Stop race", async () => {
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    const event = (type: string) => {
+      const event_id = crypto.randomUUID();
+      return new TextEncoder().encode(
+        `id: ${event_id}\ndata: ${JSON.stringify({ event_id, type, created_at: "now", payload: {} })}\n\n`,
+      );
+    };
+    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models") return jsonResponse(configuredModels);
+      if (path === "/api/sessions")
+        return init?.method === "POST"
+          ? jsonResponse({ session_id: "chat-race" }, 201)
+          : jsonResponse([]);
+      if (path === "/api/sessions/chat-race/requests")
+        return jsonResponse({ request_id: "req-race", status: "running" }, 202);
+      if (path === "/api/requests/req-race/stream")
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              streamController = controller;
+              controller.enqueue(event("request.accepted"));
+            },
+          }),
+        );
+      if (path === "/api/sessions/chat-race/request-cancellations") {
+        streamController.enqueue(event("request.completed"));
+        streamController.close();
+        return jsonResponse({ request_id: "req-race", status: "completed" }, 202);
+      }
+      if (path === "/api/sessions/chat-race")
+        return jsonResponse({ session_id: "chat-race", project_id: null });
+      if (path === "/api/sessions/chat-race/timeline")
+        return jsonResponse([
+          {
+            item_id: "race-answer",
+            session_id: "chat-race",
+            created_at: "now",
+            kind: "assistant_message",
+            payload: { content: "Completed before Stop." },
+            call_id: null,
+            tool_name: null,
+          },
+        ]);
+      throw new Error("unexpected fixture path");
+    });
+    vi.stubGlobal("fetch", fetcher);
+    renderChat();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Chat input" }), {
+      target: { value: "Complete the request" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await vi.waitFor(() => expect(streamController).toBeDefined());
+    fireEvent.click(await screen.findByRole("button", { name: "Stop generating" }));
+    await screen.findByText("Completed before Stop.");
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Stop generating" })).toBeNull(),
+    );
+    expect(screen.queryByText(/Yêu cầu đã được hủy/)).toBeNull();
+    expect(
+      fetcher.mock.calls.filter(([path]) => path === "/api/sessions/chat-race/requests"),
+    ).toHaveLength(1);
   });
 
   it("uploads into the active Chat session and presents its ready lifecycle state", async () => {

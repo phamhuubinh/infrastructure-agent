@@ -82,6 +82,9 @@ class ToolRunner:
         scope: RuntimeScope,
         cancellation_requested: Callable[[], bool] | None = None,
         authorization_observer: Callable[[bool], None] | None = None,
+        *,
+        request_id: str | None = None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> PreparedTool:
         definition = self._registry.definition(model_call.tool_name)
         if definition is None:
@@ -103,7 +106,7 @@ class ToolRunner:
             )
         if (
             scope.endpoint_id is not None
-            and model_call.tool_name.startswith("endpoint.")
+            and model_call.tool_name.startswith(("endpoint.", "system.command.", "linux."))
             and model_call.tool_name != "endpoint.list"
             and model_call.arguments.get("target_ref") != scope.endpoint_id
         ):
@@ -140,6 +143,8 @@ class ToolRunner:
             arguments=model_call.arguments,
             runtime_scope=scope,
             cancellation_requested=cancellation_requested,
+            request_id=request_id,
+            stop_requested=stop_requested,
         )
         return handler, call
 

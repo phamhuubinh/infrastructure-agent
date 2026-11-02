@@ -239,6 +239,8 @@ def test_contract_validation_rejects_invalid_runtime_data() -> None:
         )
     with pytest.raises(ValidationError):
         ToolResult(call_id="c", tool_name="t", status="error", data=None, error=None, sources=())
+    with pytest.raises(ValidationError, match="requires a ToolError"):
+        ToolResult(call_id="c", tool_name="t", status="error")
     with pytest.raises(ValidationError):
         ToolResult(
             call_id="c",

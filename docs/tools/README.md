@@ -1,58 +1,45 @@
 # Tools
 
-## Rule
+## Target catalog
 
-All registered/configured tools are automatically available to the model in both Chat and Project.
+All registered model-callable schemas are available on the first model turn in
+Chat, Project and Device Chat; execution still requires valid scope/permissions.
 
-There is no manual tool selection in the conversation UI.
+| Family | Role |
+| --- | --- |
+| Knowledge/RAG | Scoped documents and exact reads |
+| Calculator | Deterministic arithmetic |
+| Internet | Search/fetch evidence |
+| Windows/Linux commands | PowerShell/cmd/sh/bash on one exact machine (design target) |
+| Scheduler | Read-only scheduled runtime requests and task management |
+| Optional MCP | Configured external tools in the same registry |
+| Endpoint conveniences | Existing files/process/browser/desktop capabilities |
 
-## Current repository families
+The primary OS contract is [system.command.run/status/cancel](../architecture/SYSTEM_COMMANDS.md),
+through workers or configured Linux SSH. It accepts actual command text rather
+than requiring a specialized operation for every system task.
+Dedicated monitoring adapters are removed from the target catalog; do not add
+replacement product-specific monitoring integrations.
 
-```text
-Knowledge / RAG
-Calculator
-Internet
-Linux
-Grafana
-Zabbix
-Scheduler
-Configured MCP tools
-```
+## Source status
 
-The exact callable functions/capabilities should come from tool registration code, not a duplicated hard-coded semantic router.
+The generic command family is not implemented. Existing fixed Linux operations
+and endpoint aliases are current legacy implementation paths, not proof that
+PowerShell/cmd/bash are accepted. Dedicated monitoring code also remains until
+a source migration changes registration/configuration/tests.
+See [implementation inventory](../development/IMPLEMENTATION_STATUS.md).
 
-## Model-driven usage
+## Model-driven workflow
 
-Examples:
+A user may ask to inspect Windows services, find Linux disk usage or fix a
+configuration. The model chooses a suitable command for the actual shell and
+machine, receives bounded stdout/stderr and exit/timeout state, and verifies the
+relevant result. It does not need a separate AI agent or an intent router.
 
-```text
-"Summarize the attached proposal."
-→ RAG/document tools
+Raw commands are mutation-capable. read_only and scheduler cannot dispatch them;
+confirm binds the exact command/target, while auto obeys explicit target capability
+and OS rights. Status observations never relaunch the process.
 
-"Compare the project requirement with current Internet product specs."
-→ project RAG + Internet
-
-"Calculate usable capacity."
-→ calculator
-
-"Check CPU/memory on this configured host."
-→ Linux
-
-"Compare actual latency to the requirement."
-→ Project RAG + Grafana
-
-"Check active problems for that monitored host."
-→ Zabbix
-```
-
-Orion dispatches what the model chooses.
-
-Scheduler tools create and manage persisted tasks in the current Chat/Project scope.
-Their unattended executions always use the same Chat runtime in read-only mode.
-See [Scheduler v1](../architecture/SCHEDULER.md) for tool schemas and scheduling rules.
-
-[MCP v1](../operations/MCP.md) connects explicitly allowlisted external tools through
-the same canonical registry and mutation authorization. Orion is the MCP client/host;
-server prompts/resources are not a Chat context or RAG plane.
-
-- [Endpoint tools](ENDPOINTS.md): paired Windows/Linux system, files, processes, browser and desktop.
+[Endpoint conveniences](ENDPOINTS.md) and [legacy fixed Linux tools](LINUX.md) remain
+implementation references. [MCP](../operations/MCP.md) and
+[Scheduler](../architecture/SCHEDULER.md) retain their existing scope and policy.

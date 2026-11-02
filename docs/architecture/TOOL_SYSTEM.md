@@ -34,7 +34,7 @@ validate ToolDefinition contracts
        ↓
 freeze the canonical registry
        ↓
-all registered model-callable schemas on the first Chat/Project model turn
+all registered model-callable schemas on the first Chat/Project/Device Chat model turn
 ```
 
 ## Runtime
@@ -70,6 +70,8 @@ A tool call may need deterministic context that must not be model-selected, for 
 ```text
 session_id
 active project_id
+bound endpoint_id when in Device Chat
+principal_id / workspace_id
 current attachment identities
 ```
 
@@ -90,18 +92,21 @@ Knowledge tool searches only sources valid for S1 / Project A.
 
 The model chooses the query. Orion binds the application's actual scope.
 
-## Current families
+## Target families and legacy source
 
-The current repository contains:
+The target registry contains common task tools plus Windows/Linux commands:
 
 - Knowledge/RAG;
 - calculator;
 - Internet;
-- Linux;
-- Grafana;
-- Zabbix.
+- Windows/Linux system.command.run/status/cancel (target, not yet implemented);
+- scheduler management;
+- configured MCP proxies;
+- endpoint operations when enabled.
 
-These should join the same model-facing registry rather than separate semantic pipelines.
+These join the same model-facing registry rather than semantic pipelines.
+Current source still registers legacy fixed Linux and dedicated monitoring tools;
+that is a migration gap, not the target catalog. See [Commands](SYSTEM_COMMANDS.md).
 
 ## Configuration
 
@@ -125,8 +130,10 @@ Tool results should use the canonical `ToolResult` shape and be:
 
 Large payloads should use selective reads, references, reduction, or retrieval rather than blindly flooding the model context.
 
-Canonical tool results remain complete in persistence and public timeline APIs. The
-Chat runtime may create a generic bounded model-visible projection for a model turn.
+Ordinary canonical tool results remain complete in persistence and public timeline
+APIs. Endpoint payloads have an explicit privacy exception: current-request evidence
+is transient, with payload-omitted markers and safe metadata persisted instead.
+The Chat runtime may create a generic bounded model-visible projection for a model turn.
 That projection preserves valid tool-call/result pairing, exact citation source
 identities, errors, collection counts, and operation outcome metadata, and explicitly
 describes any omitted structure. Duplicate provider tool-call IDs are rejected before
@@ -141,6 +148,14 @@ The current target does not introduce:
 - `capability.search`;
 - user-selected or integration-routed tool exposure;
 - product-level per-request tool-call quotas.
+
+## Skills
+
+A skill supplies reusable trusted task instructions over existing tools, not
+another registry, AI runtime or permission path. See the [target skill
+contract](SKILLS.md). A general skill loader/catalog has not been established by
+the current source inventory; do not describe skill execution as a verified
+feature. Tool validation/scope/authorization remain complete with or without a skill.
 
 ## MCP client/host composition
 

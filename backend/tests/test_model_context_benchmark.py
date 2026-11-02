@@ -74,7 +74,9 @@ async def test_live_benchmark_uses_persisted_profile_and_real_backend_boundary(
             )
 
     profile = store.active_model_config()
-    monkeypatch.setattr(benchmark.SQLiteStore, "read_active_model_config", lambda path: profile)
+    monkeypatch.setattr(
+        benchmark.SQLiteStore, "read_active_model_binding", lambda path: (profile, None)
+    )
     monkeypatch.setattr(benchmark, "OpenAICompatibleBackend", Provider)
     # Serializer remains real: patch only the factory by preserving the static method.
     from orion.models.providers.openai_compatible import OpenAICompatibleBackend

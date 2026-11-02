@@ -18,11 +18,12 @@ cd .\orion-<version>-windows-x64
 orion
 ```
 
-Python 3.12+ is required during release installation. A normal install
-downloads and verifies the pinned ~487 MB E5 embeddings asset when it is absent, so the first
-install needs network access. The model is stored as application data outside the repository;
-reruns reuse the verified cache. Installation does not run semantic indexing or enable hybrid
-retrieval. `orion model install embeddings` remains available to repair or reprovision the model.
+Python 3.12+ is required during release installation. The first install needs network
+access for uncached dependencies. E5 is optional: use `--with-embeddings` on Linux or
+`-WithEmbeddings` on Windows to install semantic dependencies and the pinned model.
+The model is stored as application data outside the repository; reruns reuse the verified
+cache. Installation does not run semantic indexing or enable hybrid retrieval.
+`orion model install embeddings` repairs or reprovisions an opted-in model.
 
 Orion opens in your default browser when it is ready.
 

@@ -43,7 +43,8 @@ describe("M1 API client", () => {
       ]);
       expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "POST" });
       expect(fetchMock.mock.calls[1][1].body).toBe('{"password":"private-password"}');
-      expect(fetchMock.mock.calls[1][1].credentials).toBeUndefined();
+      expect(fetchMock.mock.calls[1][1].credentials).toBe("same-origin");
+      expect(fetchMock.mock.calls[1][1].redirect).toBe("error");
     } finally {
       window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
     }

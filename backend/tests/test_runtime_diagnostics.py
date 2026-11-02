@@ -30,6 +30,36 @@ from orion.contracts import (
 from orion.tool_runtime.registry import ToolRegistryBuilder
 
 
+def test_diagnostics_bound_total_requests_and_evict_omission_metadata() -> None:
+    sink = BoundedModelInputDiagnostics(requests_limit=2, records_limit=1)
+    sink.record({"request_id": "first", "phase": "model"})
+    sink.record({"request_id": "first", "phase": "model"})
+    sink.record({"request_id": "second", "phase": "model"})
+    # A still-active request stays recent even when its record cap was reached.
+    sink.record({"request_id": "first", "phase": "tool"})
+    sink.record({"request_id": "third", "phase": "model"})
+    assert sink.records("second")["capture_available"] is False
+    assert sink.records("first")["omitted_record_count"] == 2
+    sink.record({"request_id": "fourth", "phase": "model"})
+    assert sink.records("first")["capture_available"] is False
+    assert sink.records("first")["omitted_record_count"] == 0
+    for index in range(100):
+        sink.record({"request_id": str(index), "phase": "model"})
+    assert len(sink._records) == 2
+    assert len(sink._omitted_records) <= 2
+    assert sink.records("missing")["records"] == []
+    assert len(sink._records) == 2
+
+
+@pytest.mark.parametrize(
+    "field", ["text_limit", "canonical_result_limit", "records_limit", "requests_limit"]
+)
+@pytest.mark.parametrize("value", [0, -1, True, 1.5])
+def test_diagnostic_limits_reject_invalid_bounds(field, value) -> None:
+    with pytest.raises(ValueError, match="positive integers"):
+        BoundedModelInputDiagnostics(**{field: value})
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("correction_succeeds", [True, False])
 async def test_citation_allowlist_and_rejection_ids_are_recorded_without_draft_content(

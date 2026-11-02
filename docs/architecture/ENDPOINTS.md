@@ -1,5 +1,7 @@
 # Endpoint runtime, persistence and threat model
 
+> This page describes the existing structured endpoint implementation. [ADR 0017](../decisions/0017-windows-linux-command-focus.md) replaces the target no-shell restriction with explicit Windows/Linux command capability; protocol, authorization and worker command changes are still required. See [command lifecycle](SYSTEM_COMMANDS.md).
+
 See [ADR 0015](../decisions/0015-paired-endpoint-execution.md) and
 [operations](../operations/ENDPOINTS.md). Composition creates EndpointStore and
 EndpointManager, registers endpoint ToolDefinitions if enabled, freezes the

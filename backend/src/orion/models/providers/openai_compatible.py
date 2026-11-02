@@ -3,27 +3,19 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from contextlib import aclosing
 from typing import Any
 
 import httpx
 
 from orion.contracts import (
-    AssistantDelta,
-    AssistantMessage,
     ContextMessage,
-    ModelToolCall,
-    ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
-    ReasoningDelta,
-    ToolCallDelta,
     ToolDefinition,
-    citation_source_ref_ids_from_content,
     freeze_json,
 )
 from orion.models.backend import (
@@ -34,16 +26,36 @@ from orion.models.backend import (
     ModelStreamEvent,
     ModelStreamSettings,
 )
+from orion.models.providers.chat_completions import (
+    ChatCompletionsDecoder,
+)
+from orion.models.providers.chat_completions import (
+    PendingToolCall as _PendingToolCall,
+)
+from orion.models.providers.transport import (
+    SSEEvent,
+    bounded_lines,
+    next_or_cancel,
+    sse_events,
+)
 
 
-@dataclass
-class _PendingToolCall:
-    call_id: str = ""
-    tool_name: str = ""
-    arguments: str = ""
+class OpenAICompatibleBackend(ChatCompletionsDecoder, ModelBackend):
+    def validate_settings(self, settings: ModelSettings) -> None:
+        if settings.provider_type != "openai_compatible":
+            raise ModelBackendError(
+                "This adapter only supports explicitly compatible profiles.",
+                kind=ModelBackendErrorKind.UNSUPPORTED,
+            )
+        if (
+            settings.reasoning_mode != "auto"
+            and os.getenv("ORION_OPENAI_COMPAT_REASONING_TEMPLATE_KWARGS") != "1"
+        ):
+            raise ModelBackendError(
+                "The compatible server has no configured reasoning control support.",
+                kind=ModelBackendErrorKind.UNSUPPORTED,
+            )
 
-
-class OpenAICompatibleBackend(ModelBackend):
     def __init__(self, stream_settings: ModelStreamSettings | None = None) -> None:
         self._cached_tools: tuple[ToolDefinition, ...] | None = None
         self._cached_provider_tools: tuple[dict[str, Any], ...] = ()
@@ -59,6 +71,7 @@ class OpenAICompatibleBackend(ModelBackend):
         """Translate provider SSE chunks without exposing native provider objects."""
         if cancellation.is_set():
             raise asyncio.CancelledError
+        self.validate_settings(settings)
         headers = {"Content-Type": "application/json"}
         if settings.api_key:
             headers["Authorization"] = f"Bearer {settings.api_key}"
@@ -85,31 +98,55 @@ class OpenAICompatibleBackend(ModelBackend):
         calls: dict[int, _PendingToolCall] = {}
         usage: ModelUsage | None = None
         stream_finished = False
+        response_started = False
         try:
-            async with httpx.AsyncClient(timeout=self._stream_settings.timeout_seconds) as client:
+            timeout = self._stream_settings.timeout_seconds
+            if settings.profile is not None:
+                timeout = settings.profile.transport_timeout_seconds
+                encoded = json.dumps(
+                    payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+                if len(encoded) > settings.profile.request_max_bytes:
+                    raise ModelBackendError(
+                        "Model request exceeds the configured profile byte limit.",
+                        kind=ModelBackendErrorKind.UNSUPPORTED,
+                    )
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    response_started = True
                     response.raise_for_status()
-                    lines = response.aiter_lines().__aiter__()
-                    while True:
-                        line = await self._next_line_or_cancel(lines, cancellation)
-                        if line is None:
-                            break
-                        if not line.startswith("data:"):
-                            continue
-                        raw_chunk = line[5:].strip()
-                        if raw_chunk == "[DONE]":
-                            stream_finished = True
-                            break
-                        if not raw_chunk:
-                            continue
-                        chunk = self._parse_chunk(raw_chunk)
-                        self._raise_for_stream_error(chunk)
-                        stream_finished = self._chunk_has_finish_reason(chunk) or stream_finished
-                        chunk_usage = self._usage_from_chunk(chunk)
-                        if chunk_usage is not None:
-                            usage = chunk_usage
-                        for event in self._normalize_chunk(chunk, content_parts, calls):
-                            yield event
+                    async with aclosing(
+                        sse_events(
+                            bounded_lines(response.aiter_bytes(chunk_size=16_384), cancellation)
+                        )
+                    ) as frames:
+                        while True:
+                            frame = await self._next_frame_or_cancel(frames, cancellation)
+                            if frame is None:
+                                break
+                            raw_chunk = frame.data.strip()
+                            if raw_chunk == "[DONE]":
+                                stream_finished = True
+                                break
+                            if not raw_chunk:
+                                continue
+                            chunk = self._parse_chunk(raw_chunk)
+                            self._raise_for_stream_error(chunk)
+                            was_finished = stream_finished
+                            stream_finished = (
+                                self._chunk_has_finish_reason(chunk) or stream_finished
+                            )
+                            chunk_usage = self._usage_from_chunk(chunk)
+                            if chunk_usage is not None:
+                                usage = chunk_usage
+                            normalized = tuple(self._normalize_chunk(chunk, content_parts, calls))
+                            if was_finished and normalized:
+                                raise ModelBackendError(
+                                    "Provider emitted content after completing the turn.",
+                                    kind=ModelBackendErrorKind.PROTOCOL,
+                                )
+                            for event in normalized:
+                                yield event
             if not stream_finished:
                 raise ModelBackendError(
                     "OpenAI-compatible model stream ended before completion.",
@@ -120,7 +157,10 @@ class OpenAICompatibleBackend(ModelBackend):
         except ModelBackendError:
             raise
         except httpx.HTTPError as error:
-            raise self._transport_error(error) from error
+            classified = self._transport_error(error)
+            if response_started:
+                classified.retry_safe = False
+            raise classified from error
         except ValueError as error:
             raise ModelBackendError(
                 "OpenAI-compatible model stream was malformed.",
@@ -132,58 +172,12 @@ class OpenAICompatibleBackend(ModelBackend):
     async def _next_line_or_cancel(
         self, lines: AsyncIterator[str], cancellation: asyncio.Event
     ) -> str | None:
-        async def next_or_none() -> str | None:
-            try:
-                return await anext(lines)
-            except StopAsyncIteration:
-                return None
+        return await next_or_cancel(lines, cancellation)
 
-        async def cancellation_signal() -> str | None:
-            await cancellation.wait()
-            return None
-
-        next_line = asyncio.create_task(next_or_none())
-        cancelled = asyncio.create_task(cancellation_signal())
-        done, _ = await asyncio.wait({next_line, cancelled}, return_when=asyncio.FIRST_COMPLETED)
-        if cancelled in done:
-            next_line.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await next_line
-            raise asyncio.CancelledError
-        cancelled.cancel()
-        return await next_line
-
-    @staticmethod
-    def _parse_chunk(raw_chunk: str) -> dict[str, Any]:
-        chunk = json.loads(raw_chunk)
-        if not isinstance(chunk, dict):
-            raise ValueError("provider stream chunk is not an object")
-        return chunk
-
-    @staticmethod
-    def _raise_for_stream_error(chunk: dict[str, Any]) -> None:
-        if chunk.get("error") is not None or chunk.get("object") == "error":
-            raise ModelBackendError(
-                "OpenAI-compatible provider reported an in-stream error.",
-                kind=ModelBackendErrorKind.UPSTREAM_STREAM_ERROR,
-            )
-
-    @staticmethod
-    def _chunk_has_finish_reason(chunk: dict[str, Any]) -> bool:
-        choices = chunk.get("choices", [])
-        if not isinstance(choices, list):
-            raise ValueError("provider stream choices are not a list")
-        if not choices:
-            return False
-        choice = choices[0]
-        if not isinstance(choice, dict):
-            raise ValueError("provider stream choice is not an object")
-        finish_reason = choice.get("finish_reason")
-        if finish_reason is None:
-            return False
-        if not isinstance(finish_reason, str):
-            raise ValueError("provider stream finish reason is invalid")
-        return True
+    async def _next_frame_or_cancel(
+        self, frames: AsyncIterator[SSEEvent], cancellation: asyncio.Event
+    ) -> SSEEvent | None:
+        return await next_or_cancel(frames, cancellation)
 
     @staticmethod
     def _transport_error(error: httpx.HTTPError) -> ModelBackendError:
@@ -191,6 +185,7 @@ class OpenAICompatibleBackend(ModelBackend):
             return ModelBackendError(
                 "OpenAI-compatible model stream timed out.",
                 kind=ModelBackendErrorKind.TIMEOUT,
+                retry_safe=isinstance(error, httpx.ConnectTimeout),
             )
         if isinstance(error, httpx.HTTPStatusError):
             return ModelBackendError(
@@ -206,139 +201,9 @@ class OpenAICompatibleBackend(ModelBackend):
             return ModelBackendError(
                 "OpenAI-compatible model connection failed.",
                 kind=ModelBackendErrorKind.CONNECTION,
+                retry_safe=isinstance(error, httpx.ConnectError),
             )
         return ModelBackendError("OpenAI-compatible model stream failed.")
-
-    def _normalize_chunk(
-        self,
-        chunk: dict[str, Any],
-        content_parts: list[str],
-        calls: dict[int, _PendingToolCall],
-    ) -> tuple[AssistantDelta | ReasoningDelta | ToolCallDelta, ...]:
-        try:
-            choices = chunk.get("choices", [])
-            if not choices:
-                return ()
-            delta = choices[0].get("delta", {})
-            if not isinstance(delta, dict):
-                raise ValueError("provider stream delta is not an object")
-            events: list[AssistantDelta | ReasoningDelta | ToolCallDelta] = []
-            for field_name in ("reasoning", "reasoning_content"):
-                reasoning = delta.get(field_name)
-                if reasoning is not None:
-                    if not isinstance(reasoning, str):
-                        raise ValueError("reasoning delta is not a string")
-                    if reasoning:
-                        events.append(ReasoningDelta(content=reasoning))
-            content = delta.get("content")
-            if content is not None:
-                if not isinstance(content, str):
-                    raise ValueError("assistant delta is not a string")
-                if content:
-                    content_parts.append(content)
-                    events.append(AssistantDelta(content=content))
-            raw_calls = delta.get("tool_calls") or []
-            if not isinstance(raw_calls, list):
-                raise ValueError("tool call deltas are not a list")
-            for raw_call in raw_calls:
-                if not isinstance(raw_call, dict):
-                    raise ValueError("tool call delta is not an object")
-                index = raw_call.get("index", 0)
-                if not isinstance(index, int) or index < 0:
-                    raise ValueError("tool call delta index is invalid")
-                pending = calls.setdefault(index, _PendingToolCall())
-                call_id = raw_call.get("id")
-                if call_id is not None:
-                    if not isinstance(call_id, str):
-                        raise ValueError("tool call ID is invalid")
-                    pending.call_id += call_id
-                function = raw_call.get("function") or {}
-                if not isinstance(function, dict):
-                    raise ValueError("tool call function delta is invalid")
-                tool_name = function.get("name")
-                if tool_name is not None:
-                    if not isinstance(tool_name, str):
-                        raise ValueError("tool name is invalid")
-                    pending.tool_name += tool_name
-                arguments_delta = function.get("arguments")
-                if arguments_delta is not None:
-                    if not isinstance(arguments_delta, str):
-                        raise ValueError("tool arguments delta is invalid")
-                    pending.arguments += arguments_delta
-                events.append(
-                    ToolCallDelta(
-                        index=index,
-                        call_id=call_id,
-                        tool_name=tool_name,
-                        arguments_delta=arguments_delta or "",
-                    )
-                )
-            return tuple(events)
-        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
-            raise ModelBackendError(
-                "OpenAI-compatible model stream was malformed.",
-                kind=ModelBackendErrorKind.MALFORMED_STREAM,
-            ) from error
-
-    @staticmethod
-    def _usage_from_chunk(chunk: dict[str, Any]) -> ModelUsage | None:
-        raw_usage = chunk.get("usage")
-        if raw_usage is None:
-            return None
-        if not isinstance(raw_usage, dict):
-            raise ValueError("provider usage is not an object")
-        input_tokens = raw_usage.get("prompt_tokens")
-        output_tokens = raw_usage.get("completion_tokens")
-        if (
-            type(input_tokens) is not int
-            or input_tokens < 0
-            or type(output_tokens) is not int
-            or output_tokens < 0
-        ):
-            raise ValueError("provider usage is invalid")
-        return ModelUsage(input_tokens=input_tokens, output_tokens=output_tokens)
-
-    @staticmethod
-    def _build_turn(content_parts: list[str], calls: dict[int, _PendingToolCall]) -> ModelTurn:
-        try:
-            tool_calls: list[ModelToolCall] = []
-            call_ids: set[str] = set()
-            for index in sorted(calls):
-                pending = calls[index]
-                if not pending.call_id or not pending.tool_name:
-                    raise ValueError("streamed tool call is incomplete")
-                if pending.call_id in call_ids:
-                    raise ValueError("streamed tool call ID is duplicated")
-                call_ids.add(pending.call_id)
-                arguments = json.loads(pending.arguments or "{}")
-                if not isinstance(arguments, dict):
-                    raise ValueError("tool arguments are not an object")
-                tool_calls.append(
-                    ModelToolCall(
-                        call_id=pending.call_id,
-                        tool_name=pending.tool_name,
-                        arguments=arguments,
-                    )
-                )
-            content = "".join(content_parts)
-            if not content and not tool_calls:
-                raise ModelBackendError(
-                    "OpenAI-compatible model completed without assistant content or tool calls.",
-                    kind=ModelBackendErrorKind.EMPTY_TURN,
-                )
-            citation_refs = citation_source_ref_ids_from_content(content)
-            assistant = None
-            if content:
-                assistant = AssistantMessage(
-                    content=content,
-                    citation_evidence_refs=citation_refs,
-                )
-            return ModelTurn(assistant=assistant, tool_calls=tuple(tool_calls))
-        except (TypeError, ValueError, json.JSONDecodeError) as error:
-            raise ModelBackendError(
-                "OpenAI-compatible model stream was malformed.",
-                kind=ModelBackendErrorKind.MALFORMED_STREAM,
-            ) from error
 
     @staticmethod
     def _provider_messages(messages: tuple[ContextMessage, ...]) -> list[dict[str, Any]]:

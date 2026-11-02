@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from typing import Any
 
+import anyio
 import httpx2
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -33,6 +35,7 @@ from orion.tool_runtime.registry import ToolRegistration
 MAX_RESULT_BYTES = 64 * 1024
 MAX_DISCOVERED_TOOLS = 256
 ClientFactory = Callable[[ServerConfig, AsyncExitStack, dict[str, str]], Any]
+SUPPORTED_REVISIONS = frozenset({"2025-11-25", "2026-07-28"})
 
 
 class _NoWireLogs(logging.Filter):
@@ -51,24 +54,35 @@ class _Connection:
     discovered: tuple[str, ...] = ()
     exposed: tuple[str, ...] = ()
     last_error: str | None = None
+    protocol_version: str | None = None
+    snapshot_sha256: str | None = None
+    owner: asyncio.Task[None] | None = field(default=None, repr=False)
+    stop: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+    inflight: int = 0
+    client_output_schemas: dict[str, Any] = field(default_factory=dict, repr=False)
+    cancel_scope: anyio.CancelScope | None = field(default=None, repr=False)
 
 
 class MCPManager:
-    """One startup snapshot; no reconnect, prompt plane or mutation retry.
+    """One immutable tool snapshot with explicit, validated transport reconnection.
 
-    A single owner task enters and exits SDK context managers on the application
-    event loop. This preserves AnyIO task/cancel-scope ownership across startup,
-    request tasks and shutdown, without an auxiliary loop or asyncio.run().
+    Each server owner enters/exits its SDK contexts on the application event loop.
+    This preserves AnyIO scope ownership across startup, reconnect and shutdown
+    without an auxiliary loop or a second model runtime.
     """
 
     def __init__(self, config: MCPConfig, client_factory: ClientFactory | None = None) -> None:
-        self._config = config
+        # Caller-owned nested lists/dicts must not change the startup authority.
+        self._config = MCPConfig.model_validate(config.model_dump())
+        config = self._config
         self._factory = client_factory or self._sdk_client
         self._connections: dict[str, _Connection] = {}
         self._secrets: tuple[str, ...] = ()
         self._owner: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._registrations: tuple[ToolRegistration, ...] = ()
+        self._ready = False
         # Resolve all required variables before launching any subprocess/HTTP client.
         for server in config.servers:
             values = resolve_environment(
@@ -130,6 +144,7 @@ class MCPManager:
             transport = streamable_http_client(server.url, http_client=http)
         return Client(
             transport,
+            mode=server.protocol_mode,
             read_timeout_seconds=server.timeout_seconds,
             cache=None,
             input_required_max_rounds=0,
@@ -157,6 +172,7 @@ class MCPManager:
                 raise
             category = error.category if isinstance(error, MCPConfigurationError) else "connection"
             raise MCPConfigurationError(category) from None
+        self._ready = True
         return self._registrations
 
     async def _serve(self, ready: asyncio.Future[None]) -> None:
@@ -169,17 +185,12 @@ class MCPManager:
         for logger in loggers:
             logger.addFilter(wire_filter)
         try:
-            async with AsyncExitStack() as stack:
-                registrations: list[ToolRegistration] = []
-                for connection in self._connections.values():
-                    connection.client = await stack.enter_async_context(
-                        await self._factory(connection.config, stack, connection.values)
-                    )
-                    registrations.extend(await self._discover(connection))
-                    connection.state = "connected"
-                self._registrations = tuple(registrations)
-                ready.set_result(None)
-                await self._stop.wait()
+            registrations: list[ToolRegistration] = []
+            for connection in self._connections.values():
+                registrations.extend(await self._connect(connection))
+            self._registrations = tuple(registrations)
+            ready.set_result(None)
+            await self._stop.wait()
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -190,12 +201,173 @@ class MCPManager:
             if not ready.done():
                 ready.set_exception(MCPConfigurationError(category))
         finally:
+            self._ready = False
             for connection in self._connections.values():
-                connection.client = None
-                if connection.state == "connected":
-                    connection.state = "closed"
+                async with connection.lock:
+                    await self._disconnect(connection)
             for logger in loggers:
                 logger.removeFilter(wire_filter)
+
+    async def _connection_owner(
+        self, connection: _Connection, ready: asyncio.Future[tuple[ToolRegistration, ...]]
+    ) -> None:
+        # SDK transports shield bounded process cleanup with AnyIO scopes. Repeated
+        # native Task.cancel() during that cleanup can defeat those shields.
+        with anyio.CancelScope() as scope:
+            connection.cancel_scope = scope
+            await self._connection_session(connection, ready)
+        connection.cancel_scope = None
+        if not ready.done():
+            ready.cancel()
+
+    async def _connection_session(
+        self, connection: _Connection, ready: asyncio.Future[tuple[ToolRegistration, ...]]
+    ) -> None:
+        try:
+            async with AsyncExitStack() as stack:
+                connection.client = await stack.enter_async_context(
+                    await self._factory(connection.config, stack, connection.values)
+                )
+                revision = connection.client.protocol_version
+                if revision not in SUPPORTED_REVISIONS:
+                    raise MCPConfigurationError("protocol_revision")
+                registrations = await self._discover(connection)
+                digest = self._snapshot(connection, revision, registrations)
+                if connection.snapshot_sha256 not in {None, digest}:
+                    raise MCPConfigurationError("snapshot_changed")
+                connection.snapshot_sha256 = digest
+                connection.protocol_version = revision
+                connection.state, connection.last_error = "connected", None
+                ready.set_result(tuple(registrations))
+                await connection.stop.wait()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            category = error.category if isinstance(error, MCPConfigurationError) else "connection"
+            connection.state, connection.last_error = "failed", category
+            if not ready.done():
+                ready.set_exception(MCPConfigurationError(category))
+        finally:
+            connection.client = None
+            if connection.state in {"connected", "connecting", "disconnecting"}:
+                connection.state = "closed"
+
+    @staticmethod
+    def _snapshot(
+        connection: _Connection, revision: str, registrations: list[ToolRegistration]
+    ) -> str:
+        signature = {
+            "revision": revision,
+            "tools": [entry.definition.model_dump(mode="json") for entry in registrations],
+            "outputs": connection.client_output_schemas,
+        }
+        return hashlib.sha256(
+            json.dumps(signature, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    async def _connect(self, connection: _Connection) -> tuple[ToolRegistration, ...]:
+        connection.stop = asyncio.Event()
+        connection.state = "connecting"
+        ready: asyncio.Future[tuple[ToolRegistration, ...]] = (
+            asyncio.get_running_loop().create_future()
+        )
+        connection.owner = asyncio.create_task(self._connection_owner(connection, ready))
+        try:
+            return await asyncio.wait_for(asyncio.shield(ready), connection.config.timeout_seconds)
+        except BaseException:
+            if connection.cancel_scope is not None:
+                connection.cancel_scope.cancel()
+            else:
+                connection.owner.cancel()
+            await asyncio.shield(asyncio.gather(connection.owner, return_exceptions=True))
+            if ready.done() and not ready.cancelled():
+                ready.exception()
+            else:
+                ready.cancel()
+            raise
+
+    async def _disconnect(self, connection: _Connection) -> None:
+        owner = connection.owner
+        if owner is None:
+            return
+        if owner.done():
+            await asyncio.gather(owner, return_exceptions=True)
+            return
+        if connection.state == "connected":
+            connection.state = "disconnecting"
+        connection.stop.set()
+        try:
+            await asyncio.wait_for(asyncio.shield(owner), 10)
+        except TimeoutError:
+            if connection.cancel_scope is not None:
+                connection.cancel_scope.cancel()
+            else:
+                owner.cancel()
+            done, _ = await asyncio.wait({owner}, timeout=5)
+            if not done:
+                owner.cancel()
+                done, _ = await asyncio.wait({owner}, timeout=5)
+            if not done:
+                raise MCPConfigurationError("shutdown") from None
+            await asyncio.gather(owner, return_exceptions=True)
+
+    def _administrative_connection(self, server_id: str) -> _Connection:
+        connection = self._connections.get(server_id)
+        if (
+            not self._ready
+            or self._owner is None
+            or self._owner.done()
+            or self._stop.is_set()
+            or connection is None
+        ):
+            raise MCPConfigurationError("lifecycle")
+        return connection
+
+    async def connect(self, server_id: str) -> None:
+        """Operator action only; revalidate the exact snapshot and never replay a call."""
+        connection = self._administrative_connection(server_id)
+        async with connection.lock:
+            if connection.inflight:
+                raise MCPConfigurationError("busy")
+            if connection.state == "connected":
+                return
+            await self._disconnect(connection)
+            self._administrative_connection(server_id)
+            await self._connect(connection)
+
+    async def disconnect(self, server_id: str) -> None:
+        connection = self._administrative_connection(server_id)
+        async with connection.lock:
+            if connection.inflight:
+                raise MCPConfigurationError("busy")
+            await self._disconnect(connection)
+
+    async def test(self, server_id: str) -> None:
+        """Read-only discovery test; no configured tool or server prompt is executed."""
+        connection = self._administrative_connection(server_id)
+        async with connection.lock:
+            if connection.inflight:
+                raise MCPConfigurationError("busy")
+            if connection.client is None or connection.state != "connected":
+                raise MCPConfigurationError("unavailable")
+            connection.state = "testing"
+            try:
+                async with asyncio.timeout(connection.config.timeout_seconds):
+                    registrations = await self._discover(connection)
+                if self._snapshot(
+                    connection, connection.client.protocol_version, registrations
+                ) != (connection.snapshot_sha256):
+                    raise MCPConfigurationError("snapshot_changed")
+                connection.state = "connected"
+            except asyncio.CancelledError:
+                connection.state, connection.last_error = "failed", "test_cancelled"
+                raise
+            except Exception as error:
+                category = (
+                    error.category if isinstance(error, MCPConfigurationError) else "connection"
+                )
+                connection.state, connection.last_error = "failed", category
+                raise MCPConfigurationError(category) from None
 
     async def _discover(self, connection: _Connection) -> list[ToolRegistration]:
         tools: dict[str, Any] = {}
@@ -220,6 +392,7 @@ class MCPManager:
             seen_cursors.add(cursor)
         connection.discovered = tuple(sorted(self._safe(name)[:128] for name in tools))
         registrations: list[ToolRegistration] = []
+        connection.client_output_schemas = {}
         for remote, policy in connection.config.tools.items():
             tool = tools.get(remote)
             if tool is None:
@@ -239,6 +412,7 @@ class MCPManager:
                 validate_output_schema(tool.output_schema)
                 if self._safe(tool.output_schema) != tool.output_schema:
                     raise MCPConfigurationError("secret_in_schema")
+            connection.client_output_schemas[remote] = tool.output_schema
             name = f"mcp.{connection.config.server_id}.{policy.alias or remote}"
             definition = ToolDefinition(
                 name=name,
@@ -261,6 +435,17 @@ class MCPManager:
         return registrations
 
     async def _call(
+        self, connection: _Connection, remote: str, mutation: bool, call: ToolCall
+    ) -> ToolResult:
+        if connection.inflight >= 8:
+            return ToolResult.failure(call.call_id, call.tool_name, "unavailable", "MCP is busy.")
+        connection.inflight += 1
+        try:
+            return await self._invoke(connection, remote, mutation, call)
+        finally:
+            connection.inflight -= 1
+
+    async def _invoke(
         self, connection: _Connection, remote: str, mutation: bool, call: ToolCall
     ) -> ToolResult:
         if call.cancellation_requested and call.cancellation_requested():
@@ -333,20 +518,27 @@ class MCPManager:
                 "discovered_tools": list(c.discovered),
                 "exposed_tools": list(c.exposed),
                 "last_error": c.last_error,
+                "protocol_version": c.protocol_version,
+                "snapshot_sha256": c.snapshot_sha256,
+                "inflight": c.inflight,
             }
             for c in self._connections.values()
         ]
 
     async def close(self) -> None:
+        self._ready = False
         if self._owner is None:
             return
         self._stop.set()
+        for connection in self._connections.values():
+            if (connection.inflight or connection.lock.locked()) and connection.cancel_scope:
+                connection.cancel_scope.cancel()
         if self._owner.done():
             await asyncio.gather(self._owner, return_exceptions=True)
             return
         try:
             await asyncio.wait_for(
-                asyncio.shield(self._owner), max(10, len(self._connections) * 10)
+                asyncio.shield(self._owner), max(30, len(self._connections) * 25)
             )
         except TimeoutError:
             self._owner.cancel()

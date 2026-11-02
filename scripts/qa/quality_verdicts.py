@@ -320,6 +320,16 @@ def quality_gate(
     if not isinstance(cases, list):
         raise QualityArtifactError("quality aggregate has no cases")
     failures: list[str] = []
+    if not cases:
+        failures.append("no execution cases were assessed")
+    known_statuses = {"PASS", "FAIL", "SKIP", "MANUAL_REVIEW", "ABORTED_INFRA"}
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("execution_status"), str)
+        or item["execution_status"] not in known_statuses
+        for item in cases
+    ):
+        failures.append("invalid or unknown execution status")
     automatic_failures = [
         item
         for item in cases
@@ -425,7 +435,13 @@ def main(arguments: list[str] | None = None) -> int:
             output = aggregate
         serialized = json.dumps(output, indent=2, ensure_ascii=False) + "\n"
         if args.output is not None:
-            args.output.write_text(serialized, encoding="utf-8")
+            try:
+                with args.output.open("x", encoding="utf-8") as destination:
+                    destination.write(serialized)
+            except OSError as error:
+                raise QualityArtifactError(
+                    "overlay output must be a new writable file; existing evidence is preserved"
+                ) from error
         sys.stdout.write(serialized)
         return 0 if args.command != "gate" or output["passed"] else 1
     except QualityArtifactError as error:

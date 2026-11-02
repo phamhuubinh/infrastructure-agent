@@ -482,7 +482,11 @@ async def test_adapter_default_auto_preserves_payload_and_normalizes_stream_usag
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield 'data: {"choices":[{"delta":{"content":"Answer."}}]}'
             yield 'data: {"choices":[],"usage":{"prompt_tokens":1824,"completion_tokens":216}}'
             yield "data: [DONE]"
@@ -545,7 +549,11 @@ async def test_adapter_uses_validated_stream_timeout_for_transport(monkeypatch) 
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield 'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}'
 
     class Stream:
@@ -596,12 +604,17 @@ async def test_adapter_sends_explicit_reasoning_mode_override(
     monkeypatch, reasoning_mode: str, enable_thinking: bool
 ) -> None:  # type: ignore[no-untyped-def]
     captured: dict[str, object] = {}
+    monkeypatch.setenv("ORION_OPENAI_COMPAT_REASONING_TEMPLATE_KWARGS", "1")
 
     class Response:
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield 'data: {"choices":[{"delta":{"content":"Done."},"finish_reason":"stop"}]}'
 
     class Stream:
@@ -638,7 +651,7 @@ async def test_adapter_sends_explicit_reasoning_mode_override(
     ):
         pass
 
-    assert "chat_template_kwargs" not in captured["json"]  # type: ignore[index]
+    assert captured["json"]["chat_template_kwargs"] == {"enable_thinking": enable_thinking}  # type: ignore[index]
 
 
 @pytest.mark.anyio
@@ -647,7 +660,11 @@ async def test_adapter_rejects_malformed_stream_usage(monkeypatch) -> None:  # t
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield 'data: {"choices":[],"usage":{"prompt_tokens":-1,"completion_tokens":216}}'
 
     class Stream:
@@ -799,7 +816,11 @@ async def test_adapter_rejects_stream_ending_without_finish_signal(monkeypatch) 
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield 'data: {"choices":[{"delta":{"content":"partial"}}]}'
 
     class Stream:
@@ -845,7 +866,11 @@ async def test_adapter_classifies_malformed_sse_json(monkeypatch) -> None:  # ty
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             yield "data: {not-json}"
 
     class Stream:
@@ -893,7 +918,11 @@ async def test_adapter_normalizes_known_reasoning_delta_variants_without_exposin
         def raise_for_status(self) -> None:
             return None
 
-        async def aiter_lines(self):  # type: ignore[no-untyped-def]
+        async def aiter_bytes(self, **kwargs):  # type: ignore[no-untyped-def]
+            async for line in self._fixture_lines():
+                yield (line + "\n\n").encode("utf-8")
+
+        async def _fixture_lines(self):  # type: ignore[no-untyped-def]
             for _ in range(64):
                 yield 'data: {"choices":[{"delta":{"reasoning":"private chain of thought"}}]}'
             yield 'data: {"choices":[{"delta":{"reasoning_content":"also private"}}]}'

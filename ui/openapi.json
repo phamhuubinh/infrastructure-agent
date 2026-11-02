@@ -1,6 +1,28 @@
 {
   "components": {
     "schemas": {
+      "AdmitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_request_id": {
+            "format": "uuid4",
+            "title": "Client Request Id",
+            "type": "string"
+          },
+          "content": {
+            "maxLength": 262144,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "client_request_id"
+        ],
+        "title": "AdmitRequest",
+        "type": "object"
+      },
       "AssistantResponse": {
         "properties": {
           "assistant_content": {
@@ -87,6 +109,135 @@
         "title": "Body_attach_project_document_api_projects__project_id__documents_post",
         "type": "object"
       },
+      "CommandPage": {
+        "additionalProperties": false,
+        "description": "A bounded byte-cursor observation of transient output, never a replay.",
+        "properties": {
+          "captured_output_bytes": {
+            "default": 0,
+            "maximum": 4194304.0,
+            "minimum": 0.0,
+            "title": "Captured Output Bytes",
+            "type": "integer"
+          },
+          "command_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Command Id",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "next_stderr_offset": {
+            "default": 0,
+            "maximum": 4194304.0,
+            "minimum": 0.0,
+            "title": "Next Stderr Offset",
+            "type": "integer"
+          },
+          "next_stdout_offset": {
+            "default": 0,
+            "maximum": 4194304.0,
+            "minimum": 0.0,
+            "title": "Next Stdout Offset",
+            "type": "integer"
+          },
+          "omitted_output_bytes": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Omitted Output Bytes",
+            "type": "integer"
+          },
+          "output_available": {
+            "default": true,
+            "title": "Output Available",
+            "type": "boolean"
+          },
+          "process_tree_terminated": {
+            "default": false,
+            "title": "Process Tree Terminated",
+            "type": "boolean"
+          },
+          "shell": {
+            "enum": [
+              "powershell",
+              "cmd",
+              "sh",
+              "bash"
+            ],
+            "title": "Shell",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "created",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "outcome_unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stderr": {
+            "default": "",
+            "maxLength": 4194304,
+            "title": "Stderr",
+            "type": "string"
+          },
+          "stderr_offset": {
+            "default": 0,
+            "maximum": 4194304.0,
+            "minimum": 0.0,
+            "title": "Stderr Offset",
+            "type": "integer"
+          },
+          "stdout": {
+            "default": "",
+            "maxLength": 4194304,
+            "title": "Stdout",
+            "type": "string"
+          },
+          "stdout_offset": {
+            "default": 0,
+            "maximum": 4194304.0,
+            "minimum": 0.0,
+            "title": "Stdout Offset",
+            "type": "integer"
+          },
+          "target_ref": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "target_ref",
+          "shell",
+          "state"
+        ],
+        "title": "CommandPage",
+        "type": "object"
+      },
       "CreateTask": {
         "additionalProperties": false,
         "properties": {
@@ -155,6 +306,56 @@
         "title": "CreateTask",
         "type": "object"
       },
+      "DoctorView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_requests": {
+            "title": "Active Requests",
+            "type": "integer"
+          },
+          "command_service_available": {
+            "title": "Command Service Available",
+            "type": "boolean"
+          },
+          "mcp_configured": {
+            "title": "Mcp Configured",
+            "type": "integer"
+          },
+          "mcp_connected": {
+            "title": "Mcp Connected",
+            "type": "integer"
+          },
+          "model_profile_configured": {
+            "title": "Model Profile Configured",
+            "type": "boolean"
+          },
+          "observation": {
+            "const": "configuration",
+            "default": "configuration",
+            "title": "Observation",
+            "type": "string"
+          },
+          "skills_available": {
+            "title": "Skills Available",
+            "type": "boolean"
+          },
+          "worker_connections_enabled": {
+            "title": "Worker Connections Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "model_profile_configured",
+          "skills_available",
+          "worker_connections_enabled",
+          "command_service_available",
+          "mcp_connected",
+          "mcp_configured",
+          "active_requests"
+        ],
+        "title": "DoctorView",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -168,12 +369,61 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "JsonValue": {},
+      "ModelCapabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "reasoning_controls": {
+            "default": false,
+            "title": "Reasoning Controls",
+            "type": "boolean"
+          },
+          "streaming": {
+            "default": false,
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "structured_output": {
+            "default": false,
+            "title": "Structured Output",
+            "type": "boolean"
+          },
+          "text": {
+            "default": true,
+            "title": "Text",
+            "type": "boolean"
+          },
+          "tool_result_continuation": {
+            "default": false,
+            "title": "Tool Result Continuation",
+            "type": "boolean"
+          },
+          "tools": {
+            "default": false,
+            "title": "Tools",
+            "type": "boolean"
+          },
+          "usage": {
+            "default": false,
+            "title": "Usage",
+            "type": "boolean"
+          },
+          "vision": {
+            "default": false,
+            "title": "Vision",
+            "type": "boolean"
+          }
+        },
+        "title": "ModelCapabilities",
+        "type": "object"
+      },
       "ModelConfigInput": {
         "additionalProperties": false,
         "properties": {
           "api_key": {
             "anyOf": [
               {
+                "maxLength": 16384,
                 "type": "string"
               },
               {
@@ -183,17 +433,34 @@
             "title": "Api Key"
           },
           "base_url": {
+            "maxLength": 2048,
             "minLength": 1,
             "title": "Base Url",
             "type": "string"
           },
           "model_id": {
+            "maxLength": 256,
             "minLength": 1,
             "title": "Model Id",
             "type": "string"
           },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "provider_type": {
-            "pattern": "^openai_compatible$",
+            "enum": [
+              "deepseek",
+              "claude",
+              "openai",
+              "openai_compatible"
+            ],
             "title": "Provider Type",
             "type": "string"
           },
@@ -228,6 +495,16 @@
             "title": "Model Id",
             "type": "string"
           },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "provider_type": {
             "title": "Provider Type",
             "type": "string"
@@ -247,7 +524,124 @@
         "title": "ModelConfigView",
         "type": "object"
       },
+      "ModelProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/ModelCapabilities"
+          },
+          "context_max_bytes": {
+            "default": 131072,
+            "maximum": 8388608.0,
+            "minimum": 4096.0,
+            "title": "Context Max Bytes",
+            "type": "integer"
+          },
+          "credential_ref": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Ref"
+          },
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "model_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          },
+          "options": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Options",
+            "type": "object"
+          },
+          "profile_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "protocol": {
+            "enum": [
+              "chat_completions",
+              "anthropic_messages",
+              "openai_responses"
+            ],
+            "title": "Protocol",
+            "type": "string"
+          },
+          "provider_id": {
+            "enum": [
+              "deepseek",
+              "claude",
+              "openai",
+              "openai_compatible"
+            ],
+            "title": "Provider Id",
+            "type": "string"
+          },
+          "request_max_bytes": {
+            "default": 262144,
+            "maximum": 16777216.0,
+            "minimum": 4096.0,
+            "title": "Request Max Bytes",
+            "type": "integer"
+          },
+          "request_timeout_seconds": {
+            "default": 120,
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Request Timeout Seconds",
+            "type": "number"
+          },
+          "safe_transport_retries": {
+            "default": 0,
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Safe Transport Retries",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "transport_timeout_seconds": {
+            "default": 30,
+            "maximum": 300.0,
+            "minimum": 1.0,
+            "title": "Transport Timeout Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "profile_id",
+          "provider_id",
+          "protocol",
+          "endpoint",
+          "model_id",
+          "capabilities"
+        ],
+        "title": "ModelProfile",
+        "type": "object"
+      },
       "MutationMode": {
+        "description": "Conversation preference; server/target policy remains an independent ceiling.",
         "enum": [
           "read_only",
           "confirm",
@@ -255,6 +649,111 @@
         ],
         "title": "MutationMode",
         "type": "string"
+      },
+      "NativeEnrollmentCode": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "expires_at"
+        ],
+        "title": "NativeEnrollmentCode",
+        "type": "object"
+      },
+      "NativeSessionView": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "name",
+          "platform",
+          "created_at",
+          "expires_at",
+          "revoked_at"
+        ],
+        "title": "NativeSessionView",
+        "type": "object"
+      },
+      "NativeTokenPair": {
+        "additionalProperties": false,
+        "properties": {
+          "access_expires_at": {
+            "title": "Access Expires At",
+            "type": "integer"
+          },
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "refresh_expires_at": {
+            "title": "Refresh Expires At",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "default": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "access_token",
+          "refresh_token",
+          "access_expires_at",
+          "refresh_expires_at"
+        ],
+        "title": "NativeTokenPair",
+        "type": "object"
       },
       "ProjectInput": {
         "additionalProperties": false,
@@ -370,6 +869,165 @@
         ],
         "title": "ReasoningMode",
         "type": "string"
+      },
+      "RequestEventPage": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RequestEventRecord"
+            },
+            "maxItems": 256,
+            "title": "Events",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "incomplete",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "events",
+          "next_cursor",
+          "has_more",
+          "status"
+        ],
+        "title": "RequestEventPage",
+        "type": "object"
+      },
+      "RequestEventRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Payload",
+            "type": "object"
+          },
+          "type": {
+            "enum": [
+              "request.accepted",
+              "request.completed",
+              "request.incomplete",
+              "request.cancelled",
+              "request.failed",
+              "model.started",
+              "model.completed",
+              "model.resumed",
+              "assistant.delta",
+              "assistant.message",
+              "tool.started",
+              "tool.completed",
+              "tool.failed",
+              "tool.authorization",
+              "tool.authorization_required",
+              "recovery.stalled"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "payload",
+          "event_id",
+          "created_at"
+        ],
+        "title": "RequestEventRecord",
+        "type": "object"
+      },
+      "RequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "incomplete",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "session_id",
+          "status",
+          "created_at",
+          "completed_at",
+          "error_message"
+        ],
+        "title": "RequestView",
+        "type": "object"
       },
       "SessionMutationModeUpdate": {
         "additionalProperties": false,
@@ -584,6 +1242,142 @@
         "title": "SessionView",
         "type": "object"
       },
+      "SkillDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "const": "product",
+            "default": "product",
+            "title": "Audience",
+            "type": "string"
+          },
+          "description": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "pattern": "^[a-z][a-z0-9-]{0,63}$",
+            "title": "Name",
+            "type": "string"
+          },
+          "package_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Package Sha256",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "required_capabilities": {
+            "default": [],
+            "items": {
+              "pattern": "^[a-z][a-z0-9_.-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 64,
+            "title": "Required Capabilities",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "scopes": {
+            "default": [
+              "chat",
+              "project",
+              "device"
+            ],
+            "items": {
+              "enum": [
+                "chat",
+                "project",
+                "device"
+              ],
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "bundled",
+              "user",
+              "project"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.-]+)?$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "version",
+          "source",
+          "package_sha256"
+        ],
+        "title": "SkillDescriptor",
+        "type": "object"
+      },
+      "SkillPreference": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "source": {
+            "enum": [
+              "bundled",
+              "user",
+              "project"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "enabled"
+        ],
+        "title": "SkillPreference",
+        "type": "object"
+      },
       "SubmitMessage": {
         "additionalProperties": false,
         "properties": {
@@ -599,6 +1393,48 @@
         "title": "SubmitMessage",
         "type": "object"
       },
+      "TargetView": {
+        "additionalProperties": false,
+        "properties": {
+          "command_shells": {
+            "items": {
+              "enum": [
+                "powershell",
+                "cmd",
+                "sh",
+                "bash"
+              ],
+              "type": "string"
+            },
+            "title": "Command Shells",
+            "type": "array"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "ssh",
+              "worker"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "target_ref": {
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_ref",
+          "kind",
+          "connected",
+          "command_shells"
+        ],
+        "title": "TargetView",
+        "type": "object"
+      },
       "ToolAuthorizationDecision": {
         "additionalProperties": false,
         "properties": {
@@ -606,6 +1442,18 @@
             "pattern": "^(allow|deny)$",
             "title": "Decision",
             "type": "string"
+          },
+          "payload_hash": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Hash"
           }
         },
         "required": [
@@ -653,12 +1501,61 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VersionView": {
+        "additionalProperties": false,
+        "properties": {
+          "api_revision": {
+            "const": 1,
+            "default": 1,
+            "title": "Api Revision",
+            "type": "integer"
+          },
+          "features": {
+            "default": [
+              "native-owner-auth",
+              "durable-request-admission",
+              "event-cursor"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "VersionView",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BrowserOwner": {
+        "in": "cookie",
+        "name": "orion_session",
+        "type": "apiKey"
+      },
+      "NativeOwner": {
+        "bearerFormat": "opaque owner access",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "Worker": {
+        "bearerFormat": "endpoint worker credential",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
   "info": {
     "title": "Orion",
-    "version": "0.1.0"
+    "version": "0.1.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -695,7 +1592,9 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Login"
+        "security": [],
+        "summary": "Login",
+        "x-orion-auth": "public"
       }
     },
     "/api/auth/logout": {
@@ -711,7 +1610,271 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Logout"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Logout",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/auth/native/enroll": {
+      "post": {
+        "operationId": "enroll_api_auth_native_enroll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "format": "password",
+                    "maxLength": 128,
+                    "minLength": 32,
+                    "title": "Code",
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "name": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "platform": {
+                    "enum": [
+                      "windows",
+                      "linux",
+                      "android",
+                      "ios"
+                    ],
+                    "title": "Platform",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "name",
+                  "platform"
+                ],
+                "title": "NativeEnrollmentInput",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeTokenPair"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Enroll",
+        "x-orion-auth": "public"
+      }
+    },
+    "/api/auth/native/enrollment-codes": {
+      "post": {
+        "operationId": "create_enrollment_api_auth_native_enrollment_codes_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeEnrollmentCode"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Create Enrollment",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/auth/native/logout": {
+      "post": {
+        "operationId": "logout_api_auth_native_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Logout Api Auth Native Logout Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Logout",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/auth/native/refresh": {
+      "post": {
+        "operationId": "refresh_api_auth_native_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "refresh_token": {
+                    "format": "password",
+                    "maxLength": 128,
+                    "minLength": 32,
+                    "title": "Refresh Token",
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "refresh_token"
+                ],
+                "title": "NativeRefreshInput",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeTokenPair"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Refresh",
+        "x-orion-auth": "public"
+      }
+    },
+    "/api/auth/native/sessions": {
+      "get": {
+        "operationId": "sessions_api_auth_native_sessions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NativeSessionView"
+                  },
+                  "title": "Response Sessions Api Auth Native Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Sessions",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/auth/native/sessions/{native_session_id}/revoke": {
+      "post": {
+        "operationId": "revoke_api_auth_native_sessions__native_session_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "native_session_id",
+            "required": true,
+            "schema": {
+              "title": "Native Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Revoke Api Auth Native Sessions  Native Session Id  Revoke Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Revoke",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/auth/session": {
@@ -731,7 +1894,37 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Auth Session"
+        "security": [],
+        "summary": "Auth Session",
+        "x-orion-auth": "public"
+      }
+    },
+    "/api/doctor": {
+      "get": {
+        "operationId": "doctor_api_doctor_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Doctor",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints": {
@@ -754,7 +1947,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Endpoints"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "List Endpoints",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/artifacts": {
@@ -774,12 +1977,58 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Worker Artifacts"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Worker Artifacts",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/pair": {
       "post": {
         "operationId": "pair_api_endpoints_pair_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "temporary": {
+                    "default": true,
+                    "title": "Temporary",
+                    "type": "boolean"
+                  },
+                  "token": {
+                    "maxLength": 128,
+                    "minLength": 32,
+                    "title": "Token",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "name"
+                ],
+                "title": "PairInput",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -790,7 +2039,9 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Pair"
+        "security": [],
+        "summary": "Pair",
+        "x-orion-auth": "public"
       }
     },
     "/api/endpoints/pairing-tokens": {
@@ -810,7 +2061,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Pairing Token"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Pairing Token",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}": {
@@ -851,7 +2112,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Endpoint"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Endpoint",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "patch": {
         "operationId": "rename_api_endpoints__endpoint_id__patch",
@@ -866,6 +2137,30 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "pattern": "^[^\\x00-\\x1f\\x7f]+$",
+                    "title": "Name",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "Rename",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -890,7 +2185,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Rename"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Rename",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/chat": {
@@ -931,7 +2236,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Device Chat"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Device Chat",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/control": {
@@ -948,6 +2263,33 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "title": "Enabled",
+                    "type": "boolean"
+                  },
+                  "session_id": {
+                    "pattern": "^[0-9a-f]{32}$",
+                    "title": "Session Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "enabled"
+                ],
+                "title": "Control",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -974,7 +2316,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Control"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Control",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/frames": {
@@ -989,13 +2341,24 @@
               "title": "Endpoint Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-desktop-session",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{32}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -1011,7 +2374,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Frames"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Frames",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/input": {
@@ -1028,6 +2401,46 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": true,
+                    "title": "Arguments",
+                    "type": "object"
+                  },
+                  "operation": {
+                    "pattern": "^desktop\\.(click|move|type|key|scroll)$",
+                    "title": "Operation",
+                    "type": "string"
+                  },
+                  "sequence": {
+                    "minimum": 1,
+                    "title": "Sequence",
+                    "type": "integer"
+                  },
+                  "session_id": {
+                    "pattern": "^[0-9a-f]{32}$",
+                    "title": "Session Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "sequence",
+                  "operation",
+                  "arguments"
+                ],
+                "title": "Input",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1052,7 +2465,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Desktop Input"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Desktop Input",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/session": {
@@ -1069,6 +2492,27 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "monitor": {
+                    "default": 1,
+                    "maximum": 16,
+                    "minimum": 1,
+                    "title": "Monitor",
+                    "type": "integer"
+                  }
+                },
+                "title": "Capture",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -1093,7 +2537,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Desktop Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Desktop Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/desktop/stop": {
@@ -1110,6 +2564,28 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "session_id": {
+                    "pattern": "^[0-9a-f]{32}$",
+                    "title": "Session Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id"
+                ],
+                "title": "DesktopSession",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1136,7 +2612,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Desktop Stop"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Desktop Stop",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/download": {
@@ -1153,11 +2639,37 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "maxLength": 2048,
+                    "minLength": 1,
+                    "title": "Path",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "title": "Download",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"
@@ -1173,7 +2685,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Download"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Download",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/end": {
@@ -1216,7 +2738,13 @@
             "description": "Validation Error"
           }
         },
-        "summary": "End Device"
+        "security": [
+          {
+            "Worker": []
+          }
+        ],
+        "summary": "End Device",
+        "x-orion-auth": "worker"
       }
     },
     "/api/endpoints/{endpoint_id}/forget": {
@@ -1233,6 +2761,27 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "confirmed": {
+                    "title": "Confirmed",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "confirmed"
+                ],
+                "title": "Forget",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1259,7 +2808,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Forget"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Forget",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/operation": {
@@ -1276,6 +2835,34 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "arguments": {
+                    "additionalProperties": true,
+                    "title": "Arguments",
+                    "type": "object"
+                  },
+                  "operation": {
+                    "maxLength": 64,
+                    "title": "Operation",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "operation",
+                  "arguments"
+                ],
+                "title": "ManualOperation",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1300,7 +2887,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Manual Operation"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Manual Operation",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/revoke": {
@@ -1343,7 +2940,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Revoke"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Revoke",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/endpoints/{endpoint_id}/upload": {
@@ -1358,8 +2965,41 @@
               "title": "Endpoint Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "x-endpoint-path",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-overwrite",
+            "schema": {
+              "default": "false",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -1384,7 +3024,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Upload"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Upload",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/health": {
@@ -1404,12 +3054,44 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Health"
+        "security": [],
+        "summary": "Health",
+        "x-orion-auth": "public"
+      }
+    },
+    "/api/mcp/doctor": {
+      "get": {
+        "operationId": "doctor_api_mcp_doctor_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Doctor Api Mcp Doctor Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Doctor",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/mcp/servers": {
       "get": {
-        "operationId": "mcp_servers_api_mcp_servers_get",
+        "operationId": "servers_api_mcp_servers_get",
         "responses": {
           "200": {
             "content": {
@@ -1419,7 +3101,7 @@
                     "additionalProperties": true,
                     "type": "object"
                   },
-                  "title": "Response Mcp Servers Api Mcp Servers Get",
+                  "title": "Response Servers Api Mcp Servers Get",
                   "type": "array"
                 }
               }
@@ -1427,7 +3109,170 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Mcp Servers"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Servers",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/mcp/servers/{server_id}/connect": {
+      "post": {
+        "operationId": "connect_api_mcp_servers__server_id__connect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Connect Api Mcp Servers  Server Id  Connect Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Connect",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/mcp/servers/{server_id}/disconnect": {
+      "post": {
+        "operationId": "disconnect_api_mcp_servers__server_id__disconnect_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Disconnect Api Mcp Servers  Server Id  Disconnect Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Disconnect",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/mcp/servers/{server_id}/test": {
+      "post": {
+        "operationId": "test_api_mcp_servers__server_id__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Api Mcp Servers  Server Id  Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Test",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/models": {
@@ -1449,7 +3294,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Get Models"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Models",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "post": {
         "operationId": "configure_model_api_models_post",
@@ -1485,7 +3340,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Configure Model"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Configure Model",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/models/{model_config_id}": {
@@ -1517,7 +3382,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Model"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Model",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "put": {
         "operationId": "update_model_api_models__model_config_id__put",
@@ -1564,7 +3439,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Model"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Update Model",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/models/{model_config_id}/activate": {
@@ -1603,7 +3488,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Activate Model"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Activate Model",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/projects": {
@@ -1625,7 +3520,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Projects"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "List Projects",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "post": {
         "operationId": "create_project_api_projects_post",
@@ -1661,7 +3566,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Project"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Create Project",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/projects/{project_id}": {
@@ -1693,7 +3608,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Project"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Project",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "get": {
         "operationId": "get_project_api_projects__project_id__get",
@@ -1730,7 +3655,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Project"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Project",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "put": {
         "operationId": "update_project_api_projects__project_id__put",
@@ -1777,7 +3712,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Project"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Update Project",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/projects/{project_id}/documents": {
@@ -1821,7 +3766,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Project Documents"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Project Documents",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "post": {
         "operationId": "attach_project_document_api_projects__project_id__documents_post",
@@ -1868,7 +3823,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Attach Project Document"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Attach Project Document",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/projects/{project_id}/documents/{document_id}": {
@@ -1920,7 +3885,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Project Document"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Project Document",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "get": {
         "operationId": "project_document_status_api_projects__project_id__documents__document_id__get",
@@ -1968,7 +3943,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Project Document Status"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Project Document Status",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/projects/{project_id}/sessions": {
@@ -2007,7 +3992,66 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Project Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Create Project Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/requests/{request_id}": {
+      "get": {
+        "operationId": "get_request_api_requests__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Request",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/requests/{request_id}/cancel": {
@@ -2050,7 +4094,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Cancel Request"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Cancel Request",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/requests/{request_id}/diagnostics": {
@@ -2091,7 +4145,95 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Request Diagnostics"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Request Diagnostics",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/requests/{request_id}/event-page": {
+      "get": {
+        "operationId": "events_api_requests__request_id__event_page_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 64,
+              "maximum": 256,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestEventPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Events",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/requests/{request_id}/events": {
@@ -2135,7 +4277,91 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Request Events"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Request Events",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/requests/{request_id}/stream": {
+      "get": {
+        "operationId": "stream_api_requests__request_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Stream",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/scheduler/tasks": {
@@ -2191,7 +4417,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "List Tasks"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "List Tasks",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "post": {
         "operationId": "create_task_api_scheduler_tasks_post",
@@ -2229,7 +4465,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Create Task"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Create Task",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/scheduler/tasks/{task_id}": {
@@ -2270,7 +4516,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Task"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Task",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "get": {
         "operationId": "get_task_api_scheduler_tasks__task_id__get",
@@ -2318,7 +4574,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Task"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Task",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/scheduler/tasks/{task_id}/history": {
@@ -2383,7 +4649,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Task History"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Task History",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/scheduler/tasks/{task_id}/pause": {
@@ -2433,7 +4709,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Pause Task"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Pause Task",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/scheduler/tasks/{task_id}/resume": {
@@ -2483,7 +4769,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Resume Task"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Resume Task",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions": {
@@ -2505,7 +4801,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Sessions"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "List Sessions",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "post": {
         "operationId": "create_session_api_sessions_post",
@@ -2521,7 +4827,17 @@
             "description": "Successful Response"
           }
         },
-        "summary": "Create Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Create Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}": {
@@ -2553,7 +4869,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "get": {
         "operationId": "get_session_api_sessions__session_id__get",
@@ -2590,7 +4916,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "patch": {
         "operationId": "rename_session_api_sessions__session_id__patch",
@@ -2637,7 +4973,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Rename Session"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Rename Session",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/attachments": {
@@ -2686,7 +5032,233 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Attach Document"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Attach Document",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/commands": {
+      "get": {
+        "operationId": "list_commands_api_sessions__session_id__commands_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 32,
+              "maximum": 64,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CommandPage"
+                  },
+                  "title": "Response List Commands Api Sessions  Session Id  Commands Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "List Commands",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/commands/{command_id}": {
+      "get": {
+        "operationId": "status_api_sessions__session_id__commands__command_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "title": "Command Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stdout_offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 4194304,
+              "minimum": 0,
+              "title": "Stdout Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stderr_offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 4194304,
+              "minimum": 0,
+              "title": "Stderr Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Status",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/commands/{command_id}/cancel": {
+      "post": {
+        "operationId": "cancel_api_sessions__session_id__commands__command_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "command_id",
+            "required": true,
+            "schema": {
+              "title": "Command Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Cancel",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/documents/{document_id}": {
@@ -2738,7 +5310,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Delete Document"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Delete Document",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       },
       "get": {
         "operationId": "document_status_api_sessions__session_id__documents__document_id__get",
@@ -2786,7 +5368,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Document Status"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Document Status",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/messages": {
@@ -2835,7 +5427,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Submit Message"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Submit Message",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/messages/stream": {
@@ -2882,7 +5484,17 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Stream Message"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Stream Message",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/mutation-mode": {
@@ -2931,7 +5543,137 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Set Mutation Mode"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Set Mutation Mode",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/request-cancellations": {
+      "post": {
+        "operationId": "cancel_admission_api_sessions__session_id__request_cancellations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Cancel Admission",
+        "x-orion-auth": "owner",
+        "x-orion-idempotency": "client_request_id",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/requests": {
+      "post": {
+        "operationId": "admit_api_sessions__session_id__requests_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Admit",
+        "x-orion-auth": "owner",
+        "x-orion-idempotency": "client_request_id",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}": {
@@ -3002,7 +5744,135 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Resolve Tool Authorization"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Resolve Tool Authorization",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/requests/{request_id}/tool-authorizations/{call_id}/payload": {
+      "get": {
+        "operationId": "tool_authorization_payload_api_sessions__session_id__requests__request_id__tool_authorizations__call_id__payload_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Tool Authorization Payload",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/sessions/{session_id}/skills": {
+      "get": {
+        "operationId": "catalog_api_sessions__session_id__skills_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SkillDescriptor"
+                  },
+                  "title": "Response Catalog Api Sessions  Session Id  Skills Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Catalog",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
       }
     },
     "/api/sessions/{session_id}/timeline": {
@@ -3046,7 +5916,271 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Timeline"
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Get Timeline",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/skills/packages": {
+      "post": {
+        "operationId": "install_package_api_skills_packages_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "default": "user",
+              "enum": [
+                "user",
+                "project"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Install Package",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/skills/{name}": {
+      "delete": {
+        "operationId": "remove_api_skills__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "enum": [
+                "user",
+                "project"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Remove",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      },
+      "patch": {
+        "operationId": "preference_api_skills__name__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillPreference"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Preference",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/targets": {
+      "get": {
+        "operationId": "targets_api_targets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TargetView"
+                  },
+                  "title": "Response Targets Api Targets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "NativeOwner": []
+          },
+          {
+            "BrowserOwner": []
+          }
+        ],
+        "summary": "Targets",
+        "x-orion-auth": "owner",
+        "x-orion-local-loopback-owner": true
+      }
+    },
+    "/api/version": {
+      "get": {
+        "operationId": "version_api_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [],
+        "summary": "Version",
+        "x-orion-auth": "public"
       }
     }
   }

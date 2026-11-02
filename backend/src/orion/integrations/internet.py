@@ -645,24 +645,26 @@ class DuckDuckGoInternetClient(SearxngInternetClient):
 
 
 def _duckduckgo_destination(raw_url: str) -> str | None:
-    """Return a canonical public HTTP(S) result, never a DuckDuckGo tracking URL."""
-    try:
-        parsed = urlsplit(urljoin(DUCKDUCKGO_SEARCH_URL, raw_url))
-    except ValueError:
-        return None
-    if parsed.hostname in {"duckduckgo.com", "www.duckduckgo.com", "html.duckduckgo.com"}:
+    """Unwrap a bounded tracking chain; fetch validates public network addresses."""
+    for _ in range(MAX_REDIRECTS + 1):
+        try:
+            parsed = urlsplit(urljoin(DUCKDUCKGO_SEARCH_URL, raw_url))
+        except ValueError:
+            return None
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname is None
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+        if parsed.hostname not in {"duckduckgo.com", "www.duckduckgo.com", "html.duckduckgo.com"}:
+            return parsed.geturl()
         destination = parse_qs(parsed.query).get("uddg", [])
         if len(destination) != 1:
             return None
-        return _duckduckgo_destination(destination[0])
-    if (
-        parsed.scheme not in {"http", "https"}
-        or parsed.hostname is None
-        or parsed.username is not None
-        or parsed.password is not None
-    ):
-        return None
-    return parsed.geturl()
+        raw_url = destination[0]
+    return None
 
 
 def _resolve_host(host: str, port: int) -> Sequence[str]:

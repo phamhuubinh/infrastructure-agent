@@ -17,6 +17,7 @@ from typing import Any
 import psutil
 
 from orion_endpoint.browser import Browser
+from orion_endpoint.commands import CommandProcesses
 from orion_endpoint.desktop import Desktop
 from orion_endpoint.policy import Policy
 from orion_endpoint.protocol import CHUNK_SIZE, MAX_TRANSFER, OPERATIONS, TRANSFERS, Hello
@@ -42,11 +43,16 @@ class Executor:
         self.browser_lock = asyncio.Lock()
         self.read_slots = asyncio.Semaphore(3)
         self.children: list[subprocess.Popen[bytes]] = []
+        self.commands = CommandProcesses()
 
     async def hello(self) -> Hello:
         from orion_endpoint import __version__
 
         enabled = {"system.inspect", "process.list"}
+        if self.commands.closed:
+            self.commands = CommandProcesses()
+        if self.policy.commands:
+            enabled |= {"command.run", "command.status", "command.cancel"}
         if self.policy.read_roots:
             enabled |= {"file.list", "file.read"}
         if self.policy.write_roots:
@@ -80,6 +86,7 @@ class Executor:
                 "os_release": platform.release()[:100],
                 "capabilities": sorted(enabled),
                 "geometry": geometry,
+                "command_shells": sorted(self.commands.shells) if self.policy.commands else [],
             }
         )
 
@@ -89,6 +96,14 @@ class Executor:
             raise ValueError("invalid_input")
         model, kind = entry
         values = model.model_validate(args).model_dump()
+        if operation.startswith("command."):
+            if not self.policy.commands:
+                raise PermissionError("policy_denied")
+            if operation == "command.run":
+                return await self.commands.start(values)
+            if operation == "command.status":
+                return self.commands.status(values)
+            return await self.commands.cancel(values["command_id"])
         queued = self.clock()
         async with self.mutation_lock if kind == "mutation" else self.read_slots:
             if operation.startswith("desktop.") and self.clock() - queued > 2:
@@ -359,6 +374,7 @@ class Executor:
             del self.staging[key]
 
     async def close(self) -> None:
+        await self.commands.close()
         await self.browser.close()
         for stage, *_ in self.staging.values():
             stage.unlink(missing_ok=True)

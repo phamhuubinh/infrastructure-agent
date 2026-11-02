@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import hmac
 import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import aclosing
+from contextvars import Token
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -43,6 +46,7 @@ from orion.contracts import (
     ModelTurn,
     ModelTurnCompleted,
     ModelUsage,
+    MutationMode,
     ReasoningDelta,
     RuntimeScope,
     SourceRef,
@@ -53,11 +57,19 @@ from orion.contracts import (
     citations_are_visible,
     has_invalid_source_citation_marker,
 )
-from orion.models.backend import ModelBackend, ModelBackendError, ModelRequest, ModelSettings
+from orion.contracts.commands import CommandRunInput
+from orion.contracts.events import RuntimeEvent
+from orion.models.backend import (
+    ModelBackend,
+    ModelBackendError,
+    ModelRequest,
+    ModelSettings,
+    validated_model_stream,
+)
 from orion.observability import ApplicationLog
 from orion.persistence.sqlite import SQLiteStore
-from orion.security import redact_public
-from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy, MutationMode
+from orion.security import protect_request_values, redact_public, reset_request_values
+from orion.tool_runtime.mutation_authorization import MutationAuthorizationPolicy
 from orion.tool_runtime.registry import ToolRegistry
 from orion.tool_runtime.runner import PreparedTool, ToolRunner
 
@@ -294,6 +306,7 @@ _CITATION_CORRECTION_REQUEST = (
 _MAX_FORCED_RECOVERY_DECISIONS = 2
 _MAX_DISCOVERY_CITATION_CORRECTIONS = 3
 _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES = 256
+_SKILL_CONTEXT_MAX_BYTES = 32_768
 _INCOMPLETE_FALLBACK = "Orion could not complete a verified response before the request ended."
 _RecoveryFingerprint = RecoveryFingerprint
 _REPEATED_AUTHORIZATION_MESSAGES = {
@@ -328,8 +341,9 @@ def _model_request_proxy_bytes(
 
 def _context_budget_for_turn(
     extra_messages: tuple[ContextMessage, ...],
+    maximum_bytes: int = MAX_CONVERSATION_BYTES,
 ) -> int:
-    remaining = MAX_CONVERSATION_BYTES - _messages_bytes(extra_messages)
+    remaining = maximum_bytes - _messages_bytes(extra_messages)
     if remaining <= 0:
         raise RequestFailed(
             "Model context exceeds Orion's local safety bound; the current user message was not "
@@ -427,9 +441,19 @@ class ChatRuntime:
         deadline_sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
         mutation_authorization: MutationAuthorizationPolicy | None = None,
         endpoint_summary: Callable[[str], dict[str, Any] | None] | None = None,
+        settings_provider: Callable[[], ModelSettings] | None = None,
+        on_request_interrupt: Callable[[str], Awaitable[None]] | None = None,
+        skill_request_start: Callable[[str, RuntimeScope, str], None] | None = None,
+        skill_context: Callable[[str, RuntimeScope], str] | None = None,
+        skill_request_end: Callable[[str], None] | None = None,
     ) -> None:
         self._store = store
         self._backend = backend
+        self._settings_provider = settings_provider
+        self._on_request_interrupt = on_request_interrupt
+        self._skill_request_start = skill_request_start
+        self._skill_context = skill_context
+        self._skill_request_end = skill_request_end
         self._registry = registry
         self._access = access
         self._runner = ToolRunner(registry, blocked_tool_operation_kinds, mutation_authorization)
@@ -443,14 +467,22 @@ class ChatRuntime:
         self._monotonic_clock = monotonic_clock
         self._deadline_sleeper = deadline_sleeper
         self._maximum_model_tool_bytes = _tool_definitions_bytes(registry.model_definitions())
+        # Bounded catalog/guidance must leave room for the canonical tool continuation.
+        # Explicit profile limits below still take precedence over this local ceiling.
+        self._context_maximum_bytes = (
+            _SKILL_CONTEXT_MAX_BYTES if skill_context is not None else MAX_CONVERSATION_BYTES
+        )
         self._maximum_model_request_proxy_bytes = (
-            MAX_CONVERSATION_BYTES
+            self._context_maximum_bytes
             + self._maximum_model_tool_bytes
             + _MODEL_REQUEST_ENVELOPE_RESERVE_BYTES
         )
         self._cancellations: dict[str, asyncio.Event] = {}
         self._pending_content: dict[str, str] = {}
+        self._running_requests: set[str] = set()
         self._transient_endpoint_results: dict[str, dict[str, ToolResult]] = {}
+        self._transient_tool_calls: dict[str, dict[str, tuple[ModelToolCall, ...]]] = {}
+        self._pending_authorization_calls: dict[tuple[str, str], ModelToolCall] = {}
         self._scheduled_requests: set[str] = set()
         self._queued_at: dict[str, float] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
@@ -477,9 +509,7 @@ class ChatRuntime:
             or not self._store.is_active_scheduled_request(request_id, session_id)
         ):
             raise ValueError("Scheduled request is unavailable.")
-        self._cancellations[request_id] = asyncio.Event()
-        self._pending_content[request_id] = content
-        self._queued_at[request_id] = self._monotonic_clock()
+        self._prepare_request(session_id, request_id, content)
         self._scheduled_requests.add(request_id)
         return request_id
 
@@ -489,10 +519,32 @@ class ChatRuntime:
         if not self._store.session_exists(session_id):
             raise KeyError(session_id)
         request_id = self._store.create_request(session_id)
+        self._prepare_request(session_id, request_id, content, cancellation)
+        return request_id
+
+    def adopt_admitted_request(self, session_id: str, request_id: str, content: str) -> None:
+        if not self._store.is_admitted_request(session_id, request_id):
+            raise ValueError("Request has no durable admission")
+        self._prepare_request(session_id, request_id, content)
+
+    def _prepare_request(
+        self,
+        session_id: str,
+        request_id: str,
+        content: str,
+        cancellation: asyncio.Event | None = None,
+    ) -> None:
+        request = self._store.request(request_id)
+        if (
+            request is None
+            or request["session_id"] != session_id
+            or request["status"] != "queued"
+            or request_id in self._cancellations
+        ):
+            raise ValueError("Request cannot be adopted or replayed")
         self._cancellations[request_id] = cancellation or asyncio.Event()
         self._pending_content[request_id] = content
         self._queued_at[request_id] = self._monotonic_clock()
-        return request_id
 
     def cancel(self, request_id: str) -> bool:
         cancellation = self._cancellations.get(request_id)
@@ -502,7 +554,13 @@ class ChatRuntime:
         return True
 
     def resolve_authorization(
-        self, session_id: str, request_id: str, call_id: str, allow: bool
+        self,
+        session_id: str,
+        request_id: str,
+        call_id: str,
+        allow: bool,
+        *,
+        payload_hash: str | None = None,
     ) -> bool:
         """Resolve one live, persisted call; a restart cannot replay its arguments."""
         pending = self._store.pending_authorization(request_id, call_id)
@@ -518,6 +576,11 @@ class ChatRuntime:
             or cancellation.is_set()
         ):
             return False
+        if allow and pending["tool_name"].startswith("system.command."):
+            if payload_hash is None or not hmac.compare_digest(
+                payload_hash, pending["arguments_digest"]
+            ):
+                return False
         if not self._store.resolve_pending_authorization(
             request_id, call_id, "allowed" if allow else "denied"
         ):
@@ -534,6 +597,41 @@ class ChatRuntime:
         )
         future.set_result(allow)
         return True
+
+    def authorization_payload(
+        self,
+        session_id: str,
+        request_id: str,
+        call_id: str,
+    ) -> dict[str, object] | None:
+        """Exact live payload for the authenticated owner; never an audit/log copy."""
+        pending = self._store.pending_authorization(request_id, call_id)
+        call = self._pending_authorization_calls.get((request_id, call_id))
+        future = self._pending_authorizations.get((request_id, call_id))
+        cancellation = self._cancellations.get(request_id)
+        if (
+            pending is None
+            or pending["session_id"] != session_id
+            or pending["state"] != "pending"
+            or call is None
+            or future is None
+            or future.done()
+            or cancellation is None
+            or cancellation.is_set()
+            or not call.tool_name.startswith("system.command.")
+        ):
+            return None
+        arguments = dict(call.arguments)
+        if call.tool_name == "system.command.run":
+            try:
+                arguments = CommandRunInput.model_validate(arguments).model_dump(mode="json")
+            except ValueError:
+                return None
+        return {
+            "tool_name": call.tool_name,
+            "arguments": arguments,
+            "payload_hash": pending["arguments_digest"],
+        }
 
     async def _await_authorization(
         self,
@@ -565,6 +663,7 @@ class ChatRuntime:
             summary,
         )
         self._pending_authorizations[key] = future
+        self._pending_authorization_calls[key] = model_call.model_copy(deep=True)
         self._audit_authorization(request_id, model_call, "pending", MutationMode.CONFIRM)
         self._emit(
             request_id,
@@ -590,12 +689,19 @@ class ChatRuntime:
             with contextlib.suppress(asyncio.CancelledError):
                 await cancel_task
             self._pending_authorizations.pop(key, None)
+            self._pending_authorization_calls.pop(key, None)
             if not future.done():
                 future.cancel()
             self._store.resolve_pending_authorization(request_id, model_call.call_id, "cancelled")
 
     @staticmethod
     def _safe_mutation_summary(call: ModelToolCall) -> dict[str, str]:
+        if call.tool_name.startswith("system.command."):
+            return {
+                "label": call.tool_name,
+                "target_ref": str(call.arguments.get("target_ref", ""))[:128],
+                "payload_hash": ChatRuntime._mutation_signature(call)[1],
+            }
         labels = {
             "linux.file.edit": "Sửa file trên máy chủ",
             "linux.service.restart": "Khởi động lại dịch vụ",
@@ -635,8 +741,19 @@ class ChatRuntime:
             if request is not None and request["status"] in {"queued", "running"}:
                 self._fail_unexpected(request_id)
             raise RequestFailed("Request is unavailable.")
+        persisted = self._store.request(request_id)
+        if (
+            persisted is None
+            or persisted["session_id"] != session_id
+            or persisted["status"] != "queued"
+            or request_id in self._running_requests
+        ):
+            raise RequestFailed("Request is unavailable or already claimed.")
+        self._running_requests.add(request_id)
+        request_claimed = False
         started_at = 0.0
         budget: RequestBudget | None = None
+        secret_token: Token[tuple[str, ...]] | None = None
         input_tokens = 0
         output_tokens = 0
         has_complete_usage = True
@@ -651,7 +768,9 @@ class ChatRuntime:
         observed_source_ref_ids: set[str] = set()
         try:
             async with self._session_locks.setdefault(session_id, asyncio.Lock()):
-                self._store.start_request(request_id)
+                request_claimed = self._store.start_request(request_id)
+                if not request_claimed:
+                    raise RequestFailed("Request is unavailable or already claimed.")
                 budget = RequestBudget.start(
                     self._request_budget_settings,
                     clock=self._monotonic_clock,
@@ -676,7 +795,15 @@ class ChatRuntime:
                     },
                 )
                 settings = self._settings()
+                secret_token = protect_request_values(settings.api_key)
+                if settings.profile is not None:
+                    budget = budget.limited_to(settings.profile.request_timeout_seconds)
                 scope = self._runtime_scope(session_id)
+                if self._skill_request_start is not None:
+                    self._skill_request_start(request_id, scope, content)
+                settings = settings.model_copy(
+                    update={"request_binding": request_id, "runtime_scope": scope}
+                )
                 identity = self._store.session_identity(session_id)
                 assert identity is not None
                 mutation_mode = (
@@ -745,6 +872,12 @@ class ChatRuntime:
                         ),
                         cancellation,
                         phase="model",
+                    )
+                    # Carry adapter-owned state only between turns of this request.
+                    # _settings() starts fresh for the next submit/session; canonical
+                    # persistence and public serializers exclude the opaque envelope.
+                    settings = settings.model_copy(
+                        update={"provider_continuation": turn.provider_continuation}
                     )
                     if usage is None:
                         has_complete_usage = False
@@ -966,6 +1099,8 @@ class ChatRuntime:
                                 cancellation.is_set()
                                 or (budget is not None and budget.remaining_work_seconds() <= 0)
                             ),
+                            request_id=request_id,
+                            stop_requested=cancellation.is_set,
                         )
                         block_reason: str | None = None
                         if definition is not None and definition.operation_kind == "mutation":
@@ -1378,6 +1513,8 @@ class ChatRuntime:
             )
             raise
         except RequestFailed as error:
+            if not request_claimed:
+                raise
             if terminal_final_started:
                 return self._complete_incomplete(
                     session_id,
@@ -1410,7 +1547,16 @@ class ChatRuntime:
             self._fail_unexpected(request_id)
             raise RequestFailed("Request failed unexpectedly.") from error
         finally:
+            self._running_requests.discard(request_id)
             request = self._store.request(request_id)
+            if (
+                request_claimed
+                and request is not None
+                and request["status"] in {"failed", "cancelled"}
+                and self._on_request_interrupt is not None
+            ):
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(self._on_request_interrupt(request_id))
             if request is not None and request["status"] in {"queued", "running"}:
                 self._fail_unexpected(request_id)
             self._cancellations.pop(request_id, None)
@@ -1418,6 +1564,12 @@ class ChatRuntime:
             self._queued_at.pop(request_id, None)
             self._scheduled_requests.discard(request_id)
             self._transient_endpoint_results.pop(request_id, None)
+            self._transient_tool_calls.pop(request_id, None)
+            if self._skill_request_end is not None:
+                with contextlib.suppress(Exception):
+                    self._skill_request_end(request_id)
+            if secret_token is not None:
+                reset_request_values(secret_token)
 
     async def _stream_turn(
         self,
@@ -1441,6 +1593,7 @@ class ChatRuntime:
         completed_turn: ModelTurn | None = None
         completed_usage: ModelUsage | None = None
         runtime_instruction_parts = [
+            self._skill_context(request_id, scope) if self._skill_context is not None else "",
             _RECOVERY_DECISION_INSTRUCTIONS if recovery_decision or recovery_guidance else "",
             _RECOVERY_EXHAUSTED_INSTRUCTIONS if recovery_exhausted else "",
             _MODEL_CONTINUATION_INSTRUCTIONS if model_continuation else "",
@@ -1458,10 +1611,21 @@ class ChatRuntime:
             if citation_correction is not None
             else ()
         )
-        # All registered schemas are present even on follow-up turns. This is a
-        # portable direct-registry contract, not a request-local discovery protocol.
+        # Expose the canonical schemas on first/follow-up turns when the profile
+        # supports a complete tool loop. Capability metadata grants no execution
+        # permission and does not introduce request-specific semantic discovery.
         model_tools = (
-            () if recovery_exhausted or terminal_final else self._registry.model_definitions()
+            ()
+            if recovery_exhausted
+            or terminal_final
+            or (
+                settings.profile is not None
+                and not (
+                    settings.profile.capabilities.tools
+                    and settings.profile.capabilities.tool_result_continuation
+                )
+            )
+            else self._registry.model_definitions()
         )
         model_continuation_messages = (
             (ContextMessage(role="user", content=_MODEL_CONTINUATION_REQUEST),)
@@ -1477,7 +1641,15 @@ class ChatRuntime:
                 else ()
             )
         )
-        context_budget = _context_budget_for_turn(extra_messages)
+        context_limit = self._context_maximum_bytes
+        context_budget = _context_budget_for_turn(extra_messages, context_limit)
+        if settings.profile is not None:
+            context_limit = min(context_limit, settings.profile.context_max_bytes)
+            context_budget = min(context_budget, context_limit - _messages_bytes(extra_messages))
+            if context_budget <= 0:
+                raise RequestFailed(
+                    "The profile context limit cannot fit the required continuation."
+                )
         context = self._context_builder.build_with_metadata(
             session_id,
             scope.project_id,
@@ -1488,6 +1660,7 @@ class ChatRuntime:
             model_visible_citation_sizing=True,
             runtime_instructions=" ".join(part for part in runtime_instruction_parts if part),
             transient_results=self._transient_endpoint_results.get(request_id),
+            transient_calls=self._transient_tool_calls.get(request_id),
         )
         citation_sources = citation_eligible_sources(
             context.messages,
@@ -1513,7 +1686,7 @@ class ChatRuntime:
             tools=model_tools,
         )
         model_messages = model_request.provider_messages()
-        if _messages_bytes(model_messages) > MAX_CONVERSATION_BYTES:
+        if _messages_bytes(model_messages) > context_limit:
             raise RequestFailed(
                 "Model context exceeds Orion's local safety bound; the current user message was "
                 "not silently truncated."
@@ -1556,32 +1729,33 @@ class ChatRuntime:
             }
         )
 
-        async for event in self._backend.stream(
-            model_messages,
-            model_request.tools,
-            settings,
-            cancellation,
-        ):
-            self._ensure_not_cancelled(cancellation)
-            event_elapsed_ms = self._elapsed_ms(model_started_at)
-            milestone_kind = model_stream_progress.observe(event, event_elapsed_ms)
-            if milestone_kind is not None:
-                self._record_diagnostic(
-                    {
-                        "request_id": request_id,
-                        "model_turn_id": model_turn_id,
-                        "phase": "model",
-                        "status": "stream_progress",
-                        "elapsed_ms": event_elapsed_ms,
-                        "stream_progress_milestone": milestone_kind,
-                        **model_stream_progress.diagnostic_fields(),
-                    }
-                )
-            if isinstance(event, AssistantDelta):
-                self._emit(request_id, "assistant.delta", {"content": event.content})
-            elif isinstance(event, ModelTurnCompleted):
-                completed_turn = event.turn
-                completed_usage = event.usage
+        async with aclosing(
+            validated_model_stream(
+                self._backend.stream(model_messages, model_request.tools, settings, cancellation),
+                credential=settings.api_key,
+            )
+        ) as events:
+            async for event in events:
+                self._ensure_not_cancelled(cancellation)
+                event_elapsed_ms = self._elapsed_ms(model_started_at)
+                milestone_kind = model_stream_progress.observe(event, event_elapsed_ms)
+                if milestone_kind is not None:
+                    self._record_diagnostic(
+                        {
+                            "request_id": request_id,
+                            "model_turn_id": model_turn_id,
+                            "phase": "model",
+                            "status": "stream_progress",
+                            "elapsed_ms": event_elapsed_ms,
+                            "stream_progress_milestone": milestone_kind,
+                            **model_stream_progress.diagnostic_fields(),
+                        }
+                    )
+                if isinstance(event, AssistantDelta):
+                    self._emit(request_id, "assistant.delta", {"content": event.content})
+                elif isinstance(event, ModelTurnCompleted):
+                    completed_turn = event.turn
+                    completed_usage = event.usage
         if completed_turn is None:
             raise ModelBackendError("Model stream ended without a completed turn.")
         completed_turn = resolve_model_citation_aliases(completed_turn, citation_aliases)
@@ -1606,9 +1780,14 @@ class ChatRuntime:
         )
 
     def _settings(self) -> ModelSettings:
-        stored = self._store.active_model_config()
-        if stored is None:
-            raise RequestFailed("No active OpenAI-compatible model configuration.")
+        if self._settings_provider is not None:
+            return self._settings_provider()
+        binding = self._store.active_model_binding()
+        if binding is None:
+            raise RequestFailed("No active model configuration.")
+        stored, profile = binding
+        if profile is not None or stored.get("credential_ref") is not None:
+            raise RequestFailed("Model profile requires the application settings resolver.")
         return ModelSettings.model_validate(
             {
                 "provider_type": stored["provider_type"],
@@ -1621,6 +1800,14 @@ class ChatRuntime:
 
     @staticmethod
     def _persistable_arguments(call: ModelToolCall) -> dict[str, object]:
+        if call.tool_name.startswith("system.command."):
+            return {
+                "target_ref": call.arguments.get("target_ref", ""),
+                "payload_omitted": True,
+                "command_hash": ChatRuntime._mutation_signature(call)[1],
+            }
+        if call.tool_name.startswith("skill."):
+            return {"payload_omitted": True}
         if call.tool_name.startswith("endpoint."):
             return {"target_ref": call.arguments.get("target_ref", ""), "payload_omitted": True}
         return dict(call.arguments)
@@ -1650,18 +1837,37 @@ class ChatRuntime:
             payload["metrics"] = metrics
         if intermediate:
             payload["intermediate"] = True
-        return self._store.append_timeline(
+        sensitive = any(
+            call.tool_name.startswith(("endpoint.", "system.command.", "skill."))
+            for call in turn.tool_calls
+        )
+        cache = self._transient_tool_calls.setdefault(request_id, {}) if sensitive else {}
+        if sensitive:
+            size = sum(
+                len(call.model_dump_json().encode())
+                for calls in (*cache.values(), turn.tool_calls)
+                for call in calls
+            )
+            if len(cache) >= 128 or size > 4_194_304:
+                raise RequestFailed("Transient tool protocol exceeds the request memory bound.")
+        item = self._store.append_timeline(
             session_id,
             request_id,
             "assistant_message",
             payload,
         )
+        if sensitive:
+            cache[item.item_id] = tuple(call.model_copy(deep=True) for call in turn.tool_calls)
+        return item
 
     def _persist_tool_result(
         self, session_id: str, request_id: str, result: ToolResult, elapsed_ms: int
     ) -> None:
         persisted = result.model_dump(mode="json")
-        if result.tool_name.startswith("endpoint.") and result.status == "success":
+        if (
+            result.tool_name.startswith(("endpoint.", "system.command.", "skill."))
+            and result.data is not None
+        ):
             persisted["data"] = {"payload_omitted": True}
         item = self._store.append_timeline(
             session_id,
@@ -1671,7 +1877,10 @@ class ChatRuntime:
             call_id=result.call_id,
             tool_name=result.tool_name,
         )
-        if result.tool_name.startswith("endpoint.") and result.status == "success":
+        if (
+            result.tool_name.startswith(("endpoint.", "system.command.", "skill."))
+            and result.data is not None
+        ):
             cache = self._transient_endpoint_results.setdefault(request_id, {})
             cache[item.item_id] = result
             while len(cache) > 8:
@@ -1691,6 +1900,7 @@ class ChatRuntime:
             "grafana",
             "zabbix",
             "endpoint",
+            "system",
         }:
             payload["operation_kind"] = definition.operation_kind
             if isinstance(result.data, dict) and not result.tool_name.startswith("endpoint."):
@@ -1717,6 +1927,7 @@ class ChatRuntime:
             "grafana",
             "zabbix",
             "endpoint",
+            "system",
         }:
             payload["operation_kind"] = definition.operation_kind
             target_ref = arguments.get("target_ref")
@@ -1739,7 +1950,7 @@ class ChatRuntime:
         target_ref = call.arguments.get("target_ref")
         if family == "mcp":
             payload["server_id"] = call.tool_name.split(".")[1]
-        if family == "endpoint":
+        if family in {"endpoint", "system"}:
             payload["target_ref"] = str(target_ref)[:32]
         if family == "scheduler":
             payload["target_ref"] = "scheduler"
@@ -1767,7 +1978,7 @@ class ChatRuntime:
             return
         canonical = record.get("canonical_result")
         if isinstance(canonical, dict) and str(canonical.get("tool_name", "")).startswith(
-            "endpoint."
+            ("endpoint.", "system.command.", "skill.")
         ):
             record = {
                 **record,
@@ -1784,11 +1995,13 @@ class ChatRuntime:
                         "tool_result_projections": [
                             {
                                 **item,
-                                "content": "[endpoint payload omitted]",
+                                "content": "[transient tool payload omitted]",
                                 "projection_omissions": [],
                             }
                             if isinstance(item, dict)
-                            and str(item.get("tool_name", "")).startswith("endpoint.")
+                            and str(item.get("tool_name", "")).startswith(
+                                ("endpoint.", "system.command.", "skill.")
+                            )
                             else item
                             for item in projections
                         ],
@@ -1804,7 +2017,9 @@ class ChatRuntime:
         return max(0, round((self._monotonic_clock() - started_at) * 1000))
 
     def _emit(self, request_id: str, event_type: str, payload: dict[str, object]) -> None:
-        public_payload = redact_public(payload)
+        # Validate the public namespace/JSON boundary before persistence or logs.
+        event = RuntimeEvent.model_validate({"type": event_type, "payload": redact_public(payload)})
+        public_payload = event.payload
         self._store.emit_event(request_id, event_type, public_payload)
         if self._application_log is not None:
             self._application_log.write(event_type, {"request_id": request_id, **public_payload})
@@ -1930,7 +2145,10 @@ class ChatRuntime:
             source = sources_by_id[source_ref_id]
             if source.source_kind == "internet" and source.document_id is None and source.url:
                 continue
-            if source.source_kind in {"linux", "grafana", "zabbix"} and source.document_id is None:
+            if (
+                source.source_kind in {"linux", "grafana", "zabbix", "system_command"}
+                and source.document_id is None
+            ):
                 continue
             if source.document_id is None:
                 raise CitationValidationFailed("Assistant cited an unavailable source.")

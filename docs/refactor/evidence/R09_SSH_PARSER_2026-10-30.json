@@ -1,0 +1,22 @@
+{
+  "scope": "Native Windows OpenSSH9.5p2 local -G parser only; no network, account or real SSH execution. Empty explicit config; no workstation credential discovery.",
+  "exit_code": 0,
+  "fields": {
+    "hostname": "lab-alias",
+    "batchmode": "yes",
+    "stricthostkeychecking": "true",
+    "userknownhostsfile": "C:/Users/phamg/AppData/Local/Temp/orion-ssh-parser-tt09_znx/folder with spaces/known_hosts",
+    "globalknownhostsfile": "none",
+    "forwardagent": "no",
+    "forwardx11": "no",
+    "clearallforwardings": "yes",
+    "permitlocalcommand": "no",
+    "requesttty": "false",
+    "stdinnull": "no",
+    "controlmaster": "false",
+    "controlpath": null,
+    "remotecommand": null,
+    "sessiontype": "default"
+  },
+  "stderr": ""
+}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 import os
 import time
 from collections.abc import Awaitable, Callable
@@ -143,6 +144,21 @@ class RequestBudget:
     def elapsed_ms(self) -> int:
         return max(0, round((self.clock() - self.started_monotonic) * 1000))
 
+    def limited_to(self, seconds: float) -> RequestBudget:
+        """A profile may shorten, never extend, the server's request ceiling."""
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError("Profile deadline must be finite and positive.")
+        deadline = min(self.deadline_monotonic, self.started_monotonic + seconds)
+        if deadline == self.deadline_monotonic:
+            return self
+        reserve = min(
+            self.deadline_monotonic - self.work_deadline_monotonic,
+            seconds / 2,
+        )
+        return replace(
+            self, deadline_monotonic=deadline, work_deadline_monotonic=deadline - reserve
+        )
+
     def after_human_wait(self, seconds: float) -> RequestBudget:
         """Human authorization pauses both work and mutation drain clocks."""
         return replace(
@@ -240,5 +256,7 @@ class RequestBudget:
 async def _cancel_and_drain(task: asyncio.Future[Any]) -> None:
     if not task.done():
         task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
+    # The interrupt already won. Consume a simultaneous provider/cleanup failure
+    # without replacing Stop, the deadline, or mutation-outcome uncertainty.
+    with contextlib.suppress(asyncio.CancelledError, Exception):
         await task

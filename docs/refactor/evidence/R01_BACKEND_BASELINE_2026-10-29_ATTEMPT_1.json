@@ -1,0 +1,19 @@
+{
+  "scope": "Current legacy backend baseline with full conftest; isolated temporary application state, no inherited Orion credentials/config. Not refactor acceptance.",
+  "argv": [
+    "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "backend/tests",
+    "-x",
+    "-q",
+    "-o",
+    "addopts=",
+    "-o",
+    "cache_dir=F:/Orion-toolchains/pytest-cache"
+  ],
+  "exit_code": 1,
+  "stdout": "....................F\n================================== FAILURES ===================================\n_________ test_backend_package_exists_only_in_approved_backend_layout _________\n\n    def test_backend_package_exists_only_in_approved_backend_layout() -> None:\n        repository = Path(__file__).resolve().parents[2]\n        assert list((repository / \"src\" / \"orion\").rglob(\"*.py\")) == []\n        import orion\n    \n>       assert \"/backend/src/orion/\" in str(Path(orion.__file__).resolve())\nE       AssertionError: assert '/backend/src/orion/' in 'F:\\\\Orion\\\\backend\\\\src\\\\orion\\\\__init__.py'\nE        +  where 'F:\\\\Orion\\\\backend\\\\src\\\\orion\\\\__init__.py' = str(WindowsPath('F:/Orion/backend/src/orion/__init__.py'))\nE        +    where WindowsPath('F:/Orion/backend/src/orion/__init__.py') = resolve()\nE        +      where resolve = WindowsPath('F:/Orion/backend/src/orion/__init__.py').resolve\nE        +        where WindowsPath('F:/Orion/backend/src/orion/__init__.py') = Path('F:\\\\Orion\\\\backend\\\\src\\\\orion\\\\__init__.py')\nE        +          where 'F:\\\\Orion\\\\backend\\\\src\\\\orion\\\\__init__.py' = <module 'orion' from 'F:\\\\Orion\\\\backend\\\\src\\\\orion\\\\__init__.py'>.__file__\n\nbackend\\tests\\test_bootstrap.py:54: AssertionError\n=========================== short test summary info ===========================\nFAILED backend\\tests\\test_bootstrap.py::test_backend_package_exists_only_in_approved_backend_layout\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 20 passed in 16.45s\n",
+  "stderr": ""
+}

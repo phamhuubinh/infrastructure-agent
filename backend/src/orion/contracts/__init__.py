@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Literal, NoReturn
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 
 class FrozenJSONDict(dict[str, Any]):
@@ -107,6 +108,14 @@ class CanonicalModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class MutationMode(StrEnum):
+    """Conversation preference; server/target policy remains an independent ceiling."""
+
+    READ_ONLY = "read_only"
+    CONFIRM = "confirm"
+    AUTO = "auto"
+
+
 class AssistantMessage(CanonicalModel):
     content: str = ""
     # Canonical presentation references populated only after Orion resolves the
@@ -123,11 +132,37 @@ class ModelToolCall(CanonicalModel):
     arguments: dict[str, Any]
 
 
+class ProviderContinuation(CanonicalModel):
+    """Adapter-owned protocol state, transient within exactly one runtime request.
+
+    Adapters encode vendor blocks/tokens as a bounded string and validate their
+    own version and binding before reuse. Neither the runtime nor clients parse
+    this payload. Serialization and repr deliberately omit its contents.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    adapter_id: str = Field(min_length=1, max_length=64)
+    version: Literal[1] = 1
+    payload: SecretStr = Field(exclude=True, repr=False)
+
+    @field_validator("payload")
+    @classmethod
+    def bounded_payload(cls, value: SecretStr) -> SecretStr:
+        size = len(value.get_secret_value().encode("utf-8"))
+        if not 1 <= size <= 262_144:
+            raise ValueError("provider continuation payload exceeds its bounds")
+        return value
+
+
 class ModelTurn(CanonicalModel):
     """A normalized provider response; content and tool calls may coexist."""
 
     assistant: AssistantMessage | None = None
     tool_calls: tuple[ModelToolCall, ...] = ()
+    provider_continuation: ProviderContinuation | None = Field(
+        default=None, exclude=True, repr=False
+    )
 
     @model_validator(mode="after")
     def require_assistant_or_tool_call(self) -> ModelTurn:
@@ -244,6 +279,8 @@ class ToolCall(CanonicalModel):
     runtime_scope: RuntimeScope
     # This is Orion-owned execution context, never model input or persisted result data.
     cancellation_requested: Callable[[], bool] | None = Field(default=None, exclude=True)
+    request_id: str | None = Field(default=None, exclude=True)
+    stop_requested: Callable[[], bool] | None = Field(default=None, exclude=True)
 
 
 class ToolError(CanonicalModel):
@@ -379,15 +416,15 @@ class ToolResult(CanonicalModel):
     # conservatively unknown; no result is discarded.
     read_progress: ReadProgress | None = None
 
-    @field_validator("error")
-    @classmethod
-    def error_matches_status(cls, value: ToolError | None, info: Any) -> ToolError | None:
-        status = info.data.get("status")
-        if status == "error" and value is None:
+    @model_validator(mode="after")
+    def error_matches_status(self) -> ToolResult:
+        # A field validator does not run when the optional error field is omitted.
+        # Validate the whole result so malformed handlers cannot bypass this invariant.
+        if self.status == "error" and self.error is None:
             raise ValueError("error ToolResult requires a ToolError")
-        if status == "success" and value is not None:
+        if self.status == "success" and self.error is not None:
             raise ValueError("successful ToolResult cannot contain ToolError")
-        return value
+        return self
 
     @classmethod
     def failure(

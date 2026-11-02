@@ -1,0 +1,115 @@
+{
+  "scope": "R03 partial active provider registry and explicit env credential binding; not native vendor adapters, saved typed profile migration, complete conformance or live/native acceptance.",
+  "source_sha256": {
+    "backend/src/orion/models/backend.py": "6ea31c1f602768eb14bf98b8a2a82468358d31888145e207f448d54883f1c5ef",
+    "backend/src/orion/models/registry.py": "a8cbe67d378116b72f42fd558b6ab26c58d60a682f960abecaf2cc90510057c2",
+    "backend/src/orion/models/credentials.py": "4fb34a99a63fae0b506d52569c4e9470a562205a1b028f1c81b360f1b1f14e3f",
+    "backend/src/orion/bootstrap/__init__.py": "e2bfd566521a8ec512fc29879c5d3f72c45040b9666669f113d18101c38f116a",
+    "backend/tests/test_provider_registry.py": "c79f4d04a16b770191b60f85186c81582c62ec39e65b8f8b4d5a4b17a1455aa5"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_provider_registry.py",
+        "backend/tests/test_bootstrap.py",
+        "backend/tests/test_model_configs.py",
+        "backend/tests/test_openai_adapter.py",
+        "backend/tests/test_api.py",
+        "backend/tests/test_mutation_authorization.py",
+        "backend/tests/test_runtime_diagnostics.py",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 32.484,
+      "stdout": "........................................................................ [ 45%]\n........................................................................ [ 90%]\n...............                                                          [100%]\n159 passed in 28.78s\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/tests/test_provider_registry.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.204,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/tests/test_provider_registry.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.218,
+      "stdout": "5 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 0.875,
+      "stdout": "Success: no issues found in 3 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.266,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/openapi.py"
+      ],
+      "exit_code": 0,
+      "seconds": 4.328,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}

@@ -219,9 +219,9 @@ def main() -> None:
             "ORION_TEST_SECRET_TOKEN": "operations-marker-secret",
             "ORION_API_KEY": "operations-ui-secret-marker",
         }
-        # This lifecycle check exercises the real installer and CLI, but never fetches
-        # the large model. Installer-focused tests verify the provisioning command and
-        # failure ordering; the model module has its own digest/staging tests.
+        # Default installation must not fetch the optional model. Keep a no-download
+        # guard as additional protection; opt-in installer tests cover provisioning
+        # and failure ordering, while the model module tests digest/staging behavior.
         mock_directory = root / "installer-model-mock"
         mock_directory.mkdir()
         (mock_directory / "sitecustomize.py").write_text(
@@ -266,6 +266,9 @@ def main() -> None:
                 "  orion knowledge semantic-index [--max-documents N]  "
                 "Inspect up to N ready documents\n"
                 "  orion help     Show this help\n"
+                "  orion data export DIRECTORY   Offline managed-data backup\n"
+                "  orion data import BUNDLE NEW_DIRECTORY   Restore without overwriting data\n"
+                "  orion data retain DIRECTORY --keep N   Prune validated managed-data backups\n"
                 "  orion --version  Show installed Orion version\n"
             )
             or rejected_help.returncode == 0

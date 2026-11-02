@@ -1,0 +1,33 @@
+{
+  "scope": "Packaged UI gate fails closed on unavailable loopback; controlled native Node builtin network fault injection, no build run or native app claim. Earlier successful bundle evidence is retained separately.",
+  "source": "F:\\Orion\\ui\\scripts\\test-packaged-ui.mjs",
+  "sha256": "e0632ca612ec20efae95808c222d9b883a11ca52dad96815fa9e968e874109be",
+  "checks": [
+    {
+      "case": "EACCES",
+      "expected_exit": "nonzero",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "file:///F:/Orion/ui/scripts/test-packaged-ui.mjs:50\n  throw new Error(\"Packaged UI verification requires available loopback sockets.\");\n        ^\n\nError: Packaged UI verification requires available loopback sockets.\n    at file:///F:/Orion/ui/scripts/test-packaged-ui.mjs:50:9\n\nNode.js v24.22.1\n"
+    },
+    {
+      "case": "EPERM",
+      "expected_exit": "nonzero",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "file:///F:/Orion/ui/scripts/test-packaged-ui.mjs:50\n  throw new Error(\"Packaged UI verification requires available loopback sockets.\");\n        ^\n\nError: Packaged UI verification requires available loopback sockets.\n    at file:///F:/Orion/ui/scripts/test-packaged-ui.mjs:50:9\n\nNode.js v24.22.1\n"
+    },
+    {
+      "case": "EADDRINUSE",
+      "expected_exit": "nonzero",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "file:///F:/Orion/[eval1]:6\n server.listen = () => queueMicrotask(() => server.emit('error', Object.assign(new Error('controlled bind denial'), {code: \"EADDRINUSE\"})));\n                                                                               ^\n\nError: controlled bind denial\n    at file:///F:/Orion/[eval1]:6:80 {\n  code: 'EADDRINUSE'\n}\n\nNode.js v24.22.1\n"
+    }
+  ],
+  "syntax_check": {
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+}

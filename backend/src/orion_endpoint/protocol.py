@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 VERSION: Literal[1] = 1
 MAX_MESSAGE = 1_500_000
@@ -140,8 +140,42 @@ class TransferChunk(TransferID):
     offset: int = Field(ge=0, le=MAX_TRANSFER)
 
 
+class CommandID(Strict):
+    command_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class CommandRun(CommandID):
+    shell: Literal["powershell", "cmd", "sh", "bash"]
+    command: str = Field(min_length=1, max_length=65_536, repr=False)
+    cwd: str | None = Field(default=None, min_length=1, max_length=4096)
+    timeout_seconds: int = Field(default=60, ge=1, le=3600)
+    max_output_bytes: int = Field(default=262_144, ge=1024, le=4_194_304)
+
+    @field_validator("command", "cwd")
+    @classmethod
+    def text(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or "\0" in value):
+            raise ValueError("invalid_input")
+        return value
+
+    @field_validator("command")
+    @classmethod
+    def script_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 65_536:
+            raise ValueError("invalid_input")
+        return value
+
+
+class CommandStatus(CommandID):
+    stdout_offset: int = Field(default=0, ge=0, le=4_194_304)
+    stderr_offset: int = Field(default=0, ge=0, le=4_194_304)
+
+
 # The closed operation catalog is authority, never supplied by a peer.
 OPERATIONS: dict[str, tuple[type[Strict], Literal["read", "mutation"]]] = {
+    "command.run": (CommandRun, "mutation"),
+    "command.status": (CommandStatus, "read"),
+    "command.cancel": (CommandID, "mutation"),
     "system.inspect": (Empty, "read"),
     "process.list": (ProcessPage, "read"),
     "file.list": (FileList, "read"),
@@ -192,6 +226,9 @@ class Hello(Strict):
     os_release: str = Field(default="unknown", max_length=100, pattern=r"^[^\x00-\x1f\x7f]+$")
     capabilities: list[str] = Field(max_length=32)
     geometry: list[Geometry] = Field(default_factory=list, max_length=16)
+    command_shells: list[Literal["powershell", "cmd", "sh", "bash"]] = Field(
+        default_factory=list, max_length=4
+    )
 
 
 class Welcome(Strict):
@@ -232,8 +269,12 @@ class Ping(Strict):
     type: Literal["ping", "pong"]
 
 
+type Message = Annotated[
+    Hello | Welcome | Request | Result | Cancel | Ping, Field(discriminator="type")
+]
+
 MESSAGE: TypeAdapter[Hello | Welcome | Request | Result | Cancel | Ping] = TypeAdapter(
-    Annotated[Hello | Welcome | Request | Result | Cancel | Ping, Field(discriminator="type")]
+    cast(Any, Message)
 )
 
 

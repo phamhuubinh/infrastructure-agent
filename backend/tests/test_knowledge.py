@@ -33,6 +33,96 @@ def _scope(session_id: str, *attachment_ids: str) -> RuntimeScope:
     )
 
 
+def test_knowledge_rejects_forged_session_principal_project_and_endpoint_scope(store, tmp_path):
+    knowledge = KnowledgeService(store, LocalBlobStore(tmp_path / "blobs"))
+    project_a = store.create_project("A")
+    project_b = store.create_project("B")
+    session = store.create_session(project_id=project_a["project_id"])
+    document = knowledge.attach_project(project_a["project_id"], "a.txt", b"private project")
+    base = dict(
+        session_id=session,
+        project_id=project_a["project_id"],
+        principal_id="local",
+        workspace_id="local",
+    )
+    assert knowledge.list_documents(RuntimeScope(**base))
+    for override in (
+        {"project_id": project_b["project_id"]},
+        {"principal_id": "other"},
+        {"workspace_id": "other"},
+        {"endpoint_id": "a" * 32},
+    ):
+        forged = RuntimeScope(**(base | override))
+        with pytest.raises(PermissionError, match="session identity"):
+            knowledge.list_documents(forged)
+        with pytest.raises(PermissionError, match="session identity"):
+            knowledge.read(forged, document.document.document_id)
+        for operation in (
+            lambda forged=forged: knowledge.search(forged, "private", 5),
+            lambda forged=forged: knowledge.source_metadata(forged),
+            lambda forged=forged: knowledge.document_status(document.document.document_id, forged),
+            lambda forged=forged: knowledge.delete(document.document.document_id, forged),
+        ):
+            with pytest.raises(PermissionError, match="session identity"):
+                operation()
+
+
+def test_device_knowledge_service_rejects_upload_and_legacy_attachment_visibility(store, tmp_path):
+    knowledge = KnowledgeService(store, LocalBlobStore(tmp_path / "blobs"))
+    device = store.create_session(endpoint_id="a" * 32)
+    with pytest.raises(PermissionError, match="Device Chat"):
+        knowledge.attach(device, "forbidden.txt", b"must not be stored")
+    assert store.session_attachment_ids(device) == ()
+    assert list((tmp_path / "blobs").iterdir()) == []
+    ordinary = store.create_session()
+    legacy = knowledge.attach(ordinary, "legacy.txt", b"private legacy attachment")
+    # Simulate preexisting invalid data without using the guarded upload service.
+    with store._connection:
+        store._connection.execute(
+            "UPDATE documents SET session_id=? WHERE document_id=?",
+            (device, legacy.document.document_id),
+        )
+    scope = RuntimeScope(
+        session_id=device,
+        endpoint_id="a" * 32,
+        principal_id="local",
+        workspace_id="local",
+        attachment_ids=(legacy.attachment_id,),
+    )
+    assert knowledge.list_documents(scope) == []
+    assert knowledge.search(scope, "legacy", 5) == ()
+    assert knowledge.source_metadata(scope) == []
+    assert knowledge.document_status(legacy.document.document_id, scope) is None
+    with pytest.raises(PermissionError):
+        knowledge.read(scope, legacy.document.document_id)
+    with pytest.raises(PermissionError):
+        knowledge.delete(legacy.document.document_id, scope)
+    assert store.document(legacy.document.document_id) is not None
+
+
+def test_project_management_checks_membership_without_fabricated_session(store, knowledge):
+    project = store.create_project("A")["project_id"]
+    other = store.create_project("B")["project_id"]
+    document = knowledge.attach_project(project, "project.txt", b"private project")
+    attachment = knowledge.attach(store.create_session(), "chat.txt", b"private chat")
+    identity = document.document.document_id
+    assert knowledge.project_document_status(project, identity) is not None
+    assert knowledge.project_document_status(other, identity) is None
+    assert knowledge.project_document_status(project, attachment.document.document_id) is None
+    assert not knowledge.delete_project_document(other, identity)
+    assert not knowledge.delete_project_document(project, attachment.document.document_id)
+    forged = RuntimeScope(
+        session_id="project-document-management",
+        project_id=project,
+        principal_id="local",
+        workspace_id="local",
+    )
+    with pytest.raises(PermissionError, match="session identity"):
+        knowledge.document_status(identity, forged)
+    assert knowledge.delete_project_document(project, identity)
+    assert knowledge.project_document_status(project, identity) is None
+
+
 @pytest.fixture
 def knowledge(store, tmp_path):  # type: ignore[no-untyped-def]
     return KnowledgeService(store, LocalBlobStore(tmp_path / "blobs"))

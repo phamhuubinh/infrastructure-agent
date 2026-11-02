@@ -4,19 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 
+from orion.contracts import MutationMode as MutationMode
 from orion.contracts import RuntimeScope, ToolDefinition
 
 
 class MutationAuthorizationConfigurationError(ValueError):
     """A server-side mutation policy cannot be interpreted safely."""
-
-
-class MutationMode(StrEnum):
-    READ_ONLY = "read_only"
-    CONFIRM = "confirm"
-    AUTO = "auto"
 
 
 @dataclass(frozen=True)
@@ -73,9 +67,13 @@ class MutationAuthorizationPolicy:
                     "Mutation allowlist requires a closed schema with a required target_ref."
                 )
             family = tool_name.partition(".")[0]
-            if family not in {"linux", "grafana", "zabbix", "endpoint"} or not target_is_configured(
-                family, target_ref
-            ):
+            if family not in {
+                "linux",
+                "grafana",
+                "zabbix",
+                "endpoint",
+                "system",
+            } or not target_is_configured(family, target_ref):
                 raise MutationAuthorizationConfigurationError(
                     "Mutation allowlist names an unknown configured target."
                 )

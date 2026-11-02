@@ -1,99 +1,92 @@
 # Orion documentation
 
-This documentation is the target specification for Orion, with operations pages explicitly marked where they describe current repository behavior.
+> Current authority: [master request](../REFACTOR_REQUEST.md),
+> [design](refactor/DESIGN.md), [providers](refactor/PROVIDERS.md),
+> [work plan](refactor/WORK_PLAN.md), [acceptance](refactor/ACCEPTANCE.md)
+> and [state](refactor/STATE.json). ADR 0018 supersedes conflicting older design.
 
-## What Orion is
+This documentation separates current target design, inspected source and verified
+operations. The product is **Chat | Projects | Remote Control**, using one main
+model/runtime plus tools/skills and model-free remote workers.
 
-Orion is a local-first AI technical workbench centered on conversation:
+## Read first
 
-```text
-Chat
-  → general conversation
-  → session attachments
-  → registry-derived tools catalog available automatically to the model
+1. [ADR 0016 — runtime design](decisions/0016-single-runtime-redesign.md) and
+   [ADR 0017 — command focus](decisions/0017-windows-linux-command-focus.md)
+2. [Consolidated baseline — Vietnamese](architecture/BASELINE_2026-10-29.md)
+3. [Product](PRODUCT.md)
+4. [Architecture overview](architecture/OVERVIEW.md)
+5. [Implementation inventory and verification limits](development/IMPLEMENTATION_STATUS.md)
 
-Project
-  → same Chat runtime
-  → same registered tools
-  → persistent project metadata/documents
-  → additional project-scoped RAG source
-```
+Compatible earlier ADRs retain their detailed contracts. A closed issue is not
+test evidence. Windows/Linux command execution is the primary OS target; dedicated monitoring
+adapters are retired. Both command-runner and skill loading are design targets; existing MCP, scheduler and
+endpoint source must not be described as missing.
 
-There is no tool picker in Chat or Project.
+## Runtime and context
 
-## Read in this order
+- [Canonical contracts](architecture/CONTRACTS.md)
+- [ChatRuntime](architecture/CHAT_RUNTIME.md)
+- [Project scope](architecture/PROJECT_RUNTIME.md)
+- [Model-tool loop](architecture/MODEL_TOOL_LOOP.md)
+- [Tool system](architecture/TOOL_SYSTEM.md)
+- [Windows/Linux commands](architecture/SYSTEM_COMMANDS.md)
+- [Skill target contract](architecture/SKILLS.md)
+- [Model backends](architecture/MODEL_BACKENDS.md)
+- [Context and memory](architecture/CONTEXT_AND_MEMORY.md)
+- [RAG and project knowledge](architecture/RAG_AND_PROJECT_KNOWLEDGE.md)
 
-### Product
+## Product boundaries and lifecycle
 
-- `PRODUCT.md`
-- `QUICKSTART.md`
+- [UI and UX](architecture/UI_UX.md)
+- [Backend/API](architecture/BACKEND_API.md)
+- [Data and persistence](architecture/DATA_AND_PERSISTENCE.md)
+- [Endpoint runtime and threat model](architecture/ENDPOINTS.md)
+- [Scheduler](architecture/SCHEDULER.md)
+- [Security](architecture/SECURITY_LOCAL_FIRST.md)
+- [Observability](architecture/OBSERVABILITY.md)
+- [Failure recovery](architecture/FAILURE_RECOVERY.md)
 
-### Architecture
+## Tool families and operations
 
-1. `architecture/OVERVIEW.md`
-2. `architecture/CONTRACTS.md`
-3. `architecture/CHAT_RUNTIME.md`
-4. `architecture/PROJECT_RUNTIME.md`
-5. `architecture/MODEL_TOOL_LOOP.md`
-6. `architecture/TOOL_SYSTEM.md`
-7. `architecture/RAG_AND_PROJECT_KNOWLEDGE.md`
-8. `architecture/CONTEXT_AND_MEMORY.md`
-9. `architecture/MODEL_BACKENDS.md`
-10. `architecture/DATA_AND_PERSISTENCE.md`
-11. `architecture/BACKEND_API.md`
-12. `architecture/UI_UX.md`
-13. `architecture/OBSERVABILITY.md`
-14. `architecture/FAILURE_RECOVERY.md`
-15. `architecture/SECURITY_LOCAL_FIRST.md`
-16. `architecture/SCHEDULER.md`
+- [Tool reference](tools/README.md)
+- [Knowledge/RAG](tools/KNOWLEDGE_RAG.md)
+- [Calculator](tools/CALCULATOR.md)
+- [Internet](tools/INTERNET.md)
+- [Windows/Linux command contract](architecture/SYSTEM_COMMANDS.md)
+- [Endpoints](tools/ENDPOINTS.md)
+- [Adding a tool](tools/ADDING_A_TOOL.md)
 
-`CONTRACTS.md` defines the canonical identities shared by the runtime. Other architecture documents should refer to these concepts rather than inventing competing representations.
+## Running Orion
 
-### Tool families
+- [Quickstart](QUICKSTART.md)
+- [Installation](operations/INSTALLATION.md)
+- [Local run](operations/LOCAL_RUN.md)
+- [Configuration](operations/CONFIGURATION.md)
+- [Models](operations/MODELS.md)
+- [RAG service](operations/RAG_SERVICE.md)
+- [Remote browser access](operations/REMOTE_ACCESS.md)
+- [Portable/remembered endpoints](operations/ENDPOINTS.md)
+- [MCP](operations/MCP.md)
+- [Docker status](operations/DOCKER.md)
+- [Troubleshooting](operations/TROUBLESHOOTING.md)
 
-- `tools/README.md`
-- `tools/KNOWLEDGE_RAG.md`
-- `tools/CALCULATOR.md`
-- `tools/INTERNET.md`
-- `tools/LINUX.md`
-- `tools/GRAFANA.md`
-- `tools/ZABBIX.md`
-- `tools/ADDING_A_TOOL.md`
+Operations pages must match actual scripts/configuration. A target document cannot
+establish that a command, installer or platform feature works.
 
-### Running Orion
+## Development and records
 
-- `operations/INSTALLATION.md`
-- `operations/LOCAL_RUN.md`
-- `operations/DOCKER.md`
-- `operations/CONFIGURATION.md`
-- `operations/MODELS.md`
-- `operations/RAG_SERVICE.md`
-- `operations/REMOTE_ACCESS.md`
-- `operations/TROUBLESHOOTING.md`
+- [Source responsibilities](development/TARGET_CODE_LAYOUT.md)
+- [Reconciliation guide](development/REBUILD_GUIDE.md)
+- [Acceptance criteria](development/ACCEPTANCE_CRITERIA.md)
+- [Testing](development/TESTING.md)
+- [Engineering rules](development/ENGINEERING_RULES.md)
+- [Cleanup](development/CLEANUP.md)
+- [GitHub reset record](development/GITHUB_RESET_2026-10-29.md)
+- [Decision index](decisions/README.md)
+- [Principles](reference/ARCHITECTURE_PRINCIPLES.md)
+- [Glossary](reference/GLOSSARY.md)
 
-Operations pages that say **current** must be verified against the actual scripts/Compose configuration when they are changed.
-
-### Development
-
-- `development/TARGET_CODE_LAYOUT.md`
-- `development/ENGINEERING_RULES.md`
-- `development/TESTING.md`
-- `development/ACCEPTANCE_CRITERIA.md`
-- `development/REBUILD_GUIDE.md`
-- `development/CLEANUP.md`
-
-### Decisions and reference
-
-- `decisions/README.md`
-- `reference/GLOSSARY.md`
-- `reference/ARCHITECTURE_PRINCIPLES.md`
-
-## Target docs vs current code
-
-Architecture/product docs describe the desired system.
-
-The repository may temporarily contain older routing, agent protocol, capability, or evidence code while implementation catches up.
-
-Operations docs are different: when they describe current commands, service names, ports, installer flags, or configuration files, those facts must match the current repository.
-
-Do not preserve an obsolete implementation merely because it exists. Conversely, do not delete or rewrite code merely because you read this document: repository modifications require an explicit current task.
+Reading these documents does not authorize code deletion, migrations or Git
+publication. Preserve existing source and reconcile it against the current target
+when the user requests implementation work.

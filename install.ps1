@@ -1,7 +1,8 @@
 param(
     [string]$Prefix,
     [switch]$NoDev,
-    [switch]$GlobalLauncher
+    [switch]$GlobalLauncher,
+    [switch]$WithEmbeddings
 )
 
 $ErrorActionPreference = 'Stop'
@@ -174,9 +175,14 @@ try {
 
     $backend = Join-Path $sourceRoot 'backend'
     $package = if ($NoDev) { $backend } else { $backend + '[dev]' }
+    if ($WithEmbeddings) {
+        $package = if ($NoDev) { $backend + '[semantic]' } else { $backend + '[dev,semantic]' }
+    }
     Invoke-RequiredCommand $venvPython @('-m', 'pip', 'install', '-e', $package) 'Could not install the Orion backend.'
     Invoke-RequiredCommand $venvPython @('-m', 'orion.ui_package', '--repository', $sourceRoot, '--destination', (Join-Path $installPrefix '.orion-ui'), '--npm-ci') 'Could not build and package the Orion UI. Check Node.js and npm.'
-    Invoke-RequiredCommand $venvOrion @('model', 'install', 'embeddings') 'Could not provision the pinned embeddings model. Check network access and retry.'
+    if ($WithEmbeddings) {
+        Invoke-RequiredCommand $venvOrion @('model', 'install', 'embeddings') 'Could not provision the pinned embeddings model. Check network access and retry.'
+    }
 
     if (-not $prefixWasExplicit -or $GlobalLauncher) {
         Install-Launcher $venvOrion

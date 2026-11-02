@@ -1,5 +1,7 @@
 # ADR 0013 — Production mutation authorization baseline
 
+> Historical monitoring examples below are outside the current target after [ADR 0017](0017-windows-linux-command-focus.md). Read ADR 0014 for current mutation modes and ADR 0017 for command capability; no old example grants command permission.
+
 ## Status
 
 Superseded in part by ADR 0014. The exact configured-target and optional server

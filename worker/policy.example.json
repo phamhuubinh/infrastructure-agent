@@ -3,6 +3,7 @@
   "write_roots": [],
   "applications": {},
   "terminate": false,
+  "commands": false,
   "clipboard_read": false,
   "clipboard_write": false,
   "browser": false,

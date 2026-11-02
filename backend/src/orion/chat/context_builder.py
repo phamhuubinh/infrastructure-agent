@@ -168,6 +168,7 @@ class ContextBuilder:
         model_visible_citation_sizing: bool = False,
         runtime_instructions: str = "",
         transient_results: Mapping[str, ToolResult] | None = None,
+        transient_calls: Mapping[str, tuple[ModelToolCall, ...]] | None = None,
     ) -> BuiltContext:
         identity = self._store.session_identity(session_id)
         bound_endpoint = identity.get("endpoint_id") if identity else None
@@ -203,10 +204,11 @@ class ContextBuilder:
                     + json.dumps(summary or {"endpoint_id": bound_endpoint}),
                 )
             )
-        if self._infrastructure_targets:
+        if self._infrastructure_targets and not bound_endpoint:
             lines = [
                 "Configured infrastructure targets (safe identities only). Use the exact "
-                "target_ref value, without the family prefix:"
+                "target_ref string unchanged, including any transport namespace such as ssh:. "
+                "The family label is metadata, not part to add to or remove from that string:"
             ]
             lines.extend(
                 json.dumps({"family": family, "target_ref": target_ref, "display_name": display})
@@ -305,6 +307,24 @@ class ContextBuilder:
         # Persisted legacy checkpoints remain for data compatibility, but synchronous
         # model summaries and checkpoint content are intentionally absent from requests.
         timeline, omitted_timeline_turns = self._store.model_context_timeline(session_id, None)
+
+        if transient_calls:
+            timeline = [
+                item.model_copy(
+                    update={
+                        "payload": {
+                            **item.payload,
+                            "tool_calls": [
+                                call.model_dump(mode="json")
+                                for call in transient_calls[item.item_id]
+                            ],
+                        }
+                    }
+                )
+                if item.kind == "assistant_message" and item.item_id in transient_calls
+                else item
+                for item in timeline
+            ]
 
         if transient_results:
             timeline = [

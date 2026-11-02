@@ -1,160 +1,152 @@
 # Product
 
+> Current full-product target is [DESIGN.md](refactor/DESIGN.md) under
+> [REFACTOR_REQUEST.md](../REFACTOR_REQUEST.md): DeepSeek/Claude/OpenAI, Windows app,
+> Linux headless CLI/service, web and Android/iOS clients sharing one runtime.
+> Existing detailed sections below are migration inputs where compatible.
+
 ## Mission
 
-Orion is a **local-first AI technical workbench** for technical work.
+Orion is a local-first assistant for personal and technical work, accessible through
+a browser. One main model/runtime reasons over conversation, project knowledge and
+tool results. Customer devices are execution targets, not additional AI agents.
 
-It provides one conversational surface for:
+This is the target product for the [2026-10-29 redesign](architecture/BASELINE_2026-10-29.md).
+The latest amendment prioritizes Windows/Linux commands and removes dedicated
+Grafana/Zabbix integrations from the target product (ADR 0017).
+Source coverage and remaining verification are tracked separately in the
+[implementation inventory](development/IMPLEMENTATION_STATUS.md).
 
-- general technical chat;
-- reading and understanding documents;
-- project-specific knowledge work;
-- comparison and analysis;
-- deterministic calculation;
-- Internet research;
-- Linux inspection/actions exposed by the installed tool;
-- Grafana queries;
-- Zabbix queries;
-- persisted one-time and recurring read-only executions;
-- future technical integrations.
-
-The user's job is to state the task. The user should not need to choose whether Orion needs RAG, Internet, calculator, Linux, Grafana, or Zabbix.
-
-## Primary surfaces
-
-### Chat
-
-Chat is the default workspace.
-
-Each conversation exposes a mutation permission beside the composer model control:
-`Chỉ đọc` (default), `Hỏi trước khi sửa` (confirm each exact mutation), or
-`Tự động sửa` (auto allow eligible configured mutations after one warning). This is
-saved per conversation and applies equally in Project. A confirmation pauses the
-same request before the mutation handler; denial returns to the model. Tool choice
-stays with the model and hard target/schema/server restrictions still apply.
-
-It contains:
-
-- conversation history;
-- current user message;
-- session attachments;
-- model configuration;
-- registry-derived structural tool discovery and model-controlled expansion.
-
-### Project
-
-Project is not a different agent.
-
-Project is:
+## Primary navigation
 
 ```text
-Chat runtime
-+ active project identity
-+ project metadata/instructions
-+ persistent project documents
-+ project-scoped RAG source
+Chat | Projects | Remote Control
 ```
 
-All ordinary tools remain available in Project.
+Settings configures the model/provider; it is not another assistant or a tool mode.
 
-## Tool behavior
+| Surface | Owns | Does not inherit |
+| --- | --- | --- |
+| Chat | Conversation, current attachments, model settings and mutation mode | Other conversations' private data |
+| Project | Metadata/instructions, persistent documents and project conversations | Other projects' documents or authority |
+| Device Chat in Remote Control | Endpoint-owned history and independent mutation mode | Ordinary Chat history/attachments or Project instructions/documents |
 
-There is no tool picker.
+Projects use the Chat runtime with a bound project knowledge source. Each device
+also uses that runtime, with a server-owned endpoint binding instead of a Project.
+Selecting a different device opens its own workspace; it does not retarget an
+existing Device Chat.
 
-The model receives all registered model-callable tool schemas on the first turn and autonomously decides:
+## Chat and Projects
 
-- whether a tool is needed;
-- which tool is appropriate;
-- what arguments to provide;
-- whether another tool call is useful after receiving a result;
-- when enough information exists to answer.
+Users state their goals without choosing tools or enabling a RAG mode. All
+registered model-callable tool schemas are available on the first model turn.
+The model can answer directly, retrieve documents, calculate, research the web,
+inspect configured infrastructure, or combine sources in the same loop.
 
-When tools are useful, the model calls ordinary registered tools directly. Independent
-reads with known inputs may be called together before the synthesis turn.
+The application binds session/project/attachment identity, validates calls and
+enforces permission. No keyword, regex or intent classifier chooses a tool before
+the model. Project instructions provide task context and cannot widen permissions.
 
-Orion itself does not infer semantic intent before the model with keyword rules, regex lists, bilingual aliases, or a separate tool-selection classifier.
+Project documents show upload, ingestion, ready or failed state and support source
+navigation. A ready document must be queryable; semantic indexing has its own
+readiness and must not hide usable lexical/exact reads. Document names and IDs
+are knowledge identities, not remote filesystem paths.
 
-## Internet grounding
+## Remote Control
 
-Internet search is discovery-only in the model loop. Model-visible search rows expose bounded
-selection metadata (title, URL, and retrieval time), not claim-bearing snippets or citable
-`evidence_ref` values. The model fetches a chosen page to obtain citable web evidence. For exact
-latest/current web claims such as a release, version, date, or status, it must ground synthesis in
-authoritative fetched evidence. Citation provenance does not by itself establish semantic
-entailment.
+The landing page provides:
 
-## RAG behavior
+- Windows/Linux portable worker download for the compatible server release, with
+  version and integrity metadata; unavailable builds show that state explicitly;
+- one-use temporary pairing code with expiry;
+- devices with display name, OS, online/offline state, capabilities and last seen.
 
-RAG is not always-on prompt augmentation for unrelated requests.
+The redesign prioritizes **Chat | Commands | Connection** in the device workspace.
+Commands shows execution activity and bounded stdout/stderr. Existing Desktop,
+Files, Processes and Browser views remain secondary conveniences, not prerequisites
+for OS commands. Device Chat remains accessible offline; unavailable tools report
+a bounded error. Manual desktop
+control is a direct owner action with its own control-session authorization,
+separate from model-call mutation approval.
 
-When an answer depends on document contents, the model must retrieve current document evidence
-before synthesis. `knowledge.search` is the default discovery path when no exact target document
-is already visible or when retrieval spans the available knowledge scope. A current-session
-attachment with a visible exact `document_id` may be read directly. `knowledge.list_documents`
-is metadata browsing, not a content-QA preflight.
-The active Project contributes bounded ready-document names, types, and status to model context.
-A request by Project filename uses `knowledge.search` for content evidence and exact document ID.
-Orion documents are not infrastructure filesystem paths.
+The normal onsite workflow is download/extract → run → enter name and pairing
+code → work → Disconnect/Exit. The worker initiates outbound HTTPS/WSS, has visible
+status and requires no OS installation, Python/Node/npm, service, PATH change,
+autostart or inbound listener. Local policy and OS rights limit capabilities;
+running a worker does not guarantee desktop/browser support on every machine.
 
-Knowledge sources can include:
+Temporary mode is the default: the credential stays in process memory, clean exit
+ends it, and heartbeat expiry handles crashes or unreachable servers. Orion cleans
+its own session files, not OS/security history. Explicit browser-runtime
+provisioning may create a separate reusable cache; it must be disclosed rather
+than described as session cleanup. Remembered mode remains an explicit optional
+path for owned devices in the same worker/protocol.
 
-- current/session attachments;
-- project documents when a project is active;
-- an optional global/local knowledge library if configured.
+Device Chat has no Project/RAG/attachment scope. Ordinary non-knowledge tools may
+remain available. Every endpoint call is restricted to its bound endpoint at the
+server; supplying another target reference cannot switch authority.
+**End & forget** explicitly confirms removal of endpoint-owned identity/history
+after checking active requests and runs.
 
-Project knowledge must remain isolated by project.
+## Tool, skill and mutation behavior
 
-## Scheduled tasks
+Tools are schema-defined operations. Skills are reusable task instructions that
+use those tools; they have no independent AI runtime and grant no additional
+permission. The skill-loading contract is a design target, not a verified current
+feature. MCP connects external tools to the canonical registry.
 
-Chat and Project can create, inspect, pause, resume and delete scheduled tasks through
-model-callable scheduler tools. One-time schedules use an aware timestamp; recurring
-schedules use minute-precision cron with an explicit timezone. Task creation and
-management mutations obey the conversation's permissions. Each task has its own
-execution conversation and persisted history linked to ordinary Chat requests.
+Each Chat, Project and Device Chat has its own persisted permission:
 
-Scheduled execution is always read-only, even when the task conversation's saved
-permission allows mutations. Project tasks retain their Project knowledge and
-instructions; ordinary conversation attachments are not copied. After downtime,
-one-time tasks run once and recurring tasks coalesce missed occurrences into one
-catch-up run. There is no dedicated Scheduler UI in v1.
+| Mode | Effect |
+| --- | --- |
+| `read_only` (default) | Read operations only; mutations are blocked |
+| `confirm` | Pause the same request for approval of one exact mutation |
+| `auto` | Execute eligible mutations within server and worker policy ceilings |
 
-## Current scope priority
+Seeing a tool, selecting auto, or approving a call cannot widen server/worker/OS
+policy. Cancellation is not rollback. A dispatched mutation with an unverified
+result is reported as `outcome_unknown`; reconnect must not replay it.
 
-The first priority is excellent:
+The primary OS path accepts actual PowerShell/cmd commands on Windows and sh/bash
+commands on Linux, including scripts/pipelines, using the same runtime. The shared
+system.command.run/status/cancel contract targets workers or configured SSH and
+captures stdout/stderr, exit state, duration, truncation, timeout and cancellation.
+See [Commands](architecture/SYSTEM_COMMANDS.md).
 
-1. Chat;
-2. Project;
-3. document ingestion and understanding;
-4. automatic tool use;
-5. local model support;
-6. reliable persistence and UI.
+Arbitrary command text is mutation-capable: read_only/scheduler cannot dispatch it.
+confirm approves an exact command payload; auto uses explicit target command
+capability and OS rights. No keyword/model read-only classifier, implicit elevation
+or target switching is added. cwd/file-tool roots are not a shell sandbox.
+These tools are design-only; current restricted worker/SSH operations require
+a source migration before generic command execution is available.
 
-Infrastructure automation can grow from the same tool loop, but it must not distort the Chat/Project architecture.
+## Knowledge and evidence
 
-## User experience principles
+RAG is a tool/source subsystem rather than an independent assistant. Retrieve
+current document evidence when the answer depends on document content.
+`knowledge.search` discovers scoped content unless an exact visible document
+identity supports a direct read. Listing metadata is not a required QA step.
 
-- Ask naturally; do not select a tool first.
-- Project feels like Chat with additional private project knowledge.
-- Tool activity may be visible for transparency, but is not a configuration burden in the conversation flow.
-- Document-grounded answers should identify their sources.
-- If a tool/source fails, Orion should explain the missing information instead of pretending it succeeded.
-- Local operation is the default deployment assumption.
+Internet search discovers candidate pages; `internet.fetch` supplies citable web
+evidence. Current-state claims need refreshed applicable results. Citation
+validation establishes identity/visibility/provenance, not whether a claim follows
+logically from a source. External content remains untrusted data.
 
-## Paired remote endpoints
+## Automation and deployment
 
-Chat/Project can operate explicitly paired Windows/Linux devices with the same
-runtime and mutation modes. The authenticated Thiết bị page adds pairing, identity
-management, bounded file transfer and optional manual Remote Desktop. Capabilities
-remain limited by local worker policy. See [endpoint operations](operations/ENDPOINTS.md).
+Existing scheduler tasks use the same runtime in dedicated execution sessions.
+Execution remains read-only, retains its legitimate Project/endpoint binding and
+does not copy ordinary conversation attachments. A job is not another AI agent.
+See [Scheduler](architecture/SCHEDULER.md).
 
-Remote Endpoint v1's primary mode is a zero-install **Remote Control** portable
-worker with temporary in-memory credentials, foreground Disconnect/Exit and
-explicit remembered mode. Its endpoint workspace contains Device Chat, Desktop,
-Files, Processes, Browser and Connection. Device Chat uses the same canonical
-ChatRuntime with persisted server-owned endpoint binding, separate history/mutation
-mode and no Project/attachments. Cross-device endpoint calls are rejected.
-Portable platform artifacts carry version/source SHA/checksums; source builds
-without compatible release metadata show unavailable. Confirmed End & forget
-removes endpoint-owned metadata/history under existing active-request safeguards.
-See the endpoint operations/architecture reference for platform prerequisites,
-cleanup/expiry, download integrity and native artifact smoke coverage.
+Orion server owns the control plane, persistence and tools. Model inference can
+use the configured local or remote provider adapter. No particular model, GPU,
+provider, domain or tunnel vendor is required by this product design. The
+customer worker does not host inference.
+
+## Completion boundary
+
+Complete the [acceptance criteria](development/ACCEPTANCE_CRITERIA.md) for any
+implementation change. Closing an old issue resets planning; it does not certify
+a feature or delete existing source. This documentation redesign changes the
+specification and reconciliation plan, not runtime behavior.

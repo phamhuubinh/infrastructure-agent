@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AssistantMarkdown } from "@/components/chat/AssistantMarkdown";
+import { CommandApprovalReview } from "@/components/chat/CommandApprovalReview";
 import { AssistantMessage, UserMessage } from "@/components/chat/Message";
 import { Button } from "@/components/ui/button";
 import { apiFetch, apiJson, type MutationMode } from "@/lib/api";
 import { type TimelineItem } from "@/lib/chat-store";
-import { parseSseEvents } from "@/lib/chat-stream";
+import {
+  runIntent,
+  cancelIntent,
+  requestIntent,
+  pendingIntent,
+  type RequestIntent,
+} from "@/lib/requests";
+import { serverContext } from "@/lib/server-profiles";
 
 type Session = { session_id: string; endpoint_id: string; mutation_mode: MutationMode };
 type Pending = { request: string; call: string; tool: string; summary: Record<string, string> };
 
 // State belongs only to this endpoint workspace, never the ordinary Chat provider/sidebar.
 export function DeviceChat({ endpointId }: { endpointId: string }) {
+  const context = useRef(serverContext()).current;
   const [session, setSession] = useState<Session | null>(null);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [content, setContent] = useState("");
@@ -20,10 +29,15 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
   const [pending, setPending] = useState<Pending | null>(null);
   const controller = useRef<AbortController | null>(null);
   const requestId = useRef<string | null>(null);
+  const intent = useRef<RequestIntent | null>(null);
 
-  const refresh = useCallback(async (sessionId: string) => {
-    setTimeline(await apiJson<TimelineItem[]>(`/api/sessions/${sessionId}/timeline`));
-  }, []);
+  const refresh = useCallback(
+    async (sessionId: string) => {
+      if (context !== serverContext()) return;
+      setTimeline(await apiJson<TimelineItem[]>(`/api/sessions/${sessionId}/timeline`));
+    },
+    [context],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -40,42 +54,27 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
     return () => {
       disposed = true;
       controller.current?.abort();
-      if (requestId.current) {
-        void apiFetch(`/api/requests/${requestId.current}/cancel`, {
-          method: "POST",
-          keepalive: true,
-        }).catch(() => {});
-      }
+      if (intent.current) void cancelIntent(intent.current).catch(() => {});
     };
   }, [endpointId, refresh]);
 
-  async function send() {
-    if (!session || !content.trim() || controller.current) return;
+  async function send(resume = false) {
+    const previous = session ? pendingIntent(session.session_id) : null;
+    if (!session || (!content.trim() && !(resume && previous)) || controller.current) return;
     const abort = new AbortController();
     controller.current = abort;
     setBusy(true);
     setError("");
-    const message = content.trim();
+    const message = resume && previous ? previous.content : content.trim();
     setContent("");
     try {
-      const response = await apiFetch(`/api/sessions/${session.session_id}/messages/stream`, {
-        method: "POST",
-        body: JSON.stringify({ content: message }),
-        signal: abort.signal,
-      });
-      if (!response.ok || !response.body) throw new Error("Device Chat request unavailable.");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-        if (buffer.length > 1500000) throw new Error("Device Chat event exceeds limit.");
-        const parsed = parseSseEvents(buffer);
-        buffer = parsed.remainder;
-        for (const event of parsed.events) {
-          if (event.type === "request.accepted")
-            requestId.current = String(event.payload.request_id);
+      intent.current = resume && previous ? previous : requestIntent(session.session_id, message);
+      await runIntent(
+        intent.current,
+        (identity) => {
+          requestId.current = identity;
+        },
+        async (event) => {
           if (event.type === "tool.authorization_required" && requestId.current) {
             setPending({
               request: requestId.current,
@@ -88,15 +87,16 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
             setError(String(event.payload.message ?? "Request failed."));
           if (event.type === "assistant.message" || event.type === "request.accepted")
             await refresh(session.session_id);
-        }
-        if (done) break;
-      }
+        },
+        abort.signal,
+      );
     } catch (reason) {
       if (!abort.signal.aborted)
         setError(reason instanceof Error ? reason.message : "Request failed.");
     } finally {
       controller.current = null;
       requestId.current = null;
+      intent.current = null;
       setPending(null);
       setBusy(false);
       await refresh(session.session_id).catch(() => {});
@@ -110,6 +110,7 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
         `/api/sessions/${session.session_id}/requests/${pending.request}/tool-authorizations/${pending.call}`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ decision }),
         },
       );
@@ -137,6 +138,7 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
               return;
             void apiJson<Session>(`/api/sessions/${session!.session_id}/mutation-mode`, {
               method: "PATCH",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ mutation_mode: mode }),
             })
               .then((value) =>
@@ -171,8 +173,21 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
           <p>
             {pending.tool} · {pending.summary?.label}
           </p>
-          <Button onClick={() => void authorize("deny")}>Từ chối</Button>
-          <Button onClick={() => void authorize("allow")}>Cho phép</Button>
+          {pending.tool.startsWith("system.command.") && session ? (
+            <CommandApprovalReview
+              key={`${session.session_id}:${pending.request}:${pending.call}`}
+              sessionId={session.session_id}
+              requestId={pending.request}
+              callId={pending.call}
+              toolName={pending.tool}
+              onResolved={() => setPending(null)}
+            />
+          ) : (
+            <>
+              <Button onClick={() => void authorize("deny")}>Từ chối</Button>
+              <Button onClick={() => void authorize("allow")}>Cho phép</Button>
+            </>
+          )}
         </div>
       )}
       <textarea
@@ -187,16 +202,39 @@ export function DeviceChat({ endpointId }: { endpointId: string }) {
       <Button
         disabled={!busy}
         onClick={() => {
-          if (requestId.current)
-            void apiFetch(`/api/requests/${requestId.current}/cancel`, { method: "POST" }).catch(
-              () => {},
-            );
-          controller.current?.abort();
+          const active = controller.current;
+          if (intent.current) {
+            void cancelIntent(intent.current)
+              .then((status) => {
+                if (status === "cancelled") active?.abort();
+              })
+              .catch(() => {
+                setError(
+                  "Chưa xác nhận server đã dừng yêu cầu. Kiểm tra trạng thái trước khi gửi lại.",
+                );
+              });
+          }
         }}
       >
         Dừng trả lời
       </Button>
       {error && <p role="alert">{error}</p>}
+      {session && pendingIntent(session.session_id) && !busy && (
+        <>
+          <Button onClick={() => void send(true)}>Tiếp tục quan sát</Button>
+          <Button
+            onClick={() => {
+              const previous = pendingIntent(session.session_id);
+              if (previous)
+                void cancelIntent(previous)
+                  .then(() => setError("Yêu cầu đã kết thúc."))
+                  .catch(() => setError("Chưa xác minh yêu cầu đã dừng."));
+            }}
+          >
+            Dừng yêu cầu chưa xác minh
+          </Button>
+        </>
+      )}
     </section>
   );
 }

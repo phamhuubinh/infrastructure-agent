@@ -2,13 +2,17 @@
 
 ## Status
 
-Accepted target decision. ADR 0014 supersedes the deferred approval-engine part.
+Historical dedicated-infrastructure scope: [ADR 0017](0017-windows-linux-command-focus.md)
+retires monitoring adapters and supersedes the generic-shell prohibition below.
+Scope/credential and mutation lifecycle contracts remain compatible. ADR 0014 supersedes the deferred approval-engine part;
+ADR 0007 supersedes the former progressive schema-discovery wording.
 
 ## Decision
 
 Linux, Grafana, and Zabbix join the existing `ToolRegistry` and `ToolRunner` as
-explicit semantic operations with closed schemas. The model discovers an operation
-from the registry-derived structural discovery enum and expands it before use; Orion deterministically validates it, binds `RuntimeScope`,
+explicit semantic operations with closed schemas. The model chooses directly from
+all registered model-callable schemas supplied on the first turn; Orion validates
+the call, binds `RuntimeScope`,
 resolves a configured target, and executes it. Chat and Project continue to use the
 same model/tool loop.
 

@@ -1,0 +1,296 @@
+"""Inventory every project file without running application code or deleting anything.
+
+Run: python scripts/refactor/inventory.py --write
+     python scripts/refactor/inventory.py --check
+The CSV is a review ledger, not an automatically approved deletion list.
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import csv
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+DERIVED = {
+    "docs/refactor/audit/INVENTORY.json",
+    "docs/refactor/audit/FILE_REVIEW.csv",
+    "docs/refactor/audit/SUMMARY.md",
+}
+EXTERNAL_LOCAL_PREFIXES = ("graphify-out/",)
+LOCAL_CACHE_DIRS = {".ruff_cache", ".pytest_cache", ".mypy_cache", "__pycache__"}
+FIELDS = [
+    "path", "kind", "bytes", "sha256", "group", "git_state",
+    "candidate", "review_status", "final_action", "reason",
+    "replacement_or_callers", "verification",
+]
+
+
+def review_issue(row: dict, *, final: bool = False) -> str | None:
+    """Validate the human review record; never infer approval from a hash."""
+    actions = {"remove", "move"} if row.get("kind") == "removed_file_record" else {
+        "keep", "rewrite", "preserve_private", *(() if final else ("remove", "move")),
+    }
+    if row.get("kind") == "private_metadata_only":
+        actions = {"preserve_private"}
+    if row.get("review_status") != "reviewed" or row.get("final_action") not in actions:
+        return "incomplete or incompatible semantic disposition"
+    if not all(str(row.get(key) or "").strip() for key in (
+        "reason", "replacement_or_callers", "verification",
+    )):
+        return "missing reason/callers/verification"
+    return None
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-c", "core.autocrlf=false", *args], cwd=root,
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    return result.stdout.strip("\n")
+
+
+def group(path: str) -> str:
+    if path.startswith("backend/src/orion_endpoint/"):
+        return "worker"
+    for prefix, name in (
+        ("backend/src/orion/models/", "providers"),
+        ("backend/src/orion/", "backend"),
+        ("backend/tests/", "backend-tests"),
+        ("backend/scripts/", "backend-tooling"),
+        ("ui/", "client"),
+        (".github/", "ci-release"),
+        ("scripts/", "tooling-qa"),
+        ("skills/", "skills"),
+        (".agents/", "development-skill"),
+        ("docs/", "documentation"),
+        ("worker/", "worker-packaging"),
+    ):
+        if path.startswith(prefix):
+            return name
+    return "root-configuration"
+
+
+def candidate(path: str) -> str:
+    if path in {"docs/tools/GRAFANA.md", "docs/tools/ZABBIX.md", "ui/bun.lock"}:
+        return "retire_candidate_check_callers"
+    if "infrastructure" in path:
+        return "split_monitoring_from_os_commands"
+    if "lovable" in path:
+        return "remove_vendor_hook_and_fix_callers"
+    if path.startswith(("backend/src/orion/models/", "ui/", ".github/")):
+        return "rewrite_or_reuse_after_contract_review"
+    return "review_against_clean_slate_design"
+
+
+def private(path: str) -> bool:
+    path = path.replace("\\", "/").casefold()
+    name = Path(path).name.lower()
+    return (
+        name == ".env" or (name.startswith(".env.") and name not in {
+            ".env.example", ".env.sample", ".env.template",
+        })
+        or name.endswith((".db", ".sqlite", ".sqlite3", ".key", ".pem",
+                          ".db-wal", ".db-shm", ".sqlite-wal", ".sqlite-shm",
+                          ".sqlite3-wal", ".sqlite3-shm", ".db-journal",
+                          ".sqlite-journal", ".sqlite3-journal"))
+        or path in {"config/secrets.local.json", "servers.json", "docker-compose.env"}
+        or path.startswith((".orion-worker/", "worker-state/", "certs/"))
+        or "provider-credentials" in Path(path).parts
+    )
+
+
+def is_link(path: Path) -> bool:
+    # Windows directory junctions are not symbolic links, but must not be traversed.
+    return path.is_symlink() or path.is_junction()
+
+
+def entries(root: Path, errors: list[str]):
+    def on_error(error: OSError) -> None:
+        errors.append(f"directory traversal: {type(error).__name__}")
+
+    for base, dirs, names in os.walk(root, followlinks=False, onerror=on_error):
+        relative = Path(base).relative_to(root)
+        dirs[:] = [d for d in dirs if d not in LOCAL_CACHE_DIRS]
+        if relative == Path("."):
+            dirs[:] = [d for d in dirs if d not in {".git", "graphify-out"}]
+        for directory in list(dirs):
+            item = Path(base) / directory
+            if is_link(item):
+                dirs.remove(directory)
+                yield item
+        for name in sorted(names):
+            path = Path(base) / name
+            if path.relative_to(root).as_posix() not in DERIVED:
+                yield path
+
+
+def collect(root: Path) -> tuple[list[dict], list[str]]:
+    tracked = set(git(root, "ls-files", "-z").split("\0"))
+    rows, errors = [], []
+    for path in sorted(entries(root, errors)):
+        rel = path.relative_to(root).as_posix()
+        row = {
+            "path": rel, "kind": "file", "bytes": None, "sha256": "",
+            "group": group(rel), "git_state": "tracked" if rel in tracked else "local",
+            "candidate": candidate(rel), "review_status": "unreviewed",
+            "final_action": "", "reason": "", "replacement_or_callers": "",
+            "verification": "", "lines": None, "python_syntax": None,
+        }
+        try:
+            if is_link(path):
+                row["kind"] = "symlink_not_followed"
+                row["candidate"] = "inspect_link_boundary"
+                row["sha256"] = hashlib.sha256(os.readlink(path).encode("utf-8")).hexdigest()
+            else:
+                row["bytes"] = path.stat().st_size
+                if private(rel):
+                    row["kind"] = "private_metadata_only"
+                    row["candidate"] = "preserve_user_data_not_source_cleanup"
+                else:
+                    data = path.read_bytes()
+                    row["sha256"] = hashlib.sha256(data).hexdigest()
+                    try:
+                        text = data.decode("utf-8-sig")
+                        if "\x00" in text:
+                            raise UnicodeError("binary")
+                        row["kind"] = "text"
+                        row["lines"] = len(text.splitlines())
+                        if path.suffix == ".py":
+                            try:
+                                ast.parse(text, filename=rel)
+                                row["python_syntax"] = "parsed"
+                            except SyntaxError as error:
+                                row["python_syntax"] = f"syntax_error_line_{error.lineno}"
+                    except UnicodeError:
+                        row["kind"] = "binary_hashed"
+            rows.append(row)
+        except OSError as error:
+            row["kind"] = "read_error"
+            rows.append(row)
+            errors.append(f"{rel}: {type(error).__name__}")
+    return rows, errors
+
+
+def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    parser.add_argument("--require-reviewed", action="store_true",
+                        help="With --check, require complete semantic dispositions too.")
+    parser.add_argument("--require-final", action="store_true",
+                        help="With --check, also require planned removals/moves to be executed.")
+    args = parser.parse_args()
+    if args.require_final:
+        args.require_reviewed = True
+    if args.require_reviewed and not args.check:
+        parser.error("--require-reviewed requires --check")
+    root = args.root.resolve(strict=True)
+    out = root / "docs" / "refactor" / "audit"
+    if out.resolve() != out:
+        raise SystemExit("Audit output directory must not traverse links")
+    if any(is_link(root / rel) for rel in DERIVED):
+        raise SystemExit("Audit output files must not be links")
+    rows, errors = collect(root)
+    ledger = out / "FILE_REVIEW.csv"
+    previous = {}
+    if ledger.exists():
+        with ledger.open(encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if reader.fieldnames != FIELDS:
+                raise SystemExit("Invalid file review ledger columns; refusing to overwrite")
+            for record in reader:
+                if record["path"] in previous:
+                    raise SystemExit("Duplicate file review path; refusing to overwrite")
+                previous[record["path"]] = record
+    for row in rows:
+        old = previous.get(row["path"])
+        if old and old["sha256"] == row["sha256"] and old["kind"] == row["kind"]:
+            for key in FIELDS[7:]:
+                row[key] = old.get(key, "")
+    existing_paths = {r["path"] for r in rows}
+    retired = []
+    for rel, old in previous.items():
+        generated = rel.startswith(EXTERNAL_LOCAL_PREFIXES) or bool(
+            set(Path(rel).parts) & LOCAL_CACHE_DIRS
+        )
+        if rel not in existing_paths and not (generated and old["review_status"] != "reviewed"):
+            record = dict(old)
+            record["kind"] = "removed_file_record"
+            record["git_state"] = "removed"
+            retired.append(record)
+    undocumented_removals = [
+        r["path"] for r in retired
+        if review_issue(r)
+    ]
+    if args.check:
+        missing = sorted({r["path"] for r in rows} - previous.keys())
+        stale = sorted(
+            r["path"] for r in rows if r["path"] in previous
+            and (str(r["sha256"]) != previous[r["path"]]["sha256"]
+                 or r["kind"] != previous[r["path"]]["kind"])
+        )
+        incomplete = [r["path"] for r in [*rows, *retired]
+                      if review_issue(r, final=args.require_final)]
+        print(json.dumps({
+            "files": len(rows), "unrecorded": missing,
+            "changed_since_inventory": stale,
+            "undocumented_removals": undocumented_removals,
+            "read_errors": errors,
+            "semantic_review_remaining": len(incomplete),
+            "incomplete_reviews": incomplete if args.require_reviewed else [],
+        }, ensure_ascii=False, indent=2))
+        return int(bool(missing or stale or undocumented_removals or errors
+                        or (args.require_reviewed and incomplete)))
+    out.mkdir(parents=True, exist_ok=True)
+    report = {
+        "schema_version": 1, "source_commit": git(root, "rev-parse", "HEAD"),
+        "scope": "Every project file, tracked/untracked/ignored, except .git metadata, local Graphify/cache outputs and the three listed derived audit outputs. Prior reviewed removed-file records remain.",
+        "excluded_derived_outputs": sorted(DERIVED),
+        "git_metadata": "Excluded; never modified by this inventory.",
+        "semantic_review": "Not complete: hashing/decoding/AST parsing is not behavioral or per-file semantic approval.",
+        "read_errors": errors, "files": rows, "removed_file_records": retired,
+    }
+    (out / "INVENTORY.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+    )
+    with ledger.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+        writer.writerows(retired)
+    kinds = Counter(r["kind"] for r in rows)
+    groups = Counter(r["group"] for r in rows)
+    summary = [
+        "# Repository inventory", "",
+        f"Source commit: {report['source_commit']}", "",
+        f"Project files enumerated: **{len(rows)}**. Read errors: **{len(errors)}**.",
+        "All ordinary file bytes were hashed; UTF-8 text was decoded and Python text parsed as AST.",
+        "Private data is metadata-only; symlinks are listed but not followed.",
+        "Git internals and the three derived audit ledgers are excluded explicitly.", "",
+        "**This is an inventory, not completion of semantic code review.**",
+        "Every file still needs a final disposition, reason, callers/replacement and verification in FILE_REVIEW.csv.",
+        "Candidate labels do not authorize the script to delete anything; this script has no deletion behavior.", "",
+        f"Preserved removed/moved file records: {len(retired)}; undocumented removals: {len(undocumented_removals)}.", "",
+        "## Groups", "", "| Group | Files |", "| --- | --- |",
+        *[f"| {name} | {count} |" for name, count in sorted(groups.items())],
+        "", "## Inspection kinds", "", *[f"- {name}: {count}" for name, count in sorted(kinds.items())],
+        "", "Refresh after edits with --write; --check detects uncovered/stale files.",
+        "Refreshing preserves reviewed decisions only while the file hash is unchanged.", "",
+    ]
+    (out / "SUMMARY.md").write_text("\n".join(summary), encoding="utf-8")
+    print(json.dumps({"files": len(rows), "kinds": kinds, "read_errors": errors}))
+    return int(bool(errors))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

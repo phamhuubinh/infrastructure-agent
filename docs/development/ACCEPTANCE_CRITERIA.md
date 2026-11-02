@@ -2,6 +2,18 @@
 
 The target is acceptable when these product/runtime invariants are demonstrated.
 
+This is an acceptance checklist, not a pass report. Use the
+[current baseline](../architecture/BASELINE_2026-10-29.md) and
+[source inventory](IMPLEMENTATION_STATUS.md) to distinguish target from evidence.
+
+## Shared product boundary
+
+- Top-level navigation is Chat, Projects and Remote Control.
+- All three surfaces use the same ChatRuntime, ModelBackend, registry and ToolRunner.
+- No Project/device/task-specific AI agent or semantic pre-router is required.
+- Project is context, instructions, documents and history; worker is a model-free executor.
+- Existing MCP/scheduler/worker code is reconciled and reused rather than deleted as part of a planning reset.
+
 ## Chat
 
 - User can create/resume a conversation.
@@ -58,14 +70,14 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 
 ## Tools
 
-- Knowledge/RAG, calculator, Internet, Linux, Grafana, and Zabbix families can register through the same tool system.
+- Knowledge/RAG, calculator, Internet and Windows/Linux command tools use the same registry. Dedicated monitoring adapters are outside the target catalog.
 - Internet search rows are discovery-only; citable web evidence comes from `internet.fetch`.
 - For an explicit citation request, a non-empty discovery-only `internet.search` result cannot terminate as an uncited answer; Orion resumes the model so it can fetch citable web evidence.
 - Exact latest/current web claims use authoritative fetched evidence; search-result rank or an
   incidental snippet mention alone does not establish the requested current state.
 - A new registered tool becomes discoverable/model-visible without adding semantic router rules.
 - All registered model-callable schemas are visible on the first turn; schema visibility never grants mutation authorization.
-- New Chat and Project sessions persist `read_only`; a selector beside the composer model control switches to confirm or auto per conversation.
+- New Chat, Project and Device Chat sessions persist `read_only`; a selector beside the composer model control switches to confirm or auto independently per conversation.
 - Confirm mode persists and audits one exact pending mutation, pauses before side effects, accepts one scoped decision, and resumes the same request; cancellation and restart never replay it.
 - Auto mode executes eligible configured mutations without a per-call dialog, subject to closed schemas, configured targets, any explicit server ceiling, and the existing mutation lifecycle.
 - Live assistant deltas remain provisional; one accepted terminal assistant answer is visible per user request through tool and recovery turns.
@@ -83,12 +95,48 @@ The target is acceptable when these product/runtime invariants are demonstrated.
 - Repeated invalid terminal drafts while discovery-only Internet citation evidence is pending are bounded; Orion fails the citation contract instead of spinning until the request deadline.
 - Secrets do not appear in model-visible tool arguments/results unless intentionally processed as user data by a defined safe path.
 
+## Windows/Linux command target (ADR 0017)
+
+- Implement system.command.run/status/cancel through the same runtime over workers or configured SSH; actual PowerShell/cmd/sh/bash text and pipelines are accepted.
+- Dedicated monitoring adapters are absent from the target active registry/configuration; legacy source removal must be verified, not claimed from docs alone.
+- Command input binds exact target/shell/command/cwd/limits; Device Chat cannot escape its endpoint and Orion server is not an implicit target.
+- Free-form commands are mutation-capable: read_only/scheduler deny run, confirm binds the full payload digest, auto uses explicit target capability and OS rights.
+- No keyword/model classifier claims arbitrary shell text is read-only; no command-string allowlist is required and cwd/root filters are not claimed as an OS sandbox.
+- Capture stdout/stderr, Unicode, non-zero exits, duration and truncation; an exit code does not prove the user's task is complete.
+- Timeouts/Stop attempt process-tree cleanup, status/cancel handles are scope-bound, and disconnect/restart never replay a dispatched command.
+- Sensitive command/output stays transient under the defined retention contract; logs use safe metadata/hash.
+- Verify native Windows/Linux shell availability, quoting, paths with spaces, pipelines, long processes, output bounds and outcome_unknown using safe local fixtures.
+- The Commands view presents exact target/shell, current activity/output and Stop; desktop/browser/files/process views are not prerequisites.
+
 ## Models
 
 - Provider-neutral runtime works with at least the primary configured OpenAI-compatible/local model path.
 - Tool calling survives provider adapter normalization.
 - Oversized current user input is never silently truncated; an irreducible request outside the configured local safety bound fails explicitly.
 - No legacy ACTION/ACTION_DETAIL/OBSERVATION/FEEDBACK protocol is required.
+
+## Remote Control and Device Chat
+
+- Landing page provides compatible Windows/Linux portable download metadata, checksum/version, temporary pairing code expiry and safe device list.
+- Missing compatible artifacts are explicitly unavailable, not fabricated.
+- Each device prioritizes Chat, Commands and Connection. Existing desktop/files/process/browser views are secondary conveniences.
+- Device Chat persists endpoint-owned history/mutation mode, stays out of ordinary Chat/Projects and has no Project/attachment knowledge scope.
+- Server-owned endpoint_id rejects every cross-device target_ref, including discovery; offline tools fail without corrupting history.
+- Portable use requires no Python/Node/npm installation, service, PATH/autostart setup or inbound port. OS/platform/browser prerequisites are explicit.
+- Temporary credentials stay in memory, clean exit ends the session, and crashes/network loss expire through the lease. Remembered mode is explicit and remains compatible.
+- Worker policy remains an independent command capability/OS ceiling. Shell execution is intentional; cwd/file-tool roots are not a shell sandbox. No implicit elevation or privilege bypass is added.
+- Manual desktop authorization is distinct from model-call approval; reconnect invalidates stale control input and never replays mutations.
+- Transfer staging/cancellation, explicit overwrite, bounded payloads and outcome_unknown are exercised on supported native platforms.
+- Endpoint payloads are transient current-request evidence; durable history/audit uses safe metadata and payload-omitted markers.
+- End & forget confirms deletion and preflights active ordinary/scheduled requests without partial data loss.
+- Exit cleans only worker-owned session state; separately provisioned browser caches and OS/security telemetry are not falsely described as erased.
+
+## MCP, jobs and skills
+
+- Configured MCP proxies enter the canonical registry before freeze and obey local classification, schema validation and authorization.
+- Scheduler uses the same runtime and legitimate Project/endpoint scope with forced read-only execution; a job is not another AI agent.
+- A skill is task guidance over registered tools, not another model/runtime or an authority source.
+- Skill loader/catalog/selection remains design-only until implemented and checked; any implementation must prove bounded trusted guidance loading and no cross-scope/permission escape.
 
 ## Operations
 

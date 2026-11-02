@@ -1,0 +1,58 @@
+{
+  "scope": "Actual wheel build/resource inspection and isolated installed product catalog; not native application artifact acceptance",
+  "started_utc": "2026-10-31T06:16:41.680545+00:00",
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "build",
+        "--wheel",
+        "--no-isolation",
+        "--outdir",
+        "F:\\Orion-toolchains\\r10-final-wheel-check\\wheel",
+        "F:\\Orion\\backend"
+      ],
+      "exit_code": 0,
+      "stdout": "Successfully built orion-0.1.3-py3-none-any.whl\n",
+      "stderr": "* Getting build dependencies for wheel...\n* Building wheel...\n"
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
+        "--target",
+        "F:\\Orion-toolchains\\r10-final-wheel-check\\installed",
+        "F:\\Orion-toolchains\\r10-final-wheel-check\\wheel\\orion-0.1.3-py3-none-any.whl"
+      ],
+      "exit_code": 0,
+      "stdout": "Processing f:\\orion-toolchains\\r10-final-wheel-check\\wheel\\orion-0.1.3-py3-none-any.whl\nInstalling collected packages: orion\nSuccessfully installed orion-0.1.3\n",
+      "stderr": "\n[notice] A new release of pip is available: 25.0.1 -> 26.2.2\n[notice] To update, run: F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe -m pip install --upgrade pip\n"
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-c",
+        "from pathlib import Path\nfrom orion.skills.service import SkillService,bundled_root\nfrom orion.persistence.sqlite import SQLiteStore\nassert 'r10-final-wheel-check' in str(bundled_root())\nstore=SQLiteStore(Path('catalog.db'))\ntry:\n    service=SkillService(store)\n    assert set(service.owner_catalog())=={'windows-linux-ops','project-research','mcp-workflows'}\n    print(sorted(service.owner_catalog()))\nfinally:\n    store.close()\n"
+      ],
+      "exit_code": 0,
+      "stdout": "['mcp-workflows', 'project-research', 'windows-linux-ops']\n",
+      "stderr": ""
+    }
+  ],
+  "wheel_sha256": "fd87dbafd62f9cdb730935a7962c2547627932de43784041037a3056b9ae26a7",
+  "bundled_resources_sha256": {
+    "orion/skills/builtin/mcp-workflows/SKILL.md": "eb399bda67a087dbd23fc12ef2d5e98c9ce6ae49b19dd39cf62ba3be9832e04c",
+    "orion/skills/builtin/mcp-workflows/references/host.md": "e03e0beb60cb70dbe302ef3bbdf6823b868d9637e130362f0686caa0b20574d1",
+    "orion/skills/builtin/project-research/SKILL.md": "346c029cf61794e50ef096ed4c5cc44420b850c869bd6bec2cade93e9209b9b8",
+    "orion/skills/builtin/windows-linux-ops/SKILL.md": "a0f364d8b1b759de1f15abd039879ebe1cdb33643be59628eaaaa38deb04e3ef",
+    "orion/skills/builtin/windows-linux-ops/references/commands.md": "bbdac794be71a822d897c34162fa054621344427cf9ccf7327b88c81337f9465"
+  },
+  "finished_utc": "2026-10-31T06:16:48.326137+00:00"
+}

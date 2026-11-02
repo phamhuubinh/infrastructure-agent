@@ -1,0 +1,146 @@
+{
+  "scope": "R03 partial saved-profile/credential binding regression. Atomic active configuration snapshot and key/profile frozen through actual compatible mock HTTP tool loop; legacy data retained. Typed profile HTTP lifecycle, profile bounds/retry enforcement and native adapters/conformance remain incomplete.",
+  "source_before": {
+    "backend/src/orion/models/backend.py": "6ea31c1f602768eb14bf98b8a2a82468358d31888145e207f448d54883f1c5ef",
+    "backend/src/orion/models/registry.py": "a8cbe67d378116b72f42fd558b6ab26c58d60a682f960abecaf2cc90510057c2",
+    "backend/src/orion/models/credentials.py": "4fb34a99a63fae0b506d52569c4e9470a562205a1b028f1c81b360f1b1f14e3f",
+    "backend/src/orion/models/providers/openai_compatible.py": "cd119849cad0841e3b548c0f690b340dd122805e2c0e3d519c79cfe266e25300",
+    "backend/src/orion/application/__init__.py": "12f47babe8a8b2693bc11ea116c642f82b160263a1d0d2d3662782f570223c1e",
+    "backend/src/orion/application/models.py": "fcc4e5cb07e53478ab65b4426702b650aa6788bb2b567f9530715513502a44e0",
+    "backend/src/orion/bootstrap/__init__.py": "fd29e3b338cdca49da3ba0b8a7c96ebc2c89855bbcc5f2c18d932aa9e7b70138",
+    "backend/src/orion/persistence/sqlite.py": "da98233ea3cbd1e80339c9d742569bce5051b41142d7aa6c6996351c639c8356",
+    "backend/src/orion/chat/runtime.py": "d7eb46834d3c73e43e68d13601d06b89c3d2883bbb8c70d1234e00e8cb8f6f4d",
+    "backend/tests/test_provider_registry.py": "dc36a25cd7f1929035be722f6b8fbc3609f605c378dee1083f11a9f029f1b7d9"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_provider_registry.py",
+        "backend/tests/test_bootstrap.py",
+        "backend/tests/test_model_configs.py",
+        "backend/tests/test_openai_adapter.py",
+        "backend/tests/test_api.py",
+        "backend/tests/test_mutation_authorization.py",
+        "backend/tests/test_runtime_diagnostics.py",
+        "backend/tests/test_chat_runtime.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 45.203,
+      "stdout": "........................................................................ [ 33%]\n........................................................................ [ 66%]\n........................................................................ [ 99%]\n.                                                                        [100%]\n217 passed in 41.61s\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/models/providers/openai_compatible.py",
+        "backend/src/orion/application/__init__.py",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/tests/test_provider_registry.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.203,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/models/providers/openai_compatible.py",
+        "backend/src/orion/application/__init__.py",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/tests/test_provider_registry.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.219,
+      "stdout": "10 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/application/models.py",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 0.562,
+      "stdout": "Success: no issues found in 4 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.235,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/openapi.py"
+      ],
+      "exit_code": 0,
+      "seconds": 4.156,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "source_after": {
+    "backend/src/orion/models/backend.py": "6ea31c1f602768eb14bf98b8a2a82468358d31888145e207f448d54883f1c5ef",
+    "backend/src/orion/models/registry.py": "a8cbe67d378116b72f42fd558b6ab26c58d60a682f960abecaf2cc90510057c2",
+    "backend/src/orion/models/credentials.py": "4fb34a99a63fae0b506d52569c4e9470a562205a1b028f1c81b360f1b1f14e3f",
+    "backend/src/orion/models/providers/openai_compatible.py": "cd119849cad0841e3b548c0f690b340dd122805e2c0e3d519c79cfe266e25300",
+    "backend/src/orion/application/__init__.py": "12f47babe8a8b2693bc11ea116c642f82b160263a1d0d2d3662782f570223c1e",
+    "backend/src/orion/application/models.py": "fcc4e5cb07e53478ab65b4426702b650aa6788bb2b567f9530715513502a44e0",
+    "backend/src/orion/bootstrap/__init__.py": "fd29e3b338cdca49da3ba0b8a7c96ebc2c89855bbcc5f2c18d932aa9e7b70138",
+    "backend/src/orion/persistence/sqlite.py": "da98233ea3cbd1e80339c9d742569bce5051b41142d7aa6c6996351c639c8356",
+    "backend/src/orion/chat/runtime.py": "d7eb46834d3c73e43e68d13601d06b89c3d2883bbb8c70d1234e00e8cb8f6f4d",
+    "backend/tests/test_provider_registry.py": "dc36a25cd7f1929035be722f6b8fbc3609f605c378dee1083f11a9f029f1b7d9"
+  },
+  "source_unchanged_during_checks": true
+}

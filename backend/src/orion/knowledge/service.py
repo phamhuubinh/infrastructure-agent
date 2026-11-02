@@ -88,8 +88,11 @@ class KnowledgeService:
     def attach(
         self, session_id: str, name: str, content: bytes, media_type: str | None = "text/plain"
     ) -> DocumentUpload:
-        if not self._store.session_exists(session_id):
+        identity = self._store.session_identity(session_id)
+        if identity is None:
             raise KeyError(session_id)
+        if identity["endpoint_id"] is not None:
+            raise PermissionError("Device Chat does not accept attachments")
         document_id, attachment_id = str(uuid.uuid4()), str(uuid.uuid4())
         blob_id = self._blobs.put(content)
         self._store.create_document(
@@ -157,6 +160,32 @@ class KnowledgeService:
         row = self._store.document(document_id)
         if row is None or not self._is_visible(row, scope):
             return None
+        return self._document_status(row)
+
+    def project_document_status(self, project_id: str, document_id: str) -> dict[str, Any] | None:
+        """Operator Project management, separate from model/session tool scope.
+
+        The authenticated local API owns this entry point, like attach_project;
+        model-callable knowledge tools must use session-validated RuntimeScope.
+        """
+        row = self._store.document(document_id)
+        if (
+            self._store.project(project_id) is None
+            or row is None
+            or row["project_id"] != project_id
+            or row["session_id"] is not None
+        ):
+            return None
+        return self._document_status(row)
+
+    def delete_project_document(self, project_id: str, document_id: str) -> bool:
+        """Delete only an exact operator-managed Project member, never an attachment."""
+        if self.project_document_status(project_id, document_id) is None:
+            return False
+        return self._store.delete_document(document_id)
+
+    def _document_status(self, row: dict[str, Any]) -> dict[str, Any]:
+        document_id = str(row["document_id"])
         return {
             "document": self._document_ref(row).model_dump(mode="json"),
             "attachment_id": row["attachment_id"],
@@ -349,14 +378,31 @@ class KnowledgeService:
 
     def _visible_documents(self, scope: RuntimeScope) -> list[dict[str, Any]]:
         # Sources are derived solely from Orion-owned scope; model arguments may only narrow them.
+        self._require_scope_identity(scope)
+        if scope.endpoint_id is not None:
+            return []
         documents = self._store.visible_documents(scope.session_id, scope.attachment_ids)
         if scope.project_id is not None:
             documents.extend(self._store.visible_project_documents(scope.project_id))
         # Shared sources remain empty until explicitly configured.
         return documents
 
-    @staticmethod
-    def _is_visible(row: dict[str, Any], scope: RuntimeScope) -> bool:
+    def _require_scope_identity(self, scope: RuntimeScope) -> None:
+        identity = self._store.session_identity(scope.session_id)
+        if identity is None or any(
+            (
+                identity["principal_id"] != scope.principal_id,
+                identity["workspace_id"] != scope.workspace_id,
+                identity["project_id"] != scope.project_id,
+                identity["endpoint_id"] != scope.endpoint_id,
+            )
+        ):
+            raise PermissionError("Knowledge scope does not match the session identity")
+
+    def _is_visible(self, row: dict[str, Any], scope: RuntimeScope) -> bool:
+        self._require_scope_identity(scope)
+        if scope.endpoint_id is not None:
+            return False
         if row["session_id"] is not None:
             return (
                 row["session_id"] == scope.session_id

@@ -25,11 +25,12 @@ orion
 
 The release installers verify the bundled wheel and every packaged UI file against
 `release-manifest.json` before installing anything. They create or reuse an install-owned
-virtual environment, install the bundled wheel, copy the prebuilt UI, and call the installed
-`orion model install embeddings` command. First installation needs network access for Python
-dependencies and, unless a verified cache exists, the pinned ~487 MB E5 model. E5 is never
+virtual environment, install the bundled wheel and copy the prebuilt UI. First installation
+needs network access for uncached Python dependencies. E5 semantic retrieval is optional:
+`--with-embeddings` (Linux) or `-WithEmbeddings` (Windows) installs the `semantic` extra
+and calls `orion model install embeddings` to provision the pinned model. E5 is never
 included in release archives. A verified cache is reused; corrupt data is repaired by the
-existing model installer. Provisioning failure fails installation.
+model installer. When explicitly requested, provisioning failure fails installation.
 
 The default Linux prefix is `~/.local/share/orion-install`; Windows uses
 `%LOCALAPPDATA%\Orion\install`. Use `./install.sh --prefix /path/to/install` or
@@ -53,7 +54,10 @@ with that checksum file before extracting when transferring it outside GitHub Re
 From a repository checkout, use `./install.sh` on Linux or `.\install.ps1` in Windows
 PowerShell. These source installers require Python 3.12+, Node.js 22.12+, and npm. They
 install the backend editable and build the UI locally. `--no-dev`/`-NoDev` omits developer
-dependencies. Source installation uses the same model provisioning and application runtime.
+dependencies. Source installation supports the same optional embedding flags and runtime.
+Existing environments can install `./backend[semantic]` (source) or the matching release
+wheel's `[semantic]` extra, then run `orion model install embeddings`. Ordinary Chat,
+Projects, lexical/exact knowledge and data export/import need neither E5 nor its dependencies.
 
 ## Publishing a release
 

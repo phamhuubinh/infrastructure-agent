@@ -57,5 +57,5 @@ async def test_small_live_harness_uses_profile_and_eight_isolated_readonly_cases
     assert recovery["model_attempt_count"] == 2
     assert recovery["tool_results"][0]["error_code"] == "not_found"
     assert all(result["summary_model_calls"] == 0 for result in results)
-    assert "api_key" not in output.read_text()
-    assert json.loads(output.read_text())["model_id"] == "persisted-fixture"
+    assert "api_key" not in output.read_text(encoding="utf-8")
+    assert json.loads(output.read_text(encoding="utf-8"))["model_id"] == "persisted-fixture"

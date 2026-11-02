@@ -1,33 +1,40 @@
-import { fileURLToPath } from "node:url";
-
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
-const projectRoot = fileURLToPath(new URL("..", import.meta.url));
-
-export default defineConfig(({ mode }) => {
-  // The development UI talks to the protected API through Vite. Read Orion's
-  // private root .env server-side so the browser never needs to know this key.
-  const rootEnv = loadEnv(mode, projectRoot, "ORION_");
-  const apiKey = process.env.ORION_API_KEY?.trim() || rootEnv.ORION_API_KEY?.trim();
-
-  return {
-    resolve: { tsconfigPaths: true },
-    server: {
-      proxy: {
-        "/api": {
-          target: "http://127.0.0.1:61888",
-          changeOrigin: true,
-          headers: apiKey ? { "X-API-Key": apiKey } : undefined,
-        },
+export default defineConfig({
+  resolve: { tsconfigPaths: true },
+  server: {
+    host: "127.0.0.1",
+    open: "/_shell.html",
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:61888",
+        changeOrigin: true,
       },
     },
-    plugins: [
-      tanstackStart({ spa: { enabled: true }, server: { entry: "server" } }),
-      react(),
-      tailwindcss(),
-    ],
-  };
+  },
+  plugins: [
+    {
+      name: "orion-static-development-shell",
+      configureServer(server) {
+        server.middlewares.use((request, _response, next) => {
+          const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+          if (
+            request.headers.accept?.includes("text/html") &&
+            !path.startsWith("/api/") &&
+            !path.split("/").pop()?.includes(".")
+          ) {
+            request.url = "/_shell.html";
+          }
+          next();
+        });
+      },
+    },
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react(),
+    tailwindcss(),
+  ],
+  build: { outDir: "dist/client", rollupOptions: { input: { index: "_shell.html" } } },
 });

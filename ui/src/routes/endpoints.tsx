@@ -102,6 +102,7 @@ export function EndpointsPage() {
       if (current) {
         void apiFetch(`/api/endpoints/${current.endpoint}/desktop/stop`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: current.session }),
           keepalive: true,
         }).catch(() => {});
@@ -132,6 +133,7 @@ export function EndpointsPage() {
     if (session) {
       await apiJson(`${prefix}/desktop/stop`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: session.session_id }),
       });
     }
@@ -140,6 +142,7 @@ export function EndpointsPage() {
   async function start() {
     const current = await apiJson<Session>(`${prefix}/desktop/session`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ monitor }),
     });
     setSession(current);
@@ -191,6 +194,7 @@ export function EndpointsPage() {
     try {
       await apiJson(`${prefix}/desktop/input`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           session_id: session.session_id,
           sequence: ++sequence.current,
@@ -342,6 +346,7 @@ export function EndpointsPage() {
                     void action(async () => {
                       await apiJson(`${prefix}/operation`, {
                         method: "POST",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ operation: "system.inspect", arguments: {} }),
                       });
                       await load();
@@ -362,6 +367,7 @@ export function EndpointsPage() {
                     void action(async () => {
                       await apiJson(prefix, {
                         method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ name: label }),
                       });
                       await load();
@@ -394,6 +400,7 @@ export function EndpointsPage() {
                     void action(async () => {
                       await apiJson(`${prefix}/forget`, {
                         method: "POST",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ confirmed: true }),
                       });
                       setSelected(null);
@@ -456,6 +463,7 @@ export function EndpointsPage() {
                     void action(async () => {
                       const response = await apiFetch(`${prefix}/download`, {
                         method: "POST",
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ path }),
                       });
                       if (!response.ok) throw new Error("Tải xuống thất bại.");
@@ -520,6 +528,7 @@ export function EndpointsPage() {
                       void action(async () => {
                         await apiJson(`${prefix}/desktop/control`, {
                           method: "POST",
+                          headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
                             session_id: session!.session_id,
                             enabled: !control,
@@ -654,6 +663,7 @@ function EndpointOperations({
         `/api/endpoints/${endpointId}/operation`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ operation, arguments: args }),
         },
       );

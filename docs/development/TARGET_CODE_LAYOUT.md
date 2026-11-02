@@ -1,45 +1,51 @@
-# Target code layout
+# Target code responsibilities
 
-This is a clean target layout, not a requirement to preserve current module names.
+The redesign reuses the current module boundaries. This tree maps responsibilities;
+it does not request directory renames or a rewrite.
 
 ```text
-backend/
-  pyproject.toml
-  src/orion/
-    bootstrap/       # application composition root
-    contracts/       # provider-neutral canonical contracts
-    access/          # local/authenticated principal adapters
-    chat/            # one ChatRuntime and context assembly
-    models/          # backend contracts and provider adapters
-    tool_runtime/    # registry, validation, dispatch, tool handlers
-    integrations/    # configured external clients when introduced
-    persistence/     # stores and public timeline mapping
-    api/             # HTTP/SSE boundary adapters
-    observability/   # safe runtime diagnostics when introduced
-    security/        # cross-cutting security helpers when introduced
-    cli/             # local command surface
-  tests/
-
-ui/
+backend/src/
+  orion/
+    bootstrap/       # composition: one runtime, canonical registry, services
+    contracts/       # provider-neutral identities including RuntimeScope
+    access/          # application principal binding
+    chat/            # runtime, bounded context, evidence and recovery
+    models/          # ModelBackend and provider adapters
+    tool_runtime/    # registry, validation, authorization and dispatch
+    integrations/    # Internet, infrastructure and MCP clients
+    knowledge/       # parsing, blob storage, retrieval and semantic indexing
+    projects/        # Project lifecycle and knowledge ownership
+    persistence/     # SQLite sessions/timeline/scheduler storage
+    endpoints/       # device identity, gateway, tools and artifact metadata
+    scheduler/       # schedule lifecycle and read-only runtime requests
+    api/             # HTTP/SSE/WebSocket boundaries
+    cli/             # Orion server/local commands
+    security.py      # shared redaction/security helpers
+    observability.py # safe diagnostics
+  orion_endpoint/    # model-free worker protocol/executors/portable entry
+worker/              # lightweight worker package and policy example
+ui/                  # shared conversation UI, Projects, Remote Control
+scripts/             # packaging, QA and platform checks
+docs/                # target contracts and verified operations
 ```
 
 ## Dependency direction
 
 ```text
-UI/API
-  ↓
-ChatRuntime
-  ├── ContextBuilder
-  ├── ModelBackend
-  ├── ToolRegistry/ToolRunner
-  ├── Session/Project stores
-  └── Knowledge service
+UI/API → application services → ChatRuntime
+                                 ├── ContextBuilder / persistence
+                                 ├── ModelBackend
+                                 └── ToolRunner / canonical registry
+                                          ├── KnowledgeService / integrations
+                                          └── EndpointManager ← worker protocol
+Scheduler → same ChatRuntime with read-only bound scope
 ```
 
-Tools depend on their integrations, not on semantic routers.
+Workers do not import a model runtime or choose application authority. Projects
+and device sessions add scope rather than owning another ChatRuntime. A future
+skill loader supplies trusted bounded instructions into the existing context
+path; it does not require an agent subsystem.
 
-Project uses ChatRuntime rather than owning a second runtime.
-
-## Migration rule
-
-Current code can be reused if it cleanly implements one of these responsibilities. Old routing/protocol abstractions should not be preserved solely to reduce diff size.
+Preserve canonical contracts when reusing modules. Do not rename/delete a module
+because a historical plan used the word agent. Source-level and behavioral checks
+must justify any requested implementation change.

@@ -150,11 +150,7 @@ export function ProjectWorkspace({ projectId }: { projectId: string }) {
     setUploading(true);
     setError(null);
     try {
-      const uploaded = await attachProjectDocument(project.project_id, {
-        name: file.name,
-        content: await file.text(),
-        media_type: file.type || "text/plain",
-      });
+      const uploaded = await attachProjectDocument(project.project_id, file);
       setDocuments((current) => [
         ...current.filter(
           (document) => document.document.document_id !== uploaded.document.document_id,

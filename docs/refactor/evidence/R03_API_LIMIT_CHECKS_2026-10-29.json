@@ -1,0 +1,162 @@
+{
+  "scope": "R03 typed profile HTTP lifecycle, secret-safe validation, capability-driven tool schemas and enforced profile context/request/transport/deadline bounds. Nonzero retries explicitly unsupported pending safe retry conformance. Native profile routing uses normalized fake adapters, not native wire/live proof.",
+  "source_before": {
+    "backend/src/orion/api/app.py": "632d240f6a7fac7d8550a9d4d95eb5cf6bd2d8d10e0d6bd551324d4f2deae386",
+    "backend/src/orion/application/models.py": "e2d195b356c85542e5c6facb66948aeb0e4faffc877b3c709197952bb4a34138",
+    "backend/src/orion/bootstrap/__init__.py": "c0cd91b700e82fa8a51d5ea3991b1b5106d7cfa437fa46e629d544545e48a033",
+    "backend/src/orion/chat/runtime.py": "0236f1a82c00b8715aeb06d5655b4b1560225b03ddb1aea5e63927a4e4a201ba",
+    "backend/src/orion/chat/deadline.py": "40f3f56b43a5b0a1e0174c122b5ed3ed978f4415f1069e06b32749b4d018626d",
+    "backend/src/orion/models/backend.py": "18d20e25b765bfe7efba2811ff19a1375c964a998023d17b7f1ce99ad2c3e7a6",
+    "backend/src/orion/models/registry.py": "d7e502fa5e1822ae1cb7064e30d72d111dd5a795c13d34a26aeedaa47e9bde8e",
+    "backend/src/orion/models/providers/openai_compatible.py": "e925886792c424de347367c9fa8e1c34ec620fd82ec484f8121e928b1d8336df",
+    "backend/src/orion/persistence/sqlite.py": "1a96e900a300523558c4a30a5004065be3529edbb7eb9defe29a3fa78c399803",
+    "backend/tests/test_profile_api.py": "ab3eb3aa5ee1b5dd6d2768185a64a145d074b1e66ae7824da69144789161a132",
+    "backend/tests/test_profile_limits.py": "0ac38f5e991cac23cc86e897da21ad9099612c80ee15d7785d82edd8eedcc350",
+    "backend/tests/test_openai_adapter.py": "70e2b90375c33a52388ecc672f228c9f2f697c862ada3b84ee472710ed3c30d0",
+    "ui/openapi.json": "a12ad81bf9f79cebec016340802b31f99149216be47dc53071c4dca1f25253f8"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_profile_api.py",
+        "backend/tests/test_profile_limits.py",
+        "backend/tests/test_provider_registry.py",
+        "backend/tests/test_bootstrap.py",
+        "backend/tests/test_model_configs.py",
+        "backend/tests/test_openai_adapter.py",
+        "backend/tests/test_api.py",
+        "backend/tests/test_remote_access.py",
+        "backend/tests/test_mutation_authorization.py",
+        "backend/tests/test_runtime_diagnostics.py",
+        "backend/tests/test_chat_runtime.py",
+        "backend/tests/test_request_deadline.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "backend/tests/test_m6_operations.py::test_public_marker_boundaries_cover_errors_sources_citations_apis_logs_and_context",
+        "-q",
+        "--tb=short",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 70.063,
+      "stdout": "........................................................................ [ 27%]\n........................................................................ [ 54%]\n........................................................................ [ 82%]\n..............................................                           [100%]\n262 passed in 66.24s (0:01:06)\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/api/app.py",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/src/orion/chat/deadline.py",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/providers/openai_compatible.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/tests/test_profile_api.py",
+        "backend/tests/test_profile_limits.py",
+        "backend/tests/test_openai_adapter.py"
+      ],
+      "exit_code": 1,
+      "seconds": 0.219,
+      "stdout": "E501 Line too long (102 > 100)\n    --> backend\\src\\orion\\chat\\runtime.py:1515:101\n     |\n1513 |             context_budget = min(context_budget, context_limit - _messages_bytes(extra_messages))\n1514 |             if context_budget <= 0:\n1515 |                 raise RequestFailed(\"The profile context limit cannot fit the required continuation.\")\n     |                                                                                                     ^^\n1516 |         context = self._context_builder.build_with_metadata(\n1517 |             session_id,\n     |\n\nB027 `ModelBackend.validate_settings` is an empty method in an abstract base class, but has no abstract decorator\n   --> backend\\src\\orion\\models\\backend.py:161:5\n    |\n160 |   class ModelBackend(ABC):\n161 | /     def validate_settings(self, settings: ModelSettings) -> None:\n162 | |         \"\"\"Adapters may reject unsupported controls before credentials/transport.\"\"\"\n    | |____________________________________________________________________________________^\n163 |\n164 |       @abstractmethod\n    |\n\nE501 Line too long (120 > 100)\n  --> backend\\tests\\test_profile_limits.py:87:101\n   |\n85 |                 lambda request: httpx.Response(\n86 |                     200,\n87 |                     text='data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\\n\\ndata: [DONE]\\n\\n',\n   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^\n88 |                 )\n89 |             ),\n   |\n\nFound 3 errors.\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/api/app.py",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/bootstrap/__init__.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/src/orion/chat/deadline.py",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/providers/openai_compatible.py",
+        "backend/src/orion/persistence/sqlite.py",
+        "backend/tests/test_profile_api.py",
+        "backend/tests/test_profile_limits.py",
+        "backend/tests/test_openai_adapter.py"
+      ],
+      "exit_code": 1,
+      "seconds": 0.203,
+      "stdout": "unformatted: File would be reformatted\n    --> backend\\src\\orion\\chat\\runtime.py:1515:37\n     |\n1514 |             if context_budget <= 0:\n     -                 raise RequestFailed(\"The profile context limit cannot fit the required continuation.\")\n1515 +                 raise RequestFailed(\n1516 +                     \"The profile context limit cannot fit the required continuation.\"\n1517 +                 )\n1518 |         context = self._context_builder.build_with_metadata(\n     |\n\n1 file would be reformatted, 11 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "mypy",
+        "--config-file",
+        "backend/pyproject.toml",
+        "backend/src/orion/application/models.py",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/models/registry.py",
+        "backend/src/orion/models/credentials.py",
+        "backend/src/orion/chat/deadline.py",
+        "--cache-dir",
+        "F:/Orion-toolchains/mypy-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 1.063,
+      "stdout": "Success: no issues found in 5 source files\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.265,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/openapi.py"
+      ],
+      "exit_code": 0,
+      "seconds": 4.031,
+      "stdout": "",
+      "stderr": ""
+    }
+  ],
+  "source_after": {
+    "backend/src/orion/api/app.py": "632d240f6a7fac7d8550a9d4d95eb5cf6bd2d8d10e0d6bd551324d4f2deae386",
+    "backend/src/orion/application/models.py": "e2d195b356c85542e5c6facb66948aeb0e4faffc877b3c709197952bb4a34138",
+    "backend/src/orion/bootstrap/__init__.py": "c0cd91b700e82fa8a51d5ea3991b1b5106d7cfa437fa46e629d544545e48a033",
+    "backend/src/orion/chat/runtime.py": "0236f1a82c00b8715aeb06d5655b4b1560225b03ddb1aea5e63927a4e4a201ba",
+    "backend/src/orion/chat/deadline.py": "40f3f56b43a5b0a1e0174c122b5ed3ed978f4415f1069e06b32749b4d018626d",
+    "backend/src/orion/models/backend.py": "18d20e25b765bfe7efba2811ff19a1375c964a998023d17b7f1ce99ad2c3e7a6",
+    "backend/src/orion/models/registry.py": "d7e502fa5e1822ae1cb7064e30d72d111dd5a795c13d34a26aeedaa47e9bde8e",
+    "backend/src/orion/models/providers/openai_compatible.py": "e925886792c424de347367c9fa8e1c34ec620fd82ec484f8121e928b1d8336df",
+    "backend/src/orion/persistence/sqlite.py": "1a96e900a300523558c4a30a5004065be3529edbb7eb9defe29a3fa78c399803",
+    "backend/tests/test_profile_api.py": "ab3eb3aa5ee1b5dd6d2768185a64a145d074b1e66ae7824da69144789161a132",
+    "backend/tests/test_profile_limits.py": "0ac38f5e991cac23cc86e897da21ad9099612c80ee15d7785d82edd8eedcc350",
+    "backend/tests/test_openai_adapter.py": "70e2b90375c33a52388ecc672f228c9f2f697c862ada3b84ee472710ed3c30d0",
+    "ui/openapi.json": "a12ad81bf9f79cebec016340802b31f99149216be47dc53071c4dca1f25253f8"
+  },
+  "source_unchanged_during_checks": true
+}

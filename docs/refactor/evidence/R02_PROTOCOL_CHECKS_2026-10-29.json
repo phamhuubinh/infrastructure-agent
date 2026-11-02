@@ -1,0 +1,81 @@
+{
+  "scope": "R02 normalized protocol and partial core regression; no live/native/whole-refactor acceptance",
+  "source_sha256": {
+    "backend/src/orion/models/backend.py": "218cdd4ecf0f1a38972650e65e88d1782e721ff5aa7e7fa939bb58f50483cd19",
+    "backend/src/orion/chat/runtime.py": "e23168c24c91b674923dbd0ec0fd043ab53b295eb5350d1de09fda8ae0d0c011",
+    "backend/tests/test_model_protocol.py": "64651d3b422a755979325cc7b79d73b6d1526fee300da0835b72c5c641b2fb4e"
+  },
+  "checks": [
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "pytest",
+        "backend/tests/test_model_protocol.py",
+        "backend/tests/test_provider_continuation.py",
+        "backend/tests/test_command_contracts.py",
+        "backend/tests/test_architecture_check.py",
+        "backend/tests/test_chat_runtime.py",
+        "backend/tests/test_contracts.py",
+        "backend/tests/test_openai_adapter.py",
+        "backend/tests/test_model_configs.py",
+        "backend/tests/test_model_context_benchmark.py",
+        "backend/tests/test_request_deadline.py",
+        "-q",
+        "-o",
+        "addopts=",
+        "-o",
+        "cache_dir=F:/Orion-toolchains/pytest-cache"
+      ],
+      "exit_code": 0,
+      "seconds": 16.454,
+      "stdout": "........................................................................ [ 40%]\n........................................................................ [ 80%]\n...................................                                      [100%]\n179 passed in 13.49s\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/tests/test_model_protocol.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.234,
+      "stdout": "All checks passed!\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "-m",
+        "ruff",
+        "format",
+        "--check",
+        "backend/src/orion/models/backend.py",
+        "backend/src/orion/chat/runtime.py",
+        "backend/tests/test_model_protocol.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.203,
+      "stdout": "3 files already formatted\n",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "F:\\Orion-toolchains\\refactor-python\\Scripts\\python.exe",
+        "-B",
+        "backend/scripts/architecture_check.py"
+      ],
+      "exit_code": 0,
+      "seconds": 1.25,
+      "stdout": "",
+      "stderr": ""
+    }
+  ]
+}

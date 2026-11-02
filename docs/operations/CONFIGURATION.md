@@ -23,7 +23,12 @@ for TLS, origin, cookie, and proxy requirements.
 SQLite runs with WAL enabled. It persists model configuration, sessions, requests,
 public timeline items, projects, document metadata, and indexed segments. Original
 document blobs live beside it in `blobs/`; `orion.log` is a sanitized local diagnostic
-log. Back up the whole data directory while Orion is stopped (or use SQLite's backup API).
+log. Stop Orion and use `orion data export DIRECTORY` for a consistent managed-data
+bundle containing SQLite, blobs and stored provider credential records. A SQLite
+snapshot alone does not include blobs/credentials. `orion data import BUNDLE NEW_DIRECTORY`
+restores into a new directory; existing data is never overwritten. See
+[data persistence](../architecture/DATA_AND_PERSISTENCE.md) for retention and the
+external configuration/DPAPI boundaries.
 
 ## Project and session document uploads
 
@@ -78,7 +83,12 @@ Calculator, knowledge, and Internet tools are registered through the common runt
 integrations configure credentials outside model arguments and prompts. Integration
 configuration never creates a per-chat tool picker.
 
-## Infrastructure integrations
+## Legacy infrastructure integrations
+
+This section records existing source configuration, not the current target catalog.
+ADR 0017 retires dedicated monitoring adapters. Existing settings remain until a
+source migration; the new [command runner](../architecture/SYSTEM_COMMANDS.md) has
+no implemented configuration switch yet. Do not infer it works from these settings.
 
 Linux, Grafana, and Zabbix are optional server-side integrations. Set
 `ORION_INFRASTRUCTURE_CONFIG` to a local JSON configuration file. Its `targets` map

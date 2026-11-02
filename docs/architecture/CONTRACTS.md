@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the canonical data contracts shared by Chat, Project, model adapters, tools, and document/RAG services.
+This document defines the canonical data contracts shared by Chat, Project, Device Chat, model adapters, tools, and document/RAG services. The current product boundary is the [2026-10-29 baseline](BASELINE_2026-10-29.md).
 
 These contracts are architectural identities. Provider adapters, API DTOs, persistence rows, and integration-specific objects may have different physical representations, but they must map into these concepts without changing their semantics.
 
@@ -10,7 +10,7 @@ The goal is to prevent the same concept from being represented differently in mu
 
 ## Design rules
 
-1. Chat and Project use the same runtime contracts.
+1. Chat, Project and Device Chat use the same runtime contracts.
 2. Provider-native response objects do not cross the model adapter boundary.
 3. Tool-specific implementation objects do not become runtime contracts.
 4. Project scope is supplied by Orion runtime state, not invented by the model.
@@ -105,11 +105,21 @@ class ToolCall:
 @dataclass
 class RuntimeScope:
     session_id: str
+    principal_id: str
+    workspace_id: str
     project_id: str | None
+    endpoint_id: str | None
     attachment_ids: tuple[str, ...]
 ```
 
-Future fields may include workspace or user identities, but they remain application-owned context.
+All fields above are application-owned context. Principal/workspace and endpoint
+identities are already present in the source contract; they are not future
+model-selected fields. Sessions persist their surface kind separately.
+
+Device Chat binds exactly one endpoint_id and has no Project/attachment scope.
+ToolRunner rejects a mismatched endpoint target_ref before execution; endpoint
+discovery is filtered to the binding. A display name never substitutes for the
+opaque identity. Non-endpoint tools still obey the same scope and permissions.
 
 ### Important
 
@@ -170,7 +180,7 @@ Do not turn failures into fake successful tool data.
 
 ### Infrastructure-operation errors
 
-Linux, Grafana, and Zabbix tools use the same `ToolError` contract.  Their
+Windows/Linux command tools use the same `ToolError` contract.  Their
 implementation must use the existing codes above where they fit, plus the following
 stable codes where the distinction is necessary:
 
@@ -194,8 +204,8 @@ its side-effect boundary. Errors are always returned as
 ### Configured infrastructure targets
 
 Infrastructure tools may accept a `target_ref`: an opaque, stable, non-secret
-configured identity. It identifies a configured Linux host, Grafana deployment, or
-Zabbix deployment; it is not `RuntimeScope` and does not replace session, project,
+configured identity. It identifies a paired Windows/Linux endpoint or an explicit
+SSH machine connection; it is not `RuntimeScope` and does not replace session, project,
 principal, or workspace binding.
 
 Before an integration performs a read or side effect, its ordinary ToolRunner call
@@ -232,16 +242,18 @@ exact tool lookup
 ```
 
 The side-effect boundary is the moment the integration dispatches the documented
-semantic request to its target (restart/install request, Grafana annotation create,
-or Zabbix acknowledgement). Before that boundary cancellation produces no side
+execution request to its target (for example a PowerShell or shell command). Before that boundary cancellation produces no side
 effect and may return `cancelled`. After dispatch, cancellation is not rollback and
 must not claim that no change happened. The integration attempts bounded verification
 when possible; if the final state cannot be determined, it returns `outcome_unknown`
 and does not retry or replay the mutation.
 
-Production authorization defaults to denying mutations. The trusted server allowlist
-grants only an exact registered operation/configured target pair; it does not replace
-scope validation, target/credential checks, or prove per-action user consent.
+Conversation authorization defaults to read_only. In confirm mode the same request
+waits for approval of the exact call; auto mode dispatches eligible mutations.
+Under ADR 0014 an absent server mutation_allowlist adds no extra restriction; a
+configured allowlist permits only exact operation/target pairs, and an empty list
+denies all mutations. This ceiling does not replace scope validation, local worker
+policy, target/credential checks or exact-call confirmation when required.
 `operation_blocked` has `retryable=false` and `model_recovery_required=false`.
 The ordinary timeline retains the denied result and `tool.authorization` activity
 records a safe allow/deny decision before handler dispatch. A deny guard takes
@@ -252,7 +264,7 @@ they never change target or `RuntimeScope`. No mutation has a transparent automa
 retry after its side-effect boundary. `call_id` remains correlation identity, not a
 global idempotency key.
 
-Successful mutation `data` is structured and includes at least:
+For specialized verified mutations, successful `data` is structured and includes:
 
 ```json
 {
@@ -265,6 +277,13 @@ Successful mutation `data` is structured and includes at least:
 Operation-specific safe observed data may be added. A mutation source reference, if
 present, identifies only meaningful post-action observation/evidence; it is never
 authorization evidence.
+
+Generic command tools follow [SYSTEM_COMMANDS.md](SYSTEM_COMMANDS.md) instead:
+command_id, process state, exit_code when observed, stdout/stderr, duration and
+truncation. Do not fabricate changed=true or verified task completion from exit
+code zero. Command source_kind is system_command in the target contract, with
+explicit platform/shell/observation metadata; this new result family is not yet
+implemented.
 
 ## KnowledgeSourceRef
 
@@ -357,7 +376,9 @@ not to retrieval ranking logic. Non-document sources such as Internet retrieval 
 and `retrieved_at` for canonical provenance while leaving document-specific fields unset.
 
 Infrastructure read observations may use this same citation path. Their
-`source_kind` is `linux`, `grafana`, or `zabbix`; `source_id` is the sanitized
+`source_kind` identifies Windows/Linux command evidence in the new target
+contract; legacy linux/monitoring values remain historical implementation data.
+`source_id` is the sanitized
 configured target reference/identity; and `label`, `section`, and `retrieved_at` may
 contain only safe operation-specific provenance. Infrastructure sources must leave
 `url` unset unless a separately safe, non-secret presentation URL is explicitly

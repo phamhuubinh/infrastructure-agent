@@ -1,0 +1,27 @@
+{
+  "scope": "Disposable Ubuntu24.04 QEMU TCG guest: actual Linux source/process/POSIX fixtures, not packaged service/worker/native acceptance",
+  "platform": "Linux-6.8.0-147-generic-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "source_matches": true,
+  "source_sha256": {
+    "backend/src/orion/integrations/ssh/channel.py": "bf464d6c0234e9901695c98f5ae3b18c0457d43a9cc5cca6406708c9f6121bab",
+    "backend/src/orion/integrations/ssh/config.py": "703d23d434ddb306abe463dc228625b5ceba26ac98288548cb1c99e1fb10cf6e",
+    "backend/src/orion/integrations/ssh/payload.py": "4b85b6447e5a71ecd29a54968971ce2fb3daa209477e413996f3274c8f274ee5",
+    "backend/src/orion/integrations/ssh/remote.py": "16f3da079b30519efe48fdb01786c4e444147982e0b5363f7b860be26a760b72",
+    "backend/src/orion/integrations/ssh/remote_files.py": "5c3f94d19c9d79740d89fb0b96262fe0cd99bb11e5886ddf4ed789cca90d4c6e",
+    "backend/src/orion/integrations/ssh/remote_protocol.py": "e50301061ce8d7c35dc4425ecbba2b59e640bf69fae83bd8411754ac58c20d60",
+    "backend/src/orion/integrations/ssh/remote_runner.py": "17c065dc41b5e9654f0523680682a2dc25e0d7ad988ecaf1039498625e4c2e8e",
+    "backend/src/orion/integrations/ssh/supervisor.py": "11b31f13e9792e5e704ecc985741d1b4886ac3c1fd45cb191374ae307a3f8be2",
+    "backend/src/orion/integrations/ssh/transport.py": "a87894f2c606b286eff0db2085875b233bbf018ef354729e043c4e913c508a3f",
+    "backend/src/orion/integrations/ssh/__init__.py": "4f8871da783e606c3687abe10a88fe13a192cc219798e31cec81bca7372fc397",
+    "backend/tests/test_ssh_remote_linux.py": "f8d525afc27ba524ec289b2d0c4c37f0104470b2028928a2fd94104383039290"
+  },
+  "transfer_note": "Initial Windows tar did not preserve Git executable mode; restored install.sh0755 (git index100755), no source-byte normalization. Installer fixtures then needed explicit mock Node/npm to stop depending on host tooling.",
+  "current_source_applies_to": "native-daemon-race-repaired.log only; other logs retain earlier source/fixture failures",
+  "logs": {
+    "native-daemon-initial.log": "F                                                                        [100%]\n=================================== FAILURES ===================================\n_________ test_helper_does_not_claim_cleanup_of_a_detached_double_fork _________\nbackend/tests/test_ssh_remote_linux.py:184: in test_helper_does_not_claim_cleanup_of_a_detached_double_fork\n    assert not alive or not result[\"process_tree_terminated\"], result\nE   AssertionError: {'command_id': 'dddddddddddddddddddddddddddddddd', 'shell': 'sh', 'state': 'succeeded', 'exit_code': 0, ...}\nE   assert (not True or not True)\n=========================== short test summary info ============================\nFAILED backend/tests/test_ssh_remote_linux.py::test_helper_does_not_claim_cleanup_of_a_detached_double_fork\n1 failed in 10.65s\n",
+    "native-daemon-repaired.log": "......                                                                   [100%]\n6 passed in 39.99s\n",
+    "native-daemon-final.log": "....F.....                                                               [100%]\n=================================== FAILURES ===================================\n_ test_real_helper_owns_descendants_on_timeout_stop_eof_and_abrupt_death[helper-crash] _\nbackend/tests/test_ssh_remote_linux.py:153: in test_real_helper_owns_descendants_on_timeout_stop_eof_and_abrupt_death\n    assert not psutil.pid_exists(pid) or psutil.Process(pid).status() == psutil.STATUS_ZOMBIE\n                                         ^^^^^^^^^^^^^^^^^^^\n../fixture-venv/lib/python3.12/site-packages/psutil/__init__.py:314: in __init__\n    self._init(pid)\n../fixture-venv/lib/python3.12/site-packages/psutil/__init__.py:360: in _init\n    raise NoSuchProcess(pid, msg=msg) from None\nE   psutil.NoSuchProcess: process PID not found (pid=2538)\n=========================== short test summary info ============================\nFAILED backend/tests/test_ssh_remote_linux.py::test_real_helper_owns_descendants_on_timeout_stop_eof_and_abrupt_death[helper-crash]\n1 failed, 9 passed in 64.05s (0:01:04)\n",
+    "native-daemon-race-repaired.log": "..........                                                               [100%]\n10 passed in 60.63s (0:01:00)\n"
+  }
+}

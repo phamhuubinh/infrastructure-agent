@@ -18,9 +18,13 @@ def main() -> None:
     )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory() as temporary:
-        expected = json.dumps(
-            create_app(Path(temporary) / "orion.db").openapi(), indent=2, sort_keys=True
-        ) + "\n"
+        app = create_app(Path(temporary) / "orion.db")
+        try:
+            expected = json.dumps(app.openapi(), indent=2, sort_keys=True) + "\n"
+        finally:
+            # Schema generation does not enter ASGI lifespan. Release SQLite
+            # explicitly before Windows removes the temporary database folder.
+            app.state.application.store.close()
     if arguments.write:
         arguments.path.write_text(expected, encoding="utf-8")
         return

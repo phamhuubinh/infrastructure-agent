@@ -100,7 +100,9 @@ def test_build_and_package_uses_npm_then_syncs_the_new_bundle(monkeypatch, tmp_p
 
     ui_package.build_and_package_ui(repository, destination)
 
-    assert commands == [["npm", "run", "build", "--prefix", str(repository / "ui")]]
+    assert commands == [
+        [ui_package.NPM_EXECUTABLE, "run", "build", "--prefix", str(repository / "ui")]
+    ]
     assert (destination / "_shell.html").read_text(encoding="utf-8") == "new shell"
 
 

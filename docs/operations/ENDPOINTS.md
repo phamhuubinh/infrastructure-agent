@@ -1,5 +1,7 @@
 # Paired Windows/Linux endpoints
 
+> The R08 working tree implements the [command runner](../architecture/SYSTEM_COMMANDS.md) for explicitly enabled paired workers. Packaged release/native-platform acceptance remains separate; consult [current evidence](../refactor/STATE.json) when judging an artifact.
+
 Enable server support with `ORION_ENDPOINTS=1` and restart Orion. Existing local
 loopback mode remains login-free. Remote deployment uses the HTTPS Remote Access
 origin and owner login described in [REMOTE_ACCESS.md](REMOTE_ACCESS.md).
@@ -75,13 +77,46 @@ is mode 0700/files 0600. Windows installs an explicit user DACL before secret wr
 `configure` creates a conservative `policy.json` and refuses replacement. Edit it
 locally; unknown fields fail validation. `worker/policy.example.json` documents all
 fields: separate absolute read/write roots (up to 16 each), configured application
-aliases, terminate, clipboard read/write, browser/download directory, desktop capture/control,
+aliases, commands, terminate, clipboard read/write, browser/download directory, desktop capture/control,
 maximum frame rate (1–5 FPS) and resolution (320–1920 px). Paths with spaces work.
 Roots must exist; access outside them, traversal, escaping symlinks, Windows UNC,
 device namespace and alternate data streams are denied. Root deletion is denied.
 Aliases bind an executable and fixed argv. Dynamic argv needs `allow_args: true`;
 shell/interpreter executables are denied. No environment or command-line metadata
 is exposed in process reads. Termination binds PID, expected name and creation time.
+
+## Explicit shell command permission
+
+`commands` defaults to `false`. Enable it explicitly in the local policy file, or
+answer the portable console's separate shell permission prompt. This grants
+PowerShell/cmd/sh/bash execution with the current OS account's rights; file-tool
+roots and `cwd` do not confine command filesystem/network/process access. The
+server's read_only/confirm/auto policy remains an independent ceiling. App aliases
+still reject shell/interpreter executables; commands use only the canonical
+`system.command.run/status/cancel` tools and server-owned scoped handles.
+
+Workers report installed shells. OS-provided shell paths remain discoverable with
+an empty PATH; no shell is substituted for another. PowerShell uses `-File`
+semantics: use `exit $LASTEXITCODE` explicitly to propagate a native child's status.
+Output is separate UTF-8 stdout/stderr with replacement for invalid bytes,
+combined capture limits and 32 KiB raw-byte cursor pages per stream. Extra output
+is drained and counted.
+
+Windows commands enter a kill-on-close Job Object before the suspended process
+resumes. Stop, timeout, disconnect and Exit attempt bounded process-tree cleanup;
+unverified cleanup remains `outcome_unknown`, and reconnect never replays run.
+POSIX process-group/observed-child cleanup still needs native Linux validation.
+
+Raw script files use a private per-account `orion-worker-commands-<id>` cache under
+the OS temporary directory. Normal exit removes only the owned script and marker.
+After a crash the next command-cache initialization prunes proven orphan scripts
+using owner, strict marker, PID and process creation time. Unknown files, links
+and altered provenance are preserved; cleanup never recursively deletes command
+files or kills a PID found in a marker. A crash can leave a private script until
+that next initialization. OS/EDR telemetry and command-created files are outside
+this script-cache cleanup.
+
+## Browser automation
 
 To enable browser automation, set `browser: true`, then explicitly run
 `orion-worker browser install`. This provisions managed Chromium. Installation

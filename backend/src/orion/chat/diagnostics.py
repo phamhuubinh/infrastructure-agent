@@ -8,7 +8,7 @@ request formats.
 from __future__ import annotations
 
 import json
-from collections import defaultdict
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
@@ -17,6 +17,7 @@ from orion.security import redact_public
 MODEL_INPUT_TEXT_LIMIT = 12_000
 CANONICAL_RESULT_LIMIT = 12_000
 MAX_RECORDS_PER_REQUEST = 160
+MAX_CAPTURED_REQUESTS = 32
 
 
 class RuntimeDiagnosticSink(Protocol):
@@ -38,20 +39,31 @@ class BoundedModelInputDiagnostics:
         text_limit: int = MODEL_INPUT_TEXT_LIMIT,
         canonical_result_limit: int = CANONICAL_RESULT_LIMIT,
         records_limit: int = MAX_RECORDS_PER_REQUEST,
+        requests_limit: int = MAX_CAPTURED_REQUESTS,
     ) -> None:
+        for value in (text_limit, canonical_result_limit, records_limit, requests_limit):
+            if type(value) is not int or value < 1:
+                raise ValueError("Diagnostic limits must be positive integers.")
         self._text_limit = text_limit
         self._canonical_result_limit = canonical_result_limit
         self._records_limit = records_limit
-        self._records: dict[str, list[dict[str, object]]] = defaultdict(list)
-        self._omitted_records: dict[str, int] = defaultdict(int)
+        self._requests_limit = requests_limit
+        self._records: OrderedDict[str, list[dict[str, object]]] = OrderedDict()
+        self._omitted_records: dict[str, int] = {}
 
     def record(self, record: Mapping[str, object]) -> None:
         request_id = record.get("request_id")
         if not isinstance(request_id, str):
             return
+        if request_id not in self._records:
+            if len(self._records) >= self._requests_limit:
+                evicted_id, _ = self._records.popitem(last=False)
+                self._omitted_records.pop(evicted_id, None)
+            self._records[request_id] = []
+        self._records.move_to_end(request_id)
         records = self._records[request_id]
         if len(records) >= self._records_limit:
-            self._omitted_records[request_id] += 1
+            self._omitted_records[request_id] = self._omitted_records.get(request_id, 0) + 1
             return
         records.append(self._safe_record(record))
 
@@ -59,6 +71,7 @@ class BoundedModelInputDiagnostics:
         records = self._records.get(request_id, [])
         return {
             "diagnostic_schema_version": 1,
+            "capture_available": request_id in self._records,
             "records": list(records),
             "records_truncated": self._omitted_records.get(request_id, 0) > 0,
             "omitted_record_count": self._omitted_records.get(request_id, 0),

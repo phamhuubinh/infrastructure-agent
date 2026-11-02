@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted; implements Remote Endpoint v1 (#162).
+Accepted endpoint contract, retained by ADR 0016's single-runtime redesign.
+Source implementing this contract exists. Issue #162 was closed as not_planned
+on 2026-10-29 to reset planning, not as a new test/release certification.
 
 ## Decision
 
@@ -25,8 +27,10 @@ revocation invalidates reconnect and closes the current channel.
 The worker's strict local policy is an independent ceiling. Host reads are enabled;
 files, process mutation, clipboard, isolated browser, capture and input require
 explicit local configuration. Read/write roots are separate, canonicalized and
-checked again before staged atomic publication. No shell, eval or arbitrary JS RPC
-exists. Models use normal ToolRunner validation, conversation mutation modes and
+checked again before staged atomic publication. The original implementation has
+no shell/eval RPC. [ADR 0017](0017-windows-linux-command-focus.md) supersedes that
+restriction in the target design with explicit authorized Windows/Linux commands;
+the command runner is not yet implemented. Models use normal ToolRunner validation, conversation mutation modes and
 exact-call confirmations; scheduler executions remain forced read-only.
 
 From the dispatch send attempt onward, interruption of an unverified mutation is

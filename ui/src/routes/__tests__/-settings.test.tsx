@@ -80,7 +80,9 @@ describe("M1 model settings", () => {
     expect(window.localStorage.getItem("orion_api_key")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit gpt-4.1" }));
     expect((screen.getByLabelText("Reasoning mode") as HTMLSelectElement).value).toBe("auto");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.filter(([path]) => path === "/api/models")).toHaveLength(3),
+    );
   });
 
   it("manages multiple saved models, including switching and editing without sending a blank key", async () => {
@@ -161,9 +163,24 @@ describe("M1 model settings", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/models/cfg-a", expect.anything());
   });
 
-  it("shows only model configuration and makes no integration requests", async () => {
-    const fetchMock = vi.fn((path: string) => {
-      if (path === "/api/models") return Promise.resolve(jsonResponse([]));
+  it("loads configuration metadata without starting a model, MCP connection or tool", async () => {
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (
+        ["/api/models", "/api/sessions", "/api/mcp/servers", "/api/auth/native/sessions"].includes(
+          path,
+        )
+      )
+        return Promise.resolve(jsonResponse([]));
+      if (path === "/api/doctor")
+        return Promise.resolve(
+          jsonResponse({
+            observation: "configuration",
+            model_profile_configured: false,
+            mcp_connected: 0,
+            mcp_configured: 0,
+            active_requests: 0,
+          }),
+        );
       throw new Error(`unexpected endpoint ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -172,6 +189,74 @@ describe("M1 model settings", () => {
 
     await screen.findByText(/Đây là thiết lập Orion lần đầu/);
     expect(screen.queryByText("Tích hợp")).toBeNull();
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/models"]);
+    expect(new Set(fetchMock.mock.calls.map(([path]) => path))).toEqual(
+      new Set([
+        "/api/models",
+        "/api/sessions",
+        "/api/mcp/servers",
+        "/api/auth/native/sessions",
+        "/api/doctor",
+      ]),
+    );
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(
+      true,
+    );
+    expect(screen.getByRole("region", { name: "Runtime resources" })).toBeTruthy();
+  });
+
+  it.each([
+    ["deepseek", "chat_completions"],
+    ["claude", "anthropic_messages"],
+    ["openai", "openai_responses"],
+  ])("saves a typed %s profile with a server credential reference", async (provider, protocol) => {
+    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/models" && init?.method === "POST")
+        return jsonResponse({
+          model_config_id: "new",
+          provider_type: provider,
+          base_url: "https://provider.test",
+          model_id: "owner-model",
+          reasoning_mode: "auto",
+          is_active: true,
+        });
+      if (path === "/api/doctor")
+        return jsonResponse({
+          observation: "configuration",
+          mcp_connected: 0,
+          mcp_configured: 0,
+          active_requests: 0,
+        });
+      return jsonResponse([]);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    render(<SettingsPage />);
+    await screen.findByText(/Đây là thiết lập Orion lần đầu/);
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: provider } });
+    fireEvent.change(screen.getByPlaceholderText(/Base URL/), {
+      target: { value: "https://provider.test" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Model name"), {
+      target: { value: "owner-model" },
+    });
+    fireEvent.change(screen.getByLabelText("Credential reference trên server"), {
+      target: { value: "env:OWNER_PROVIDER_KEY" },
+    });
+    expect(screen.queryByPlaceholderText(/API key/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Lưu model" }));
+    await screen.findByText("Đã lưu cấu hình model.");
+    const call = fetcher.mock.calls.find(
+      ([path, init]) => path === "/api/models" && init?.method === "POST",
+    )!;
+    const body = JSON.parse(String(call[1]?.body));
+    expect(body.provider_type).toBe(provider);
+    expect(body.profile).toMatchObject({
+      provider_id: provider,
+      protocol,
+      model_id: "owner-model",
+      credential_ref: "env:OWNER_PROVIDER_KEY",
+      capabilities: { text: true, tools: false, streaming: false },
+    });
+    expect(body).not.toHaveProperty("api_key");
+    expect(localStorage.getItem("orion_api_key")).toBeNull();
   });
 });

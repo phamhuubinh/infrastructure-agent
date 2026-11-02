@@ -1,0 +1,33 @@
+{
+  "scope": "Actual browser Stop against15second ScriptedBackend wait in a fresh disposable database. No real model/OS command/worker/MCP/native app involved.",
+  "observed_utc": "2026-11-01T01:46:10.887816+00:00",
+  "fixture_data": "F:\\Orion-toolchains\\r13-web-fixture-20261101\\b0be51b42f6441a0bf863b39128560a7",
+  "observations": [
+    "Browser displayed Stop generating while the fixture model waited.",
+    "Clicking Stop reached the visible cancelled notice and restored Send, without a scripted assistant answer.",
+    "Final error-level browser console list was empty."
+  ],
+  "counts": {
+    "sessions": 1,
+    "requests": 1,
+    "request_admissions": 1,
+    "command_records": 0,
+    "native_sessions": 0,
+    "native_enrollments": 0
+  },
+  "states": {
+    "cancelled": 1
+  },
+  "events": {
+    "model.started": 1,
+    "request.accepted": 1,
+    "request.cancelled": 1
+  },
+  "timeline": {
+    "user_message": 1
+  },
+  "fixture_harness_sha256": "d286c563034f36a235ef65fabdcf1a3a8baca41e642bcb9ec098223b808ad5bd",
+  "screenshot_sha256": "0a1afb6a4574a5a8e893b40920dde61c1a49b53140ca9e807e150c909cd287c9",
+  "bundle_report": "docs/refactor/evidence/R13_UI_GUARDS_2026-11-01.json",
+  "limits": "Valid web/runtime cancellation fixture only. Initial2second attempt completed before Stop and is retained separately; completion-vs-Stop is also a UI unit regression. Not provider/OS process/native artifact acceptance."
+}

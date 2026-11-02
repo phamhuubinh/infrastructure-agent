@@ -4,6 +4,22 @@
 
 **Project** — Chat plus persistent project metadata and a project-scoped knowledge/RAG source.
 
+**Remote Control** — product surface for worker downloads/pairing and per-device Chat/Desktop/Files/Processes/Browser/Connection views.
+
+**Device Chat** — endpoint-owned conversation using ChatRuntime with a server-bound endpoint and no Project/ordinary Chat knowledge or history.
+
+**Worker/connection** — model-free operation executor on a remote machine, connected outbound to Orion; not an AI agent.
+
+**Skill** — reusable task guidance over registered tools; its loader is a design target, not a verified current feature.
+
+**Job/automation** — scheduled/background invocation of the same runtime with explicit scope; not an independent AI agent.
+
+**Temporary endpoint** — worker session whose credential stays in process memory and expires/ends on exit or lease loss.
+
+**Remembered endpoint** — explicit optional worker mode with protected durable identity using the same protocol.
+
+**Mutation mode** — per-conversation read_only/confirm/auto permission, subject to server and worker ceilings.
+
 **Session** — persisted conversation identity and timeline.
 
 **Attachment** — file associated with a session/current message.
@@ -17,6 +33,8 @@
 **Tool** — model-visible callable capability with a name, description, input schema, and Orion handler.
 
 **Registered tool** — a successfully registered/configured tool that is available automatically to the model.
+
+**OS command** — intentional PowerShell/cmd/sh/bash text dispatched through the target system.command family; arbitrary commands are mutation-capable, not proven read-only by their names.
 
 **ToolCall** — model request to execute a registered tool.
 

@@ -327,3 +327,31 @@ def test_quality_overlay_cli_is_offline_and_does_not_rewrite_execution_artifact(
     assert json.loads(capsys.readouterr().out)["passed"] is True
     assert (report / "manifest.json").read_bytes() == before_manifest
     assert (report / "cases.jsonl").read_bytes() == before_cases
+
+
+@pytest.mark.parametrize("cases", [[], [None], [{"execution_status": "RUNNING"}]])
+def test_quality_gate_rejects_empty_or_unknown_execution(quality_verdicts, cases):
+    assert not quality_verdicts.quality_gate({"cases": cases}, skip_policy="forbid")["passed"]
+
+
+@pytest.mark.parametrize(
+    "target", ["manifest.json", "cases.jsonl", "quality-verdicts.jsonl", "overlay.json"]
+)
+def test_overlay_output_never_overwrites_existing_evidence(quality_verdicts, tmp_path, target):
+    report, _, _, subject = quality_fixture(quality_verdicts, tmp_path)
+    (report / "quality-verdicts.jsonl").write_text(
+        json.dumps(verdict(subject)) + "\n", encoding="utf-8"
+    )
+    output = report / target
+    if not output.exists():
+        output.write_text("retained overlay", encoding="utf-8")
+    before = {p.name: p.read_bytes() for p in report.iterdir()}
+    assert quality_verdicts.main(["inspect", str(report), "--output", str(output)]) == 2
+    assert {p.name: p.read_bytes() for p in report.iterdir()} == before
+
+
+def test_overlay_can_write_a_new_separate_file(quality_verdicts, tmp_path):
+    report, _, _, _ = quality_fixture(quality_verdicts, tmp_path)
+    output = report / "new-overlay.json"
+    assert quality_verdicts.main(["inspect", str(report), "--output", str(output)]) == 0
+    assert json.loads(output.read_text(encoding="utf-8"))["quality"] == {"pending_review": 1}

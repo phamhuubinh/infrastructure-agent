@@ -1,0 +1,14 @@
+{
+  "scope": "Initial real-browser Stop scheduling attempt; the2second fake model completed before automation could invoke Stop. Not cancellation acceptance. No cancelled label appeared; unit completion-versus-Stop race is verified separately.",
+  "fixture_data": "F:\\Orion-toolchains\\r13-web-fixture-20261101\\34fe945de7da4271bb02f726b2907f46",
+  "states": {
+    "completed": 1
+  },
+  "events": {
+    "assistant.message": 1,
+    "model.completed": 1,
+    "model.started": 1,
+    "request.accepted": 1,
+    "request.completed": 1
+  }
+}

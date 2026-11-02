@@ -139,7 +139,7 @@ async def test_model_profile_api_lists_switches_edits_and_deletes_without_exposi
             "/api/models",
             json={
                 "provider_type": "openai_compatible",
-                "base_url": "https://first-secret@first.test/v1?private=true",
+                "base_url": "https://first.test/v1",
                 "model_id": "qwen3-32b",
                 "api_key": "first-secret",
             },
@@ -177,6 +177,7 @@ async def test_model_profile_api_lists_switches_edits_and_deletes_without_exposi
             },
         )
         stored_key = app.state.application.store.model_config(first_id)["api_key"]  # type: ignore[index]
+        resolved_key = app.state.application.runtime._settings().api_key
         activated = await client.post(f"/api/models/{second_id}/activate")
         deleted = await client.delete(f"/api/models/{first_id}")
         blocked = await client.delete(f"/api/models/{second_id}")
@@ -195,7 +196,8 @@ async def test_model_profile_api_lists_switches_edits_and_deletes_without_exposi
     assert edited.json()["reasoning_mode"] == "enabled"
     assert preserved.status_code == 200
     assert preserved.json()["reasoning_mode"] == "disabled"
-    assert stored_key == "first-secret"
+    assert stored_key is None
+    assert resolved_key == "first-secret"
     assert activated.status_code == 200 and activated.json()["is_active"] is True
     assert deleted.status_code == 204
     assert blocked.status_code == 409

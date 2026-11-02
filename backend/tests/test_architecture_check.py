@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _checker():  # type: ignore[no-untyped-def]
     path = Path(__file__).parents[1] / "scripts" / "architecture_check.py"
@@ -80,6 +82,57 @@ def test_architecture_check_ignores_docs_and_test_prose(tmp_path: Path) -> None:
         "const note = 'enabled_tools';", encoding="utf-8"
     )
     assert checker.check(root, ui) == []
+
+
+def test_provider_native_import_is_allowed_only_inside_adapter_directory(tmp_path: Path) -> None:
+    checker = _checker()
+    root = tmp_path / "orion"
+    _runtime(root)
+    adapters = root / "models" / "providers"
+    adapters.mkdir(parents=True)
+    (adapters / "native.py").write_text("import anthropic\n", encoding="utf-8")
+    assert checker.check(root) == []
+    # A similar name must not bypass the provider boundary.
+    outside = root / "models" / "providers_extra"
+    outside.mkdir()
+    (outside / "native.py").write_text("import anthropic\n", encoding="utf-8")
+    assert any("provider-native import" in issue for issue in checker.check(root))
+
+
+@pytest.mark.parametrize(
+    ("relative", "source", "violation"),
+    [
+        ("chat/runtime.py", "from orion.api.app import create_app", "core imports HTTP/API"),
+        ("chat/runtime.py", "from ..api import app", "core imports HTTP/API"),
+        ("models/backend.py", "import fastapi", "core imports HTTP/API"),
+        ("tool_runtime/run.py", "from starlette.requests import Request", "core imports HTTP/API"),
+        (
+            "contracts/domain.py",
+            "from ..persistence import sqlite",
+            "contracts import implementation",
+        ),
+        ("contracts/domain.py", "from orion import bootstrap", "contracts import implementation"),
+        ("chat/runtime.py", "from ..models.providers import native", "concrete provider adapter"),
+    ],
+)
+def test_core_boundaries_reject_absolute_and_relative_imports(
+    tmp_path: Path, relative: str, source: str, violation: str
+) -> None:
+    checker = _checker()
+    root = tmp_path / "orion"
+    _runtime(root)
+    path = root / relative
+    path.parent.mkdir(parents=True)
+    path.write_text(source + "\n", encoding="utf-8")
+    assert any(violation in issue for issue in checker.check(root))
+
+
+def test_provider_named_modules_do_not_trigger_vendor_sdk_check(tmp_path: Path) -> None:
+    checker = _checker()
+    root = tmp_path / "orion"
+    _runtime(root)
+    (root / "helpers.py").write_text("import openai_helpers\n", encoding="utf-8")
+    assert checker.check(root) == []
 
 
 def test_documentation_check_rejects_stale_tool_exposure_claims(tmp_path: Path) -> None:

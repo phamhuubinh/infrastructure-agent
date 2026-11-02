@@ -170,7 +170,9 @@ def run_experiment(corpus_path: Path = CORPUS) -> dict[str, Any]:
                 fused_ids = sorted(scores, key=lambda item: (-scores[item], item))
                 production_ids = [
                     hit.segment_id
-                    for hit in production_hybrid.search(scope, spec["query"], HYBRID_CANDIDATE_DEPTH)
+                    for hit in production_hybrid.search(
+                        scope, spec["query"], HYBRID_CANDIDATE_DEPTH
+                    )
                 ]
                 if production_ids != fused_ids[:HYBRID_CANDIDATE_DEPTH]:
                     raise AssertionError(f"Production hybrid rank differs for {spec['key']}")

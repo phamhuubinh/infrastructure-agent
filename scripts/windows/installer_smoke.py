@@ -85,7 +85,7 @@ def install(
                 check=True,
             )
         trace = Path(env["ORION_SMOKE_MODEL_TRACE"])
-        assert trace.read_text().splitlines() == ["model install embeddings"] * 2
+        assert not trace.exists(), "Default install invoked optional model provisioning"
 
         direct = [
             "powershell",
@@ -97,6 +97,7 @@ def install(
             "-Prefix",
             str(prefix),
             "-GlobalLauncher",
+            "-WithEmbeddings",
         ]
         if source:
             direct.append("-NoDev")
@@ -122,7 +123,7 @@ def install(
             "Installed Orion" not in refusal.stdout
             and launcher.read_bytes() == unrelated
         )
-        assert trace.read_text().splitlines() == ["model install embeddings"] * 4
+        assert trace.read_text().splitlines() == ["model install embeddings"] * 2
     print(
         "PASS: discovery, venv creation/reuse, spaces, rerun, provisioning failure, launcher refusal"
     )

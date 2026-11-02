@@ -100,6 +100,7 @@ describe("Endpoints", () => {
         `/api/endpoints/${device.endpoint_id}/operation`,
         expect.objectContaining({
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ operation: "process.list", arguments: {} }),
         }),
       ),
@@ -154,8 +155,16 @@ describe("Endpoints", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Desktop" }));
     fireEvent.click(screen.getByText("Xem màn hình"));
     await screen.findByText("Đã kết nối · Chỉ xem");
+    expect(mocks.json).toHaveBeenCalledWith(
+      `/api/endpoints/${device.endpoint_id}/desktop/session`,
+      expect.objectContaining({ headers: { "Content-Type": "application/json" } }),
+    );
     fireEvent.click(screen.getByText("Bật điều khiển"));
     await screen.findByText("Đã kết nối · Điều khiển bật");
+    expect(mocks.json).toHaveBeenCalledWith(
+      `/api/endpoints/${device.endpoint_id}/desktop/control`,
+      expect.objectContaining({ headers: { "Content-Type": "application/json" } }),
+    );
     await act(async () => stream!.close());
     await waitFor(() => expect(screen.getByText("Chưa mở phiên màn hình")).toBeTruthy());
     expect(screen.getByRole("alert").textContent).toContain("ngắt kết nối");

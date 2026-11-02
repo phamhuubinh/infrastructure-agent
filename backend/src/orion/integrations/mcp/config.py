@@ -26,7 +26,7 @@ class MCPConfigurationError(ValueError):
 
 
 class StrictConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True, hide_input_in_errors=True)
 
 
 class ToolPolicy(StrictConfig):
@@ -39,6 +39,7 @@ class ServerConfig(StrictConfig):
     server_id: Identifier
     tools: dict[RemoteName, ToolPolicy] = Field(min_length=1, max_length=128)
     timeout_seconds: float = Field(default=30.0, ge=0.1, le=120)
+    protocol_mode: Literal["auto", "legacy"] = "auto"
 
     @model_validator(mode="after")
     def aliases(self) -> ServerConfig:
@@ -108,6 +109,7 @@ class HTTPConfig(ServerConfig):
 
 
 class MCPConfig(StrictConfig):
+    schema_version: Literal[1] = 1
     servers: list[Annotated[StdioConfig | HTTPConfig, Field(discriminator="transport")]] = Field(
         default_factory=list, max_length=16
     )

@@ -8,6 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage, apiFetch, apiJson } from "@/lib/api";
+import { ServerConnections } from "@/components/ServerConnections";
+import { RuntimeResources } from "@/components/RuntimeResources";
+import { isNativeHost, serverRequest } from "@/lib/server-profiles";
+import type { Schemas } from "@/lib/sdk/generated";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -19,20 +23,19 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-type ModelConnection = {
-  model_config_id: string;
-  provider_type: string;
-  base_url: string;
-  model_id: string;
-  reasoning_mode: "auto" | "enabled" | "disabled";
-  is_active: boolean;
-};
+type ModelConnection = Schemas["ModelConfigView"];
+type Provider = Schemas["ModelProfile"]["provider_id"];
 
 export function SettingsPage() {
   const [models, setModels] = useState<ModelConnection[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
   const [modelId, setModelId] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [provider, setProvider] = useState<Provider>("openai_compatible");
+  const [protocol, setProtocol] = useState<Schemas["ModelProfile"]["protocol"]>("chat_completions");
+  const [credentialRef, setCredentialRef] = useState("");
+  const [tools, setTools] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [reasoningMode, setReasoningMode] = useState<ModelConnection["reasoning_mode"]>("auto");
   const [editingModel, setEditingModel] = useState<ModelConnection | null>(null);
   const [addingModel, setAddingModel] = useState(false);
@@ -56,6 +59,11 @@ export function SettingsPage() {
     setBaseUrl("");
     setModelId("");
     setApiKey("");
+    setProvider("openai_compatible");
+    setProtocol("chat_completions");
+    setCredentialRef("");
+    setTools(false);
+    setStreaming(false);
     setReasoningMode("auto");
     setEditingModel(null);
     setAddingModel(false);
@@ -65,6 +73,11 @@ export function SettingsPage() {
     setBaseUrl(model.base_url);
     setModelId(model.model_id);
     setApiKey("");
+    setProvider(model.provider_type as Provider);
+    setProtocol(model.profile?.protocol ?? "chat_completions");
+    setCredentialRef(model.profile?.credential_ref ?? "");
+    setTools(model.profile?.capabilities.tools ?? false);
+    setStreaming(model.profile?.capabilities.streaming ?? false);
     setReasoningMode(model.reasoning_mode);
     setEditingModel(model);
     setAddingModel(false);
@@ -87,17 +100,45 @@ export function SettingsPage() {
       const path = editingModel
         ? `/api/models/${encodeURIComponent(editingModel.model_config_id)}`
         : "/api/models";
-      await apiJson<ModelConnection>(path, {
-        method: editingModel ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider_type: "openai_compatible",
-          base_url: baseUrl,
-          model_id: modelId,
-          api_key: apiKey || undefined,
-          reasoning_mode: reasoningMode,
-        }),
-      });
+      const typedProfile =
+        provider !== "openai_compatible" ||
+        isNativeHost() ||
+        Boolean(editingModel?.profile) ||
+        Boolean(credentialRef) ||
+        tools ||
+        streaming;
+      const profile: Schemas["ModelProfile"] | undefined = typedProfile
+        ? {
+            ...editingModel?.profile,
+            profile_id: editingModel?.profile?.profile_id ?? crypto.randomUUID(),
+            provider_id: provider,
+            protocol,
+            endpoint: baseUrl,
+            model_id: modelId,
+            credential_ref: credentialRef || null,
+            capabilities: {
+              ...editingModel?.profile?.capabilities,
+              text: true,
+              tools,
+              tool_result_continuation: tools,
+              streaming,
+            },
+          }
+        : undefined;
+      const body: Schemas["ModelConfigInput"] = {
+        provider_type: provider,
+        base_url: baseUrl,
+        model_id: modelId,
+        api_key: typedProfile ? undefined : apiKey || undefined,
+        reasoning_mode: reasoningMode,
+        profile,
+      };
+      if (editingModel)
+        await serverRequest("update_model_api_models__model_config_id__put", {
+          path: { model_config_id: editingModel.model_config_id },
+          body,
+        });
+      else await serverRequest("configure_model_api_models_post", { body });
       // Credentials remain request-only: never put them in browser persistence or rendered state.
       const wasEditing = Boolean(editingModel);
       resetModelForm();
@@ -159,6 +200,8 @@ export function SettingsPage() {
       />
       <div className="flex-1 overflow-y-auto p-5">
         <div className="mx-auto max-w-3xl space-y-5">
+          <ServerConnections />
+          <RuntimeResources />
           {(error || notice) && (
             <div
               className={
@@ -179,7 +222,8 @@ export function SettingsPage() {
               <div>
                 <h2 className="font-medium">Kết nối model</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Orion dùng một cấu hình OpenAI-compatible đang hoạt động cho Chat.
+                  DeepSeek, Claude và OpenAI dùng adapter riêng. Model ID và credential reference do
+                  chủ server cấu hình.
                 </p>
               </div>
             </div>
@@ -255,6 +299,68 @@ export function SettingsPage() {
                     {editingModel ? "Chỉnh sửa model" : "Thêm model"}
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
+                    <label>
+                      Provider
+                      <select
+                        className="block w-full rounded border bg-background p-2"
+                        value={provider}
+                        onChange={(event) => {
+                          const value = event.target.value as Provider;
+                          setProvider(value);
+                          setProtocol(
+                            value === "claude"
+                              ? "anthropic_messages"
+                              : value === "openai"
+                                ? "openai_responses"
+                                : "chat_completions",
+                          );
+                          setApiKey("");
+                        }}
+                      >
+                        <option value="deepseek">DeepSeek</option>
+                        <option value="claude">Claude</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="openai_compatible">OpenAI-compatible</option>
+                      </select>
+                    </label>
+                    {provider === "openai" && (
+                      <label>
+                        Protocol
+                        <select
+                          className="block w-full rounded border bg-background p-2"
+                          value={protocol}
+                          onChange={(event) => setProtocol(event.target.value as typeof protocol)}
+                        >
+                          <option value="openai_responses">Responses</option>
+                          <option value="chat_completions">Chat Completions</option>
+                        </select>
+                      </label>
+                    )}
+                    <label>
+                      Credential reference trên server
+                      <Input
+                        value={credentialRef}
+                        maxLength={128}
+                        onChange={(event) => setCredentialRef(event.target.value)}
+                        placeholder="env:ORION_PROVIDER_KEY"
+                      />
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={tools}
+                        onChange={(event) => setTools(event.target.checked)}
+                      />
+                      Model hỗ trợ tools và continuation
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={streaming}
+                        onChange={(event) => setStreaming(event.target.checked)}
+                      />
+                      Model hỗ trợ streaming
+                    </label>
                     <Input
                       value={baseUrl}
                       onChange={(event) => setBaseUrl(event.target.value)}
@@ -279,18 +385,25 @@ export function SettingsPage() {
                       onChange={(event) => setModelId(event.target.value)}
                       placeholder="Model name"
                     />
-                    <Input
-                      className="sm:col-span-2"
-                      type="password"
-                      value={apiKey}
-                      onChange={(event) => setApiKey(event.target.value)}
-                      placeholder={
-                        editingModel
-                          ? "API key (để trống để giữ nguyên)"
-                          : "API key (để trống nếu không cần)"
-                      }
-                      autoComplete="off"
-                    />
+                    {provider === "openai_compatible" &&
+                      !isNativeHost() &&
+                      !credentialRef &&
+                      !tools &&
+                      !streaming &&
+                      !editingModel?.profile && (
+                        <Input
+                          className="sm:col-span-2"
+                          type="password"
+                          value={apiKey}
+                          onChange={(event) => setApiKey(event.target.value)}
+                          placeholder={
+                            editingModel
+                              ? "API key (để trống để giữ nguyên)"
+                              : "API key (để trống nếu không cần)"
+                          }
+                          autoComplete="off"
+                        />
+                      )}
                   </div>
                 </div>
                 <div className="mt-3 flex justify-end gap-2">

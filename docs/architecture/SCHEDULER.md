@@ -5,6 +5,10 @@ Scheduler executes persisted prompts through the composition root's existing
 and timeline. It runs inside `orion web`; it introduces no separate agent, process,
 semantic router, or UI. Prompts remain ordinary untrusted user messages.
 
+ADR 0017's future system.command.run is arbitrary mutation-capable execution and
+therefore blocked by scheduler's forced read_only policy. Do not label a command
+safe using its name or model text, or silently grant unattended shell execution.
+
 ## Schedules
 
 One-time input is `schedule_kind: "once"` with a timezone-aware RFC3339 `run_at`

@@ -1,4 +1,11 @@
-import { parseSseEvents } from "@/lib/chat-stream";
+import {
+  runIntent,
+  cancelIntent,
+  requestIntent,
+  pendingIntent,
+  type RequestIntent,
+} from "@/lib/requests";
+import { serverContext } from "@/lib/server-profiles";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   useCallback,
@@ -25,6 +32,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { AssistantMarkdown } from "@/components/chat/AssistantMarkdown";
+import { CommandApprovalReview } from "@/components/chat/CommandApprovalReview";
 
 import { ContextPanel } from "@/components/ContextPanel";
 import { OrionIcon } from "@/components/OrionIcon";
@@ -86,9 +94,12 @@ type ModelInfo = {
 
 type Generation = {
   controller: AbortController;
+  context: AbortSignal;
   requestId: string | null;
   sessionId: string | null;
   cancelled: boolean;
+  stopRequested: boolean;
+  intent: RequestIntent | null;
 };
 
 type PendingAuthorization = {
@@ -485,6 +496,7 @@ function ChatInput({
 }) {
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [stopPending, setStopPending] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [autoWarning, setAutoWarning] = useState(false);
@@ -595,132 +607,142 @@ function ChatInput({
     [createSession, currentSessionId, loadSession, projectId, setProjectDocuments],
   );
 
-  const submit = useCallback(async () => {
-    const content = value.trim();
-    if (!content || generation.current) return;
-    setError(null);
-    let sessionId = session?.id || null;
-    const controller = new AbortController();
-    const current: Generation = { controller, requestId: null, sessionId, cancelled: false };
-    generation.current = current;
-    try {
-      if (!sessionId) sessionId = await createSession(projectId);
-      current.sessionId = sessionId;
-      addOptimisticMessage(sessionId, content);
-      setValue("");
-      setSessionGenerating(sessionId, true);
-      const response = await apiFetch(
-        "/api/sessions/" + encodeURIComponent(sessionId) + "/messages/stream",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content }),
-          signal: controller.signal,
-        },
-      );
-      if (!response.ok) throw new Error(await apiErrorMessage(response));
-      if (!response.body) throw new Error("Orion did not return an event stream.");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let requestFailure: string | null = null;
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-        buffer += decoder.decode(chunk || new Uint8Array(), { stream: !done });
-        const parsed = parseSseEvents(buffer);
-        buffer = parsed.remainder;
-        for (const event of parsed.events) {
-          if (event.type === "request.accepted" && typeof event.payload.request_id === "string") {
-            current.requestId = event.payload.request_id;
-          }
-          if (event.type === "request.failed") {
-            requestFailure =
-              typeof event.payload.message === "string"
-                ? event.payload.message
-                : "Yêu cầu thất bại.";
-          }
-          if (event.type === "tool.authorization_required" && current.requestId) {
-            const { call_id, tool_name, target_ref, summary } = event.payload;
-            if (
-              typeof call_id === "string" &&
-              typeof tool_name === "string" &&
-              typeof target_ref === "string"
-            ) {
-              setPendingAuthorization({
-                sessionId,
-                requestId: current.requestId,
-                callId: call_id,
-                toolName: tool_name,
-                targetRef: target_ref,
-                summary:
-                  summary && typeof summary === "object" ? (summary as Record<string, string>) : {},
-              });
+  const submit = useCallback(
+    async (resume = false) => {
+      const previous = session?.id ? pendingIntent(session.id) : null;
+      const content = resume && previous ? previous.content : value.trim();
+      if (!content || generation.current) return;
+      setError(null);
+      let sessionId = session?.id || null;
+      const controller = new AbortController();
+      const current: Generation = {
+        controller,
+        context: serverContext(),
+        requestId: null,
+        sessionId,
+        cancelled: false,
+        stopRequested: false,
+        intent: null,
+      };
+      generation.current = current;
+      try {
+        if (!sessionId) sessionId = await createSession(projectId);
+        current.sessionId = sessionId;
+        if (current.stopRequested || controller.signal.aborted) return;
+        current.intent = resume && previous ? previous : requestIntent(sessionId, content);
+        if (!resume) addOptimisticMessage(sessionId, content);
+        setValue("");
+        setSessionGenerating(sessionId, true);
+        let requestFailure: string | null = null;
+        await runIntent(
+          current.intent,
+          (identity) => {
+            current.requestId = identity;
+          },
+          (event) => {
+            if (event.type === "request.cancelled") current.cancelled = true;
+            if (event.type === "request.failed") {
+              requestFailure =
+                typeof event.payload.message === "string"
+                  ? event.payload.message
+                  : "Yêu cầu thất bại.";
             }
-          }
-          if (event.type === "assistant.message") {
-            const item = event.payload.item;
-            if (
-              item &&
-              typeof item === "object" &&
-              "item_id" in item &&
-              "kind" in item &&
-              "payload" in item
-            ) {
-              reconcileAssistantMessage(sessionId, item as TimelineItem);
+            if (event.type === "tool.authorization_required" && current.requestId) {
+              const { call_id, tool_name, target_ref, summary } = event.payload;
+              if (
+                typeof call_id === "string" &&
+                typeof tool_name === "string" &&
+                typeof target_ref === "string"
+              ) {
+                setPendingAuthorization({
+                  sessionId: sessionId!,
+                  requestId: current.requestId,
+                  callId: call_id,
+                  toolName: tool_name,
+                  targetRef: target_ref,
+                  summary:
+                    summary && typeof summary === "object"
+                      ? (summary as Record<string, string>)
+                      : {},
+                });
+              }
             }
+            if (event.type === "assistant.message") {
+              const item = event.payload.item;
+              if (
+                item &&
+                typeof item === "object" &&
+                "item_id" in item &&
+                "kind" in item &&
+                "payload" in item
+              ) {
+                reconcileAssistantMessage(sessionId!, item as unknown as TimelineItem);
+              }
+            }
+            recordEvent(sessionId!, event);
+          },
+          controller.signal,
+        );
+        await loadSession(sessionId);
+        if (requestFailure) setError(requestFailure);
+        if (current.cancelled) setError("Yêu cầu đã được hủy.");
+      } catch (requestError) {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") {
+          setError("Yêu cầu đã được hủy.");
+        } else {
+          setError(requestError instanceof Error ? requestError.message : "Yêu cầu thất bại.");
+        }
+        if (sessionId && current.context === serverContext()) {
+          try {
+            await loadSession(sessionId);
+          } catch {
+            // Keep the original request failure as the visible error.
           }
-          recordEvent(sessionId, event);
         }
-        if (done) break;
+      } finally {
+        setStopPending(false);
+        setPendingAuthorization((pending) => (pending?.sessionId === sessionId ? null : pending));
+        if (sessionId) setSessionGenerating(sessionId, false);
+        generation.current = null;
       }
-      await loadSession(sessionId);
-      if (requestFailure) setError(requestFailure);
-      if (current.cancelled) setError("Yêu cầu đã được hủy.");
-    } catch (requestError) {
-      if (requestError instanceof DOMException && requestError.name === "AbortError") {
-        setError("Yêu cầu đã được hủy.");
-      } else {
-        setError(requestError instanceof Error ? requestError.message : "Yêu cầu thất bại.");
-      }
-      if (sessionId) {
-        try {
-          await loadSession(sessionId);
-        } catch {
-          // Keep the original request failure as the visible error.
-        }
-      }
-    } finally {
-      setPendingAuthorization((pending) => (pending?.sessionId === sessionId ? null : pending));
-      if (sessionId) setSessionGenerating(sessionId, false);
-      generation.current = null;
-    }
-  }, [
-    addOptimisticMessage,
-    createSession,
-    loadSession,
-    recordEvent,
-    reconcileAssistantMessage,
-    setSessionGenerating,
-    session?.id,
-    projectId,
-    value,
-  ]);
+    },
+    [
+      addOptimisticMessage,
+      createSession,
+      loadSession,
+      recordEvent,
+      reconcileAssistantMessage,
+      setSessionGenerating,
+      session?.id,
+      projectId,
+      value,
+    ],
+  );
 
   const stop = useCallback(async () => {
     const current = generation.current;
-    if (!current) return;
-    current.cancelled = true;
-    if (current.requestId) {
+    if (!current || current.stopRequested) return;
+    current.stopRequested = true;
+    setStopPending(true);
+    if (current.intent) {
       try {
-        await apiFetch("/api/requests/" + encodeURIComponent(current.requestId) + "/cancel", {
-          method: "POST",
-        });
+        const status = await cancelIntent(current.intent);
+        current.cancelled = status === "cancelled";
+        if (current.cancelled) current.controller.abort();
+        if (generation.current === current) setStopPending(false);
       } catch {
-        // Closing the SSE response still asks the server runtime to cancel in cleanup.
+        current.stopRequested = false;
+        if (generation.current === current) {
+          setStopPending(false);
+          setError("Chưa xác nhận server đã dừng yêu cầu. Kiểm tra trạng thái trước khi gửi lại.");
+        }
+        return;
       }
+    } else {
+      current.cancelled = true;
+      current.controller.abort();
+      setStopPending(false);
     }
-    current.controller.abort();
   }, []);
 
   return (
@@ -737,29 +759,40 @@ function ChatInput({
           <p>Tool: {activePending.toolName}</p>
           <p>Target: {activePending.targetRef}</p>
           {Object.entries(activePending.summary)
-            .filter(([key]) => key !== "label")
+            .filter(([key]) => key !== "label" && key !== "payload_hash")
             .map(([key, detail]) => (
               <p key={key}>
                 {key}: {detail}
               </p>
             ))}
-          <div className="mt-2 flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={resolvingAuthorization}
-              onClick={() => void resolveAuthorization("deny")}
-            >
-              Từ chối
-            </Button>
-            <Button
-              type="button"
-              disabled={resolvingAuthorization}
-              onClick={() => void resolveAuthorization("allow")}
-            >
-              Cho phép
-            </Button>
-          </div>
+          {activePending.toolName.startsWith("system.command.") ? (
+            <CommandApprovalReview
+              key={`${activePending.sessionId}:${activePending.requestId}:${activePending.callId}`}
+              sessionId={activePending.sessionId}
+              requestId={activePending.requestId}
+              callId={activePending.callId}
+              toolName={activePending.toolName}
+              onResolved={() => setPendingAuthorization(null)}
+            />
+          ) : (
+            <div className="mt-2 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={resolvingAuthorization}
+                onClick={() => void resolveAuthorization("deny")}
+              >
+                Từ chối
+              </Button>
+              <Button
+                type="button"
+                disabled={resolvingAuthorization}
+                onClick={() => void resolveAuthorization("allow")}
+              >
+                Cho phép
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <Dialog open={autoWarning} onOpenChange={setAutoWarning}>
@@ -894,6 +927,7 @@ function ChatInput({
               className="h-8 w-8 rounded-lg"
               onClick={() => void stop()}
               aria-label="Stop generating"
+              disabled={stopPending || generation.current.stopRequested}
             >
               <Square className="h-4 w-4" />
             </Button>
@@ -908,12 +942,37 @@ function ChatInput({
               <Send className="h-4 w-4" />
             </Button>
           )}
+          {stopPending && (
+            <span role="status" className="text-xs">
+              Đang chờ server xác minh dừng…
+            </span>
+          )}
         </div>
       </div>
       {error && (
         <div className="absolute bottom-14 left-4 right-4 text-xs text-destructive flex items-center gap-2">
           <AlertCircle className="h-3 w-3" />
           <span>Yêu cầu model thất bại: {error}</span>
+          {session?.id && pendingIntent(session.id) && !generation.current && (
+            <>
+              <button type="button" className="underline" onClick={() => void submit(true)}>
+                Tiếp tục quan sát
+              </button>
+              <button
+                type="button"
+                className="underline"
+                onClick={() => {
+                  const intent = pendingIntent(session.id);
+                  if (intent)
+                    void cancelIntent(intent)
+                      .then(() => setError("Yêu cầu đã kết thúc."))
+                      .catch(() => setError("Chưa xác minh yêu cầu đã dừng."));
+                }}
+              >
+                Dừng yêu cầu chưa xác minh
+              </button>
+            </>
+          )}
         </div>
       )}
       <input
